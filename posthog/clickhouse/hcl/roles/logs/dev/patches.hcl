@@ -20,11 +20,10 @@ database "posthog" {
       topic_list           = "clickhouse_metrics"
       group_name           = "clickhouse-metrics-avro2"
       format               = "Avro"
-      num_consumers        = 2
-      max_block_size       = 4096
+      num_consumers        = 4
       skip_broken_messages = 100
       poll_timeout_ms      = 10000
-      poll_max_batch_size  = 4096
+      poll_max_batch_size  = 500
       flush_interval_ms    = 10000
       thread_per_consumer  = true
     }
@@ -39,6 +38,9 @@ database "posthog" {
   }
 
   patch_table "trace_spans" {
+    settings = {
+      storage_policy = "s3_tiered"
+    }
     projection "projection_aggregate_counts" {
       query = <<SQL
 SELECT
@@ -51,13 +53,6 @@ SELECT
   count() AS event_count
 GROUP BY
   team_id, time_bucket, toStartOfMinute(timestamp), service_name, resource_fingerprint, is_root_span
-SQL
-
-    }
-    projection "projection_index_trace_id" {
-      query = <<SQL
-SELECT _part_offset
-ORDER BY trace_id
 SQL
 
     }

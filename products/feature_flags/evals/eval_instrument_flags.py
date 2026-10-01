@@ -53,6 +53,7 @@ from typing import Any
 
 from django.conf import settings
 
+from products.feature_flags.evals.scorers import FILE_EDIT_TOOLS
 from products.posthog_ai.eval_harness.base import SandboxedPrivateEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
@@ -151,7 +152,7 @@ async def eval_instrument_flags(ctx: EvalContext) -> None:
             # drifts, the agent finds nothing to change and the negative case still
             # scores 1.0 for not loading the skill — a hollow pass. This row drops
             # to 0 instead, so a stale premise is visible rather than silent.
-            RequiredToolCall({"Edit", "Write", "MultiEdit"}, name="edited_a_file"),
+            RequiredToolCall(FILE_EDIT_TOOLS, name="edited_a_file"),
         ],
         ctx=ctx,
     )

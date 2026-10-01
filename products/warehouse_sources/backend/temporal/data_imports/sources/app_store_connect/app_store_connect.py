@@ -9,11 +9,12 @@ import tempfile
 import dataclasses
 from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
-from typing import IO, Any, Optional
+from typing import IO, Any, Literal, Optional
 from urllib.parse import urlsplit
 
 import jwt
 import requests
+import structlog
 from structlog.types import FilteringBoundLogger
 
 from posthog.dataclasses import frozen
@@ -28,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_
     SALES_REPORT_MAX_DAYS_PER_RUN,
     AppStoreConnectEndpointConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.config import str_to_optional_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -65,6 +67,10 @@ ANALYTICS_SEGMENT_SPOOL_BYTES = 32 * 1024 * 1024
 
 ANALYTICS_ROWS_PER_BATCH = 2000
 
+# The message goes in a form field error and an account can hold hundreds of apps, so the rest
+# are counted rather than listed.
+MAX_APPS_LISTED_IN_ERROR = 10
+
 _PEM_HEADER = "-----BEGIN PRIVATE KEY-----"
 _PEM_FOOTER = "-----END PRIVATE KEY-----"
 _NON_ALNUM = re.compile(r"[^0-9a-z]+")
@@ -80,6 +86,14 @@ class AppStoreConnectUrlError(Exception):
 
 class AppStoreConnectPermissionError(Exception):
     """A 403 from App Store Connect: the key's role can't perform this call. Non-retryable."""
+
+
+class AppStoreConnectReportError(Exception):
+    """Apple rejected a report request, and the rejection is not its "no data for this date" quirk.
+
+    Retrying can't fix a malformed request or a vendor number Apple doesn't know, so this fails the
+    schema loudly instead of reading as a quiet account across the whole lookback window.
+    """
 
 
 # 403 on a report or resource read. The key's role can't read this data, so the fix is a role
@@ -104,12 +118,30 @@ APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR = (
     "new request, which only an Admin key can create. Give the key the Admin role, then reconnect."
 )
 
+# The source's app id filter selected none of the apps the key can read. Every retry resolves the
+# same empty set, so `AppStoreConnectSource.get_non_retryable_errors` matches on this text.
+APP_STORE_CONNECT_NO_MATCHING_APPS_ERROR = (
+    "None of the app IDs in your App Store Connect source settings match an app this API key can "
+    "read. Check the IDs, or clear the field to sync every app."
+)
+
 # A sales or subscription report sync started without a vendor number. `/v1/salesReports` can't be
 # read without one, so every retry fails identically until the user adds it in the source settings.
 # `AppStoreConnectSource.get_non_retryable_errors` matches on this text to fail fast.
 APP_STORE_CONNECT_MISSING_VENDOR_NUMBER_ERROR = (
     "Syncing App Store Connect sales reports needs your vendor number. "
     "Add it in the source settings, then run the sync again."
+)
+
+# Apple rejected a report request as malformed — the report type, sub type, or version this source
+# asks for no longer matches its specification. Raised with Apple's own words appended.
+APP_STORE_CONNECT_INVALID_REPORT_ERROR = "App Store Connect rejected a report request as invalid"
+
+# The vendor number in the source settings is one Apple doesn't know. Every retry fails identically
+# until the user corrects it, so this fails fast rather than burning the activity's retry budget.
+APP_STORE_CONNECT_UNKNOWN_VENDOR_NUMBER_ERROR = (
+    "App Store Connect does not recognize the vendor number this source is configured with. "
+    "Check the vendor number in the source settings, then run the sync again."
 )
 
 
@@ -165,7 +197,7 @@ def _require_api_url(url: str) -> str:
     return url
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True, kw_only=True)
 class AppStoreConnectResumeConfig:
     # Fan-out bookmark: the app currently being walked. A stable Apple id rather than a positional
     # index, so apps added or removed between a crash and the retry can't resume into the wrong app.
@@ -178,6 +210,15 @@ class AppStoreConnectResumeConfig:
     # `YYYY-MM-DD`. Dates are walked ascending across every app, so no app bookmark is
     # needed. Optional so states saved before this field existed still parse.
     processing_date: str | None = None
+    # Whether this job's first attempt decided to ingest the one-time historical snapshot.
+    # Pipelines can persist the incremental watermark per batch, so a retried attempt of a first
+    # sync may arrive with a watermark even though the snapshot hasn't fully landed — the recorded
+    # decision keeps the retry from silently dropping the history. Optional so states saved before
+    # this field existed still parse.
+    include_snapshot: bool | None = None
+
+
+_ANALYTICS_SNAPSHOT_DECISION_NAMESPACE = "analytics_snapshot_decision"
 
 
 def _normalize_private_key(private_key: str) -> str:
@@ -609,15 +650,65 @@ def _load_resume(
     return manager.load_state() if manager.can_resume() else None
 
 
+def parse_app_ids(raw: str | None) -> frozenset[str]:
+    """Split the source's optional app id filter into ids.
+
+    An empty result means the source syncs every app the key can read, which is what a blank field
+    has always done. The generator types a text input as ``str``, so the field arrives as one
+    string and is split with the same converter every other multi-value source field uses.
+    """
+    return frozenset(str_to_optional_list(raw) or ())
+
+
+def list_apps(
+    session: requests.Session,
+    token_provider: AppStoreConnectTokenProvider,
+    logger: FilteringBoundLogger,
+) -> dict[str, str | None]:
+    """Every app the key can read, as id to name, in the order Apple returns them.
+
+    The name is what a person recognises, so the save-time check can name the apps the key reaches
+    rather than only the ids it does not.
+    """
+    apps: dict[str, str | None] = {}
+    for page in _iter_pages(session, token_provider, logger, f"{BASE_URL}/v1/apps", {}):
+        for resource in page.resources:
+            if resource.get("id") is None:
+                continue
+            attributes = resource.get("attributes")
+            name = attributes.get("name") if isinstance(attributes, dict) else None
+            apps[str(resource["id"])] = str(name) if name else None
+    return apps
+
+
 def _list_app_ids(
     session: requests.Session,
     token_provider: AppStoreConnectTokenProvider,
     logger: FilteringBoundLogger,
+    app_ids: frozenset[str],
 ) -> list[str]:
-    app_ids: list[str] = []
-    for page in _iter_pages(session, token_provider, logger, f"{BASE_URL}/v1/apps", {}):
-        app_ids.extend(str(resource["id"]) for resource in page.resources if resource.get("id"))
-    return app_ids
+    """The app ids a fan-out or analytics walk visits, after the source's app id filter.
+
+    Discovery order is preserved, because the fan-out resume bookmark finds its place by index in
+    this list.
+    """
+    discovered = list(list_apps(session, token_provider, logger))
+    if not app_ids:
+        return discovered
+
+    selected = [app_id for app_id in discovered if app_id in app_ids]
+
+    unknown = sorted(app_ids.difference(discovered))
+    if unknown:
+        # Not fatal: a key that lost access to one app of several must not stop the others.
+        logger.warning(
+            f"App Store Connect: app id filter names apps this key cannot read, skipping them. "
+            f"app_ids={','.join(unknown)}"
+        )
+
+    if not selected:
+        raise ValueError(APP_STORE_CONNECT_NO_MATCHING_APPS_ERROR)
+    return selected
 
 
 def _get_collection(
@@ -627,6 +718,7 @@ def _get_collection(
     logger: FilteringBoundLogger,
     manager: ResumableSourceManager[AppStoreConnectResumeConfig],
     failures: _ParseFailureCounter,
+    app_ids: frozenset[str],
 ) -> Iterator[list[dict[str, Any]]]:
     resume = _load_resume(manager)
     resumed_url = resume.next_url if resume is not None else None
@@ -634,14 +726,28 @@ def _get_collection(
     url = resumed_url or f"{BASE_URL}{config.path}"
     params: dict[str, Any] | None = None if resumed_url else dict(config.params)
 
+    app_id_column = config.app_id_column if app_ids else None
+    matched_an_app = False
+
     for page in _iter_pages(session, token_provider, logger, url, params):
         rows = _page_rows(config, page, failures)
+        if app_id_column is not None:
+            # Filtered on fetched rows rather than through a query param, because Apple's
+            # per-resource filter support varies by endpoint and an unsupported filter is a hard 400.
+            rows = [row for row in rows if str(row.get(app_id_column)) in app_ids]
+            matched_an_app = matched_an_app or bool(rows)
         if rows:
             yield rows
         # Save AFTER yielding so a crash re-fetches the page we just emitted rather than skipping it;
         # merge dedupes the re-pulled rows on the primary key.
         if page.next_url:
             manager.save_state(AppStoreConnectResumeConfig(next_url=page.next_url))
+
+    if app_id_column is not None and not matched_an_app:
+        # This table is a full refresh, so finishing with no rows would replace the existing table
+        # with an empty one. The fan-out and analytics walks already fail on an empty selection, and
+        # a silent wipe here would be worse than either.
+        raise ValueError(APP_STORE_CONNECT_NO_MATCHING_APPS_ERROR)
 
 
 def _get_app_fanout(
@@ -651,8 +757,9 @@ def _get_app_fanout(
     logger: FilteringBoundLogger,
     manager: ResumableSourceManager[AppStoreConnectResumeConfig],
     failures: _ParseFailureCounter,
+    selected_app_ids: frozenset[str],
 ) -> Iterator[list[dict[str, Any]]]:
-    app_ids = _list_app_ids(session, token_provider, logger)
+    app_ids = _list_app_ids(session, token_provider, logger, selected_app_ids)
     resume = _load_resume(manager)
 
     start = 0
@@ -741,6 +848,122 @@ def _parse_report(payload: bytes, report_date: date, failures: _ParseFailureCoun
     return rows
 
 
+# A subscription-family report day with no data comes back as a 400 whose body carries one of these
+# markers. A 400 matching none of them, and not the vendor-number marker below, is a genuinely
+# malformed request rather than a quiet day.
+_EMPTY_REPORT_400_MARKERS = (
+    "there were no results",
+    "no results for the request",
+)
+
+# Apple's long-standing misleading wording for an empty subscription day, which it also returns for a
+# vendor number it doesn't know. Ambiguous on its own, so `_VendorNumberCheck` settles it.
+_VENDOR_NUMBER_400_MARKER = "invalid vendor number"
+
+
+def _apple_error_text(error: _AppleApiError) -> str:
+    """Apple's words as one folded string, for matching against the markers above."""
+    return " ".join(part for part in (error.code, error.title, error.detail) if part).casefold()
+
+
+class _ToleratedReportDays:
+    """Counts report days Apple answered with a tolerated "no data" status, keeping one sample error.
+
+    A 404 is Apple's "no activity for this date" for the SALES report; the subscription report
+    families return a 400 for the same condition instead, and Apple words that 400 the same way it
+    words a genuinely bad request. A whole run of tolerated days that never produced a row is logged
+    when the walk ends, so an operator can tell an account with no data for this report from a
+    request Apple keeps rejecting, rather than reading both as a quiet account.
+    """
+
+    def __init__(self, logger: FilteringBoundLogger, config: AppStoreConnectEndpointConfig) -> None:
+        self._logger = logger
+        self._config = config
+        self.days_fetched = 0
+        self.days_tolerated = 0
+        self.days_with_rows = 0
+        self._sample_detail = ""
+
+    def record_tolerated(self, sample: str = "") -> None:
+        self.days_tolerated += 1
+        if sample and not self._sample_detail:
+            self._sample_detail = sample
+
+    def flush(self) -> None:
+        if self.days_fetched == 0 or self.days_with_rows > 0:
+            return
+        self._logger.warning(
+            f"App Store Connect: the {self._config.name} run produced no rows. "
+            f"days_requested={self.days_fetched}, days_tolerated_as_empty={self.days_tolerated}, "
+            f"report_type={self._config.report_type}, report_sub_type={self._config.report_sub_type}, "
+            f"report_version={self._config.report_version or 'unset'}, "
+            f"sample_apple_error={self._sample_detail or 'none'}. This is either an account with no "
+            f"data for this report or a request Apple keeps rejecting; check the report filters if "
+            f"you expected data."
+        )
+
+
+class _VendorNumberCheck:
+    """Resolves once per run whether Apple knows the configured vendor number.
+
+    Apple answers a subscription-family day with no data and a vendor number it doesn't know with the
+    same "Invalid vendor number specified" 400, so that response alone cannot tell a quiet account
+    from a typo. The SALES report separates them: it answers 404 for a known vendor with no data on
+    the date, and keeps the vendor-number 400 for one it doesn't know. An inconclusive check — a key
+    without a Sales role, a network failure — reads as known, so a sync never fails on the check
+    itself and the all-empty run warning stays the backstop.
+    """
+
+    def __init__(
+        self,
+        session: requests.Session,
+        token_provider: AppStoreConnectTokenProvider,
+        logger: FilteringBoundLogger,
+        vendor_number: str,
+    ) -> None:
+        self._session = session
+        self._token_provider = token_provider
+        self._logger = logger
+        self._vendor_number = vendor_number
+        self._known: bool | None = None
+
+    def known(self, report_date: date) -> bool:
+        if self._known is None:
+            self._known = self._probe(report_date)
+        return self._known
+
+    def _probe(self, report_date: date) -> bool:
+        sales = APP_STORE_CONNECT_ENDPOINTS["sales_reports"]
+        try:
+            response = _get(
+                self._session,
+                f"{BASE_URL}/v1/salesReports",
+                token_provider=self._token_provider,
+                logger=self._logger,
+                params={
+                    "filter[frequency]": sales.report_frequency,
+                    "filter[reportDate]": report_date.isoformat(),
+                    "filter[reportType]": sales.report_type,
+                    "filter[reportSubType]": sales.report_sub_type,
+                    "filter[version]": sales.report_version,
+                    "filter[vendorNumber]": self._vendor_number,
+                },
+                accept=REPORT_ACCEPT,
+                timeout=REPORT_TIMEOUT_SECONDS,
+                tolerate=(400, 404),
+            )
+        except Exception as e:
+            self._logger.warning(
+                f"App Store Connect: could not check the vendor number against the sales report, "
+                f"treating it as known. error={e}"
+            )
+            return True
+
+        if response.status_code != 400:
+            return True
+        return _VENDOR_NUMBER_400_MARKER not in _apple_error_text(_parse_apple_error(response))
+
+
 def _fetch_report(
     session: requests.Session,
     config: AppStoreConnectEndpointConfig,
@@ -749,6 +972,8 @@ def _fetch_report(
     vendor_number: str,
     report_date: date,
     failures: _ParseFailureCounter,
+    tolerated: _ToleratedReportDays,
+    vendor_check: _VendorNumberCheck,
 ) -> list[dict[str, Any]]:
     params: dict[str, str] = {
         "filter[frequency]": config.report_frequency,
@@ -771,9 +996,37 @@ def _fetch_report(
         tolerate=config.missing_report_status_codes,
     )
     if response.status_code in config.missing_report_status_codes:
-        # Apple 404s any date with no activity at all — normal for quiet days and for dates before the
-        # app shipped — so a missing day is not an error. Subscription-family report types 400 for the
-        # same condition instead (see `missing_report_status_codes`).
+        # A 404 is always Apple's "no activity for this date" — normal for quiet days and for dates
+        # before the app shipped. A tolerated 400 is the subscription-family equivalent, but Apple
+        # reuses 400 for a genuinely malformed request and for a vendor number it doesn't know too,
+        # so read the body: only a day Apple really has no data for is tolerated and counted, and
+        # anything else fails loudly instead of masquerading as a quiet account across the lookback.
+        if response.status_code == 400:
+            apple_error = _parse_apple_error(response)
+            text = _apple_error_text(apple_error)
+            if _VENDOR_NUMBER_400_MARKER in text:
+                if not vendor_check.known(report_date):
+                    logger.error(
+                        f"App Store Connect rejected the vendor number: endpoint={config.name}, "
+                        f"status=400, apple_error={text!r}"
+                    )
+                    raise AppStoreConnectReportError(
+                        f"{APP_STORE_CONNECT_UNKNOWN_VENDOR_NUMBER_ERROR} ({_apple_error_suffix(apple_error, 400)})"
+                    )
+            elif not any(marker in text for marker in _EMPTY_REPORT_400_MARKERS):
+                logger.error(
+                    f"App Store Connect report request rejected as invalid: endpoint={config.name}, "
+                    f"status=400, apple_error={text!r}, report_type={config.report_type}, "
+                    f"report_sub_type={config.report_sub_type}, report_version={config.report_version or 'unset'}"
+                )
+                raise AppStoreConnectReportError(
+                    f"{APP_STORE_CONNECT_INVALID_REPORT_ERROR}: the report type, sub type, or version "
+                    f"this source asks for may no longer match Apple's report specification "
+                    f"({_apple_error_suffix(apple_error, 400)})"
+                )
+            tolerated.record_tolerated(_apple_error_suffix(apple_error, 400))
+        else:
+            tolerated.record_tolerated()
         return []
 
     return _parse_report(response.content, report_date, failures)
@@ -811,16 +1064,24 @@ def _get_sales_report(
             start = resumed
 
     report_date = start
-    days_fetched = 0
-    while report_date <= end and days_fetched < SALES_REPORT_MAX_DAYS_PER_RUN:
-        rows = _fetch_report(session, config, token_provider, logger, vendor_number, report_date, failures)
-        if rows:
-            yield rows
+    tolerated = _ToleratedReportDays(logger, config)
+    vendor_check = _VendorNumberCheck(session, token_provider, logger, vendor_number)
+    try:
+        while report_date <= end and tolerated.days_fetched < SALES_REPORT_MAX_DAYS_PER_RUN:
+            rows = _fetch_report(
+                session, config, token_provider, logger, vendor_number, report_date, failures, tolerated, vendor_check
+            )
+            tolerated.days_fetched += 1
+            if rows:
+                tolerated.days_with_rows += 1
+                yield rows
 
-        days_fetched += 1
-        report_date += timedelta(days=1)
-        if report_date <= end:
-            manager.save_state(AppStoreConnectResumeConfig(report_date=report_date.isoformat()))
+            report_date += timedelta(days=1)
+            if report_date <= end:
+                manager.save_state(AppStoreConnectResumeConfig(report_date=report_date.isoformat()))
+    finally:
+        # Flush on teardown too, so an abandoned or failed walk still surfaces an all-empty run.
+        tolerated.flush()
 
     if report_date <= end:
         logger.info(
@@ -881,52 +1142,46 @@ def _post_json(
     return response
 
 
-def _ensure_report_request(
+ONGOING_ACCESS_TYPE = "ONGOING"
+SNAPSHOT_ACCESS_TYPE = "ONE_TIME_SNAPSHOT"
+
+
+def _list_report_requests(
     session: requests.Session,
     token_provider: AppStoreConnectTokenProvider,
     logger: FilteringBoundLogger,
     app_id: str,
-) -> tuple[str | None, bool]:
-    """Reuse the app's active ONGOING analytics report request, creating one only if none exists.
+) -> list[dict[str, Any]]:
+    """All of the app's analytics report requests, flattened, both access types.
 
-    Returns ``(request_id, created_now)``. Creating a request is the only call in this source that
-    mutates the customer's App Store Connect account, so it has to be idempotent: an existing active
-    request is always reused, and a request Apple stopped due to inactivity no longer generates
-    reports, so it doesn't count as active. Apple rejects a duplicate create with a 409, which
-    resolves by re-reading the list.
+    Listed unfiltered and split client-side on ``accessType``: one call serves the ongoing and
+    snapshot ensures, and a response that ignores the server-side filter can't misclassify a
+    request as the wrong kind.
     """
-    list_url = f"{BASE_URL}/v1/apps/{app_id}/analyticsReportRequests"
+    url = f"{BASE_URL}/v1/apps/{app_id}/analyticsReportRequests"
+    report_requests: list[dict[str, Any]] = []
+    for page in _iter_pages(session, token_provider, logger, url, {}):
+        report_requests.extend(_flatten_resource(resource) for resource in page.resources)
+    return [row for row in report_requests if row.get("id")]
 
-    def _active_request_id() -> tuple[str | None, bool]:
-        """Returns ``(active_request_id, saw_stopped)`` — the active request to reuse, and whether an
-        ONGOING request stopped due to inactivity was skipped, so the create 403 can name that cause."""
-        body = _get(
-            session,
-            list_url,
-            token_provider=token_provider,
-            logger=logger,
-            params={"filter[accessType]": "ONGOING", "limit": MAX_PAGE_SIZE},
-        ).json()
-        data = body.get("data") if isinstance(body, dict) else None
-        saw_stopped = False
-        for resource in data or []:
-            if not isinstance(resource, dict) or not resource.get("id"):
-                continue
-            attributes = resource.get("attributes")
-            if isinstance(attributes, dict) and attributes.get("stoppedDueToInactivity"):
-                saw_stopped = True
-                continue
-            return str(resource["id"]), saw_stopped
-        return None, saw_stopped
 
-    existing, saw_stopped = _active_request_id()
-    if existing:
-        return existing, False
+def _create_report_request(
+    session: requests.Session,
+    token_provider: AppStoreConnectTokenProvider,
+    logger: FilteringBoundLogger,
+    app_id: str,
+    access_type: str,
+    saw_stopped: bool = False,
+) -> str | None:
+    """POST a new analytics report request; ``None`` when Apple reports one already exists (409).
 
+    Creating a request is the only call in this source that mutates the customer's App Store
+    Connect account, so every caller has to stay idempotent around it.
+    """
     payload = {
         "data": {
             "type": "analyticsReportRequests",
-            "attributes": {"accessType": "ONGOING"},
+            "attributes": {"accessType": access_type},
             "relationships": {"app": {"data": {"type": "apps", "id": app_id}}},
         }
     }
@@ -958,13 +1213,60 @@ def _ensure_report_request(
         )
         raise AppStoreConnectPermissionError(f"{message} ({_apple_error_suffix(apple_error, 403)})")
     if response.status_code == 409:
-        # A concurrent sync (or a request the accessType filter hid) beat us to it.
-        return _active_request_id()[0], False
+        return None
 
     body = response.json()
     data = body.get("data") if isinstance(body, dict) else None
     request_id = data.get("id") if isinstance(data, dict) else None
-    return (str(request_id) if request_id else None), True
+    return str(request_id) if request_id else None
+
+
+def _saw_stopped_ongoing_request(report_requests: list[dict[str, Any]]) -> bool:
+    return any(
+        row.get("accessType") == ONGOING_ACCESS_TYPE and row.get("stoppedDueToInactivity") for row in report_requests
+    )
+
+
+def _active_ongoing_request_id(report_requests: list[dict[str, Any]]) -> str | None:
+    for row in report_requests:
+        if row.get("accessType") != ONGOING_ACCESS_TYPE:
+            continue
+        # A request Apple stopped due to inactivity no longer generates reports, so it doesn't
+        # count as active.
+        if row.get("stoppedDueToInactivity"):
+            continue
+        return str(row["id"])
+    return None
+
+
+def _ensure_report_request(
+    session: requests.Session,
+    token_provider: AppStoreConnectTokenProvider,
+    logger: FilteringBoundLogger,
+    app_id: str,
+    report_requests: list[dict[str, Any]],
+) -> tuple[str | None, bool]:
+    """Reuse the app's active ONGOING analytics report request, creating one only if none exists.
+
+    Returns ``(request_id, created_now)``. An existing active request is always reused. Apple
+    rejects a duplicate create with a 409, which resolves by re-reading the list.
+    """
+    existing = _active_ongoing_request_id(report_requests)
+    if existing:
+        return existing, False
+
+    created = _create_report_request(
+        session,
+        token_provider,
+        logger,
+        app_id,
+        ONGOING_ACCESS_TYPE,
+        saw_stopped=_saw_stopped_ongoing_request(report_requests),
+    )
+    if created is None:
+        # A concurrent sync beat us to it.
+        return _active_ongoing_request_id(_list_report_requests(session, token_provider, logger, app_id)), False
+    return created, True
 
 
 def _normalize_report_name(name: str) -> str:
@@ -973,13 +1275,14 @@ def _normalize_report_name(name: str) -> str:
     return re.sub(r"[^a-z0-9]", "", name.casefold())
 
 
-def _find_analytics_report(
+def _list_reports(
     session: requests.Session,
     token_provider: AppStoreConnectTokenProvider,
     logger: FilteringBoundLogger,
     config: AppStoreConnectEndpointConfig,
     request_id: str,
-) -> str | None:
+) -> dict[str, str]:
+    """Map of report name to report id under one report request, within the endpoint's category."""
     url = f"{BASE_URL}/v1/analyticsReportRequests/{request_id}/reports"
     report_ids: dict[str, str] = {}
     for page in _iter_pages(
@@ -989,12 +1292,29 @@ def _find_analytics_report(
             row = _flatten_resource(resource)
             if row.get("name") and row.get("id"):
                 report_ids[str(row["name"])] = str(row["id"])
+    return report_ids
 
+
+def _match_report(config: AppStoreConnectEndpointConfig, report_ids: dict[str, str]) -> str | None:
     by_normalized = {_normalize_report_name(name): report_id for name, report_id in report_ids.items()}
     for name in config.analytics_report_names:
         report_id = by_normalized.get(_normalize_report_name(name))
         if report_id is not None:
             return report_id
+    return None
+
+
+def _find_analytics_report(
+    session: requests.Session,
+    token_provider: AppStoreConnectTokenProvider,
+    logger: FilteringBoundLogger,
+    config: AppStoreConnectEndpointConfig,
+    request_id: str,
+) -> str | None:
+    report_ids = _list_reports(session, token_provider, logger, config, request_id)
+    report_id = _match_report(config, report_ids)
+    if report_id is not None:
+        return report_id
 
     logger.warning(
         f"App Store Connect: no report named {config.analytics_report_names} under this request "
@@ -1009,8 +1329,12 @@ def _analytics_instances(
     token_provider: AppStoreConnectTokenProvider,
     logger: FilteringBoundLogger,
     report_id: str,
-    lower_bound: date | None,
 ) -> list[tuple[str, date]]:
+    """Every DAILY ``(instance_id, processing_date)`` of a report, ascending by processing date.
+
+    Unfiltered on purpose: the caller applies its watermark bound for the walk, but also needs the
+    full listing to place the snapshot's report-date cutoff at the earliest ongoing instance.
+    """
     url = f"{BASE_URL}/v1/analyticsReports/{report_id}/instances"
     instances: list[tuple[str, date]] = []
     for page in _iter_pages(session, token_provider, logger, url, {"filter[granularity]": ANALYTICS_GRANULARITY}):
@@ -1019,13 +1343,122 @@ def _analytics_instances(
             processing_date = _to_date(row.get("processingDate"))
             if not row.get("id") or processing_date is None:
                 continue
-            # The lower bound is inclusive: an instance's rows can restate earlier data
-            # dates, and re-reading the boundary merges idempotently on the primary key.
-            if lower_bound is not None and processing_date < lower_bound:
-                continue
             instances.append((str(row["id"]), processing_date))
     instances.sort(key=lambda instance: instance[1])
     return instances
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class _SnapshotPlan:
+    """Outcome of resolving an app's one-time historical snapshot for one report.
+
+    ``ready``: walkable instances exist. ``pending``: Apple is (or may still be) generating one.
+    ``absent``: every fulfilled snapshot request lists reports and none of them is this one, so
+    the account isn't entitled to it and there is nothing to wait for. ``forbidden``: the key's
+    role can't create the snapshot request, so there is nothing to wait for either.
+    """
+
+    state: Literal["ready", "pending", "absent", "forbidden"]
+    instances: list[tuple[str, date]] = dataclasses.field(default_factory=list)
+
+
+def _request_snapshot(
+    session: requests.Session,
+    token_provider: AppStoreConnectTokenProvider,
+    logger: FilteringBoundLogger,
+    config: AppStoreConnectEndpointConfig,
+    app_id: str,
+) -> bool:
+    """POST a ONE_TIME_SNAPSHOT request. ``False`` when the key's role can't create one.
+
+    Apple gates this create on Admin, but a Finance or Sales key reads the ongoing reports
+    fine. The backfill is an addition to that stream, so losing it must not take the stream
+    down with it: the 403 degrades this app's snapshot instead of failing the sync. A 403 on
+    the ONGOING create stays fatal, because nothing can be read without that request.
+    """
+    try:
+        _create_report_request(session, token_provider, logger, app_id, SNAPSHOT_ACCESS_TYPE)
+    except AppStoreConnectPermissionError:
+        logger.warning(
+            f"App Store Connect: this API key cannot request the one-time historical snapshot, "
+            f"which Apple allows only for an Admin key. The ongoing analytics stream keeps "
+            f"syncing without it. To backfill history, give the key the Admin role and resync "
+            f"this table. endpoint={config.name}, app_id={app_id}"
+        )
+        return False
+    return True
+
+
+def _resolve_snapshot_plan(
+    session: requests.Session,
+    token_provider: AppStoreConnectTokenProvider,
+    logger: FilteringBoundLogger,
+    config: AppStoreConnectEndpointConfig,
+    app_id: str,
+    report_requests: list[dict[str, Any]],
+) -> _SnapshotPlan:
+    """Find (or request) the app's ONE_TIME_SNAPSHOT and this report's instances under it.
+
+    A fulfilled snapshot request is always reused — a second ensure never re-creates or errors.
+    Creating is reserved for two cases: no snapshot request exists at all, or a fulfilled one's
+    instances have aged out (Apple retains them only for a limited window), where only a fresh
+    snapshot can regenerate the history. A request with no reports yet is still generating, so it
+    is waited on rather than duplicated.
+    """
+    snapshot_requests = [row for row in report_requests if row.get("accessType") == SNAPSHOT_ACCESS_TYPE]
+    if not snapshot_requests:
+        if not _request_snapshot(session, token_provider, logger, config, app_id):
+            return _SnapshotPlan(state="forbidden")
+        logger.info(
+            f"App Store Connect: requested a one-time historical snapshot for app {app_id}; "
+            f"Apple generates it in 1-2 days. endpoint={config.name}"
+        )
+        return _SnapshotPlan(state="pending")
+
+    generating = False
+    resolved_report_ids: list[str] = []
+    for row in snapshot_requests:
+        report_ids = _list_reports(session, token_provider, logger, config, str(row["id"]))
+        if not report_ids:
+            # No reports in this category yet: the snapshot is most likely still generating.
+            generating = True
+            continue
+        report_id = _match_report(config, report_ids)
+        if report_id is not None:
+            resolved_report_ids.append(report_id)
+
+    # One instance per processing date: snapshot rows are numbered from -1 within their instance,
+    # so walking two instances of one date would hand different rows the same merge key. The
+    # lowest instance id wins so re-runs pick the same one.
+    instances: dict[date, str] = {}
+    for report_id in resolved_report_ids:
+        for instance_id, processing_date in _analytics_instances(session, token_provider, logger, report_id):
+            current = instances.get(processing_date)
+            if current is None or instance_id < current:
+                instances[processing_date] = instance_id
+
+    if instances:
+        return _SnapshotPlan(
+            state="ready",
+            instances=sorted(
+                ((instance_id, processing_date) for processing_date, instance_id in instances.items()),
+                key=lambda instance: instance[1],
+            ),
+        )
+    if resolved_report_ids and not generating:
+        # Fulfilled once, but the instances aged out before they were downloaded — and no other
+        # snapshot request is mid-generation, so re-requesting won't pile requests up while a
+        # replacement is already on its way.
+        if not _request_snapshot(session, token_provider, logger, config, app_id):
+            return _SnapshotPlan(state="forbidden")
+        logger.info(
+            f"App Store Connect: the existing historical snapshot for app {app_id} has expired; "
+            f"requested a fresh one. endpoint={config.name}"
+        )
+        return _SnapshotPlan(state="pending")
+    if generating or resolved_report_ids:
+        return _SnapshotPlan(state="pending")
+    return _SnapshotPlan(state="absent")
 
 
 def _analytics_segments(
@@ -1122,6 +1555,19 @@ def _iter_segment_rows(
         yield row
 
 
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class _WalkInstance:
+    """One analytics report instance scheduled into the date-ordered walk."""
+
+    app_id: str
+    instance_id: str
+    is_snapshot: bool = False
+    # Snapshot rows are kept only when their report date is strictly before this cutoff — the
+    # earliest listed ongoing instance's processing date. Report dates at or after it are the
+    # ongoing stream's to deliver, which keeps one report date from landing from both streams.
+    snapshot_cutoff: date | None = None
+
+
 def _get_analytics_report(
     session: requests.Session,
     segments_session: requests.Session,
@@ -1132,9 +1578,14 @@ def _get_analytics_report(
     failures: _ParseFailureCounter,
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
+    selected_app_ids: frozenset[str],
 ) -> Iterator[list[dict[str, Any]]]:
-    app_ids = _list_app_ids(session, token_provider, logger)
+    # Filtering before the loop keeps `_ensure_report_request` away from the excluded apps, so an
+    # unselected app never gets an ONGOING analytics report request created on it.
+    app_ids = _list_app_ids(session, token_provider, logger, selected_app_ids)
     resume = _load_resume(manager)
+    snapshot_decision_manager = manager.with_namespace(_ANALYTICS_SNAPSHOT_DECISION_NAMESPACE)
+    snapshot_decision = _load_resume(snapshot_decision_manager)
     resumed_date = _to_date(resume.processing_date) if resume is not None else None
     watermark = _to_date(db_incremental_field_last_value) if should_use_incremental_field else None
 
@@ -1142,6 +1593,21 @@ def _get_analytics_report(
     for candidate in (watermark, resumed_date):
         if candidate is not None and (lower_bound is None or candidate > lower_bound):
             lower_bound = candidate
+
+    # The one-time snapshot restates all history, so it only joins the walk when the table is
+    # known to be empty: a first sync, a resync (the reset clears the watermark before the run),
+    # or a full refresh. An established incremental table holds ongoing history the source can't
+    # enumerate, so no report-date boundary could dedupe a snapshot against it. The decision has
+    # separate state from the main resume checkpoint, because the pipeline reads that checkpoint
+    # before this generator starts and uses it to decide whether to overwrite the first batch.
+    if snapshot_decision is not None and snapshot_decision.include_snapshot is not None:
+        include_snapshot = snapshot_decision.include_snapshot
+    elif resume is not None and resume.include_snapshot is not None:
+        include_snapshot = resume.include_snapshot
+    else:
+        include_snapshot = watermark is None
+    if snapshot_decision is None or snapshot_decision.include_snapshot is None:
+        snapshot_decision_manager.save_state(AppStoreConnectResumeConfig(include_snapshot=include_snapshot))
 
     # Discover every app's report and instances up front, then walk processing dates in
     # ascending order ACROSS apps. Yields are then globally date-ordered, so the pipeline's
@@ -1151,45 +1617,126 @@ def _get_analytics_report(
     # the next run re-reads that boundary date in full and the merge dedupes it. Resume state
     # is job-scoped (it survives retries of the same job, never the next scheduled run), so
     # the watermark has to carry cross-run progress by itself.
-    instances_by_date: dict[date, list[tuple[str, str]]] = {}
+    instances_by_date: dict[date, list[_WalkInstance]] = {}
+    hold_for_snapshot = False
+    snapshot_ceiling: date | None = None
     for app_id in app_ids:
-        request_id, created_now = _ensure_report_request(session, token_provider, logger, app_id)
-        if created_now:
-            logger.info(
-                f"App Store Connect: created an ONGOING analytics report request for app {app_id}; "
-                f"Apple generates the first reports in 1-2 days. endpoint={config.name}"
-            )
-            continue
-        if request_id is None:
+        report_requests = _list_report_requests(session, token_provider, logger, app_id)
+        request_id, created_now = _ensure_report_request(session, token_provider, logger, app_id, report_requests)
+
+        snapshot_plan: _SnapshotPlan | None = None
+        if include_snapshot:
+            snapshot_plan = _resolve_snapshot_plan(session, token_provider, logger, config, app_id, report_requests)
+
+        if created_now or request_id is None:
+            if created_now:
+                logger.info(
+                    f"App Store Connect: created an ONGOING analytics report request for app {app_id}; "
+                    f"Apple generates the first reports in 1-2 days. endpoint={config.name}"
+                )
+            # The app can't be walked this run, so an available snapshot can't be emitted in
+            # order either — everything for this app has to land together on a later run.
+            if snapshot_plan is not None and snapshot_plan.state not in ("absent", "forbidden"):
+                hold_for_snapshot = True
             continue
 
         report_id = _find_analytics_report(session, token_provider, logger, config, request_id)
-        if report_id is None:
+        ongoing_instances: list[tuple[str, date]] = []
+        if report_id is not None:
             # An unavailable report degrades this table for this app; other apps and tables
             # are unaffected.
-            continue
+            ongoing_instances = _analytics_instances(session, token_provider, logger, report_id)
 
-        for instance_id, processing_date in _analytics_instances(
-            session, token_provider, logger, report_id, lower_bound
-        ):
-            instances_by_date.setdefault(processing_date, []).append((app_id, instance_id))
+        for instance_id, processing_date in ongoing_instances:
+            # The lower bound is inclusive: an instance's rows can restate earlier data
+            # dates, and re-reading the boundary merges idempotently on the primary key.
+            if lower_bound is not None and processing_date < lower_bound:
+                continue
+            instances_by_date.setdefault(processing_date, []).append(
+                _WalkInstance(app_id=app_id, instance_id=instance_id)
+            )
+
+        if snapshot_plan is None:
+            continue
+        if snapshot_plan.state == "pending" and report_id is not None:
+            # A live ongoing report is the only in-module evidence that the app is entitled to
+            # this report at all. An app that is entitled to nothing stays "pending" forever, so
+            # holding on it would keep the whole table empty forever. The accepted cost: an
+            # entitled app whose ongoing report is still generating does not hold, so a sibling
+            # app's emission can ratchet the shared watermark past it and leave that app's
+            # history to a resync.
+            hold_for_snapshot = True
+        snapshot_cutoff = min((processing_date for _, processing_date in ongoing_instances), default=None)
+        for instance_id, processing_date in snapshot_plan.instances:
+            if lower_bound is not None and processing_date < lower_bound:
+                continue
+            instances_by_date.setdefault(processing_date, []).append(
+                _WalkInstance(app_id=app_id, instance_id=instance_id, is_snapshot=True, snapshot_cutoff=snapshot_cutoff)
+            )
+            if snapshot_ceiling is None or processing_date > snapshot_ceiling:
+                snapshot_ceiling = processing_date
+
+    if hold_for_snapshot and should_use_incremental_field:
+        # An incremental table's first emission ratchets the watermark past the snapshot's
+        # report dates for good, so nothing is emitted until the snapshot can be emitted with
+        # it. A full refresh never holds: it rebuilds the whole table every run, so the next
+        # rebuild picks the history up on its own.
+        logger.info(
+            f"App Store Connect: waiting for Apple to generate the one-time historical snapshot "
+            f"(typically 1-2 days) before the first ingest, so history lands ahead of the "
+            f"ongoing stream. endpoint={config.name}"
+        )
+        return
+
+    has_snapshot_instances = any(
+        walk_instance.is_snapshot for walk_instances in instances_by_date.values() for walk_instance in walk_instances
+    )
+    probed_segments: dict[str, list[dict[str, Any]]] = {}
+    if should_use_incremental_field and snapshot_ceiling is not None:
+        # Probe every instance at or below the snapshot for downloadable files before emitting
+        # anything: a not-ready instance below the snapshot would stop the walk mid-emission,
+        # ratchet the watermark, and strand the history until a manual resync.
+        for processing_date in sorted(candidate for candidate in instances_by_date if candidate <= snapshot_ceiling):
+            for walk_instance in instances_by_date[processing_date]:
+                segments = _analytics_segments(segments_session, token_provider, logger, walk_instance.instance_id)
+                if not segments:
+                    logger.info(
+                        f"App Store Connect: an analytics instance below the historical snapshot "
+                        f"has no files yet; waiting so the snapshot isn't stranded. "
+                        f"endpoint={config.name}, app_id={walk_instance.app_id}, "
+                        f"processing_date={processing_date.isoformat()}"
+                    )
+                    return
+                probed_segments[walk_instance.instance_id] = segments
 
     instances_fetched = 0
     for processing_date in sorted(instances_by_date):
-        for app_id, instance_id in instances_by_date[processing_date]:
-            if instances_fetched >= ANALYTICS_MAX_INSTANCES_PER_RUN:
+        for walk_instance in instances_by_date[processing_date]:
+            if instances_fetched >= ANALYTICS_MAX_INSTANCES_PER_RUN and not has_snapshot_instances:
                 # An incremental sync continues from the watermark next run. A full refresh
                 # has no watermark to continue from, so a cap-hit there means a truncated
-                # table until the backlog fits in one run.
+                # table until the backlog fits in one run. A run carrying the snapshot is
+                # never truncated: stopping below the snapshot would strand the history the
+                # same way a mid-walk gap would, and its backlog is bounded by Apple's
+                # instance retention plus one snapshot per app.
                 logger.warning(
                     f"App Store Connect: hit the per-run analytics instance cap at "
                     f"{processing_date.isoformat()}; later dates are left for the next "
                     f"incremental run. endpoint={config.name}"
                 )
-                manager.save_state(AppStoreConnectResumeConfig(processing_date=processing_date.isoformat()))
+                manager.save_state(
+                    AppStoreConnectResumeConfig(
+                        processing_date=processing_date.isoformat(), include_snapshot=include_snapshot
+                    )
+                )
                 return
 
-            segments = _analytics_segments(segments_session, token_provider, logger, instance_id)
+            cached_segments = probed_segments.get(walk_instance.instance_id)
+            segments = (
+                cached_segments
+                if cached_segments is not None
+                else _analytics_segments(segments_session, token_provider, logger, walk_instance.instance_id)
+            )
             if not segments:
                 # The instance is listed but its files aren't ready. Stop the whole walk at
                 # this date so no newer date is emitted past the gap: the watermark then
@@ -1197,10 +1744,14 @@ def _get_analytics_report(
                 # exist.
                 logger.info(
                     f"App Store Connect: analytics instance has no segments yet, stopping the "
-                    f"walk at this date. endpoint={config.name}, app_id={app_id}, "
+                    f"walk at this date. endpoint={config.name}, app_id={walk_instance.app_id}, "
                     f"processing_date={processing_date.isoformat()}"
                 )
-                manager.save_state(AppStoreConnectResumeConfig(processing_date=processing_date.isoformat()))
+                manager.save_state(
+                    AppStoreConnectResumeConfig(
+                        processing_date=processing_date.isoformat(), include_snapshot=include_snapshot
+                    )
+                )
                 return
 
             line = 0
@@ -1210,8 +1761,21 @@ def _get_analytics_report(
                 try:
                     with _open_segment_text(spool) as text:
                         for row in _iter_segment_rows(text, processing_date, line, failures):
-                            row["app_id"] = app_id
+                            row["app_id"] = walk_instance.app_id
                             line = row["_line"]
+                            if walk_instance.is_snapshot:
+                                if walk_instance.snapshot_cutoff is not None:
+                                    row_date = _to_date(row.get("date"))
+                                    # A row without a parseable report date can't be checked
+                                    # against the ongoing stream's coverage, so it's dropped
+                                    # rather than risked as a duplicate.
+                                    if row_date is None or row_date >= walk_instance.snapshot_cutoff:
+                                        continue
+                                # Negative line numbers keyed by file position: they can never
+                                # collide with the ongoing instance processed on the same date,
+                                # and they don't shift when the cutoff moves, so a re-run
+                                # re-emits identical keys and the merge folds it to no-ops.
+                                row["_line"] = -line
                             batch.append(row)
                             if len(batch) >= ANALYTICS_ROWS_PER_BATCH:
                                 yield batch
@@ -1227,7 +1791,10 @@ def _get_analytics_report(
         # the next one. Saved AFTER the date's rows are yielded, so a crash re-reads the
         # date rather than skipping it; the merge dedupes the re-read.
         manager.save_state(
-            AppStoreConnectResumeConfig(processing_date=(processing_date + timedelta(days=1)).isoformat())
+            AppStoreConnectResumeConfig(
+                processing_date=(processing_date + timedelta(days=1)).isoformat(),
+                include_snapshot=include_snapshot,
+            )
         )
 
 
@@ -1255,6 +1822,51 @@ def check_credentials(issuer_id: str, key_id: str, private_key: str) -> tuple[in
         return None, None
 
 
+def _describe_app(app_id: str, name: str | None) -> str:
+    return f"{name} ({app_id})" if name else app_id
+
+
+def check_app_ids(issuer_id: str, key_id: str, private_key: str, app_ids: str | None) -> str | None:
+    """Return the message for a filter naming app ids the key cannot read, or ``None`` if it can.
+
+    ``None`` also covers a filter that is not set, and a probe that cannot reach Apple. Reporting
+    nothing on a failed probe keeps a network blip from surfacing as a misleading "unknown app id"
+    while the real credential problem goes unreported.
+
+    The message lists the apps the key can read, because the field takes the numeric Apple ID and a
+    user is as likely to paste a bundle ID or a SKU. Naming only the rejected value leaves them
+    guessing; naming the accepted values lets them copy one.
+    """
+    wanted = parse_app_ids(app_ids)
+    if not wanted:
+        return None
+
+    logger = structlog.get_logger(__name__)
+    try:
+        token_provider = AppStoreConnectTokenProvider(issuer_id, key_id, private_key)
+        readable = list_apps(_make_session(private_key), token_provider, logger)
+    except Exception:
+        return None
+
+    unknown = sorted(wanted.difference(readable))
+    if not unknown:
+        return None
+
+    message = f"This API key cannot read these app IDs: {', '.join(unknown)}."
+    if not readable:
+        return (
+            f"{message} It cannot read any app in this account. Check the key's role and its app "
+            f"access in App Store Connect."
+        )
+
+    shown = list(readable.items())[:MAX_APPS_LISTED_IN_ERROR]
+    listed = ", ".join(_describe_app(app_id, name) for app_id, name in shown)
+    remaining = len(readable) - len(shown)
+    if remaining:
+        listed = f"{listed}, and {remaining} more"
+    return f"{message} It can read: {listed}. Check the IDs, or clear the field to sync every app."
+
+
 def get_rows(
     issuer_id: str,
     key_id: str,
@@ -1265,17 +1877,23 @@ def get_rows(
     resumable_source_manager: ResumableSourceManager[AppStoreConnectResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
+    app_ids: str | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = APP_STORE_CONNECT_ENDPOINTS[endpoint]
     session = _make_session(private_key)
     token_provider = AppStoreConnectTokenProvider(issuer_id, key_id, private_key)
     failures = _ParseFailureCounter(logger, endpoint)
+    selected_app_ids = parse_app_ids(app_ids)
 
     try:
         if config.kind == "collection":
-            yield from _get_collection(session, config, token_provider, logger, resumable_source_manager, failures)
+            yield from _get_collection(
+                session, config, token_provider, logger, resumable_source_manager, failures, selected_app_ids
+            )
         elif config.kind == "app_fanout":
-            yield from _get_app_fanout(session, config, token_provider, logger, resumable_source_manager, failures)
+            yield from _get_app_fanout(
+                session, config, token_provider, logger, resumable_source_manager, failures, selected_app_ids
+            )
         elif config.kind == "analytics_report":
             yield from _get_analytics_report(
                 session,
@@ -1290,8 +1908,10 @@ def get_rows(
                 failures,
                 should_use_incremental_field,
                 db_incremental_field_last_value,
+                selected_app_ids,
             )
         else:  # "sales_report"
+            # `/v1/salesReports` returns one file per vendor number, so no app id filter applies.
             yield from _get_sales_report(
                 session,
                 config,
@@ -1310,6 +1930,8 @@ def get_rows(
 
     # Walked to completion, so drop the checkpoint — leaving it would let a later attempt on this job
     # resume mid-stream instead of restarting cleanly.
+    if config.kind == "analytics_report":
+        resumable_source_manager.with_namespace(_ANALYTICS_SNAPSHOT_DECISION_NAMESPACE).clear_state()
     resumable_source_manager.clear_state()
 
 
@@ -1323,6 +1945,7 @@ def app_store_connect_source(
     resumable_source_manager: ResumableSourceManager[AppStoreConnectResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
+    app_ids: Optional[str] = None,
 ) -> SourceResponse:
     config = APP_STORE_CONNECT_ENDPOINTS[endpoint]
 
@@ -1338,6 +1961,7 @@ def app_store_connect_source(
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
+            app_ids=app_ids,
         ),
         primary_keys=config.primary_keys,
         partition_count=1,

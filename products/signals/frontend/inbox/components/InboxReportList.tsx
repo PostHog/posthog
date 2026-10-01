@@ -199,7 +199,7 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
     return (
         <div className="@container mx-auto max-w-4xl flex flex-col gap-4 px-6 py-4">
             <InboxSearchFilterBar onRefresh={() => refresh()} refreshing={reportsResponseLoading} />
-            <InboxBulkSelectionBar />
+            <InboxBulkSelectionBar reports={reports} />
 
             {showSkeleton ? (
                 <CardSkeleton count={Math.min(count ?? 4, 6)} variant="cards" dashed={tabKey !== 'pulls'} />

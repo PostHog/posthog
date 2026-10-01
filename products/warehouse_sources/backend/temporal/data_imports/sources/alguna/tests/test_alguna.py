@@ -56,6 +56,21 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, 
     return param_snapshots
 
 
+def _wire_urls(session: mock.MagicMock, responses: list[Response]) -> list[tuple[str, dict[str, Any]]]:
+    """Like `_wire`, but capture each request's URL alongside its params so fan-out tests can tell
+    a parent request from a per-parent child request."""
+    session.headers = {}
+    captured: list[tuple[str, dict[str, Any]]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        captured.append((request.url or "", dict(request.params or {})))
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return captured
+
+
 def _rows(source_response) -> list[dict[str, Any]]:
     return [row for page in source_response.items() for row in page]
 
@@ -132,6 +147,78 @@ class TestPagination:
         # A 200 body without "data" means the response shape changed — fail loud, not silently 0 rows.
         with pytest.raises(ValueError, match="matched nothing"):
             _rows(alguna_source("key", "customers", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
+
+
+class TestFanout:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_credit_notes_fan_out_over_customers_and_paginate_child(self, MockSession) -> None:
+        session = MockSession.return_value
+        cust1_full = [{"id": f"cn1_{i}", "customer_id": "cust_1"} for i in range(100)]
+        reqs = _wire_urls(
+            session,
+            [
+                _response([{"id": "cust_1"}, {"id": "cust_2"}]),  # parent: short page ends parent walk
+                _response(cust1_full),  # cust_1 credit-notes page 1 (full → another page)
+                _response([{"id": "cn1_last", "customer_id": "cust_1"}]),  # cust_1 page 2 (short)
+                _response([{"id": "cn2_1", "customer_id": "cust_2"}]),  # cust_2 (short)
+            ],
+        )
+
+        rows = _rows(
+            alguna_source("key", "credit_notes", team_id=1, job_id="j", resumable_source_manager=_make_manager())
+        )
+
+        assert [r["id"] for r in rows] == [*(f"cn1_{i}" for i in range(100)), "cn1_last", "cn2_1"]
+        assert reqs[0][0].endswith("/customers")
+        # Each customer's credit-notes are fetched with its id, and a full page advances the offset.
+        child = [(url, params) for url, params in reqs if url.endswith("/credit-notes")]
+        assert [params["customer_id"] for _url, params in child] == ["cust_1", "cust_1", "cust_2"]
+        assert [params["offset"] for _url, params in child] == [0, 100, 0]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_credit_notes_skips_parent_without_id(self, MockSession) -> None:
+        session = MockSession.return_value
+        reqs = _wire_urls(
+            session,
+            [
+                _response([{"name": "no-id"}, {"id": "cust_2"}]),
+                _response([{"id": "cn2_1", "customer_id": "cust_2"}]),
+            ],
+        )
+
+        rows = _rows(
+            alguna_source("key", "credit_notes", team_id=1, job_id="j", resumable_source_manager=_make_manager())
+        )
+
+        assert [r["id"] for r in rows] == ["cn2_1"]
+        # The id-less parent yields no child request.
+        assert [params["customer_id"] for url, params in reqs if url.endswith("/credit-notes")] == ["cust_2"]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_subscription_versions_fan_out_omits_child_page_size(self, MockSession) -> None:
+        session = MockSession.return_value
+        reqs = _wire_urls(
+            session,
+            [
+                _response([{"id": "sub_1"}, {"id": "sub_2"}]),  # parent subscriptions
+                _response([{"id": "v_1", "subscription_id": "sub_1"}]),
+                _response([{"id": "v_2", "subscription_id": "sub_2"}]),
+            ],
+        )
+
+        rows = _rows(
+            alguna_source(
+                "key", "subscription_versions", team_id=1, job_id="j", resumable_source_manager=_make_manager()
+            )
+        )
+
+        assert {r["id"] for r in rows} == {"v_1", "v_2"}
+        parent = next(params for url, params in reqs if url.endswith("/subscriptions"))
+        assert parent["limit"] == 100  # parent paginates with an explicit page size
+        child = [(url, params) for url, params in reqs if url.endswith("/versions")]
+        assert {url.split("/subscriptions/")[1].split("/")[0] for url, _params in child} == {"sub_1", "sub_2"}
+        # The versions endpoint takes no page-size param; a leaked `limit` would be an undocumented param.
+        assert all("limit" not in params for _url, params in child)
 
 
 class TestValidateCredentials:

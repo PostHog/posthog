@@ -7,6 +7,7 @@ from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
 
 from posthog.models.integration import Integration
+from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
 
 from products.slack_app.backend.services.slack_messages import RunFooter
 from products.slack_app.backend.slack_thread import (
@@ -25,6 +26,11 @@ class TestSlackThreadHandler(SimpleTestCase):
             ("passthrough", "Internal error: something else", "Internal error: something else"),
             ("stripped_passthrough", "  Internal error: something else  ", "Internal error: something else"),
             ("rate_limit", "Internal error: API Error: 429 rate_limit_error", UPSTREAM_PROVIDER_FAILURE_MESSAGE),
+            (
+                "task_spend_limit",
+                "Internal error: API Error: 429 Rate limit exceeded: This agent run reached its spend limit. Try again in about 24 hours.",
+                "Internal error: API Error: 429 Rate limit exceeded: This agent run reached its spend limit. Try again in about 24 hours.",
+            ),
             ("overloaded", "Internal error: API Error: 529 overloaded_error", UPSTREAM_PROVIDER_FAILURE_MESSAGE),
             ("server_error", "Internal error: API Error: 500 internal_error", UPSTREAM_PROVIDER_FAILURE_MESSAGE),
         ]
@@ -54,6 +60,20 @@ class TestSlackThreadHandler(SimpleTestCase):
         streamed = "".join(chunk.get("text", "") for chunk in chunks)
         assert "<@U094TR1E59V>" in streamed
         assert "Radu Raicea" not in streamed
+
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_stop_status_stream_skips_trailing_mention_when_answer_mentions_recipient(self, mock_get_client):
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        context = SlackThreadContext(
+            integration_id=1, channel="C001", thread_ts="1234.5678", mentioning_slack_user_id="U123"
+        )
+
+        SlackThreadHandler(context).stop_status_stream(ts="1234.9999", final_markdown="Done, <@U123|Jane Doe>.")
+
+        chunks = mock_client.chat_appendStream.call_args.kwargs["chunks"]
+        streamed = "".join(chunk.get("text", "") for chunk in chunks)
+        assert streamed.count("<@U123>") == 1
 
     @patch.object(SlackThreadHandler, "_find_progress_message_ts", return_value=None)
     @patch.object(SlackThreadHandler, "_get_client")
@@ -157,6 +177,36 @@ class TestSlackThreadHandler(SimpleTestCase):
         assert actions[0]["text"]["text"] == "View PR"
         assert actions[1]["text"]["text"] == "Open in PostHog"
 
+    @parameterized.expand(
+        [
+            ("closed", False, "<@U456> *Pull request closed without merging*", True),
+            ("merged", True, "<@U456> *Pull request merged* :tada:", False),
+        ]
+    )
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_post_pr_closed_replies_in_thread_and_keeps_progress(
+        self, _name, merged, expected_text, expects_retry_hint, mock_get_client
+    ):
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        context = SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678")
+        handler = SlackThreadHandler(context)
+
+        handler.post_pr_closed(
+            "https://github.com/org/repo/pull/1",
+            "https://posthog.com/task/1",
+            reply_target_slack_user_id="U456",
+            merged=merged,
+        )
+
+        mock_client.chat_delete.assert_not_called()
+        mock_client.chat_postMessage.assert_called_once()
+        kwargs = mock_client.chat_postMessage.call_args.kwargs
+        assert kwargs["thread_ts"] == "1234.5678"
+        assert kwargs["text"] == expected_text
+        assert _button_texts(_action_blocks(kwargs)[0]) == ["View PR", "Open in PostHog"]
+        assert any(block["type"] == "context" for block in kwargs["blocks"]) == expects_retry_hint
+
     @patch.object(SlackThreadHandler, "_find_progress_message_ts", return_value=None)
     @patch.object(SlackThreadHandler, "_get_client")
     def test_post_error_formats_upstream_provider_failure(self, mock_get_client, _mock_find_progress):
@@ -233,6 +283,24 @@ class TestSlackThreadHandlerWithoutTaskUrl(SimpleTestCase):
         mock_client.chat_postMessage.assert_called_once()
         assert _action_blocks(mock_client.chat_postMessage.call_args.kwargs) == []
 
+    @patch.object(SlackThreadHandler, "_find_progress_message_ts", return_value=None)
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_post_or_update_progress_names_the_project_it_runs_against(self, mock_get_client, _mock_find_progress):
+        # A task that routed itself to another project says so while it works, not only
+        # in the footer of the answer minutes later.
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        handler = SlackThreadHandler(
+            self._make_context(),
+            RunFooter(model="claude-opus-5", reasoning_effort="high", project="Staging"),
+        )
+
+        handler.post_or_update_progress("Building", task_url=None)
+
+        blocks = mock_client.chat_postMessage.call_args.kwargs["blocks"]
+        context_text = next(b["elements"][0]["text"] for b in blocks if b["type"] == "context")
+        assert context_text == "*Claude Opus 5* [High] · Project: *Staging*"
+
     @patch.object(SlackThreadHandler, "delete_progress")
     @patch.object(SlackThreadHandler, "_get_client")
     def test_post_pr_opened_without_task_url_keeps_pr_button(self, mock_get_client, _mock_delete_progress):
@@ -276,18 +344,6 @@ class TestSlackThreadHandlerWithoutTaskUrl(SimpleTestCase):
         assert _action_blocks(kwargs) == []
         # The error body itself must still surface — only the action block is gated.
         assert kwargs["blocks"][1]["text"]["text"] == "boom"
-
-    @patch.object(SlackThreadHandler, "delete_progress")
-    @patch.object(SlackThreadHandler, "_get_client")
-    def test_post_cancelled_without_task_url_drops_actions(self, mock_get_client, _mock_delete_progress):
-        mock_client = MagicMock()
-        mock_get_client.return_value = mock_client
-        handler = SlackThreadHandler(self._make_context())
-
-        handler.post_cancelled(task_url=None)
-
-        mock_client.chat_postMessage.assert_called_once()
-        assert _action_blocks(mock_client.chat_postMessage.call_args.kwargs) == []
 
 
 class TestPostPrOpenedReplyTarget(SimpleTestCase):
@@ -370,36 +426,6 @@ class TestReplyFooterGate(SimpleTestCase):
             mentioning_slack_user_id="U123",
         )
         return SlackThreadHandler(context, footer or RunFooter(model="claude-opus-5"))
-
-    @parameterized.expand([("withheld", False), ("granted", True)])
-    @patch.object(SlackThreadHandler, "_get_integration")
-    @patch.object(SlackThreadHandler, "_get_client")
-    def test_withholding_the_links_still_leaves_the_model_and_configure(
-        self,
-        _name: str,
-        code_access: bool,
-        mock_get_client,
-        mock_get_integration,
-    ) -> None:
-        # Desktop access changes only the desktop segment: the web link works for anyone
-        # with a PostHog login, and the model and the way to change it are theirs either way.
-        mock_client = MagicMock()
-        mock_get_client.return_value = mock_client
-        mock_get_integration.return_value = Integration(config={"app_id": "A1"}, integration_id="T1")
-        footer = RunFooter(
-            task_url="https://app/project/1/tasks/t",
-            desktop_url="https://us.posthog.com/code/task/t",
-            model="claude-opus-5",
-        )
-
-        with patch.object(SlackThreadHandler, "viewer_can_open_code_links", return_value=code_access):
-            self._handler(footer).post_thread_message("the answer", with_footer=True)
-
-        line = mock_client.chat_postMessage.call_args.kwargs["blocks"][-1]["elements"][0]["text"]
-        assert "*Claude Opus 5*" in line
-        assert "|Configure>" in line
-        assert "View on web" in line
-        assert ("View on desktop" in line) is code_access
 
     @patch.object(SlackThreadHandler, "_get_integration")
     @patch.object(SlackThreadHandler, "_get_client")
@@ -584,3 +610,88 @@ class TestForkMenuOnReplies(SimpleTestCase):
         blocks = mock_client.chat_postMessage.call_args.kwargs["blocks"]
         assert blocks[-1]["type"] == "context"
         assert "accessory" not in blocks[0]
+
+
+class TestMarkdownAnswerBlocks(SimpleTestCase):
+    """Under the gate the answer carries a `markdown` block, which takes no accessory and caps
+    at a different length than the `section` it replaces."""
+
+    def _handler(self) -> SlackThreadHandler:
+        context = SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678")
+        return SlackThreadHandler(context, RunFooter(model="claude-opus-5"))
+
+    @parameterized.expand([("with_footer", True), ("without_footer", False)])
+    @patch.object(SlackThreadHandler, "_get_integration")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_the_answer_always_carries_a_markdown_block(
+        self, _name: str, with_footer: bool, mock_get_client, mock_get_integration
+    ) -> None:
+        # A plain-text message renders mrkdwn on its own, which is why a footerless answer
+        # used to carry no blocks. Markdown has no such equivalent, so without the block
+        # Slack shows the source and `## Heading` reaches the reader as literal text.
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        mock_get_integration.return_value = Integration(id=7, config={"app_id": "A1"}, integration_id="T1")
+
+        self._handler().post_thread_message("## Heading\n\n**bold**", with_footer=with_footer, markdown=True)
+
+        blocks = mock_client.chat_postMessage.call_args.kwargs["blocks"]
+        assert blocks[0] == {"type": "markdown", "text": "## Heading\n\n**bold**"}
+
+    @patch("products.slack_app.backend.slack_thread.is_slack_app_forking_enabled", return_value=True)
+    @patch.object(SlackThreadHandler, "_get_integration")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_the_menu_gets_its_own_block_because_markdown_takes_no_accessory(
+        self, mock_get_client, mock_get_integration, _forking
+    ) -> None:
+        # Slack rejects the whole message when a block carries a field it does not define,
+        # so an accessory left on the answer would cost the reader the answer itself.
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        mock_get_integration.return_value = Integration(id=7, config={"app_id": "A1"}, integration_id="T1")
+
+        self._handler().post_thread_message("the answer", with_footer=True, markdown=True)
+
+        blocks = mock_client.chat_postMessage.call_args.kwargs["blocks"]
+        assert [block["type"] for block in blocks] == ["markdown", "context", "actions"]
+        assert "accessory" not in blocks[0]
+
+    @patch.object(SlackThreadHandler, "_get_integration")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_an_answer_past_the_block_cap_posts_in_full_as_plain_text(
+        self, mock_get_client, mock_get_integration
+    ) -> None:
+        # A markdown block Slack would reject for its length must cost the answer its
+        # formatting, never any of its content.
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        mock_get_integration.return_value = Integration(id=7, config={"app_id": "A1"}, integration_id="T1")
+        text = "x" * (SLACK_MARKDOWN_TEXT_MAX_LEN + 1)
+
+        self._handler().post_thread_message(text, with_footer=True, markdown=True)
+
+        kwargs = mock_client.chat_postMessage.call_args.kwargs
+        assert kwargs["text"] == text
+        assert not kwargs.get("blocks")
+
+    @parameterized.expand([("invalid_blocks",), ("invalid_blocks_format",)])
+    @patch.object(SlackThreadHandler, "_get_integration")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_a_rejected_markdown_block_falls_back_to_plain_text_without_looping(
+        self, error_code: str, mock_get_client, mock_get_integration
+    ) -> None:
+        # Every answer carries a block, and the relay has already claimed the message, so a
+        # rejection code this branch does not know loses the answer for good.
+        # Recovering by calling post_thread_message again would rebuild the same markdown
+        # block, so a rejection Slack repeats would recurse until the stack ran out.
+        mock_client = MagicMock()
+        mock_client.chat_postMessage.side_effect = SlackApiError(error_code, {"error": error_code})
+        mock_get_client.return_value = mock_client
+        mock_get_integration.return_value = Integration(id=7, config={"app_id": "A1"}, integration_id="T1")
+
+        self._handler().post_thread_message("the answer", with_footer=True, markdown=True)
+
+        assert mock_client.chat_postMessage.call_count == 2
+        retry = mock_client.chat_postMessage.call_args_list[1].kwargs
+        assert retry["text"] == "the answer"
+        assert not retry.get("blocks")

@@ -1,4 +1,4 @@
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from datetime import timedelta
 from typing import Any, Literal, TypedDict, cast
 from uuid import UUID
@@ -17,9 +17,14 @@ from posthog.scopes import (
     INTERNAL_API_SCOPE_OBJECTS,
     MCP_BUILT_IN_AGENT_SCOPE,
     OAUTH_HIDDEN_SCOPE_OBJECTS,
+    SLACK_RUN_SCOPE,
     resolve_ceiling,
 )
 from posthog.utils import get_instance_region
+
+from products.security.backend.facade.api import shadow_check as security_shadow_check
+from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
+from products.security.backend.facade.enums import Surface as SecuritySurface
 
 logger = structlog.get_logger(__name__)
 
@@ -157,6 +162,7 @@ SCOUT_REPORT_SCOPES: list[str] = [
 ]
 
 LOOP_CONTEXT_INTERNAL_SCOPE = "loop_context_internal:write"
+CONTEXT_LAYER_INTERNAL_SCOPE = "context_layer_internal:write"
 
 
 # A deliberately narrow set of user-facing WRITE scopes granted to the Signals scout
@@ -205,7 +211,9 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 #                          An update can also move an organization annotation to the scout's team.
 #   alert:write            Every insight alert in the scout's project. Delete is PERMANENT: the
 #                          viewset has no soft-delete, so it removes the alert and its check
-#                          history for good.
+#                          history for good. It also attaches and removes the alert's Slack
+#                          destinations, bounded to workspaces the project already connected, so a
+#                          scout still reaches no URL of its own choosing.
 #   llm_skill:write        Every shared skill on the scout's project: body, description, and
 #                          bundled files. Custom scouts are skills in that same store, so this
 #                          reaches a sibling scout's prompt and the scout's own. Archive marks
@@ -224,6 +232,20 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 #                          recoverable soft-delete that refuses a table a source owns. Deleting
 #                          a data quality check is the one PERMANENT delete in this set, and a
 #                          check is cheap to recreate.
+#   replay_scanner:write   Every Replay vision scanner in the scout's project, plus the prompt
+#                          suggestion loop and the shared rating on observations. Scanning spends
+#                          the organization's credits, and delete is PERMANENT (it takes the
+#                          scanner's observations with it), so this scope alone misses the bar the
+#                          others meet. One scope object covers the whole surface, so the two
+#                          exclusions live in `products/replay_vision/backend/scout_writes.py`
+#                          instead: a scout cannot delete, and must cap what it creates or enables.
+#   hog_flow_proposal:write
+#                          Queue a suggested change on a workflow whose owner opted in, for a
+#                          person to approve or reject. Deliberately not `hog_flow:write`, which
+#                          also publishes, updates and test-sends a workflow: this scope can put
+#                          nothing in front of anyone. Creates only; a suggestion is resolved by
+#                          a person. The workflows scout declares it in its SKILL.md
+#                          (`scout-write-scopes`), so no other scout holds it unless granted.
 #
 # `annotation:write` and `alert:write` exceed the "recoverable, project-scoped" bar the other
 # scopes meet. They stay in the v1 set that #94263 puts to the team, because narrowing the set is
@@ -231,6 +253,13 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 # reaches, or drop the scopes. `llm_skill:write` carries the same kind of open question: a scout
 # holding it can rewrite the skill body it runs from. That is accepted while the grant is a
 # deliberate per-scout choice a person makes, and the surfaces that offer it say so.
+# Grantable although INTERNAL, which normally means "never on a token a person can obtain". A scout
+# token is minted server-side from this allowlist and never through the consent flow, and the MCP
+# server gates each tool on the token's own scopes rather than on what OAuth advertises, so the grant
+# still reaches the run. Listed explicitly so a typo or a genuinely unreachable scope still fails
+# `test_grantable_write_scopes_are_mcp_write_scopes`.
+SCOUT_GRANTABLE_INTERNAL_SCOPES: frozenset[str] = frozenset({"hog_flow_proposal:write"})
+
 SCOUT_GRANTABLE_WRITE_SCOPES: frozenset[str] = frozenset(
     {
         "dashboard:write",
@@ -240,6 +269,8 @@ SCOUT_GRANTABLE_WRITE_SCOPES: frozenset[str] = frozenset(
         "llm_skill:write",
         "warehouse_view:write",
         "warehouse_table:write",
+        "replay_scanner:write",
+        "hog_flow_proposal:write",
     }
 )
 
@@ -247,7 +278,7 @@ SCOUT_GRANTABLE_WRITE_SCOPES: frozenset[str] = frozenset(
 # Derived from posthog.scopes so the token issued to a sandboxed agent cannot
 # drift out of subset of what the MCP server advertises in
 # `services/mcp/src/lib/oauth-scopes.generated.ts` (itself generated from
-# `get_oauth_scopes_supported()` via `bin/build-mcp-oauth-scopes.py`). Scopes
+# `get_oauth_scopes_supported()` via `posthog/scopes_projection.py`). Scopes
 # already covered by INTERNAL_SCOPES are excluded so resolve_scopes() doesn't
 # emit duplicates.
 def _build_mcp_scopes(action: Literal["read", "write"]) -> list[str]:
@@ -422,6 +453,8 @@ def resolve_scopes(
             resolved = [*MCP_READ_SCOPES, *internal]
     else:
         resolved = [*scopes, *internal]
+    if include_internal_scopes and "organization:write" in resolved:
+        resolved.append(CONTEXT_LAYER_INTERNAL_SCOPE)
     return list(dict.fromkeys(resolved))
 
 
@@ -563,10 +596,16 @@ def create_oauth_access_token_for_user(
     include_internal_scopes: bool = True,
     include_mcp_builtin_agent_scope: bool = False,
     include_interactive_run_scope: bool = False,
+    include_slack_run_scope: bool = False,
     application: SandboxOAuthApplication = "array",
     sandbox_task_id: UUID | None = None,
+    withhold_scopes: Collection[str] = (),
 ) -> str:
-    resolved = resolve_scopes(scopes, include_internal_scopes=include_internal_scopes)
+    resolved = [
+        scope
+        for scope in resolve_scopes(scopes, include_internal_scopes=include_internal_scopes)
+        if scope not in withhold_scopes
+    ]
     if include_mcp_builtin_agent_scope:
         # Provenance marker: the MCP Store uses it to deny the human/member
         # surface and route the agent through its explicit gateway grants. It
@@ -576,6 +615,8 @@ def create_oauth_access_token_for_user(
         # Provenance marker only — it grants no access. The LLM gateway meters a run
         # carrying it against the interactive budget instead of the pipeline's.
         resolved.append(INTERACTIVE_RUN_SCOPE)
+    if include_slack_run_scope:
+        resolved.append(SLACK_RUN_SCOPE)
     app = get_sandbox_oauth_app(application)
     return _mint_oauth_access_token(user, team_id, app=app, scopes=list(resolved), sandbox_task_id=sandbox_task_id)
 
@@ -608,15 +649,29 @@ def create_wizard_oauth_access_token_for_user(user, team_id: int) -> str:
     Gated here rather than only at the HTTP kickoff, which a workflow retry or
     resume reaches with no request in front of it.
     """
+    organization_id = _organization_id_for_team(team_id)
     if wizard_identity_blocked(
         distinct_id=str(user.distinct_id),
         email=user.email,
         surface="wizard_mint",
         user_uuid=str(user.uuid),
-        organization_ids=[_organization_id_for_team(team_id)],
+        organization_ids=[organization_id],
         team_ids=[team_id],
     ):
         raise WizardIdentityBlockedError(WIZARD_BLOCKED_DETAIL)
+
+    try:
+        security_shadow_check(
+            SecuritySubject(
+                email=user.email,
+                user_uuid=str(user.uuid),
+                organization_ids=(organization_id,),
+            ),
+            SecuritySurface.AI_GATEWAY,
+            call_site="wizard_mint",
+        )
+    except Exception:
+        logger.exception("security_shadow_check_site_failed", call_site="wizard_mint")
 
     app = get_wizard_app()
 

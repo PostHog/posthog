@@ -1,18 +1,64 @@
 from typing import TYPE_CHECKING
 
 from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.repo_routing_rule import RepoRoutingRule
 
-from products.slack_app.backend.services.slack_messages import post_slack_ephemeral
+from products.slack_app.backend.services.slack_messages import app_home_url, post_slack_ephemeral
 
 if TYPE_CHECKING:
     from products.slack_app.backend.api import RulesCommand
+    from products.slack_app.backend.models import ChannelWelcomeMode
     from products.slack_app.backend.services.integration_resolver import ResolutionResult
 
 MENTION_COMMAND_PREFIX = "@PostHog"
+SLASH_COMMAND_PREFIX = "/posthog"
 
-MENTION_HELP_REDIRECT = (
-    "Run `/posthog help` to see the available commands. To start a task, mention me with a description of the work."
-)
+# `help` and the retired `default repo` verbs have no entry, so they fall back to the listing.
+_SLASH_EQUIVALENT = {
+    "list": "rules list",
+    "add": 'rules add "description" org/repo',
+    "remove": "rules remove <number>",
+    "project_show": "project",
+    "project_set": "project <id>",
+    "project_set_workspace": "project workspace <id>",
+    "welcome_show": "welcome",
+    "welcome_set": "welcome channel|private|off",
+}
+
+
+def mention_command_redirect(command: "RulesCommand") -> str:
+    """The reply to a mention that reads as a command. Only the slash surface runs commands."""
+    return (
+        f"Commands have moved. Run `{SLASH_COMMAND_PREFIX} {_SLASH_EQUIVALENT.get(command.action, 'help')}` instead.\n"
+        "To start a task, mention me with a description of the work."
+    )
+
+
+def rule_text_too_long_message(rule_text: str) -> str:
+    return (
+        f"Rule not added: it is {len(rule_text)} characters and the limit is "
+        f"{RepoRoutingRule.MAX_RULE_TEXT_LENGTH}. Shorten it and try again."
+    )
+
+
+def rules_limit_reached_message() -> str:
+    return (
+        f"Rule not added: this project already has {RepoRoutingRule.MAX_RULES_PER_TEAM} rules, "
+        "the maximum. Remove one with `rules remove <number>`, then try again."
+    )
+
+
+def reject_invalid_rule_text(team_id: int, rule_text: str) -> str | None:
+    """The Slack reply refusing this rule, or None when it can be stored.
+
+    The single gate for both add paths (inline repo and picker), so no path can store a
+    rule the prompt renderers would truncate or drop.
+    """
+    if len(rule_text) > RepoRoutingRule.MAX_RULE_TEXT_LENGTH:
+        return rule_text_too_long_message(rule_text)
+    if RepoRoutingRule.objects.filter(team_id=team_id).count() >= RepoRoutingRule.MAX_RULES_PER_TEAM:
+        return rules_limit_reached_message()
+    return None
 
 
 def _handle_help(
@@ -24,10 +70,9 @@ def _handle_help(
     *,
     command_prefix: str,
 ) -> None:
-    """Post the command listing. Only the slash surface reaches this; see ``dispatch_rules_command``."""
     from products.slack_app.backend.services.slack_user_info import is_slack_workspace_admin
 
-    # Task creation and thread follow-ups have no slash equivalent, but this listing is the only
+    # Task creation and thread follow-ups stay on the mention surface, and this listing is the only
     # help a user can reach, so it documents them under the mention prefix they actually type.
     lines = [
         "*Available commands:*\n",
@@ -40,10 +85,16 @@ def _handle_help(
         f"`{command_prefix} project <id>` — Set the PostHog project your mentions route to in this workspace",
     ]
 
-    # The workspace-wide default is admins/owners-only, so only surface it to them.
+    lines.append(f"`{command_prefix} welcome` — Show where my welcome message goes when someone adds me to a channel")
+
+    # Workspace-wide settings are admins/owners-only, so only surface them to them.
     if is_slack_workspace_admin(slack, integration, slack_user_id):
         lines.append(
             f"`{command_prefix} project workspace <id>` — Set the workspace-wide default project (Slack admins/owners only)"
+        )
+        lines.append(
+            f"`{command_prefix} welcome channel|private|off` — Post the welcome to the channel, show it only to the "
+            "person who added me, or turn it off (Slack admins/owners only)"
         )
 
     lines.append(f"`{command_prefix} help` — Show this message\n")
@@ -65,7 +116,7 @@ def _handle_rules_list(
     thread_ts: str,
     *,
     slack_user_id: str,
-    command_prefix: str = MENTION_COMMAND_PREFIX,
+    command_prefix: str,
 ) -> None:
     from posthog.models.repo_routing_rule import RepoRoutingRule
 
@@ -104,9 +155,18 @@ def _handle_rules_add(
     *,
     slack_user_id: str,
 ) -> None:
-    from posthog.models.repo_routing_rule import RepoRoutingRule
-
     from products.slack_app.backend.api import _extract_explicit_repo, _get_full_repo_names
+
+    rejection = reject_invalid_rule_text(integration.team_id, rule_text)
+    if rejection:
+        post_slack_ephemeral(
+            slack.client,
+            channel=channel,
+            user=slack_user_id,
+            thread_ts=thread_ts,
+            text=rejection,
+        )
+        return
 
     all_repos = _get_full_repo_names(integration, user_id=user_id)
     if not all_repos:
@@ -161,7 +221,7 @@ def _handle_rules_remove(
     rule_numbers: list[int] | None,
     *,
     slack_user_id: str,
-    command_prefix: str = MENTION_COMMAND_PREFIX,
+    command_prefix: str,
 ) -> None:
     from posthog.models.repo_routing_rule import RepoRoutingRule
 
@@ -213,13 +273,13 @@ def _handle_project_show(
     user_id: int,
     workspace_candidates: list[Integration] | None = None,
     *,
-    command_prefix: str = MENTION_COMMAND_PREFIX,
+    command_prefix: str,
 ) -> None:
     from posthog.models.user import User
 
     from products.slack_app.backend.services.integration_resolver import (
-        format_project_candidate_list,
         load_integrations,
+        pick_a_project_message,
         resolve_from_candidates,
     )
 
@@ -264,17 +324,16 @@ def _handle_project_show(
         )
         return
 
-    lines = format_project_candidate_list(result.candidates)
     post_slack_ephemeral(
         slack.client,
         channel=channel,
         user=slack_user_id,
         thread_ts=thread_ts,
-        text=(
-            "You haven't set a default project for this Slack workspace yet. Available PostHog "
-            "projects you can pick:\n"
-            f"{lines}\n\n"
-            f"Set one with `{command_prefix} project <id>`."
+        text=pick_a_project_message(
+            "You haven't set a default project for this Slack workspace yet. You can pick from:",
+            result.candidates,
+            set_command=command_prefix,
+            home_tab_url=app_home_url(slack.integration),
         ),
     )
 
@@ -355,7 +414,7 @@ def _handle_project_set_workspace(
     target_team_id: int,
     workspace_candidates: list[Integration] | None = None,
     *,
-    command_prefix: str = MENTION_COMMAND_PREFIX,
+    command_prefix: str,
 ) -> None:
     """Set the workspace-wide default project (the ``slack_user_id IS NULL`` row),
     which applies to every Slack user in the workspace without a personal default.
@@ -427,6 +486,70 @@ def _handle_project_set_workspace(
     )
 
 
+CHANNEL_WELCOME_MODE_DESCRIPTIONS: dict[str, str] = {
+    "channel": "When someone adds me to a channel, I post a welcome message that everyone in the channel sees.",
+    "inviter": "When someone adds me to a channel, I show a welcome message only to that person.",
+    "off": "When someone adds me to a channel, I don't send a welcome message.",
+}
+
+
+def _handle_welcome_show(
+    slack: SlackIntegration,
+    channel: str,
+    thread_ts: str,
+    slack_user_id: str,
+    slack_workspace_id: str,
+    *,
+    command_prefix: str,
+) -> None:
+    from products.slack_app.backend.services.slack_settings import resolve_channel_welcome_mode
+
+    mode = resolve_channel_welcome_mode(slack_workspace_id)
+    post_slack_ephemeral(
+        slack.client,
+        channel=channel,
+        user=slack_user_id,
+        thread_ts=thread_ts,
+        text=(
+            f"{CHANNEL_WELCOME_MODE_DESCRIPTIONS[mode.value]}\n"
+            f"Slack workspace admins can change this with `{command_prefix} welcome channel`, "
+            f"`{command_prefix} welcome private`, or `{command_prefix} welcome off`."
+        ),
+    )
+
+
+def _handle_welcome_set(
+    slack: SlackIntegration,
+    integration: Integration,
+    channel: str,
+    thread_ts: str,
+    slack_user_id: str,
+    slack_workspace_id: str,
+    mode: "ChannelWelcomeMode",
+) -> None:
+    from products.slack_app.backend.services.slack_settings import set_channel_welcome_mode
+    from products.slack_app.backend.services.slack_user_info import is_slack_workspace_admin
+
+    if not is_slack_workspace_admin(slack, integration, slack_user_id):
+        post_slack_ephemeral(
+            slack.client,
+            channel=channel,
+            user=slack_user_id,
+            thread_ts=thread_ts,
+            text="Only Slack workspace admins or owners can change the channel welcome message.",
+        )
+        return
+
+    set_channel_welcome_mode(slack_workspace_id, mode)
+    post_slack_ephemeral(
+        slack.client,
+        channel=channel,
+        user=slack_user_id,
+        thread_ts=thread_ts,
+        text=f"Done. {CHANNEL_WELCOME_MODE_DESCRIPTIONS[mode.value]}",
+    )
+
+
 def resolve_command_target(
     *,
     slack_team_id: str,
@@ -459,9 +582,17 @@ def resolve_command_target(
         return [], ResolutionResult(integration=None, source="needs_picker", candidates=[])
 
     # Workspace-level commands don't act on team data: ``help`` posts static
-    # text, and ``project_*`` commands enforce access inside the handler. They
+    # text, ``welcome_*`` commands store a workspace setting, and ``project_*``
+    # and ``welcome_set`` enforce access inside the handler. They
     # run against any workspace integration as a probe.
-    if command.action in ("project_show", "project_set", "project_set_workspace", "help"):
+    if command.action in (
+        "project_show",
+        "project_set",
+        "project_set_workspace",
+        "welcome_show",
+        "welcome_set",
+        "help",
+    ):
         return candidates, ResolutionResult(integration=candidates[0], source="sole_candidate", candidates=candidates)
 
     # Team-scoped commands (``list``/``add``/``remove``) must go through the
@@ -490,7 +621,7 @@ def dispatch_rules_command(
     slack_workspace_id: str,
     user_id: int,
     workspace_candidates: list[Integration] | None = None,
-    command_prefix: str = MENTION_COMMAND_PREFIX,
+    command_prefix: str,
 ) -> None:
     """Run the right handler for a parsed ``RulesCommand``. Assumes the caller has
     already resolved a single ``integration`` to act on; project commands also
@@ -500,24 +631,29 @@ def dispatch_rules_command(
     repo" reply. The mention workflow's picker flow must catch that case
     *before* calling this dispatcher.
 
-    ``command_prefix`` is the entry-point token surfaced in user-facing help and
-    error strings — ``@PostHog`` for mentions, ``/posthog`` for the slash command
-    surface. Defaults preserve the mention copy for existing callers.
+    ``command_prefix`` is the entry-point token surfaced in user-facing help and error strings. It
+    is the slash command as the workspace invoked it, which a workspace is free to rename, so it is
+    read from the payload rather than assumed to be ``/posthog``.
 
     Commands configure the app rather than produce work: routing rules, project
     defaults, the help listing. The answer concerns whoever ran the command, so
-    every reply below goes out ephemerally, on both surfaces.
+    every reply below goes out ephemerally.
     """
+    from posthog.models.user import User
+
+    from products.slack_app.backend.analytics import capture_slack_event
+
+    capture_slack_event(
+        integration,
+        "slack app command used",
+        slack_user_id=slack_user_id,
+        posthog_user=User.objects.filter(id=user_id).first(),
+        action=command.action,
+        source="slash_command",
+    )
+
     if command.action == "help":
-        # The slash command owns the listing, so a mention only points at it. Answering here
-        # rather than inside the handler keeps the Slack users.info call the listing needs off
-        # the mention path entirely.
-        if command_prefix == MENTION_COMMAND_PREFIX:
-            post_slack_ephemeral(
-                slack.client, channel=channel, user=slack_user_id, thread_ts=thread_ts, text=MENTION_HELP_REDIRECT
-            )
-        else:
-            _handle_help(slack, integration, channel, thread_ts, slack_user_id, command_prefix=command_prefix)
+        _handle_help(slack, integration, channel, thread_ts, slack_user_id, command_prefix=command_prefix)
     elif command.action == "list":
         _handle_rules_list(
             slack,
@@ -595,4 +731,25 @@ def dispatch_rules_command(
             command.project_team_id,
             workspace_candidates=workspace_candidates,
             command_prefix=command_prefix,
+        )
+    elif command.action == "welcome_show":
+        _handle_welcome_show(
+            slack,
+            channel,
+            thread_ts,
+            slack_user_id,
+            slack_workspace_id,
+            command_prefix=command_prefix,
+        )
+    elif command.action == "welcome_set":
+        if command.welcome_mode is None:
+            return
+        _handle_welcome_set(
+            slack,
+            integration,
+            channel,
+            thread_ts,
+            slack_user_id,
+            slack_workspace_id,
+            command.welcome_mode,
         )

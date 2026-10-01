@@ -1,12 +1,22 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import { HttpResponse } from 'msw'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { sessionRecordingsPlaylistSceneLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistSceneLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { SessionRecordingType } from '~/types'
+
+jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
+    lemonToast: {
+        error: jest.fn(),
+        success: jest.fn(),
+    },
+}))
 
 describe('sessionRecordingsPlaylistSceneLogic', () => {
     let logic: ReturnType<typeof sessionRecordingsPlaylistSceneLogic.build>
@@ -92,6 +102,24 @@ describe('sessionRecordingsPlaylistSceneLogic', () => {
 
             await expectLogic(logic).toDispatchActions(['getPlaylistSuccess'])
             expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(urls.replayVision())
+        })
+    })
+
+    describe('pinning a recording', () => {
+        it('reports a pin request that fails without a status', async () => {
+            useMocks({
+                post: {
+                    '/api/projects/:team/session_recording_playlists/:id/recordings/:recordingId': () =>
+                        HttpResponse.error(),
+                },
+            })
+            logic.mount()
+
+            logic.actions.onPinnedChange({ id: 'rec_1' } as SessionRecordingType, true)
+
+            await expectLogic(logic).toDispatchActions(['onPinnedChangeFailure'])
+            expect(lemonToast.error).toHaveBeenCalledWith(expect.stringContaining('Failed to update collection'))
+            expect(logic.values.pinnedRecordings).toBeNull()
         })
     })
 

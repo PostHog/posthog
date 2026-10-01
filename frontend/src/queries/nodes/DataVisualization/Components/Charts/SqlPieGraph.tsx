@@ -7,7 +7,10 @@ import type { ChartLegendConfig, PieChartConfig, TooltipContext } from '@posthog
 import { useChartTheme } from 'lib/charts/hooks'
 import { useChartLegendSeriesMenu } from 'lib/components/ChartLegendSeriesMenu/useChartLegendSeriesMenu'
 
+import { ChartDisplayType } from '~/types'
+
 import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
+import { DonutCenterLabel } from 'products/product_analytics/frontend/insights/trends/TrendsPieChart/DonutCenterLabel'
 
 import { SqlChartProps } from './SqlChart'
 import { formatSqlSeriesValue } from './sqlLineGraphAdapter'
@@ -18,17 +21,19 @@ const handleChartError = makeChartErrorHandler('sql-pie-chart')
 /**
  * SQL pie graph on @posthog/quill-charts' {@link PieChart}. The chart core and the legend are
  * quill's; the aggregation total stays here as chrome. The legend is driven from here rather than
- * through `config.legend` so the total sits in the layout's chart slot, centered under the pie
+ * through `config.legend` so a pie total sits in the layout's chart slot, centered under the pie
  * instead of under the pie-plus-legend pair.
  */
 export const SqlPieGraph = ({
     xData,
     yData,
+    visualizationType,
     chartSettings,
     presetChartHeight,
     className,
 }: SqlChartProps): JSX.Element => {
     const theme = useChartTheme()
+    const isDonut = visualizationType === ChartDisplayType.ActionsDonut
 
     const slices = useMemo(() => buildPieSlices(xData, yData), [xData, yData])
     const formattingSettings = yData[0]?.settings
@@ -76,7 +81,7 @@ export const SqlPieGraph = ({
     const { visibleSeries, legendProps } = useChartLegend(series, theme, legendConfig)
 
     // `isPercent` makes the chart render on-slice values and tooltips as a share of the total; the
-    // total below the chart keeps using the raw value formatter.
+    // total keeps using the raw value formatter.
     // Labels sit toward the rim (on the wider part of each wedge) and skip slices under 10% so a
     // long tail of thin slices doesn't pile labels up at the center.
     const pieConfig: PieChartConfig = useMemo(
@@ -86,8 +91,9 @@ export const SqlPieGraph = ({
             isPercent: asPercent,
             labelRadiusRatio: 0.72,
             minSlicePercentForLabel: 0.1,
+            innerRadiusRatio: isDonut ? 0.6 : undefined,
         }),
-        [sliceContent, asPercent]
+        [sliceContent, asPercent, isDonut]
     )
 
     const renderTooltip = useCallback(
@@ -119,14 +125,18 @@ export const SqlPieGraph = ({
         )
     }
 
-    const totalDisplay = showPieTotal ? (
-        <div className="pt-4 text-center shrink-0">
-            <div className="text-5xl font-bold">{absoluteFormatter(total)}</div>
-        </div>
-    ) : null
+    const centerLabel =
+        isDonut && showPieTotal ? <DonutCenterLabel>{absoluteFormatter(total)}</DonutCenterLabel> : undefined
 
-    // A side legend narrows the chart column, so the total belongs inside it to stay centered under
-    // the pie. A top/bottom legend leaves the column full-width, and the total goes below both.
+    const totalDisplay =
+        !isDonut && showPieTotal ? (
+            <div className="pt-4 text-center shrink-0">
+                <div className="text-5xl font-bold">{absoluteFormatter(total)}</div>
+            </div>
+        ) : null
+
+    // For pies, a side legend narrows the chart column, so the total belongs inside it to stay
+    // centered under the pie. A top/bottom legend leaves the column full-width, and the total goes below both.
     const legendAtSide = legendProps.show && (legendProps.position === 'left' || legendProps.position === 'right')
 
     return (
@@ -138,7 +148,7 @@ export const SqlPieGraph = ({
         >
             <ChartLegend {...legendProps} legendDataAttr="hog-chart-pie-legend">
                 {/* min-h-0, not a fixed floor: in a short panel the pie has to shrink, or its box
-                    runs over the legend and the total below it. */}
+                    runs over the legend and the pie total below it. */}
                 <div className="flex flex-col flex-1 min-h-0">
                     <PieChart
                         series={visibleSeries}
@@ -146,6 +156,7 @@ export const SqlPieGraph = ({
                         config={pieConfig}
                         tooltip={renderTooltip}
                         valueFormatter={absoluteFormatter}
+                        centerLabel={centerLabel}
                         dataAttr="sql-pie-chart"
                         onError={handleChartError}
                     />

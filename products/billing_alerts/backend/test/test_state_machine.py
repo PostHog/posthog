@@ -2,7 +2,7 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
 
-from products.alerts.backend.state_machine import AlertSnapshot, AlertState, NotificationAction
+from products.alerts.backend.facade.lifecycle import AlertSnapshot, AlertState, NotificationAction
 from products.billing_alerts.backend.logic.evaluator import BillingAlertEvaluation
 from products.billing_alerts.backend.logic.state_machine import (
     apply_outcome,

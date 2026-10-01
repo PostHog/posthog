@@ -27,11 +27,11 @@ from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.utils import action, log_activity_from_viewset
-from posthog.cdp.internal_events import is_managed_alert_internal_event
+from posthog.cdp.filters import DATA_WAREHOUSE_SOURCES
+from posthog.cdp.internal_events import is_managed_alert_internal_event, is_reserved_internal_event
 from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.cdp.validation import (
-    DATA_WAREHOUSE_SOURCES,
     HogFunctionFiltersSerializer,
     InputsSchemaItemSerializer,
     InputsSerializer,
@@ -200,18 +200,20 @@ def _without(value: Any, keys: tuple[str, ...]) -> Any:
 def _inputs_without_derived(inputs: Any) -> Any:
     if not isinstance(inputs, dict):
         return inputs
-    return {key: _without(value, ("bytecode", "transpiled", "order")) for key, value in inputs.items()}
+    return {
+        key: _without(value, ("bytecode", "bytecode_contract", "transpiled", "order")) for key, value in inputs.items()
+    }
 
 
 def comparable_content(content: dict) -> dict:
     """A config snapshot with the values validation derives from it dropped: filter and input
-    bytecode, transpiled JS, input ordering.
+    bytecode, the runtime stamp beside it, transpiled JS, input ordering.
 
     A background re-save can change those on its own without the config changing at all — most often
     `refresh_affected_hog_functions` recompiling filter bytecode after an action or cohort edit — so
     comparing them would version a plain rename.
     """
-    filter_derived = ("bytecode", "bytecode_error", "transpiled")
+    filter_derived = ("bytecode", "bytecode_error", "bytecode_contract", "transpiled")
     mappings = content.get("mappings")
     return {
         **content,
@@ -594,18 +596,27 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
         return super().to_internal_value(data)
 
-    def validate_type(self, value):
-        if value == HogFunctionType.WAREHOUSE_SOURCE_WEBHOOK.value:
-            raise serializers.ValidationError(
-                "Cannot create or modify warehouse source webhook functions via this API."
-            )
+    # A legacy destination is only ever written by the plugin config migration. One created here would
+    # supersede the plugin config it shares a template with, silently replacing it.
+    UNCREATABLE_TYPE_ERRORS = {
+        HogFunctionType.WAREHOUSE_SOURCE_WEBHOOK.value: "Cannot create or modify warehouse source webhook functions via this API.",
+        HogFunctionType.LEGACY_DESTINATION.value: "Cannot create legacy destination functions via this API.",
+    }
+    # A migrated legacy destination stays editable, so a person can disable one that misbehaves
+    UNEDITABLE_TYPES = {HogFunctionType.WAREHOUSE_SOURCE_WEBHOOK.value}
 
-        # Ensure it is only set when creating a new function
-        if self.context.get("view") and self.context["view"].action == "create":
+    def validate_type(self, value):
+        is_create = bool(self.context.get("view")) and self.context["view"].action == "create"
+        instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
+        changing_type = instance is not None and instance.type != value
+
+        if value in self.UNCREATABLE_TYPE_ERRORS and (is_create or changing_type or value in self.UNEDITABLE_TYPES):
+            raise serializers.ValidationError(self.UNCREATABLE_TYPE_ERRORS[value])
+
+        if is_create:
             return value
 
-        instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
-        if instance and instance.type != value:
+        if changing_type:
             raise serializers.ValidationError("Cannot modify the type of an existing function")
         return value
 
@@ -634,6 +645,19 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 raise serializers.ValidationError(
                     {"filters": "Alert notification destinations are managed through the alert API."}
                 )
+
+        proposed_filters = attrs.get("filters", self.instance.filters if isinstance(self.instance, HogFunction) else {})
+        reserved = sorted(
+            {
+                event_filter["id"]
+                for event_filter in (proposed_filters or {}).get("events", [])
+                if isinstance(event_filter, dict) and is_reserved_internal_event(event_filter.get("id"))
+            }
+        )
+        if reserved:
+            raise serializers.ValidationError(
+                {"filters": f"{', '.join(reserved)} is reserved for the product that emits it."}
+            )
 
         self._validate_hidden_template_not_enabled(attrs, bool(is_create))
 
@@ -702,12 +726,14 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             if hog_type in TYPES_WITH_JAVASCRIPT_SOURCE:
                 try:
                     # Validate transpilation using the model instance
+                    instance = self.instance if isinstance(self.instance, HogFunction) else None
                     attrs["transpiled"] = get_transpiled_function(
                         HogFunction(
                             team=team,
                             hog=attrs["hog"],
                             filters=attrs["filters"],
                             inputs=attrs["inputs"],
+                            inputs_schema=attrs.get("inputs_schema", instance.inputs_schema if instance else None),
                         )
                     )
                 except TranspilerError:
@@ -766,8 +792,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         return {**draft, "inputs": inputs}
 
     def create(self, validated_data: dict, *args, **kwargs) -> HogFunction:
-        request = self.context["request"]
-        validated_data["created_by"] = request.user
+        # An in-process caller has no request to take the acting user from, so it passes
+        # `created_by` to `save()` instead.
+        validated_data["created_by"] = validated_data.get("created_by") or self.context["request"].user
 
         template_id = validated_data.get("template_id")
         if template_id:

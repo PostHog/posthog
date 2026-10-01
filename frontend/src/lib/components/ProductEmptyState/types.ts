@@ -1,6 +1,7 @@
 import type { LogicWrapper } from 'kea'
-import type { ComponentType, CSSProperties, ReactNode } from 'react'
+import type { ComponentType, ReactNode } from 'react'
 
+import type { HoggiePngProps } from 'lib/brand/hoggies'
 import type { RestrictionScope } from 'lib/components/RestrictedArea'
 import type { FeatureFlagKey, TeamMembershipLevel } from 'lib/constants'
 
@@ -113,11 +114,12 @@ export interface ProductEmptyStateConfig {
     /** Dark-mode accent override; falls back to `accentColor` */
     accentColorDark?: string
     /** A `pngHoggie(...)`-wrapped hedgehog, rendered above the product name */
-    hedgehog?: ComponentType<{ className?: string; style?: CSSProperties }>
+    hedgehog?: ComponentType<Pick<HoggiePngProps, 'className' | 'style' | 'loading'>>
     /**
      * Where the hedgehog sits: `above` (default) is a small illustration above the
      * product name; `beside` renders it large next to the text and install command,
-     * for wide scene-setting illustrations.
+     * for wide scene-setting illustrations. `beside` needs a wide scene to work in,
+     * so on a narrower one it falls back to `above` rather than squeezing the copy.
      */
     hedgehogPlacement?: 'above' | 'beside'
     text: ProductEmptyStateTextByMode
@@ -140,6 +142,8 @@ export interface ProductEmptyStateConfig {
      * stays the hero and this renders under the "or" divider.
      */
     PrimaryAction?: ComponentType
+    /** Product-specific installation options below the primary setup action. */
+    SetupActions?: ComponentType<{ mode: ProductEmptyStateMode; preview: boolean }>
     docsUrl?: string
     /** Target of the small "Or configure manually" link; falls back to `docsUrl` */
     manualSetupUrl?: string
@@ -155,11 +159,28 @@ export interface ProductEmptyStateConfig {
      * has nothing to reveal and the primary action is the only next step.
      */
     skippable?: boolean
+    /**
+     * Overrides applied while a feature flag is on, to roll out a change to this screen (a new
+     * wizard subcommand, a different call to action) without a second config. Each field
+     * replaces the base value, so `primaryAction: undefined` removes the action. `text` merges
+     * per mode, so a field left out keeps its base value. When several flags are on, later
+     * entries win.
+     */
+    featureFlagOverrides?: Partial<Record<FeatureFlagKey, ProductEmptyStateOverride>>
+}
+
+/** Per-mode text fields to replace; fields left out keep the base value. */
+export type ProductEmptyStateTextOverride = Partial<Record<ProductEmptyStateMode, Partial<ProductEmptyStateText>>>
+
+export type ProductEmptyStateOverride = Partial<
+    Omit<ProductEmptyStateConfig, 'productKey' | 'text' | 'featureFlagOverrides'>
+> & {
+    text?: ProductEmptyStateTextOverride
 }
 
 /**
  * Declared on a scene's `SceneExport` to opt into the app-shell empty-state gate.
- * Both fields live in the scene's lazy chunk, so heavy assets (hedgehog PNGs,
+ * These fields live in the scene's lazy chunk, so heavy assets (hedgehog PNGs,
  * preview widgets) never enter the eager graph.
  */
 export interface SceneProductEmptyState {
@@ -176,6 +197,7 @@ export interface SceneProductEmptyState {
      * roll the empty state out gradually.
      */
     featureFlag?: FeatureFlagKey
+    bypassFeatureFlag?: FeatureFlagKey
     /**
      * Only gate these surfaces, for a scene module that serves more than one. Omit to gate
      * every scene the module serves.
@@ -187,6 +209,12 @@ export interface SceneProductEmptyState {
      * a person may well configure before a first workflow exists.
      */
     scenes?: GatedScene[]
+    /**
+     * Rendered under the product header whenever the gate is up (setup screen or its spinner).
+     * The gate replaces the scene, so tab bars declared inside the scene never appear. Put
+     * sibling-tab nav here so those surfaces stay reachable before the product has data.
+     */
+    SceneNav?: ComponentType
 }
 
 /**

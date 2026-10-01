@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url'
 import { parse as parseYaml } from 'yaml'
 
 import { discoverDefinitions, isToolsConfig } from './lib/definitions.mjs'
+import { type ToolInputSchema, validateListAppToolCall } from './lib/validate-ui-app-tool-call'
 import { MCP_ROOT_DIR, ROOT_DIR } from './utils'
 import {
     type CategoryConfig,
@@ -121,6 +122,7 @@ function resolveCustomApp(raw: Extract<UiAppConfig, { type: 'custom' }>): Resolv
         type: 'custom',
         app_name: raw.app_name,
         description: raw.description,
+        ...(raw.resource_domains ? { resource_domains: raw.resource_domains } : {}),
         ...(raw.render_ui ? { render_ui: raw.render_ui } : {}),
     }
 }
@@ -340,6 +342,7 @@ interface RegistryEntry {
     uri: string
     name: string
     description: string
+    resourceDomains?: string[]
 }
 
 function toConstName(appKey: string): string {
@@ -360,7 +363,7 @@ function generateRegistry(entries: RegistryEntry[], dispatchableKeys: string[]):
     const appEntries = entries
         .map(
             (e) =>
-                `    {\n        name: '${e.name}',\n        uri: ${e.constName},\n        description: '${e.description}',\n        appDir: '${e.appDir}',\n    }`
+                `    {\n        name: '${e.name}',\n        uri: ${e.constName},\n        description: '${e.description}',\n        appDir: '${e.appDir}',${e.resourceDomains ? `\n        resourceDomains: ${JSON.stringify(e.resourceDomains)},` : ''}\n    }`
         )
         .join(',\n')
 
@@ -391,6 +394,7 @@ export const UI_APPS: Array<{
     uri: string
     description: string
     appDir: string
+    resourceDomains?: string[]
 }> = [
 ${appEntries},
 ]
@@ -400,6 +404,18 @@ ${appEntries},
 // ------------------------------------------------------------------
 // Main
 // ------------------------------------------------------------------
+
+const TOOL_SCHEMA_SNAPSHOTS_DIR = path.join(MCP_ROOT_DIR, 'tests', 'unit', '__snapshots__', 'tool-schemas')
+
+// The snapshot test writes one JSON schema per registered tool, so the generator
+// can read tool inputs without loading the server bundle.
+function readToolInputSchema(toolName: string): ToolInputSchema | undefined {
+    const snapshotPath = path.join(TOOL_SCHEMA_SNAPSHOTS_DIR, `${toolName}.json`)
+    if (!fs.existsSync(snapshotPath)) {
+        return undefined
+    }
+    return JSON.parse(fs.readFileSync(snapshotPath, 'utf-8'))
+}
 
 function main(): void {
     const definitionSources = discoverDefinitions({ definitionsDir: DEFINITIONS_DIR, productsDir: PRODUCTS_DIR })
@@ -473,6 +489,7 @@ function main(): void {
                     process.exit(1)
                 }
                 const resolved = resolveListApp(appKey, appConfig, componentImport!)
+                validateListAppToolCall(appKey, resolved, readToolInputSchema(resolved.detail_tool))
                 const code = generateListApp(appKey, resolved)
                 const outPath = path.join(GENERATED_APPS_DIR, `${appKey}.tsx`)
                 fs.writeFileSync(outPath, code)
@@ -505,6 +522,7 @@ function main(): void {
                     uri,
                     name: appConfig.app_name,
                     description: appConfig.description,
+                    resourceDomains: resolved.resource_domains,
                 })
             }
         }

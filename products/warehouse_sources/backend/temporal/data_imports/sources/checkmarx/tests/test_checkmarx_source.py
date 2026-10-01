@@ -34,6 +34,28 @@ class TestCheckmarxSource:
         assert schemas[endpoint].supports_incremental == supports_incremental
         assert schemas[endpoint].supports_append == supports_append
 
+    @pytest.mark.parametrize(
+        ("endpoint", "expected"),
+        [
+            # The scan fan-outs re-pull a window of recent scans, which the description has to say.
+            ("scan_results", "7-day overlap"),
+            # The other fan-outs have no watermark, so they must not claim incremental behaviour.
+            ("application_rules", "Fetched once per row in the applications table"),
+            ("sast_predicates_changelog", "Fetched once per row in the projects table"),
+        ],
+    )
+    def test_get_schemas_describes_how_fan_out_endpoints_are_fetched(self, endpoint: str, expected: str) -> None:
+        schemas = {schema.name: schema for schema in self.source.get_schemas(_make_config(), team_id=1)}
+
+        description = schemas[endpoint].description
+        assert description is not None
+        assert expected in description
+
+    def test_get_schemas_leaves_plain_endpoints_undescribed(self) -> None:
+        schemas = {schema.name: schema for schema in self.source.get_schemas(_make_config(), team_id=1)}
+
+        assert schemas["result_states"].description is None
+
     def test_get_schemas_filters_by_names(self) -> None:
         schemas = self.source.get_schemas(_make_config(), team_id=1, names=["scans", "projects"])
         assert {schema.name for schema in schemas} == {"scans", "projects"}

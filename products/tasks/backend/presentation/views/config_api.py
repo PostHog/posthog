@@ -5,14 +5,14 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import viewsets
-from rest_framework.authentication import SessionAuthentication
+from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.models.user import User
 from posthog.permissions import APIScopePermission, TeamMemberStrictManagementPermission
 
@@ -24,7 +24,11 @@ from products.tasks.backend.presentation.serializers import (
     TasksUserConfigResponseSerializer,
 )
 
-_AUTH_CLASSES = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+_AUTH_CLASSES: list[type[BaseAuthentication]] = [
+    SessionAuthentication,
+    PersonalAPIKeyAuthentication,
+    OAuthAccessTokenAuthentication,
+]
 
 
 def _user_id(request: Request) -> int:
@@ -32,18 +36,18 @@ def _user_id(request: Request) -> int:
     return cast(User, request.user).id
 
 
-def _validated_triple(request: Request) -> dict:
+def _validated_preferences(request: Request) -> dict:
     serializer = TasksAIRunPreferencesSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
-    triple = serializer.validated_data
+    preferences = serializer.validated_data
     # Storing a flag-gated model the writer isn't entitled to would only ever
     # produce runs the resolver skips or the run paths refuse — reject it here
     # so the settings page says so immediately. Resolution re-checks per acting
     # user, which also covers entitlements that change after the write.
-    error = get_model_access_error(triple.get("model"), distinct_id=cast(User, request.user).distinct_id)
+    error = get_model_access_error(preferences.get("model"), distinct_id=cast(User, request.user).distinct_id)
     if error is not None:
         raise ValidationError({"model": error})
-    return triple
+    return preferences
 
 
 class TasksTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -77,9 +81,9 @@ class TasksTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ),
     )
     def create(self, request: Request, *args, **kwargs) -> Response:
-        triple = _validated_triple(request)
+        preferences = _validated_preferences(request)
         try:
-            payload = ai_run_defaults.update_team_ai_run_preferences(self.team_id, **triple)
+            payload = ai_run_defaults.update_team_ai_run_preferences(self.team_id, **preferences)
         except DjangoValidationError as e:
             raise ValidationError(e.messages)
         return Response(TasksTeamConfigResponseSerializer({"ai_run_preferences": payload}).data)
@@ -130,9 +134,9 @@ class TasksUserConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ),
     )
     def create(self, request: Request, *args, **kwargs) -> Response:
-        triple = _validated_triple(request)
+        preferences = _validated_preferences(request)
         try:
-            payload = ai_run_defaults.update_user_ai_run_preferences(self.team_id, _user_id(request), **triple)
+            payload = ai_run_defaults.update_user_ai_run_preferences(self.team_id, _user_id(request), **preferences)
         except DjangoValidationError as e:
             raise ValidationError(e.messages)
         return self._response(request, payload)

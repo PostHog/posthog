@@ -1,5 +1,6 @@
 import { CODES, Message, KafkaConsumer as RdKafkaConsumer } from 'node-rdkafka'
 
+import { ImageFetchBatchJoiner } from '../../../ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/image-fetch-batch-joiner'
 import { captureException } from '../../utils/posthog'
 import { delay } from '../../utils/utils'
 import { KafkaConsumerV2 } from './consumer-v2'
@@ -208,26 +209,44 @@ describe('KafkaConsumerV2', () => {
         expect(mockRdKafka.offsetsStore).toHaveBeenCalledWith([{ topic: 'test-topic', partition: 0, offset: 2 }])
     })
 
-    it('Backpressure: pushing > maxBackgroundTasks blocks until oldest settles', async () => {
-        ;(consumer as any).maxBackgroundTasks = 2
-        const eachBatch = jest.fn(() => Promise.resolve({}))
-        await startConsuming(eachBatch)
+    it.each(['direct', 'image fetch joiner'])(
+        'bounds %s background work and holds later offsets until the oldest batch settles',
+        async (mode) => {
+            consumer = new KafkaConsumerV2({ groupId: 'test-group', topic: 'test-topic', maxBackgroundTasks: 2 })
+            const p1 = triggerablePromise<void>()
+            const p2 = triggerablePromise<void>()
+            const processBatch = jest.fn().mockReturnValueOnce(p1.promise).mockReturnValueOnce(p2.promise)
+            const joiner = new ImageFetchBatchJoiner(1, processBatch)
+            const eachBatch = jest.fn((messages: Message[]) =>
+                mode === 'direct'
+                    ? Promise.resolve({ backgroundTask: processBatch(messages) })
+                    : joiner.handleBatch(messages)
+            )
+            await startConsuming(eachBatch)
 
-        const p1 = triggerablePromise()
-        const p2 = triggerablePromise()
-        const p3 = triggerablePromise()
+            consumeCallback!(null, [createMessage({ offset: 1, partition: 0 })])
+            await delay(5)
+            const pollsAfterFirstBatch = mockRdKafka.consume.mock.calls.length
+            consumeCallback!(null, [createMessage({ offset: 2, partition: 0 })])
+            await delay(5)
+            expect(processBatch).toHaveBeenCalledTimes(2)
+            expect(mockRdKafka.consume).toHaveBeenCalledTimes(pollsAfterFirstBatch)
+            expect(mockRdKafka.offsetsStore).not.toHaveBeenCalled()
 
-        await dispatchBatch(eachBatch, [createMessage({ offset: 1, partition: 0 })], p1.promise)
-        await dispatchBatch(eachBatch, [createMessage({ offset: 2, partition: 0 })], p2.promise)
-        await dispatchBatch(eachBatch, [createMessage({ offset: 3, partition: 0 })], p3.promise)
-        await delay(2)
+            p2.resolve()
+            await delay(5)
+            expect(mockRdKafka.consume).toHaveBeenCalledTimes(pollsAfterFirstBatch)
+            expect(mockRdKafka.offsetsStore).not.toHaveBeenCalled()
 
-        // Loop is blocked on backpressure; consume() should NOT have been called for batch 4.
-        const callsBefore = mockRdKafka.consume.mock.calls.length
-        p1.resolve()
-        await delay(5)
-        expect(mockRdKafka.consume.mock.calls.length).toBeGreaterThan(callsBefore)
-    })
+            p1.resolve()
+            await delay(5)
+            expect(mockRdKafka.consume.mock.calls.length).toBeGreaterThan(pollsAfterFirstBatch)
+            expect(mockRdKafka.offsetsStore.mock.calls).toEqual([
+                [[{ topic: 'test-topic', partition: 0, offset: 2 }]],
+                [[{ topic: 'test-topic', partition: 0, offset: 3 }]],
+            ])
+        }
+    )
 
     it('REVOKE drain: incrementalUnassign called only after every settled completes', async () => {
         ;(consumer as any).maxBackgroundTasks = 5
@@ -805,6 +824,37 @@ describe('KafkaConsumerV2', () => {
             offsets.some((o: any) => o.partition === 0)
         )
         expect(partition0Stores).toEqual([])
+    })
+
+    it('fails unfinished background work at the configured timeout without advancing offsets', async () => {
+        jest.useFakeTimers()
+        try {
+            consumer = new KafkaConsumerV2({
+                groupId: 'test-group',
+                topic: 'test-topic',
+                backgroundTaskTimeoutMs: 100,
+            })
+            const task = triggerablePromise<void>()
+            const eachBatch = jest.fn(() => Promise.resolve({ backgroundTask: task.promise }))
+            const starting = startConsuming(eachBatch)
+            await jest.advanceTimersByTimeAsync(5)
+            await starting
+            const loopFailure = (consumer as unknown as { loopDone: Promise<void> }).loopDone.catch(
+                (error: unknown) => error
+            )
+            consumeCallback!(null, [createMessage({ offset: 1, partition: 0 })])
+            await jest.advanceTimersByTimeAsync(99)
+            expect(captureException).not.toHaveBeenCalled()
+            expect(mockRdKafka.offsetsStore).not.toHaveBeenCalled()
+
+            await jest.advanceTimersByTimeAsync(1)
+            expect(captureException).toHaveBeenCalledWith(new Error('background_task_timeout_after_100ms'))
+            expect(mockRdKafka.offsetsStore).not.toHaveBeenCalled()
+            await expect(loopFailure).resolves.toEqual(new Error('background_task_timeout_after_100ms'))
+            task.resolve()
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     it('Health: not connected → error', () => {

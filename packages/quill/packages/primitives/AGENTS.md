@@ -64,7 +64,7 @@ Pick by intent, not appearance. Each cluster below lists the discriminating ques
 | Combobox     | Pick one or many values from a long/dynamic list, with search. Multi-select renders chips                 | Action menus                                |
 | Autocomplete | Search-first text input with suggestions where the typed text itself is the value                         | Constrained choices — use Select/Combobox   |
 
-For a custom menu-like list inside a Popover (when DropdownMenu's open/close semantics don't fit), use `Item variant="menuItem"` with `ItemMenuItem`/`ItemCheckbox`/`ItemRadio` — don't restyle Buttons into menu rows. `MenuLabel` is the shared section-label primitive the menu families render internally (DropdownMenuLabel, ComboboxLabel); it's exported for these custom menu-like lists.
+For a custom menu-like list inside a Popover (when DropdownMenu's open/close semantics don't fit), use `Item variant="menuItem"` with `ItemMenuItem`/`ItemCheckbox`/`ItemRadio` — don't restyle Buttons into menu rows. Inside quill, a primitive that renders a Button as a list row passes `size="row"` rather than pinning width, weight and text size per caller. `MenuLabel` is the shared section-label primitive the menu families render internally (DropdownMenuLabel, ComboboxLabel); it's exported for these custom menu-like lists.
 
 ### Disclosure
 
@@ -121,6 +121,7 @@ For a run of questions asked one at a time — an agent needing a few decisions 
 | Heading   | Section/page titles — sizes 2xl/xl/lg/base/sm, semantic level via `render={<h1 />}` decoupled from size |
 | Text      | Body copy — sizes lg/base/sm/xs/xxs, variants default/muted/destructive, weights normal/medium/semibold |
 | Label     | `<label>` bound to a control; inside forms prefer FieldLabel                                            |
+| Highlight | A marker-pen tint on a few words of a heading or sentence, for emphasis; `animate` draws it in          |
 
 Don't hand-roll `<p className="text-xs text-muted-foreground">` when `<Text size="xs" variant="muted">` exists.
 
@@ -132,21 +133,21 @@ Don't hand-roll `<p className="text-xs text-muted-foreground">` when `<Text size
 
 ## Component Catalog
 
-| Component    | Variants                                                 | Sizes                                                | Notes                                                                                                                  |
-| ------------ | -------------------------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| Button       | default, primary, outline, destructive, link, link-muted | default, xs, sm, lg, icon, icon-xs, icon-sm, icon-lg | `loading` overlays a centered spinner and disables the button (width stays stable)                                     |
-| Badge        | default, info, destructive, warning, success, completed  | —                                                    | Semantic status                                                                                                        |
-| Toggle       | default, outline                                         | default, sm, lg, icon                                |                                                                                                                        |
-| Chip         | outline                                                  | sm                                                   | Use with ChipClose                                                                                                     |
-| Separator    | —                                                        | —                                                    | orientation: horizontal/vertical                                                                                       |
-| Spinner      | —                                                        | —                                                    | SVG, accepts svg props                                                                                                 |
-| Skeleton     | —                                                        | —                                                    | Pulsing placeholder div                                                                                                |
-| SkeletonText | —                                                        | —                                                    | lines, minWidth, maxWidth                                                                                              |
-| Progress     | —                                                        | —                                                    | value: 0-100                                                                                                           |
-| Slider       | —                                                        | —                                                    | value, min, max                                                                                                        |
-| Avatar       | —                                                        | lg, default, sm, xs                                  | Compose `Avatar > AvatarImage + AvatarFallback`; image errors fall back to initials/icon                               |
-| ChatGlobe    | —                                                        | —                                                    | Sweeping globe for "browsing the web"; sizes from its container. Still globe under reduced motion                      |
-| AvatarGroup  | —                                                        | default, sm, xs                                      | Row of Avatars; `stacked` overlaps + spreads on hover (no reflow), `reverse` spreads left; `size` forwards to children |
+| Component    | Variants                                                                                 | Sizes                                                     | Notes                                                                                                                                                                                   |
+| ------------ | ---------------------------------------------------------------------------------------- | --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Button       | default, primary, secondary, outline, destructive, destructive-outline, link, link-muted | default, xs, sm, lg, icon, icon-xs, icon-sm, icon-lg, row | `loading` overlays a centered spinner and disables the button (width stays stable). `row` is the full-width, regular-weight list row that menu, combobox and autocomplete items render. |
+| Badge        | default, info, destructive, warning, success, completed                                  | —                                                         | Semantic status                                                                                                                                                                         |
+| Toggle       | default, outline                                                                         | default, sm, lg, icon                                     |                                                                                                                                                                                         |
+| Chip         | outline                                                                                  | sm                                                        | Use with ChipClose                                                                                                                                                                      |
+| Separator    | —                                                                                        | —                                                         | orientation: horizontal/vertical                                                                                                                                                        |
+| Spinner      | —                                                                                        | —                                                         | SVG, accepts svg props                                                                                                                                                                  |
+| Skeleton     | —                                                                                        | —                                                         | Pulsing placeholder div                                                                                                                                                                 |
+| SkeletonText | —                                                                                        | —                                                         | lines, minWidth, maxWidth                                                                                                                                                               |
+| Progress     | —                                                                                        | —                                                         | value: 0-100                                                                                                                                                                            |
+| Slider       | —                                                                                        | —                                                         | value, min, max                                                                                                                                                                         |
+| Avatar       | —                                                                                        | lg, default, sm, xs                                       | Compose `Avatar > AvatarImage + AvatarFallback`; image errors fall back to initials/icon                                                                                                |
+| ChatGlobe    | —                                                                                        | —                                                         | Sweeping globe for "browsing the web"; sizes from its container. Still globe under reduced motion                                                                                       |
+| AvatarGroup  | —                                                                                        | default, sm, xs                                           | Row of Avatars; `stacked` overlaps + spreads on hover (no reflow), `reverse` spreads left; `size` forwards to children                                                                  |
 
 ---
 
@@ -440,6 +441,8 @@ For example, drop the default `1rem` viewport padding for full-bleed content: `<
 
 Same shell as Dialog (shared `quill-dialog__*` styles) but `role="alertdialog"`, always modal, backdrop clicks never dismiss, and no X button — the user must pick an action (or Esc). Use for destructive/irreversible confirmations; put Cancel first so it takes initial focus.
 
+**The confirm button in an alert dialog footer is `destructive-outline`.** It carries the same red fill as `destructive`; the border is the whole difference. In a footer that border pairs it with the `outline` Cancel beside it, so the two read as one row of choices rather than a warning sitting next to a button. Keep `destructive` for the trigger out in the app and for `variant="destructive"` menu items, where a borderless fill stands out among neutral controls.
+
 ```tsx
 <AlertDialog>
   <AlertDialogTrigger render={<Button variant="destructive" />}>Delete project</AlertDialogTrigger>
@@ -450,7 +453,7 @@ Same shell as Dialog (shared `quill-dialog__*` styles) but `role="alertdialog"`,
     </AlertDialogHeader>
     <AlertDialogFooter>
       <AlertDialogClose render={<Button variant="outline" />}>Cancel</AlertDialogClose>
-      <AlertDialogClose render={<Button variant="destructive" />}>Delete</AlertDialogClose>
+      <AlertDialogClose render={<Button variant="destructive-outline" />}>Delete</AlertDialogClose>
     </AlertDialogFooter>
   </AlertDialogContent>
 </AlertDialog>
@@ -939,12 +942,33 @@ Skipped items don't appear at all.
 
 - **`QuestionnaireChoice` assembles its own row** — the overlaid native radio/checkbox, the indicator, the label, and the shortcut key. Write only the answer's text; add `QuestionnaireChoiceDescription` for a muted second line. `multiple` on the item swaps radios for checkboxes and the indicator's dot for a check.
 - **`QuestionnaireInput` always needs an accessible name.** A placeholder is not a label — pass `aria-label` or point `aria-labelledby` at a visible one. It shares the item's `name`, so typing in it replaces whatever choice was picked. It renders as an `InputGroup` wearing a choice's indicator, filled once there's text and tinted like a picked row — the indicator takes its shape from the choices beside it, round for radios and square for checkboxes. Pass `render` to replace the whole row.
+- **Next and Submit stay disabled until the active question has an answer.** The engine refuses an unanswered question on submit, optional ones included, so the buttons match it; Skip is the way past an optional one. A keyboard submit still runs validation and shows `QuestionnaireError`.
 - **`QuestionnaireActions` is layout only** — a three-column row that pins Previous to the start and hugs Skip and Next/Submit to the end, so buttons don't move as they appear and disappear. It holds no state.
 - **Branching is the app's.** A question that no longer applies gets `disabled`, which drops it out of the order, the progress count, and the validation pass. Same for controlled navigation: pass `item`/`onItemChange` to send the user back to a question that failed the app's own checks, and `invalid` plus `QuestionnaireError` children to say why.
 - Only the active item is visible — the engine hides and inerts the rest, so every question stays mounted and keeps its answer. Don't unmount them yourself.
 - `shortcuts="letters"` / `"numbers"` puts a key on each answer. Picking by key doesn't advance; typing in a text field pauses them.
 - **Tabs across the top are the same controlled navigation**, for a short run the user should see whole before committing: hold the active question's name in state, pass it as both the root's `item` and the `Tabs` `value`, and take `onItemChange` and `onValueChange` back into it. Read each item's `onStatusChange` to show a check in its tab — keep the icon mounted and `invisible` until the answer lands, tinted `text-success-foreground`, so the label doesn't shift. Keep the tabs outside the form — inside it they are one more stop between a question and its answers, and their buttons take part in the form. In a `Card` that means the card wraps the questionnaire: tabs in `CardHeader`, then the root with `className="contents"` around `CardContent` and `CardFooter`.
 - Inside a `Dialog`, put `className="contents"` on the root so the header, body, and footer stay in the dialog's own grid (and keep their padding and dividers) while the form still wraps the submit button. Cancel and dismiss remain the dialog's. Drop `QuestionnaireActions` there and put the navigation buttons straight into `DialogFooter` next to the `DialogClose`, the way every other dialog does — the footer is already the button row, and nesting the actions grid inside it doubles the gap.
+
+### Highlight
+
+A marker-pen tint over inline text — a pale background with the text in the same hue.
+The colors (`orange` default, `red`, `yellow`, `green`, `blue`, `purple`) are decorative, with no meaning; use `Badge` for status.
+It renders a `<mark>` and never changes layout: the tint bleeds a little past the text through padding that a matching negative margin cancels, so wrapping lines break exactly where they would without it.
+
+`animate` draws it like a marker stroke the first time it scrolls into view.
+The stroke covers one line before it starts the next, and the text takes the highlight color as the stroke passes it.
+The stroke length scales with the text length; override it with `duration`, and stagger several with `delay` (both in ms).
+Reduced motion shows the finished highlight at once.
+
+```tsx
+<Heading size="2xl">
+  Make your product{' '}
+  <Highlight color="blue" animate>
+    self-driving
+  </Highlight>
+</Heading>
+```
 
 ### Keyboard Shortcuts
 
@@ -1141,6 +1165,13 @@ Note: pressing `d` also toggles theme (skipped when focus is in input fields).
 
 Quill spacing uses a 4px base (`gap-1` = 4px, `gap-2` = 8px, `gap-4` = 16px). These rules are the conventions the stories actually follow:
 
+### Text sizes
+
+- `--text-ui` (13px) is the primary UI text: controls, list rows, chat rows, and the body text of cards, dialogs, drawers, popovers and tooltips.
+- `--text-sm` (14px) is chat message text: `ChatMessage` and `ChatBubble` content, so a conversation reads at body size beside its 13px rows.
+- `--text-xs` (12px) is secondary text: descriptions, labels, field errors, tables, and `sm` controls. Chat is the exception, and uses `--text-ui` for its help, error and meta text too.
+- In component CSS, write `var(--text-ui, 0.8125rem)`. Set `--text-ui` on an ancestor to rescale the primary text together.
+
 ### Between siblings — use gap, never margins
 
 - `gap-2` — the default between related sibling controls, in rows and stacks: button rows, checkbox + label, icon + text. When unsure, use `gap-2`.
@@ -1230,8 +1261,9 @@ Each container's CSS handles `flex-shrink: 0` and the per-context size via `svg:
 3. **Badge variants are semantic** — info (blue), warning (yellow), success (green), completed (purple, terminal done state e.g. merged PRs), destructive (red), default (neutral)
 4. **Use `render` on triggers** — DialogTrigger, PopoverTrigger, TooltipTrigger, DrawerTrigger accept `render` to render as the child element
 5. **DropdownMenuItem has variants** — use `variant="destructive"` for dangerous actions; default is `"default"`
-6. **Prefer composition over props** — use CardHeader > CardTitle instead of `<Card title="...">`
-7. **Use `cn()` for class overrides** — import from `@posthog/quill-primitives` to merge Tailwind classes safely
-8. **Follow the spacing conventions** — see Spacing and layout above; `gap-2` between related siblings, `gap-4` between sections, never re-pad primitive internals
-9. **Use `loading` on submit buttons** — any Button that triggers a network request must pass `loading` while the request is in flight; it blocks activation (guarding double-submission) and overlays a spinner without changing the button's width, while staying focusable for screen readers (`aria-disabled` + `aria-busy`, not the native `disabled` attribute)
-10. **Don't size or color icons inside primitives** — see Icons above; component CSS sizes bare svg children per context, and `currentColor` handles tinting
+6. **Alert dialog footers confirm with `destructive-outline`** — `destructive` is for the trigger that opens the confirmation and for destructive menu items; inside an AlertDialog footer the confirm button is `destructive-outline` beside an `outline` Cancel
+7. **Prefer composition over props** — use CardHeader > CardTitle instead of `<Card title="...">`
+8. **Use `cn()` for class overrides** — import from `@posthog/quill-primitives` to merge Tailwind classes safely
+9. **Follow the spacing conventions** — see Spacing and layout above; `gap-2` between related siblings, `gap-4` between sections, never re-pad primitive internals
+10. **Use `loading` on submit buttons** — any Button that triggers a network request must pass `loading` while the request is in flight; it blocks activation (guarding double-submission) and overlays a spinner without changing the button's width, while staying focusable for screen readers (`aria-disabled` + `aria-busy`, not the native `disabled` attribute)
+11. **Don't size or color icons inside primitives** — see Icons above; component CSS sizes bare svg children per context, and `currentColor` handles tinting

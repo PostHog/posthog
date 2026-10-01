@@ -177,7 +177,7 @@ impl FromStr for TeamIdCollection {
 }
 
 /// Flag definitions rate limits configuration
-/// Parses JSON from LOCAL_EVAL_RATE_LIMITS environment variable
+/// Parses JSON from the LOCAL_EVAL_RATE_LIMITS and LOCAL_EVAL_CONDITIONAL_RATE_LIMITS environment variables
 /// Format: {"team_id": "rate_string", ...}
 /// Example: {"123": "1200/minute", "456": "2400/hour"}
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -426,7 +426,8 @@ pub struct Config {
 
     // Upper bound on a single realtime cohort membership lookup (pool acquire + query).
     // Keeps an unreachable behavioral cohorts DB from stalling flag requests for the
-    // pool's full 2s acquire timeout; on timeout the lookup degrades to non-membership.
+    // pool's full acquire timeout plus statement timeout. On timeout the lookup degrades to
+    // non-membership.
     // The default matches the pool's 1s statement timeout: a tighter client-side bound
     // would discard answers the DB would still deliver, flipping flags for the person,
     // so this bound only adds cover where statement_timeout cannot reach (pool acquire
@@ -476,9 +477,7 @@ pub struct Config {
     #[envconfig(default = "")]
     pub flags_redis_reader_url: String,
 
-    // Controls whether to read from dedicated Redis cache
-    // false = Mode 2: dual-write to both caches, read from shared (warming phase)
-    // true = Mode 3: read and write dedicated Redis only (cutover complete)
+    // Nothing reads this. Flipping it moves no read path and emits no warning.
     #[envconfig(default = "false")]
     pub flags_redis_enabled: FlexBool,
 
@@ -488,6 +487,15 @@ pub struct Config {
     // stop enqueuing if it ever misbehaves in prod.
     #[envconfig(from = "FLAG_DEFINITIONS_SELF_HEAL_ENABLED", default = "true")]
     pub flag_definitions_self_heal_enabled: FlexBool,
+
+    // Cluster switch for the /flags/definitions reader. When enabled, the flags-with-cohorts
+    // payload and its ETag both come from the dedicated flags Redis instead of the shared one.
+    //
+    // Deliberately a new variable rather than FLAGS_REDIS_ENABLED, which deployed environments
+    // already set. Reusing it would tie the cutover to a deploy instead of a config change, and
+    // remove the ability to flip the read path back without a rollout.
+    #[envconfig(from = "FLAG_DEFINITIONS_DEDICATED_REDIS_ENABLED", default = "false")]
+    pub flag_definitions_dedicated_redis_enabled: FlexBool,
 
     // S3 configuration for HyperCache fallback
     #[envconfig(default = "posthog")]
@@ -512,10 +520,13 @@ pub struct Config {
     #[envconfig(default = "4500")]
     pub request_timeout_ms: u64,
 
-    // How long to wait for a connection from the pool before timing out.
-    // Must be well under request_timeout_ms so there's still time for query + response.
-    // With Envoy at 5s and request_timeout at 4.5s, 2s leaves room for a query + serialization.
-    #[envconfig(default = "2")]
+    // How long to wait for a connection from the pool before timing out (whole seconds, minimum 1).
+    // The wait covers queueing for a free connection, the test_before_acquire ping, and opening a
+    // new connection.
+    // This plus each pool's statement timeout must stay well under request_timeout_ms. Then
+    // Postgres cancels a slow query before the request times out, and the connection goes back
+    // to the pool. When the request times out first, sqlx closes the connection instead.
+    #[envconfig(default = "1")]
     pub acquire_timeout_secs: u64,
 
     // Close connections that have been idle for this many seconds
@@ -541,19 +552,23 @@ pub struct Config {
 
     // PostgreSQL statement_timeout for persons reader queries (milliseconds)
     // - Set to 0 to use database default (typically unlimited)
-    // - Person and cohort queries should complete well under 3s (P99 hold time is 25ms)
-    // - Default: 3000ms (3 seconds)
+    // - Person and cohort queries should complete well under 1s (P99 hold time is 25ms)
+    // - Default: 1000ms (1 second)
     // - This timeout is enforced server-side and properly kills queries
-    #[envconfig(default = "3000")]
+    #[envconfig(default = "1000")]
     pub persons_reader_statement_timeout_ms: u64,
 
     // PostgreSQL statement_timeout for writer database queries (milliseconds)
     // - Set to 0 to use database default (typically unlimited)
-    // - Hash key override writes have retry logic (2 attempts, 100ms backoff)
-    // - 3s per attempt with retries gives 6s total before failure
-    // - Default: 3000ms (3 seconds)
+    // - Hash key override writes retry a transient error and a foreign key violation, which
+    //   occurs when a person is deleted during the write. A statement that hits this timeout is
+    //   not retried.
+    // - Hash key override inserts have a longer latency tail than person reads. A timed-out insert
+    //   returns an error for every experience continuity flag in the response, so this timeout is
+    //   longer than the persons reader timeout.
+    // - Default: 2000ms (2 seconds)
     // - This timeout is enforced server-side and properly kills queries
-    #[envconfig(default = "3000")]
+    #[envconfig(default = "2000")]
     pub writer_statement_timeout_ms: u64,
 
     // How often to report database pool metrics (seconds)
@@ -684,6 +699,22 @@ pub struct Config {
     // Example: {"123": "1200/minute", "456": "2400/hour"}
     #[envconfig(from = "LOCAL_EVAL_RATE_LIMITS", default = "")]
     pub flag_definitions_rate_limits: FlagDefinitionsRateLimits,
+
+    // Per-team rate limit for flag definitions requests with an ETag in If-None-Match
+    // (requests per minute). Most of these get a 304, which skips the payload read. They
+    // therefore get their own higher budget. A request whose ETag does not match also
+    // spends the budget for full responses.
+    #[envconfig(
+        from = "FLAG_DEFINITIONS_CONDITIONAL_RATE_PER_MINUTE",
+        default = "6000"
+    )]
+    pub flag_definitions_conditional_rate_per_minute: u32,
+
+    // Per-team overrides for the conditional budget, in the same JSON format as
+    // LOCAL_EVAL_RATE_LIMITS. Sharing LOCAL_EVAL_RATE_LIMITS would cap the revalidation polls
+    // of a team whose full-response override is below the conditional default.
+    #[envconfig(from = "LOCAL_EVAL_CONDITIONAL_RATE_LIMITS", default = "")]
+    pub flag_definitions_conditional_rate_limits: FlagDefinitionsRateLimits,
 
     // Per-credential rate limit for the remote_config endpoint (requests per minute).
     // Matches Django's RemoteConfigThrottle default of 600/minute. Django's per-project
@@ -819,6 +850,12 @@ pub struct Config {
     // BATCH_FLAG_EVAL_MAX_LIMIT persons sequentially.
     #[envconfig(from = "BATCH_FLAG_EVAL_TIMEOUT_MS", default = "120000")]
     pub batch_flag_eval_timeout_ms: u64,
+
+    // Statement timeout for the batch evaluation person scan (milliseconds). It replaces the
+    // persons reader pool's timeout, which is sized for /flags. It also bounds how long one
+    // scan holds a persons reader connection that /flags traffic needs.
+    #[envconfig(from = "BATCH_FLAG_EVAL_SCAN_STATEMENT_TIMEOUT_MS", default = "10000")]
+    pub batch_flag_eval_scan_statement_timeout_ms: u64,
 
     // Redis compression configuration
     // When enabled, uses zstd compression for Redis values above threshold
@@ -1068,6 +1105,7 @@ impl Config {
             flags_redis_reader_url: "".to_string(),
             flags_redis_enabled: FlexBool(false),
             flag_definitions_self_heal_enabled: FlexBool(false),
+            flag_definitions_dedicated_redis_enabled: FlexBool(false),
             redis_response_timeout_ms: 100,
             redis_connection_timeout_ms: 5000,
             write_database_url: "postgres://posthog:posthog@localhost:5432/test_posthog"
@@ -1126,6 +1164,8 @@ impl Config {
             flags_session_replay_quota_check: false,
             flag_definitions_default_rate_per_minute: 600,
             flag_definitions_rate_limits: FlagDefinitionsRateLimits::default(),
+            flag_definitions_conditional_rate_per_minute: 6000,
+            flag_definitions_conditional_rate_limits: FlagDefinitionsRateLimits::default(),
             remote_config_default_rate_per_minute: 600,
             rate_limiting_allow_list_teams: RateLimitingAllowList::default(),
             flags_log_bodies_teams: BodyLogTeams::default(),
@@ -1168,6 +1208,7 @@ impl Config {
             internal_request_token: None,
             batch_flag_eval_max_limit: 10_000,
             batch_flag_eval_timeout_ms: 120_000,
+            batch_flag_eval_scan_statement_timeout_ms: 10_000,
             billing_flush_interval_ms: 100,
             billing_max_pending_entries: 500_000,
             billing_per_flush_batch_size: 200,

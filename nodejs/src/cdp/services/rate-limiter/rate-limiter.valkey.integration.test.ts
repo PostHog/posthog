@@ -41,6 +41,6 @@ describe('RateLimiterService on Valkey Cluster', () => {
         const limiter = new RateLimiterService(valkeyPool, { name: 'team-email-cluster-test' })
 
         const claim = await limiter.claimAllOrNothingPair([buckets[0], buckets[1]], 10)
-        expect(claim).toEqual({ granted: true, deniedIndex: null })
+        expect(claim).toEqual({ granted: true, deniedIndex: null, retryAfterMs: null, reserved: false })
     })
 })

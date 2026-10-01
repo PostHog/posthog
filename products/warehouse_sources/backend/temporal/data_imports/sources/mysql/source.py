@@ -5,9 +5,11 @@ from sshtunnel import BaseSSHTunnelForwarderError
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
-from posthog.schema import (
+from posthog.exceptions_capture import capture_exception
+
+from products.data_warehouse.backend.facade.api import reconcile_mysql_schemas
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -16,18 +18,19 @@ from posthog.schema import (
     SourceFieldSelectConfigOption,
     SourceFieldSSHTunnelConfig,
 )
-
-from posthog.exceptions_capture import capture_exception
-
-from products.data_warehouse.backend.facade.api import reconcile_mysql_schemas
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    HostNotAllowedError,
     SSHTunnelMixin,
+    TemporaryHostResolutionError,
     ValidateDatabaseHostMixin,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.keyset import KeysetResumeState
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mysql import MySQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql import (
     _SSH_HANDSHAKE_EOF_ERROR,
@@ -90,10 +93,35 @@ _HOST_IS_URL_ERROR = (
 
 
 @SourceRegistry.register
-class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+class MySQLSource(
+    SQLSource[MySQLSourceConfig],
+    ResumableSource[MySQLSourceConfig, KeysetResumeState],
+    SSHTunnelMixin,
+    ValidateDatabaseHostMixin,
+):
+    def resume_covers_run(self, *, incremental_or_append: bool, keyset_full_load_enabled: bool = False) -> bool:
+        # Keyset seeking is a full-load path, and it is the default one here. An incremental run
+        # resumes from its watermark like any non-resumable source's does, so it takes the
+        # incremental retry budget rather than the much larger resumable one.
+        return not incremental_or_append
+
     @property
     def get_implementation(self) -> MySQLImplementation:
         return _MYSQL_IMPLEMENTATION
+
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[KeysetResumeState]:
+        return ResumableSourceManager[KeysetResumeState](inputs, KeysetResumeState)
+
+    def source_for_pipeline(  # type: ignore[override]
+        self,
+        config: MySQLSourceConfig,
+        resumable_source_manager: ResumableSourceManager[KeysetResumeState],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
+        # A reset must not resume from a stale checkpoint — the full load restarts from the top.
+        if inputs.reset_pipeline:
+            resumable_source_manager.clear_state()
+        return self.get_implementation.build_pipeline(config, inputs, resumable_source_manager=resumable_source_manager)
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -102,7 +130,7 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.MY_SQL,
+            name=ExternalDataSourceType.MYSQL,
             category=DataWarehouseSourceCategory.DATABASES,
             featured=True,
             keywords=["sql", "mariadb", "rds", "aws rds", "amazon rds", "aurora"],
@@ -177,6 +205,23 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
                             SourceFieldSelectConfigOption(label="No", value="false"),
                         ],
                     ),
+                    SourceFieldSelectConfig(
+                        name="verify_server_certificate",
+                        label="Verify the server certificate?",
+                        required=True,
+                        defaultValue="false",
+                        converter=SourceFieldSelectConfigConverter.STR_TO_BOOL,
+                        caption=(
+                            "Check that your database's TLS certificate comes from a trusted authority. "
+                            "A self-signed certificate or a private authority does not pass, so leave this off "
+                            "if you use one. Through an SSH tunnel we check the certificate chain but not the "
+                            "hostname, because the tunnel presents your database on a local address."
+                        ),
+                        options=[
+                            SourceFieldSelectConfigOption(label="Yes", value="true"),
+                            SourceFieldSelectConfigOption(label="No", value="false"),
+                        ],
+                    ),
                     SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="Use SSH tunnel?"),
                 ],
             ),
@@ -207,6 +252,19 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # source — so the user fixes credentials instead of the generic "check connection
             # details" message sending them to check the host/port.
             "Access denied for user": _INVALID_CREDENTIALS_ERROR,
+            # TiDB Cloud's own ER_ACCESS_DENIED_ERROR (also 1105) wording, distinct from the
+            # standard MySQL "Access denied for user" text above: it points the user at TiDB
+            # Cloud's docs on the cluster-tier username prefix a Serverless cluster requires
+            # (e.g. `<prefix>.root`). Same root cause — wrong credentials, or a username missing
+            # that prefix — so it's non-retryable for the same reason, but needs its own key since
+            # neither existing "Access denied" phrase appears in it. Match the stable sentence,
+            # excluding TiDB's own docs URL that follows it.
+            "Access denied. Please check your user name and password": (
+                "TiDB Cloud rejected the username or password. If you're connecting to a TiDB "
+                "Cloud Serverless cluster, make sure your username includes the required cluster "
+                "prefix (see TiDB Cloud's connection docs). Otherwise check the user and password "
+                "for this source and try again."
+            ),
             # MySQL/MariaDB error 1049 (ER_BAD_DB_ERROR): the configured database doesn't exist on
             # the server — it was renamed or dropped after the source was set up, or the connection
             # was reconfigured to point at a different server. `validate_credentials` already
@@ -278,6 +336,11 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # is a deterministic config mismatch, not the transient connection-drop that 2013
             # usually signals — so match only the stable SSL token, never the generic 2013 text.
             "[SSL: WRONG_VERSION_NUMBER]": "We couldn't establish an SSL connection to your MySQL server — it responded as if SSL is not enabled. If your server (or a proxy in front of it) doesn't support SSL, set 'Use SSL?' to No; otherwise check that you're connecting to an SSL-enabled host and port.",
+            # MySQL error 3159 (ER_SECURE_TRANSPORT_REQUIRED): the server runs with
+            # `require_secure_transport=ON` but the source has SSL turned off, so every connect is
+            # rejected before auth. Match the locale-independent code, as the message is translated
+            # on non-English servers.
+            "(3159,": "Your MySQL server only accepts encrypted connections, but SSL is turned off for this source. Set 'Use SSL?' to Yes in your source settings, then re-enable the sync.",
             # Raised from the shared `_decimal_array_from_values` fallback in
             # `pipelines/core/arrow_utils.py` when a numeric/decimal value exceeds Delta Lake's
             # decimal budget (precision > 76 or scale > 32). Fixed source-data shape — retrying
@@ -304,8 +367,11 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # PostHog's connecting host, so the handshake is rejected before any credentials are
             # checked. Only a DB admin can fix this server-side (GRANT for the host, or allow our
             # egress / SSH-tunnel host) — retrying connects from the same host fails identically.
-            # Match the stable tail phrase, not the volatile host in the message prefix.
-            "is not allowed to connect to this MySQL server": "Your MySQL/MariaDB server isn't allowing connections from PostHog's host (error 1130). Ask your database admin to grant access for the connecting host (or allow our IP / SSH-tunnel host), then retry the sync.",
+            # Match the stable tail phrase, not the volatile host in the message prefix, and not the
+            # vendor name that follows it: MariaDB renders this same error as "...this MariaDB
+            # server", not "...this MySQL server", so anchoring on the vendor name missed every
+            # MariaDB server.
+            "is not allowed to connect to this": "Your MySQL/MariaDB server isn't allowing connections from PostHog's host (error 1130). Ask your database admin to grant access for the connecting host (or allow our IP / SSH-tunnel host), then retry the sync.",
             # MySQL/MariaDB error 1226 (ER_USER_LIMIT_REACHED): the connecting user account has a
             # `MAX_CONNECTIONS_PER_HOUR` resource limit set (via `CREATE USER`/`GRANT ... WITH
             # MAX_CONNECTIONS_PER_HOUR`), and this hour's quota is used up. The counter only resets
@@ -415,6 +481,15 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # the rare case where it exhausts that budget so Temporal's own activity retry
             # can recover it rather than surfacing it as error-tracking noise.
             "TiProxy fails to connect to TiDB",
+            # Vitess/PlanetScale vtgate error 1105 raised while a streaming query is in flight:
+            # vtgate's own gRPC client to the backend vttablet was already closing (a tablet
+            # swap during a failover, reparent, or health-check-triggered pool recycle) when the
+            # query's RPC was submitted. Same transient, self-healing class as `code = Unavailable`
+            # and "reparent operation in progress" above, but hits mid-stream — a path with no
+            # in-process retry wrapper of its own — so there's nothing to backstop; this entry is
+            # the only classification. Match the stable gRPC-go message, excluding the volatile
+            # keyspace/shard/tablet-type target prefix that precedes it.
+            "grpc: the client connection is closing",
         }
 
     def reconcile_schema_metadata(
@@ -431,7 +506,7 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
     ) -> dict[str, object]:
         # `require_ssl` keeps signature parity with Postgres; MySQL SSL is governed by
         # `config.using_ssl` inside `connect`.
-        with self.get_implementation.connect(config) as conn:
+        with self.get_implementation.connect(config, team_id=team_id) as conn:
             return get_mysql_connection_metadata(conn, database=config.database)
 
     def validate_credentials(
@@ -464,6 +539,10 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
 
         try:
             self.get_schemas(config, team_id, api_version=api_version)
+        except (HostNotAllowedError, TemporaryHostResolutionError) as e:
+            # The host policy refused the host, or its lookup never answered. Both carry their own
+            # user-facing wording and neither is a PostHog defect, so they are not captured.
+            return False, str(e)
         except BaseSSHTunnelForwarderError as e:
             # sshtunnel surfaces raw library strings (e.g. "Could not establish session to SSH
             # gateway"); map them to the friendly guidance in `get_non_retryable_errors` — which the

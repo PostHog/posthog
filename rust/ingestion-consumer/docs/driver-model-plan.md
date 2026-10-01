@@ -326,7 +326,7 @@ Exit criterion: zero key-order sentinel violations, `ingestion_consumer_transpor
 
 **Metrics:**
 
-- Add, emitted when selected: `ingestion_consumer_key_table_keys`, `ingestion_consumer_key_table_queued_messages`, `ingestion_consumer_key_table_queued_bytes`, `ingestion_consumer_key_table_outstanding_keys`, `ingestion_consumer_key_table_parked_keys` (gauges), and `ingestion_consumer_parked_retries_total` (counter). Queued bytes needs an alert before the switch: every key with an outstanding request buffers all later arrivals in full, and key cardinality is customer-controlled.
+- Add, emitted when selected: `ingestion_consumer_key_table_keys`, `ingestion_consumer_key_table_queued_messages`, `ingestion_consumer_key_table_queued_bytes`, `ingestion_consumer_key_table_outstanding_keys`, `ingestion_consumer_key_table_parked_keys` (gauges), `ingestion_consumer_parked_retries_total` (counter), and `ingestion_consumer_key_table_queue_wait_seconds` (histogram, by send kind): the head-of-line wait, the latency cost the one-request-per-key rule accepts. Queued bytes needs an alert before the switch: every key with an outstanding request buffers all later arrivals in full, and key cardinality is customer-controlled.
 
 ### 10. Switch to the key-table scheduler (switchover)
 
@@ -350,7 +350,7 @@ Exit criterion: zero key-order sentinel violations, `ingestion_consumer_transpor
 - Replace the flush driver rather than retarget it: `run_flush_driver` is per-batch (ticket loop, `has_unfinished_flush`, per-batch stall deadline), and parked keys have no batch identity. The key table needs a global periodic `Deadline::ParkedRetry` pump plus a global stall watchdog, so a wedged key table restarts loudly instead of growing lag silently.
 - Modify `apply_completion` in the consumer: credit each offset to the in-flight poll that contains it, instead of crediting the whole completion to the poll that contains its first offset. A merged run's completion spans polls in steady state; under first-offset crediting the first poll over-counts and the later poll never completes, and its wait loop reports healthy every second while stuck.
 - Bound runs by epoch in the key table: stamp the assignment epoch on messages at enqueue, and stop `take_run` at an epoch boundary, so a run never mixes epochs and its completion carries one valid stamp. A cross-epoch completion has no correct stamp and one side is discarded as stale.
-- Purge on rebalance: drop the key table's queued messages for revoked partitions (a routing key maps to one partition). The new partition owner replays them; sending the stale queue too duplicates delivery.
+- Purge on rebalance: drop the key table's queued messages for revoked topic-partitions, and remember revocations for outstanding sends so a later failure cannot requeue their revoked messages. Clear that revocation state at settlement; kept partitions and newly reassigned work remain retryable. The new partition owner replays revoked work; sending it from the old owner too duplicates delivery.
 
 ### 11. Delete the old scheduler (cleanup)
 
@@ -581,11 +581,13 @@ Exit criterion at the canary: zero sentinel violations, and a stalled partition 
 - Keep `max_in_flight_batches` as the bound on outstanding work. A poll's slot frees when all its groups are accepted.
 - Behavior change: commit timing decouples across partitions and polls. Replay exposure stays inside the admission cap.
 - Rollback is the switch back to `poll`.
+- Commit pacing is the seam for this cycle. The consumer already hands every taken frontier to a commit pacer (`commit_pacer.rs`) and commits what the pacer hands back. Today's pacer is `ImmediateCommitPacer`: everything handed over is due on the next take, so commits stay per poll. Per-partition commits at `group` granularity would commit on every group completion, which is too many commits, so this cycle adds an `IntervalCommitPacer` that keeps the latest frontier per partition and hands them out at most once per `CONSUMER_COMMIT_INTERVAL_MS`. The loop then asks the pacer on a tick, not only after a poll settles, and the tick must not sit in a `select!` next to `collect_batch`, because a dropped collection loses messages before they reach the ledger; the interval bounds the commit delay only if the collection loop itself asks the pacer, otherwise the bound is the interval plus the batch timeout. The commit sentinel must record a partition's attempted offset when the pacer hands it out, not when the frontier is handed over, or `ingestion_consumer_commit_confirmation_lag` reports pending frontiers as commits that never landed. On revoke the pacer forgets the partition; the drain in change 27 commits what the pacer still holds at shutdown. Select between the two pacers with a `CommitPacer` trait or an enum once the second one exists, not before. The sentinel's contiguity check compares the span a poll delivered against the previous commit, which catches a skip in what Kafka delivered; at `group` granularity a take no longer maps to one poll's slice, so that check retires here, after an alert on `kafka_consumer_ledger_gaps_total` stands in for it. Checking the take's own window base against the previous take is not a replacement: the ledger sets the base to the frontier it hands out, so that comparison holds by construction.
 
 **Interfaces:**
 
-- Modify `Config`: add the completion granularity.
+- Modify `Config`: add the completion granularity and `CONSUMER_COMMIT_INTERVAL_MS`.
 - Modify `IngestionConsumer::process`: at `group` granularity, select over `GroupCompletion` events. The per-poll path stays for rollback.
+- Add `IntervalCommitPacer` next to `ImmediateCommitPacer`, and the seam that selects one.
 
 ### 22. Delete the per-poll completion path (cleanup)
 

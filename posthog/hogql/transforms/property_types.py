@@ -12,9 +12,9 @@ from posthog.hogql.database.schema.events import (
     EventsPersonSubTable,
     EventsTable,
 )
+from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
 from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
-from posthog.hogql.errors import QueryError
 from posthog.hogql.escape_sql import escape_hogql_identifier
 from posthog.hogql.helpers.timestamp_visitor import parse_zoned_datetime_string
 from posthog.hogql.property_metadata import load_property_metadata
@@ -23,7 +23,6 @@ from posthog.hogql.restricted_properties import restricted_property_keys_for_tab
 from posthog.hogql.type_system import normalized_runtime_type, parse_sql_runtime_type
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
-from posthog.clickhouse.events_json import EVENTS_PROPERTIES_JSON_SUBCOLUMNS, PERSON_PROPERTIES_JSON_SUBCOLUMNS
 from posthog.clickhouse.materialized_column_types import MATERIALIZATION_VALID_TABLES, MaterializedColumn
 from posthog.dataclasses import frozen
 
@@ -118,7 +117,7 @@ class PropertyFinder(TraversingVisitor):
                     self.person_properties.add(property_name)
                 elif isinstance(resolved_table, EventsGroupSubTable):
                     pass  # group properties are handled above via GroupsTable
-                elif isinstance(resolved_table, EventsTable):
+                elif isinstance(resolved_table, EventsTable | FlagEvaluationsTable):
                     self.event_properties.add(property_name)
 
     def visit_field(self, node: ast.Field):
@@ -349,6 +348,17 @@ class PropertySwapper(CloningVisitor):
         if table_name not in MATERIALIZATION_VALID_TABLES:
             return None
 
+        # On native events, property resolution rebuilds this virtual map for every JSONExtract* function.
+        if (
+            self.context.uses_new_events_schema()
+            and table_name == "events"
+            and database_field.name == "properties"
+            and len(node.args) > 1
+            and isinstance(node.args[1], ast.Constant)
+            and node.args[1].value == "$feature_flags"
+        ):
+            return None
+
         if (
             self.context.uses_new_events_schema()
             and table_name == "events"
@@ -358,11 +368,12 @@ class PropertySwapper(CloningVisitor):
                 "person_properties",
             )
         ):
-            if property_path is None:
-                if self._json_extract_has_runtime_path(node):
-                    raise QueryError("JSONExtract over native event properties requires a constant first key")
+            first_key = self._json_extract_first_key(node)
+            if first_key is None:
+                # A key computed per row can name any property, so the call keeps the whole document. The native
+                # document stores `$feature/<key>` in the `$feature_flags` map, so a key naming a flag reads as missing.
                 return None
-            return self._json_extract_subcolumn_expr(node, field_arg, field_type, property_path)
+            return self._json_extract_subcolumn_expr(node, field_arg, field_type, first_key)
 
         if property_path is None:
             return None
@@ -415,23 +426,20 @@ class PropertySwapper(CloningVisitor):
         return property_path
 
     @staticmethod
-    def _json_extract_has_runtime_path(node: ast.Call) -> bool:
-        if node.name == "JSONExtract":
-            path_args = node.args[1:-1]
-        elif node.name in _JSON_EXTRACT_SCALAR_CASTS or node.name == "JSONExtractRaw":
-            path_args = node.args[1:]
-        else:
-            return False
-        return any(not isinstance(arg, ast.Constant) for arg in path_args)
+    def _json_extract_first_key(node: ast.Call) -> str | int | None:
+        path_args = node.args[1:-1] if node.name == "JSONExtract" else node.args[1:]
+        if not path_args or not isinstance(path_args[0], ast.Constant):
+            return None
+        first_key = path_args[0].value
+        return first_key if isinstance(first_key, str | int) else None
 
     def _json_extract_subcolumn_expr(
         self,
         node: ast.Call,
         field_arg: ast.Field,
         field_type: ast.FieldType,
-        property_path: list[str | int],
+        first_key: str | int,
     ) -> ast.Expr | None:
-        first_key = property_path[0]
         if not isinstance(first_key, str):
             return ast.Call(
                 start=node.start,
@@ -464,17 +472,11 @@ class PropertySwapper(CloningVisitor):
             chain=[*field_arg.chain, first_key],
             type=ast.PropertyType(chain=[first_key], field_type=field_type),
         )
-        subcolumns = (
-            EVENTS_PROPERTIES_JSON_SUBCOLUMNS if field_type.name == "properties" else PERSON_PROPERTIES_JSON_SUBCOLUMNS
+        property_document: ast.Expr = ast.Call(
+            name="toJSONString",
+            args=[property_field],
+            type=ast.StringType(nullable=True),
         )
-        declared_type = subcolumns.get(first_key)
-        property_document: ast.Expr = property_field
-        if len(property_path) == 1 or declared_type not in ("String", "Nullable(String)"):
-            property_document = ast.Call(
-                name="toJSONString",
-                args=[property_field],
-                type=ast.StringType(nullable=True),
-            )
         property_document = ast.Call(
             name="ifNull",
             args=[
@@ -709,7 +711,7 @@ class PropertySwapper(CloningVisitor):
                 if isinstance(resolved_table, EventsPersonSubTable):
                     if property_name in self.person_properties:
                         return self._convert_string_property_to_type(node, "person", property_name)
-                elif isinstance(resolved_table, EventsTable):
+                elif isinstance(resolved_table, EventsTable | FlagEvaluationsTable):
                     if property_name in self.event_properties:
                         return self._convert_string_property_to_type(node, "event", property_name)
         if isinstance(type, ast.PropertyType) and type.field_type.name == "person_properties" and len(type.chain) == 1:

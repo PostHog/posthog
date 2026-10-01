@@ -219,12 +219,19 @@ def _ttl_for_credential(credential: Credential) -> float:
 def _oauth_authorization_ok(credential: OAuthAccessToken, team: Any, team_id: int, memo: "_RefreshMemo | None") -> bool:
     """Authorization checks that only apply to an OAuth credential.
 
-    OAuth tokens carry a user, an expiry, and scoped_* narrowing the gateway can't
-    see — all enforced here, since the gateway authenticates from the cached blob
-    alone (and the hourly refresh re-checks). Returns False to fail closed.
+    OAuth tokens carry a user, an expiry, scoped_* narrowing, and the user's email
+    verification state, none of which the gateway can see. All of it is enforced
+    here, since the gateway authenticates from the cached blob alone (and the hourly
+    refresh re-checks). Returns False to fail closed.
     """
+    from posthog.api.email_verification import (  # noqa: PLC0415 - keeps the email task stack off django.setup()
+        email_verification_pending,
+    )
+
     user = credential.user
     if user is None or not user.is_active:
+        return False
+    if email_verification_pending(user):
         return False
     if credential.application_id is None:
         return False

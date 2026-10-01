@@ -1,5 +1,7 @@
 """Curated view over the Trunk merge-queue snapshot (``TRUNK_MERGE_QUEUE_COLUMNS``)."""
 
+TRUNK_OUT_OF_QUEUE_STATES = frozenset({"failed", "cancelled"})
+
 
 def build_query(table: str) -> str:
     """Curated SELECT over a synced Trunk merge-queue table: parsed last-transition time, the

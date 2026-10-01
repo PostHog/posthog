@@ -19,9 +19,7 @@ const edgeOverlayBaseStyle: React.CSSProperties = {
     background: 'none',
 }
 
-// Top/bottom zones hug the border and reach mostly *into* the tile: the inline "insert tile" overlay owns the
-// row gap between tiles (see InsertTileOverlay), so keeping these off the gap avoids fighting it for the same
-// pixels. They still win the shared border pixel via a higher z-index. Left/right never touch the insert line.
+// Top/bottom zones hug the tile border. They still win the shared border pixel via a higher z-index.
 const TOP_BOTTOM_Z = 7
 // Corners sit above edges so a press in the corner resolves to the diagonal handle.
 const cornerZoneStyle: React.CSSProperties = { zIndex: TOP_BOTTOM_Z, width: 18, height: 18 }
@@ -305,7 +303,7 @@ export const EditModeEdgeOverlay: React.FC<EditModeEdgeOverlayProps> = ({ onEnte
         if (container && pointIsOverScrollbarInside(container, event.clientX, event.clientY)) {
             return
         }
-        // Treat any press (click or drag attempt) as intent to edit
+        // Claim the press so it does not start a text selection; pointer travel decides whether it becomes a resize.
         event.preventDefault()
         event.stopPropagation()
         onEnterEditMode(event, edge)
@@ -329,7 +327,7 @@ export const EditModeEdgeOverlay: React.FC<EditModeEdgeOverlayProps> = ({ onEnte
                     }}
                     onMouseLeave={() => releaseHover()}
                     aria-hidden="true"
-                    title="Click to edit layout"
+                    title="Drag to resize"
                     data-attr={EDGE_ZONE_DATA_ATTR}
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{

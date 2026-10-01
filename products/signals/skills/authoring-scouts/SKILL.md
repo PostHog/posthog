@@ -1,19 +1,17 @@
 ---
 name: authoring-scouts
 description: >
-  How to author, edit, and adapt PostHog Signals scouts — the scheduled agents that
-  scan a project and write reports into the Signals inbox. Use to customize a
-  canonical scout (narrow its scope, retune thresholds, add disqualifiers), tweak a
-  scout's schedule or dry-run posture, write a new scout for a surface the fleet
-  doesn't cover, build a measurement scout that records structured output (an
-  LLM-judge scoring a sample on a schedule — a custom metric no query can compute),
-  or steer a scout without editing it by leaving it a note. Covers the scout SKILL.md
-  anatomy, the report contract, the structured-output channel, the dedupe +
-  scratchpad-memory conventions, scout notes, the per-team skills-store path vs the
-  canonical in-repo path, and the test loop. Trigger on
+  Write, edit, and adapt PostHog Signals scouts: scheduled agents that scan a project
+  and report findings. Use to change a canonical scout's scope, thresholds, schedule,
+  or dry-run settings; add a scout for an uncovered surface; record structured output
+  from scheduled LLM scoring; or give feedback through notes. Covers SKILL.md structure,
+  report requirements, follow-up report checks, structured output, duplicate detection,
+  scratchpad memory, scout notes, per-team skills-store and canonical repository edits,
+  and testing. Trigger on
   "write/edit/customize a signals scout", "new scout for X", "tune my scout schedule",
   "make a scout that watches <event>", "score/judge/measure X with a scout",
-  "structured output from a scout", "leave a note for / give feedback to a scout".
+  "structured output from a scout", "scout output to Slack",
+  "leave a note for / give feedback to a scout".
 metadata:
   owner_team: signals
 ---
@@ -26,11 +24,14 @@ This skill helps you and your agent **adapt those canonical scouts to a specific
 
 A scout's output is the **report channel**: it lists `emit_report` / `edit_report` in its frontmatter `allowed_tools` and authors or edits full inbox reports 1:1 directly.
 The canonical fleet runs this way, and **every new scout should too** — always include the `allowed_tools` opt-in when authoring one.
+Where that output _lands_ is a separate, per-scout config decision: the report goes to the Signals inbox, and the same report can be delivered to a Slack channel or DM at the same time (`output_destinations` under Run posture) — so don't rule a scout out of a job because the user wants the result in Slack.
 (A historical signal-emitting channel — weak `emit-signal` findings a pipeline consolidated — still exists in the harness for scouts that never opted in, but it is deprecated: don't author new scouts on it, and opt an old one in rather than extending it.)
 
-A scout is just an `LLMSkill` whose name starts with `signals-scout-`.
-The harness discovers scouts by globbing `signals-scout-*` over the project's skills, loads the body **verbatim** as the agent's system prompt, and progressively reads any bundled reference files on demand.
-**The `signals-scout-` name prefix is load-bearing: a skill named anything else will never run as a scout.**
+A scout is an `LLMSkill` that holds a `SignalScoutConfig`.
+The harness loads the body **verbatim** as the agent's system prompt, and progressively reads any bundled reference files on demand.
+**The config row is what makes a skill a scout.** Any valid skill name works, so the `signals-scout-` prefix is optional.
+The prefix controls one thing: the coordinator globs `signals-scout-*` to auto-register a config for a skill that has none.
+A skill with any other name needs its config created alongside it, which is what `scout-create` does.
 
 ## The job before the writing
 
@@ -63,10 +64,10 @@ There are two independent decisions: **what** you're building, and **where** it 
 
 ### Where
 
-| Path                                 | Mechanism                                                                                                                                                                                                                                                                                                                 | Use when                                                                                                                              |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| **Per-team** (the common user path)  | Prepare a new runnable scout via `posthog:scout-create-prepare`, show its confirmation message, wait for the user to type `confirm`, then call `posthog:scout-create-execute`; edit its prompt or files later via `posthog:skill-update` / `-file-create`, and tune its runtime config via `posthog:scout-config-update`. | Customizing for one project. The harness globs the row in on the next tick; canonical sync leaves your edited ("diverged") row alone. |
-| **Canonical** (PostHog contributors) | Edit disk under `products/signals/skills/signals-scout-*/`, lint/build, open a PR.                                                                                                                                                                                                                                        | Improving a scout for _every_ enrolled project. `lazy_seed` mirrors it onto all enrolled teams on the next tick.                      |
+| Path                                 | Mechanism                                                                                                                                                                                          | Use when                                                                                                                              |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| **Per-team** (the common user path)  | Create a new runnable scout via `posthog:scout-create`; edit its prompt or files later via `posthog:skill-update` / `-file-create`, and tune its runtime config via `posthog:scout-config-update`. | Customizing for one project. The harness globs the row in on the next tick; canonical sync leaves your edited ("diverged") row alone. |
+| **Canonical** (PostHog contributors) | Edit disk under `products/signals/skills/signals-scout-*/`, lint/build, open a PR.                                                                                                                 | Improving a scout for _every_ enrolled project. `lazy_seed` mirrors it onto all enrolled teams on the next tick.                      |
 
 **Adapting-in-place tradeoff:** editing a canonical scout's row for your team marks it **diverged** — you stop receiving upstream improvements to that scout.
 If you only need an _additional_ behavior, prefer authoring a **new, differently-named** scout (`signals-scout-<your-scope>`) and leaving the canonical one intact.
@@ -76,12 +77,22 @@ See [`references/lifecycle-and-testing.md`](references/lifecycle-and-testing.md)
 ## Write the scout
 
 First pick the **shape**.
-[`references/scout-patterns.md`](references/scout-patterns.md) is a cookbook of the reference architectures scouts fall into — anomaly watcher, liveness/absence watcher, zero-result/unmet demand, watchlist explore/exploit, cross-product correlation, recommendation/gap, warehouse-backed source, custom single-event, open-text theme, adversarial/abuse concentration, external-tool/code, state∩code intersection, custom issue-tracker/work-queue, daily digest/roll-up, triage over a pre-detected stream, first-person dogfooding/probe — each mapped to a canonical scout you can copy as scaffolding.
-It also makes the key point that **a scout can watch any source PostHog ingests into the data warehouse, not just analytics events** (a Slack channel sync, a billing system, a CRM, a support inbox), plus external systems reachable from the sandbox.
+[`references/scout-patterns.md`](references/scout-patterns.md) is a cookbook of the reference architectures scouts fall into — anomaly watcher, liveness/absence watcher, zero-result/unmet demand, watchlist explore/exploit, cross-product correlation, recommendation/gap, warehouse-backed source, custom single-event, open-text theme, adversarial/abuse concentration, external-tool/code, state∩code intersection, custom issue-tracker/work-queue, daily digest/roll-up, triage over a pre-detected stream, first-person dogfooding/probe, recurring measurement/LLM-judge, maintainer/steward, owner-scoped book/queue, trigger-to-brief enrichment, dispatcher/campaign, fleet meta-scout/reviewer — each mapped to a canonical scout or a proven custom shape you can copy as scaffolding.
+It also makes the key point that **a scout can watch any source PostHog ingests into the data warehouse, not just analytics events** (a Slack channel sync, a billing system, a CRM, a support inbox), plus external systems reachable from the sandbox, other agents' output, and the scout fleet itself.
 And where a built-in signals source already covers the surface (GitHub and Linear issues), the issue-tracker pattern says where that source stops and a scout starts paying for itself.
+A scout does not have to stop at describing a fix: the **maintainer / steward** pattern is how a scout holding `write_scopes` keeps a family of dashboards, alerts, warehouse views, or scanner prompts healthy itself, with a write ladder that says which changes it applies, which it verifies and reports, and which it hands to a human.
 Find the closest pattern, then write the body.
 
 Follow [`references/scout-anatomy.md`](references/scout-anatomy.md) — it has the frontmatter schema (including the `allowed_tools` report-channel opt-in every scout needs), the canonical body structure (quick close-out → orient → domain discriminator → explore patterns → save-memory → decide → disqualifiers → close-out), the lean-body rule, and copy-ready skeleton templates for both a specialist and the generalist.
+
+**Write the body feature-forward.** The body is a prompt a run reads in full, every run, for as long as the scout lives — so it states what the scout watches and how it decides, and nothing else. Four things do not belong in it:
+
+- **No rollout state.** A preview flag, an early-access gate, a "recently renamed" tool, a port that is happening one scout at a time. It is true this month and misleading next month, and a run cannot tell which. Write the behavior the scout should follow now; if a capability may be absent, say how the run tells, not when it is due.
+- **No backlog.** Work that is planned, a field that does not exist yet, a lane somebody means to add. A run cannot act on it, so it only spends tokens and invites the run to wait for something.
+- **No project-only facts.** A metric, dashboard, event, id, or reviewer that exists in one project. A canonical scout ships to every project, so a fact from one of them is wrong for almost every run. Text about an optional product says how the run tells whether the project uses it, and never assumes it does.
+- **No duplicated harness mechanics.** The report-channel contract, the run gates, and the close-out format come from the harness prompt, which every report-channel scout is given. A copy in the body drifts from the real one and the run then holds two versions of the same rule. Keep the body to your scout's own domain framing.
+
+The same four apply to a bundled reference: it is read at run time too, so it carries no more rollout state or backlog than the body.
 
 Two craft references the whole fleet reasons in terms of — a good scout's **Decide** and **memory** sections are built on them, so read them before writing those sections:
 
@@ -89,6 +100,16 @@ Two craft references the whole fleet reasons in terms of — a good scout's **De
   This is how your scout decides _what clears the bar_ and _how to file it_.
 - [`references/dedupe-and-memory.md`](references/dedupe-and-memory.md) — the four-states classifier (net-new / material-update / already-covered / addressed-or-noise), the scratchpad key-prefix vocabulary, and the cross-project noise patterns.
   This is how your scout avoids re-filing and learns across runs.
+- [`references/report-checks.md`](references/report-checks.md) — the follow-up checks a scout attaches to a report so "did the fix hold?" is measured later instead of remembered.
+  This is how your scout closes the loop on a finding after somebody acts on it.
+
+A report is backward-looking; a **check** is the opposite direction — an expectation plus a time to test it, written onto a report with `scout-report-check-create`.
+Give your scout a checks section when its findings are the kind whose fix shows up in data later.
+Three rules belong in the body, and the reference has the rest:
+
+- **List the report's existing checks first** (`scout-report-check-list`), every time. An open check for the same claim makes a second one noise, and a report holds at most five open checks.
+- **`metric_threshold` wherever one number settles the claim and an event or action series can carry it.** The coordinator measures it itself, with no scout run.
+- **`agent` when no single number settles it, or when the number lives outside events** — a log rate, a fix whose effect shows in which entities fire rather than how many, a claim that needs a stack trace read.
 
 The single most important design decision in any scout is its **signal-vs-noise discriminator** — the cheap profile-shape read that separates "worth investigating" from "baseline".
 For error tracking it's the `count` vs `distinct_users` ratio; for CSP it's reach over raw count.
@@ -97,17 +118,13 @@ Name it explicitly near the top of the body so every run anchors on it.
 
 (The one exception: a **measurement scout** on the structured-output channel holds no bar — it applies a **rubric** to every sampled item, and the rubric takes the discriminator's slot as the design surface to name, dogfood, and calibrate. See the recurring measurement / LLM-judge pattern in `references/scout-patterns.md`.)
 
-A second design rule binds any **metric-shaped scout** — one that scores, ranks, or reports a named, reusable measure, whether a business measure (MRR, churn risk, usage revenue, activation) or operational telemetry it computes every run to monitor or report (cost per run, failure or error rates, latency, throughput).
-When the project's metrics catalog is enabled, it may hold a governed definition of that measure in `system.information_schema.metrics`, and the harness tells every run to prefer it — so write the body to cooperate rather than compete: have the run check the catalog for an approved, non-drifted metric before its own derivation, and run a match through `data-catalog-metric-run`.
-Where a governed metric exists, reference it by name in any `references/queries.md` you ship, and label every hand-written derivation there a noncanonical fallback — an unlabeled "validated query" outranks the harness's catalog-first rule at run time, which is exactly how a scout ends up re-deriving a number the team already governs.
-Freshness, availability, and schema checks are exempt: they stay schema-first, with no catalog detour.
-A measurement scout is exempt too, but only for the measure it invents: a subjective rubric has no governed definition to defer to, while any conventional metric the same scout reports still goes through the catalog.
+A second design consideration applies to a **metric-shaped scout** — one that scores, ranks, or reports a named, reusable measure, whether a business measure (MRR, churn risk, usage revenue, activation) or operational telemetry it computes every run to monitor or report (cost per run, failure or error rates, latency, throughput).
+If the project has an approved metric for that measure (`metric-list` shows what exists), name it in the body and run it with `data-catalog-metric-run`, so the scout's number matches the one the team already reports.
 
 ## Run posture (config)
 
 A scout's schedule and emit behavior live on its `SignalScoutConfig`, separate from the skill body.
-For a **brand-new scout**, pass these settings in the nested `config` object of the `posthog:scout-create-prepare` call, including creating it disabled or in dry-run **before it ever runs**.
-Show the returned confirmation message, wait for the user to type `confirm`, then call `posthog:scout-create-execute` with the returned `confirmation_hash` and that literal confirmation.
+For a **brand-new scout**, pass these settings in the nested `config` object of the `posthog:scout-create` call, including creating it disabled or in dry-run **before it ever runs**.
 The endpoint creates the skill and config atomically, always opts the scout into the report channel, and safely re-applies config fields when the same definition is retried.
 Otherwise the coordinator auto-registers an enabled config on the default every-24-hours schedule on its next tick (up to ~30 min).
 For an **existing scout**, tune with `posthog:scout-config-update` (find the `id` via `-config-list`):
@@ -115,6 +132,10 @@ For an **existing scout**, tune with `posthog:scout-config-update` (find the `id
 - `run_interval_minutes` — 30 to 43200.
   Default 1440 (every 24 hours).
   Slow a chatty or expensive scout by raising this.
+- `run_cron_schedule`: a five-field cron expression (`'30 9 * * *'`, `'0 9 * * 1-5'`) evaluated in the project's timezone; occurrences must be at least 30 minutes apart.
+  When set it takes precedence over `run_interval_minutes`, so a "slow it down" edit on a cron scout has to change or clear the cron (set `null` to return to the rolling interval).
+  A new or edited schedule anchors on the edit time and waits for its next slot rather than catching up on a past one.
+  Reach for it when the run should land at a wall-clock time: a digest before standup, a weekday-only watch.
 - `enabled` — `false` pauses the scout entirely (coordinator skips it).
 - `emit` — defaults to **`true`**: the scout writes its reports straight to the inbox.
   The standard flow is to make a scout and let it write — seeing what actually lands is the fastest way to calibrate it.
@@ -128,14 +149,38 @@ For an **existing scout**, tune with `posthog:scout-config-update` (find the `id
   `-config-list` shows the warning as `status=pending_pause` and the pause as `status=paused_by_system`; setting `enabled=true` again resumes the scout with a fresh grace window before the sweep may judge it again.
   Set `auto_pause_exempt=true` up front for a watchdog scout whose whole job is to stay quiet, so it never even picks up the quiet flag.
 - `write_scopes` — defaults to `[]`: the scout reads the project and writes only what every scout writes (its findings, its memory, and notebooks).
-  Grant `dashboard:write`, `insight:write`, `annotation:write`, `alert:write`, `llm_skill:write`, `warehouse_view:write`, or `warehouse_table:write` to a scout whose job is to **maintain** one of those things rather than only describe what it would change.
+  Grant `dashboard:write`, `insight:write`, `annotation:write`, `alert:write`, `llm_skill:write`, `warehouse_view:write`, `warehouse_table:write`, or `replay_scanner:write` to a scout whose job is to **maintain** one of those things rather than only describe what it would change.
+  The body of such a scout follows the maintainer / steward pattern in `references/scout-patterns.md`: a curated inventory, a write ladder (do-and-log, do-verify-report, hand-to-a-human), a per-run change cap, and a rolling maintenance report naming every object changed.
   Each scope is project-wide and covers update and delete of every object of its kind, not only the ones the scout made, so grant only what the scout's body actually tends, and say in the body what it may change and when.
   `llm_skill:write` is the one to think twice about: custom scouts are skills in the same store, so a scout holding it can edit a sibling scout's body, or the body it runs from itself. Grant it to a scout whose job really is tending a set of skills, name that set in the body, and say there that the scouts are off limits unless tending them is the job.
   `warehouse_view:write` and `warehouse_table:write` are separate on purpose: a scout that keeps a set of views healthy does not also need to create tables. Take both rows only when the scout tends both.
+  `replay_scanner:write` permits scanner maintenance. A scout must set a `credit_limit` when it creates, copies, or enables a scanner, and before it changes targeting, sampling, or the model of an enabled scanner. It cannot clear a limit, delete a scanner, or start manual scans, prompt tests, retries, or backfills. Use `enabled: false` to stop a scanner and keep its observations. Use existing human ratings for prompt suggestions; change a shared rating only to record an explicit user verdict.
   Only the person the scout's runs act as (whoever authored it) or a project admin can set the field, and grants are activity-logged. A scoped API key must itself carry each scope it grants.
   A granted scout is told in its run prompt which objects it may change, and is asked to name every change in its close-out. The grant is an upper bound: the acting user's own permissions still apply to each object, and the scout reports a refused write rather than retrying it.
   A dry run (`emit: false`) never holds the grant, so a scout can be previewed without it changing anything.
+  To audit the writes after a run, see "Auditing what a scout changed" in `working-with-scouts`: the changes land in the activity log under the scout's acting user, tagged "via MCP", with no scout or run name on the row.
   Applies from the scout's next run.
+- `output_destinations` — defaults to none.
+  When adding Slack to an existing scout, first read `output_destinations`, then send the full object with every key preserved. Updates replace the object, so sending only `slack` removes an existing `webhook` pointer.
+  Set `slack` to deliver every surfaced report the scout emits (`ready` or `pending_input`) to Slack as well as the inbox; a report the judge suppressed stays out of Slack by design: an `integration_id` for the workspace, plus either a `channel` (`channel_id|#channel-name`) or up to five `users` to DM (`member_id|@display-name`), never both.
+  A scoped API key or OAuth token needs `integration:read` and `task:read` (or the matching write scopes) on top of `signal_scout:write` to set `slack`; a minimally scoped credential gets a permission error.
+  `thread_reports: true` posts a report as a short lead message with the rest split into replies at the summary's section labels, so a long report isn't clipped; it doesn't change how findings post.
+  Slack delivery is a firehose of that one scout's output — no priority filter, no reviewer routing — so it suits a scout whose bar is already tight rather than a chatty one you're still calibrating.
+  A Slack-delivered scout is also exempt from the ignored-reports auto-pause, since consumption there isn't measurable.
+- `display_name`: the name the UI shows for the scout. Leave blank to use the default derived from the skill name; it never changes `skill_name`, which stays fixed.
+  The only setting here the nested `config` on `scout-create` does not take: set it with a `-config-update` after creation.
+- `model`: pins the model the scout's runs use. Leave unset to follow the fleet default, which is what most scouts should do; set it when a scout's job needs a stronger model (long research) or a cheaper one (a frequent, mechanical probe) and say why in the body.
+  Early access: on a project not enrolled in the `scouts-model-config` preview, any non-null value is rejected with "Choosing a scout model is not available on this project yet.", so only recommend pinning where that flag is on.
+- `mcp_gateway_server_ids`: MCP store servers (by id) this scout's runs may mount, chosen from the connections members have shared with the whole team.
+  Empty (the default) mounts none of the shared servers. The intent is that only team-shared connections back a scout run, so runs behave the same whoever edits the scout; where MCP gateway enforcement is not yet active on the project, the launch path may still mount the acting user's personal connections, so check the run's mounted servers in its transcript when that matters.
+  Treat it like `network_access`: it hands the scout third-party tools with whatever access the shared connection carries, changes are activity-logged, and the body should name what the scout uses each server for.
+- `repositories` — defaults to `[]`: the scout's sandbox holds no checkout, which is right for a scout that only reads the project over MCP.
+  Set `["organization/repository", ...]` for a scout that reasons about code, and its sandbox clones each one before the run starts, so the scout can grep the tree, read the layout, and run the project's own build, type check, and tests instead of fetching files one `gh api` call at a time.
+  Up to 10 per scout, and each must be reachable through the project's GitHub connection — an unreachable name is refused on write rather than surfacing as a clone failure mid-run.
+  The scout's GitHub access stays read-only whether or not it clones, so a listed repository gives it a tree to read and never the ability to push, comment, or open a pull request. Write access for a scout is a separate opt-in that does not exist yet.
+  A multi-repository scout gets each tree on its default branch; there is no per-repository branch selection.
+  Each tree carries the repository's full commit history, so a skill body can run `git log`, `git blame`, and `--since` against it without an unshallow fetch first.
+  Applies from the scout's next run, and changes are activity-logged.
 - `tags` — free-form labels grouping the fleet, e.g. `["revenue", "on-call"]`. Up to 10 per scout, normalized to lowercase kebab-case (`On Call` → `on-call`) and deduped.
   Set them at create time: a scout that lands already grouped saves a follow-up edit, and the desktop app's scout list filters on them.
   Prefer a tag that already exists on the fleet (`-config-list` shows every scout's tags) over minting a near-duplicate — `revenue` and `revenue-analytics` fragment the same group.
@@ -164,8 +209,12 @@ The tools (reads on the public `signal_scout:read` scope; because scouts read no
 
 - `posthog:scout-notes-create {"content": "...", "skill_name": "signals-scout-web-analytics"}` — address one scout by its exact skill name (roster via `scout-config-list`; the skill must already exist, so a typo'd target is rejected instead of silently steering no one), or omit `skill_name` for a general note every scout sees.
   Optionally set `expires_at` so a time-boxed note ("watch closely this week") retires itself.
+  `skill_name: "pipeline:report-research"` addresses the report pipeline's research stage instead of any scout, for guidance about how the reports it builds from clustered signals get researched, judged, and routed ("route billing-adjacent reports to the billing folks"). Reports a scout authors directly never pass through that stage, so a rule for them belongs in a fleet-wide note (omit `skill_name`) or a per-scout one. It is the only `pipeline:*` audience; any other value is rejected.
 - `posthog:scout-notes-list` — browse the active notes; pass `skill_name` to see what a given scout will read.
+  Expect system-derived notes alongside the human ones: a dismissal or snooze note, a Discuss question, a thumbs-rating note, and a reviewer add/remove on a report are each forwarded to the relevant scout as a note, labelled by `origin` (`report_dismissal`, `report_discussion`, `report_feedback`, `report_reviewer_correction`; a note left directly is `human`). Derived notes expire on their own after ~30 days.
+  Three caveats: a Discuss question or rating note only forwards when the person had the notes-write authorization themselves (skill-editor access plus, on a scoped credential, `signal_scout:write` and `llm_skill:write`); a reviewer correction only forwards when the person had skill-editor access on the canonical project (the reviewer change itself still lands on the report); and the list hides every derived origin from a caller without report read access (`task:read`), since they quote report content. A missing derived note can mean either. A dismissal note is still on the report and a Discuss question on its discussion task, but a rating note exists only as the forwarded scout note (plus an analytics event), so a rating note that did not forward is gone.
 - `posthog:scout-notes-delete {"id": "..."}` — retire a note that's been acted on or no longer applies.
+- `posthog:scout-run-now {"id": <config_id>, "note": "..."}`: steer one run only. The note (up to 1,000 characters) is read by that run next to the durable notes and is never delivered to a later run as a note, so use it for "check this now" instead of a note every scheduled run would keep reading. It does stay visible in that run's metadata (`run_note`) when a later run reads its history, so phrase it as a dated one-off ("today only: ...") rather than standing policy. It needs skill-editor access and, on a scoped credential, `llm_skill:write` on top of the base `signal_scout:write`, the same two scopes as a durable note (a 403 otherwise; drop the note to run without it), and spends a run like any manual dispatch.
 
 How scouts treat notes: every run reads its notes in step 1 and is told to let a fresh note visibly shape what it investigates — but notes are **advisory**.
 They direct attention; they don't lower the scout's evidence bar or force a report, so a note saying "report X" still gets an honest investigation, not an automatic emit.
@@ -182,6 +231,12 @@ The cheapest, fastest iteration doesn't touch a scout run at all: walk the scout
 Confirm the watched event/entity exists and has the shape you assumed, run the **discriminator** to check it actually separates signal from noise on _this_ project's data, and run each **explore pattern**'s queries to see what they surface.
 This loop is free and instant — refine the body against what you find, re-run the queries, repeat, until the scout's logic holds up on real data.
 This is where the real iteration happens.
+
+**A few runtime tools cannot be dogfooded, so validate them in the first real run instead.** Anything that takes a `run_id` only works from inside a run, and a tool the project has not been switched on for fails whoever calls it.
+`posthog:scout-lighthouse-audit` is the one to plan around: it loads a page in a real throttled browser and returns the lab metrics, the element the browser chose as the Largest Contentful Paint, where the LCP time went phase by phase, and the ranked savings estimates — which is how a page-performance finding names a cause rather than guessing one.
+It needs the run's `run_id`, it is restricted to an allowlist of public pages (the browser signs in to nothing, so a page behind a login would report the login screen's numbers as the page's), it is limited to the projects switched on for it, and it is capped at five audits per run. A rejected call costs nothing, but once the page loads the slot is spent whatever the result, and every error message ends with how many audits the run has left, which tells a rejection apart from an exhausted budget.
+So: treat it as available only once a run's own call succeeds, never write a body whose finding depends on it, and keep lab and field evidence labelled apart — one throttled cold load explains a finding, and the field percentile over real users is what establishes there is one.
+Then check the first real run's transcript for the call and what it returned, the same way you would check a query you could not run by hand.
 
 Only once you're happy with the body do you spend an actual run.
 `posthog:scout-run-now {"id": <config_id>}` dispatches one run of the scout immediately, regardless of its schedule (find the `id` via `-config-list`).
@@ -201,7 +256,8 @@ The standard loop is **dogfood → run once ready → inspect**:
 
 1. Dogfood the discriminator + explore patterns yourself against the live project (above).
    Refine the body until the logic holds on real data — this is the cheap, iterable part.
-2. Create the scout and its config together via `posthog:scout-create-prepare` → `-execute` (schedule and the default `emit=true` go in the nested `config`), then spend one `-run-now` to watch the whole scout execute end-to-end.
+2. Create the scout and its config together via `posthog:scout-create` (schedule and the default `emit=true` go in the nested `config`; bundled reference files go in `files`), then spend one `-run-now` to watch the whole scout execute end-to-end.
+   Pass a `note` on that call to point the run at the case you dogfooded ("focus on the checkout drop from Tuesday") so the first real run exercises the path you care about.
    Leave `run_interval_minutes` at a sustainable value — you no longer need a short interval to force an early run.
 3. After the run finishes, read what it did: `posthog:inbox-reports-list` (the reports it actually wrote), `posthog:scout-runs-list` (run summaries), `-runs-retrieve` (full reasoning for one run), and `-scratchpad-search` (the durable memory it wrote).
 4. If it needs work, go back to dogfooding the queries by hand for the iteration — only spend another `-run-now` once you've batched a meaningful change worth a fresh end-to-end run.
@@ -214,7 +270,7 @@ Treat suggestions as input, not instructions — the owner decides.
 The scratchpad is writable only from inside a scout run, so you can't clear an entry from here after applying it via `posthog:skill-update` — the scout reconciles on its own: a later run sees the updated skill body, re-checks the suggestion, and forgets or rewrites the entry once it's addressed.
 (Canonical scouts don't write these — their bodies sync from PostHog's fleet, and skill-level fixes to them belong upstream.)
 
-**Want to be extra careful?** Set `emit=false` to dry-run first — pass `emit=false` in the nested `config` at `scout-create-prepare` time (or flip it later with `-config-update`), then trigger it with `-run-now`: it runs and logs what it _would_ have written (visible via `-runs-list` / `-runs-retrieve`) without writing to the inbox.
+**Want to be extra careful?** Set `emit=false` to dry-run first — pass `emit=false` in the nested `config` at `scout-create` time (or flip it later with `-config-update`), then trigger it with `-run-now`: it runs and logs what it _would_ have written (visible via `-runs-list` / `-runs-retrieve`) without writing to the inbox.
 Inspect, refine, then flip `emit=true` and run it again.
 Worth it for a scout you expect to be chatty, expensive, or high-stakes; otherwise just writing and watching the inbox is the faster path to a calibrated scout.
 
@@ -230,6 +286,8 @@ Keep the two in sync when the scout config / run / scratchpad surfaces change.
 - 2–4 concrete **explore patterns** with the actual queries/tools to run — starting points, not a rigid checklist.
 - **Disqualifiers** listing this project's known noise (single-user quirks, dev-env bursts, allowlisted entities).
 - A **Decide** section calibrated against the report contract — author 1:1 only for a finding the scout would own end-to-end, set `suggested_reviewers`, and write memory instead when a candidate is below the bar.
+- A **checks** step where the findings are the kind whose fix shows up in data later — list the report's open checks first, then pick `metric_threshold` or `agent` by whether one number settles the claim.
+- A **feature-forward body**: no rollout state, no backlog, no project-only facts, no harness mechanics the prompt already carries.
 - **Save-memory** guidance using the scratchpad prefixes so the scout gets smarter each run.
 - A lean body (push depth into `references/`) — every line is a recurring token cost on every run.
 - A **tight frontmatter `description`** — a sentence or two naming the surface and the shapes it watches.

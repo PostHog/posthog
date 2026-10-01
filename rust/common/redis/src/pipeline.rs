@@ -27,7 +27,7 @@ use crate::{Client, CustomRedisError, RedisValueFormat};
 /// Each variant corresponds to the return type of a Redis command.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PipelineResult {
-    /// Success — return value intentionally discarded (SET, DEL, HINCRBY, SADD, etc.)
+    /// Success — return value intentionally discarded (SET, DEL, HINCRBY, ZADD, etc.)
     Ok,
     /// String value (GET)
     String(String),
@@ -35,7 +35,7 @@ pub enum PipelineResult {
     Bytes(Vec<u8>),
     /// Boolean result (SET NX EX, EXPIRE)
     Bool(bool),
-    /// Count result (SCARD)
+    /// Count result (SCARD, SADD)
     Count(u64),
     /// List of strings (ZRANGEBYSCORE)
     Strings(Vec<String>),
@@ -86,6 +86,11 @@ pub enum PipelineCommand {
     SAdd {
         key: String,
         member: String,
+    },
+    /// One ZADD with every `(score, member)` pair, so a batch is a single command.
+    ZAdd {
+        key: String,
+        members: Vec<(i64, String)>,
     },
     Expire {
         key: String,
@@ -249,6 +254,15 @@ impl<C> Pipeline<C> {
         self.commands.push(PipelineCommand::SAdd {
             key: key.into(),
             member: member.into(),
+        });
+        self
+    }
+
+    /// Add a ZADD command to the pipeline.
+    pub fn zadd(mut self, key: impl Into<String>, members: Vec<(i64, String)>) -> Self {
+        self.commands.push(PipelineCommand::ZAdd {
+            key: key.into(),
+            members,
         });
         self
     }

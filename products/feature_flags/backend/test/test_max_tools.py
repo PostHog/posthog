@@ -8,6 +8,7 @@ from posthog.schema import FeatureFlagGroupType, GroupPropertyFilter, PersonProp
 from posthog.sync import database_sync_to_async
 from posthog.test.persons import create_group_type_mapping
 
+from products.feature_flags.backend.api.feature_flag import FLAG_FILTERS_WRITE_COUNTER
 from products.feature_flags.backend.max_tools import (
     CreateFeatureFlagTool,
     FeatureFlagCreationSchema,
@@ -35,6 +36,16 @@ class TestCreateFeatureFlagTool(APIBaseTest):
             tool_call_id="test-call",
             state=AssistantState(messages=[]),
         )
+
+    async def test_flag_writes_are_attributed_to_posthog_ai(self):
+        counted = FLAG_FILTERS_WRITE_COUNTER.labels(operation="create", outcome="accepted", source="posthog_ai")
+        before = counted._value.get()
+
+        await self._create_tool()._arun_impl(
+            feature_flag=FeatureFlagCreationSchema(key="attributed-flag", name="Attributed", groups=[ALL_USERS_GROUP])
+        )
+
+        assert counted._value.get() == before + 1
 
     async def test_create_flag_minimal(self):
         tool = self._create_tool()
@@ -500,10 +511,7 @@ class TestCreateFeatureFlagTool(APIBaseTest):
         await database_sync_to_async(self.team.save)()
         await self._create_default_context("production")
 
-        with patch(
-            "posthoganalytics.feature_enabled",
-            side_effect=_enable_gates("flag-evaluation-tags", "default-evaluation-environments"),
-        ):
+        with patch("posthoganalytics.feature_enabled", side_effect=_enable_gates("flag-evaluation-tags")):
             tool = self._create_tool()
 
             schema = FeatureFlagCreationSchema(
@@ -551,10 +559,7 @@ class TestCreateFeatureFlagTool(APIBaseTest):
         await database_sync_to_async(self.team.save)()
         await self._create_default_context("production")
 
-        with patch(
-            "posthoganalytics.feature_enabled",
-            side_effect=_enable_gates("flag-evaluation-tags", "default-evaluation-environments"),
-        ):
+        with patch("posthoganalytics.feature_enabled", side_effect=_enable_gates("flag-evaluation-tags")):
             tool = self._create_tool()
 
             schema = FeatureFlagCreationSchema(
@@ -609,6 +614,6 @@ class TestCreateFeatureFlagTool(APIBaseTest):
 
         @database_sync_to_async
         def get_tags():
-            return list(TaggedItem.objects.filter(feature_flag=flag).values_list("tag__name", flat=True))
+            return list(TaggedItem.objects.for_object(flag).values_list("tag__name", flat=True))
 
         return await get_tags()

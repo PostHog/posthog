@@ -1,4 +1,5 @@
 import re
+import math
 from collections.abc import Callable
 from typing import Literal, Optional, TypeGuard, cast
 
@@ -8,6 +9,7 @@ from django.db.models.functions.comparison import Coalesce
 
 import re2
 import posthoganalytics
+from more_itertools import chunked
 from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 
@@ -243,6 +245,27 @@ def _wildcard_bounds(value: str) -> tuple[str, str]:
 
 
 GROUP_KEY_PATTERN = re.compile(r"^\$group_[0-4]$")
+
+# The group's key is a column on the groups table, not an entry in its property JSON. Flag matching and
+# the release-condition blast radius already resolve it that way; HogQL has to agree everywhere.
+GROUP_KEY_PROPERTY = "$group_key"
+
+
+def group_property_chain(group_type_index: int | float | None, key: str) -> list[str]:
+    """Field chain that reads group property `key` through the events table's `group_N` lazy join.
+
+    `$group_key` is the `key` column, `$virt_*` properties are expression fields on the groups table, and
+    anything else lives in the property JSON. The breakdown builders and `property_to_expr` all go through
+    here so the three shapes cannot drift apart.
+    """
+    if group_type_index is None:
+        raise QueryError("A group property needs a group_type_index")
+    prefix = f"group_{int(group_type_index)}"
+    if key == GROUP_KEY_PROPERTY:
+        return [prefix, "key"]
+    if key.startswith("$virt_"):
+        return [prefix, key]
+    return [prefix, "properties", key]
 
 
 def _stringify_group_key_value(value: object) -> str | list[str]:
@@ -548,11 +571,27 @@ def _force_datetime(expr: ast.Expr) -> ast.Expr:
 def _validate_between_values(value: ValueT, operator: PropertyOperator) -> TypeGuard[list[str]]:
     if not isinstance(value, list) or len(value) != 2:
         raise QueryError(f"{operator} operator requires a two-element array [min, max]")
-    try:
-        if float(value[0]) > float(value[1]):
-            raise QueryError(f"{operator} operator requires min value to be less than or equal to max value")
-    except (ValueError, TypeError):
-        raise QueryError(f"{operator} operator requires numeric values")
+
+    # ValueT declares list[str], but a filter value reaches here as parsed JSON, so a bound can be
+    # any scalar. Taking `object` keeps the runtime checks below reachable.
+    def _to_bound(bound: object) -> float:
+        # bool is a subclass of int, so float() would silently accept it, and float("NaN") parses
+        # to a real NaN. The Rust evaluator (rust/feature-flags/src/properties/property_matching.rs)
+        # rejects both as bounds.
+        not_numeric = QueryError(f"{operator} operator requires numeric values")
+        if isinstance(bound, bool) or not isinstance(bound, (str, int, float)):
+            raise not_numeric
+        try:
+            parsed = float(bound)
+        except (ValueError, TypeError):
+            raise not_numeric
+        if math.isnan(parsed):
+            raise not_numeric
+        return parsed
+
+    low, high = _to_bound(value[0]), _to_bound(value[1])
+    if low > high:
+        raise QueryError(f"{operator} operator requires min value to be less than or equal to max value")
     return True
 
 
@@ -561,9 +600,41 @@ def _multi_search_found(search_call: ast.Call) -> ast.CompareOperation:
     return ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=search_call, right=ast.Constant(value=0))
 
 
-def _multi_search_not_found(search_call: ast.Call) -> ast.CompareOperation:
-    """Create comparison operation to check if multiSearchAnyCaseInsensitive did not find a match."""
-    return ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=search_call, right=ast.Constant(value=0))
+def _multi_search_not_found(search_call: ast.Call) -> ast.Expr:
+    """Create an expression that is true when multiSearchAnyCaseInsensitive found no match.
+
+    Negates the positive form instead of adding a separate NULL check: multiSearchAnyCaseInsensitive
+    resolves as nullable, so the printer already wraps the found comparison in ifNull(..., 0), and a
+    missing property therefore makes the found check false and this negation true, matching every
+    other negative operator. The bare multiSearchAnyCaseInsensitive call also stays what
+    _optimize_materialized_array_multisearch matches on to build an arrayExists scan."""
+    return ast.Not(expr=_multi_search_found(search_call))
+
+
+_NEGATIVE_OPERATOR_COMPLEMENTS = {
+    PropertyOperator.IS_NOT: PropertyOperator.EXACT,
+    PropertyOperator.NOT_IN: PropertyOperator.IN_,
+    PropertyOperator.IS_NOT_SET: PropertyOperator.IS_SET,
+    PropertyOperator.NOT_ICONTAINS: PropertyOperator.ICONTAINS,
+    PropertyOperator.NOT_ICONTAINS_MULTI: PropertyOperator.ICONTAINS_MULTI,
+    PropertyOperator.NOT_REGEX: PropertyOperator.REGEX,
+    PropertyOperator.NOT_STARTS_WITH: PropertyOperator.STARTS_WITH,
+    PropertyOperator.NOT_ENDS_WITH: PropertyOperator.ENDS_WITH,
+    PropertyOperator.NOT_BETWEEN: PropertyOperator.BETWEEN,
+}
+
+
+def operator_is_negative(operator: PropertyOperator) -> bool:
+    return operator in _NEGATIVE_OPERATOR_COMPLEMENTS
+
+
+def _array_property_filter(array: ast.Expr, element_predicate: ast.Expr, negate: bool) -> ast.Expr:
+    """`element_predicate` is the positive form even when `negate` is set: a negative operator
+    negates the whole arrayExists, so an empty or missing array is kept and an array holding any
+    matching element is dropped. Negating per element instead keeps a row as soon as one element
+    fails to match and drops a row whose array is empty."""
+    exists = ast.Call(name="arrayExists", args=[ast.Lambda(args=["v"], expr=element_predicate), array])
+    return ast.Not(expr=exists) if negate else exists
 
 
 def _create_multi_search_call(expr: ast.Expr, value: list) -> ast.Call:
@@ -575,6 +646,29 @@ def _create_multi_search_call(expr: ast.Expr, value: list) -> ast.Call:
             ast.Array(exprs=[ast.Constant(value=str(v)) for v in value]),
         ],
     )
+
+
+# ClickHouse 26.6.2 rejects a nonconstant multiSearchAnyCaseInsensitive call with more than 255
+# needles ("passed N, should be at most 255").
+_MULTI_SEARCH_NEEDLE_LIMIT = 255
+
+
+def _chunk_needles(value: list) -> list[list]:
+    return [list(chunk) for chunk in chunked(value, _MULTI_SEARCH_NEEDLE_LIMIT)]
+
+
+def _multi_search_found_for_values(expr: ast.Expr, value: list) -> ast.Expr:
+    """True if `expr` matches any of `value`, chunking past ClickHouse's needle limit and ORing
+    the chunks together."""
+    found_exprs: list[ast.Expr] = [
+        _multi_search_found(_create_multi_search_call(expr, chunk)) for chunk in _chunk_needles(value)
+    ]
+    return found_exprs[0] if len(found_exprs) == 1 else ast.Or(exprs=found_exprs)
+
+
+def _multi_search_not_found_for_values(expr: ast.Expr, value: list) -> ast.Expr:
+    """True if `expr` matches none of `value`, chunking past ClickHouse's needle limit."""
+    return ast.Not(expr=_multi_search_found_for_values(expr, value))
 
 
 def _validate_regex(value: ValueT) -> None:
@@ -607,7 +701,7 @@ def _expr_to_compare_op(
     elif operator == PropertyOperator.ICONTAINS:
         if isinstance(value, list) and len(value) > 1:
             # Multiple values: use ClickHouse's multiSearchAnyCaseInsensitive for efficient searching
-            return _multi_search_found(_create_multi_search_call(expr, value))
+            return _multi_search_found_for_values(expr, value)
         else:
             # Single value (or single-element array): keep existing ILIKE logic for backward compatibility
             single_value = value[0] if isinstance(value, list) and len(value) == 1 else value
@@ -619,7 +713,7 @@ def _expr_to_compare_op(
     elif operator == PropertyOperator.NOT_ICONTAINS:
         if isinstance(value, list) and len(value) > 1:
             # Multiple values: use ClickHouse's multiSearchAnyCaseInsensitive with negation
-            return _multi_search_not_found(_create_multi_search_call(expr, value))
+            return _multi_search_not_found_for_values(expr, value)
         else:
             # Single value (or single-element array): keep existing NOT ILIKE logic for backward compatibility
             single_value = value[0] if isinstance(value, list) and len(value) == 1 else value
@@ -652,14 +746,14 @@ def _expr_to_compare_op(
             values_list = value
         else:
             values_list = cast(list, [value])
-        return _multi_search_found(_create_multi_search_call(expr, values_list))
+        return _multi_search_found_for_values(expr, values_list)
     elif operator == PropertyOperator.NOT_ICONTAINS_MULTI:
         # Always expect multiple values for multi-not-contains operator
         if isinstance(value, list):
             values_list = value
         else:
             values_list = cast(list, [value])
-        return _multi_search_not_found(_create_multi_search_call(expr, values_list))
+        return _multi_search_not_found_for_values(expr, values_list)
     elif operator == PropertyOperator.REGEX:
         _validate_regex(value)
         return ast.Call(
@@ -748,6 +842,9 @@ def _expr_to_compare_op(
             exprs=[
                 ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=expr, right=ast.Constant(value=value[0])),
                 ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=expr, right=ast.Constant(value=value[1])),
+                # A missing property makes both comparisons NULL and drops the row; keep it, matching
+                # every other negative operator.
+                ast.Call(name="isNull", args=[expr]),
             ]
         )
     elif operator == PropertyOperator.IS_CLEANED_PATH_EXACT:
@@ -757,10 +854,17 @@ def _expr_to_compare_op(
             right=apply_path_cleaning(ast.Constant(value=value), team),
         )
     elif operator == PropertyOperator.IN_ or operator == PropertyOperator.NOT_IN:
-        if not isinstance(value, list):
-            raise Exception("IN and NOT IN operators require a list of values")
+        values: list
+        if isinstance(value, list):
+            values = value
+        elif isinstance(value, str | int | float):
+            # Stored filters sometimes carry a single scalar for IN/NOT IN (filters created via
+            # the API); treat it as a one-element list, the way `exact` accepts both shapes.
+            values = [value]
+        else:
+            raise QueryError("IN and NOT IN operators require a list of values")
         op = ast.CompareOperationOp.NotIn if operator == PropertyOperator.NOT_IN else ast.CompareOperationOp.In
-        coerced = cast(list, _coerce_numeric_value_for_string_property(value, property, team))
+        coerced = cast(list, _coerce_numeric_value_for_string_property(values, property, team))
         return ast.CompareOperation(
             op=op,
             left=expr,
@@ -1192,7 +1296,13 @@ def property_to_expr(
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
         value = property.value
 
-        if property.key and GROUP_KEY_PATTERN.match(str(property.key)):
+        # `$group_key` is the group's key column, not an entry in its property JSON. Flag
+        # matching and the blast radius already resolve it that way, so resolve it here too;
+        # otherwise the same filter silently matches nothing in insights, cohorts and the
+        # groups list.
+        is_group_key_column = property.type == "group" and property.key == GROUP_KEY_PROPERTY
+
+        if property.key and (is_group_key_column or GROUP_KEY_PATTERN.match(str(property.key))):
             value = _stringify_group_key_value(value)
 
         if property.type == "person" and property.key == "distinct_id":
@@ -1252,6 +1362,8 @@ def property_to_expr(
                 property.key = key
             else:
                 raise QueryError("Data warehouse person property filter value must be a string")
+        elif is_group_key_column:
+            chain = ["key"] if scope == "group" else group_property_chain(property.group_type_index, GROUP_KEY_PROPERTY)
         elif property.type == "group" and scope != "group":
             chain = [f"group_{property.group_type_index}", "properties"]
         elif property.type == "session" and scope in ["event", "replay"]:
@@ -1289,7 +1401,7 @@ def property_to_expr(
         # We pretend elements chain is a property, but it is actually a column on the events table
         if chain == ["properties"] and property.key == "$elements_chain":
             field = ast.Field(chain=["elements_chain"])
-        elif property.key == "":
+        elif property.key == "" or is_group_key_column:
             field = ast.Field(chain=[*chain])
         else:
             field = ast.Field(chain=[*chain, property.key])
@@ -1300,23 +1412,31 @@ def property_to_expr(
             expr = ast.Call(name="argMinMerge", args=[field])
 
         is_visited_page_property = property.type == "recording" and property.key == "visited_page"
-        if is_visited_page_property:
-            # Use the all_urls array field to filter for pages visited during recording.
-            all_urls_field = ast.Call(name="groupUniqArrayArray", args=[ast.Field(chain=["all_urls"])])
-
         is_exception_string_array_property = (
             property.type == "event" and property.key in EXCEPTION_STRING_ARRAY_PROPERTIES
         )
 
-        if is_exception_string_array_property:
+        array_field: ast.Expr | None = None
+        if is_visited_page_property:
+            # Use the all_urls array field to filter for pages visited during recording.
+            array_field = ast.Call(name="groupUniqArrayArray", args=[ast.Field(chain=["all_urls"])])
+        elif is_exception_string_array_property:
             # if materialized these columns will be strings so we need to extract them
-            extracted_field = ast.Call(
+            array_field = ast.Call(
                 name="JSONExtract",
                 args=[
                     ast.Call(name="ifNull", args=[field, ast.Constant(value="")]),
                     ast.Constant(value="Array(String)"),
                 ],
             )
+
+        # _expr_to_compare_op combines every value of these into one multiSearchAnyCaseInsensitive
+        # call, so they must reach it with the list intact. Expanding them per value would OR
+        # separate negations together and keep a row that matches only one needle.
+        combines_values_itself = operator in (
+            PropertyOperator.ICONTAINS_MULTI,
+            PropertyOperator.NOT_ICONTAINS_MULTI,
+        )
 
         if isinstance(value, list) and operator not in (
             PropertyOperator.BETWEEN,
@@ -1327,71 +1447,36 @@ def property_to_expr(
             # primitive exists, so multi-value use falls through to per-value ILIKE scans below.
         ):
             if len(value) == 0:
+                # An unconfigured filter matches every row. multiSearchAnyCaseInsensitive(x, [])
+                # would instead fail the query with ILLEGAL_TYPE_OF_ARGUMENT.
                 return ast.Constant(value=1)
             elif len(value) == 1:
+                # _expr_to_compare_op's ICONTAINS_MULTI/NOT_ICONTAINS_MULTI arms re-wrap a scalar
+                # into a single-element list, so collapsing here is a no-op round trip for them too.
                 value = value[0]
-            else:
+            elif not combines_values_itself:
                 if operator in (
                     PropertyOperator.EXACT,
                     PropertyOperator.IS_NOT,
                     PropertyOperator.IN_,
                     PropertyOperator.NOT_IN,
                 ):
-                    op = (
-                        ast.CompareOperationOp.In
-                        if operator in (PropertyOperator.EXACT, PropertyOperator.IN_)
-                        else ast.CompareOperationOp.NotIn
-                    )
-
-                    left = (
-                        ast.Field(chain=["v"])
-                        if (is_exception_string_array_property or is_visited_page_property)
-                        else expr
-                    )
                     coerced = cast(list, _coerce_numeric_value_for_string_property(value, property, team))
-                    compare_op = ast.CompareOperation(
-                        op=op,
-                        left=left,
-                        right=ast.Tuple(exprs=[ast.Constant(value=v) for v in coerced]),
+                    values = ast.Tuple(exprs=[ast.Constant(value=v) for v in coerced])
+                    negate = operator_is_negative(operator)
+                    if array_field is not None:
+                        return _array_property_filter(
+                            array_field,
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.In, left=ast.Field(chain=["v"]), right=values
+                            ),
+                            negate=negate,
+                        )
+                    return ast.CompareOperation(
+                        op=ast.CompareOperationOp.NotIn if negate else ast.CompareOperationOp.In,
+                        left=expr,
+                        right=values,
                     )
-
-                    if is_exception_string_array_property:
-                        return parse_expr(
-                            "arrayExists(v -> {compare_op}, {field})",
-                            {
-                                "compare_op": compare_op,
-                                "field": extracted_field,
-                            },
-                        )
-                    elif is_visited_page_property:
-                        return parse_expr(
-                            "arrayExists(v -> {compare_op}, {field})",
-                            {
-                                "compare_op": compare_op,
-                                "field": all_urls_field,
-                            },
-                        )
-                    else:
-                        return compare_op
-                elif operator in (PropertyOperator.ICONTAINS, PropertyOperator.NOT_ICONTAINS):
-                    # For contains operators, delegate to _expr_to_compare_op which handles multiple values efficiently
-                    if is_exception_string_array_property or is_visited_page_property:
-                        # For exception properties and visited_page, use multiSearch optimization within arrayExists
-                        multi_search_expr = _expr_to_compare_op(
-                            ast.Field(chain=["v"]), value, operator, property, property.type != "session", team
-                        )
-                        if is_exception_string_array_property:
-                            return parse_expr(
-                                "arrayExists(v -> {expr}, {key})",
-                                {"expr": multi_search_expr, "key": extracted_field},
-                            )
-                        else:  # is_visited_page_property
-                            return parse_expr(
-                                "arrayExists(v -> {expr}, {key})",
-                                {"expr": multi_search_expr, "key": all_urls_field},
-                            )
-                    else:
-                        return _expr_to_compare_op(expr, value, operator, property, property.type != "session", team)
 
                 exprs = [
                     property_to_expr(
@@ -1418,41 +1503,34 @@ def property_to_expr(
                     return ast.And(exprs=exprs)
                 return ast.Or(exprs=exprs)
 
-        expr = _expr_to_compare_op(
-            expr=ast.Field(chain=["v"]) if (is_exception_string_array_property or is_visited_page_property) else expr,
+        is_json_field = property.type != "session"
+
+        if array_field is None:
+            return _expr_to_compare_op(
+                expr=expr,
+                value=value,
+                operator=operator,
+                team=team,
+                property=property,
+                is_json_field=is_json_field,
+            )
+
+        if operator in (PropertyOperator.IS_SET, PropertyOperator.IS_NOT_SET):
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.Gt if operator == PropertyOperator.IS_SET else ast.CompareOperationOp.Eq,
+                left=ast.Call(name="length", args=[array_field]),
+                right=ast.Constant(value=0),
+            )
+
+        element_predicate = _expr_to_compare_op(
+            expr=ast.Field(chain=["v"]),
             value=value,
-            operator=operator,
+            operator=_NEGATIVE_OPERATOR_COMPLEMENTS.get(operator, operator),
             team=team,
             property=property,
-            is_json_field=property.type != "session",
+            is_json_field=is_json_field,
         )
-
-        if is_exception_string_array_property:
-            return parse_expr(
-                "arrayExists(v -> {expr}, {key})",
-                {"expr": expr, "key": extracted_field},
-            )
-        elif is_visited_page_property:
-            # Handle IS_SET and IS_NOT_SET operators specially for arrays
-            if operator == PropertyOperator.IS_SET:
-                return ast.CompareOperation(
-                    op=ast.CompareOperationOp.Gt,
-                    left=ast.Call(name="length", args=[all_urls_field]),
-                    right=ast.Constant(value=0),
-                )
-            elif operator == PropertyOperator.IS_NOT_SET:
-                return ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq,
-                    left=ast.Call(name="length", args=[all_urls_field]),
-                    right=ast.Constant(value=0),
-                )
-            else:
-                return parse_expr(
-                    "arrayExists(v -> {expr}, {key})",
-                    {"expr": expr, "key": all_urls_field},
-                )
-        else:
-            return expr
+        return _array_property_filter(array_field, element_predicate, negate=operator_is_negative(operator))
     elif property.type == "element":
         if scope == "person":
             raise NotImplementedError(f"property_to_expr for scope {scope} not implemented for type '{property.type}'")
@@ -1507,7 +1585,9 @@ def property_to_expr(
                 is_json_field=False,
             )
 
-        if property.key == "text":
+        # `$el_text` is the autocapture event property for the same text. The action editor saves it as
+        # `text`, but actions saved through other paths can still carry the event-property key.
+        if property.key == "text" or property.key == "$el_text":
             return parse_expr(
                 "arrayExists(text -> {compare}, elements_chain_texts)",
                 {
@@ -1528,7 +1608,12 @@ def property_to_expr(
             raise Exception("Can not convert cohort property to expression without team")
         if not isinstance(property.value, (str, int)):
             raise ValidationError("Cohort property value must be a cohort ID")
-        cohort = Cohort.objects.get(team__project_id=team.project_id, id=property.value)
+        try:
+            cohort = Cohort.objects.get(team__project_id=team.project_id, id=property.value)
+        except Cohort.DoesNotExist:
+            # The id comes from the request, so a deleted or foreign cohort must read as
+            # bad input rather than escaping as an unhandled DoesNotExist.
+            raise QueryError(f"Cohort {property.value} does not exist")
         return ast.CompareOperation(
             left=ast.Field(chain=["id" if scope == "person" else "person_id"]),
             op=(
@@ -1898,17 +1983,3 @@ class _LowercaseIndexRewriter(CloningVisitor):
             right=right,
             op=op,
         )
-
-
-def operator_is_negative(operator: PropertyOperator) -> bool:
-    return operator in [
-        PropertyOperator.IS_NOT,
-        PropertyOperator.NOT_ICONTAINS,
-        PropertyOperator.NOT_ICONTAINS_MULTI,
-        PropertyOperator.NOT_STARTS_WITH,
-        PropertyOperator.NOT_ENDS_WITH,
-        PropertyOperator.NOT_REGEX,
-        PropertyOperator.IS_NOT_SET,
-        PropertyOperator.NOT_BETWEEN,
-        PropertyOperator.NOT_IN,
-    ]

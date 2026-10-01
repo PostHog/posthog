@@ -1,6 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { combineUrl } from 'kea-router'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
 import { recordingPlaylists } from 'scenes/session-recordings/__mocks__/recording_playlists'
@@ -64,4 +65,75 @@ export const ProductAnalyticsUnderLimit: Story = {
             },
         }),
     ],
+}
+
+// The footer action row with the Replay vision cross-sell shown, so the divider that splits it
+// from the filter-management buttons stays covered by visual review. The event filter is what makes
+// the button actionable: a scanner keeps neither the date range nor pinned sessions, so filtering by
+// those alone leaves it disabled.
+export const ScannerCrossSell: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.VISION_ENTRYPOINT_REPLAY_FILTERS],
+        pageUrl: combineUrl(urls.replay(), {
+            showFilters: true,
+            filters: {
+                filter_group: {
+                    type: 'AND',
+                    values: [{ type: 'AND', values: [{ id: '$pageview', name: '$pageview', type: 'events' }] }],
+                },
+            },
+        }).url,
+        testOptions: { waitForSelector: '[data-attr="replay-save-filters-as-scanner"]' },
+    },
+}
+
+const withPageFilter = (values: Record<string, any>[]): Record<string, any> => ({
+    pageUrl: combineUrl(urls.replay(), {
+        showFilters: true,
+        filters: {
+            date_from: '-3d',
+            date_to: null,
+            filter_test_accounts: false,
+            duration: [{ type: 'recording', key: 'duration', value: 1, operator: 'gt' }],
+            filter_group: { type: 'AND', values: [{ type: 'AND', values }] },
+        },
+    }).url,
+})
+
+export const PageFilterNudge: Story = {
+    parameters: withPageFilter([{ type: 'event', key: '$current_url', operator: 'icontains', value: '/pricing' }]),
+}
+
+const withEventMatchScope = (event_match_scope: 'recording' | undefined): Record<string, any> => ({
+    featureFlags: [FEATURE_FLAGS.REPLAY_EVENT_MATCH_SCOPE],
+    pageUrl: combineUrl(urls.replay(), {
+        showFilters: true,
+        filters: {
+            date_from: '-3d',
+            date_to: null,
+            filter_test_accounts: false,
+            event_match_scope,
+            duration: [{ type: 'recording', key: 'duration', value: 1, operator: 'gt' }],
+            filter_group: {
+                type: 'AND',
+                values: [{ type: 'AND', values: [{ id: '$pageview', name: '$pageview', type: 'events' }] }],
+            },
+        },
+    }).url,
+    testOptions: { waitForSelector: '[data-attr="session-recordings-event-match-scope"]' },
+})
+
+export const EventMatchScopeWholeSession: Story = {
+    parameters: withEventMatchScope(undefined),
+}
+
+export const EventMatchScopeOnlyDuringRecording: Story = {
+    parameters: withEventMatchScope('recording'),
+}
+
+export const TemplatesTab: Story = {
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.REPLAY_TEMPLATES_IN_FILTERS_PANEL_EXPERIMENT]: 'test' },
+        pageUrl: combineUrl(urls.replay(), { showFilters: true, filtersTab: 'templates' }).url,
+    },
 }

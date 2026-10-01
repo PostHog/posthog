@@ -10,6 +10,7 @@ from posthog.schema import (
     ConversionGoalFilter1,
     ConversionGoalFilter3,
     DateRange,
+    IntegrationFilter,
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsTableQuery,
@@ -112,6 +113,52 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
             math=BaseMathType.TOTAL,
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
+
+    def test_precompute_only_read_surfaces_not_ready_when_unwarmed(self):
+        # The core of precompute-only serving: a precomputable goal whose window the warmer has not built
+        # must return an explicit not-ready response — never silently fall back to the live events scan
+        # (the expensive query this path exists to avoid) and never silently show zeros.
+        query = MarketingAnalyticsTableQuery(
+            dateRange=self.default_date_range,
+            limit=DEFAULT_LIMIT,
+            offset=0,
+            properties=[],
+            draftConversionGoal=self._create_test_conversion_goal("warm_me"),
+        )
+        runner = self._create_query_runner(query)
+        # Precompute on, nothing warmed — the read must report not-ready rather than scan events.
+        runner.config.conversion_goal_precomputation_enabled = True
+
+        response = runner.calculate()
+
+        assert response.precomputeNotReady is True
+        assert response.results == []
+        assert response.dataComputedAt is None
+
+    @patch(f"{_BASE_RUNNER}.handle_not_ready")
+    def test_compare_read_warms_the_period_that_missed(self, handle_not_ready):
+        # A compare read builds the previous period through a second runner with a shifted date range, and
+        # that runner is the one that goes not-ready first. Warming the requested window instead would
+        # leave the previous period cold, so every retry reports not-ready again.
+        query = MarketingAnalyticsTableQuery(
+            dateRange=self.default_date_range,
+            limit=DEFAULT_LIMIT,
+            offset=0,
+            properties=[],
+            compareFilter=CompareFilter(compare=True),
+            draftConversionGoal=self._create_test_conversion_goal("warm_me"),
+        )
+        # Set on the team, not the runner: the previous-period runner builds its own config from the same
+        # team instance, and it is the one that has to read the flag as on.
+        self.team._ma_precompute_flags = {"conversion": True, "costs": False, "sessions": False, "live_sessions": False}  # type: ignore[attr-defined]
+        runner = self._create_query_runner(query)
+
+        response = runner.calculate()
+
+        assert response.precomputeNotReady is True
+        warmed = handle_not_ready.call_args.kwargs["query"]
+        assert warmed.dateRange.date_from < self.default_date_range.date_from
+        assert warmed.dateRange.date_to < self.default_date_range.date_to
 
     def test_initialization_basic(self):
         runner = self._create_query_runner()
@@ -756,6 +803,41 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         no_spend_row = next(row for row in result.results if row[campaign_idx].value == "fall_sale_newsletter")
         assert no_spend_row[cost_idx].value is None
         assert no_spend_row[clicks_idx].value is None
+
+    def test_integration_filter_can_exclude_campaigns_with_no_ad_spend(self) -> None:
+        session_id = str(uuid7("2023-01-15"))
+        for event in ("$pageview", "purchase"):
+            _create_event(
+                team=self.team,
+                event=event,
+                distinct_id=session_id,
+                timestamp="2023-01-15",
+                properties={
+                    "$session_id": session_id,
+                    "utm_source": "newsletter",
+                    "utm_campaign": "fall_sale_newsletter",
+                },
+            )
+        flush_persons_and_events()
+
+        def campaigns_for(integration_filter: IntegrationFilter | None) -> set[str]:
+            query = MarketingAnalyticsTableQuery(
+                dateRange=self.default_date_range,
+                limit=DEFAULT_LIMIT,
+                offset=0,
+                properties=[],
+                drillDownLevel=MarketingAnalyticsDrillDownLevel.CAMPAIGN,
+                draftConversionGoal=self._create_test_conversion_goal(goal_id="filter_goal"),
+                integrationFilter=integration_filter,
+            )
+            result = self._create_query_runner(query).calculate()
+            assert result.columns is not None
+            campaign_idx = result.columns.index(MarketingAnalyticsBaseColumns.CAMPAIGN)
+            return {str(row[campaign_idx].value) for row in result.results}
+
+        assert "fall_sale_newsletter" in campaigns_for(None)
+        assert "fall_sale_newsletter" in campaigns_for(IntegrationFilter(includeNonIntegrated=True))
+        assert "fall_sale_newsletter" not in campaigns_for(IntegrationFilter(includeNonIntegrated=False))
 
     def test_channel_source_drill_down_emits_both_channel_and_source_columns(self):
         """The whole point of the composite level: Source survives as a column (it's excluded at

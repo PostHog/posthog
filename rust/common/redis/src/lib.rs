@@ -201,6 +201,17 @@ pub trait Client: Send + Sync {
         max: String,
     ) -> Result<Vec<String>, CustomRedisError>;
 
+    /// `ZRANGEBYSCORE ... LIMIT offset count`: one page of a sorted set, so a
+    /// large set can be read without one reply that holds every member.
+    async fn zrangebyscore_limit(
+        &self,
+        k: String,
+        min: String,
+        max: String,
+        offset: isize,
+        count: isize,
+    ) -> Result<Vec<String>, CustomRedisError>;
+
     /// Add a single (member, score) pair to a sorted set.
     async fn zadd(&self, k: String, member: String, score: i64) -> Result<(), CustomRedisError>;
 
@@ -257,6 +268,16 @@ pub trait Client: Send + Sync {
         &self,
         items: Vec<(String, i64)>,
         ttl_seconds: usize,
+    ) -> Result<(), CustomRedisError>;
+
+    /// Increment each key and set its expiry to an absolute unix second, as
+    /// `(key, increment, expire_at)`.
+    ///
+    /// Prefer this over `batch_incr_by_expire` when the key fixes its own
+    /// deadline; do not add `NX`, which needs Redis 7 and buys nothing here.
+    async fn batch_incr_by_expire_at(
+        &self,
+        items: Vec<(String, i64, i64)>,
     ) -> Result<(), CustomRedisError>;
 
     async fn del(&self, k: String) -> Result<(), CustomRedisError>;

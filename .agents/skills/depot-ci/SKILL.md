@@ -218,6 +218,15 @@ Available sizes: `2x8`, `4x16`, `8x32`, `16x64`, `32x128`, `64x256` (CPUs x RAM 
 
 Depot CI supports running steps concurrently within a single job using `parallel:` blocks, reducing job duration to the slowest branch rather than the sum of all steps. This is a Depot CI-specific feature, not compatible with GitHub Actions runners.
 
+<!-- PostHog-local section. Keep it when resyncing from upstream; see UPSTREAM.md. -->
+
+PostHog addition: the sentence above predates June 2026, when GitHub shipped its own [`parallel:` step keyword](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idstepsparallel) for GitHub Actions.
+A `parallel:` block under `.github/workflows/` runs on GitHub's implementation, even on a Depot GHA runner, and only a block under `.depot/workflows/` runs on Depot's.
+The two share a keyword and nothing else: GitHub's has no `sequential:`, and its runner crashes when two branches write `$GITHUB_PATH` at once.
+See "Put the setup actions in a `parallel:` block" in [docs/internal/ci-things-already-tried.md](../../../docs/internal/ci-things-already-tried.md) before proposing one for setup actions.
+
+<!-- End PostHog-local section. -->
+
 Use `parallel:` inside `steps:` with individual steps or `sequential:` groups. Each branch starts from the same job state; step outputs, environment variable, and `$GITHUB_PATH` changes from all branches are merged back when the block completes.
 
 ```yaml

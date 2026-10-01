@@ -82,7 +82,7 @@ export interface TaskDot {
   style: "solid" | "hollow";
   /** Flashing = happening now, or wanting you now. */
   pulse: boolean;
-  /** Draw a standard spinner instead of a status dot. */
+  /** Draw the braille activity spinner instead of a status dot. */
   spinner?: boolean;
   /**
    * Draw the dot barely there. For states that are deliberately inert — the task

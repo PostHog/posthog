@@ -15,9 +15,14 @@ from posthog.constants import AvailableFeature
 from posthog.models import User
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
-from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APIScopeObjectOrNotSupported
+from posthog.scopes import GRANTABLE_API_SCOPE_OBJECTS, APIScopeObjectOrNotSupported
 from posthog.synthetic_user import SyntheticUser
 
+from products.access_control.backend.facade.enums import (
+    RESOLVED_ACCESS_SOURCE_CHOICES,
+    RESOLVED_ACCESS_SOURCE_SUBJECT_CHOICES,
+    SCOPE_OBJECT_CHOICES,
+)
 from products.access_control.backend.facade.object_names import display_model
 from products.access_control.backend.facade.subject_access_control import SubjectAccessControl
 from products.access_control.backend.facade.user_access_control import (
@@ -78,25 +83,19 @@ class ResolvedAccessSerializer(serializers.Serializer):
 
     access_level = serializers.CharField(help_text="The access level that applies.")
     source = serializers.ChoiceField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
-        choices=[
-            "object",
-            "parent_object",
-            "resource",
-            "parent_resource",
-            "system_default",
-            "org_admin",
-            "creator",
-            "org_membership",
-        ],
+        choices=RESOLVED_ACCESS_SOURCE_CHOICES,
         help_text="How the level was derived: a rule on the object, its parent object, the resource, the parent "
-        "resource, the built-in default, or one of the bypasses (org admin, creator, organization membership).",
+        "resource, the PostHog default, an organization admin's or a creator's full access, or organization "
+        "membership when the object is the organization itself.",
     )
     source_subject = serializers.ChoiceField(
-        choices=["member", "role", "default"],
+        choices=RESOLVED_ACCESS_SOURCE_SUBJECT_CHOICES,
         allow_null=True,
-        help_text="Whose rule decided: a member's own, a role's, or the default for everyone. Null when no rule did.",
+        help_text="Whose rule decided: a member's own, a role's, or the default for everyone in the project. Null when no rule did.",
     )
-    source_resource = serializers.CharField(help_text="The resource the deciding rule belongs to.")
+    source_resource = serializers.ChoiceField(
+        choices=SCOPE_OBJECT_CHOICES, help_text="The resource the deciding rule belongs to."
+    )
     source_resource_id = serializers.CharField(
         allow_null=True,
         help_text="The deciding rule's object id, when it is an object-level rule (e.g. the source a table inherits from).",
@@ -153,9 +152,10 @@ class AccessControlSerializer(serializers.ModelSerializer):
         return field_class, field_kwargs
 
     def validate_resource(self, resource):
-        if resource not in API_SCOPE_OBJECTS or resource in INTERNAL_API_SCOPE_OBJECTS:
-            allowed = tuple(s for s in API_SCOPE_OBJECTS if s not in INTERNAL_API_SCOPE_OBJECTS)
-            raise serializers.ValidationError("Invalid resource. Must be one of: {}".format(allowed))
+        if resource not in GRANTABLE_API_SCOPE_OBJECTS:
+            raise serializers.ValidationError(
+                "Invalid resource. Must be one of: {}".format(GRANTABLE_API_SCOPE_OBJECTS)
+            )
 
         return resource
 
@@ -251,15 +251,16 @@ class AccessControlSerializer(serializers.ModelSerializer):
         return data
 
 
-def upsert_access_control(
+def apply_access_control_rule(
     *,
     team: Team,
     user_access_control: UserAccessControl,
     build_serializer: Callable[[AccessControl | None], AccessControlSerializer],
-) -> Response:
+) -> AccessControl | None:
     """Apply one validated access control rule: a null level deletes the subject's rule, any other
-    level creates or updates it. Shared by the per-resource PUT actions and the settings page's
-    generic object-rule write, so validation and cache behavior cannot drift between them."""
+    level creates or updates it. Returns the stored row, or None once the rule is gone. Shared by
+    the per-resource PUT actions and the settings page's rule writes, so validation and cache
+    behavior cannot drift between them."""
     serializer = build_serializer(None)
     serializer.is_valid(raise_exception=True)
     params = serializer.validated_data
@@ -273,21 +274,38 @@ def upsert_access_control(
     ).first()
 
     if params["access_level"] is None:
-        if instance:
-            instance.delete()
-            # Drop the preloaded access-control snapshot so later reads this request are fresh.
-            user_access_control._clear_cache()
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        if instance is None:
+            return None
+        instance.delete()
+        # Drop the preloaded access-control snapshot so later reads this request are fresh.
+        user_access_control._clear_cache()
+        return None
 
     if instance:
         serializer = build_serializer(instance)
         serializer.is_valid(raise_exception=True)
     serializer.validated_data["team"] = team
-    serializer.save()
+    rule = serializer.save()
     # Drop the preloaded access-control snapshot so later reads this request are fresh.
     user_access_control._clear_cache()
 
-    return Response(serializer.data, status=status.HTTP_200_OK)
+    return rule
+
+
+def upsert_access_control(
+    *,
+    team: Team,
+    user_access_control: UserAccessControl,
+    build_serializer: Callable[[AccessControl | None], AccessControlSerializer],
+) -> Response:
+    """The 200-or-204 form of `apply_access_control_rule` that the settings UI and the per-resource
+    PUT actions expect."""
+    rule = apply_access_control_rule(
+        team=team, user_access_control=user_access_control, build_serializer=build_serializer
+    )
+    if rule is None:
+        return Response(status=status.HTTP_204_NO_CONTENT)
+    return Response(AccessControlSerializer(rule).data, status=status.HTTP_200_OK)
 
 
 class AccessControlViewSetMixin(_GenericViewSet):
@@ -498,6 +516,15 @@ class AccessControlViewSetMixin(_GenericViewSet):
 
         if is_resource_level and resource != "project":
             raise exceptions.ValidationError("Resource-level access controls can only be configured for projects.")
+
+        # A resource-level rule carries no resource_id, so a body that names one asks to write an
+        # object rule through the project's endpoint. The serializer's identity check compares
+        # primary keys only, and an object's pk can equal the project's, so it lets such a body
+        # through whenever the two numbers happen to match.
+        if is_resource_level and request.data.get("resource_id"):
+            raise exceptions.PermissionDenied(
+                "Cannot modify access controls for a resource different from the URL target."
+            )
 
         obj = self.get_object()
         resource_id = str(obj.id)

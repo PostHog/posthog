@@ -1,9 +1,11 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.bunny.settings import ENDPOINTS
+from products.warehouse_sources.backend.facade.source_config import ReleaseStatus, SourceFieldInputConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.bunny.settings import (
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.bunny.source import BunnySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bunny import BunnySourceConfig
 
@@ -36,13 +38,17 @@ class TestBunnySource:
         # get_schemas is a static catalog with no I/O, so the public docs can render the table list.
         assert self.source.lists_tables_without_credentials is True
 
-    def test_get_schemas_covers_all_endpoints_as_full_refresh(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        # bunny.net's list endpoints have no server-side timestamp filter, so every schema is full refresh.
-        assert all(s.supports_incremental is False for s in schemas)
-        assert all(s.supports_append is False for s in schemas)
-        assert all(s.incremental_fields == [] for s in schemas)
+    def test_get_schemas_marks_only_the_date_filtered_tables_incremental(self) -> None:
+        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
+        assert set(schemas) == set(ENDPOINTS)
+        # The list endpoints have no server-side timestamp filter, so they stay full refresh.
+        assert {name for name, s in schemas.items() if s.supports_incremental} == set(INCREMENTAL_FIELDS)
+        # Appending would re-add a row per run for every interval the request window still covers.
+        assert all(s.supports_append is False for s in schemas.values())
+        assert all(
+            [f["field"] for f in schema.incremental_fields] == [f["field"] for f in INCREMENTAL_FIELDS.get(name, [])]
+            for name, schema in schemas.items()
+        )
 
     def test_documented_tables_render_for_public_docs(self) -> None:
         # Exercises the credential-free catalog path used by the posthog.com docs.
@@ -55,6 +61,10 @@ class TestBunnySource:
         [
             "401 Client Error: Unauthorized for url: https://api.bunny.net/pullzone?page=1&perPage=1000",
             "403 Client Error: Forbidden for url: https://api.bunny.net/dnszone?page=2&perPage=1000",
+            "401 Client Error: Unauthorized for url: https://video.bunnycdn.com/library/7/videos?page=1",
+            "403 Client Error: Forbidden for url: https://video.bunnycdn.com/library/7/statistics",
+            "401 Client Error: Unauthorized for url: https://logging.bunnycdn.com/v2/pullzones/3/logs?offset=0",
+            "403 Client Error: Forbidden for url: https://logging.bunnycdn.com/v2/pullzones/3/logs?offset=0",
         ],
     )
     def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
@@ -67,6 +77,8 @@ class TestBunnySource:
             "500 Server Error: Internal Server Error for url: https://api.bunny.net/pullzone",
             "HTTPSConnectionPool(host='api.bunny.net', port=443): Read timed out.",
             "429 Client Error: Too Many Requests for url: https://api.bunny.net/storagezone",
+            # Logging is simply off for that pull zone, so the sync skips it rather than failing.
+            "404 Client Error: Not Found for url: https://logging.bunnycdn.com/v2/pullzones/3/logs",
         ],
     )
     def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
@@ -103,12 +115,17 @@ class TestBunnySource:
         self.source.validate_credentials(self.config, self.team_id, schema_name="dns_zones")
         mock_check.assert_called_once_with("bunny-key")
 
+    @pytest.mark.parametrize("should_use_incremental_field, expected_last_value", [(True, "2024-05-02"), (False, None)])
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bunny.source.bunny_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_bunny_source: mock.MagicMock) -> None:
+    def test_source_for_pipeline_plumbs_arguments(
+        self, mock_bunny_source: mock.MagicMock, should_use_incremental_field: bool, expected_last_value: str | None
+    ) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "pull_zones"
         inputs.team_id = self.team_id
         inputs.job_id = "job-1"
+        inputs.should_use_incremental_field = should_use_incremental_field
+        inputs.db_incremental_field_last_value = "2024-05-02"
         manager = mock.MagicMock()
 
         self.source.source_for_pipeline(self.config, manager, inputs)
@@ -120,6 +137,8 @@ class TestBunnySource:
         assert kwargs["team_id"] == self.team_id
         assert kwargs["job_id"] == "job-1"
         assert kwargs["resumable_source_manager"] is manager
+        # A full refresh must go out with no watermark, whatever the schema last recorded.
+        assert kwargs["db_incremental_field_last_value"] == expected_last_value
 
     def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
         inputs = mock.MagicMock()

@@ -33,7 +33,6 @@ import { dayjs } from 'lib/dayjs'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { uuid } from 'lib/utils/dom'
 import { addProductIntent } from 'lib/utils/product-intents'
-import { asDisplay } from 'scenes/persons/person-utils'
 import { projectLogic } from 'scenes/projectLogic'
 import { buildSurveyExampleInvocationGlobals } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -53,7 +52,7 @@ import {
     ProductKey,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
-import { escapePropertyAsHogQLIdentifier, hogql, setLatestVersionsOnQuery } from '~/queries/utils'
+import { escapePropertyAsHogQLIdentifier, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     AnyPropertyFilter,
     AvailableFeature,
@@ -76,14 +75,16 @@ import {
     PersonType,
     PropertyFilterType,
     PropertyGroupFilter,
-    PropertyGroupFilterValue,
     Survey,
     SurveyEventName,
     SurveyEventProperties,
 } from '~/types'
 
+import { asDisplay } from 'products/persons/frontend/person-utils'
+
 import type { GroupType, GroupTypeIndex, HogFunctionMappingTemplateType, ProjectType } from '../../../types'
 import type { TeamPublicType, TeamType } from '../../../types'
+import { matchingFiltersToPropertyGroup } from '../filters/matchingFilters'
 import { performWideEventsQueryInTwoPhases } from '../sampleEventsQuery'
 import { eventToHogFunctionContextId } from '../sub-templates/sub-templates'
 import { SAMPLE_GLOBALS_CONTEXTS } from './sampleGlobalsContexts'
@@ -1610,16 +1611,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     }
                 }
 
-                const seriesProperties: PropertyGroupFilterValue = {
-                    type: FilterLogicalOperator.Or,
-                    values: [],
-                }
-                const properties: PropertyGroupFilter = {
-                    type: FilterLogicalOperator.And,
-                    values: [seriesProperties],
-                }
-                const allPossibleEventFilters = configuration.filters?.events ?? []
-                const allPossibleActionFilters = configuration.filters?.actions ?? []
+                // Copied before the mappings are merged in: these arrays are the form's own state.
+                const allPossibleEventFilters = [...(configuration.filters?.events ?? [])]
+                const allPossibleActionFilters = [...(configuration.filters?.actions ?? [])]
 
                 if (Array.isArray(configuration.mappings)) {
                     for (const mapping of configuration.mappings) {
@@ -1632,49 +1626,11 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     }
                 }
 
-                for (const event of allPossibleEventFilters) {
-                    const eventProperties: AnyPropertyFilter[] = [...(event.properties ?? [])]
-                    if (event.id) {
-                        eventProperties.push({
-                            type: PropertyFilterType.HogQL,
-                            key: hogql`event = ${event.id}`,
-                        })
-                    }
-                    if (eventProperties.length === 0) {
-                        eventProperties.push({
-                            type: PropertyFilterType.HogQL,
-                            key: 'true',
-                        })
-                    }
-                    seriesProperties.values.push({
-                        type: FilterLogicalOperator.And,
-                        values: eventProperties,
-                    })
-                }
-                for (const action of allPossibleActionFilters) {
-                    const actionProperties: AnyPropertyFilter[] = [...(action.properties ?? [])]
-                    if (action.id) {
-                        actionProperties.push({
-                            type: PropertyFilterType.HogQL,
-                            key: hogql`matchesAction(${parseInt(action.id)})`,
-                        })
-                    }
-                    seriesProperties.values.push({
-                        type: FilterLogicalOperator.And,
-                        values: actionProperties,
-                    })
-                }
-                if ((configuration.filters?.properties?.length ?? 0) > 0) {
-                    const globalProperties: PropertyGroupFilterValue = {
-                        type: FilterLogicalOperator.And,
-                        values: [],
-                    }
-                    for (const property of configuration.filters?.properties ?? []) {
-                        globalProperties.values.push(property as AnyPropertyFilter)
-                    }
-                    properties.values.push(globalProperties)
-                }
-                return properties
+                return matchingFiltersToPropertyGroup({
+                    events: allPossibleEventFilters,
+                    actions: allPossibleActionFilters,
+                    properties: configuration.filters?.properties,
+                })
             },
             { resultEqualityCheck: equal },
         ],

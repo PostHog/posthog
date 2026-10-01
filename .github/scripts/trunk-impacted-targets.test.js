@@ -210,13 +210,21 @@ test('a proto claims the consumers that generate from it rather than every lane'
         assert.equal(targets.includes(target), false, target)
     }
 
+    // A stub tree claims its consumer's lane whichever top-level directory
+    // holds it: packages/ reads as frontend unless a rule says otherwise.
     const generatedDirs = [
-        'posthog/personhog_client/proto/generated',
-        'nodejs/src/common/generated/personhog',
-        'rust/personhog-proto',
+        ['packages/personhog-proto', 'py:core'],
+        ['nodejs/src/common/generated/personhog', 'node:ingestion'],
+        ['rust/personhog-proto', 'rust:crate:personhog-proto'],
     ]
-    for (const dir of generatedDirs) {
+    for (const [dir, lane] of generatedDirs) {
         assert.equal(fs.existsSync(path.join(REPO_ROOT, dir)), true, `${dir} is the stub tree its lane stands for`)
+        const stubTargets = computeTargets([`${dir}/stub`], {
+            ...PROTO_CONTEXT,
+            rustAffectedCrates: ['personhog-proto'],
+        })
+        assert.equal(stubTargets.includes(lane), true, `${dir} claims ${lane}`)
+        assert.equal(stubTargets.includes('fe:core'), false, `${dir} claims no frontend lane`)
     }
 })
 
@@ -337,7 +345,7 @@ test('every proto tree is declared, with the crate that compiles it', () => {
 // stubs" and agrees with an empty domain list. The directory side catches that.
 test('every proto tree declaring a stub consumer has stubs there, and no other tree does', () => {
     const stubRoots = [
-        ['posthog/personhog_client/proto/generated', PYTHON],
+        ['packages/personhog-proto', PYTHON],
         ['nodejs/src/common/generated', NODE],
     ]
     for (const [root, domain] of stubRoots) {
@@ -466,7 +474,8 @@ test('stack and image configuration at the root stays universal', () => {
 test('ownership data shares one lane instead of every lane', () => {
     for (const file of [
         'owners.yaml',
-        'tools/owners/posthog_owners/matcher.py',
+        'packages/owners-yaml/owners_yaml/matcher.py',
+        'tools/owners/owners_yaml/matcher.py',
         '.github/CODEOWNERS',
         '.github/owners.yaml',
     ]) {
@@ -508,7 +517,10 @@ test('the paths-filter action and its CI share the ci-tooling lane', () => {
 // and depot.json is billing and cache routing that fails its own PR's builds
 // alone.
 test('pnpm patches take the JS lanes and depot.json the repo-config lane', () => {
-    assert.deepEqual(computeTargets(['patches/dayjs@1.11.11.patch'], CONTEXT), computeTargets(['.oxlintrc.json'], CONTEXT))
+    assert.deepEqual(
+        computeTargets(['patches/dayjs@1.11.11.patch'], CONTEXT),
+        computeTargets(['.oxlintrc.json'], CONTEXT)
+    )
     assert.deepEqual(computeTargets(['depot.json'], CONTEXT), ['repo-config'])
 })
 
@@ -760,6 +772,13 @@ test('desktop workflows claim the desktop product lanes and widen without the pr
     assert.deepEqual(computeTargets(['.github/workflows/desktop-ci.yml'], CONTEXT), EVERYTHING)
 })
 
+test('the agent workspace shares the desktop lanes and takes the frontend lanes without the product', () => {
+    const withDesktop = { ...CONTEXT, products: [...CONTEXT.products, 'desktop'] }
+    const agentFile = 'packages/agent/packages/agent/src/index.ts'
+    assert.deepEqual(computeTargets([agentFile], withDesktop), ['fe:product:desktop', 'py:product:desktop'])
+    assert.deepEqual(computeTargets([agentFile], CONTEXT), computeTargets(['packages/quill/src/index.ts'], CONTEXT))
+})
+
 // The Proto CI workflow gates buf lint and the stub drift checks over every
 // tree, which is the same radius the root buf configuration gets.
 test('the proto workflow claims every proto tree rather than everything', () => {
@@ -801,7 +820,10 @@ test('the agent-skills workflow claims both language families', () => {
 })
 
 test('the ml-mirror sidecar image and its workflow stay on the node lane', () => {
-    for (const file of ['.github/workflows/ci-ml-mirror-image-scrub-container.yml', 'Dockerfile.ml-mirror-image-scrub']) {
+    for (const file of [
+        '.github/workflows/ci-ml-mirror-image-scrub-container.yml',
+        'Dockerfile.ml-mirror-image-scrub',
+    ]) {
         assert.deepEqual(computeTargets([file], CONTEXT), ['node:ingestion'], file)
     }
 })
@@ -1039,6 +1061,7 @@ test('editor and agent configuration shares one lane', () => {
         '.trunk/trunk.yaml',
         '.trunk/.gitignore',
         // The same class of file, one per root path rather than one per tree.
+        '.coderabbit.yaml',
         '.cursorignore',
         '.editorconfig',
         '.gitattributes',
@@ -1827,7 +1850,8 @@ test('cross-domain tools are tripwires rather than backend-only', () => {
         computeTargets(['tools/openapi-codegen/config.ts'], CONTEXT),
         computeTargets(['frontend/src/products.json'], CONTEXT)
     )
-    assert.deepEqual(computeTargets(['tools/owners/posthog_owners/__init__.py'], CONTEXT), ['ownership'])
+    assert.deepEqual(computeTargets(['packages/owners-yaml/owners_yaml/__init__.py'], CONTEXT), ['ownership'])
+    assert.deepEqual(computeTargets(['tools/owners/owners_yaml/__init__.py'], CONTEXT), ['ownership'])
 })
 
 // Prose overlaps only other prose, and has to reach that lane through the

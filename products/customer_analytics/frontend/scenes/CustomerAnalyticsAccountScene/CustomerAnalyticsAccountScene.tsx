@@ -1,10 +1,12 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 
 import { LemonBanner, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { FeaturePreviewSceneGate } from '~/layout/scenes/components/FeaturePreviewSceneGate'
@@ -13,23 +15,41 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { AccountDetailTabs } from '../../components/Accounts/AccountDetailTabs'
 import { AccountLogo } from '../../components/Accounts/AccountLogo'
 import { CustomerAnalyticsScene } from '../../CustomerAnalyticsScene'
 import { customerAnalyticsFeaturePreviewGate } from '../../featurePreviewGate'
 import type { AccountApi } from '../../generated/api.schemas'
 import { AccountDetailActions } from './AccountDetailActions'
+import { AccountDetailNavigation } from './AccountDetailNavigation'
+import { AccountPresence } from './AccountPresence'
 import { AccountSidebar } from './AccountSidebar'
+import { AccountViewEditorModal } from './AccountViewEditorModal'
+import { AccountViewTileEditorModal } from './AccountViewTileEditorModal'
+import { ConfigureAccountTabsModal } from './ConfigureAccountTabsModal'
 import {
     CustomerAnalyticsAccountSceneLogicProps,
     customerAnalyticsAccountSceneLogic,
 } from './customerAnalyticsAccountSceneLogic'
+import {
+    isExternalAccountPath,
+    parseExternalAccountPath,
+    shouldRenderLegacyCustomerAnalyticsScene,
+} from './customerAnalyticsAccountSceneUtils'
 
 export const scene: SceneExport<CustomerAnalyticsAccountSceneLogicProps> = {
     component: CustomerAnalyticsAccountScene,
     logic: customerAnalyticsAccountSceneLogic,
     productKey: ProductKey.CUSTOMER_ANALYTICS,
-    paramsToProps: ({ params: { accountId } }) => ({ accountId: accountId ?? '' }),
+    paramsToProps: ({ params: { _, accountId } }) => {
+        const projectId = getCurrentTeamIdOrNone()
+        if (_ !== undefined) {
+            const externalRoute = parseExternalAccountPath(router.values.location.pathname)
+            return externalRoute
+                ? { externalId: externalRoute.externalId, projectId }
+                : { invalidRoute: true, projectId }
+        }
+        return accountId ? { accountId, projectId } : { invalidRoute: true, projectId }
+    },
 }
 
 function getAccountLogoDomain(account: AccountApi): string | null {
@@ -37,10 +57,24 @@ function getAccountLogoDomain(account: AccountApi): string | null {
 }
 
 export function CustomerAnalyticsAccountScene(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
+    const { location } = useValues(router)
+    const externalRouteRequested = isExternalAccountPath(location.pathname)
 
-    if (!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SCENE]) {
+    if (
+        shouldRenderLegacyCustomerAnalyticsScene(
+            location.pathname,
+            !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SCENE]
+        )
+    ) {
         return <CustomerAnalyticsScene />
+    }
+
+    if (!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SCENE] && externalRouteRequested) {
+        if (!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]) {
+            return !receivedFeatureFlags ? <CustomerAnalyticsAccountSceneContent /> : <NotFound object="page" />
+        }
+        return <CustomerAnalyticsAccountSceneContent />
     }
 
     if (!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]) {
@@ -55,10 +89,11 @@ export function CustomerAnalyticsAccountScene(): JSX.Element {
 }
 
 function CustomerAnalyticsAccountSceneContent(): JSX.Element {
-    const { account, accountLoadError, accountLoading, activeTab, isAccountMissing } = useValues(
+    const { account, accountLoadError, accountLoading, requestedTab, isAccountMissing } = useValues(
         customerAnalyticsAccountSceneLogic
     )
     const { loadAccount, setActiveTab } = useActions(customerAnalyticsAccountSceneLogic)
+    const projectId = getCurrentTeamIdOrNone()
 
     if (isAccountMissing) {
         return <NotFound object="account" />
@@ -96,23 +131,40 @@ function CustomerAnalyticsAccountSceneContent(): JSX.Element {
                     type: 'cohort',
                     forceIcon: <AccountLogo domain={getAccountLogoDomain(account)} name={account.name} />,
                 }}
-                actions={<AccountDetailActions />}
+                actions={
+                    <>
+                        <AccountPresence />
+                        {projectId ? <AccountDetailActions projectId={projectId} /> : null}
+                    </>
+                }
             />
             <SceneDivider />
-            <div className="@container/account-detail flex flex-1 min-h-0 overflow-y-auto @min-[60rem]:-mt-4 @min-[60rem]:-ml-4">
-                <div className="flex min-h-full w-full flex-col gap-4 @min-[60rem]/account-detail:flex-row">
+            <div className="@container/account-detail flex flex-1 min-h-0 overflow-y-auto -mt-4 -mr-4 [scrollbar-gutter:stable] @min-[60rem]:-ml-4 @min-[60rem]:[scrollbar-gutter:auto]">
+                <div className="flex min-h-full w-full flex-col gap-4 @min-[60rem]/account-detail:h-full @min-[60rem]/account-detail:min-h-0 @min-[60rem]/account-detail:flex-row">
                     <AccountSidebar account={account} />
-                    <main className="flex-1 min-w-0" data-attr="account-detail-tabs">
-                        <AccountDetailTabs
-                            accountId={account.id}
-                            externalId={account.external_id ?? ''}
-                            activeTab={activeTab}
-                            onChange={setActiveTab}
-                            embedded={false}
-                        />
+                    <main
+                        className="flex-1 min-w-0 @min-[60rem]/account-detail:h-full @min-[60rem]/account-detail:min-h-0 @min-[60rem]/account-detail:overflow-y-auto @min-[60rem]/account-detail:[scrollbar-gutter:stable]"
+                        data-attr="account-detail-tabs"
+                    >
+                        {projectId ? (
+                            <AccountDetailNavigation
+                                projectId={projectId}
+                                accountId={account.id}
+                                externalId={account.external_id ?? ''}
+                                requestedTab={requestedTab}
+                                onChange={setActiveTab}
+                            />
+                        ) : null}
                     </main>
                 </div>
             </div>
+            {projectId ? (
+                <>
+                    <AccountViewEditorModal projectId={projectId} />
+                    <ConfigureAccountTabsModal projectId={projectId} />
+                    <AccountViewTileEditorModal projectId={projectId} />
+                </>
+            ) : null}
         </SceneContent>
     )
 }

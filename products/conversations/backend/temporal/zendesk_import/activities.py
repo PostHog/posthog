@@ -563,7 +563,7 @@ def _apply_ticket_timestamps(built: list[_BuiltTicket]) -> None:
 def _link_ticket_tags(built: list[_BuiltTicket], tags_by_name: dict[str, Tag]) -> None:
     # bulk_create skips TaggedItem.save()/full_clean() on purpose — the same no-signals rule as
     # the ticket/comment writes here.
-    tagged_items = [TaggedItem(tag=tags_by_name[name], ticket=b.ticket) for b in built for name in b.tag_names]
+    tagged_items = [TaggedItem.for_content_object(tags_by_name[name], b.ticket) for b in built for name in b.tag_names]
     if tagged_items:
         TaggedItem.objects.bulk_create(tagged_items, ignore_conflicts=True)
 
@@ -633,8 +633,6 @@ def _persist_ticket_batch(team: Team, built: list[_BuiltTicket], tags_by_name: d
     # triggering workflows and re-sending replies to real customers for years-old tickets. Don't.
     with transaction.atomic():
         Ticket.objects.lock_ticket_number_allocation(team.id)
-        # nosemgrep: hot-parent-row-select-for-update -- preserves compatibility with Team-lock-only import allocators
-        Team.objects.select_for_update().get(id=team.id)
         max_num = Ticket.objects.filter(team_id=team.id).aggregate(Max("ticket_number"))["ticket_number__max"] or 0
         tickets_to_create = [b.ticket for b in built]
         for offset, ticket_to_number in enumerate(tickets_to_create):

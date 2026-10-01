@@ -9,7 +9,9 @@ import { initKeaTests } from '~/test/init'
 
 import { mockScoutSuggestionSet } from '../../../__mocks__/scoutConfigs'
 import { scoutSuggestionsLogic } from '../../../logics/scoutSuggestionsLogic'
+import { SCOUT_CHAT_TEMPLATES } from './ScoutChatModal'
 import { ScoutCreateButton } from './ScoutCreateButton'
+import { ScoutNewButton } from './ScoutNewButton'
 import { ScoutsRosterActions } from './ScoutsRosterActions'
 import { ScoutSuggestButton } from './ScoutSuggestButton'
 
@@ -19,10 +21,20 @@ jest.mock('lib/utils/accessControlUtils', () => ({
 }))
 
 jest.mock('./ScoutCreateModal', () => ({
-    ScoutCreateModal: ({ initialValues }: { initialValues?: { name?: string } }) => (
+    ScoutCreateModal: ({
+        initialValues,
+        onSwitchToChat,
+    }: {
+        initialValues?: { name?: string; description?: string }
+        onSwitchToChat?: (description: string) => void
+    }) => (
         <div>
             Manual scout form
             {initialValues?.name ? <span>{initialValues.name}</span> : null}
+            {initialValues?.description ? <span>{initialValues.description}</span> : null}
+            {onSwitchToChat ? (
+                <button onClick={() => onSwitchToChat(initialValues?.description ?? '')}>Back to chat</button>
+            ) : null}
         </div>
     ),
 }))
@@ -33,10 +45,12 @@ const mockGetAccessControlDisabledReason = getAccessControlDisabledReason as jes
 
 describe('scout creation buttons', () => {
     let startedChatTypes: string[]
+    let startedUserPrompts: (string | undefined)[]
     let refreshRequests: number
 
     beforeEach(() => {
         startedChatTypes = []
+        startedUserPrompts = []
         refreshRequests = 0
         mockGetAccessControlDisabledReason.mockReturnValue(null)
         useMocks({
@@ -56,8 +70,9 @@ describe('scout creation buttons', () => {
             },
             post: {
                 '/api/projects/:team/signals/scout/chat_tasks/': async ({ request }) => {
-                    const body = (await request.json()) as { chat_type: string }
+                    const body = (await request.json()) as { chat_type: string; user_prompt?: string }
                     startedChatTypes.push(body.chat_type)
+                    startedUserPrompts.push(body.user_prompt)
                     return [201, { task_id: 'task-1' }]
                 },
             },
@@ -113,9 +128,34 @@ describe('scout creation buttons', () => {
         logic.unmount()
     })
 
+    // Reopening is local, so it must not wait on whatever else the header is starting. A separate
+    // test because the setup differs: this one needs a sibling task in flight.
+    it('reopens the closed strip while another header task is starting', async () => {
+        setSuggestionsFlag(true)
+        const logic = scoutSuggestionsLogic()
+        logic.mount()
+        await waitFor(() => expect(logic.values.hasPicks).toBe(true))
+        const { container, findByText, getByText } = render(<ScoutsRosterActions />)
+        logic.actions.hideStrip()
+        await findByText('Suggest a scout')
+
+        fireEvent.click(getByText('Ask'))
+        fireEvent.click(getByText('How is my scout troop performing?'))
+
+        // Read before the task resolves and clears the state, the same window the spinner lives in.
+        const reopen = container.querySelector<HTMLButtonElement>('[data-attr="scout-suggestions-show"]')
+        expect(reopen?.getAttribute('aria-disabled')).not.toBe('true')
+        expect(reopen?.querySelector('.Spinner')).toBeNull()
+        fireEvent.click(reopen!)
+
+        expect(logic.values.stripHidden).toBe(false)
+        await waitFor(() => expect(startedChatTypes).toEqual(['fleet_overview']))
+        logic.unmount()
+    })
+
     // A project with no picks has no strip to reopen, so the header button is the only entry point
-    // there. It has to be present, and it has to pay for a scan rather than open a chat.
-    it('starts a scan from the header on a project with no picks', async () => {
+    // there. A headless scan would spend minutes with nothing on screen, so it opens the chat.
+    it('opens the authoring chat from the header on a project with no picks', async () => {
         setSuggestionsFlag(true)
         useMocks({
             get: { '/api/projects/:team/signals/scout/suggestions/': mockScoutSuggestionSet({ items: [] }) },
@@ -129,42 +169,79 @@ describe('scout creation buttons', () => {
         const logic = scoutSuggestionsLogic()
         logic.mount()
         const { findByText } = render(<ScoutsRosterActions />)
-        // The button is busy until the batch is known, so a press before then costs no scan.
+        // The button is busy until the batch is known, so a press before then does nothing.
         await waitFor(() => expect(logic.values.suggestionSet).not.toBeNull())
 
         fireEvent.click(await findByText('Suggest a scout'))
 
-        await waitFor(() => expect(refreshRequests).toBe(1))
-        expect(logic.values.stripVisible).toBe(true)
-        expect(startedChatTypes).toEqual([])
+        await waitFor(() => expect(startedChatTypes).toEqual(['author_scout']))
+        expect(refreshRequests).toBe(0)
         logic.unmount()
     })
 
-    // "Suggest a scout" only moves into the Ask menu for people on the suggestions strip. Off the
-    // flag it stays a header button, which is the only way those people can ask for a pick.
     it.each([
-        ['on the suggestions flag', true, 'Ask'],
-        ['off the suggestions flag', false, 'Suggest a scout'],
-    ])('spins only the button that started the task, %s', async (_name, suggestionsEnabled, spinningLabel) => {
+        ['on the suggestions flag', true],
+        ['off the suggestions flag', false],
+    ])('starts an authoring chat on the typed request from New scout, %s', async (_name, suggestionsEnabled) => {
         setSuggestionsFlag(suggestionsEnabled)
-        const { findByText, getByText } = render(<ScoutsRosterActions />)
+        const { findByText, getByText, queryByText, container } = render(<ScoutsRosterActions />)
 
-        if (suggestionsEnabled) {
-            fireEvent.click(getByText('Ask'))
-            fireEvent.click(await findByText('Suggest a scout'))
-        } else {
-            fireEvent.click(getByText('Suggest a scout'))
-        }
+        fireEvent.click(getByText('Ask'))
+        await findByText('How is my scout troop performing?')
+        expect(queryByText('Suggest a scout')).toBeNull()
 
-        // Both assertions read the same render, before the task resolves and clears the state.
-        expect(getByText(spinningLabel).closest('button')?.querySelector('.Spinner')).toBeTruthy()
-        expect(getByText('Create scout').closest('button')?.querySelector('.Spinner')).toBeNull()
+        fireEvent.click(getByText('New scout'))
+        fireEvent.click(await findByText('Chat with an agent'))
+        const start = getByText('Start chat').closest('button')
+        expect(start?.getAttribute('aria-disabled')).toBe('true')
+        fireEvent.change(container.ownerDocument.querySelector('[data-attr="scout-chat-prompt"]')!, {
+            target: { value: 'Watch for spam signups' },
+        })
+        fireEvent.click(getByText('Start chat'))
+
         await waitFor(() => expect(startedChatTypes).toEqual(['author_scout']))
+        expect(startedUserPrompts).toEqual(['Watch for spam signups'])
+    })
+
+    it.each([
+        ['a picked template', 'Churn risk', SCOUT_CHAT_TEMPLATES.find(({ id }) => id === 'churn_risk')!.prompt],
+        [
+            'a typed request longer than the form description allows',
+            null,
+            `Tell me when checkout payments fail. ${'Split the report by payment provider and by country. '.repeat(24)}`.trim(),
+        ],
+    ])('carries %s between the chat and the form', async (_name, templateLabel, request) => {
+        const { findByText, getByText, container } = render(<ScoutsRosterActions />)
+        const findChatPrompt = (): Promise<HTMLTextAreaElement> =>
+            waitFor(() => {
+                const textarea = container.ownerDocument.querySelector<HTMLTextAreaElement>(
+                    '[data-attr="scout-chat-prompt"]'
+                )
+                expect(textarea).toBeTruthy()
+                return textarea!
+            })
+
+        fireEvent.click(getByText('New scout'))
+        fireEvent.click(await findByText('Chat with an agent'))
+        if (templateLabel) {
+            fireEvent.click(getByText(templateLabel))
+        } else {
+            fireEvent.change(await findChatPrompt(), { target: { value: request } })
+        }
+        fireEvent.click(getByText('Use the form instead'))
+
+        expect(await findByText('Manual scout form')).toBeTruthy()
+        expect(getByText(request)).toBeTruthy()
+
+        fireEvent.click(getByText('Back to chat'))
+        expect((await findChatPrompt()).value).toBe(request)
+        expect(startedChatTypes).toEqual([])
     })
 
     it.each([
         ['ScoutCreateButton', <ScoutCreateButton key="create" />, 'Create scout'],
         ['ScoutSuggestButton', <ScoutSuggestButton key="suggest" />, 'Suggest a scout'],
+        ['ScoutNewButton', <ScoutNewButton key="new" surface="fleet_list" />, 'New scout'],
     ])('disables %s without skill editor access', (_name, element, label) => {
         mockGetAccessControlDisabledReason.mockReturnValue('Requires editor access')
         const { getByText } = render(element)

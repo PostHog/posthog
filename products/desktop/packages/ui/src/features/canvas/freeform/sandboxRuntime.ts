@@ -11,6 +11,11 @@ import {
   CANVAS_SDK_SPECIFIER,
 } from "@posthog/shared";
 import {
+  compileCanvasProject,
+  installCanvasEditing,
+} from "@posthog/ui/features/canvas/blocks/canvasEditRuntime";
+import { EDIT_LABELS } from "@posthog/ui/features/canvas/blocks/libraryCatalog";
+import {
   commentActionAnchorRect,
   installSelectionSettleGate,
 } from "@posthog/ui/features/sessions/components/selectionCommentAction";
@@ -40,6 +45,12 @@ import {
 // and `@theme inline` token mapping cover all of it. "v3" keeps the legacy Play
 // CDN path as a one-line fallback while v4 is validated against real canvases.
 const TAILWIND_ENGINE: "v3" | "v4" = "v4";
+
+// Retry tuning for the in-iframe data shim below. The host refuses only after
+// its queue has stayed full for seconds, so the first retry waits about a
+// second, jittered to keep a refused batch from coming back in one burst.
+const MAX_CALL_RETRIES = 2;
+const RETRY_BASE_DELAY_MS = 1_000;
 
 // Tailwind v4 browser JIT. `@import "tailwindcss"` brings in v4's layered theme/
 // base(preflight)/components/utilities — so preflight sits in `@layer base`,
@@ -219,10 +230,28 @@ export function buildSandboxDocument(
     // --- data shim: the ONLY way canvas code reaches PostHog. No token here. ---
     const pending = new Map();
     let reqSeq = 0;
-    const call = (method, payload) =>
+    // The host caps how many requests run at once and queues the rest. Past
+    // that queue it refuses the request and marks it retryable.
+    const MAX_CALL_RETRIES = ${MAX_CALL_RETRIES};
+    const RETRY_BASE_DELAY_MS = ${RETRY_BASE_DELAY_MS};
+    const call = (method, payload, attempt = 0) =>
       new Promise((resolve, reject) => {
         const id = String(++reqSeq);
-        pending.set(id, { resolve, reject });
+        pending.set(id, {
+          resolve,
+          reject: (error, retryable) => {
+            if (!retryable || attempt >= MAX_CALL_RETRIES) {
+              reject(error);
+              return;
+            }
+            const delay =
+              RETRY_BASE_DELAY_MS * Math.pow(2, attempt) * (0.5 + Math.random());
+            setTimeout(
+              () => call(method, payload, attempt + 1).then(resolve, reject),
+              delay,
+            );
+          },
+        });
         post({ type: "data-request", id, method, payload });
       });
     // posthog-js runs IN here (the only way replay records the app's DOM). It is
@@ -287,13 +316,27 @@ export function buildSandboxDocument(
       actions: {
         invoke: (verb, payload) => call("actionInvoke", { verb, payload: payload ?? {} }),
       },
+      // Read live third-party data with the viewer's own connection. Every
+      // provider and tool must be declared in capabilities.connectors; the
+      // result is cached per canvas for \`refresh\` seconds (default 60):
+      // \`ph.connectors.call("github", "list_pull_requests", { repository: "app" })\`.
+      // A "not_connected" status carries a connect_path; \`connect(provider)\`
+      // opens that settings page from a click.
+      connectors: {
+        call: (provider, tool, args, options) =>
+          call("connectorCall", { provider, tool, arguments: args ?? {}, refresh: options?.refresh }),
+        connect: (provider) => {
+          if (!navigator.userActivation?.isActive) throw new Error("Connecting a provider requires a user action");
+          post({ type: "navigate", nav: { target: "connect", provider } });
+        },
+      },
       // Ask the authoring agent for a change; the host shows the exact prompt
       // and asks the viewer to approve before anything is dispatched:
       // \`ph.agent.request("Make the square blue")\`.
       agent: {
         request: (prompt) => call("agentRequest", { prompt }),
       },
-      // Brokered by the host: PostHog-only https URLs, rate-limited, and
+      // Brokered by the host: PostHog and GitHub PR HTTPS URLs, rate-limited, and
       // ignored while the canvas is unfocused (no auto-opens on load).
       openExternal: (url) => post({ type: "open-external", url }),
       // Navigate the host app. Fire-and-forget: the host validates the intent
@@ -301,7 +344,10 @@ export function buildSandboxDocument(
       // cannot pick the channel or an arbitrary path — only these four targets.
       navigate: {
         toTask: (taskId) => post({ type: "navigate", nav: { target: "task", taskId } }),
-        toNewTask: () => post({ type: "navigate", nav: { target: "new-task" } }),
+        toNewTask: (options) => {
+          if (!navigator.userActivation?.isActive) throw new Error("Opening a task requires a user action");
+          post({ type: "navigate", nav: { target: options ? "compose-task" : "new-task", prompt: options?.prompt, repository: options?.repository } });
+        },
         toCanvas: (dashboardId) => post({ type: "navigate", nav: { target: "canvas", dashboardId } }),
         toNewCanvas: () => post({ type: "navigate", nav: { target: "new-canvas" } }),
       },
@@ -568,6 +614,11 @@ export function buildSandboxDocument(
       },
     });
 
+    const compileCanvasProject = ${compileCanvasProject.toString()};
+    const installCanvasEditing = ${installCanvasEditing.toString()};
+    const editing = installCanvasEditing(post, ${JSON.stringify(EDIT_LABELS)});
+    const moduleCache = new Map();
+
     let root = null;
     // mount() is async and is called once per streamed code snapshot, so several
     // runs overlap on their awaits. Without ordering, a slower EARLIER (partial,
@@ -576,25 +627,25 @@ export function buildSandboxDocument(
     // A monotonic sequence makes only the newest mount commit its render/error;
     // superseded runs bail out after each await.
     let mountSeq = 0;
-    const mount = async (code) => {
+    const mount = async (input) => {
       const seq = ++mountSeq;
       try {
-        const out = Babel.transform(code, {
-          filename: "canvas.tsx",
-          plugins: [jsxUnicodeEscapesPlugin],
-          presets: [
-            ["react", { runtime: "automatic" }],
-            ["typescript", { isTSX: true, allExtensions: true, onlyRemoveTypeImports: true }],
-          ],
-        }).code;
-        const url = URL.createObjectURL(
-          new Blob([out], { type: "text/javascript" }),
+        const revoke = !input.files;
+        const url = compileCanvasProject(
+          Babel,
+          input.files || { "canvas.tsx": input.code },
+          input.files ? input.entry || "src/canvas.tsx" : "canvas.tsx",
+          {
+            editing: !!input.editing,
+            basePlugins: [jsxUnicodeEscapesPlugin],
+            cache: revoke ? new Map() : moduleCache,
+          },
         );
         let mod;
         try {
           mod = await import(url);
         } finally {
-          URL.revokeObjectURL(url);
+          if (revoke) URL.revokeObjectURL(url);
         }
         if (seq !== mountSeq) return; // a newer snapshot superseded this one
         const Comp = mod.default;
@@ -614,19 +665,34 @@ export function buildSandboxDocument(
           static getDerivedStateFromError(error) { return { error }; }
           componentDidCatch(error) { reportError(error.message, error.stack); }
           render() {
-            if (this.state.error) return null;
+            if (this.state.error) return React.createElement(Committed, { key: "failed", failed: true });
             return this.props.children;
           }
         }
+        if (input.editing) editing.capture();
+        const afterCommit = (failed) => {
+          requestAnimationFrame(() => {
+            if (seq !== mountSeq) return;
+            renderCommentHighlights(currentCommentHighlights);
+            editing.setEnabled(!!input.editing);
+            if (input.editing) editing.afterMount(input.rev || 0, input.focusBlockId || null, input.focusSource || null);
+            if (!failed) post({ type: "rendered" });
+          });
+        };
+        function Committed(props) {
+          React.useLayoutEffect(() => {
+            afterCommit(!!props.failed);
+          }, []);
+          return null;
+        }
         root.render(
-          React.createElement(Boundary, null, React.createElement(Comp)),
+          React.createElement(
+            Boundary,
+            null,
+            React.createElement(Comp),
+            React.createElement(Committed, { key: seq }),
+          ),
         );
-        // Let layout settle, then report success.
-        requestAnimationFrame(() => {
-          if (seq !== mountSeq) return;
-          renderCommentHighlights(currentCommentHighlights);
-          post({ type: "rendered" });
-        });
       } catch (err) {
         // Only the latest snapshot reports — a superseded partial's parse error
         // must not surface as the canvas's error or flicker the host banner.
@@ -646,11 +712,12 @@ export function buildSandboxDocument(
     window.addEventListener("message", (e) => {
       const d = e.data;
       if (!d || d.channel !== CHANNEL) return;
+      if (editing.handle(d)) return;
       if (d.type === "init") {
         applyTheme(d.theme);
         currentCommentHighlights = d.highlights || [];
         if (d.analytics) void bootAnalytics(d.analytics);
-        void mount(d.code);
+        void mount(d);
       } else if (d.type === "set-theme") {
         // Re-theme in place — no mount(), so the app keeps all its state.
         applyTheme(d.theme);
@@ -662,7 +729,9 @@ export function buildSandboxDocument(
         const p = pending.get(d.id);
         if (!p) return;
         pending.delete(d.id);
-        d.ok ? p.resolve(d.result) : p.reject(new Error(d.error || "data error"));
+        d.ok
+          ? p.resolve(d.result)
+          : p.reject(new Error(d.error || "data error"), d.retryable === true);
       }
     });
 

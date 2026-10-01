@@ -1,8 +1,9 @@
 import {
     ActivityLogItem,
+    ActivityLogUserName,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
@@ -35,10 +36,17 @@ export function endpointActivityDescriber(logItem: ActivityLogItem, asNotificati
 
     if (logItem.activity === 'created') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                <>
+                    Created the endpoint (<VersionLink name={endpointName} version={1} />)
+                </>,
+                <EndpointLink name={endpointName} />
+            ),
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> created endpoint{' '}
-                    <EndpointLink name={endpointName} /> (<VersionLink name={endpointName} version={1} />
+                    <ActivityLogUserName logItem={logItem} /> created endpoint <EndpointLink name={endpointName} /> (
+                    <VersionLink name={endpointName} version={1} />
                     ).
                 </>
             ),
@@ -47,10 +55,10 @@ export function endpointActivityDescriber(logItem: ActivityLogItem, asNotificati
 
     if (logItem.activity === 'deleted') {
         return {
+            summary: activityLogSummary(logItem, 'Deleted the endpoint', endpointName),
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted endpoint{' '}
-                    <strong>{endpointName}</strong>.
+                    <ActivityLogUserName logItem={logItem} /> deleted endpoint <strong>{endpointName}</strong>.
                 </>
             ),
         }
@@ -58,9 +66,16 @@ export function endpointActivityDescriber(logItem: ActivityLogItem, asNotificati
 
     if (logItem.activity === 'version_created' && version !== undefined) {
         return {
+            summary: activityLogSummary(
+                logItem,
+                <>
+                    Created version <VersionLink name={endpointName} version={version} />
+                </>,
+                <EndpointLink name={endpointName} />
+            ),
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> created version{' '}
+                    <ActivityLogUserName logItem={logItem} /> created version{' '}
                     <VersionLink name={endpointName} version={version} /> of endpoint{' '}
                     <EndpointLink name={endpointName} />.
                 </>
@@ -70,9 +85,16 @@ export function endpointActivityDescriber(logItem: ActivityLogItem, asNotificati
 
     if (logItem.activity === 'version_updated' && version !== undefined) {
         return {
+            summary: activityLogSummary(
+                logItem,
+                <>
+                    Updated version <VersionLink name={endpointName} version={version} />
+                </>,
+                <EndpointLink name={endpointName} />
+            ),
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> updated{' '}
+                    <ActivityLogUserName logItem={logItem} /> updated{' '}
                     <VersionLink name={endpointName} version={version} /> of endpoint{' '}
                     <EndpointLink name={endpointName} />.
                 </>
@@ -82,10 +104,10 @@ export function endpointActivityDescriber(logItem: ActivityLogItem, asNotificati
 
     if (logItem.activity === 'updated') {
         return {
+            summary: activityLogSummary(logItem, 'Updated the endpoint', <EndpointLink name={endpointName} />),
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> updated endpoint{' '}
-                    <EndpointLink name={endpointName} />.
+                    <ActivityLogUserName logItem={logItem} /> updated endpoint <EndpointLink name={endpointName} />.
                 </>
             ),
         }

@@ -1,5 +1,7 @@
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
+
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
@@ -10,7 +12,7 @@ from posthog.models.user_integration import UserIntegration
 from products.access_control.backend.models.access_control import AccessControl
 from products.canvas.backend.models import Canvas
 from products.tasks.backend.logic.services.comment_slack_dm import send_comment_slack_dms
-from products.tasks.backend.models import Channel, TaskCommentActivity
+from products.tasks.backend.models import Channel, ChannelMembership, TaskCommentActivity
 from products.tasks.backend.tests.test_comment_activity import CommentActivityTestCase
 
 SLACK_WORKSPACE_ID = "T123"
@@ -198,23 +200,43 @@ class TestCommentSlackDm(CommentActivityTestCase):
 
         assert self._dm_channels() == []
 
-    def test_canvas_comment_dms_a_recipient_who_can_access_its_task(self):
+    @parameterized.expand([("with_task", True), ("without_task", False)])
+    def test_canvas_comment_dms_a_recipient_who_can_access_its_space(self, _name: str, with_task: bool):
+        generation_channel = Channel.objects.create(
+            team=self.team,
+            name="generation",
+            channel_type=Channel.ChannelType.PERSONAL,
+            created_by=self.peer,
+        )
+        self.task.channel = generation_channel
+        self.task.save(update_fields=["channel"])
+        canvas_channel = Channel.objects.create(
+            team=self.team,
+            name="canvas-space",
+            channel_type=Channel.ChannelType.PRIVATE,
+            created_by=self.peer,
+        )
+        ChannelMembership.objects.create(team=self.team, channel=canvas_channel, user=self.author)
         canvas = Canvas.objects.create(
             team=self.team,
-            channel=self.channel,
+            channel=canvas_channel,
             name="Launch canvas",
             created_by=self.peer,
-            generation_task_id=self.task.id,
+            generation_task_id=self.task.id if with_task else None,
         )
-        comment = self._comment(scope="desktop_canvas", item_id=str(canvas.id))
+        comment = self._comment(
+            scope="canvas",
+            item_id=str(canvas.id),
+            item_context={"anchor": {"kind": "document"}, **({"taskId": str(self.task.id)} if with_task else {})},
+        )
 
         self._record_activity(comment, [self.author.id])
 
         assert self._dm_channels() == ["U-author"]
-        assert (
-            f"/code/task/{self.task.id}?comment={comment.id}&scope=desktop_canvas&item={canvas.id}"
-            in self._dm_heading()
-        )
+        heading = self._dm_heading()
+        assert f"<{settings.SITE_URL}/code/canvas/{canvas_channel.id}/{canvas.id}|Launch canvas>" in heading
+        assert self.task.title not in heading
+        assert str(self.task.id) not in heading
 
     def test_dm_links_to_the_desktop_task_bridge_anchored_on_the_comment(self):
         comment = self._comment()
@@ -237,7 +259,7 @@ class TestCommentSlackDm(CommentActivityTestCase):
             created_by=self.peer,
             generation_task_id=self.task.id,
         )
-        comment = self._comment(scope="desktop_canvas", item_id=str(canvas.id))
+        comment = self._comment(scope="canvas", item_id=str(canvas.id))
 
         self._record_activity(comment, [self.author.id])
 

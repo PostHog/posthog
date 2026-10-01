@@ -14,8 +14,10 @@ const buttonVariants = cva(
             variant: {
                 default: 'quill-button--variant-default',
                 primary: 'quill-button--variant-primary',
+                secondary: 'quill-button--variant-secondary',
                 outline: 'quill-button--variant-outline',
                 destructive: 'quill-button--variant-destructive',
+                'destructive-outline': 'quill-button--variant-destructive-outline',
                 link: 'quill-button--variant-link',
                 'link-muted': 'quill-button--variant-link-muted',
             },
@@ -28,6 +30,7 @@ const buttonVariants = cva(
                 'icon-xs': 'quill-button--size-icon-xs',
                 'icon-sm': 'quill-button--size-icon-sm',
                 'icon-lg': 'quill-button--size-icon-lg',
+                row: 'quill-button--size-row',
             },
             focusableWhenDisabled: {
                 true: '',
@@ -84,7 +87,6 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
                 // readers can reach it and announce busy. Activation stays blocked.
 
                 focusableWhenDisabled={loading ? true : focusableWhenDisabled}
-
                 className={cn(buttonVariants({ variant, size, className, focusableWhenDisabled, left }))}
                 {...props}
             >

@@ -1,7 +1,10 @@
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
+import { Autocomplete, AutocompleteList } from "@posthog/quill";
 import { formatRelativeTimeShort } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
+import { useArchiveShortcut } from "@posthog/ui/features/archive/useArchiveShortcut";
 import { CANVAS_DRAG_TYPE } from "@posthog/ui/features/canvas/canvasDrag";
+import { useArchivingTasksStore } from "@posthog/ui/features/sidebar/archivingTasksStore";
 import type { TaskStatusInput } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
 import {
   beginSidebarPeek,
@@ -85,7 +88,7 @@ const actions = {
   open: () => {},
   togglePin: () => {},
   setPinned: () => {},
-  archive: () => {},
+  archive: vi.fn(),
   remove: () => {},
   fileCanvas: () => {},
 };
@@ -133,20 +136,73 @@ function renderRow(model: ChannelItemModel) {
   );
 }
 
+/**
+ * The Work column walks its rows with the keyboard, so its rows are options of
+ * the column's own Autocomplete rather than plain buttons.
+ */
+function renderOptionRow(model: ChannelItemModel) {
+  return renderInList(
+    <Autocomplete<string> inline open items={[model.key]} filter={null}>
+      <AutocompleteList>
+        <ChannelItemRow
+          actions={actions}
+          isActive={false}
+          item={model}
+          optionValue={model.key}
+        />
+      </AutocompleteList>
+    </Autocomplete>,
+  );
+}
+
 beforeEach(() => {
   mocks.status = null;
   mocks.analysis = { canAnalyze: false, isPending: false, run: vi.fn() };
   mocks.openBrowserTab.mockClear();
   useSidebarStore.setState({ listItemMetadataFields: [] });
   usePendingCanvasDeleteStore.setState({ pending: {} });
+  useArchivingTasksStore.setState({
+    archivingTaskIds: new Set(),
+    hiddenArchivingTaskIds: new Set(),
+  });
   useTaskSelectionStore.setState({
     selectedTaskIds: [],
     lastClickedId: null,
   });
+  actions.archive.mockClear();
 });
 
 describe("ChannelItemRow", () => {
-  // This table keeps task state labels consistent across all task rows.
+  it("dims an archiving task and blocks its row actions", () => {
+    const pendingActions = {
+      ...actions,
+      open: vi.fn(),
+      togglePin: vi.fn(),
+      archive: vi.fn(),
+    };
+    useArchivingTasksStore.getState().startArchiving("task-1");
+    renderInList(
+      <ChannelItemRow
+        actions={pendingActions}
+        isActive={false}
+        isEditing
+        item={item()}
+      />,
+    );
+
+    const row = screen.getByRole("button");
+    expect(row.className).toContain("opacity-50");
+    expect(row.draggable).toBe(false);
+    expect(row).toHaveAttribute("aria-busy", "true");
+    expect(screen.getByText("Archiving")).toHaveClass("sr-only");
+    expect(screen.queryByRole("textbox")).toBeNull();
+
+    fireEvent.click(row);
+    fireEvent.contextMenu(row);
+    expect(pendingActions.open).not.toHaveBeenCalled();
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
   it.each([
     ["a permission prompt", { needsPermission: true }, "Needs your input"],
     [
@@ -377,11 +433,11 @@ describe("ChannelItemRow", () => {
   });
 
   it.each([
-    ["task", "u-1", "You were here recently"],
+    ["task", "u-1", null],
     ["task", "u-2", "Ada Lovelace was here recently"],
-    ["canvas", "u-1", "You were here recently"],
+    ["canvas", "u-1", null],
     ["canvas", "u-2", "Ada Lovelace was here recently"],
-  ] as const)("labels recent %s presence for %s", (kind, uuid, label) => {
+  ] as const)("shows recent %s presence for %s", (kind, uuid, label) => {
     renderRow(
       item({
         kind,
@@ -397,9 +453,13 @@ describe("ChannelItemRow", () => {
       }),
     );
 
-    expect(screen.getByRole("img", { name: label }).textContent).toContain(
-      "AL",
-    );
+    if (label === null) {
+      expect(screen.queryByText("AL")).toBeNull();
+    } else {
+      expect(screen.getByRole("img", { name: label }).textContent).toContain(
+        "AL",
+      );
+    }
   });
 
   // A pinned row offering only `move` resolves against the Command Center's
@@ -490,8 +550,13 @@ describe("ChannelItemRow", () => {
     await openCard();
 
     for (const label of MENU_ITEMS) {
-      expect(screen.getByRole("button", { name: label })).not.toBeNull();
+      expect(
+        screen.getByRole("button", {
+          name: label === "Archive" ? /^Archive/ : label,
+        }),
+      ).not.toBeNull();
     }
+    expect(screen.getByText("Ctrl+Shift+A")).not.toBeNull();
   });
 
   it("opens the same menu on right-click", () => {
@@ -500,8 +565,69 @@ describe("ChannelItemRow", () => {
     fireEvent.contextMenu(screen.getByText("Investigate signup drop-off"));
 
     for (const label of MENU_ITEMS) {
-      expect(screen.getByRole("menuitem", { name: label })).not.toBeNull();
+      expect(
+        screen.getByRole("menuitem", {
+          name: label === "Archive" ? /^Archive/ : label,
+        }),
+      ).not.toBeNull();
     }
+    expect(screen.getByText("Ctrl+Shift+A")).not.toBeNull();
+  });
+
+  it("archives the active menu task before the visible task", () => {
+    const archiveVisibleTask = vi.fn();
+    function VisibleTaskShortcut() {
+      useArchiveShortcut({
+        onArchive: archiveVisibleTask,
+        enabled: true,
+        priority: "visible-task",
+      });
+      return null;
+    }
+    renderInList(
+      <>
+        <VisibleTaskShortcut />
+        <ChannelItemRow actions={actions} isActive={false} item={item()} />
+      </>,
+    );
+
+    fireEvent.contextMenu(screen.getByText("Investigate signup drop-off"));
+    fireEvent.keyDown(document, {
+      key: "a",
+      code: "KeyA",
+      ctrlKey: true,
+      shiftKey: true,
+    });
+
+    expect(actions.archive).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "task-1" }),
+    );
+    expect(archiveVisibleTask).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(document, {
+      key: "a",
+      code: "KeyA",
+      ctrlKey: true,
+      shiftKey: true,
+      repeat: true,
+    });
+
+    expect(archiveVisibleTask).not.toHaveBeenCalled();
+
+    fireEvent.keyUp(document, {
+      key: "a",
+      code: "KeyA",
+      ctrlKey: true,
+      shiftKey: true,
+    });
+    fireEvent.keyDown(document, {
+      key: "a",
+      code: "KeyA",
+      ctrlKey: true,
+      shiftKey: true,
+    });
+
+    expect(archiveVisibleTask).toHaveBeenCalledOnce();
   });
 
   it("opens a task in a new tab from the context menu", () => {
@@ -551,9 +677,15 @@ describe("ChannelItemRow", () => {
 
       expect(useSidebarPeekStore.getState().peek).toBe(true);
 
-      fireEvent.keyDown(document, { key: "Escape" });
+      fireEvent.keyDown(document, {
+        key: "a",
+        code: "KeyA",
+        ctrlKey: true,
+        shiftKey: true,
+      });
       act(() => vi.runAllTimers());
 
+      expect(actions.archive).toHaveBeenCalledOnce();
       expect(useSidebarPeekStore.getState().peek).toBe(false);
     } finally {
       cleanup();
@@ -793,5 +925,21 @@ describe("ChannelItemRow", () => {
     );
 
     expect(screen.queryByText(/PostHog\/code/)).not.toBeInTheDocument();
+  });
+
+  // The Work column's rows moved onto the shared row. An option that loses the
+  // session attribute is invisible to the marquee, and one that is not an
+  // option at all drops off the column's arrow-key path.
+  it("renders as an autocomplete option the marquee can still find", () => {
+    renderOptionRow(item({ id: "task-7", kind: "task" }));
+
+    const option = screen.getByRole("option");
+    expect(option).toHaveAttribute("data-session-id", "task-7");
+  });
+
+  it("keeps a canvas option out of the marquee's reach", () => {
+    renderOptionRow(item({ id: "canvas-1", kind: "canvas", key: "canvas:1" }));
+
+    expect(screen.getByRole("option")).not.toHaveAttribute("data-session-id");
   });
 });

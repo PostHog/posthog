@@ -1,0 +1,440 @@
+@import '../../../../../frontend/src/lib/components/ProductEmptyState/previewMixins';
+
+.HeatmapsPreview {
+    --heatmaps-preview-accent: var(--empty-state-accent, var(--color-product-heatmaps-light));
+
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+
+    // Hidden overlay choice. Direct children of .HeatmapsPreview so `:checked ~` reaches both cards.
+    &__radio {
+        position: absolute;
+        width: 0;
+        height: 0;
+        pointer-events: none;
+        opacity: 0;
+    }
+
+    &__panel,
+    &__stat {
+        overflow: hidden;
+        background: var(--color-bg-surface-primary);
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius);
+    }
+
+    // Clicks/scroll pairs are stacked on one grid cell and crossfaded, so switching the
+    // overlay never changes any element's size (no layout shift).
+    &__swap {
+        display: grid;
+    }
+
+    &__swap > * {
+        grid-area: 1 / 1;
+        min-width: 0;
+    }
+
+    &__when-clicks,
+    &__overlay--clicks {
+        @include preview-swap-visible;
+    }
+
+    &__when-scroll,
+    &__overlay--scroll {
+        @include preview-swap-hidden;
+    }
+
+    &__head {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        align-items: center;
+        padding: 0.5rem 0.75rem;
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__title {
+        flex: 1;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    // Segmented overlay switch
+
+    &__segments {
+        display: flex;
+        padding: 2px;
+        background: var(--color-bg-fill-tertiary);
+        border-radius: var(--radius);
+    }
+
+    &__segment {
+        padding: 0.125rem 0.5rem;
+        font-size: 0.625rem;
+        font-weight: 600;
+        color: var(--color-text-secondary);
+        cursor: pointer;
+        border-radius: calc(var(--radius) - 2px);
+        transition:
+            background $preview-swap-duration ease,
+            color $preview-swap-duration ease;
+    }
+
+    // Fake browser chrome and page
+
+    &__chrome {
+        display: flex;
+        gap: 0.25rem;
+        align-items: center;
+        padding: 0.375rem 0.625rem;
+        background: var(--color-bg-fill-primary);
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__url {
+        flex: 1;
+        padding: 0.125rem 0.5rem;
+        margin-left: 0.375rem;
+        font-family: var(--font-mono);
+        font-size: 0.5625rem;
+        color: var(--color-text-tertiary);
+        background: var(--color-bg-surface-primary);
+        border-radius: 999px;
+    }
+
+    &__page {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+        padding: 0.625rem 0.875rem 0.875rem;
+        overflow: hidden;
+        background: var(--color-bg-surface-primary);
+    }
+
+    &__nav {
+        display: flex;
+        gap: 0.375rem;
+        align-items: center;
+    }
+
+    &__logo {
+        width: 14px;
+        height: 14px;
+        background: color-mix(in oklab, var(--heatmaps-preview-accent) 40%, var(--color-bg-fill-tertiary));
+        border-radius: 4px;
+    }
+
+    &__nav-item {
+        width: 22px;
+        height: 5px;
+        background: var(--color-bg-fill-tertiary);
+        border-radius: 999px;
+
+        &--wide {
+            width: 34px;
+            margin-left: auto;
+        }
+    }
+
+    &__hero {
+        display: flex;
+        flex-direction: column;
+        gap: 0.375rem;
+        align-items: flex-start;
+    }
+
+    &__line {
+        height: 6px;
+        background: var(--color-bg-fill-tertiary);
+        border-radius: 999px;
+
+        &--title {
+            width: 62%;
+            height: 9px;
+            background: var(--color-bg-fill-secondary, var(--color-bg-fill-tertiary));
+        }
+
+        &--sub {
+            width: 44%;
+        }
+    }
+
+    &__button {
+        padding: 0.1875rem 0.5rem;
+        margin-top: 0.125rem;
+        font-size: 0.5625rem;
+        font-weight: 600;
+        color: var(--color-bg-surface-primary);
+        background: var(--color-text-primary);
+        border-radius: 4px;
+    }
+
+    &__plans {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 0.375rem;
+    }
+
+    &__plan {
+        height: 34px;
+        background: var(--color-bg-fill-primary);
+        border: 1px solid var(--color-border-primary);
+        border-radius: 4px;
+
+        &--featured {
+            border-color: color-mix(in oklab, var(--heatmaps-preview-accent) 50%, var(--color-border-primary));
+        }
+    }
+
+    // Overlays sit on top of the whole page and share one cell.
+
+    &__overlays {
+        position: absolute;
+        inset: 0;
+        display: grid;
+    }
+
+    &__overlay {
+        position: relative;
+        grid-area: 1 / 1;
+    }
+
+    // Click heat: radial blobs, hottest on the primary button.
+
+    &__blob {
+        position: absolute;
+        border-radius: 50%;
+        transform: translate(-50%, -50%);
+        animation: HeatmapsPreview__breathe 3.6s ease-in-out infinite;
+
+        &--hot {
+            top: 51%;
+            left: 15%;
+            width: 58px;
+            height: 58px;
+            background: radial-gradient(
+                circle,
+                rgb(239 68 68 / 85%) 0%,
+                rgb(249 115 22 / 65%) 30%,
+                rgb(250 204 21 / 40%) 55%,
+                transparent 75%
+            );
+        }
+
+        &--warm {
+            top: 45%;
+            left: 34%;
+            width: 40px;
+            height: 40px;
+            background: radial-gradient(circle, rgb(249 115 22 / 55%) 0%, rgb(250 204 21 / 35%) 45%, transparent 75%);
+            animation-delay: -1.2s;
+        }
+
+        &--nav {
+            top: 11%;
+            left: 88%;
+            width: 34px;
+            height: 34px;
+            background: radial-gradient(circle, rgb(250 204 21 / 55%) 0%, rgb(34 197 94 / 30%) 50%, transparent 75%);
+            animation-delay: -2.4s;
+        }
+
+        &--plan {
+            top: 82%;
+            left: 50%;
+            width: 46px;
+            height: 46px;
+            background: radial-gradient(circle, rgb(249 115 22 / 60%) 0%, rgb(250 204 21 / 35%) 45%, transparent 75%);
+            animation-delay: -0.6s;
+        }
+    }
+
+    &__rage {
+        position: absolute;
+        top: 82%;
+        left: 50%;
+        display: flex;
+        gap: 0.25rem;
+        align-items: center;
+        transform: translate(-50%, -50%);
+    }
+
+    &__rage-ring {
+        width: 10px;
+        height: 10px;
+        border: 2px solid rgb(239 68 68);
+        border-radius: 50%;
+        animation: HeatmapsPreview__ring 1.6s ease-out infinite;
+    }
+
+    &__rage-label {
+        padding: 0.0625rem 0.3125rem;
+        font-size: 0.5rem;
+        font-weight: 600;
+        color: var(--color-bg-surface-primary);
+        white-space: nowrap;
+        background: rgb(239 68 68);
+        border-radius: 999px;
+    }
+
+    // Scroll depth: horizontal bands from "everyone saw this" to "few got here".
+
+    &__band {
+        position: absolute;
+        right: 0;
+        left: 0;
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        padding-right: 0.5rem;
+        font-size: 0.5625rem;
+        font-weight: 700;
+        color: var(--color-text-primary);
+
+        &--1 {
+            top: 0;
+            height: 24%;
+            background: rgb(239 68 68 / 32%);
+        }
+
+        &--2 {
+            top: 24%;
+            height: 26%;
+            background: rgb(249 115 22 / 30%);
+        }
+
+        &--3 {
+            top: 50%;
+            height: 24%;
+            background: rgb(250 204 21 / 30%);
+        }
+
+        &--4 {
+            top: 74%;
+            height: 26%;
+            background: rgb(59 130 246 / 26%);
+        }
+    }
+
+    // Stat card
+
+    &__stat {
+        padding: 0.625rem 0.75rem 0.75rem;
+    }
+
+    &__spark-caption {
+        font-size: 0.5625rem;
+        color: var(--color-text-tertiary);
+    }
+
+    &__footer {
+        margin-top: 0.375rem;
+        font-size: 0.5625rem;
+        color: var(--color-text-tertiary);
+    }
+
+    &__spark-area {
+        fill: color-mix(in oklab, var(--heatmaps-preview-accent) 13%, transparent);
+        stroke: none;
+    }
+
+    &__spark-line {
+        fill: none;
+        stroke: color-mix(in oklab, var(--heatmaps-preview-accent) 32%, transparent);
+        stroke-width: 2;
+    }
+
+    // The moving bit: a short bright segment cycling along the line.
+    &__spark-trace {
+        fill: none;
+        stroke: var(--heatmaps-preview-accent);
+        stroke-dasharray: 16 84;
+        stroke-linecap: round;
+        stroke-width: 2;
+        animation: HeatmapsPreview__trace 3.2s linear infinite;
+    }
+
+    @include preview-chrome-dot;
+    @include preview-sparkline;
+}
+
+// The sparkline mixin lays the value out as a flex row, which would place the two crossfading
+// values side by side; the swap needs them stacked on one grid cell.
+.HeatmapsPreview__spark-value.HeatmapsPreview__swap {
+    display: grid;
+}
+
+// Selected segment: painted from the radios, so the switch and the overlay always agree.
+
+.HeatmapsPreview__radio--clicks:checked
+    ~ .HeatmapsPreview__panel
+    .HeatmapsPreview__segment[for='heatmaps-preview-clicks'],
+.HeatmapsPreview__radio--scroll:checked
+    ~ .HeatmapsPreview__panel
+    .HeatmapsPreview__segment[for='heatmaps-preview-scroll'] {
+    background: var(--color-bg-surface-primary);
+    box-shadow: 0 1px 2px rgb(0 0 0 / 10%);
+
+    @include preview-accent-text(var(--heatmaps-preview-accent));
+}
+
+// Scroll depth selected
+
+.HeatmapsPreview__radio--scroll:checked ~ * .HeatmapsPreview__when-scroll,
+.HeatmapsPreview__radio--scroll:checked ~ * .HeatmapsPreview__overlay--scroll {
+    @include preview-swap-visible;
+}
+
+.HeatmapsPreview__radio--scroll:checked ~ * .HeatmapsPreview__when-clicks,
+.HeatmapsPreview__radio--scroll:checked ~ * .HeatmapsPreview__overlay--clicks {
+    @include preview-swap-hidden;
+}
+
+// The radios stay keyboard-focusable while visually hidden, so the segment each one
+// labels needs a visible focus indicator (WCAG 2.4.7).
+.HeatmapsPreview__radio--clicks:focus-visible
+    ~ .HeatmapsPreview__panel
+    .HeatmapsPreview__segment[for='heatmaps-preview-clicks'],
+.HeatmapsPreview__radio--scroll:focus-visible
+    ~ .HeatmapsPreview__panel
+    .HeatmapsPreview__segment[for='heatmaps-preview-scroll'] {
+    outline: 2px solid var(--heatmaps-preview-accent);
+    outline-offset: -2px;
+}
+
+@keyframes HeatmapsPreview__breathe {
+    0%,
+    100% {
+        transform: translate(-50%, -50%) scale(1);
+    }
+
+    50% {
+        transform: translate(-50%, -50%) scale(1.12);
+    }
+}
+
+@keyframes HeatmapsPreview__ring {
+    0% {
+        opacity: 0.9;
+        transform: scale(0.6);
+    }
+
+    100% {
+        opacity: 0;
+        transform: scale(2.2);
+    }
+}
+
+// pathLength is normalized to 100, so the dash offset loops cleanly regardless of length.
+@keyframes HeatmapsPreview__trace {
+    to {
+        stroke-dashoffset: -100;
+    }
+}
+
+// Storybook snapshots and reduced motion drop all ambient motion; switching the overlay
+// still works (transitions only).
+@include preview-motion-guards('HeatmapsPreview');

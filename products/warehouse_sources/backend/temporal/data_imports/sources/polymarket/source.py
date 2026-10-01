@@ -1,12 +1,10 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -47,7 +45,7 @@ class PolymarketSource(ResumableSource[PolymarketSourceConfig, PolymarketResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.POLYMARKET,
+            name=ExternalDataSourceType.POLYMARKET,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Polymarket",
             releaseStatus=ReleaseStatus.ALPHA,

@@ -40,6 +40,7 @@ class MetricSetEndpoint:
     # daily data, but the error backend serves only about the last two months, and it rejects
     # a query that starts earlier with a bare `400 INVALID_ARGUMENT`.
     history_days: int = METRIC_SET_HISTORY_DAYS
+    should_sync_default: bool = True
 
 
 @dataclass(frozen=True)
@@ -63,12 +64,21 @@ class ListEndpoint:
     datetime_fields: tuple[str, ...] = ()
 
 
-# Every vitals metric set is sliced by `versionCode` only. Play drops rows whose user counts fall
-# under its privacy threshold, and each extra dimension multiplies the slices, so a wider default
-# breakdown would silently lose data on smaller apps.
 _VERSION_CODE = ("versionCode",)
 
-METRIC_SETS: dict[str, MetricSetEndpoint] = {
+BREAKDOWN_DIMENSIONS: tuple[tuple[str, str], ...] = (
+    ("device_model", "deviceModel"),
+    ("api_level", "apiLevel"),
+)
+
+_DIMENSION_PHRASES: dict[str, str] = {
+    "versionCode": "app version",
+    "startType": "start type",
+    "deviceModel": "device model",
+    "apiLevel": "Android API level",
+}
+
+_BASE_METRIC_SETS: dict[str, MetricSetEndpoint] = {
     "crash_rate": MetricSetEndpoint(
         name="crash_rate",
         resource="crashRateMetricSet",
@@ -177,6 +187,47 @@ METRIC_SETS: dict[str, MetricSetEndpoint] = {
     ),
 }
 
+_VITALS_RATE_METRIC_SETS: tuple[str, ...] = tuple(name for name in _BASE_METRIC_SETS if name != "error_counts")
+
+BREAKDOWN_TABLES: dict[str, tuple[str, str]] = {
+    f"{base}_by_{suffix}": (base, dimension)
+    for base in _VITALS_RATE_METRIC_SETS
+    for suffix, dimension in BREAKDOWN_DIMENSIONS
+}
+
+
+def _dimension_phrase(dimensions: tuple[str, ...]) -> str:
+    phrases = [_DIMENSION_PHRASES[dimension] for dimension in dimensions]
+    if len(phrases) == 1:
+        return phrases[0]
+    return f"{', '.join(phrases[:-1])} and {phrases[-1]}"
+
+
+def _breakdown_endpoint(name: str, base: MetricSetEndpoint, dimension: str) -> MetricSetEndpoint:
+    dimensions = (*base.dimensions, dimension)
+    subject = base.description.split(", broken out by")[0].rstrip(".")
+    return MetricSetEndpoint(
+        name=name,
+        resource=base.resource,
+        metrics=base.metrics,
+        dimensions=dimensions,
+        description=(
+            f"{subject}, broken out by {_dimension_phrase(dimensions)}. Off by default, because the "
+            f"extra dimension multiplies rows per day and rows synced is billed."
+        ),
+        history_days=base.history_days,
+        should_sync_default=False,
+    )
+
+
+METRIC_SETS: dict[str, MetricSetEndpoint] = {
+    **_BASE_METRIC_SETS,
+    **{
+        name: _breakdown_endpoint(name, _BASE_METRIC_SETS[base], dimension)
+        for name, (base, dimension) in BREAKDOWN_TABLES.items()
+    },
+}
+
 LIST_ENDPOINTS: dict[str, ListEndpoint] = {
     "apps": ListEndpoint(
         name="apps",
@@ -235,6 +286,8 @@ DESCRIPTIONS: dict[str, str] = {
     **{name: endpoint.description for name, endpoint in METRIC_SETS.items()},
     **{name: endpoint.description for name, endpoint in LIST_ENDPOINTS.items()},
 }
+
+SHOULD_SYNC_DEFAULT: dict[str, bool] = {name: endpoint.should_sync_default for name, endpoint in METRIC_SETS.items()}
 
 LOOKBACK_SECONDS: dict[str, int] = {
     **dict.fromkeys(METRIC_SETS, METRIC_SET_LOOKBACK_SECONDS),

@@ -68,10 +68,29 @@ jobs:
                   key: desktop-pnpm-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
                   restore-keys: desktop-pnpm-${{ runner.os }}-
 
+            # Same keys as desktop-test.yml's electron-test job.
+            - name: Cache Electron binary
+              uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+              with:
+                  path: ~/.cache/electron
+                  key: electron-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
+
+            - name: Cache Playwright browsers
+              id: playwright-cache
+              uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+              with:
+                  path: ~/.cache/ms-playwright
+                  key: playwright-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
+
+            # Electron's own postinstall fills ~/.cache/electron.
             - name: Install dependencies
               run: pnpm install --frozen-lockfile
               env:
                   SKIP_ELECTRON_REBUILD: '1'
+
+            - name: Install Playwright Chromium
+              if: steps.playwright-cache.outputs.cache-hit != 'true'
+              run: pnpm --filter code exec playwright install chromium
 
     macos:
         runs-on: depot-macos-26
@@ -109,7 +128,7 @@ jobs:
                   key: desktop-pnpm-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
                   restore-keys: desktop-pnpm-${{ runner.os }}-
 
-            # Same keys as desktop-test.yml's integration-test job.
+            # Same keys as desktop-update-e2e.yml, the remaining macOS consumer.
             - name: Cache Electron binary
               id: electron-cache
               uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

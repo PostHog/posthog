@@ -1,6 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
@@ -13,7 +13,12 @@ import {
     Welcome,
 } from 'products/posthog_ai/frontend/api/primitives'
 import { modelCatalogueLogic } from 'products/posthog_ai/frontend/logics/modelCatalogueLogic'
-import { getRuntimeAdapterForModel, resolveEffortForModel } from 'products/posthog_ai/frontend/utils/composerModels'
+import { taskRunDefaultsLogic } from 'products/posthog_ai/frontend/logics/taskRunDefaultsLogic'
+import {
+    getRuntimeAdapterForModel,
+    pickerModels,
+    resolveEffortForModel,
+} from 'products/posthog_ai/frontend/utils/composerModels'
 import {
     cycleMode,
     getModesForRuntimeAdapter,
@@ -21,6 +26,7 @@ import {
 } from 'products/posthog_ai/frontend/utils/composerModes'
 
 import { AttachedContextBar } from '../../../components/composer/AttachedContextBar'
+import { ComposerAttachments, useComposerAttachmentPaste } from '../../../components/composer/ComposerAttachments'
 import { ComposerModelEffortPickers } from '../../../components/composer/ComposerModelEffortPickers'
 import { ComposerModePicker } from '../../../components/composer/ComposerModePicker'
 import { ComposerModeShortcut } from '../../../components/composer/ComposerModeShortcut'
@@ -29,7 +35,17 @@ import { OnboardingReplayButton } from '../../../components/onboarding/Onboardin
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
 import { RepositorySelector } from './RepositorySelector'
 
-export function TaskComposer(): JSX.Element {
+export interface TaskComposerProps {
+    /** `inline` drops the welcome header and the full-height centering, for a composer placed inside a host page. */
+    variant?: 'page' | 'inline'
+    /** A host bumps this number to move focus to the input, for example when the user asks for a new session. */
+    focusRequest?: number
+    /** Focus the input on mount. A host page that is not mainly a composer turns it off and uses `focusRequest`. */
+    autoFocus?: boolean
+}
+
+export function TaskComposer({ variant = 'page', focusRequest = 0, autoFocus = true }: TaskComposerProps): JSX.Element {
+    const inline = variant === 'inline'
     const { submitNewTask, setNewTaskData, setActiveSuggestionGroup, applySuggestion, clearConsentBlock } =
         useActions(taskTrackerSceneLogic)
     const {
@@ -37,8 +53,10 @@ export function TaskComposer(): JSX.Element {
         isSubmittingTask,
         activeSuggestionGroup,
         displayHeadline,
+        effectiveComposerOverride: composerOverride,
         consentBlocked,
         displayModel,
+        defaultModel,
         displayEffort,
         isDefaultSelection,
         // Permission modes belong to the harness, so they follow the model actually shown — the
@@ -46,10 +64,16 @@ export function TaskComposer(): JSX.Element {
         composerAdapter,
     } = useValues(taskTrackerSceneLogic)
     const { catalogue } = useValues(modelCatalogueLogic)
+    const offeredModels = useMemo(() => pickerModels(catalogue, displayModel), [catalogue, displayModel])
+    const { myConfigLoading } = useValues(taskRunDefaultsLogic)
 
     // The bound instance's key — 'scene' on `/ai` and `/tasks`, the panel key when embedded. The onboarding
     // takeover is keyed the same way, so a starter prompt chosen on replay reaches this composer.
     const panelId = useMountedLogic(taskTrackerSceneLogic).props.panelId
+    // Matches the key `taskTrackerSceneLogic` connects the attachments logic under, so the files this
+    // composer stages are the ones its submit uploads.
+    const attachmentsKey = panelId ?? 'scene'
+    const onPaste = useComposerAttachmentPaste(attachmentsKey)
 
     // Buffer the description locally and debounce the write to kea so each keystroke is a cheap, isolated
     // re-render instead of a store dispatch. `Composer.Root` already blocks send on an empty `draft.value`
@@ -57,6 +81,14 @@ export function TaskComposer(): JSX.Element {
     const draft = useDebouncedDraft(newTaskData.description, (value) => setNewTaskData({ description: value }))
 
     const textAreaRef = useRef<HTMLTextAreaElement>(null)
+    // The whole input frame is the drop target, so a file dropped anywhere on it attaches.
+    const frameRef = useRef<HTMLLabelElement>(null)
+
+    useEffect(() => {
+        if (focusRequest > 0) {
+            textAreaRef.current?.focus()
+        }
+    }, [focusRequest])
 
     const handleSelectSuggestion = (item: SuggestionItem): void => {
         applySuggestion(item)
@@ -66,13 +98,23 @@ export function TaskComposer(): JSX.Element {
     }
 
     return (
-        <div className="flex flex-col h-full min-h-0 items-center justify-center overflow-y-auto p-4">
-            <div className="w-full max-w-2xl flex flex-col items-center gap-4">
-                <Welcome headline={displayHeadline}>
-                    {/* Temporary migration affordance — delete with the rest of the onboarding takeover
-                        once everyone is on the new PostHog AI. */}
-                    <OnboardingReplayButton panelId={panelId} />
-                </Welcome>
+        <div
+            className={
+                inline
+                    ? 'flex flex-col'
+                    : 'flex flex-col h-full min-h-0 items-center justify-center overflow-y-auto p-4'
+            }
+        >
+            <div
+                className={inline ? 'w-full flex flex-col gap-4' : 'w-full max-w-2xl flex flex-col items-center gap-4'}
+            >
+                {!inline && (
+                    <Welcome headline={displayHeadline} subheadline={composerOverride?.subheadline}>
+                        {/* Temporary migration affordance — delete with the rest of the onboarding takeover
+                            once everyone is on the new PostHog AI. */}
+                        {!composerOverride?.hideOnboardingReplay && <OnboardingReplayButton panelId={panelId} />}
+                    </Welcome>
+                )}
 
                 <Suggestions.Root
                     activeGroup={activeSuggestionGroup}
@@ -82,10 +124,12 @@ export function TaskComposer(): JSX.Element {
                 >
                     {/* Repo/branch picker sits 8px above the input it configures. */}
                     <div className="w-full flex flex-col gap-2">
-                        <RepositorySelector
-                            value={newTaskData.repositoryConfig}
-                            onChange={(config) => setNewTaskData({ repositoryConfig: config })}
-                        />
+                        {!composerOverride?.hideRepositorySelector && (
+                            <RepositorySelector
+                                value={newTaskData.repositoryConfig}
+                                onChange={(config) => setNewTaskData({ repositoryConfig: config })}
+                            />
+                        )}
                         <ComposerModeShortcut
                             onCycle={() =>
                                 setNewTaskData({
@@ -100,13 +144,20 @@ export function TaskComposer(): JSX.Element {
                             loading={isSubmittingTask}
                             textAreaRef={textAreaRef}
                         >
-                            <Composer.Frame>
-                                <Composer.Header>
+                            <Composer.Frame ref={frameRef}>
+                                <Composer.Header className="flex flex-wrap items-center gap-1">
                                     <AttachedContextBar />
+                                    <ComposerAttachments attachmentsKey={attachmentsKey} dropTargetRef={frameRef} />
                                 </Composer.Header>
                                 <Composer.Field>
-                                    <Composer.Placeholder>Describe the task in detail…</Composer.Placeholder>
-                                    <Composer.Textarea autoFocus data-attr="task-composer-input" />
+                                    <Composer.Placeholder>
+                                        {composerOverride?.placeholder ?? 'Describe the task in detail…'}
+                                    </Composer.Placeholder>
+                                    <Composer.Textarea
+                                        autoFocus={autoFocus}
+                                        onPaste={onPaste}
+                                        data-attr="task-composer-input"
+                                    />
                                 </Composer.Field>
                                 <Composer.Footer className="flex flex-wrap items-center gap-1 pl-2">
                                     <ComposerModePicker
@@ -115,8 +166,10 @@ export function TaskComposer(): JSX.Element {
                                         onModeChange={(permissionMode) => setNewTaskData({ permissionMode })}
                                     />
                                     <ComposerModelEffortPickers
-                                        models={catalogue}
+                                        models={offeredModels}
                                         selectedModel={displayModel}
+                                        defaultModel={defaultModel}
+                                        isDefaultModelLoading={myConfigLoading}
                                         selectedEffort={displayEffort}
                                         isDefaultSelection={isDefaultSelection}
                                         onModelChange={(model) =>
@@ -148,7 +201,8 @@ export function TaskComposer(): JSX.Element {
                                     />
                                 </Composer.Footer>
                             </Composer.Frame>
-                            <Suggestions.Dropdown />
+                            {/* Open-group state is shared with the side panel; a group left open there would list generic prompts here. */}
+                            {!composerOverride?.hideSuggestions && <Suggestions.Dropdown />}
                             <AIConsentPopoverWrapper
                                 placement="bottom-end"
                                 showArrow
@@ -162,7 +216,7 @@ export function TaskComposer(): JSX.Element {
                         </Composer.Root>
                     </div>
 
-                    <Suggestions.Buttons data={DEFAULT_SUGGESTIONS_DATA} />
+                    {!composerOverride?.hideSuggestions && <Suggestions.Buttons data={DEFAULT_SUGGESTIONS_DATA} />}
                 </Suggestions.Root>
             </div>
         </div>

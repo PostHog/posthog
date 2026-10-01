@@ -21,9 +21,7 @@ import {
     LemonMenu,
     LemonModal,
     LemonSwitch,
-    LemonTab,
     LemonTable,
-    LemonTabs,
     LemonTag,
     Link,
     Tooltip,
@@ -31,22 +29,16 @@ import {
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
-import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { fullName } from 'lib/utils/strings'
-import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { evaluationsEmptyState } from '../emptyState/evaluationsEmptyState'
 import type { EvaluationDirectoryApi } from '../generated/api.schemas'
 import { LLMProviderKey } from '../settings/llmProviderKeysLogic'
 import {
@@ -60,39 +52,14 @@ import {
     PASS_RATE_SUCCESS_THRESHOLD,
     PASS_RATE_WARNING_THRESHOLD,
 } from './components/EvaluationMetrics'
-import { OfflineEvaluationsTab } from './components/OfflineEvaluationsTab'
+import { formatNumericEvaluationScore } from './constants'
 import { evaluationTypeUsesProviderKey } from './evaluationCapabilities'
 import { EvaluationStats, evaluationMetricsLogic } from './evaluationMetricsLogic'
+import { EvaluationsTabs } from './EvaluationsTabs'
 import { EvaluationTemplatesEmptyState } from './EvaluationTemplates'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
 import { statusReasonLabel } from './statusDisplay'
 import { EvaluationConfig } from './types'
-
-export const scene: SceneExport = {
-    component: AIObservabilityEvaluationsScene,
-    logic: llmEvaluationsLogic,
-    productKey: ProductKey.AI_OBSERVABILITY,
-    emptyState: evaluationsEmptyState,
-}
-
-function getActiveTab(
-    pathname: string,
-    searchParams: Record<string, unknown>,
-    showOfflineEvals: boolean
-): 'online-evals' | 'offline-evals' {
-    if (!showOfflineEvals) {
-        return 'online-evals'
-    }
-
-    const normalizedPathname = removeProjectIdIfPresent(pathname)
-    const offlineEvaluationsPath = urls.aiObservabilityOfflineEvaluations()
-    if (normalizedPathname === offlineEvaluationsPath || normalizedPathname.startsWith(`${offlineEvaluationsPath}/`)) {
-        return 'offline-evals'
-    }
-
-    const tab = searchParams.tab
-    return tab === 'offline-evals' || tab === 'offline' ? 'offline-evals' : 'online-evals'
-}
 
 function getProviderKeyIssue(evaluation: EvaluationConfig, providerKeys: LLMProviderKey[]): LLMProviderKey | null {
     if (!evaluationTypeUsesProviderKey(evaluation.evaluation_type)) {
@@ -369,6 +336,17 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                     return <span className="text-muted text-sm">No runs</span>
                 }
 
+                if (evaluation.output_type === 'numeric') {
+                    return (
+                        <div className="text-sm">
+                            <div>{`${stats.runs_count} runs`}</div>
+                            <div>{`Mean score: ${stats.score_mean == null ? '–' : formatNumericEvaluationScore(stats.score_mean)}`}</div>
+                            {evaluation.output_config.passing_rule && (
+                                <div>{`Pass rate: ${stats.pass_rate == null ? '–' : `${stats.pass_rate.toFixed(1)}%`}`}</div>
+                            )}
+                        </div>
+                    )
+                }
                 // Sentiment evals classify rather than pass/fail, so a pass rate is meaningless
                 if (evaluation.evaluation_type === 'sentiment') {
                     return (
@@ -379,11 +357,13 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                 }
 
                 const passRateColor =
-                    stats.pass_rate >= PASS_RATE_SUCCESS_THRESHOLD
-                        ? 'text-success'
-                        : stats.pass_rate >= PASS_RATE_WARNING_THRESHOLD
-                          ? 'text-warning'
-                          : 'text-danger'
+                    stats.pass_rate == null
+                        ? 'text-muted'
+                        : stats.pass_rate >= PASS_RATE_SUCCESS_THRESHOLD
+                          ? 'text-success'
+                          : stats.pass_rate >= PASS_RATE_WARNING_THRESHOLD
+                            ? 'text-warning'
+                            : 'text-danger'
 
                 return (
                     <div className="flex flex-col items-center">
@@ -391,7 +371,7 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                             {stats.runs_count} run{stats.runs_count !== 1 ? 's' : ''}
                         </div>
                         <div className={`font-semibold ${passRateColor}`}>
-                            {parseFloat(stats.pass_rate.toFixed(2))}%
+                            {stats.pass_rate == null ? '–' : `${parseFloat(stats.pass_rate.toFixed(2))}%`}
                         </div>
                     </div>
                 )
@@ -741,58 +721,11 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
 }
 
 export function AIObservabilityEvaluationsScene(): JSX.Element {
-    const { searchParams, location } = useValues(router)
-    const { featureFlags } = useValues(featureFlagLogic)
     useMountedLogic(llmEvaluationsLogic())
     // Mount for this component's lifetime rather than attaching to llmEvaluationsLogic:
     // evaluationMetricsLogic connects to it, so attaching leaves the two holding each
     // other mounted, and the list never reloads on the next visit to this scene.
     useMountedLogic(evaluationMetricsLogic())
-    const showOfflineEvals = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_OFFLINE_EVALS]
-    const activeTab = getActiveTab(location.pathname, searchParams, showOfflineEvals)
-
-    const tabs: LemonTab<string>[] = [
-        {
-            key: 'online-evals',
-            label: 'Online evals',
-            content: <AIObservabilityEvaluationsContent />,
-            link: combineUrl(urls.aiObservabilityEvaluations(), {
-                ...searchParams,
-                tab: undefined,
-                experiment: undefined,
-            }).url,
-            'data-attr': 'evaluations-tab',
-        },
-        ...(showOfflineEvals
-            ? [
-                  {
-                      key: 'offline-evals',
-                      label: (
-                          <span className="inline-flex items-center gap-1">
-                              <span>Offline evals</span>
-                              <LemonTag type="completion" size="small">
-                                  Alpha
-                              </LemonTag>
-                          </span>
-                      ),
-                      content: <OfflineEvaluationsTab />,
-                      link: combineUrl(urls.aiObservabilityOfflineEvaluations(), {
-                          ...searchParams,
-                          tab: undefined,
-                          experiment: undefined,
-                      }).url,
-                      'data-attr': 'offline-evals-tab',
-                  } as LemonTab<string>,
-              ]
-            : []),
-        {
-            key: 'settings',
-            label: 'Settings',
-            link: urls.settings('project-ai-observability', 'ai-observability-byok'),
-            content: <></>,
-            'data-attr': 'settings-tab',
-        },
-    ]
 
     return (
         <BindLogic logic={llmEvaluationsLogic} props={{}}>
@@ -815,7 +748,9 @@ export function AIObservabilityEvaluationsScene(): JSX.Element {
                             </LemonButton>
                         }
                     />
-                    <LemonTabs activeKey={activeTab} data-attr="evaluations-tabs" tabs={tabs} sceneInset />
+                    <EvaluationsTabs activeTab="online-evals">
+                        <AIObservabilityEvaluationsContent />
+                    </EvaluationsTabs>
                 </SceneContent>
             </BindLogic>
         </BindLogic>

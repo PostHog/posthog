@@ -1,5 +1,5 @@
 import { IconRabbit, IconTortoise } from '@posthog/icons'
-import { LemonLabel, LemonSegmentedButton, LemonSegmentedButtonOption } from '@posthog/lemon-ui'
+import { LemonLabel, LemonSegmentedButton, LemonSegmentedButtonOption, Spinner } from '@posthog/lemon-ui'
 
 import { DataModelingSyncInterval } from '~/types'
 
@@ -13,7 +13,8 @@ export type SyncFrequencyValue = DataModelingSyncInterval | 'never'
  * request the scheduler quietly tightens. The bar carries the wording once in its label, so each
  * segment only has to say which duration it is.
  */
-const CADENCE_LABELS: Record<DataModelingSyncInterval, string> = {
+/** How a cadence is spoken after "every", so every surface says "every 6 hours" the same way. */
+export const CADENCE_LABELS: Record<DataModelingSyncInterval, string> = {
     '15min': '15 minutes',
     '30min': '30 minutes',
     '1hour': '1 hour',
@@ -106,7 +107,14 @@ export function SyncFrequencySelect({
 
     return (
         <div className="flex flex-col gap-1 items-start" data-attr={dataAttr}>
-            <LemonLabel>Refresh every</LemonLabel>
+            <LemonLabel info="How often this model refreshes. It cannot refresh more often than its upstream sources sync, or less often than downstream models and endpoints need it. Hover over an unavailable frequency to see what limits it.">
+                Refresh every
+                {loading && (
+                    <span className="inline-flex items-center gap-1 text-secondary font-normal" role="status">
+                        <Spinner /> Saving…
+                    </span>
+                )}
+            </LemonLabel>
             <div className="flex items-center gap-2">
                 <IconRabbit className={PACE_ICON_CLASS} aria-hidden />
                 <LemonSegmentedButton<DataModelingSyncInterval>

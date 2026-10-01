@@ -1,4 +1,5 @@
 import {
+    type ClipboardEventHandler,
     createContext,
     forwardRef,
     type HTMLAttributes,
@@ -302,6 +303,8 @@ export interface ComposerTextareaProps {
     maxRows?: number
     /** Extra key handling (e.g. the mode picker's `shift+tab` cycle); runs after Enter handling. */
     onKeyDown?: KeyboardEventHandler<HTMLTextAreaElement>
+    /** Lets a host claim a paste before the textarea takes it — used to attach pasted files. */
+    onPaste?: ClipboardEventHandler<HTMLTextAreaElement>
     'data-attr'?: string
 }
 

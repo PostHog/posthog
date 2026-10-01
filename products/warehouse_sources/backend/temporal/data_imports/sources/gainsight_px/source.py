@@ -1,8 +1,7 @@
 from typing import cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -70,13 +68,13 @@ class GainsightPxSource(ResumableSource[GainsightPxSourceConfig, GainsightPxResu
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Every Gainsight PX list endpoint is full refresh — none exposes a server-side "updated
-        # since" filter, so there's no reliable incremental cursor.
+        # Only the `/events/*` streams expose a server-side date filter; the entity endpoints have
+        # no "updated since" filter and stay full refresh.
         schemas = [
             SourceSchema(
                 name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
+                supports_incremental=bool(INCREMENTAL_FIELDS.get(endpoint)),
+                supports_append=bool(INCREMENTAL_FIELDS.get(endpoint)),
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 detected_primary_keys=GAINSIGHT_PX_ENDPOINTS[endpoint].primary_keys,
             )
@@ -117,20 +115,24 @@ class GainsightPxSource(ResumableSource[GainsightPxSourceConfig, GainsightPxResu
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
         )
 
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.GAINSIGHT_PX,
+            name=ExternalDataSourceType.GAINSIGHTPX,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Gainsight PX",
             caption=(
                 "Connect Gainsight PX with your project's **API key**. Generate a key with **Read** "
                 "access under **Administration → REST API** in Gainsight PX, then pick the region your "
                 "subscription is hosted in.\n\n"
-                "All tables are synced as full refresh — Gainsight PX's list endpoints don't expose an "
-                '"updated since" filter.'
+                "Event tables (page views, sessions, engagement views and feature matches) can sync "
+                "incrementally on the event `date`. The other tables sync as full refresh because "
+                'Gainsight PX doesn\'t expose an "updated since" filter for them.'
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/gainsight-px",
             iconPath="/static/services/gainsight_px.png",

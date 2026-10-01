@@ -23,7 +23,7 @@ class ScoreDefinition(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
         NUMERIC = "numeric", "numeric"
         BOOLEAN = "boolean", "boolean"
 
-    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="+")
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True, default="")
     kind = models.CharField(max_length=32, choices=Kind)

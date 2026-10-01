@@ -3,6 +3,7 @@
 //! `config` (plus the `clickhouse` crate); never on `store` or `kafka`.
 
 pub mod client;
+pub mod credential;
 pub mod log_comment;
 pub mod person_scanner;
 pub mod person_sql;
@@ -12,8 +13,10 @@ pub mod scanner;
 pub mod sql;
 
 pub use client::{
-    build_client, ClickHouseClientError, ClickHouseEndpoint, ClickHouseJoinAlgorithm,
+    build_client, ClickHouseClient, ClickHouseClientError, ClickHouseEndpoint,
+    ClickHouseJoinAlgorithm,
 };
+pub use credential::ClickHouseCredential;
 pub use log_comment::{ScanLogComment, LOG_COMMENT_OPTION};
 pub use person_scanner::{PersonRow, PersonScanError, PersonScanner};
 pub use person_sql::PersonScanSpec;

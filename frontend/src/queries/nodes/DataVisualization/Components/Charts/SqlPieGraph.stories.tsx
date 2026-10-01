@@ -76,6 +76,16 @@ export const WithLegend: Story = {
         }),
 }
 
+export const Donut: Story = {
+    render: () =>
+        render({
+            xData,
+            yData: singleSeries,
+            visualizationType: ChartDisplayType.ActionsDonut,
+            chartSettings: baseSettings,
+        }),
+}
+
 export const LegendAtBottom: Story = {
     render: () =>
         render({

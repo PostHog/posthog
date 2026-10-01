@@ -44,6 +44,7 @@ class ContentAutopilotSiteProfile(TeamScopedRootMixin, UUIDModel):
     content_boundaries = models.JSONField(default=list)
     brand_rules = models.JSONField(default=list)
     search_console_enabled = models.BooleanField(default=False)
+    deleted = models.BooleanField(default=False)
     created_by_id = models.BigIntegerField(null=True, blank=True)
     updated_by_id = models.BigIntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -52,7 +53,11 @@ class ContentAutopilotSiteProfile(TeamScopedRootMixin, UUIDModel):
     class Meta:
         db_table = "posthog_contentautopilotsiteprofile"
         constraints = [
-            models.UniqueConstraint(fields=["team", "domain"], name="content_auto_profile_team_domain"),
+            models.UniqueConstraint(
+                fields=["team", "domain"],
+                condition=models.Q(deleted=False),
+                name="content_auto_profile_team_domain",
+            ),
         ]
 
 
@@ -135,6 +140,9 @@ class ContentAutopilotProposal(TeamScopedRootMixin, UUIDModel):
     content_package = models.JSONField(default=default_content_autopilot_package)
     original_markdown = models.TextField(blank=True, default="")
     proposed_markdown = models.TextField(blank=True, default="")
+    brief = models.JSONField(default=dict, blank=True)
+    source_ledger = models.JSONField(default=list, blank=True)
+    research = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -149,5 +157,64 @@ class ContentAutopilotProposal(TeamScopedRootMixin, UUIDModel):
         if parent_team_id is not None:
             if self.team_id is not None and self.team_id != parent_team_id:
                 raise ValueError("ContentAutopilotProposal must belong to the same team as its run.")
+            self.team_id = parent_team_id
+        super().save(*args, **kwargs)
+
+
+class ContentAutopilotOpportunity(TeamScopedRootMixin, UUIDModel):
+    class Kind(models.TextChoices):
+        AI_VISIBILITY_GAP = "ai_visibility_gap", "AI visibility gap"
+
+    class Status(models.TextChoices):
+        NEW = "new", "New"
+        DISMISSED = "dismissed", "Dismissed"
+        QUEUED = "queued", "Queued"
+        DRAFTED = "drafted", "Drafted"
+
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        db_constraint=False,
+        db_index=False,
+        related_name="+",
+    )
+    profile = models.ForeignKey(ContentAutopilotSiteProfile, on_delete=models.CASCADE, related_name="opportunities")
+    run = models.ForeignKey(
+        ContentAutopilotRun, on_delete=models.SET_NULL, null=True, blank=True, related_name="opportunities"
+    )
+    proposal = models.ForeignKey(
+        ContentAutopilotProposal, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    kind = models.CharField(max_length=32, choices=Kind.choices, default=Kind.AI_VISIBILITY_GAP)
+    cluster_key = models.CharField(max_length=64)
+    aeo_prompt_id = models.UUIDField(null=True, blank=True)
+    title = models.CharField(max_length=2048)
+    score = models.FloatField(default=0)
+    recommended_type = models.CharField(max_length=32, choices=ContentAutopilotProposal.ProposalType.choices)
+    target_url = models.URLField(max_length=2048, blank=True, default="")
+    evidence = models.JSONField(default=list)
+    gap = models.JSONField(default=dict)
+    status = models.CharField(max_length=32, choices=Status.choices, default=Status.NEW)
+    last_refreshed_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_contentautopilotopportunity"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "profile", "cluster_key"],
+                name="content_auto_opp_unique_key",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["team", "profile", "status", "-score"], name="content_auto_opp_status"),
+        ]
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        parent_team_id = _parent_team_id(self, "profile", kwargs.get("update_fields"))
+        if parent_team_id is not None:
+            if self.team_id is not None and self.team_id != parent_team_id:
+                raise ValueError("ContentAutopilotOpportunity must belong to the same team as its profile.")
             self.team_id = parent_team_id
         super().save(*args, **kwargs)

@@ -52,7 +52,6 @@ export const canvasesPartialUpdateBodyNameMax = 400
 export const CanvasesPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().max(canvasesPartialUpdateBodyNameMax).optional().describe('Updated display name.'),
-        context: zod.string().optional().describe('Updated author context markdown.'),
         description: zod
             .string()
             .optional()
@@ -99,6 +98,43 @@ export const CanvasesBuildActionCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Call one declared connector tool as the viewer.
+ *
+ * The canvas must declare the provider and tool in capabilities.connectors
+ * (the reviewed permission boundary); the call runs with the viewer's own
+ * connection, so two viewers of the same canvas see their own data.
+ */
+export const canvasesConnectorsCallBodyApprovalTokenMax = 200
+
+export const canvasesConnectorsCallBodyProviderMax = 300
+
+export const canvasesConnectorsCallBodyToolMax = 200
+
+export const CanvasesConnectorsCallBody = /* @__PURE__ */ zod
+    .object({
+        approval_token: zod
+            .string()
+            .max(canvasesConnectorsCallBodyApprovalTokenMax)
+            .optional()
+            .describe(
+                'Single-use token from a needs_approval response. Submit only after the viewer approves this exact call. Expires after 15 minutes.'
+            ),
+        provider: zod
+            .string()
+            .max(canvasesConnectorsCallBodyProviderMax)
+            .describe("Declared provider id, e.g. 'github'."),
+        tool: zod
+            .string()
+            .max(canvasesConnectorsCallBodyToolMax)
+            .describe("Declared tool name, e.g. 'list_pull_requests'."),
+        arguments: zod
+            .record(zod.string(), zod.unknown())
+            .optional()
+            .describe("Tool arguments, validated against the tool's input schema."),
+    })
+    .describe('Payload for calling one connector tool as the viewer.')
+
+/**
  * Stage a complete source project as a draft version and build it, without publishing.
  *
  * The draft gets the same validation, versioning, and server-side build as
@@ -143,6 +179,14 @@ export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogAgentRequest
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOneNetworkOriginsItemMax = 2048
 
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax = 20
+
+export const canvasesDraftCreateBodyProjectOneCapabilitiesOneConnectorsItemProviderMax = 300
+
+export const canvasesDraftCreateBodyProjectOneCapabilitiesOneConnectorsItemToolsItemMax = 200
+
+export const canvasesDraftCreateBodyProjectOneCapabilitiesOneConnectorsItemToolsMax = 64
+
+export const canvasesDraftCreateBodyProjectOneCapabilitiesOneConnectorsMax = 20
 
 export const CanvasesDraftCreateBody = /* @__PURE__ */ zod
     .object({
@@ -291,6 +335,41 @@ export const CanvasesDraftCreateBody = /* @__PURE__ */ zod
                                 )
                                 .max(canvasesDraftCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax),
                         }),
+                        connectors: zod
+                            .array(
+                                zod
+                                    .object({
+                                        provider: zod
+                                            .string()
+                                            .max(
+                                                canvasesDraftCreateBodyProjectOneCapabilitiesOneConnectorsItemProviderMax
+                                            )
+                                            .describe(
+                                                "Connector provider id: a native provider such as 'github', or 'mcp:<server host>' (e.g. 'mcp:mcp.calendly.com') for a server the viewer connected in the MCP store."
+                                            ),
+                                        tools: zod
+                                            .array(
+                                                zod
+                                                    .string()
+                                                    .max(
+                                                        canvasesDraftCreateBodyProjectOneCapabilitiesOneConnectorsItemToolsItemMax
+                                                    )
+                                            )
+                                            .min(1)
+                                            .max(canvasesDraftCreateBodyProjectOneCapabilitiesOneConnectorsItemToolsMax)
+                                            .describe(
+                                                'Tool names the canvas may call on this provider. Read-only tools only.'
+                                            ),
+                                    })
+                                    .describe(
+                                        'One provider a canvas may call through ph.connectors, with the tools it may use.'
+                                    )
+                            )
+                            .max(canvasesDraftCreateBodyProjectOneCapabilitiesOneConnectorsMax)
+                            .optional()
+                            .describe(
+                                "Third-party providers the canvas reads through ph.connectors, each with the tools it may call. Every call runs with the viewer's own connection; declaring one shows it in the promote review."
+                            ),
                     })
                     .optional()
                     .describe(
@@ -307,14 +386,42 @@ export const CanvasesDraftCreateBody = /* @__PURE__ */ zod
     .describe('Payload for staging a complete source project as a draft build.')
 
 /**
- * Publish per-file edits against the canvas's current source project.
+ * Publish file edits against the canvas's current source project.
  *
- * Diff-aware alternative to sending the complete project: each operation
- * sets a file's content or (content null) deletes it, applied to the head
- * the caller read. `expected_current_version_id` is mandatory here —
+ * Diff-aware alternative to sending the complete project: operations
+ * replace text inside a file, write, delete, or rename files, applied in
+ * order to the head the caller read. `expected_current_version_id` is mandatory here —
  * relative edits against an unverified base could silently merge into
  * someone else's newer work.
  */
+export const canvasesEditCreateBodyOperationsItemReplaceAllDefault = false
+export const canvasesEditCreateBodyCapabilitiesOnePosthogInsightsItemMax = 128
+
+export const canvasesEditCreateBodyCapabilitiesOnePosthogInsightsMax = 100
+
+export const canvasesEditCreateBodyCapabilitiesOnePosthogCaptureEventsItemMax = 200
+
+export const canvasesEditCreateBodyCapabilitiesOnePosthogCaptureEventsMax = 100
+
+export const canvasesEditCreateBodyCapabilitiesOnePosthogStateMax = 2
+
+export const canvasesEditCreateBodyCapabilitiesOnePosthogActionsItemMax = 64
+
+export const canvasesEditCreateBodyCapabilitiesOnePosthogActionsMax = 32
+
+export const canvasesEditCreateBodyCapabilitiesOnePosthogAgentRequestsDefault = false
+export const canvasesEditCreateBodyCapabilitiesOneNetworkOriginsItemMax = 2048
+
+export const canvasesEditCreateBodyCapabilitiesOneNetworkOriginsMax = 20
+
+export const canvasesEditCreateBodyCapabilitiesOneConnectorsItemProviderMax = 300
+
+export const canvasesEditCreateBodyCapabilitiesOneConnectorsItemToolsItemMax = 200
+
+export const canvasesEditCreateBodyCapabilitiesOneConnectorsItemToolsMax = 64
+
+export const canvasesEditCreateBodyCapabilitiesOneConnectorsMax = 20
+
 export const canvasesEditCreateBodyNameMax = 400
 
 export const CanvasesEditCreateBody = /* @__PURE__ */ zod
@@ -323,19 +430,115 @@ export const CanvasesEditCreateBody = /* @__PURE__ */ zod
             .array(
                 zod
                     .object({
+                        op: zod
+                            .enum(['write', 'delete', 'rename', 'str_replace'])
+                            .describe(
+                                '\* `write` - Write\n\* `delete` - Delete\n\* `rename` - Rename\n\* `str_replace` - Str Replace'
+                            )
+                            .optional()
+                            .describe(
+                                "What to do. 'str_replace' replaces old_string with new_string inside the file: the default for changing an existing file. 'write' sets the file's complete content (new files, full rewrites). 'delete' removes the file. 'rename' moves it to new_path. When omitted, it follows the fields sent: old_string or new_string means 'str_replace', new_path means 'rename', non-null content means 'write', and content null means 'delete'. An operation with none of these fields is rejected.\n\n\* `write` - Write\n\* `delete` - Delete\n\* `rename` - Rename\n\* `str_replace` - Str Replace"
+                            ),
                         path: zod
                             .string()
-                            .describe(
-                                'Project-relative path of the file to write or delete (e.g. \"src\/canvas.tsx\").'
-                            ),
-                        content: zod
+                            .describe('Project-relative path of the file to edit (e.g. \"src\/canvas.tsx\").'),
+                        content: zod.string().nullish().describe("For 'write': the file's complete new content."),
+                        old_string: zod
                             .string()
-                            .nullish()
-                            .describe("The file's complete new content. Null (or omitted) deletes the file."),
+                            .optional()
+                            .describe(
+                                "For 'str_replace': the exact text to replace, copied from the file with a few surrounding lines so it matches one place only. If whitespace differs slightly, a unique line-by-line match is still accepted."
+                            ),
+                        new_string: zod
+                            .string()
+                            .optional()
+                            .describe(
+                                "For 'str_replace': the text that replaces old_string. An empty string deletes old_string."
+                            ),
+                        replace_all: zod
+                            .boolean()
+                            .default(canvasesEditCreateBodyOperationsItemReplaceAllDefault)
+                            .describe(
+                                "For 'str_replace': replace every exact match of old_string instead of requiring exactly one."
+                            ),
+                        new_path: zod
+                            .string()
+                            .optional()
+                            .describe("For 'rename': the file's new project-relative path."),
                     })
-                    .describe("One per-file edit: set a file's content, or delete it.")
+                    .describe('One file edit: replace text in a file, write a whole file, delete it, or rename it.')
             )
-            .describe("Edits applied in order to the canvas's current source project."),
+            .optional()
+            .describe(
+                "Edits applied in order to the canvas's current source project, all or nothing. May be empty when the edit only changes capabilities."
+            ),
+        capabilities: zod
+            .object({
+                posthog: zod.object({
+                    insights: zod
+                        .array(zod.string().max(canvasesEditCreateBodyCapabilitiesOnePosthogInsightsItemMax))
+                        .max(canvasesEditCreateBodyCapabilitiesOnePosthogInsightsMax),
+                    inlineQueries: zod.boolean(),
+                    captureEvents: zod
+                        .array(zod.string().max(canvasesEditCreateBodyCapabilitiesOnePosthogCaptureEventsItemMax))
+                        .max(canvasesEditCreateBodyCapabilitiesOnePosthogCaptureEventsMax),
+                    state: zod
+                        .array(zod.enum(['user', 'shared']).describe('\* `user` - user\n\* `shared` - shared'))
+                        .max(canvasesEditCreateBodyCapabilitiesOnePosthogStateMax)
+                        .optional()
+                        .describe(
+                            "State scopes the canvas may use via ph.state: 'user' (private to each viewer) and\/or 'shared' (one value per canvas, team-visible)."
+                        ),
+                    actions: zod
+                        .array(zod.string().max(canvasesEditCreateBodyCapabilitiesOnePosthogActionsItemMax))
+                        .max(canvasesEditCreateBodyCapabilitiesOnePosthogActionsMax)
+                        .optional()
+                        .describe(
+                            "Registered action verbs the canvas may invoke via ph.actions (e.g. 'annotations.create', 'tasks.create'). Each executes as the viewer; declaring one shows it in the promote review."
+                        ),
+                    agentRequests: zod
+                        .boolean()
+                        .default(canvasesEditCreateBodyCapabilitiesOnePosthogAgentRequestsDefault),
+                }),
+                network: zod.object({
+                    origins: zod
+                        .array(zod.url().max(canvasesEditCreateBodyCapabilitiesOneNetworkOriginsItemMax))
+                        .max(canvasesEditCreateBodyCapabilitiesOneNetworkOriginsMax),
+                }),
+                connectors: zod
+                    .array(
+                        zod
+                            .object({
+                                provider: zod
+                                    .string()
+                                    .max(canvasesEditCreateBodyCapabilitiesOneConnectorsItemProviderMax)
+                                    .describe(
+                                        "Connector provider id: a native provider such as 'github', or 'mcp:<server host>' (e.g. 'mcp:mcp.calendly.com') for a server the viewer connected in the MCP store."
+                                    ),
+                                tools: zod
+                                    .array(
+                                        zod
+                                            .string()
+                                            .max(canvasesEditCreateBodyCapabilitiesOneConnectorsItemToolsItemMax)
+                                    )
+                                    .min(1)
+                                    .max(canvasesEditCreateBodyCapabilitiesOneConnectorsItemToolsMax)
+                                    .describe('Tool names the canvas may call on this provider. Read-only tools only.'),
+                            })
+                            .describe(
+                                'One provider a canvas may call through ph.connectors, with the tools it may use.'
+                            )
+                    )
+                    .max(canvasesEditCreateBodyCapabilitiesOneConnectorsMax)
+                    .optional()
+                    .describe(
+                        "Third-party providers the canvas reads through ph.connectors, each with the tools it may call. Every call runs with the viewer's own connection; declaring one shows it in the promote review."
+                    ),
+            })
+            .optional()
+            .describe(
+                "The project's complete new capabilities, replacing the current ones in the same publish. Send it when the change needs a capability the canvas does not declare yet, for example a new ph.state scope, insight, capture event, or network origin. Copy the current capabilities from canvas-source-retrieve and change only what you need. Omit to keep the current capabilities."
+            ),
         prompt: zod
             .string()
             .optional()
@@ -761,6 +964,14 @@ export const canvasesPublishCreateBodyProjectOneCapabilitiesOneNetworkOriginsIte
 
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax = 20
 
+export const canvasesPublishCreateBodyProjectOneCapabilitiesOneConnectorsItemProviderMax = 300
+
+export const canvasesPublishCreateBodyProjectOneCapabilitiesOneConnectorsItemToolsItemMax = 200
+
+export const canvasesPublishCreateBodyProjectOneCapabilitiesOneConnectorsItemToolsMax = 64
+
+export const canvasesPublishCreateBodyProjectOneCapabilitiesOneConnectorsMax = 20
+
 export const canvasesPublishCreateBodyNameMax = 400
 
 export const CanvasesPublishCreateBody = /* @__PURE__ */ zod
@@ -912,6 +1123,43 @@ export const CanvasesPublishCreateBody = /* @__PURE__ */ zod
                                 )
                                 .max(canvasesPublishCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax),
                         }),
+                        connectors: zod
+                            .array(
+                                zod
+                                    .object({
+                                        provider: zod
+                                            .string()
+                                            .max(
+                                                canvasesPublishCreateBodyProjectOneCapabilitiesOneConnectorsItemProviderMax
+                                            )
+                                            .describe(
+                                                "Connector provider id: a native provider such as 'github', or 'mcp:<server host>' (e.g. 'mcp:mcp.calendly.com') for a server the viewer connected in the MCP store."
+                                            ),
+                                        tools: zod
+                                            .array(
+                                                zod
+                                                    .string()
+                                                    .max(
+                                                        canvasesPublishCreateBodyProjectOneCapabilitiesOneConnectorsItemToolsItemMax
+                                                    )
+                                            )
+                                            .min(1)
+                                            .max(
+                                                canvasesPublishCreateBodyProjectOneCapabilitiesOneConnectorsItemToolsMax
+                                            )
+                                            .describe(
+                                                'Tool names the canvas may call on this provider. Read-only tools only.'
+                                            ),
+                                    })
+                                    .describe(
+                                        'One provider a canvas may call through ph.connectors, with the tools it may use.'
+                                    )
+                            )
+                            .max(canvasesPublishCreateBodyProjectOneCapabilitiesOneConnectorsMax)
+                            .optional()
+                            .describe(
+                                "Third-party providers the canvas reads through ph.connectors, each with the tools it may call. Every call runs with the viewer's own connection; declaring one shows it in the promote review."
+                            ),
                     })
                     .optional()
                     .describe(
@@ -1078,6 +1326,14 @@ export const canvasesValidateCreateBodyProjectOneCapabilitiesOneNetworkOriginsIt
 
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax = 20
 
+export const canvasesValidateCreateBodyProjectOneCapabilitiesOneConnectorsItemProviderMax = 300
+
+export const canvasesValidateCreateBodyProjectOneCapabilitiesOneConnectorsItemToolsItemMax = 200
+
+export const canvasesValidateCreateBodyProjectOneCapabilitiesOneConnectorsItemToolsMax = 64
+
+export const canvasesValidateCreateBodyProjectOneCapabilitiesOneConnectorsMax = 20
+
 export const CanvasesValidateCreateBody = /* @__PURE__ */ zod
     .object({
         project: zod
@@ -1229,6 +1485,43 @@ export const CanvasesValidateCreateBody = /* @__PURE__ */ zod
                                 )
                                 .max(canvasesValidateCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax),
                         }),
+                        connectors: zod
+                            .array(
+                                zod
+                                    .object({
+                                        provider: zod
+                                            .string()
+                                            .max(
+                                                canvasesValidateCreateBodyProjectOneCapabilitiesOneConnectorsItemProviderMax
+                                            )
+                                            .describe(
+                                                "Connector provider id: a native provider such as 'github', or 'mcp:<server host>' (e.g. 'mcp:mcp.calendly.com') for a server the viewer connected in the MCP store."
+                                            ),
+                                        tools: zod
+                                            .array(
+                                                zod
+                                                    .string()
+                                                    .max(
+                                                        canvasesValidateCreateBodyProjectOneCapabilitiesOneConnectorsItemToolsItemMax
+                                                    )
+                                            )
+                                            .min(1)
+                                            .max(
+                                                canvasesValidateCreateBodyProjectOneCapabilitiesOneConnectorsItemToolsMax
+                                            )
+                                            .describe(
+                                                'Tool names the canvas may call on this provider. Read-only tools only.'
+                                            ),
+                                    })
+                                    .describe(
+                                        'One provider a canvas may call through ph.connectors, with the tools it may use.'
+                                    )
+                            )
+                            .max(canvasesValidateCreateBodyProjectOneCapabilitiesOneConnectorsMax)
+                            .optional()
+                            .describe(
+                                "Third-party providers the canvas reads through ph.connectors, each with the tools it may call. Every call runs with the viewer's own connection; declaring one shows it in the promote review."
+                            ),
                     })
                     .optional()
                     .describe(

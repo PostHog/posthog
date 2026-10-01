@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 from unittest.mock import MagicMock, patch
 
@@ -104,15 +104,15 @@ class TestFormatHelpers:
 
 
 class TestClamp:
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_future_date_clamped_to_today(self) -> None:
         assert _clamp_date_to_today("2099-01-01") == "2026-06-15"
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_past_date_unchanged(self) -> None:
         assert _clamp_date_to_today("2021-05-01") == "2021-05-01"
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_future_datetime_clamped_to_now(self) -> None:
         assert _clamp_datetime_to_now("2099-01-01T00:00:00+00:00") == "2026-06-15T12:00:00+00:00"
 
@@ -173,7 +173,7 @@ class TestDateWindowParams:
         assert "start_datetime" not in params[0]
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_future_cursor_is_clamped(self, MockSession) -> None:
         # A future-dated record could push the cursor past today; Oura 400s when start_date > end_date.
         session = MockSession.return_value

@@ -4,6 +4,10 @@ import {
   GitPullRequestIcon,
 } from "@phosphor-icons/react";
 import {
+  REPORT_IMPLEMENTATION_LABELS,
+  type ReportImplementationState,
+} from "@posthog/core/inbox/reportImplementation";
+import {
   deriveHeadline,
   humanizeReportTitle,
   parseConventionalCommitTitle,
@@ -19,6 +23,7 @@ import type { HTMLAttributes, ReactNode } from "react";
 
 export interface InboxReportRowViewProps {
   report: SignalReport;
+  implementationState?: ReportImplementationState | null;
   reviewers?: ReactNode;
   restoreAction?: ReactNode;
   prefetchHandlers?: Pick<
@@ -31,6 +36,7 @@ export interface InboxReportRowViewProps {
 
 export function InboxReportRowView({
   report,
+  implementationState,
   reviewers,
   restoreAction,
   prefetchHandlers,
@@ -72,7 +78,7 @@ export function InboxReportRowView({
           onOpen();
         }
       }}
-      className={`flex w-full cursor-pointer items-center gap-3 rounded-(--radius-2) border bg-(--color-panel-solid) px-3 py-2 text-left transition-[background-color,border-color,box-shadow,opacity] duration-150 hover:bg-(--gray-3) hover:shadow-sm focus-visible:bg-(--gray-3) focus-visible:outline-none focus-visible:ring-(--gray-8) focus-visible:ring-1 ${borderClass} ${isTerminal ? "opacity-55 hover:opacity-100 focus-visible:opacity-100" : ""}`}
+      className={`flex w-full cursor-pointer items-center gap-3 rounded-(--radius-2) border bg-(--inbox-row-surface) px-3 py-2 text-left transition-[background-color,border-color,box-shadow,opacity] duration-150 [--inbox-row-surface:var(--color-panel-solid)] hover:shadow-sm focus-visible:outline-none focus-visible:ring-(--gray-8) focus-visible:ring-1 hover:[--inbox-row-surface:var(--gray-3)] focus-visible:[--inbox-row-surface:var(--gray-3)] ${borderClass} ${isTerminal ? "opacity-55 hover:opacity-100 focus-visible:opacity-100" : ""}`}
     >
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="truncate font-medium text-[14px] text-gray-12">
@@ -87,6 +93,17 @@ export function InboxReportRowView({
         {headline && (
           <span className="line-clamp-2 text-[13px] text-gray-11">
             {headline}
+          </span>
+        )}
+        {implementationState && (
+          <span
+            className={`flex items-center gap-1.5 text-[12px] ${implementationState === "working" ? "text-blue-11" : "text-amber-11"}`}
+          >
+            <span
+              aria-hidden="true"
+              className="size-1.5 rounded-full bg-current"
+            />
+            {REPORT_IMPLEMENTATION_LABELS[implementationState]}
           </span>
         )}
         <span className="flex min-w-0 items-center gap-1.5 overflow-hidden text-[12.5px] text-gray-10">

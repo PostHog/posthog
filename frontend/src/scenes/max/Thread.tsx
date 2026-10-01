@@ -75,19 +75,19 @@ import {
 } from 'products/posthog_ai/frontend/api/logics'
 import {
     AssistantFailureMessage,
-    ContextUsageBar,
+    ContextUsageChip,
     MarkdownMessage,
     MessageTemplate,
     ReasoningAnswer,
     RecordingsWidget,
-    ReplayVisionScanWidget,
-    ResourcesBar,
     ThreadView,
     TurnFeedbackActions,
     type TurnTrailer,
+    useThreadSkin,
 } from 'products/posthog_ai/frontend/api/primitives'
 import { LogEntry } from 'products/posthog_ai/frontend/lib/parse-logs'
 import { isPiTaskRuntime } from 'products/posthog_ai/frontend/types/taskTypes'
+import { ReplayVisionScanWidget } from 'products/replay_vision/frontend/posthogAi/ReplayVisionScanWidget'
 
 import { LangGraphActivity, ShimmeringContent } from './components/Activity'
 import { FeedbackDisplay } from './components/FeedbackDisplay'
@@ -130,6 +130,7 @@ function isErrorMessage(message: ThreadMessage): boolean {
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversation, sandboxConversationKey, isConvertedConversation } = useValues(maxThreadLogic)
     const { panelId } = useValues(maxLogic)
+    const threadSkin = useThreadSkin()
     const isSandboxRuntime = conversation?.agent_runtime === 'sandbox'
     const isPiTask = isPiTaskRuntime(conversation?.task?.runtime)
 
@@ -185,7 +186,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                     props={{ streamKey: sandboxConversationKey, conversationId: sandboxConversationKey }}
                 >
                     {/* The live Max column owns scroll via ThreadAutoScroller — render rows in flow, not virtualized. */}
-                    <ThreadView virtualized={false} renderTurnTrailer={renderTurnTrailer} />
+                    <ThreadView virtualized={false} renderTurnTrailer={renderTurnTrailer} skin={threadSkin} />
                 </BindLogic>
             </div>
         )
@@ -205,7 +206,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                     logic={runStreamLogic}
                     props={{ streamKey: sandboxConversationKey, conversationId: sandboxConversationKey }}
                 >
-                    <ThreadView virtualized={false} renderTurnTrailer={renderTurnTrailer} />
+                    <ThreadView virtualized={false} renderTurnTrailer={renderTurnTrailer} skin={threadSkin} />
                 </BindLogic>
             </div>
         )
@@ -406,9 +407,8 @@ export function SandboxComposerSurfaces(): JSX.Element | null {
             logic={runStreamLogic}
             props={{ streamKey: sandboxConversationKey, conversationId: sandboxConversationKey }}
         >
-            <div className="w-full max-w-180 self-center mx-auto">
-                <ResourcesBar />
-                <ContextUsageBar />
+            <div className="w-full max-w-180 self-center mx-auto flex justify-end">
+                <ContextUsageChip />
             </div>
         </BindLogic>
     )

@@ -14,7 +14,15 @@ export interface WorktreeEntry {
 }
 
 function getTaskTitle(task: Task): string {
-  return task.title || task.description?.slice(0, 50) || task.id;
+  // The sidebar task list is fetched with basic=true, which omits the full
+  // description, so prefer description_preview, then the full description
+  // (present on non-basic responses), and finally the id.
+  return (
+    task.title ||
+    task.description_preview?.slice(0, 50) ||
+    task.description?.slice(0, 50) ||
+    task.id
+  );
 }
 
 interface WorktreeRowProps {

@@ -69,7 +69,7 @@ export const SlackChannelDestination: Story = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/environments/:team_id/integrations/': () => [
+                '/api/projects/:team_id/integrations/': () => [
                     200,
                     { results: [{ id: 1, kind: 'slack', display_name: 'PostHog', config: {}, errors: null }] },
                 ],
@@ -82,6 +82,26 @@ export const SlackChannelDestination: Story = {
                 ...mockScoutConfigs[0],
                 output_destinations: {
                     slack: { integration_id: 1, channel: 'C123|#scout-alerts', thread_reports: true },
+                },
+            }}
+        />
+    ),
+}
+
+// A scout that measures something on a schedule: the collapsed section names the fields of the
+// record it writes, so what the scout produces is readable without opening it.
+export const StructuredOutput: Story = {
+    render: () => (
+        <EditableConfigForm
+            initialConfig={{
+                ...mockScoutConfigs[0],
+                structured_output_schema: {
+                    type: 'object',
+                    properties: {
+                        verdict: { enum: ['good', 'bad', 'unsure'] },
+                        reason: { type: 'string' },
+                    },
+                    required: ['verdict', 'reason'],
                 },
             }}
         />

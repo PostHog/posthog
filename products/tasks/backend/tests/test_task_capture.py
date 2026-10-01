@@ -6,7 +6,7 @@ from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
 
-from products.tasks.backend.models import Task
+from products.tasks.backend.models import Channel, Task
 
 
 class TestTaskCaptureEvent(TestCase):
@@ -39,3 +39,12 @@ class TestTaskCaptureEvent(TestCase):
         unkeyed = self._task()
         unkeyed.capture_event("task_created", capture_fn=capture)
         self.assertNotIn("origin_key", capture.call_args.kwargs["properties"])
+
+    def test_channel_id_reaches_analytics_for_space_tasks(self):
+        channel = Channel.objects.unscoped().create(team=self.team, name="growth", created_by=self.user)
+        capture = MagicMock()
+
+        task = self._task(channel=channel)
+        task.capture_event("task_created", capture_fn=capture)
+
+        self.assertEqual(capture.call_args.kwargs["properties"]["channel_id"], str(channel.id))

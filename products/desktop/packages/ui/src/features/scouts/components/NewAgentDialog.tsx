@@ -21,8 +21,8 @@ const EXAMPLES = [
 ];
 
 /**
- * Describe an agent in a sentence; PostHog drafts it as a `signals-scout-*`
- * skill in a cloud task and opens that task for review.
+ * Describe an agent in a sentence; PostHog drafts it as a scout skill in a
+ * cloud task and opens that task for review.
  */
 export function NewAgentDialog({
   open,

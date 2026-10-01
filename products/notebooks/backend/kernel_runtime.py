@@ -7,7 +7,7 @@ import base64
 import signal
 from contextlib import suppress
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from django.conf import settings
@@ -19,10 +19,12 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.dataclasses import frozen
 from posthog.models import Team, User
 from posthog.redis import get_client
 
 from products.notebooks.backend.compute_pricing import get_default_compute_preset
+from products.notebooks.backend.kernel_sandbox_usage import record_sandbox_ended, record_sandbox_started
 from products.notebooks.backend.models import KernelRuntime, Notebook
 from products.tasks.backend.facade.sandbox import (
     SandboxBase,
@@ -168,7 +170,7 @@ class _RedisLock:
             self._lock.release()
 
 
-@dataclass
+@frozen
 class KernelRuntimeSession:
     service: KernelRuntimeService
     notebook: Notebook
@@ -200,40 +202,6 @@ class KernelRuntimeSession:
             timeout=timeout,
         )
 
-    def execute_stream(
-        self,
-        code: str,
-        *,
-        capture_variables: bool = True,
-        variable_names: list[str] | None = None,
-        timeout: float | None = None,
-    ):
-        return self.service.execute_stream(
-            self.notebook,
-            self.user,
-            code,
-            capture_variables=capture_variables,
-            variable_names=variable_names,
-            timeout=timeout,
-        )
-
-    def dataframe_page(
-        self,
-        variable_name: str,
-        *,
-        offset: int = 0,
-        limit: int = 20,
-        timeout: float | None = None,
-    ) -> dict[str, Any]:
-        return self.service.dataframe_page(
-            self.notebook,
-            self.user,
-            variable_name,
-            offset=offset,
-            limit=limit,
-            timeout=timeout,
-        )
-
 
 def build_notebook_sandbox_config(notebook: Notebook) -> SandboxConfig:
     default_preset = get_default_compute_preset()
@@ -243,6 +211,7 @@ def build_notebook_sandbox_config(notebook: Notebook) -> SandboxConfig:
         cpu_cores=default_preset.cpu_cores,
         memory_gb=default_preset.memory_gb,
         ttl_seconds=NOTEBOOK_KERNEL_TTL_SECONDS,
+        metadata={"team_id": str(notebook.team_id), "product": "notebooks"},
     )
     if notebook.kernel_cpu_cores:
         sandbox_config.cpu_cores = notebook.kernel_cpu_cores
@@ -346,40 +315,6 @@ class KernelRuntimeService:
                 )
 
             raise RuntimeError("Unsupported notebook kernel backend.")
-
-    def execute_stream(
-        self,
-        notebook: Notebook,
-        user: User | None,
-        code: str,
-        *,
-        capture_variables: bool = True,
-        variable_names: list[str] | None = None,
-        timeout: float | None = None,
-    ):
-        valid_variable_names = [name for name in (variable_names or []) if name.isidentifier()]
-        handle = self._ensure_handle(notebook, user)
-        lock_timeout = (timeout or self._execution_timeout) + self._EXECUTION_LOCK_TIMEOUT_BUFFER_SECONDS
-
-        def _stream():
-            with self._acquire_lock(handle.lock_name, timeout=lock_timeout):
-                current_handle = handle
-                if not self._is_handle_alive(current_handle):
-                    current_handle = self._reset_handle(notebook, user, current_handle)
-
-                if current_handle.backend in (KernelRuntime.Backend.MODAL, KernelRuntime.Backend.DOCKER):
-                    yield from self._execute_in_sandbox_stream(
-                        current_handle,
-                        code,
-                        capture_variables=capture_variables,
-                        variable_names=valid_variable_names,
-                        timeout=timeout,
-                    )
-                    return
-
-                raise RuntimeError("Unsupported notebook kernel backend.")
-
-        return _stream()
 
     def shutdown_all(self) -> None:
         with self._acquire_lock(self._service_lock_name, timeout=self._SERVICE_LOCK_TIMEOUT_SECONDS):
@@ -697,13 +632,16 @@ class KernelRuntimeService:
 
     def _shutdown_handle(self, handle: _KernelHandle, *, status: str) -> None:
         if handle.backend in (KernelRuntime.Backend.MODAL, KernelRuntime.Backend.DOCKER):
+            destroyed = False
             if handle.sandbox_id:
                 try:
                     sandbox_class = self._get_sandbox_class(handle.backend)
                     sandbox_class.get_by_id(handle.sandbox_id).destroy()
+                    destroyed = True
                 except Exception:
                     logger.warning("notebook_kernel_sandbox_destroy_failed", kernel_runtime_id=str(handle.runtime.id))
             self._touch_runtime(handle, status_override=status)
+            record_sandbox_ended(handle.runtime, reason=status, sandbox_still_running=not destroyed)
             return
 
         self._touch_runtime(handle, status_override=status)
@@ -755,13 +693,20 @@ class KernelRuntimeService:
 
     def _discard_active_runtime(self, notebook: Notebook, user: User | None, backend: str) -> None:
         active_statuses = [KernelRuntime.Status.STARTING, KernelRuntime.Status.RUNNING]
-        KernelRuntime.objects.filter(
+        active_runtimes = KernelRuntime.objects.filter(
             team_id=notebook.team_id,
             notebook_short_id=notebook.short_id,
             user=user if isinstance(user, User) else None,
             status__in=active_statuses,
             backend=backend,
-        ).update(status=KernelRuntime.Status.DISCARDED, last_used_at=timezone.now())
+        )
+        for runtime in list(active_runtimes):
+            moved = KernelRuntime.objects.filter(pk=runtime.pk, status__in=active_statuses).update(
+                status=KernelRuntime.Status.DISCARDED, last_used_at=timezone.now()
+            )
+            if moved:
+                # Discarding a row does not destroy its sandbox, so the sandbox keeps running until its TTL.
+                record_sandbox_ended(runtime, reason=KernelRuntime.Status.DISCARDED, sandbox_still_running=True)
 
     def _get_backend(self, *, require_credentials: bool = False) -> str | None:
         provider = getattr(settings, "SANDBOX_PROVIDER", None)
@@ -787,6 +732,7 @@ class KernelRuntimeService:
         runtime.provisioned_memory_gb = sandbox_config.memory_gb
         runtime.save(update_fields=["provisioned_cpu_cores", "provisioned_memory_gb"])
         sandbox_class = self._get_sandbox_class(backend)
+        provision_requested_at = timezone.now()
         try:
             sandbox = sandbox_class.create(sandbox_config)
         except Exception as err:
@@ -794,14 +740,21 @@ class KernelRuntimeService:
             self._mark_runtime_error(runtime, f"Failed to provision sandbox: {detail}")
             raise
 
+        runtime.ttl_expires_at = provision_requested_at + timedelta(seconds=sandbox_config.ttl_seconds)
+        runtime.save(update_fields=["ttl_expires_at"])
+        record_sandbox_started(runtime, sandbox_id=sandbox.id, ttl_seconds=sandbox_config.ttl_seconds)
+
         try:
             kernel_pid = self._start_kernel_process(sandbox, connection_file)
             self._wait_for_kernel_ready(sandbox, connection_file)
             self._bootstrap_kernel(sandbox, connection_file, notebook, user)
         except Exception as err:
             self._mark_runtime_error(runtime, "Failed to start kernel in sandbox")
+            destroyed = False
             with suppress(Exception):
                 sandbox.destroy()
+                destroyed = True
+            record_sandbox_ended(runtime, reason=KernelRuntime.Status.ERROR, sandbox_still_running=not destroyed)
             raise RuntimeError("Failed to start kernel in sandbox") from err
 
         runtime.kernel_id = kernel_id
@@ -1168,16 +1121,19 @@ class KernelRuntimeService:
             sandbox = sandbox_class.get_by_id(runtime.sandbox_id)
         except Exception:
             self._mark_runtime_error(runtime, "Sandbox not found")
+            record_sandbox_ended(runtime, reason=KernelRuntime.Status.ERROR, sandbox_still_running=True)
             return None
 
         if sandbox.get_status() != SandboxStatus.RUNNING:
             self._mark_runtime_error(runtime, "Sandbox is not running")
+            record_sandbox_ended(runtime, reason=KernelRuntime.Status.ERROR, sandbox_still_running=False)
             return None
 
         try:
             self._wait_for_kernel_ready(sandbox, runtime.connection_file or "")
         except Exception:
             self._mark_runtime_error(runtime, "Kernel not ready in sandbox")
+            record_sandbox_ended(runtime, reason=KernelRuntime.Status.ERROR, sandbox_still_running=True)
             return None
 
         handle = _KernelHandle(
@@ -1420,96 +1376,6 @@ class KernelRuntimeService:
             kernel_runtime=handle.runtime,
         )
 
-    def _execute_in_sandbox_stream(
-        self,
-        handle: _KernelHandle,
-        code: str,
-        *,
-        capture_variables: bool,
-        variable_names: list[str],
-        timeout: float | None,
-    ):
-        if not handle.sandbox_id:
-            raise RuntimeError("Sandbox not available for kernel execution.")
-
-        timeout_seconds = int(timeout or self._execution_timeout)
-        user_expressions = self._build_user_expressions(variable_names) if capture_variables else None
-
-        payload = {
-            "connection_file": handle.runtime.connection_file,
-            "timeout": timeout_seconds,
-            "code": code,
-            "user_expressions": user_expressions,
-            "stream": True,
-        }
-        command = self._build_kernel_command(payload, action="execute")
-        sandbox_class = self._get_sandbox_class(handle.backend)
-        sandbox = sandbox_class.get_by_id(handle.sandbox_id)
-        started_at = timezone.now()
-        stream = sandbox.execute_stream(command, timeout_seconds=timeout_seconds)
-
-        payload_out: dict[str, Any] | None = None
-        marker = self._notebook_bridge_marker(handle)
-        bridge_parser = _NotebookBridgeParser(marker=marker)
-
-        for line in stream.iter_stdout():
-            event = self._parse_kernel_stream_line(line, handle=handle, bridge_parser=bridge_parser)
-            if not event:
-                continue
-            if event["type"] == "result":
-                payload_out = event["data"]
-                continue
-            if event["text"]:
-                yield event
-
-        remaining_text = bridge_parser.flush()
-        if remaining_text:
-            yield {"type": "stdout", "text": remaining_text}
-
-        result = stream.wait()
-        if result.exit_code != 0:
-            raise RuntimeError(f"Kernel execution failed: {result.stdout} {result.stderr}")
-
-        if payload_out is None:
-            output_lines = [line for line in result.stdout.splitlines() if line.strip()]
-            if output_lines:
-                try:
-                    payload_out = json.loads(output_lines[-1])
-                except json.JSONDecodeError as err:
-                    raise RuntimeError("Kernel execution returned no output.") from err
-            else:
-                raise RuntimeError("Kernel execution returned no output.")
-
-        payload_out["stdout"] = self._strip_notebook_bridge_messages(payload_out.get("stdout", ""), marker)
-        status = payload_out.get("status", "error")
-        execution_count = payload_out.get("execution_count")
-        error_name = payload_out.get("error_name")
-        traceback = payload_out.get("traceback", [])
-        variables = None
-        if user_expressions is not None:
-            variables = self._parse_user_expressions(payload_out.get("user_expressions"))
-
-        handle.execution_count = execution_count or handle.execution_count
-        handle.last_activity_at = timezone.now()
-        self._touch_runtime(handle, status_override=KernelRuntime.Status.RUNNING)
-
-        execution_result = KernelExecutionResult(
-            status=status,
-            stdout=payload_out.get("stdout", ""),
-            stderr=payload_out.get("stderr", ""),
-            result=payload_out.get("result"),
-            media=payload_out.get("media", []) or [],
-            execution_count=execution_count,
-            error_name=error_name,
-            traceback=traceback,
-            variables=variables,
-            started_at=started_at,
-            completed_at=timezone.now(),
-            kernel_runtime=handle.runtime,
-        )
-
-        yield {"type": "result", "data": execution_result.as_dict()}
-
     def _parse_kernel_stream_line(
         self,
         line: str,
@@ -1538,48 +1404,6 @@ class KernelRuntimeService:
         if chunk.get("type") == "result":
             return {"type": "result", "data": chunk}
         return None
-
-    def dataframe_page(
-        self,
-        notebook: Notebook,
-        user: User | None,
-        variable_name: str,
-        *,
-        offset: int = 0,
-        limit: int = 10,
-        timeout: float | None = None,
-    ) -> dict[str, Any]:
-        if not variable_name.isidentifier():
-            raise ValueError("Variable name must be a valid identifier.")
-
-        code = (
-            "import json\n"
-            f"_notebook_dataframe_result = notebook_dataframe_page({variable_name}, offset={offset}, limit={limit})\n"
-            "print(json.dumps(_notebook_dataframe_result))\n"
-        )
-        execution = self.execute(
-            notebook,
-            user,
-            code,
-            capture_variables=False,
-            variable_names=[],
-            timeout=timeout,
-        )
-        if execution.status != "ok":
-            raise RuntimeError(execution.stderr or "Failed to fetch dataframe data.")
-
-        output_lines = [line for line in execution.stdout.splitlines() if line.strip()]
-        if not output_lines:
-            raise RuntimeError("No dataframe output returned.")
-        try:
-            payload = json.loads(output_lines[-1])
-        except json.JSONDecodeError as err:
-            raise RuntimeError("Failed to parse dataframe output.") from err
-        if payload is None:
-            raise ValueError("Variable is not a dataframe.")
-        if not isinstance(payload, dict):
-            raise RuntimeError("Unexpected dataframe response.")
-        return payload
 
 
 _notebook_kernel_runtime_service: KernelRuntimeService | None = None

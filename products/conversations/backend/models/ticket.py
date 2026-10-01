@@ -2,6 +2,7 @@ from typing import TYPE_CHECKING
 
 from django.db import models, transaction
 
+from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import UUIDTModel
 
 from .constants import Channel, ChannelDetail, Priority, Status
@@ -16,10 +17,11 @@ if TYPE_CHECKING:
 
 class TicketManager(models.Manager):
     def lock_ticket_number_allocation(self, team_id: int) -> None:
-        """Acquire the team-scoped transaction lock for ticket number assignment.
+        """Serialize ticket_number assignment for this team.
 
-        Callers must be inside ``transaction.atomic()`` and acquire this before
-        any other allocation lock.
+        Uses a transaction-scoped advisory lock instead of locking the Team row,
+        so unrelated writers of Team children are not blocked. Callers must be
+        inside ``transaction.atomic()``.
         """
         db_connection = transaction.get_connection(self.db)
         if not db_connection.in_atomic_block:
@@ -32,28 +34,24 @@ class TicketManager(models.Manager):
 
     def create_with_number(self, **kwargs):
         """Create a ticket with the next ticket_number for its team."""
-        from posthog.models import Team
-
         team = kwargs.get("team")
         if not team:
             raise ValueError("team is required")
 
         with transaction.atomic(using=self.db):
             self.lock_ticket_number_allocation(team.id)
-            # nosemgrep: hot-parent-row-select-for-update -- preserves compatibility with Team-lock-only allocators
-            Team.objects.using(self.db).select_for_update().get(id=team.id)
             max_num = self.filter(team=team).aggregate(models.Max("ticket_number"))["ticket_number__max"] or 0
             kwargs["ticket_number"] = max_num + 1
             return self.create(**kwargs)
 
 
-class Ticket(UUIDTModel):
+class Ticket(Taggable, UUIDTModel):
     objects = TicketManager()
 
     # Dynamic attribute set by TicketViewSet._attach_persons_to_tickets for serialization
     person: "Person | None"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     ticket_number = models.PositiveIntegerField()
     channel_source = models.CharField(max_length=20, choices=Channel, default=Channel.WIDGET)
     channel_detail = models.CharField(max_length=30, choices=ChannelDetail, null=True, blank=True)
@@ -200,6 +198,17 @@ class Ticket(UUIDTModel):
                 fields=["organization_id", "slack_channel_id"],
                 name="posthog_org_slack_ch_idx",
                 condition=models.Q(channel_source="slack"),
+            ),
+            # Compose dedupe fallback: find recent outbound email tickets by (team, email channel,
+            # sender) within a short window, newest first. Runs on every new compose, so without
+            # this it scans the channel's whole ticket history. Partial to email keeps it small.
+            models.Index(
+                models.F("team_id"),
+                models.F("email_config_id"),
+                models.F("email_from"),
+                models.F("created_at").desc(),
+                name="posthog_con_compose_dedupe_idx",
+                condition=models.Q(channel_source="email"),
             ),
         ]
         constraints = [

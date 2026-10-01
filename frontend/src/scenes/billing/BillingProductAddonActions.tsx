@@ -1,12 +1,12 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import { IconCheckCircle, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonTag } from '@posthog/lemon-ui'
 
 import { TRIAL_CANCELLATION_SURVEY_ID, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { BillingProductV2AddonType } from '~/types'
@@ -20,6 +20,21 @@ import { ConfirmUpgradeModal } from './ConfirmUpgradeModal'
 import { DATA_PIPELINES_CUTOFF_DATE } from './constants'
 import { TrialCancellationSurveyModal } from './TrialCancellationSurveyModal'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
+
+function reportBillingAddonPlanSwitchStarted(
+    fromProduct: string,
+    toProduct: string,
+    reason: 'upgrade' | 'downgrade'
+): void {
+    const eventName =
+        reason === 'upgrade'
+            ? 'billing addon subscription upgrade clicked'
+            : 'billing addon subscription downgrade clicked'
+    posthog.capture(eventName, {
+        from_product: fromProduct,
+        to_product: toProduct,
+    })
+}
 
 interface BillingProductAddonActionsProps {
     addon: BillingProductV2AddonType
@@ -65,7 +80,7 @@ export const BillingProductAddonActions = ({
     const { showConfirmUpgradeModal, showConfirmDowngradeModal, showConfirmPurchaseModal } = useActions(
         billingProductLogic({ product: addon })
     )
-    const { reportBillingAddonPlanSwitchStarted } = useActions(eventUsageLogic)
+
     const upgradePlan = currentAndUpgradePlans?.upgradePlan
     const isTrialEligible = !!addon.trial
     // amountDueToday is what will actually hit the card right now — prorated and net of any credit

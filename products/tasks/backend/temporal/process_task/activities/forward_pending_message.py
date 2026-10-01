@@ -10,6 +10,7 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.tasks.backend.temporal.observability import log_activity_execution
 from products.tasks.backend.temporal.process_task.activities.feature_flags import AGENT_DESIGN_STATE_KEY
+from products.tasks.backend.temporal.process_task.organization import check_organization_execution
 from products.tasks.backend.temporal.process_task.utils import (
     get_actor_distinct_id,
     get_task_run_credential_user,
@@ -97,6 +98,8 @@ def forward_pending_user_message(run_id: str) -> None:
         pending_user_artifact_ids = state.get("pending_user_artifact_ids") or []
         if not pending_message and not pending_user_artifact_ids:
             return
+
+        check_organization_execution(task_run.team_id)
 
         if state.get("await_user_message"):
             from products.tasks.backend.exceptions import ComputeBillingLimitError
@@ -263,9 +266,21 @@ def _enqueue_pending_reply_relay(task_run: Any, user_message_ts: str | None, com
             run_id=str(task_run.id),
             text=reply_text,
             user_message_ts=user_message_ts,
+            trace_id=_extract_trace_id_from_command_result(command_result_data),
         )
     except Exception:
         logger.exception("forward_pending_message_relay_enqueue_failed", run_id=str(task_run.id))
+
+
+def _extract_trace_id_from_command_result(command_result_data: Any) -> str | None:
+    """The answering turn's gateway trace id, as the agent-server reports it.
+
+    Absent for a turn that ran without the traceparent hook, and for any agent other
+    than Claude, which is what a rating with no ``$ai_trace_id`` then reflects.
+    """
+    result = command_result_data.get("result") if isinstance(command_result_data, dict) else None
+    trace_id = result.get("trace_id") if isinstance(result, dict) else None
+    return trace_id if isinstance(trace_id, str) and trace_id else None
 
 
 def _extract_assistant_text_from_command_result(command_result_data: Any) -> str | None:

@@ -1,0 +1,82 @@
+rules:
+    - id: no-dynamic-worker-body
+      mode: taint
+      message: |
+          Worker body built from a value rather than a constant. The app policy allows
+          `worker-src 'self' blob:`, and that allowance rests on every blob worker body
+          being fixed at build time.
+
+          A blob URL is safe to permit because only script can mint one, so an attacker
+          needs script execution before they can use it. That argument fails if our own
+          code turns attacker-influenced data into a worker body: a value the attacker
+          controls then becomes code running with this origin's network credentials,
+          reachable from a data-injection alone.
+
+          Build the worker from a real file instead:
+
+              new Worker(new URL('./thing.worker.ts', import.meta.url), { type: 'module' })
+
+          `frontend/src/scenes/data-warehouse/editor/hogqlParserWorkerManager.ts` and
+          `frontend/src/scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager.ts`
+          both do this. A same-origin file needs no `blob:` allowance at all.
+
+          A bundled library that ships its own blob worker is fine, because its body is a
+          compile-time constant. This rule covers first-party code.
+
+          The rule follows an object URL or a `data:` URL through the assignments in one
+          function, so it catches the shapes we write. It does not follow a URL back out
+          of a helper function that returns one. Treat it as a check on first-party code,
+          not as a proof.
+
+          If a dynamic body is genuinely unavoidable, put `// nosemgrep: no-dynamic-worker-body`
+          on the line before it with a reason, and state where the body comes from and why
+          no input can reach it.
+      severity: ERROR
+      languages: [typescript, javascript]
+      paths:
+          include:
+              - frontend/src
+              - products
+              - common
+              # The leading slash pins this to the repository root. The entries above
+              # stay unanchored because anchoring them would drop directories this rule
+              # scans today, such as `nodejs/src/common`.
+              - /packages
+          exclude:
+              - '**/*.test.ts'
+              - '**/*.test.tsx'
+              - '**/*.spec.ts'
+      pattern-sources:
+          - pattern-either:
+                # Every object URL is minted at run time, whatever the receiver is spelled
+                # as: `URL`, `window.URL`, `globalThis.URL`, or a destructured alias.
+                - pattern: createObjectURL(...)
+                - pattern: $RECEIVER.createObjectURL(...)
+                # A `data:` or `blob:` URL concatenated from a value. The scheme has to be
+                # in the leading literal, so `'/static/' + name` stays clean.
+                - patterns:
+                      - pattern: $SCHEME + $X
+                      - metavariable-regex:
+                            metavariable: $SCHEME
+                            regex: '^[''"`](data|blob):'
+                # A `data:` or `blob:` URL interpolated from a value. A template-literal
+                # pattern cannot reach the fixed part, so bind the whole literal and read
+                # the scheme off its text. The `${` keeps a constant body out.
+                - patterns:
+                      - pattern: $TEMPLATE
+                      - metavariable-regex:
+                            metavariable: $TEMPLATE
+                            regex: '^`(data|blob):[\s\S]*\$\{'
+      # Only the URL argument is a sink. Without this, an interpolated worker name in the
+      # options object matches too.
+      pattern-sinks:
+          - patterns:
+                - pattern-either:
+                      - pattern: new Worker($URL, ...)
+                      - pattern: new SharedWorker($URL, ...)
+                - focus-metavariable: $URL
+      metadata:
+          category: security
+          confidence: MEDIUM
+          references:
+              - https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy/worker-src

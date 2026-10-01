@@ -12,7 +12,6 @@ export class DashboardPage {
     readonly insightCards: Locator
     readonly textCards: Locator
     readonly dateFilter: Locator
-    readonly overridesBanner: Locator
     readonly variableButtons: Locator
 
     constructor(page: Page) {
@@ -23,7 +22,6 @@ export class DashboardPage {
         this.insightCards = page.locator('.InsightCard')
         this.textCards = page.getByTestId('text-card')
         this.dateFilter = page.getByTestId('date-filter')
-        this.overridesBanner = page.getByText('You are viewing this dashboard with filter overrides.')
         this.variableButtons = page.locator('.DataVizVariable_Button')
     }
 
@@ -142,14 +140,17 @@ export class DashboardPage {
     }
 
     async duplicate(): Promise<void> {
+        const sourceDashboardId = new URL(this.page.url()).pathname.match(/\/dashboard\/(\d+)/)?.[1]
         await this.openInfoPanel()
         await this.page.getByTestId('dashboard-duplicate-button').click()
 
         const modal = this.page.locator('.LemonModal').filter({ hasText: 'Duplicate dashboard' })
         await expect(modal).toBeVisible()
-        await this.page.getByTestId('dashboard-submit-and-go').click()
+        await this.page.getByTestId('duplicate-dashboard-submit').click()
 
-        await expect(this.page).toHaveURL(/\/dashboard\//)
+        await expect
+            .poll(() => new URL(this.page.url()).pathname.match(/\/dashboard\/(\d+)/)?.[1])
+            .not.toBe(sourceDashboardId)
     }
 
     async deleteDashboard(): Promise<void> {
@@ -166,6 +167,16 @@ export class DashboardPage {
         await this.dateFilter.click()
         await this.page.getByTestId(dataAttr).click()
         await expect(this.dateFilter).toContainText(option)
+    }
+
+    async saveFilters(): Promise<void> {
+        const saveButton = this.page.getByTestId('dashboard-save-filters')
+        if (!(await saveButton.isVisible())) {
+            await this.page.getByTestId('dashboard-filters-unsaved').getByRole('button', { name: 'Actions' }).click()
+        }
+
+        await saveButton.click()
+        await expect(this.page.getByTestId('dashboard-filters-unsaved')).toBeHidden()
     }
 
     async setVariable(name: string, value: string | number): Promise<void> {

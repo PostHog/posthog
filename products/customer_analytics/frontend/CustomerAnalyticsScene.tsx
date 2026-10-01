@@ -13,7 +13,6 @@ import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason, userHasAccess } from 'lib/utils/accessControlUtils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -27,6 +26,7 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { SessionInsights } from 'products/customer_analytics/frontend/components/Insights/SessionInsights'
+import { GroupsIntroduction } from 'products/groups/frontend/components/GroupsIntroduction'
 
 import { AccountNotesTabContent } from './components/AccountNotes/AccountNotesTabContent'
 import { AccountsTabContent } from './components/Accounts/AccountsTabContent'
@@ -42,6 +42,7 @@ import { FeedTabContent } from './components/Feed/FeedTabContent'
 import { FeedbackButton } from './components/FeedbackButton'
 import { ActiveUsersInsights } from './components/Insights/ActiveUsersInsights'
 import { SignupInsights } from './components/Insights/SignupInsights'
+import { TaskDigestButton } from './components/TaskDigest/TaskDigestButton'
 import { CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID } from './constants'
 import { CustomerAnalyticsFilters } from './CustomerAnalyticsFilters'
 import { customerAnalyticsSceneLogic } from './customerAnalyticsSceneLogic'
@@ -124,6 +125,26 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
             </>
         )
 
+    const tabLink = (url: string, tab: string): string => {
+        const params = { ...searchParams }
+        if (tab !== activeTab && (tab === 'tasks' || activeTab === 'tasks')) {
+            for (const key of [
+                'search',
+                'status',
+                'assignee',
+                'archive',
+                'due',
+                'account',
+                'sort',
+                'page',
+                'task_id',
+                'source',
+            ]) {
+                delete params[key]
+            }
+        }
+        return combineUrl(url, params).url
+    }
     const tabs: LemonTab<string>[] = []
 
     if (featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]) {
@@ -131,25 +152,25 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
             key: 'feed',
             label: 'Feed',
             content: <FeedTabContent />,
-            link: combineUrl(urls.customerAnalyticsFeed(), searchParams).url,
+            link: tabLink(urls.customerAnalyticsFeed(), 'feed'),
         })
         tabs.push({
             key: 'accounts',
             label: 'Accounts',
             content: <AccountsTabContent />,
-            link: combineUrl(urls.customerAnalyticsAccounts(), searchParams).url,
+            link: tabLink(urls.customerAnalyticsAccounts(), 'accounts'),
         })
         tabs.push({
             key: 'notes',
             label: 'Notes',
             content: <AccountNotesTabContent />,
-            link: combineUrl(urls.customerAnalyticsNotes(), searchParams).url,
+            link: tabLink(urls.customerAnalyticsNotes(), 'notes'),
         })
         tabs.push({
             key: 'announcements',
             label: 'Announcements',
             content: <AnnouncementsTabContent />,
-            link: combineUrl(urls.customerAnalyticsAnnouncements(), searchParams).url,
+            link: tabLink(urls.customerAnalyticsAnnouncements(), 'announcements'),
         })
     }
 
@@ -158,7 +179,7 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
             key: 'feature_requests',
             label: 'Feature requests',
             content: <FeatureRequestsTabContent />,
-            link: combineUrl(urls.customerAnalyticsFeatureRequests(), searchParams).url,
+            link: tabLink(urls.customerAnalyticsFeatureRequests(), 'feature_requests'),
         })
     }
 
@@ -167,7 +188,7 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
             key: 'tasks',
             label: 'Tasks',
             content: <CustomerTasksInbox canCreate={canCreateCustomerTasks} canViewAll={canViewAllCustomerTasks} />,
-            link: combineUrl(urls.customerAnalyticsTasks(), searchParams).url,
+            link: tabLink(urls.customerAnalyticsTasks(), 'tasks'),
         })
     }
 
@@ -175,7 +196,7 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
         key: 'dashboard',
         label: 'Dashboard',
         content: dashboardContent,
-        link: combineUrl(urls.customerAnalyticsDashboard(), searchParams).url,
+        link: tabLink(urls.customerAnalyticsDashboard(), 'dashboard'),
     })
 
     if (featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_JOURNEYS]) {
@@ -183,7 +204,7 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
             key: 'journeys',
             label: 'Customer journeys',
             content: <CustomerJourneys />,
-            link: combineUrl(urls.customerAnalyticsJourneys(), searchParams).url,
+            link: tabLink(urls.customerAnalyticsJourneys(), 'journeys'),
         })
     }
 
@@ -218,6 +239,7 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
                             actions={
                                 <>
                                     <FeedbackButton id="customer-analytics-dashboard-feedback-button" />
+                                    {activeTab === 'tasks' && <TaskDigestButton />}
                                     {isEditMode ? (
                                         <div className="flex items-center gap-2">
                                             <span className="text-sm text-muted font-medium whitespace-nowrap">

@@ -36,6 +36,12 @@ def make_signals_user(interactive: bool, user_id: int = 1) -> AuthenticatedUser:
     return user
 
 
+def make_slack_user(user_id: int = 1) -> AuthenticatedUser:
+    user = make_user(user_id=user_id)
+    user.scopes = ["llm_gateway:read", "internal_run:read", "slack_run:read"]
+    return user
+
+
 def make_context(
     user: AuthenticatedUser | None = None,
     product: str = "posthog_code",
@@ -1164,18 +1170,81 @@ class TestRateLimitPoisoningPrevention:
 
 class TestPostHogCodeUserThrottling:
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("throttle_type", [UserCostBurstThrottle, UserCostSustainedThrottle])
-    async def test_posthog_code_has_no_user_cost_limit(self, throttle_type: type[_UserCostThrottleBase]) -> None:
+    @pytest.mark.parametrize(
+        ("throttle_type", "limit_usd"), [(UserCostBurstThrottle, 100.0), (UserCostSustainedThrottle, 1000.0)]
+    )
+    @pytest.mark.parametrize("code_usage_billed", [False, True])
+    async def test_posthog_code_user_cost_limit(
+        self,
+        throttle_type: type[_UserCostThrottleBase],
+        limit_usd: float,
+        code_usage_billed: bool,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(get_settings(), "posthog_code_user_cost_limits_enabled", True)
+        monkeypatch.setattr(get_settings(), "posthog_code_capped_user_ids", {42})
         throttle = throttle_type(redis=None)
-        context = make_context(product="posthog_code")
+        context = make_context(user=make_user(user_id=42), product="posthog_code", code_usage_billed=code_usage_billed)
 
-        await throttle.record_cost(context, 600.0)
+        await throttle.record_cost(context, limit_usd - 1.0)
+
+        assert (await throttle.allow_request(context)).allowed is True
+        status = await throttle.get_status(context)
+        assert status.used_usd == limit_usd - 1.0
+        assert status.remaining_usd == 1.0
+        assert status.exceeded is False
+
+        await throttle.record_cost(context, 1.0)
 
         result = await throttle.allow_request(context)
         status = await throttle.get_status(context)
-        assert result.allowed is True
-        assert status.exceeded is False
-        assert status.limit_usd == float("inf")
+        assert result.allowed is False
+        assert result.status_code == 429
+        assert result.used_usd == limit_usd
+        assert result.limit_usd == limit_usd
+        assert status.exceeded is True
+        assert status.used_usd == limit_usd
+        assert status.limit_usd == limit_usd
+        assert status.remaining_usd == 0.0
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("throttle_type", [UserCostBurstThrottle, UserCostSustainedThrottle])
+    async def test_code_selection_preserves_spend_and_other_product_limits(
+        self, throttle_type: type[_UserCostThrottleBase], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        settings = get_settings()
+        monkeypatch.setattr(settings, "posthog_code_user_cost_limits_enabled", False)
+        monkeypatch.setattr(settings, "posthog_code_capped_user_ids", set())
+        throttle = throttle_type(redis=None)
+        code = make_context(user=make_user(user_id=42), product="posthog_code", code_usage_billed=True)
+        other_code = make_context(user=make_user(user_id=43), product="posthog_code", code_usage_billed=True)
+        wizard = make_context(product="wizard")
+
+        for context in (code, other_code, wizard):
+            await throttle.record_cost(context, 10_000.0)
+
+        for enabled, selected, code_denied, other_denied in (
+            (False, {42}, False, False),
+            (True, set(), False, False),
+            (True, {42}, True, False),
+            (True, {43}, False, True),
+            (True, {42, 43}, True, True),
+            (False, {42, 43}, False, False),
+        ):
+            monkeypatch.setattr(settings, "posthog_code_user_cost_limits_enabled", enabled)
+            monkeypatch.setattr(settings, "posthog_code_capped_user_ids", selected)
+
+            for context, denied in ((code, code_denied), (other_code, other_denied)):
+                assert (await throttle.allow_request(context)).allowed is not denied
+                status = await throttle.get_status(context)
+                assert status.exceeded is denied
+                if denied:
+                    assert status.used_usd == 10_000.0
+                else:
+                    assert status.used_usd == 0.0
+                    assert status.limit_usd == float("inf")
+            assert (await throttle.allow_request(wizard)).allowed is False
+            assert (await throttle.get_status(wizard)).exceeded is True
 
     @pytest.mark.asyncio
     async def test_non_code_product_allows_normal_spend(self) -> None:
@@ -1246,7 +1315,7 @@ class TestCostAccumulatorTTL:
         assert accumulator.get_current("user2") == 3.0
 
 
-class TestSignalsInteractiveCostKey:
+class TestProvenanceCostKey:
     @pytest.mark.parametrize(
         ("product", "scopes", "expected"),
         [
@@ -1254,6 +1323,8 @@ class TestSignalsInteractiveCostKey:
             ("signals", ["llm_gateway:read"], "signals"),
             ("posthog_code", ["llm_gateway:read"], "posthog_code"),
             ("background_agents", ["llm_gateway:read"], "background_agents"),
+            ("slack_app", ["llm_gateway:read", "slack_run:read"], "slack_app"),
+            ("background_agents", ["llm_gateway:read", "slack_run:read"], "slack_app"),
             # The marker alone decides. A run still holding an Array-app token can declare either
             # of these routes, and honouring the declaration would drop it off the interactive
             # budget and out of the per-run ceiling, which only `signals_interactive` configures.
@@ -1279,9 +1350,7 @@ class TestSignalsInteractiveCostKey:
 
     @pytest.mark.asyncio
     async def test_marked_run_declaring_posthog_code_keeps_its_user_budget(self) -> None:
-        # posthog_code is exempt from per-user cost limits because billable credits meter it
-        # instead. Reading that exemption off the declared product would hand it to a marked run
-        # on an Array-app token, which spends against `signals_interactive`.
+        # A Signals run with a Code token must keep its signals_interactive budget even when it declares posthog_code.
         throttle = UserCostBurstThrottle(redis=None)
         context = make_context(product="posthog_code", user=make_signals_user(interactive=True))
         limit, _ = throttle._get_limit_and_window(context)
@@ -1314,14 +1383,35 @@ class TestSandboxTaskCostThrottle:
         assert (await throttle.allow_request(context)).allowed is True
 
     @pytest.mark.asyncio
-    async def test_denies_the_run_that_exhausts_its_ceiling_and_leaves_its_siblings_alone(self) -> None:
+    @pytest.mark.parametrize(
+        ("product", "user"),
+        [
+            ("signals", make_signals_user(interactive=True)),
+            ("slack_app", make_slack_user()),
+        ],
+    )
+    async def test_denies_the_run_that_exhausts_its_ceiling_and_leaves_its_siblings_alone(
+        self, product: str, user: AuthenticatedUser
+    ) -> None:
         throttle = SandboxTaskCostThrottle(redis=None)
-        user = make_signals_user(interactive=True)
-        spent = make_context(product="signals", user=user, sandbox_task_id="task-1")
-        sibling = make_context(product="signals", user=user, sandbox_task_id="task-2")
+        spent = make_context(product=product, user=user, sandbox_task_id="task-1")
+        sibling = make_context(product=product, user=user, sandbox_task_id="task-2")
         limit, _ = throttle._get_limit_and_window(spent)
 
         await throttle.record_cost(spent, limit)
 
         assert (await throttle.allow_request(spent)).allowed is False
         assert (await throttle.allow_request(sibling)).allowed is True
+
+    @pytest.mark.asyncio
+    async def test_slack_token_cannot_leave_its_task_ceiling_by_declaring_another_product(self) -> None:
+        throttle = SandboxTaskCostThrottle(redis=None)
+        slack = make_context(product="slack_app", user=make_slack_user(), sandbox_task_id="task-1")
+        alternate = make_context(product="background_agents", user=slack.user, sandbox_task_id="task-1")
+        limit, _ = throttle._get_limit_and_window(slack)
+
+        await throttle.record_cost(slack, limit)
+
+        result = await throttle.allow_request(alternate)
+        assert result.allowed is False
+        assert result.retry_after == 86400

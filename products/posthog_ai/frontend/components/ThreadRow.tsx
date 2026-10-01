@@ -1,6 +1,10 @@
 import { memo } from 'react'
 
-import { IconWrench } from '@posthog/icons'
+import { IconCopy, IconWrench } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
+import { TZLabel } from 'lib/components/TZLabel'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { TaskExecutionStatus as ExecutionStatus } from '~/queries/schema/schema-assistant-messages'
 
@@ -13,8 +17,11 @@ import { MessageTemplate } from '../messages/MessageTemplate'
 import { ReasoningAnswer } from '../messages/ReasoningAnswer'
 import type { ProgressStep, ThreadItem } from '../types/streamTypes'
 import { resolveToolCall } from '../utils/toolResolver'
-import { RunActivity } from './RunActivity'
-import { RunAlertActivity } from './RunAlertActivity'
+import { Activity } from './ActivityPrimitives'
+import { QuillAssistantMessage, QuillHumanMessage } from './quill/QuillMessages'
+import { useQuillThread } from './quill/quillThreadContext'
+import { RunErrorRow } from './RunErrorRow'
+import { ThreadAttachments } from './ThreadAttachments'
 import { CompactBoundaryItem, ConversationClearedItem, StatusItem, TaskNotificationItem } from './ThreadItems'
 import { ToolCallCard } from './tool/ToolCallCard'
 
@@ -81,13 +88,14 @@ function ProgressItem({ item }: { item: ThreadItem }): JSX.Element | null {
     const state = resolveProgressState(steps)
 
     return (
-        <RunActivity
+        <Activity
             id={item.id}
-            content={headline}
+            title={headline}
             substeps={substeps}
-            state={state}
+            status={state}
             icon={<IconWrench />}
             showCompletionIcon={true}
+            autoExpand={false}
         />
     )
 }
@@ -100,6 +108,30 @@ export interface ThreadRowProps {
     toolInvocations: ToolInvocations
     turnComplete: boolean
     turnCancelled: boolean
+    /** The current run reached a terminal status; only then is the last error the run's ending. */
+    runEnded?: boolean
+}
+
+/** Hidden at rest so a long thread does not repeat a row under every message. */
+function HumanMessageFooter({ startedAt, text }: { startedAt?: number; text?: string }): JSX.Element {
+    return (
+        <div className="flex items-center gap-1 mt-1.5 mr-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+            {startedAt !== undefined && (
+                // A fresh dayjs object every render would defeat TZLabel's memo; a string compares by value.
+                <TZLabel time={new Date(startedAt).toISOString()} className="text-xs text-muted" />
+            )}
+            {text && (
+                <LemonButton
+                    icon={<IconCopy />}
+                    type="tertiary"
+                    size="xsmall"
+                    tooltip="Copy message"
+                    data-attr="posthog-ai-human-message-copy"
+                    onClick={() => void copyToClipboard(text)}
+                />
+            )}
+        </div>
+    )
 }
 
 /**
@@ -113,17 +145,30 @@ export const ThreadRow = memo(function ThreadRow({
     toolInvocations,
     turnComplete,
     turnCancelled,
+    runEnded = true,
 }: ThreadRowProps): JSX.Element | null {
+    const quill = useQuillThread()
     if (item.type === 'human_message') {
+        if (quill) {
+            return <QuillHumanMessage item={item} />
+        }
         return (
-            <MessageTemplate type="human">
+            <MessageTemplate
+                type="human"
+                className="group"
+                action={<HumanMessageFooter startedAt={item.startedAt} text={item.text} />}
+            >
                 <MarkdownMessage content={item.text || '*No text.*'} id={item.id} />
+                {item.attachments && <ThreadAttachments attachments={item.attachments} />}
             </MessageTemplate>
         )
     }
     if (item.type === 'assistant_message') {
+        if (quill) {
+            return <QuillAssistantMessage item={item} />
+        }
         return (
-            <MessageTemplate type="ai">
+            <MessageTemplate type="ai" wrapperClassName="max-w-4/5">
                 <MarkdownMessage content={item.text ?? ''} id={item.id} />
             </MessageTemplate>
         )
@@ -147,13 +192,7 @@ export const ThreadRow = memo(function ThreadRow({
         return <ToolCallCard message={message} turnComplete={turnComplete} turnCancelled={turnCancelled} />
     }
     if (item.type === 'error') {
-        return (
-            <RunAlertActivity
-                id={item.id}
-                kind={item.variant === 'crash' ? 'agent_crash' : 'agent_error'}
-                message={item.errorMessage}
-            />
-        )
+        return <RunErrorRow item={item} isLast={isLast && runEnded} />
     }
     if (item.type === 'status') {
         return <StatusItem item={item} />

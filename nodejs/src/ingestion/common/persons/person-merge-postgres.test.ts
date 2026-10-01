@@ -1,9 +1,15 @@
 import { buildIntegerMatcher } from '~/common/config/config'
-import { PERSON_MERGE_EVENTS_OUTPUT } from '~/common/outputs'
+import { PERSON_DISTINCT_IDS_OUTPUT, PERSON_MERGE_EVENTS_OUTPUT } from '~/common/outputs'
 import { UUIDT } from '~/common/utils/utils'
 import { InternalPerson } from '~/types'
 
-import { MergeEventsConfig, PostgresPersonMerge, personMergeEventProducedCounter } from './person-merge-postgres'
+import { MergeMappingDebounce } from './merge-mapping-debounce'
+import {
+    MergeEventsConfig,
+    PostgresMergePolicy,
+    PostgresPersonMerge,
+    personMergeEventProducedCounter,
+} from './person-merge-postgres'
 import { createDefaultSyncMergeMode } from './person-merge-types'
 import { MergePersonsRequest } from './persons-store'
 
@@ -128,7 +134,137 @@ describe('PostgresPersonMerge merge events', () => {
         expect(store.removeDistinctIdFromCache).toHaveBeenCalledWith(2, 'anon')
     })
 
-    function buildSingleSourceMerge(store: object, eventUuid: string): PostgresPersonMerge {
+    // A produce awaited inside the merge transaction holds row locks and lifecycle
+    // marks across the Kafka roundtrip, and its ack escapes the batch-end await.
+    it('a one-exists merge produces the mapping after the transaction and surfaces the ack', async () => {
+        const order: string[] = []
+        mockOutputs = {
+            produce: jest.fn().mockImplementation(() => {
+                order.push('produce')
+                return Promise.resolve()
+            }),
+        }
+        const existingPerson = { id: 'p1', uuid: targetPerson.uuid, team_id: 2 } as unknown as InternalPerson
+        const mappingMessage = {
+            output: PERSON_DISTINCT_IDS_OUTPUT,
+            value: Buffer.from('{}'),
+        }
+        const tx = { addDistinctId: jest.fn().mockResolvedValue([mappingMessage]) }
+        const store = {
+            fetchForUpdate: jest
+                .fn()
+                .mockImplementation((_teamId: number, distinctId: string) =>
+                    Promise.resolve(distinctId === 'd' ? existingPerson : null)
+                ),
+            inTransaction: jest
+                .fn()
+                .mockImplementation(async (_description: string, body: (tx: unknown) => Promise<unknown>) => {
+                    const result = await body(tx)
+                    order.push('commit')
+                    return result
+                }),
+        }
+        const merge = buildSingleSourceMerge(store, new UUIDT().toString())
+
+        const result = await merge.execute()
+
+        expect(order).toEqual(['commit', 'produce'])
+        expect(mockOutputs.produce).toHaveBeenCalledWith(
+            PERSON_DISTINCT_IDS_OUTPUT,
+            expect.objectContaining({ teamId: 2, value: mappingMessage.value })
+        )
+        expect(result.results).toEqual([{ sourceDistinctId: 'anon', outcome: 'attached' }])
+        await expect(result.kafkaAck).resolves.toBeUndefined()
+    })
+
+    // Same contract as the one-exists case: createPerson returns its messages and the
+    // branch produces after commit, so the creation transaction never spans Kafka.
+    it('a neither-exists merge produces the creation messages after the transaction', async () => {
+        const order: string[] = []
+        mockOutputs = {
+            produce: jest.fn().mockImplementation(() => {
+                order.push('produce')
+                return Promise.resolve()
+            }),
+        }
+        const createdPerson = { id: 'p1', uuid: targetPerson.uuid, team_id: 2, is_identified: true } as InternalPerson
+        const creationMessage = {
+            output: PERSON_DISTINCT_IDS_OUTPUT,
+            value: Buffer.from('{}'),
+        }
+        const tx = {
+            createPerson: jest.fn().mockResolvedValue({
+                success: true,
+                person: createdPerson,
+                created: true,
+                messages: [creationMessage],
+            }),
+        }
+        const store = {
+            fetchForUpdate: jest.fn().mockResolvedValue(null),
+            inTransaction: jest
+                .fn()
+                .mockImplementation(async (_description: string, body: (tx: unknown) => Promise<unknown>) => {
+                    const result = await body(tx)
+                    order.push('commit')
+                    return result
+                }),
+        }
+        const merge = buildSingleSourceMerge(store, new UUIDT().toString())
+
+        const result = await merge.execute()
+
+        expect(order).toEqual(['commit', 'produce'])
+        expect(mockOutputs.produce).toHaveBeenCalledWith(
+            PERSON_DISTINCT_IDS_OUTPUT,
+            expect.objectContaining({ teamId: 2, value: creationMessage.value })
+        )
+        expect(result.results).toEqual([{ sourceDistinctId: 'anon', outcome: 'attached' }])
+        await expect(result.kafkaAck).resolves.toBeUndefined()
+    })
+
+    // Both directions matter: never emitting loses the healing, and emitting on every
+    // duplicate $identify floods the topic and keeps the overrides table from converging.
+    it('an already-satisfied merge re-emits the committed mappings once per debounce window', async () => {
+        mockOutputs = { produce: jest.fn().mockResolvedValue(undefined) }
+        const person = { id: 'p1', uuid: targetPerson.uuid, team_id: 2 } as unknown as InternalPerson
+        const mapping = {
+            distinctId: 'anon',
+            message: { output: PERSON_DISTINCT_IDS_OUTPUT, value: Buffer.from('{"version":1}') },
+        }
+        const store = {
+            fetchForUpdate: jest.fn().mockResolvedValue(person),
+            fetchPersonDistinctIdMappings: jest.fn().mockResolvedValue([mapping]),
+        }
+        const debounce = new MergeMappingDebounce(100, 60_000)
+
+        const cold = await buildSingleSourceMerge(store, new UUIDT().toString(), {
+            noopMappingDebounce: debounce,
+        }).execute()
+        await cold.kafkaAck
+
+        expect(cold.results[0].outcome).toBe('noop_same_person')
+        expect(store.fetchPersonDistinctIdMappings).toHaveBeenCalledWith(2, ['anon', 'd'])
+        expect(mockOutputs.produce).toHaveBeenCalledTimes(1)
+        expect(mockOutputs.produce).toHaveBeenCalledWith(
+            PERSON_DISTINCT_IDS_OUTPUT,
+            expect.objectContaining({ teamId: 2, value: mapping.message.value })
+        )
+
+        const warm = await buildSingleSourceMerge(store, new UUIDT().toString(), {
+            noopMappingDebounce: debounce,
+        }).execute()
+        await warm.kafkaAck
+
+        expect(store.fetchPersonDistinctIdMappings).toHaveBeenCalledTimes(1)
+        expect(mockOutputs.produce).toHaveBeenCalledTimes(1)
+    })
+
+    function buildSingleSourceMerge(
+        store: object,
+        eventUuid: string,
+        policyOverrides: Partial<PostgresMergePolicy> = {}
+    ): PostgresPersonMerge {
         const request: MergePersonsRequest = {
             teamId: 2,
             targetDistinctId: 'd',
@@ -153,6 +289,7 @@ describe('PostgresPersonMerge merge events', () => {
                 updateAllProperties: false,
                 isTombstoneTeam: () => false,
                 mergeEvents: { enabled: false, partitionCount: 64, isTeamEnabled: () => false },
+                ...policyOverrides,
             },
             request,
             0

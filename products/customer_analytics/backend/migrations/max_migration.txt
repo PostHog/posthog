@@ -1,1 +1,1 @@
-0051_squash_2026_09_07_schema_addons
+0060_teamcustomeranalyticsconfig_default_pinned_properties

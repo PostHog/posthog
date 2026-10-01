@@ -10,6 +10,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     AlertApi,
+    AlertCreateDestinationApi,
+    AlertDeleteDestinationApi,
+    AlertDestinationResponseApi,
     AlertSimulateApi,
     AlertSimulateResponseApi,
     AlertTestDeliveryResponseApi,
@@ -17,8 +20,11 @@ import type {
     AlertsRetrieveParams,
     InsightsThresholdsListParams,
     PaginatedAlertListApi,
+    PaginatedPlatformAlertConfigurationListApi,
     PaginatedThresholdWithAlertListApi,
     PatchedAlertApi,
+    PlatformAlertConfigurationApi,
+    PlatformAlertsListParams,
     ThresholdWithAlertApi,
 } from './api.schemas'
 
@@ -158,6 +164,48 @@ export const alertsDestroy = async (projectId: string, id: string, options?: Req
     })
 }
 
+export const getAlertsDestinationsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/alerts/${id}/destinations/`
+}
+
+/**
+ * Send this alert to a Slack channel as well as by email. The workspace must already be connected to the project. The returned IDs identify the destination.
+ */
+export const alertsDestinationsCreate = async (
+    projectId: string,
+    id: string,
+    alertCreateDestinationApi: AlertCreateDestinationApi,
+    options?: RequestInit
+): Promise<AlertDestinationResponseApi> => {
+    return apiMutator<AlertDestinationResponseApi>(getAlertsDestinationsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(alertCreateDestinationApi),
+    })
+}
+
+export const getAlertsDestinationsDeleteCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/alerts/${id}/destinations/delete/`
+}
+
+/**
+ * Stop sending this alert to a destination. The alert keeps its email recipients.
+ */
+export const alertsDestinationsDeleteCreate = async (
+    projectId: string,
+    id: string,
+    alertDeleteDestinationApi: AlertDeleteDestinationApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getAlertsDestinationsDeleteCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(alertDeleteDestinationApi),
+    })
+}
+
 export const getAlertsTestDeliveryCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/alerts/${id}/test-delivery/`
 }
@@ -181,7 +229,7 @@ export const getAlertsSimulateCreateUrl = (projectId: string) => {
 }
 
 /**
- * Simulate a detector on an insight's historical data. Read-only — no AlertCheck records are created.
+ * Simulate a detector on an insight's historical data. No AlertCheck records are created. The AI detector makes a real model call, so that mode needs the 'alert:write' scope.
  */
 export const alertsSimulateCreate = async (
     projectId: string,
@@ -239,6 +287,48 @@ export const insightsThresholdsRetrieve = async (
     options?: RequestInit
 ): Promise<ThresholdWithAlertApi> => {
     return apiMutator<ThresholdWithAlertApi>(getInsightsThresholdsRetrieveUrl(projectId, insightId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getPlatformAlertsListUrl = (projectId: string, params?: PlatformAlertsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/platform_alerts/?${stringifiedParams}`
+        : `/api/projects/${projectId}/platform_alerts/`
+}
+
+export const platformAlertsList = async (
+    projectId: string,
+    params?: PlatformAlertsListParams,
+    options?: RequestInit
+): Promise<PaginatedPlatformAlertConfigurationListApi> => {
+    return apiMutator<PaginatedPlatformAlertConfigurationListApi>(getPlatformAlertsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getPlatformAlertsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/platform_alerts/${id}/`
+}
+
+export const platformAlertsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<PlatformAlertConfigurationApi> => {
+    return apiMutator<PlatformAlertConfigurationApi>(getPlatformAlertsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })

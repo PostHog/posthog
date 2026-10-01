@@ -2,9 +2,11 @@ from posthog.api import sharing
 from posthog.api.routing import RouterRegistry
 
 from products.notebooks.backend.presentation.views.notebook import NotebookViewSet
+from products.notebooks.backend.presentation.views.reusable_widget import ReusableWidgetViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:
+    routers.projects.register(r"notebook_widgets", ReusableWidgetViewSet, "project_reusable_widgets", ["project_id"])
     project_notebooks_router = routers.projects.register(
         r"notebooks", NotebookViewSet, "project_notebooks", ["project_id"]
     )

@@ -52,11 +52,19 @@ class SandboxedEvalCase(BaseEvalCase):
     repo_fixture: str = ""
     """Name of the repo fixture (informational, for tracking)."""
 
+    disable_bundled_skills: bool = False
+    """Remove skills baked into the sandbox image for this case.
+
+    Use this when the behavior under evaluation is a separate skill delivery
+    path, so native agent skill discovery cannot satisfy the task by accident.
+    Exec skill-delivery mode applies the same behavior to every case.
+    """
+
     interaction_origin: str | None = None
     """Surface to run the case as (e.g. ``"slack"``), for suites grading behavior that only
     exists on one surface. The agent server branches its system prompt on this, so setting it
-    is what makes a case exercise the real prompt instead of a copy. ``None`` runs the case
-    like a plain task, which is what every non-surface-specific suite wants."""
+    is what makes a case exercise the real prompt instead of a copy. ``None`` uses the ``eval``
+    origin in exec skill-delivery mode and leaves the origin unset in bundled mode."""
 
     setup: Callable[[CustomPromptSandboxContext], dict[str, Any]] | None = Field(
         default=None,
