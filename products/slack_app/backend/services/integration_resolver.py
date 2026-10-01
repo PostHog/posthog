@@ -33,7 +33,11 @@ UserResolutionFailure = Literal["user_not_found", "no_team_access"]
 
 
 def user_resolution_failure_reply(
-    failure_reason: UserResolutionFailure | None, *, slack_email: str | None, linking_available: bool = False
+    failure_reason: UserResolutionFailure | None,
+    *,
+    slack_email: str | None,
+    linking_available: bool = False,
+    home_tab_url: str | None = None,
 ) -> str | None:
     """Map a ``UserAndIntegrationsResolution.failure_reason`` to the user-facing
     text, mentioning ``slack_email`` when known so the user sees which address
@@ -47,12 +51,21 @@ def user_resolution_failure_reply(
     PostHog user. When it can, the reply points to linking first: an invite only
     works for the exact email it was sent to, so it can't help a user whose
     existing PostHog account uses a different email.
+
+    ``home_tab_url`` deep-links to the app's Home tab, which carries the same link
+    button. The reader is already in Slack, so the hint names the tab first.
     """
     if failure_reason == "user_not_found":
-        link_hint = (
-            "If you already have a PostHog account with a different email, link it to Slack in PostHog "
-            "under Settings > Personal integrations."
-        )
+        if home_tab_url:
+            link_hint = (
+                "If you already have a PostHog account with a different email, link it to Slack from "
+                f"<{home_tab_url}|my Home tab>, or in PostHog under Settings > Personal integrations."
+            )
+        else:
+            link_hint = (
+                "If you already have a PostHog account with a different email, link it to Slack in PostHog "
+                "under Settings > Personal integrations."
+            )
         if slack_email:
             prefix = (
                 f"Sorry, I couldn't find {slack_email} in any PostHog organization connected to this Slack workspace."

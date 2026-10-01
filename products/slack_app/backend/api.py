@@ -2008,7 +2008,12 @@ def _post_user_resolution_failure_reply(
     if not channel or not thread_ts or not slack_user_id:
         return False
     linking_available = is_slack_app_oauth_enabled(probe)
-    text = user_resolution_failure_reply(failure_reason, slack_email=slack_email, linking_available=linking_available)
+    text = user_resolution_failure_reply(
+        failure_reason,
+        slack_email=slack_email,
+        linking_available=linking_available,
+        home_tab_url=app_home_url(probe) if linking_available else None,
+    )
     if text is None:
         return False
     slack_client = SlackIntegration(probe)
