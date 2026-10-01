@@ -331,6 +331,7 @@ class TestPersonIdPushdown(ClickhouseTestMixin, APIBaseTest):
         end = sql.index(" AS events__person ON")
         # The last events scan before the persons alias is the semi-join. Only the window puts timestamp there.
         assert "timestamp" in sql[sql.rindex("FROM events", 0, end) : end]
+        self.assertQueryMatchesSnapshot(response.clickhouse)
 
 
 class TestPersonsV2LimitPushDown(ClickhouseTestMixin, APIBaseTest):
