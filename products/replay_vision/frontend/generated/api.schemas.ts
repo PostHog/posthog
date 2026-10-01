@@ -688,6 +688,16 @@ export interface ScannerResultApi {
     signals_count: number
     /** Extra draws taken to verify a monitor `yes` verdict. Null when the scan did not verify one. */
     verification: VerificationRecordApi | null
+    /**
+     * Experiment scanners only: the variant the exposure data attributes this session's person to. Null on the other types and on rows scanned before variant attribution shipped.
+     * @nullable
+     */
+    experiment_variant?: string | null
+    /**
+     * Experiment scanners only: the scanned session's duration in seconds.
+     * @nullable
+     */
+    session_duration_s?: number | null
 }
 
 /**
@@ -781,7 +791,7 @@ export interface ReplayObservationApi {
      * * `failed` - Failed
      * * `ineligible` - Ineligible */
     readonly status: ObservationStatusEnumApi
-    /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / no_snapshots / too_large. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / infra_transient / internal_error / orphaned. */
+    /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / no_snapshots / too_large / not_exposed / experiment_unresolved. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / infra_transient / internal_error / orphaned. */
     readonly error_reason: string
     /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
     readonly workflow_id: string

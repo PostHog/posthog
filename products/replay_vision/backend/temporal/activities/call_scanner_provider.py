@@ -88,6 +88,7 @@ from products.replay_vision.backend.temporal.scanners.base import (
     TextSegment,
 )
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierScanner
+from products.replay_vision.backend.temporal.scanners.experiment import ExperimentScanner
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorLlmResponse, MonitorScanner
 from products.replay_vision.backend.temporal.state import load_scanner_llm_inputs, load_session_network
 from products.replay_vision.backend.temporal.types import (
@@ -197,6 +198,7 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
         )
     scanner: BaseScanner = scanner_from_snapshot(snapshot)
     scanner = await _inject_known_freeform_tags(scanner, inputs)
+    scanner = _apply_experiment_scan_context(scanner, inputs)
     video_clock = await sync_to_async(_load_video_clock)(
         inputs.team_id, inputs.exported_asset_id, llm_inputs.metadata.duration_seconds
     )
@@ -430,6 +432,20 @@ def _is_taglike(slug: str) -> bool:
     return (
         0 < len(slug) <= _KNOWN_FREEFORM_TAG_MAX_LENGTH
         and len(re.split(r"[_-]", slug)) <= _KNOWN_FREEFORM_TAG_MAX_WORDS
+    )
+
+
+def _apply_experiment_scan_context(scanner: BaseScanner, inputs: CallScannerProviderInputs) -> BaseScanner:
+    """Give an experiment scanner the variant and experiment description the workflow resolved.
+
+    Scan-time context, never persisted (see `ExperimentScanner`). A no-op for the other types and
+    for histories from before variant attribution shipped, whose inputs carry neither field."""
+    if not isinstance(scanner, ExperimentScanner):
+        return scanner
+    if inputs.experiment_variant is None and inputs.experiment_context is None:
+        return scanner
+    return scanner.model_copy(
+        update={"experiment_context": inputs.experiment_context, "session_variant": inputs.experiment_variant}
     )
 
 

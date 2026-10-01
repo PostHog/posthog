@@ -73,7 +73,7 @@ from products.replay_vision.backend.temporal.sweep_types import (
     InFlightApplyCounts,
     SweepScannerInputs,
 )
-from products.replay_vision.backend.tests.helpers import seed_scanner_spend, snapshot_for
+from products.replay_vision.backend.tests.helpers import create_experiment, seed_scanner_spend, snapshot_for
 
 # Every scanner built below runs on this model, so its price sets what one observation draws.
 _OBSERVATION_CREDITS = observation_credits_for_model(ScannerModel.GEMINI_3_8_FLASH)
@@ -171,6 +171,48 @@ class TestFindScannerCandidatesActivity:
     def test_returns_empty_when_scanner_missing(self) -> None:
         result = find_scanner_candidates_activity(FindScannerCandidatesInputs(scanner_id=uuid.uuid4(), team_id=999))
         assert result == FindScannerCandidatesOutput(candidates=[], saturated=False)
+
+    @parameterized.expand([("ended",), ("archived",), ("deleted",)])
+    def test_disables_a_scanner_whose_experiment_is_over(self, state: str) -> None:
+        # An experiment that is over produces no new exposures worth billing for, so the sweep must
+        # turn the scanner off rather than keep spending its ticks on an empty population.
+        scanner = _make_scanner(scanner_type=ScannerType.EXPERIMENT)
+        experiment = create_experiment(scanner.team, "over-flag", launched=True, variants=["control", "test"])
+        scanner.scanner_config = {"prompt": "p", "experiment_id": experiment.id}
+        scanner.save()
+        if state == "ended":
+            experiment.end_date = timezone.now()
+        elif state == "archived":
+            experiment.archived = True
+        else:
+            experiment.deleted = True
+        experiment.save()
+
+        result = find_scanner_candidates_activity(
+            FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+        )
+
+        assert result.candidates == []
+        scanner.refresh_from_db()
+        assert scanner.enabled is False
+
+    def test_a_paused_experiment_keeps_its_scanner_sweeping(self) -> None:
+        # Pausing turns the flag off temporarily; the experiment resumes without a lifecycle
+        # change, so the sweep must not disable the scanner over it.
+        scanner = _make_scanner(scanner_type=ScannerType.EXPERIMENT)
+        experiment = create_experiment(scanner.team, "paused-flag", launched=True, variants=["control", "test"])
+        experiment.feature_flag.active = False
+        experiment.feature_flag.save()
+        scanner.scanner_config = {"prompt": "p", "experiment_id": experiment.id}
+        scanner.save()
+
+        with _patched_queries():
+            find_scanner_candidates_activity(
+                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+            )
+
+        scanner.refresh_from_db()
+        assert scanner.enabled is True
 
     def test_returns_empty_when_scanner_belongs_to_other_team(self) -> None:
         scanner = _make_scanner()

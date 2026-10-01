@@ -1440,6 +1440,29 @@ class TestObservationStateActivities:
 
 @pytest.mark.django_db(transaction=True)
 class TestEmitObservationEventActivity:
+    def test_experiment_scanner_event_carries_experiment_and_variant(self) -> None:
+        # HogQL readouts group `$recording_observed` by these two properties instead of joining
+        # the exposure data; dropping either silently empties every per-variant chart.
+        from products.replay_vision.backend.temporal.scanners.experiment import ExperimentOutput
+
+        scanner = _make_scanner(
+            scanner_type=ScannerType.EXPERIMENT, scanner_config={"prompt": "p", "experiment_id": 42}
+        )
+        observation = _make_observation(scanner, scanner_result={"experiment_variant": "test"})
+        inputs = EmitObservationEventInputs(
+            observation_id=observation.id,
+            model_output=ExperimentOutput(title="t", summary="s", confidence=0.9),
+        )
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.emit_observation_event.capture_internal"
+        ) as capture:
+            _emit_event(inputs)
+
+        properties = capture.call_args.kwargs["properties"]
+        assert properties["experiment_id"] == 42
+        assert properties["experiment_variant"] == "test"
+
     def test_event_prices_credits_from_the_frozen_snapshot(self) -> None:
         # The spend chart sums this property; dropping or mispricing it silently flatlines the chart.
         scanner = _make_scanner()

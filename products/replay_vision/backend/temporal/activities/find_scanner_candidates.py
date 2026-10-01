@@ -67,6 +67,30 @@ class _DeepProgress:
     seen_session_id: str = ""
 
 
+def _experiment_lifecycle_block(scanner: ReplayScanner) -> str | None:
+    """Why this scanner's experiment can no longer be watched: 'deleted', 'archived', or 'ended'.
+
+    None when the scanner watches no experiment or the experiment is still active. A paused
+    experiment stays watchable: it resumes without a lifecycle change (see ExperimentStatus).
+    """
+    scope = scanner.experiment_scope()
+    experiment_id = (scope or {}).get("experiment_id")
+    if experiment_id is None:
+        return None
+    # Deferred: the experiments replay facade pulls in the recordings query modules, which circle
+    # back into this package's importers.
+    from products.experiments.backend.facade.replay import experiment_status  # noqa: PLC0415
+
+    status = experiment_status(scanner.team, experiment_id=experiment_id)
+    if status is None:
+        return "deleted"
+    if status.archived:
+        return "archived"
+    if status.end_date is not None:
+        return "ended"
+    return None
+
+
 def _seconds_left(started_at: float) -> float:
     """What the activity has left of its own timeout, which both ClickHouse budgets are carved from."""
     return FIND_SCANNER_CANDIDATES_TIMEOUT.total_seconds() - (time.monotonic() - started_at)
@@ -88,6 +112,21 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
     if scanner.created_by is not None and not UserAccessControl(
         user=scanner.created_by, team=scanner.team
     ).check_access_level_for_resource("session_recording", required_level="viewer"):
+        return FindScannerCandidatesOutput(candidates=[], saturated=False)
+
+    lifecycle_block = _experiment_lifecycle_block(scanner)
+    if lifecycle_block is not None:
+        # An experiment that is over produces no new exposures worth spending credits on, and a
+        # deleted one can't resolve a population at all. Disable rather than skip, so the
+        # reconciler drops the schedule and the owner sees the scanner off instead of silently idle.
+        scanner.enabled = False
+        scanner.save(update_fields=["enabled"])
+        record_sweep_outcome("experiment_over")
+        activity.logger.info(
+            "replay_vision.sweep.disabled_experiment_scanner scanner_id=%s reason=%s",
+            inputs.scanner_id,
+            lifecycle_block,
+        )
         return FindScannerCandidatesOutput(candidates=[], saturated=False)
 
     try:
