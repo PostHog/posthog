@@ -2,12 +2,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiClient, type Result } from '@/api/client'
 import {
+    findRecoverableApiError,
     handleToolError,
     parseRetryAfterSeconds,
     PostHogApiError,
     PostHogRateLimitError,
     wrapError,
 } from '@/lib/errors'
+import { getLLMCostsHandler } from '@/tools/aiObservability/getLLMCosts'
+import { parserRecipeCreateHandler } from '@/tools/aiObservability/parserRecipeCreate'
+import { queryHandler } from '@/tools/insights/query'
+import { getProjectsHandler } from '@/tools/projects/getProjects'
+import { updateEventDefinitionHandler } from '@/tools/projects/updateEventDefinition'
+import { updatePathCleaningHandler } from '@/tools/projects/updatePathCleaning'
+import { updatePropertyDefinitionHandler } from '@/tools/projects/updatePropertyDefinition'
+import type { Context } from '@/tools/types'
 
 const captureException = vi.fn()
 vi.mock('@/lib/posthog', () => ({
@@ -207,6 +216,104 @@ describe('outbound 503 retry hints', () => {
         vi.useRealTimers()
         vi.restoreAllMocks()
         vi.unstubAllGlobals()
+    })
+
+    async function unwrapResult(resultPromise: Promise<Result<unknown>>): Promise<unknown> {
+        const result = await resultPromise
+        if (!result.success) {
+            throw result.error
+        }
+        return result.data
+    }
+
+    it.each<{
+        name: string
+        request: (context: Context) => Promise<unknown>
+        precedingResponses?: unknown[]
+    }>([
+        {
+            name: 'property definitions list',
+            request: ({ api }) => unwrapResult(api.projects().propertyDefinitions({ projectId: '123' })),
+        },
+        {
+            name: 'event definitions list',
+            request: ({ api }) => unwrapResult(api.projects().eventDefinitions({ projectId: '123' })),
+        },
+        {
+            name: 'insight delete',
+            request: ({ api }) => unwrapResult(api.insights({ projectId: '123' }).delete({ insightId: 456 })),
+        },
+        ...[false, true].flatMap((duringUpdate) => [
+            {
+                name: `event definition ${duringUpdate ? 'update' : 'lookup'}`,
+                request: (context: Context) =>
+                    updateEventDefinitionHandler(context, { eventName: 'test_event', data: { description: 'Test' } }),
+                precedingResponses: duringUpdate ? [{ id: 'event-id', name: 'test_event' }] : [],
+            },
+            {
+                name: `property definition ${duringUpdate ? 'update' : 'lookup'}`,
+                request: (context: Context) =>
+                    updatePropertyDefinitionHandler(context, {
+                        propertyName: 'test_property',
+                        type: 'event',
+                        data: { description: 'Test' },
+                    }),
+                precedingResponses: duringUpdate ? [{ results: [{ id: 'property-id', name: 'test_property' }] }] : [],
+            },
+            {
+                name: `insight ${duringUpdate ? 'query' : 'lookup'}`,
+                request: (context: Context) => queryHandler(context, { insightId: '456', output_format: 'json' }),
+                precedingResponses: duringUpdate ? [{ id: 456, query: { kind: 'HogQLQuery', query: 'SELECT 1' } }] : [],
+            },
+            {
+                name: `path cleaning ${duringUpdate ? 'update' : 'lookup'}`,
+                request: (context: Context) =>
+                    updatePathCleaningHandler(context, {
+                        operations: [{ action: 'append', alias: '/items/id', regex: '^/items/[0-9]+$' }],
+                        confirm: true,
+                    }),
+                precedingResponses: duringUpdate ? [{ path_cleaning_filters: [] }] : [],
+            },
+        ]),
+        { name: 'group types', request: ({ api }) => api.getGroupTypes('123') },
+        { name: 'gateway tools', request: ({ api }) => api.getGatewayTools('123') },
+        { name: 'project discovery', request: (context) => getProjectsHandler(context, {}) },
+        { name: 'LLM costs', request: (context) => getLLMCostsHandler(context, {}) },
+        {
+            name: 'parser recipe trace',
+            request: (context) =>
+                parserRecipeCreateHandler(context, {
+                    name: 'Test recipe',
+                    yaml_source: 'test: true',
+                    trace_id: 'test-trace',
+                    event_uuid: 'test-event',
+                }),
+        },
+    ])('preserves the cooldown through the $name path', async ({ request, precedingResponses = [] }) => {
+        const mockFetch = vi.fn()
+        for (const response of precedingResponses) {
+            mockFetch.mockResolvedValueOnce(new Response(JSON.stringify(response), { status: 200 }))
+        }
+        mockFetch.mockResolvedValueOnce(
+            new Response('Temporarily unavailable', { status: 503, headers: { 'Retry-After': '45' } })
+        )
+        vi.stubGlobal('fetch', mockFetch)
+        const context = {
+            api: new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://example.com' }),
+            stateManager: { getProjectId: async () => '123', getOrgID: async () => 'test-org' },
+        } as unknown as Context
+
+        const error = await request(context).catch((error: unknown) => error)
+
+        expect(findRecoverableApiError(error)).toMatchObject({ status: 503, retryAfterSeconds: 45 })
+        const result = handleToolError(error, 'test-tool')
+        expect(result.isError).toBe(true)
+        expect(result.content[0]).toMatchObject({
+            type: 'text',
+            text: expect.stringContaining('Wait at least 45 seconds'),
+        })
+        expect(mockFetch).toHaveBeenCalledTimes(precedingResponses.length + 1)
+        expect(vi.getTimerCount()).toBe(0)
     })
 
     it.each([

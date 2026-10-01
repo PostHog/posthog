@@ -2,6 +2,7 @@ import { z } from 'zod'
 
 import { mergeRecipes, RecipeNormalizer, type StoredRecipe, validateRecipeAgainstSample } from '@posthog/llm-normalizer'
 
+import { wrapError } from '@/lib/errors'
 import { getPostHogClient } from '@/lib/posthog'
 import type { Context, ToolBase } from '@/tools/types'
 
@@ -88,7 +89,7 @@ export const parserRecipeCreateHandler: ToolBase<typeof schema, ParserRecipeCrea
         .execute({ queryBody: { kind: 'TraceQuery', traceId: params.trace_id, dateRange: { date_from: dateFrom } } })
     if (!traceResult.success) {
         // Infra failures are exceptions; validation failures are results.
-        throw new Error(`Failed to load trace ${params.trace_id}: ${traceResult.error.message}`)
+        throw wrapError(`Failed to load trace ${params.trace_id}: ${traceResult.error.message}`, traceResult.error)
     }
 
     const traces = (traceResult.data.results ?? []) as Trace[]
