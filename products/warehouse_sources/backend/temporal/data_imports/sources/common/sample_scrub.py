@@ -49,6 +49,11 @@ REDACT_FIELD_NAMES: frozenset[str] = frozenset(
         # either grants terminal access, so keep them out of captured HTTP samples too.
         "jupyter_token",
         "jupyter_url",
+        # Smartlead's email-accounts endpoint returns mailbox SMTP/IMAP credentials under this
+        # key; `password` above already covers the SMTP field, but the IMAP one has a distinct
+        # name and would otherwise reach captured samples raw (the source's own `redact_fields`
+        # strips it from synced rows, but that runs after, not before, sample capture).
+        "imap_password",
     }
 )
 

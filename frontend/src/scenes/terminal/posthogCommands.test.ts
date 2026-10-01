@@ -1,5 +1,8 @@
 import { waitFor } from '@testing-library/react'
 
+import { ApiRequest } from 'lib/api'
+import { teamLogic } from 'scenes/teamLogic'
+
 import { fileSystemList } from '~/generated/core/api'
 import type { FileSystemApi } from '~/generated/core/api.schemas'
 import { performQuery } from '~/queries/query'
@@ -57,21 +60,180 @@ describe('PostHog terminal commands', () => {
         ['--markdown', '| answer |\n| --- |\n| 42 |'],
         ['--csv', 'answer\n42'],
         ['--tsv', 'answer\n42'],
-        ['--json', { columns: ['answer'], results: [[42]], types: ['Int64'], hasMore: true }],
-    ])('runs local SQL with %s output', async (format, expected) => {
+        [
+            '--json',
+            {
+                columns: ['answer'],
+                results: [[42]],
+                types: ['Int64'],
+                hasMore: true,
+                warnings: [{ type: 'access_control', resources: ['insight'], message: 'Some insights are excluded.' }],
+            },
+        ],
+    ])('runs SQL from files and hogql with %s output', async (format, expected) => {
         jest.mocked(performQuery).mockResolvedValue({
             columns: ['answer'],
             results: [[42]],
             types: ['Int64'],
             hasMore: true,
+            warnings: [{ type: 'access_control', resources: ['insight'], message: 'Some insights are excluded.' }],
         })
-        expect(await commands.execute(['run', '/tmp/report.sql', 'select 42 as answer', format], cwd)).toEqual(expected)
+        const onWarning = jest.fn()
+        expect(
+            await commands.execute(['run', '/tmp/report.sql', 'select 42 as answer', format], cwd, { onWarning })
+        ).toEqual(expected)
+        expect(
+            await commands.execute(
+                ['hogql', '--json', JSON.stringify({ query: 'select 42 as answer', argv: [format] })],
+                cwd,
+                { onWarning }
+            )
+        ).toEqual(expected)
+        expect(onWarning.mock.calls).toEqual([['Some insights are excluded.'], ['Some insights are excluded.']])
         expect(performQuery).toHaveBeenCalledWith(
             expect.objectContaining({ kind: 'HogQLQuery', query: 'select 42 as answer' }),
             expect.objectContaining({ signal: expect.any(AbortSignal) }),
-            'force_blocking'
+            'force_blocking',
+            expect.any(String)
         )
     })
+
+    it.each(['--markdown', '--csv', '--tsv'])(
+        'fails hogql %s output when a debug query returns an error',
+        async (format) => {
+            jest.mocked(performQuery).mockResolvedValue({ columns: [], results: [], error: 'Unknown table missing' })
+            const request = { query: 'select * from missing', argv: [format, '--modifiers', '{"debug":true}'] }
+            await expect(commands.execute(['hogql', '--json', JSON.stringify(request)], cwd)).rejects.toThrow(
+                'Unknown table missing'
+            )
+        }
+    )
+
+    it('passes connection options and JSON fields without changing the SQL or losing response metadata', async () => {
+        const result = {
+            columns: ['answer'],
+            results: [[42]],
+            hasMore: false,
+            explain: ['Query plan'],
+            timings: { total: 1 },
+        }
+        jest.mocked(performQuery).mockResolvedValue(result)
+        const query = 'select {value} as answer'
+        const argv = [
+            '--connection-id',
+            'example-connection',
+            '--raw',
+            '--name',
+            'Example query',
+            '--values',
+            '{"value":42}',
+            '--filters',
+            '{"dateRange":{"date_from":"-7d"}}',
+            '--variables',
+            '{}',
+            '--modifiers',
+            '{"timings":true}',
+            '--field',
+            'explain=true',
+            '--json',
+        ]
+        expect(await commands.execute(['hogql', '--json', JSON.stringify({ query, argv })], cwd)).toEqual(result)
+        expect(performQuery).toHaveBeenCalledWith(
+            {
+                kind: 'HogQLQuery',
+                query,
+                connectionId: 'example-connection',
+                sendRawQuery: true,
+                name: 'Example query',
+                values: { value: 42 },
+                filters: { dateRange: { date_from: '-7d' } },
+                variables: {},
+                modifiers: { timings: true },
+                explain: true,
+                tags: { productKey: 'sql_editor', scene: 'Terminal' },
+            },
+            expect.objectContaining({ signal: expect.any(AbortSignal) }),
+            'force_blocking',
+            expect.any(String)
+        )
+    })
+
+    it.each([
+        ['', [], 'query is empty'],
+        ['select 1', ['--json', '--csv'], 'Choose one output format'],
+        ['select 1', ['--connection-id'], 'Missing value'],
+        ['select 1', ['--values', '{'], 'Invalid JSON'],
+        ['select 1', ['--filters', '[]'], 'requires a JSON object'],
+        ['select 1', ['--field', 'kind="HogQuery"'], 'other than kind or query'],
+        ['select 1', ['--field', 'query="select 2"'], 'other than kind or query'],
+        ['select 1', ['--raw'], 'Raw SQL requires --connection-id'],
+        ['select 1', ['--field', 'sendRawQuery=true'], 'Raw SQL requires --connection-id'],
+        ['select 1', ['--unknown'], 'Unknown option'],
+    ])('rejects invalid hogql input %j %j before executing a query', async (query, argv, message) => {
+        await expect(commands.execute(['hogql', '--json', JSON.stringify({ query, argv })], cwd)).rejects.toThrow(
+            message
+        )
+        expect(performQuery).not.toHaveBeenCalled()
+    })
+
+    it.each(['stopped', 'changed project'])('blocks hogql after the terminal has %s', async (state) => {
+        const controller = new AbortController()
+        commands = new PosthogCommands('42', controller.signal, filesystem, navigate)
+        if (state === 'stopped') {
+            controller.abort()
+        } else {
+            teamLogic.values.currentTeamId = 43
+        }
+        try {
+            await expect(
+                commands.execute(['hogql', '--json', JSON.stringify({ query: 'select 1', argv: [] })], cwd)
+            ).rejects.toThrow('current project changed')
+            expect(performQuery).not.toHaveBeenCalled()
+        } finally {
+            teamLogic.values.currentTeamId = 42
+        }
+    })
+
+    it.each(['command', 'terminal'])(
+        'cancels the server query in its original project when the %s stops',
+        async (source) => {
+            const terminal = new AbortController()
+            const command = new AbortController()
+            commands = new PosthogCommands('42', terminal.signal, filesystem, navigate)
+            const cancel = jest.spyOn(ApiRequest.prototype, 'queryCancel')
+            const remove = jest.spyOn(ApiRequest.prototype, 'delete').mockResolvedValue(undefined)
+            let queryStarted!: () => void
+            const started = new Promise<void>((resolve) => {
+                queryStarted = resolve
+            })
+            jest.mocked(performQuery).mockImplementation(async (_query, options) => {
+                queryStarted()
+                return await new Promise((_resolve, reject) =>
+                    options!.signal!.addEventListener('abort', () => reject(new Error('Query cancelled')), {
+                        once: true,
+                    })
+                )
+            })
+            try {
+                const result = commands
+                    .execute(['hogql', '--json', JSON.stringify({ query: 'select 1', argv: [] })], cwd, {
+                        signal: command.signal,
+                    })
+                    .catch((error: unknown) => error)
+                await started
+                const queryId = jest.mocked(performQuery).mock.calls[0][3]
+                teamLogic.values.currentTeamId = 43
+                ;(source === 'command' ? command : terminal).abort()
+                expect(await result).toEqual(new Error('Query cancelled'))
+                expect(cancel).toHaveBeenCalledWith(queryId, 42)
+                expect(remove).toHaveBeenCalledTimes(1)
+            } finally {
+                teamLogic.values.currentTeamId = 42
+                cancel.mockRestore()
+                remove.mockRestore()
+            }
+        }
+    )
 
     it.each(['--csv', '--tsv'])(
         'escapes spreadsheet formulas in %s exports while preserving numbers',
@@ -107,6 +269,8 @@ describe('PostHog terminal commands', () => {
             '--json'
         )
         expect(await commands.execute(['_complete', '3', '', '--json', 'notebook-create'], cwd)).toBe('')
+        expect(await commands.execute(['_complete', '2', 'hog', 'help', 'help'], cwd)).toBe('hogql')
+        expect(await commands.execute(['_complete', '2', '--con', 'hogql', 'hogql'], cwd)).toBe('--connection-id')
         for (const command of ['help', 'tools', 'refresh', 'open']) {
             expect(await commands.execute(['_complete', '2', '--', command, command], cwd)).toBe('')
         }
@@ -117,6 +281,8 @@ describe('PostHog terminal commands', () => {
     it.each([
         ['notebook-delete', 'shortnote'],
         ['notebook-update', 'shortnote', '--deleted'],
+        ['notebook-update', 'shortnote', '--title', 'Updated'],
+        ['notebook-create', '--title', 'New notebook'],
         ['example/echo', '--text', 'hello'],
     ])('blocks %s until the user approves its exact arguments', async (...argv) => {
         let answer!: (approved: boolean) => void
@@ -130,10 +296,12 @@ describe('PostHog terminal commands', () => {
         const outcome = operation.catch((error: Error) => error)
         await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1))
         expect(notebooksPartialUpdate).not.toHaveBeenCalled()
+        expect(notebooksCreate).not.toHaveBeenCalled()
         expect(mcpServerInstallationsCallToolCreate).not.toHaveBeenCalled()
         answer(false)
         await expect(outcome).resolves.toEqual(expect.objectContaining({ message: 'Canceled. No changes made.' }))
         expect(notebooksPartialUpdate).not.toHaveBeenCalled()
+        expect(notebooksCreate).not.toHaveBeenCalled()
         expect(mcpServerInstallationsCallToolCreate).not.toHaveBeenCalled()
     })
 
@@ -149,6 +317,7 @@ describe('PostHog terminal commands', () => {
                     ref: 'shortnote',
                     type: 'notebook',
                     path: 'Research/Notes',
+                    meta: { content_type: 'text/markdown' },
                     user_access_level: 'editor',
                 } as FileSystemApi,
             ],
@@ -214,7 +383,7 @@ describe('PostHog terminal commands', () => {
             structured_content: { echoed: true },
         })
         const signal = new AbortController().signal
-        filesystem = new PosthogFilesystem('42', signal, confirm)
+        filesystem = new PosthogFilesystem('42', signal, confirm, true)
         await filesystem.load()
         commands = new PosthogCommands('42', signal, filesystem, navigate)
     })

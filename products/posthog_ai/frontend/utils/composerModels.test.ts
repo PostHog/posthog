@@ -19,6 +19,7 @@ import {
     getRuntimeAdapterForModel,
     listRuntimeAdapters,
     modelsForRuntimeAdapter,
+    pickerModels,
 } from './composerModels'
 import { type PermissionMode } from './composerModes'
 
@@ -234,5 +235,30 @@ describe('composerModels', () => {
         expect(modelsForRuntimeAdapter(CATALOGUE, RuntimeAdapterEnumApi.Codex).map((o) => o.model)).toEqual([
             'gpt-5.6-luna',
         ])
+    })
+
+    describe('pickerModels', () => {
+        const RETIRED: ModelChoiceApi = {
+            runtime_adapter: 'claude',
+            model: 'claude-opus-4-7',
+            display_name: 'Claude Opus 4.7',
+            supported_efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
+        }
+        const FULL = [...CATALOGUE, RETIRED]
+
+        it('lists the retired model this run is on, so its name and efforts survive', () => {
+            expect(pickerModels(FULL, 'claude-opus-4-7')).toEqual(FULL)
+        })
+
+        it('resolves the run model through the same normalization the catalogue uses', () => {
+            expect(pickerModels(FULL, 'anthropic/claude-opus-4-7')).toEqual(FULL)
+        })
+
+        it.each([null, undefined, 'claude-opus-4-8', 'model-no-catalogue-knows'])(
+            'drops every retired model for %s',
+            (selected: string | null | undefined) => {
+                expect(pickerModels(FULL, selected)).toEqual(CATALOGUE)
+            }
+        )
     })
 })

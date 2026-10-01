@@ -12,6 +12,7 @@ import {
 } from '@/tools/confirmed-action-runtime'
 import {
     withPostHogUrl,
+    pickResponseFields,
     withInformationalResponse,
     omitResponseFields,
     type WithPostHogUrl,
@@ -99,7 +100,13 @@ const accountRelationshipDefinitionsList = (): ToolBase<
                 offset: params.offset,
             },
         })
-        return await withPostHogUrl(context, result, '/customer_analytics')
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, ['id', 'name', 'description', 'is_single_holder'])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/customer_analytics')
     },
 })
 
@@ -320,7 +327,18 @@ const accountsList = (): ToolBase<
                 tags: params.tags,
             },
         })
-        return await withPostHogUrl(context, result, '/customer_analytics')
+        return await withPostHogUrl(
+            context,
+            {
+                ...result,
+                results: await Promise.all(
+                    (result.results ?? []).map((item) =>
+                        withPostHogUrl(context, item, `/customer_analytics/accounts/${item.id}`)
+                    )
+                ),
+            },
+            '/customer_analytics'
+        )
     },
 })
 
@@ -843,7 +861,21 @@ const customPropertyDefinitionsList = (): ToolBase<
                 offset: params.offset,
             },
         })
-        return await withPostHogUrl(context, result, '/customer_analytics')
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, [
+                    'id',
+                    'name',
+                    'description',
+                    'display_type',
+                    'target_type',
+                    'group_type_index',
+                    'is_big_number',
+                ])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/customer_analytics')
     },
 })
 
@@ -1051,6 +1083,12 @@ const customPropertySourcesPartialUpdate = (): ToolBase<
         }
         if (params.key_column !== undefined) {
             body['key_column'] = params.key_column
+        }
+        if (params.column_property_map !== undefined) {
+            body['column_property_map'] = params.column_property_map
+        }
+        if (params.column_descriptions !== undefined) {
+            body['column_descriptions'] = params.column_descriptions
         }
         if (params.is_enabled !== undefined) {
             body['is_enabled'] = params.is_enabled
@@ -1832,7 +1870,7 @@ const FeatureRequestsPartialUpdateSchema = () => {
     const FeatureRequestsPartialUpdateParams = orvalSchemas.FeatureRequestsPartialUpdateParams()
     return FeatureRequestsPartialUpdateParams.omit({ project_id: true })
         .extend(FeatureRequestsPartialUpdateBody.shape)
-        .extend({ expected_version: FeatureRequestsPartialUpdateBody.shape['expected_version'].unwrap() })
+        .extend({ expected_version: FeatureRequestsPartialUpdateBody.shape['expected_version'].nonoptional() })
 }
 
 const featureRequestsPartialUpdate = (): ToolBase<

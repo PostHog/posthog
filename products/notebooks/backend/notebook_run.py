@@ -37,13 +37,11 @@ from products.notebooks.backend.sql_v2_metrics import (
     record_notebook_run_terminal,
 )
 from products.notebooks.backend.sql_v2_runs import finish_node_run
-from products.notebooks.backend.sql_v2_state import extract_cells
+from products.notebooks.backend.sql_v2_state import MAX_NOTEBOOK_CELLS, NotebookCellLimitExceeded, extract_cells
 from products.notebooks.backend.sql_v2_variables import build_notebook_variables
 
 logger = structlog.get_logger(__name__)
 
-# The cell kinds a run executes. A `Query` cell embeds a saved insight and a widget renders
-# a frame, so neither has code to run.
 RUNNABLE_CELL_TYPES = ("sql", "python")
 
 _NOTHING_TO_RUN = (
@@ -81,7 +79,7 @@ class NotebookRunStart:
     sandbox_hourly_price: float | None
 
 
-def plan_notebook_cells(notebook: Notebook) -> list[PlannedCell]:
+def plan_notebook_cells(notebook: Notebook, *, include_prepared_insights: bool = False) -> list[PlannedCell]:
     """The cells this run will execute, in document order, as the plan is stored.
 
     The whole cell is frozen here, code included, not just which cells run. Two reasons, and
@@ -92,18 +90,24 @@ def plan_notebook_cells(notebook: Notebook) -> list[PlannedCell]:
     check, closes that. It also makes the run reproducible — a cell edited or deleted
     mid-run still executes what the plan captured, which is what the record claims it ran.
     """
-    return [
+    plan = [
         PlannedCell(
             node_id=cell.node_id,
-            cell_type=cell.cell_type,
+            cell_type="sql" if cell.cell_type == "saved_insight" else cell.cell_type,
             dataframe_name=cell.dataframe_name,
             code=cell.code,
             connection_id=cell.connection_id,
             send_raw_query=cell.send_raw_query,
         )
         for cell in extract_cells(notebook.content)
-        if cell.cell_type in RUNNABLE_CELL_TYPES and cell.code.strip()
+        if (cell.cell_type in RUNNABLE_CELL_TYPES or (include_prepared_insights and cell.cell_type == "saved_insight"))
+        and cell.code.strip()
     ]
+    if len(plan) > MAX_NOTEBOOK_CELLS:
+        raise NotebookCellLimitExceeded(
+            f"A notebook run can execute at most {MAX_NOTEBOOK_CELLS} cells. Remove cells before running it again."
+        )
+    return plan
 
 
 def _create_notebook_run(
@@ -112,6 +116,7 @@ def _create_notebook_run(
     team: Team,
     *,
     trigger: str,
+    include_prepared_insights: bool = False,
 ) -> NotebookRunStart:
     """Create the run record for `notebook` and price the sandbox it may start.
 
@@ -119,7 +124,7 @@ def _create_notebook_run(
     matches the document a reader will compare the results against. Starting the workflow is
     the caller's last step, once the record exists.
     """
-    cell_plan = plan_notebook_cells(notebook)
+    cell_plan = plan_notebook_cells(notebook, include_prepared_insights=include_prepared_insights)
     if not cell_plan:
         raise NotebookRunNothingToRun(_NOTHING_TO_RUN)
 
@@ -168,7 +173,12 @@ class NotebookRunStarted:
 
 
 def start_notebook_run(
-    *, team_id: int, notebook_short_id: str, user_id: int | None, trigger: str
+    *,
+    team_id: int,
+    notebook_short_id: str,
+    user_id: int | None,
+    trigger: str,
+    include_prepared_insights: bool = False,
 ) -> NotebookRunStarted:
     """Create the run record for a notebook addressed by id, and price the sandbox it may start.
 
@@ -176,7 +186,13 @@ def start_notebook_run(
     `NotebookRunAlreadyRunning` when one is already in flight.
     """
     notebook = resolve_team_notebook(team_id, notebook_short_id)
-    start = _create_notebook_run(notebook, resolve_user(user_id), notebook.team, trigger=trigger)
+    start = _create_notebook_run(
+        notebook,
+        resolve_user(user_id),
+        notebook.team,
+        trigger=trigger,
+        include_prepared_insights=include_prepared_insights,
+    )
     return NotebookRunStarted(
         run_id=start.notebook_run.id,
         node_ids=[cell["node_id"] for cell in start.notebook_run.cell_plan],

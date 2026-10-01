@@ -10,6 +10,7 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     NewEventsSchemaSnapshotExtension,
     _create_event,
+    cleanup_materialized_columns,
     flush_persons_and_events,
     get_indexes_from_explain,
     materialized,
@@ -34,6 +35,8 @@ from posthog.schema import HogQLQueryModifiers, MaterializationMode
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.functions.clickhouse.json import JSON_FUNCTIONS
+from posthog.hogql.functions.udfs import JSON_DROP_KEYS_CLICKHOUSE_NAME
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.property import property_to_expr
@@ -52,10 +55,13 @@ from posthog.hogql.transforms.property_types import PropertySwapper, build_prope
 from posthog.hogql.type_system import ComparisonCompatibility
 
 from posthog.clickhouse.client import sync_execute
+from posthog.errors import ExposedCHQueryError
 from posthog.models import PropertyDefinition, Team
 from posthog.models.event.sql import EVENTS_PROPERTIES_JSON_TYPE, PERSON_PROPERTIES_JSON_TYPE
 from posthog.models.group.util import create_group
 from posthog.models.property.util import get_property_string_expr
+from posthog.property_columns import TableColumn
+from posthog.schema_enums import PropertyGroupsMode
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
@@ -78,18 +84,34 @@ def _normalize_snapshot_sql(sql: str) -> str:
 
 
 @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+@pytest.mark.usefixtures("clickhouse_database")
 class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
-    def _context(self) -> HogQLContext:
+    def _context(self, use_new_events_schema: bool | None = None) -> HogQLContext:
         team = Team(id=1, project_id=1)
-        context = HogQLContext(team_id=team.id, team=team, enable_select_queries=True)
+        context = HogQLContext(
+            team_id=team.id,
+            team=team,
+            enable_select_queries=True,
+            use_new_events_schema=use_new_events_schema,
+        )
         context.database = Database()
         context.restricted_properties = set()
         context.property_swapper = PropertySwapper("UTC", {}, {}, {}, context, True)
         return context
 
-    def _print_select(self, select: str) -> str:
+    def _print_select(
+        self,
+        select: str,
+        use_new_events_schema: bool | None = None,
+        restricted_properties: set[RestrictedProperty] | None = None,
+        property_groups_mode: PropertyGroupsMode | None = None,
+    ) -> str:
         expr = parse_select(select)
-        context = self._context()
+        context = self._context(use_new_events_schema)
+        if restricted_properties is not None:
+            context.restricted_properties = restricted_properties
+        if property_groups_mode is not None:
+            context.modifiers.propertyGroupsMode = property_groups_mode
         with patch("posthog.hogql.printer.utils.build_property_swapper"):
             query, _ = prepare_and_print_ast(
                 expr,
@@ -107,8 +129,9 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
         assert plan is not None
         return plan
 
-    def test_property_comparison_planner_does_not_depend_on_json_storage_type(self) -> None:
-        plan = self._plan_where_comparison("select count() from events where properties.$exception_types = 'TypeError'")
+    @parameterized.expand([("$active_feature_flags",), ("$exception_types",)])
+    def test_property_comparison_planner_does_not_depend_on_json_storage_type(self, property_name: str) -> None:
+        plan = self._plan_where_comparison(f"select count() from events where properties.{property_name} = 'TypeError'")
 
         assert plan.access.source.kind == PropertySourceKind.JSON
         dynamic_plan = self._plan_where_comparison(
@@ -148,20 +171,37 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
         )
         assert rows == [(None, 1, 0), (None, 1, 0), ("null", 0, 1), ("Chrome", 0, 1), ("[]", 0, 1), ("{}", 0, 1)]
 
-    @parameterized.expand([("declared", EVENTS_PROPERTIES_JSON_TYPE()), ("dynamic", "JSON")])
-    def test_numeric_casts_preserve_mixed_native_types(self, _name: str, json_type: str) -> None:
+    @parameterized.expand(
+        [
+            (
+                name,
+                json_type,
+                "toFloat(properties.$screen_height), toFloat(properties.custom), toFloat(properties.nested.score)",
+                3,
+                True,
+            )
+            for name, json_type in (("declared", EVENTS_PROPERTIES_JSON_TYPE()), ("dynamic", "JSON"))
+        ]
+        + [
+            (
+                f"{name}_indexed",
+                json_type,
+                "toFloat(properties.numbers[1]), toFloat(properties.objects[1].score)",
+                2,
+                False,
+            )
+            for name, json_type in (("declared", EVENTS_PROPERTIES_JSON_TYPE()), ("dynamic", "JSON"))
+        ]
+    )
+    def test_numeric_casts_preserve_mixed_native_types(
+        self, _name: str, json_type: str, select: str, width: int, reads_subcolumn_directly: bool
+    ) -> None:
         context = self._context()
         with patch("posthog.hogql.printer.utils.build_property_swapper"):
-            printed, _ = prepare_and_print_ast(
-                parse_select(
-                    "SELECT toFloat(properties.$screen_height), toFloat(properties.custom), "
-                    "toFloat(properties.nested.score), toFloat(properties.numbers[1]), toFloat(properties.objects[1].score) FROM events"
-                ),
-                context,
-                "clickhouse",
-            )
-        for unwanted in ("dynamicElement", "JSONExtract", "replaceRegexpAll", "toJSONString"):
-            assert unwanted not in printed, printed
+            printed, _ = prepare_and_print_ast(parse_select(f"SELECT {select} FROM events"), context, "clickhouse")
+        if reads_subcolumn_directly:
+            for unwanted in ("dynamicElement", "JSONExtract", "replaceRegexpAll", "toJSONString"):
+                assert unwanted not in printed, printed
         values = [42, 2**63, 2.5, "3.75", "invalid", None, ""]
         rows = sync_execute(
             "WITH events_json AS (SELECT 1 AS team_id, CAST(arrayJoin(%(documents)s), %(json_type)s) AS properties) "
@@ -184,13 +224,13 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
             },
         )
         assert rows == [
-            (42.0,) * 5,
-            (float(2**63),) * 5,
-            (2.5,) * 5,
-            (3.75,) * 5,
-            (None,) * 5,
-            (None,) * 5,
-            (None,) * 5,
+            (42.0,) * width,
+            (float(2**63),) * width,
+            (2.5,) * width,
+            (3.75,) * width,
+            (None,) * width,
+            (None,) * width,
+            (None,) * width,
         ]
 
     def test_negative_multi_icontains_array_property_stays_optimized(self) -> None:
@@ -220,6 +260,138 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
         # The missing-property branch must resolve to empty(column), not isNull(toJSONString(column)),
         # or every row pays to serialize the array just to null-check it.
         assert "toJSONString" not in printed, printed
+
+    @parameterized.expand(
+        [
+            (
+                "legacy_reads_flags_as_stored",
+                "SELECT properties.$feature_flags, properties.$feature_flags.checkout, "
+                "JSONHas(properties, '$feature_flags', 'checkout'), JSONHas(properties, '$feature/secret') FROM events",
+                False,
+                {RestrictedProperty(name="$feature/secret", property_type=PropertyDefinition.Type.EVENT)},
+                PropertyGroupsMode.OPTIMIZED,
+                (f"JSONExtractRaw({JSON_DROP_KEYS_CLICKHOUSE_NAME}(", f"JSONHas({JSON_DROP_KEYS_CLICKHOUSE_NAME}("),
+                ("properties_group_feature_flags", "mapFilter("),
+            ),
+            (
+                "native",
+                "SELECT properties.`$feature/checkout`, properties.$active_feature_flags, "
+                "JSONHas(properties, '$feature/checkout') FROM events",
+                True,
+                None,
+                None,
+                ("events.properties.`$feature_flags`", "mapFilter("),
+                ("events.properties.`$feature/checkout`",),
+            ),
+            (
+                "raw_active_flags",
+                "SELECT JSONExtractRaw(properties, '$active_feature_flags') FROM events",
+                True,
+                None,
+                None,
+                ("events.properties.`$feature_flags`", "mapFilter("),
+                ("events.properties.`$active_feature_flags`", "events._active_feature_flags"),
+            ),
+            (
+                "native_restricted",
+                "SELECT properties.$feature_flags, properties.$active_feature_flags, "
+                "JSONHas(properties, '$feature_flags', 'secret') FROM events",
+                True,
+                {RestrictedProperty(name="$feature/secret", property_type=PropertyDefinition.Type.EVENT)},
+                None,
+                ("mapFilter(", "and(", "_sensitive)s"),
+                ("has(events.properties.`$feature_flags`",),
+            ),
+            (
+                "restricted_active",
+                "SELECT count() FROM events WHERE properties.$active_feature_flags = 'checkout'",
+                True,
+                {RestrictedProperty(name="$active_feature_flags", property_type=PropertyDefinition.Type.EVENT)},
+                None,
+                ("ifNull(equals(NULL, %(hogql_val_0)s), 0)",),
+                ("events.properties.`$feature_flags`",),
+            ),
+            (
+                "restricted_map",
+                "SELECT properties.$active_feature_flags, properties.`$feature/checkout`, "
+                "toJSONString(properties.$feature_flags), JSONHas(properties, '$active_feature_flags') FROM events",
+                True,
+                {RestrictedProperty(name="$feature_flags", property_type=PropertyDefinition.Type.EVENT)},
+                None,
+                ("SELECT NULL AS `$active_feature_flags`, NULL AS `$feature/checkout`, NULL, 0 ",),
+                ("events.properties.`$feature_flags`",),
+            ),
+            (
+                "dynamic_restricted",
+                "SELECT properties, JSONHas(properties, '$feature_flags', concat('sec', 'ret')) FROM events",
+                True,
+                {RestrictedProperty(name="$feature/secret", property_type=PropertyDefinition.Type.EVENT)},
+                None,
+                ("JSONMergePatch(", "mapFilter("),
+                (),
+            ),
+        ]
+    )
+    def test_feature_flag_property_compatibility_uses_the_schema_backed_map(
+        self,
+        _name: str,
+        select: str,
+        use_new_events_schema: bool,
+        restricted_properties: set[RestrictedProperty] | None,
+        property_groups_mode: PropertyGroupsMode | None,
+        expected_fragments: tuple[str, ...],
+        unexpected_fragments: tuple[str, ...],
+    ) -> None:
+        printed = self._print_select(
+            select,
+            use_new_events_schema=use_new_events_schema,
+            restricted_properties=restricted_properties,
+            property_groups_mode=property_groups_mode,
+        )
+
+        for fragment in expected_fragments:
+            assert fragment in printed, printed
+        for fragment in unexpected_fragments:
+            assert fragment not in printed, printed
+
+    @parameterized.expand(
+        [
+            ("direct", "SELECT count() FROM events WHERE properties.$active_feature_flags = 'checkout'"),
+            (
+                "alias",
+                "SELECT properties.$active_feature_flags AS flags, count() FROM events WHERE flags = 'checkout'",
+            ),
+        ]
+    )
+    def test_active_feature_flag_comparison_uses_direct_map_lookup(self, _name: str, select: str) -> None:
+        printed = self._print_select(select, use_new_events_schema=True)
+        where = printed.split("WHERE", 1)[1]
+
+        assert "notIn(events.properties.`$feature_flags`[" in where, printed
+        assert "mapFilter(" not in where, printed
+
+    @parameterized.expand(
+        [
+            ("in", "properties.$active_feature_flags IN ('checkout', 'variant')", "in(key, tuple("),
+            ("not_in", "properties.$active_feature_flags NOT IN ('checkout')", "not(mapExists("),
+            ("ilike", "properties.$active_feature_flags ILIKE 'check%'", "ilike(key, %(hogql_val_"),
+            (
+                "multi_search",
+                "multiSearchAnyCaseInsensitive(properties.$active_feature_flags, ['check']) > 0",
+                "multiSearchAnyCaseInsensitive(key, [%(hogql_val_",
+            ),
+        ]
+    )
+    def test_active_feature_flag_operator_families_scan_the_map_once(
+        self, _name: str, where_clause: str, expected_fragment: str
+    ) -> None:
+        printed = self._print_select(f"SELECT count() FROM events WHERE {where_clause}", use_new_events_schema=True)
+        where = printed.split("WHERE", 1)[1]
+
+        assert "mapExists((key, value) -> and(" in where, printed
+        assert expected_fragment in where, printed
+        assert "mapKeys(" not in where, printed
+        assert "events.properties.`$active_feature_flags`" not in where, printed
 
     def test_exception_types_use_array_subcolumn(self) -> None:
         printed = self._print_select("select count() from events where properties.$exception_types = 'TypeError'")
@@ -1322,7 +1494,7 @@ _JSON_SCHEMA_PARITY_PROPERTIES: st.SearchStrategy[dict[str, object]] = st.fixed_
     not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA,
     reason="requires both event tables created by the new-schema CI variant (#63448)",
 )
-class TestEventsSchemaPropertyParity(ClickhouseTestMixin, HypothesisDjangoTestCase, BaseTest):
+class TestEventsSchemaStorageSemantics(ClickhouseTestMixin, HypothesisDjangoTestCase, BaseTest):
     def _query_properties(self, event_uuid: str, use_new_events_schema: bool) -> tuple[Any, ...]:
         response = execute_hogql_query(
             "SELECT properties.dynamic_value, properties.$browser, JSONHas(properties, '$browser'), "
@@ -1378,6 +1550,428 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, HypothesisDjangoTestCa
             assert native[2] == 0
         else:
             assert native[2] == legacy[2]
+
+
+_RUNTIME_JSON_KEY_SELECT = (
+    "SELECT JSONExtractString(properties, properties.k), JSONHas(properties, properties.k), "
+    "JSONType(properties, properties.k), JSONExtractRaw(properties, concat('sec', 'ret')), "
+    "arrayMap(key -> JSONExtractString(properties, key), ['a', 'secret']), "
+    "JSONExtractString(properties, '$set', concat('em', 'ail')), "
+    "JSONExtractString(properties, concat('$', 'set'), 'email'), JSONLength(properties, concat('$', 'set')), "
+    "JSONHas(properties, concat('$', 'set'))"
+)
+
+
+# A @given test runs setUp outside the per-test transaction, so the team it creates stays until the class ends and
+# collides with the team that the next test in the same class creates. Keep @given tests out of this class.
+@pytest.mark.skipif(
+    not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA,
+    reason="requires both event tables created by the new-schema CI variant (#63448)",
+)
+class TestEventsSchemaPropertyParity(ClickhouseTestMixin, BaseTest):
+    def test_feature_flag_interfaces_work_across_event_schemas(self) -> None:
+        native_uuid = _create_event(
+            team=self.team,
+            distinct_id="native-flags",
+            event="schema-parity",
+            properties={
+                "$active_feature_flags": ["false-variant", "only-in-array", "secret"],
+                "$feature_flags": {
+                    "checkout": "true",
+                    "disabled": False,
+                    "false-variant": "false",
+                    "only-in-map": "true",
+                    "secret": "false",
+                    "variant": "control",
+                },
+            },
+        )
+        empty_uuid = _create_event(
+            team=self.team,
+            distinct_id="native-empty-flags",
+            event="schema-parity",
+            properties={"$active_feature_flags": [], "$feature_flags": {"checkout": "true"}},
+        )
+        inactive_uuid = _create_event(
+            team=self.team,
+            distinct_id="native-inactive-flags",
+            event="schema-parity",
+            properties={"$feature_flags": {"disabled": False}},
+        )
+        restricted_only_uuid = _create_event(
+            team=self.team,
+            distinct_id="native-restricted-flags",
+            event="schema-parity",
+            properties={"$active_feature_flags": ["secret"], "$feature_flags": {"secret": "false"}},
+        )
+        flush_persons_and_events()
+
+        native = execute_hogql_query(
+            "SELECT properties.`$feature/checkout`, properties.`$feature/variant`, "
+            "properties.$feature_flags.checkout, JSONHas(properties, '$feature_flags', 'checkout'), "
+            "properties.$active_feature_flags, properties.$active_feature_flags.1, "
+            "JSONHas(properties, '$active_feature_flags', 99), "
+            "toJSONString(properties.`$feature/variant`), JSONExtractString(properties, '$feature/variant'), "
+            "properties.`$feature/false-variant`, properties.$feature_flags.`false-variant`, "
+            "properties.`$feature/disabled`, properties.$feature_flags "
+            f"FROM events WHERE uuid = '{native_uuid}'",
+            team=self.team,
+            context=HogQLContext(team_id=self.team.pk, enable_select_queries=True, use_new_events_schema=True),
+        )
+
+        assert native.results is not None
+        assert native.results[0][:4] == ("true", "control", "true", 1)
+        assert json.loads(native.results[0][4]) == ["checkout", "false-variant", "only-in-map", "secret", "variant"]
+        assert native.results[0][5] == "checkout"
+        assert native.results[0][6] == 0
+        assert native.results[0][7:12] == ('"control"', "control", "false", "false", "false")
+        assert json.loads(native.results[0][12]) == {
+            "checkout": "true",
+            "disabled": "false",
+            "false-variant": "false",
+            "only-in-map": "true",
+            "secret": "false",
+            "variant": "control",
+        }
+
+        operators = execute_hogql_query(
+            "SELECT properties.$active_feature_flags IN ('only-in-map', 'missing'), "
+            "properties.$active_feature_flags NOT IN ('checkout'), "
+            "properties.$active_feature_flags ILIKE 'vari%', "
+            "multiSearchAnyCaseInsensitive(properties.$active_feature_flags, ['ONLY-IN']) > 0, "
+            "properties.$active_feature_flags = 'false-variant', properties.$active_feature_flags = 'disabled', "
+            "properties.`$feature/false-variant` = 'false', properties.`$feature/disabled` = 'false' "
+            f"FROM events WHERE uuid = '{native_uuid}'",
+            team=self.team,
+            context=HogQLContext(team_id=self.team.pk, enable_select_queries=True, use_new_events_schema=True),
+        )
+        assert operators.results == [(1, 0, 1, 1, 1, 0, 1, 1)]
+
+        restricted_context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, use_new_events_schema=True)
+        restricted_context.restricted_properties = {
+            RestrictedProperty(name="$feature/secret", property_type=PropertyDefinition.Type.EVENT)
+        }
+        restricted = execute_hogql_query(
+            "SELECT properties, JSONHas(properties, '$feature_flags', concat('sec', 'ret')), "
+            "properties.$active_feature_flags "
+            f"FROM events WHERE uuid = '{native_uuid}'",
+            team=self.team,
+            context=restricted_context,
+        )
+        assert restricted.results is not None
+        assert json.loads(restricted.results[0][0])["$feature_flags"] == {
+            "checkout": "true",
+            "disabled": "false",
+            "false-variant": "$false",
+            "only-in-map": "true",
+            "variant": "control",
+        }
+        assert restricted.results[0][1] == 0
+        assert json.loads(restricted.results[0][2]) == ["checkout", "false-variant", "only-in-map", "variant"]
+
+        restricted_only = execute_hogql_query(
+            "SELECT properties.$active_feature_flags, properties.$active_feature_flags != null, "
+            "JSONHas(properties, '$active_feature_flags') "
+            f"FROM events WHERE uuid = '{restricted_only_uuid}'",
+            team=self.team,
+            context=restricted_context,
+        )
+        assert restricted_only.results == [(None, 0, 0)]
+
+        empty = execute_hogql_query(
+            "SELECT properties.$active_feature_flags, properties.$active_feature_flags != null, "
+            "JSONHas(properties, '$active_feature_flags') "
+            f"FROM events WHERE uuid = '{empty_uuid}'",
+            team=self.team,
+            context=HogQLContext(team_id=self.team.pk, enable_select_queries=True, use_new_events_schema=True),
+        )
+        assert empty.results == [('["checkout"]', 1, 1)]
+
+        inactive = execute_hogql_query(
+            "SELECT properties.$active_feature_flags, properties.$active_feature_flags != null, "
+            "JSONHas(properties, '$active_feature_flags') "
+            f"FROM events WHERE uuid = '{inactive_uuid}'",
+            team=self.team,
+            context=HogQLContext(team_id=self.team.pk, enable_select_queries=True, use_new_events_schema=True),
+        )
+        assert inactive.results == [("[]", 1, 1)]
+
+    def test_moved_mutation_properties_read_the_same_on_both_schemas(self) -> None:
+        event_uuid = _create_event(
+            team=self.team,
+            distinct_id="moved-properties",
+            event="$identify",
+            properties={
+                "$set": {"email": "user@example.com", "plan": {"tier": "pro"}},
+                "$set_once": {"initial_referrer": "https://example.com", "is_beta": True},
+                "$unset": ["old_key"],
+                "$sdk_debug_replay_flushed_size": 42,
+                "$browser": "Firefox",
+            },
+        )
+        flush_persons_and_events()
+
+        query = (
+            "SELECT properties.$set.email, JSONExtractString(properties, '$set', 'email'), "
+            "JSONHas(properties, '$set'), JSONHas(properties, '$set', 'plan', 'tier'), "
+            "properties.$set_once.initial_referrer, properties.$set.plan.tier, JSONLength(properties, '$set'), "
+            "JSONType(properties, '$unset'), JSONExtractKeys(properties, '$set'), "
+            "JSONExtractArrayRaw(properties, '$unset'), toFloat(properties.$sdk_debug_replay_flushed_size), "
+            "properties.$sdk_debug_replay_flushed_size, properties.$browser, JSONExtractRaw(properties, '$set'), "
+            "properties.$unset, JSONExtractKeysAndValuesRaw(properties, '$set') "
+            f"FROM events WHERE uuid = '{event_uuid}' AND properties.$set.email = 'user@example.com'"
+        )
+        for use_new_events_schema in (False, True):
+            response = execute_hogql_query(
+                query,
+                team=self.team,
+                context=HogQLContext(
+                    team_id=self.team.pk, enable_select_queries=True, use_new_events_schema=use_new_events_schema
+                ),
+            )
+            assert response.results == [
+                (
+                    "user@example.com",
+                    "user@example.com",
+                    1,
+                    1,
+                    "https://example.com",
+                    "pro",
+                    2,
+                    "Array",
+                    ["email", "plan"],
+                    ['"old_key"'],
+                    42.0,
+                    "42",
+                    "Firefox",
+                    '{"email":"user@example.com","plan":{"tier":"pro"}}',
+                    '["old_key"]',
+                    [("email", '"user@example.com"'), ("plan", '{"tier":"pro"}')],
+                )
+            ], use_new_events_schema
+
+        # One call per registered JSON function, so a newly registered function fails here until native reads the
+        # moved key. isValidJSON and JSONArrayLength take no key path.
+        moved_key_calls = {
+            "JSONHas": "JSONHas(properties, '$set', 'email')",
+            "JSONLength": "JSONLength(properties, '$set')",
+            "JSONType": "JSONType(properties, '$set')",
+            "JSONExtract": "JSONExtract(properties, '$set', 'email', 'String')",
+            "JSONExtractUInt": "JSONExtractUInt(properties, '$sdk_debug_replay_flushed_size')",
+            "JSONExtractInt": "JSONExtractInt(properties, '$sdk_debug_replay_flushed_size')",
+            "JSONExtractFloat": "JSONExtractFloat(properties, '$sdk_debug_replay_flushed_size')",
+            "JSONExtractBool": "JSONExtractBool(properties, '$set_once', 'is_beta')",
+            "JSONExtractString": "JSONExtractString(properties, '$set', 'email')",
+            "JSONExtractKeys": "JSONExtractKeys(properties, '$set')",
+            "JSONExtractRaw": "JSONExtractRaw(properties, '$set', 'plan')",
+            "JSONExtractArrayRaw": "JSONExtractArrayRaw(properties, '$unset')",
+            "JSONExtractKeysAndValues": "JSONExtractKeysAndValues(properties, '$set_once', 'String')",
+            "JSONExtractKeysAndValuesRaw": "JSONExtractKeysAndValuesRaw(properties, '$set_once')",
+            "JSON_VALUE": "JSON_VALUE(properties, '$.\"$set\".email')",
+        }
+        assert set(moved_key_calls) | {"isValidJSON", "JSONArrayLength"} == set(JSON_FUNCTIONS)
+        legacy_row, native_row = (
+            execute_hogql_query(
+                f"SELECT {', '.join(moved_key_calls.values())} FROM events WHERE uuid = '{event_uuid}'",
+                team=self.team,
+                context=HogQLContext(
+                    team_id=self.team.pk, enable_select_queries=True, use_new_events_schema=use_new_events_schema
+                ),
+            ).results[0]
+            for use_new_events_schema in (False, True)
+        )
+        assert all(legacy_row), legacy_row
+        assert native_row == legacy_row
+
+        for restricted_name, restricted_query, expected in (
+            (
+                "$set",
+                "SELECT properties.$set.email, JSONExtractRaw(properties, '$set'), JSONHas(properties, '$set'), "
+                "JSONLength(properties, '$set'), JSONExtractKeys(properties, '$set'), "
+                "properties.$set_once.initial_referrer, JSON_VALUE(properties, '$.\"$set\".email')",
+                (None, "", 0, 0, [], "https://example.com", ""),
+            ),
+            (
+                "$set.plan",
+                "SELECT properties.$set.email, JSONExtractString(properties, '$set', 'email'), "
+                "JSONExtractRaw(properties, '$set'), JSONHas(properties, '$set', 'plan'), "
+                "JSONLength(properties, '$set'), properties.$set.plan.tier",
+                ("user@example.com", "user@example.com", '{"email":"user@example.com"}', 0, 1, None),
+            ),
+        ):
+            restricted_context = HogQLContext(
+                team_id=self.team.pk, enable_select_queries=True, use_new_events_schema=True
+            )
+            restricted_context.restricted_properties = {
+                RestrictedProperty(name=restricted_name, property_type=PropertyDefinition.Type.EVENT)
+            }
+            restricted = execute_hogql_query(
+                f"{restricted_query} FROM events WHERE uuid = '{event_uuid}'",
+                team=self.team,
+                context=restricted_context,
+            )
+            assert restricted.results == [expected], restricted_name
+
+    def test_computed_feature_flag_key_fails_on_the_native_table(self) -> None:
+        _create_event(
+            team=self.team,
+            distinct_id="computed-flag-key",
+            event="computed-flag-key",
+            properties={"$feature/checkout": "control", "$active_feature_flags": ["checkout"]},
+        )
+        flush_persons_and_events()
+        query = (
+            "SELECT JSONExtractString(properties, concat('$feature/', 'checkout')) "
+            "FROM events WHERE event = 'computed-flag-key'"
+        )
+
+        legacy = execute_hogql_query(
+            query,
+            team=self.team,
+            context=HogQLContext(team_id=self.team.pk, enable_select_queries=True, use_new_events_schema=False),
+        )
+        assert legacy.results == [("control",)]
+
+        with pytest.raises(ExposedCHQueryError, match="can't be read through a key computed per row"):
+            execute_hogql_query(
+                query,
+                team=self.team,
+                context=HogQLContext(team_id=self.team.pk, enable_select_queries=True, use_new_events_schema=True),
+            )
+
+    @parameterized.expand(
+        [
+            (
+                "runtime_json_keys",
+                _RUNTIME_JSON_KEY_SELECT,
+                None,
+                None,
+                [
+                    ("1", 1, "String", '"s1"', ["1", "s1"], "user@example.com", "user@example.com", 1, 1),
+                    ("s2", 1, "String", '"s2"', ["3", "s2"], "", "", 0, 0),
+                    ("", 0, "Null", "", ["", ""], "", "", 0, 0),
+                ],
+            ),
+            (
+                "runtime_json_keys_restricted",
+                _RUNTIME_JSON_KEY_SELECT,
+                "secret",
+                None,
+                [
+                    ("1", 1, "String", "", ["1", ""], "user@example.com", "user@example.com", 1, 1),
+                    ("", 0, "Null", "", ["3", ""], "", "", 0, 0),
+                    ("", 0, "Null", "", ["", ""], "", "", 0, 0),
+                ],
+            ),
+            (
+                "runtime_json_keys_restricted_moved",
+                _RUNTIME_JSON_KEY_SELECT,
+                "$set",
+                None,
+                [
+                    ("1", 1, "String", '"s1"', ["1", "s1"], "", "", 0, 0),
+                    ("s2", 1, "String", '"s2"', ["3", "s2"], "", "", 0, 0),
+                    ("", 0, "Null", "", ["", ""], "", "", 0, 0),
+                ],
+            ),
+            (
+                "moved_key_read_as_a_deeper_key",
+                "SELECT JSONExtractString(properties, 'by_tier', JSONExtractString(properties, '$set_once', 'tier'))",
+                None,
+                None,
+                [("ok",), ("",), ("",)],
+            ),
+            (
+                "array_index_over_mixed_types",
+                "SELECT properties.arr.1, properties.arr[1], properties.nested_arr.1.2, properties.arr_obj.1.id, "
+                "toFloat(properties.nested_arr.1.2)",
+                None,
+                None,
+                [("x", "x", "2", "1", 2.0), (None, None, None, None, None), (None, None, None, None, None)],
+            ),
+            (
+                "array_index_on_a_declared_array",
+                "SELECT properties.$exception_functions[-1], properties.$exception_functions.1",
+                None,
+                None,
+                [("second", "first"), (None, None), (None, None)],
+            ),
+            (
+                "percent_in_key",
+                "SELECT JSONExtractString(properties, 'completion%'), JSONHas(properties, 'completion%'), "
+                "JSONExtractRaw(properties, 'completion%'), JSONExtractInt(properties, 'completion%')",
+                None,
+                None,
+                [("50", 1, '"50"', 50), ("", 0, "", 0), ("", 0, "", 0)],
+            ),
+            (
+                "materialized_group_property",
+                "SELECT goe_0.properties.name, goe_0.properties.name = 'Org One'",
+                None,
+                "name",
+                [("Org One", 1), (None, 0), (None, 0)],
+            ),
+        ]
+    )
+    def test_query_shapes_read_the_same_on_both_schemas(
+        self,
+        _name: str,
+        select: str,
+        restricted_property: str | None,
+        materialized_group_property: str | None,
+        expected: list[tuple[Any, ...]],
+    ) -> None:
+        for minute, properties, group0_properties in (
+            (
+                30,
+                {
+                    "k": "a",
+                    "a": "1",
+                    "secret": "s1",
+                    "arr": ["x", "y"],
+                    "nested_arr": [[1, 2], [3]],
+                    "arr_obj": [{"id": 1}],
+                    "completion%": "50",
+                    "by_tier": {"gold": "ok"},
+                    "$exception_functions": ["first", "second"],
+                    "$set": {"email": "user@example.com"},
+                    "$set_once": {"tier": "gold"},
+                },
+                {"name": "Org One"},
+            ),
+            (31, {"k": "secret", "a": "3", "secret": "s2", "arr": "notarr", "nested_arr": 7, "arr_obj": "o"}, None),
+            (32, {"k": "missing", "arr": 5}, None),
+        ):
+            _create_event(
+                team=self.team,
+                distinct_id="shape-parity",
+                event="shape-parity",
+                timestamp=f"2024-01-15T10:{minute}:00Z",
+                properties=properties,
+                group0_properties=group0_properties,
+            )
+        flush_persons_and_events()
+        if materialized_group_property is not None:
+            columns = pytest.importorskip("ee.clickhouse.materialized_columns.columns")
+            columns.materialize(
+                "events", materialized_group_property, table_column=cast(TableColumn, "group0_properties")
+            )
+            self.addCleanup(cleanup_materialized_columns)
+
+        for use_new_events_schema in (False, True):
+            context = HogQLContext(
+                team_id=self.team.pk, enable_select_queries=True, use_new_events_schema=use_new_events_schema
+            )
+            if restricted_property is not None:
+                context.restricted_properties = {
+                    RestrictedProperty(name=restricted_property, property_type=PropertyDefinition.Type.EVENT)
+                }
+            response = execute_hogql_query(
+                f"{select} FROM events WHERE event = 'shape-parity' ORDER BY timestamp",
+                team=self.team,
+                context=context,
+            )
+            assert response.results == expected, use_new_events_schema
 
 
 # ── Timezone index pruning tests ──────────────────────────────────────────────

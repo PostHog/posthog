@@ -1,17 +1,10 @@
 import { MakeLogicType, actions, kea, path, props, reducers, selectors, useActions, useValues } from 'kea'
 import { urlToAction } from 'kea-router'
 
-import { IconApple, IconAndroid, IconLetter, IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
-import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { IconSlack, IconTwilio } from 'lib/lemon-ui/icons'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
@@ -24,17 +17,12 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
 
-import { MessageChannels } from './Channels/MessageChannels'
 import { EmailSuspensionBanner } from './EmailSuspensionBanner'
 import { workflowsEmptyState } from './emptyState/workflowsEmptyState'
-import { MessagingNavTabKey, messagingNavTabs } from './messagingTabs'
-import { optOutCategoriesLogic } from './OptOuts/optOutCategoriesLogic'
-import { OptOutScene } from './OptOuts/OptOutScene'
-import { SuppressionScene } from './Suppression/SuppressionScene'
-import { MessageTemplatesTable } from './TemplateLibrary/MessageTemplatesTable'
+import { MessagingTabActions } from './MessagingTabActions'
+import { messagingNavTabs } from './messagingTabs'
 import { newWorkflowLogic } from './Workflows/newWorkflowLogic'
 import { NewWorkflowModal } from './Workflows/NewWorkflowModal'
-import { WorkflowsReputation } from './Workflows/Reputation/WorkflowsReputation'
 import { WorkflowsTable } from './Workflows/WorkflowsTable'
 
 const WORKFLOW_SCENE_TABS = ['workflows', 'library', 'channels', 'opt-outs', 'suppression', 'reputation'] as const
@@ -134,77 +122,9 @@ export const scene: SceneExport<WorkflowsSceneProps> = {
     emptyState: workflowsEmptyState,
 }
 
-const MESSAGING_TAB_CONTENT: Record<MessagingNavTabKey, JSX.Element> = {
-    library: <MessageTemplatesTable />,
-    channels: <MessageChannels />,
-    'opt-outs': <OptOutScene />,
-    suppression: <SuppressionScene />,
-    reputation: <WorkflowsReputation />,
-}
-
 export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
     const { currentTab } = useValues(workflowsSceneLogic(props))
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { openSetupModal } = useActions(integrationsLogic)
-    const { openNewCategoryModal } = useActions(optOutCategoriesLogic)
     const { startNewWorkflow } = useActions(newWorkflowLogic)
-    const newChannelRestrictedReason = useRestrictedArea({
-        scope: RestrictionScope.Project,
-        minimumAccessLevel: TeamMembershipLevel.Admin,
-    })
-
-    const newChannelMenuItems: LemonMenuItems = [
-        {
-            label: (
-                <div className="flex gap-1 items-center">
-                    <IconLetter /> Email
-                </div>
-            ),
-            onClick: () => openSetupModal(undefined, 'email'),
-        },
-
-        {
-            label: (
-                <div className="flex gap-1 items-center">
-                    <IconSlack /> Slack
-                </div>
-            ),
-            disableClientSideRouting: true,
-            to: api.integrations.authorizeUrl({
-                kind: 'slack',
-                next: urls.workflows('channels'),
-            }),
-        },
-        {
-            label: (
-                <div className="flex gap-1 items-center">
-                    <IconTwilio /> Twilio
-                </div>
-            ),
-            onClick: () => openSetupModal(undefined, 'twilio'),
-        },
-        ...(featureFlags[FEATURE_FLAGS.WORKFLOWS_PUSH_NOTIFICATIONS]
-            ? [
-                  {
-                      label: (
-                          <div className="flex gap-1 items-center">
-                              <IconAndroid /> Firebase Cloud Messaging
-                          </div>
-                      ),
-                      onClick: () => openSetupModal(undefined, 'firebase'),
-                  },
-                  {
-                      label: (
-                          <div className="flex gap-1 items-center">
-                              <IconApple /> Apple Push Notifications
-                          </div>
-                      ),
-                      onClick: () => openSetupModal(undefined, 'apns'),
-                  },
-              ]
-            : []),
-    ]
-
     const tabs: LemonTab<WorkflowsSceneTab>[] = [
         {
             label: 'Workflows',
@@ -212,8 +132,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
             content: <WorkflowsTable />,
             link: urls.workflows(),
         },
-        // Shared with the broadcasts scene; the content lives here because this is where they open.
-        ...messagingNavTabs().map((tab) => ({ ...tab, content: MESSAGING_TAB_CONTENT[tab.key] })),
+        ...messagingNavTabs((tab) => urls.workflows(tab)),
     ]
 
     return (
@@ -247,44 +166,8 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                                 </LemonButton>
                             </AccessControlAction>
                         )}
-                        {currentTab === 'library' && (
-                            <AccessControlAction
-                                resourceType={AccessControlResourceType.Workflow}
-                                minAccessLevel={AccessControlLevel.Editor}
-                            >
-                                <LemonButton
-                                    data-attr="new-message-button"
-                                    to={urls.workflowsLibraryTemplateNew()}
-                                    type="primary"
-                                    size="small"
-                                >
-                                    New template
-                                </LemonButton>
-                            </AccessControlAction>
-                        )}
-                        {currentTab === 'channels' && (
-                            <LemonMenu items={newChannelMenuItems} matchWidth>
-                                <LemonButton
-                                    data-attr="new-channel-button"
-                                    icon={<IconPlusSmall />}
-                                    size="small"
-                                    type="primary"
-                                    disabledReason={newChannelRestrictedReason}
-                                >
-                                    New channel
-                                </LemonButton>
-                            </LemonMenu>
-                        )}
-                        {currentTab === 'opt-outs' && (
-                            <LemonButton
-                                data-attr="new-optout-category"
-                                icon={<IconPlusSmall />}
-                                size="small"
-                                type="primary"
-                                onClick={() => openNewCategoryModal()}
-                            >
-                                New category
-                            </LemonButton>
+                        {currentTab !== 'workflows' && (
+                            <MessagingTabActions tab={currentTab} channelsUrl={urls.workflows('channels')} />
                         )}
                     </>
                 }

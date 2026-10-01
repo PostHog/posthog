@@ -24,13 +24,7 @@ from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.instance_setting import get_instance_setting
 
-from products.stamphog.backend.activity_logging import (
-    DISABLED_FIELDS,
-    installation_webhook_trigger,
-    log_repo_configs_created,
-    log_repo_configs_disabled_by_webhook,
-    suppress_created_activity,
-)
+from products.stamphog.backend.activity_logging import DISABLED_FIELDS, log_repo_configs_disabled_by_webhook
 from products.stamphog.backend.facade.contracts import ReviewRequestRefusedError, StamphogGitHubError
 from products.stamphog.backend.facade.enums import (
     TERMINAL_STATUSES,
@@ -50,8 +44,15 @@ from products.stamphog.backend.logic.approval_retention import (
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
 from products.stamphog.backend.logic.audiences import ResolvedAudience, resolve_audiences
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
+from products.stamphog.backend.logic.installations import delete_installation, remove_from_installation_snapshot
 from products.stamphog.backend.logic.review_trigger import derive_review_trigger
-from products.stamphog.backend.models import PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
+from products.stamphog.backend.models import (
+    PullRequest,
+    PullRequestAudience,
+    ReviewRun,
+    StamphogInstallation,
+    StamphogRepoConfig,
+)
 from products.stamphog.backend.temporal.client import execute_stamphog_review_workflow
 from products.tasks.backend.facade.api import find_signal_implementation_run
 
@@ -841,91 +842,32 @@ def _record_merged_pull_request(payload: dict[str, Any], delivery_id: str) -> No
 
 
 def _resolve_installation_team_ids(installation_id: str) -> list[int]:
-    """Every distinct team carrying this installation.
+    """Every distinct team carrying this installation, through its installation record or a bound row.
 
     An installation's repos can legitimately be split across teams — each team syncs only the repos its
     members can access — so lifecycle events must fan out to all owning teams, not just the oldest
     config's. Resolving to a single (oldest) team would leave other teams' rows live after an uninstall
-    and could bind a newly added repo to a team its adder never intended. unscoped(): the owning teams
-    are exactly what's being resolved here — the one cross-team read on this path (mirrors
-    _resolve_repo_config, writer pin included: a lagged reader returning no teams would silently and
-    permanently skip the lifecycle mutation for a just-synced installation).
+    and could add a new repo to a team its adder never intended. The bound rows count too, so that a
+    team whose record is gone still has its rows tombstoned. unscoped(): the owning teams are exactly
+    what's being resolved here — the one cross-team read on this path (mirrors _resolve_repo_config,
+    writer pin included: a lagged reader returning no teams would silently and permanently skip the
+    lifecycle mutation for a just-synced installation).
     """
-    return list(
+    write_db = router.db_for_write(StamphogInstallation)
+    recorded = (
+        StamphogInstallation.objects.unscoped()
+        .using(write_db)
+        .filter(provider="github", installation_id=installation_id)
+        .values_list("team_id", flat=True)
+    )
+    bound = (
         StamphogRepoConfig.objects.unscoped()
-        .using(router.db_for_write(StamphogRepoConfig))
+        .using(write_db)
         .filter(provider="github", installation_id=installation_id)
         .values_list("team_id", flat=True)
         .distinct()
     )
-
-
-def _add_installation_repos(
-    team_id: int, installation_id: str, repos: list[dict[str, Any]], *, delivery_id: str
-) -> None:
-    """Create a disabled config row per newly installed repo, skipping any that already exist.
-
-    Rows start disabled so a repo added on GitHub merely appears in the toggle list — enabling reviews
-    stays a human decision. Conflicts (another team owns the triple, or this team already has the repo)
-    skip that one repo, never the batch: the same cross-team uniqueness the sync endpoint enforces.
-    """
-    # Bind the transaction to the model's routed DB (stamphog_db_writer when the product DB is
-    # configured, else default) — a bare atomic() would open on the default connection and leave
-    # the create running outside any transaction on the product DB.
-    write_db = router.db_for_write(StamphogRepoConfig)
-    # New rows inherit the connecting user from a sibling of the same installation — webhooks carry
-    # no PostHog identity, and the sandbox token for reviews is minted under this user. No sibling
-    # with one set means the installation was never synced; the row stays null and reviews fail closed.
-    # Writer pin: an add arriving right after the sync/restamp must see the just-committed identity,
-    # or the new row is stored null and reviews fail at mint time once enabled.
-    connected_by_user_id = (
-        StamphogRepoConfig.objects.for_team(team_id)
-        .using(write_db)
-        .filter(provider="github", installation_id=installation_id, connected_by_user_id__isnull=False)
-        .values_list("connected_by_user_id", flat=True)
-        .first()
-    )
-    created_rows: list[dict[str, Any]] = []
-    # One delivery can add many repos, so the rows are logged as one batch instead of one receiver
-    # call each. The batch runs in a finally: a row that is already committed when the loop dies
-    # would otherwise never be logged, and a retry skips it as existing, losing its creation.
-    try:
-        with suppress_created_activity():
-            for repo in repos:
-                full_name = (repo or {}).get("full_name") or ""
-                if not full_name:
-                    continue
-                exists = (
-                    StamphogRepoConfig.objects.unscoped()
-                    .filter(provider="github", installation_id=installation_id, repository=full_name)
-                    .exists()
-                )
-                if exists:
-                    continue
-                try:
-                    with transaction.atomic(using=write_db):
-                        config = StamphogRepoConfig.objects.for_team(team_id).create(
-                            team_id=team_id,
-                            provider="github",
-                            repository=full_name,
-                            installation_id=installation_id,
-                            enabled=False,
-                            digest_enabled=False,
-                            connected_by_user_id=connected_by_user_id,
-                        )
-                except IntegrityError:
-                    logger.info("stamphog_installation_repo_add_conflict", repository=full_name, team_id=team_id)
-                    continue
-                created_rows.append({"id": config.id, "repository": config.repository})
-    finally:
-        # A webhook carries no PostHog user, so these are system rows; the trigger names the delivery.
-        log_repo_configs_created(
-            team_id,
-            created_rows,
-            trigger=installation_webhook_trigger(
-                delivery_id=delivery_id, action="added", installation_id=installation_id
-            ),
-        )
+    return sorted(set(recorded) | set(bound))
 
 
 def _supersede_runs_for_configs(team_id: int, config_ids: list[Any]) -> None:
@@ -999,19 +941,19 @@ def _disable_installation_repos(
 
 @shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
 def process_installation_event(payload: dict[str, Any], delivery_id: str) -> None:
-    """Mirror installation lifecycle changes (repos added/removed, app uninstalled) onto config rows.
+    """Mirror installation lifecycle changes (repos removed, app uninstalled) onto snapshots and rows.
 
-    Without this, a repo added to the installation after the initial sync never appears in the toggle
-    list until a manual re-sync. `installation_repositories` payloads carry repositories_added/removed;
-    a plain `installation` event with action "deleted" means the app was uninstalled.
+    `installation_repositories` payloads carry repositories_added/removed; a plain `installation`
+    event with action "deleted" means the app was uninstalled.
 
     An installation's repos can be split across several teams, so removals and uninstalls fan out to
-    EVERY owning team (tombstone semantics — rows and history are kept). Auto-adding a newly installed
-    repo, on the other hand, is only a convenience for the unambiguous single-team case: when one team
-    owns the installation the new repo appears as a disabled row automatically. When multiple teams
-    share it, ownership is ambiguous — auto-binding could attach the repo to a team its adder never
-    intended — so the add is skipped and left to the authenticated sync flow, which verifies the acting
-    user's repo access. Rows always start disabled either way, so enabling reviews stays a human decision.
+    EVERY owning team: the repos leave each snapshot, and their rows are tombstoned (rows and history
+    are kept). An uninstall also deletes each team's installation record.
+
+    A repo added on GitHub changes nothing. The snapshot holds only repos a member proved access to
+    with their own GitHub token, and a webhook carries no user. An outside collaborator on one repo
+    can connect the installation, so adding every later repo to their team's snapshot would let that
+    team review private repos nobody on it can see. The repo becomes addable when a member syncs again.
     """
     if delivery_id and _is_duplicate_pr_event(delivery_id):
         logger.info("stamphog_installation_event_duplicate_skipped", delivery_id=delivery_id)
@@ -1030,36 +972,36 @@ def process_installation_event(payload: dict[str, Any], delivery_id: str) -> Non
         logger.exception("stamphog_installation_team_resolution_failed", delivery_id=delivery_id, error=str(e))
         raise cast(Any, process_installation_event).retry(exc=e)
     if not team_ids:
-        # No config carries this installation yet — the user-driven sync flow will bind it to a team.
+        # No team holds this installation yet. The user-driven sync flow binds it to a team.
         logger.info("stamphog_installation_event_unbound", installation_id=installation_id)
         return
 
     action = payload.get("action", "")
     # Retry on failure like the review path: the webhook is already ACKed, so a transient product-DB
-    # blip during the config mutations must not permanently drop the lifecycle event (a repo added on
-    # GitHub would then never appear in the toggle list until a manual re-sync). Mark the delivery
+    # blip during the config mutations must not permanently drop the lifecycle event (a repo removed
+    # on GitHub would then stay live and addable). Mark the delivery
     # processed only after the mutations succeed, so a retried delivery still does its work.
     try:
         if "repositories_added" in payload or "repositories_removed" in payload:
-            added = payload.get("repositories_added") or []
-            if added:
-                if len(team_ids) == 1:
-                    _add_installation_repos(team_ids[0], installation_id, added, delivery_id=delivery_id)
-                else:
-                    # Ambiguous ownership: skip the auto-add, defer to the authenticated sync flow.
-                    logger.info(
-                        "stamphog_installation_repo_add_ambiguous",
-                        installation_id=installation_id,
-                        team_count=len(team_ids),
-                    )
+            if payload.get("repositories_added"):
+                logger.info(
+                    "stamphog_installation_repos_added_awaiting_sync",
+                    installation_id=installation_id,
+                    added=len(payload["repositories_added"]),
+                )
             removed = payload.get("repositories_removed") or []
             names = [name for repo in removed if (name := (repo or {}).get("full_name"))]
             for team_id in team_ids:
+                remove_from_installation_snapshot(team_id, installation_id, names)
                 _disable_installation_repos(
                     team_id, installation_id, action="removed", delivery_id=delivery_id, repository_names=names
                 )
         elif action == "deleted":
             for team_id in team_ids:
+                # Record first: the delete waits for an add_repository that holds the record's lock, so
+                # the disable below sees the row that add created. A retry still finds this team
+                # through its bound rows.
+                delete_installation(team_id, installation_id)
                 _disable_installation_repos(team_id, installation_id, action=action, delivery_id=delivery_id)
         else:
             logger.info("stamphog_installation_event_ignored", action=action)

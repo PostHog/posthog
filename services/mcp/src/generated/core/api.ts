@@ -2428,6 +2428,24 @@ export const OrganizationsProjectsCreateBody = () => zod
                     .describe(
                         'Index of the group type to treat as an Account in customer analytics. Must reference an existing group type configured for the project.'
                     ),
+                default_pinned_properties: zod
+                    .array(
+                        zod.object({
+                            kind: zod
+                                .enum(['custom_property', 'relationship'])
+                                .describe('\* `custom_property` - Custom property\n\* `relationship` - Relationship')
+                                .describe(
+                                    'Definition type for this default pinned account property.\n\n\* `custom_property` - Custom property\n\* `relationship` - Relationship'
+                                ),
+                            id: zod
+                                .string()
+                                .describe('Project-scoped custom property or relationship definition UUID.'),
+                        })
+                    )
+                    .optional()
+                    .describe(
+                        'Ordered account properties shown until a user saves a personal pinned-property selection. Pass an empty list to show no properties by default.'
+                    ),
             })
             .optional(),
         workflows_config: zod
@@ -5114,6 +5132,24 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     .describe(
                         'Index of the group type to treat as an Account in customer analytics. Must reference an existing group type configured for the project.'
                     ),
+                default_pinned_properties: zod
+                    .array(
+                        zod.object({
+                            kind: zod
+                                .enum(['custom_property', 'relationship'])
+                                .describe('\* `custom_property` - Custom property\n\* `relationship` - Relationship')
+                                .describe(
+                                    'Definition type for this default pinned account property.\n\n\* `custom_property` - Custom property\n\* `relationship` - Relationship'
+                                ),
+                            id: zod
+                                .string()
+                                .describe('Project-scoped custom property or relationship definition UUID.'),
+                        })
+                    )
+                    .optional()
+                    .describe(
+                        'Ordered account properties shown until a user saves a personal pinned-property selection. Pass an empty list to show no properties by default.'
+                    ),
             })
             .optional(),
         workflows_config: zod
@@ -5524,6 +5560,6 @@ export const UsersPartialUpdateBody = () => zod.object({
         .unknown()
         .optional()
         .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true.'
         ),
 })

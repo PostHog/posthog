@@ -205,6 +205,21 @@ describe('rasterizeRecordingActivity', () => {
     })
 
     describe('error classification', () => {
+        it('refuses a source_s3_uri outside the allowed prefixes before rendering', async () => {
+            await expect(
+                rasterizeRecordingActivity(
+                    baseInput({ source_s3_uri: 's3://test-bucket/exports/mp4/team-2/task-9/x.mp4' })
+                )
+            ).rejects.toThrow('outside the allowed prefixes')
+
+            expect(ApplicationFailure.nonRetryable).toHaveBeenCalledWith(
+                expect.any(String),
+                'INVALID_INPUT',
+                expect.anything()
+            )
+            expect(mockedRasterizeRecording).not.toHaveBeenCalled()
+        })
+
         it('wraps non-retryable RasterizationError as ApplicationFailure.nonRetryable', async () => {
             const error = new RasterizationError('No snapshot data', false, 'NO_SNAPSHOTS')
             mockedRasterizeRecording.mockRejectedValue(error)

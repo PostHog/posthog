@@ -11,6 +11,7 @@ use super::config_v2::{Config, Outcome, RolloutMiss, Rule};
 use super::flag_matching_utils::calculate_hash;
 use super::flag_request::MAX_DISTINCT_ID_LEN;
 use super::v1_bucketing::is_in_rollout;
+use crate::api::errors::FlagError;
 use crate::handler::canonical_log::truncate_chars;
 use crate::properties::property_matching::{
     match_property_input, FlagMatchingError, PropertyMatchInput, PropertyMatchingContext,
@@ -30,18 +31,20 @@ pub struct MatchedRule {
     pub kind: RuleKind,
 }
 
+/// `value` borrows the parsed JSON of the flag's return type from the configuration; `None`
+/// is a null default.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Evaluation {
+pub enum Evaluation<'a> {
     TargetingMatch {
-        value: bool,
+        value: &'a Value,
         rule: MatchedRule,
     },
     RolloutMiss {
-        value: Option<bool>,
+        value: Option<&'a Value>,
         rule: MatchedRule,
     },
     NoRuleMatch {
-        value: Option<bool>,
+        value: Option<&'a Value>,
     },
 }
 
@@ -51,6 +54,12 @@ pub enum EvaluationError {
     InvalidProperty,
     InvalidRegex,
     Hash,
+}
+
+impl From<EvaluationError> for FlagError {
+    fn from(error: EvaluationError) -> Self {
+        FlagError::flag_evaluation(error)
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -94,7 +103,10 @@ impl<'a> Evaluator<'a> {
         Self { config }
     }
 
-    pub fn evaluate(&self, context: &EvaluationContext<'_>) -> Result<Evaluation, EvaluationError> {
+    pub fn evaluate(
+        &self,
+        context: &EvaluationContext<'_>,
+    ) -> Result<Evaluation<'a>, EvaluationError> {
         self.evaluate_with_hash(context, |seed, subject| {
             calculate_hash(&format!("{seed}."), subject, "").map_err(|_| EvaluationError::Hash)
         })
@@ -106,7 +118,7 @@ impl<'a> Evaluator<'a> {
         &self,
         context: &EvaluationContext<'_>,
         mut hash: impl FnMut(&str, &str) -> Result<f64, EvaluationError>,
-    ) -> Result<Evaluation, EvaluationError> {
+    ) -> Result<Evaluation<'a>, EvaluationError> {
         let subject = truncate_chars(context.person_identifier, MAX_DISTINCT_ID_LEN);
         let matching =
             PropertyMatchingContext::new(context.timezone, context.use_explicit_exact_matching)
@@ -128,7 +140,7 @@ impl<'a> Evaluator<'a> {
                 kind,
             };
             let (kind, value) = match &rule.outcome {
-                Outcome::TargetedRelease { value } => (RuleKind::TargetedRelease, *value),
+                Outcome::TargetedRelease { value } => (RuleKind::TargetedRelease, value),
                 Outcome::PercentageRollout {
                     value,
                     rollout_percentage,
@@ -149,13 +161,13 @@ impl<'a> Evaluator<'a> {
                             RolloutMiss::Continue => continue,
                             RolloutMiss::ReturnDefault => {
                                 return Ok(Evaluation::RolloutMiss {
-                                    value: self.config.default_value,
+                                    value: self.config.default_value.as_ref(),
                                     rule: matched_rule(RuleKind::PercentageRollout),
                                 })
                             }
                         }
                     }
-                    (RuleKind::PercentageRollout, *value)
+                    (RuleKind::PercentageRollout, value)
                 }
             };
             return Ok(Evaluation::TargetingMatch {
@@ -164,7 +176,7 @@ impl<'a> Evaluator<'a> {
             });
         }
         Ok(Evaluation::NoRuleMatch {
-            value: self.config.default_value,
+            value: self.config.default_value.as_ref(),
         })
     }
 }

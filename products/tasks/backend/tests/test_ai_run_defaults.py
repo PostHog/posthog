@@ -542,9 +542,9 @@ class TestTasksConfigAPI(APIBaseTest):
         self.client.logout()
         for path in ("config", "@me/config"):
             url = f"/api/projects/{self.team.id}/tasks/{path}/"
-            # 403, not 401: DRF's SessionAuthentication denies without a WWW-Authenticate challenge.
-            assert self.client.get(url).status_code == 403
-            assert self.client.post(url, TEAM_TRIPLE).status_code == 403
+            # 401, not 403: PostHog's SessionAuthentication sets a WWW-Authenticate challenge.
+            assert self.client.get(url).status_code == 401
+            assert self.client.post(url, TEAM_TRIPLE).status_code == 401
 
     def test_an_outsider_cannot_reach_another_projects_config(self):
         outsider = User.objects.create_and_join(Organization.objects.create(name="other"), "out@posthog.com", None)

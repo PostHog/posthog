@@ -52,6 +52,7 @@ import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { MaxTool } from 'scenes/max/MaxTool'
+import { RecordingEventMatchScopeSelect } from 'scenes/session-recordings/filters/RecordingEventMatchScopeSelect'
 import { TimestampFormatToLabel, hasPageFilter } from 'scenes/session-recordings/utils'
 import { urls } from 'scenes/urls'
 
@@ -81,6 +82,7 @@ import {
     sessionRecordingsPlaylistLogic,
 } from '../playlist/sessionRecordingsPlaylistLogic'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
+import { FilterTemplates } from '../templates/FilterTemplates'
 import { CurrentFilterIndicator } from './CurrentFilterIndicator'
 import { DurationFilter } from './DurationFilter'
 import { ProductAnalyticsOverLimitBanner } from './ProductAnalyticsOverLimitBanner'
@@ -328,7 +330,7 @@ export const RecordingsUniversalFiltersEmbed = ({ ...props }: ReplayUniversalFil
     useMountedLogic(actionsModel)
     useMountedLogic(groupsModel)
 
-    const { activeFilterTab } = useValues(playlistFiltersLogic)
+    const { activeFilterTab, templatesInFiltersPanel } = useValues(playlistFiltersLogic)
     const { setIsFiltersExpanded, setActiveFilterTab } = useActions(playlistFiltersLogic)
 
     const { savedFilters } = useValues(sessionRecordingSavedFiltersLogic)
@@ -355,12 +357,32 @@ export const RecordingsUniversalFiltersEmbed = ({ ...props }: ReplayUniversalFil
             content: <SavedFilters setFilters={props.setFilters} />,
             'data-attr': 'session-recordings-saved-tab',
         },
+        ...(templatesInFiltersPanel
+            ? [
+                  {
+                      key: 'templates',
+                      label: <div className="px-2">Templates</div>,
+                      content: (
+                          <div className="p-2">
+                              <FilterTemplates
+                                  source="filters_panel"
+                                  onApply={(filters) => {
+                                      props.setFilters(filters)
+                                      setActiveFilterTab('filters')
+                                  }}
+                              />
+                          </div>
+                      ),
+                      'data-attr': 'session-recordings-templates-tab',
+                  },
+              ]
+            : []),
     ]
 
     return (
         <div className="relative">
             <LemonTabs
-                activeKey={activeFilterTab}
+                activeKey={tabs.some((tab) => tab.key === activeFilterTab) ? activeFilterTab : 'filters'}
                 onChange={(activeKey) => setActiveFilterTab(activeKey)}
                 size="small"
                 tabs={tabs}
@@ -870,40 +892,43 @@ export const ReplayFiltersTab = ({
                     )}
                 </div>
             )}
-            <div className="flex items-center py-2 justify-between px-2">
-                <AndOrFilterSelect
-                    // Reflect the effective operand, not just the outer group: legacy saved filters can
-                    // carry the match-any on the inner group while the outer stays AND. Toggling syncs
-                    // both below, so interacting normalizes the structure.
-                    value={deriveOperand(filters.filter_group)}
-                    onChange={(type) => {
-                        // Clicking the already-effective operand is a no-op — don't rewrite the
-                        // group or mark the saved filter dirty just because the displayed value
-                        // came from a legacy inner group.
-                        if (type === deriveOperand(filters.filter_group)) {
-                            return
-                        }
+            <div className="flex flex-wrap items-center py-2 justify-between px-2 gap-y-2">
+                <div className="flex flex-wrap items-center gap-y-2">
+                    <AndOrFilterSelect
+                        // Reflect the effective operand, not just the outer group: legacy saved filters can
+                        // carry the match-any on the inner group while the outer stays AND. Toggling syncs
+                        // both below, so interacting normalizes the structure.
+                        value={deriveOperand(filters.filter_group)}
+                        onChange={(type) => {
+                            // Clicking the already-effective operand is a no-op — don't rewrite the
+                            // group or mark the saved filter dirty just because the displayed value
+                            // came from a legacy inner group.
+                            if (type === deriveOperand(filters.filter_group)) {
+                                return
+                            }
 
-                        let values = filters.filter_group.values
+                            let values = filters.filter_group.values
 
-                        // set the type on the nested child when only using a single filter group
-                        const hasSingleGroup = values.length === 1
-                        if (hasSingleGroup) {
-                            const group = values[0] as UniversalFiltersGroup
-                            values = [{ ...group, type }]
-                        }
+                            // set the type on the nested child when only using a single filter group
+                            const hasSingleGroup = values.length === 1
+                            if (hasSingleGroup) {
+                                const group = values[0] as UniversalFiltersGroup
+                                values = [{ ...group, type }]
+                            }
 
-                        setFilters({
-                            filter_group: {
-                                type: type,
-                                values: values,
-                            },
-                        })
-                    }}
-                    topLevelFilter={true}
-                    suffix={['filter', 'filters']}
-                    size="small"
-                />
+                            setFilters({
+                                filter_group: {
+                                    type: type,
+                                    values: values,
+                                },
+                            })
+                        }}
+                        topLevelFilter={true}
+                        suffix={['filter', 'filters']}
+                        size="small"
+                    />
+                    <RecordingEventMatchScopeSelect filters={filters} setFilters={setFilters} />
+                </div>
                 <div>
                     {compactActions ? (
                         resetButton

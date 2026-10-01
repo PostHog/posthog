@@ -51,7 +51,7 @@ from ..facade.contracts import (
     UploadTarget,
     UserBasicInfo,
 )
-from ..facade.enums import FlakinessState, ShiftBandKind
+from ..facade.enums import FlakinessState, RunPurpose, ShiftBandKind
 
 # --- Output Serializers ---
 
@@ -94,7 +94,7 @@ class ShiftBandSerializer(DataclassSerializer):
     y = serializers.IntegerField(help_text="First row of the band, in current-image coordinates.")
     rows = serializers.IntegerField(help_text="How many rows the band covers.")
     kind = serializers.ChoiceField(
-        choices=[(kind.value, kind.value) for kind in ShiftBandKind],
+        choices=ShiftBandKind.choices,
         help_text=(
             "'inserted' when the current image gained these rows, 'deleted' when it lost them. "
             "A deleted band has no rows of its own in the current image, so its y is the seam "
@@ -143,6 +143,14 @@ class SnapshotSerializer(DataclassSerializer):
 
 class RunSerializer(DataclassSerializer):
     approved_by = UserBasicInfoSerializer(allow_null=True, required=False)
+    purpose = serializers.ChoiceField(
+        choices=[p.value for p in RunPurpose],
+        read_only=True,
+        help_text=(
+            "Why CI submitted the run. `review` runs gate the PR and need approval. `observe` runs are "
+            "tracking-only, for example default-branch pushes and merge-queue runs, and can never be approved."
+        ),
+    )
     search_match_type = serializers.ChoiceField(
         choices=["exact", "similar"],
         allow_null=True,

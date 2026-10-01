@@ -19,6 +19,7 @@ _FIRE_RESOLVE_DATA: dict[str, str] = {
     "alert_name": "{event.properties.alert_name}",
     "scanner_id": "{event.properties.scanner_id}",
     "scanner_name": "{event.properties.scanner_name}",
+    "scanner_question": "{event.properties.scanner_question}",
     "metric": "{event.properties.metric}",
     "metric_value": "{event.properties.metric_value}",
     "threshold": "{event.properties.threshold}",
@@ -38,12 +39,17 @@ _BROKEN_ERRORED_BASE_DATA: dict[str, str] = {
 }
 
 
+# First, so a reader knows what was asked before reading the count or the matches it answers.
+_QUESTION_DETAIL = ("Question", "{event.properties.scanner_question_mrkdwn}")
+
+
 EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
     "firing": EventKindSpec(
         event_id="$replay_vision_alert_firing",
         display_kind="firing",
         header="🔴 Replay vision alert '{event.properties.alert_name}' is firing",
         details=(
+            _QUESTION_DETAIL,
             (
                 "Threshold breached",
                 "{event.properties.metric_label} is {event.properties.metric_value} over the last "
@@ -65,6 +71,7 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
         display_kind="resolved",
         header="🟢 Replay vision alert '{event.properties.alert_name}' has resolved",
         details=(
+            _QUESTION_DETAIL,
             (
                 "Current value",
                 "{event.properties.metric_label} is {event.properties.metric_value} over the last "
@@ -127,7 +134,7 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
         event_id="$replay_vision_alert_match",
         display_kind="match",
         header="🔔 {event.properties.matched_count} new matching observations for '{event.properties.alert_name}'",
-        details=(("Matches", "{event.properties.summary}"),),
+        details=(_QUESTION_DETAIL, ("Matches", "{event.properties.summary}")),
         primary_action_url=_OBSERVATIONS_URL,
         primary_action_label="View observations",
         webhook_body={
@@ -139,6 +146,7 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
                 "alert_name": "{event.properties.alert_name}",
                 "scanner_id": "{event.properties.scanner_id}",
                 "scanner_name": "{event.properties.scanner_name}",
+                "scanner_question": "{event.properties.scanner_question}",
                 "matched_count": "{event.properties.matched_count}",
                 "summary": "{event.properties.summary_text}",
                 "observation_ids": "{event.properties.observation_ids}",
@@ -160,9 +168,3 @@ VISION_ALERT_SLACK_CONTEXT_ELEMENTS = (
     "Scanner: {event.properties.scanner_name_mrkdwn}",
     "Project: <{project.url}|{project.name}>",
 )
-
-
-def escape_slack_mrkdwn(text: str) -> str:
-    """User-editable values interpolated into Slack mrkdwn must not carry control
-    syntax like <!channel> or <url|label>; webhooks keep the raw value."""
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")

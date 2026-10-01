@@ -8,11 +8,12 @@ from django.db.models.functions import Lower
 
 from owners_yaml.matcher import compile_pattern, normalize_path
 
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration
 from posthog.models.team.team import Team
+from posthog.ownership.github_files import AuthenticatedRepoFiles, GitHubFilesFetcher
+from posthog.ownership.paths import UNOWNED_TEAM, resolve_path_owners
 
-from products.engineering_analytics.backend.facade.api import resolve_path_owners
-from products.engineering_analytics.backend.facade.contracts import UNOWNED_TEAM
 from products.signals.backend.report_generation.resolve_reviewers import (
     bounded_reviewer_reason,
     resolve_org_github_login_to_users,
@@ -76,7 +77,10 @@ def suggest_repository_owners(
         if github is None:
             return []
         codeowners = _codeowners_for_paths(github, repository, paths)
-        ownership = resolve_path_owners(repository, paths)
+        owners_files = AuthenticatedRepoFiles(
+            repository, GitHubFilesFetcher.from_integration(github, priority=Priority.BATCH)
+        )
+        ownership = resolve_path_owners(repository, paths, files=owners_files)
     except Exception:
         logger.exception("Could not resolve repository owners for %s", repository)
         return []
