@@ -404,10 +404,18 @@ class TestAccountAuditStartAPI(APIBaseTest):
         self.assertFalse(dispatch.called)
         self.assertFalse(AccountAuditAdmission.objects.unscoped().exists())
 
-    def test_rejects_a_team_from_another_organization(self) -> None:
-        other_org = Organization.objects.create(name="Other organization", is_ai_data_processing_approved=True)
-        Team.objects.create(organization=other_org, name="Other team")
-        payload = {"organization_id": str(other_org.id), "team_id": self.team.id}
+    @parameterized.expand([("another_organization",), ("child_environment",)])
+    def test_rejects_an_ineligible_explicit_team(self, problem: str) -> None:
+        organization_id, team_id = self.organization.id, self.team.id
+        if problem == "another_organization":
+            other_org = Organization.objects.create(name="Other organization", is_ai_data_processing_approved=True)
+            Team.objects.create(organization=other_org, name="Other team")
+            organization_id = other_org.id
+        else:
+            team_id = Team.objects.create(
+                organization=self.organization, project=self.team.project, parent_team=self.team, name="Child"
+            ).id
+        payload = {"organization_id": str(organization_id), "team_id": team_id}
         with self._request_patches() as (_, _, dispatch):
             response = self._post(payload)
 

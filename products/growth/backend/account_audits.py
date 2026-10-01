@@ -174,7 +174,8 @@ class AccountAuditService:
         teams = Team.objects.filter(organization_id=request.organization_id).exclude(project__is_pending_deletion=True)
         team_id = request.team_id
         if team_id is not None:
-            return teams.filter(id=team_id).values_list("id", flat=True).first()
+            # Admission reads canonicalize a child environment ID to its parent, so a child ID could never finalize.
+            return teams.filter(id=team_id, parent_team__isnull=True).values_list("id", flat=True).first()
         return (
             teams.filter(id=F("project_id"), parent_team__isnull=True, is_demo=False)
             .alias(
