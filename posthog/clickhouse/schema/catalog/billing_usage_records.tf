@@ -20,3 +20,24 @@ locals {
     { name = "_partition", type = "UInt64" },
   ])
 }
+
+module "billing_usage_records" {
+  source = "../lib/table_family"
+
+  name     = "billing_usage_records"
+  database = var.database
+  columns  = local.sharded_billing_usage_records_columns
+  storage = {
+    engine       = "ReplacingMergeTree"
+    engine_args  = ["inserted_at"]
+    partition_by = "toYYYYMM(timestamp)"
+    order_by     = "(team_id, toDate(timestamp), producer_id, usage_key, record_id)"
+  }
+  kafka = {
+    topic    = "clickhouse_billing_usage_records"
+    columns  = local.kafka_billing_usage_records_columns
+    settings = { date_time_input_format = "'best_effort'" }
+  }
+  mv_select  = join(", ", [for column in local.sharded_billing_usage_records_columns : column.name])
+  deployment = merge(var.deployment.sharded, try(var.deployment.families.billing_usage_records, {}))
+}

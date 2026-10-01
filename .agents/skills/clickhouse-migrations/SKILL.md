@@ -17,7 +17,9 @@ Read [`posthog/clickhouse/schema/README.md`](../../../posthog/clickhouse/schema/
 
 ```text
 posthog/clickhouse/schema/
-  modules/<group>/   # one module per table family
+  catalog/           # standard sharded and global family declarations
+  lib/table_family/  # storage, routing, Kafka and MV conventions
+  modules/<group>/   # custom groups built from low-level helpers
     main.tf          # which components the group has
     variables.tf     # database, components, exclude, overrides, zk_path_suffix
     columns.tf       # column lists that more than one object uses
@@ -26,14 +28,21 @@ posthog/clickhouse/schema/
   local/             # root module: every group on one server
 ```
 
-Each object is one `module` block that calls a `lib` helper.
-`modules/person` is a small, complete group to copy from. `modules/events` is the sharded equivalent.
+For a standard family, add one file under `catalog/` using `lib/table_family`.
+Copy `catalog/billing_usage_records.tf` for a sharded family or `catalog/property_definitions.tf` for a global family.
+Declare the stored columns, storage keys, Kafka input and MV select expressions. Every root consumes the catalogue; cloud placement defaults come from the infrastructure repository.
+Put indexes, projections, constraints and codecs on storage. The library supplies the appropriate reader and writer columns.
+Replication uses a complete default Keeper path containing the database name; deployment can override the full path.
+Preserve existing names, paths, consumer groups and settings during a conversion, and use `moved` blocks for state addresses. Require a plan with zero DDL before adopting a refactor.
+
+For custom schemas, each object is one `module` block that calls a low-level `lib` helper.
+`modules/person` is a small custom group to copy from. `modules/events` is the sharded equivalent.
 
 ## Pick the group and the component
 
 A group is one table family.
 Add the object to the group of the table it stores, reads, or fills.
-Make a new group only for a new table family, and add a `module` block for it to `local/modules.tf`.
+Standard families go in the catalogue. Make a new explicit group only when the schema needs custom objects, and add a `module` block for it to `local/modules.tf`.
 
 The component decides which nodes get the object in PostHog Cloud, so choose it by what the object does:
 
@@ -61,7 +70,7 @@ module "writable_person" {
 ```
 
 Keep the `enabled` and `override` lines exactly in this form. The infrastructure repository relies on them to leave an object out of a cluster or to change it there.
-Use `${var.database}` for the database name, and `${var.zk_path_suffix}` in every replication path.
+Use `${var.database}` for the database name. Keep `${var.zk_path_suffix}` in existing custom groups until their replication paths are explicitly migrated; standard families use full paths instead.
 Add `depends_on` when an object reads from or writes to another one, as `person_mv` does.
 
 A table that only exists in PostHog Cloud is not declared here. It belongs in the infrastructure repository.
@@ -69,7 +78,7 @@ Everything declared here is created locally and in tests too.
 
 ## Add a column
 
-1. Find the column list. If `columns.tf` has one for the table, add the column there. `modules/person/columns.tf` builds `person_columns` from `kafka_person_columns`, so one line reaches the Kafka table, the writable table, and the storage table.
+1. For a catalogue family, update its stored columns and Kafka input columns as needed. The library derives the Distributed schemas. For an explicit group, find its column list; `modules/person/columns.tf` builds `person_columns` from `kafka_person_columns`.
 2. If a table declares its columns inline, add the column to each table that needs it: the storage table, the Distributed tables in front of it, and the Kafka table when the value comes from the topic.
 3. Add the column to the `SELECT` of the materialized view that fills the table.
 4. For a materialized column, put `materialized_expression` on the storage table. The Distributed table in front of it declares the plain column, as `events` does for the `$group_0` column of `sharded_events`.

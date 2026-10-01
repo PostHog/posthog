@@ -4,6 +4,7 @@
 #   bin/clickhouse-schema apply              # create or update every object
 #   bin/clickhouse-schema plan               # show what apply would change
 #   bin/clickhouse-schema install            # only download OpenTofu and the provider
+#   bin/clickhouse-schema test-family        # check the shared library against local ClickHouse
 #   bin/clickhouse-schema <tofu args>        # anything else goes to OpenTofu as is
 #
 # The connection comes from the same CLICKHOUSE_* variables the app reads.
@@ -139,6 +140,7 @@ rmdir "$LOCK_DIR"
 trap - EXIT
 
 case "${1:-apply}" in
+    test-family) export TOFU="$TOFU"; exec python3 "$SCHEMA_DIR/lib/table_family/tests/check.py" ;;
     apply) exec "$TOFU" -chdir="$ROOT_DIR" apply -auto-approve -parallelism=16 "${@:2}" ;;
     plan) exec "$TOFU" -chdir="$ROOT_DIR" plan -parallelism=16 "${@:2}" ;;
     *) exec "$TOFU" -chdir="$ROOT_DIR" "$@" ;;

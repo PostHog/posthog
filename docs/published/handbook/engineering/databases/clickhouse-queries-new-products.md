@@ -13,6 +13,12 @@ Related reading:
 - [Materialized columns](./materialized-columns.md)
 - [Query attribution](https://posthog.com/handbook/engineering/clickhouse/query-attribution)
 
+## Declare the table family
+
+For a new sharded table fed by Kafka, add a declaration under `posthog/clickhouse/schema/catalog/` using `lib/table_family`. Declare the Kafka topic and input columns, stored columns, sorting and partition keys, and the materialized view's SELECT expressions. The library creates the storage, readable, writable, Kafka and materialized-view objects. Infrastructure supplies placement; new cloud families default to aux storage and small ingestion.
+
+Declare indexes and projections under `storage`. They do not belong on Distributed or Kafka tables. Use `layout = "global"` for a table replicated as one dataset across its participating nodes. See the [schema guide](https://github.com/PostHog/posthog/blob/master/posthog/clickhouse/schema/README.md) for complete examples and overrides.
+
 ## Use HogQL, not raw ClickHouse SQL
 
 Always use [HogQL](./hogql-python.md) rather than writing raw ClickHouse SQL. HogQL is our AST-powered layer on top of ClickHouse SQL that provides critical safety and performance guarantees automatically.

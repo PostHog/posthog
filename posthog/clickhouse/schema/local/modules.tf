@@ -25,14 +25,6 @@ module "app_metrics" {
   components     = local.components
 }
 
-module "billing_usage_records" {
-  source = "../modules/billing_usage_records"
-
-  database       = var.database
-  zk_path_suffix = var.zk_path_suffix
-  components     = local.components
-}
-
 module "channel_definition" {
   source = "../modules/channel_definition"
 
@@ -377,14 +369,6 @@ module "precalculated" {
   components     = local.components
 }
 
-module "property_definitions" {
-  source = "../modules/property_definitions"
-
-  database       = var.database
-  zk_path_suffix = var.zk_path_suffix
-  components     = local.components
-}
-
 module "property_values" {
   source = "../modules/property_values"
 
@@ -484,4 +468,49 @@ module "web_preaggregated" {
   dictionary_user     = var.dictionary_user
   dictionary_password = var.dictionary_password
   components          = local.components
+}
+
+module "catalog" {
+  source = "../catalog"
+
+  database = var.database
+  deployment = {
+    sharded = { components = setsubtract(local.components, ["test"]), cluster = "aux" }
+    global  = { components = setsubtract(local.components, ["read", "test"]), cluster = "posthog" }
+    families = {
+      billing_usage_records = {
+        overrides = {
+          kafka_billing_usage_records = {
+            engine   = "Kafka(warpstream_ingestion)"
+            settings = "date_time_input_format = 'best_effort', kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_billing_usage_records', kafka_topic_list = 'clickhouse_billing_usage_records'"
+          }
+        }
+      }
+    }
+  }
+}
+
+moved {
+  from = module.billing_usage_records.module.sharded_billing_usage_records
+  to   = module.catalog.module.billing_usage_records.module.storage
+}
+moved {
+  from = module.billing_usage_records.module.billing_usage_records
+  to   = module.catalog.module.billing_usage_records.module.read
+}
+moved {
+  from = module.billing_usage_records.module.writable_billing_usage_records
+  to   = module.catalog.module.billing_usage_records.module.write
+}
+moved {
+  from = module.billing_usage_records.module.kafka_billing_usage_records
+  to   = module.catalog.module.billing_usage_records.module.kafka
+}
+moved {
+  from = module.billing_usage_records.module.billing_usage_records_mv
+  to   = module.catalog.module.billing_usage_records.module.mv
+}
+moved {
+  from = module.property_definitions.module.property_definitions
+  to   = module.catalog.module.property_definitions.module.storage
 }

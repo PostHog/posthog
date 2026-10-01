@@ -5,11 +5,64 @@ There are no migrations: you change the declaration, and OpenTofu works out the 
 
 ```text
 schema/
-  modules/<group>/   # one module per group of related objects (events, person, logs, ...)
+  catalog/           # simple table-family declarations, shared by local and cloud roots
+  modules/<group>/   # explicit groups for schemas that need custom objects
   lib/               # one helper module per object kind; each group is built from these
   local/             # root module: every group on one server
   provider-version.txt
 ```
+
+## Standard table families
+
+Add a `.tf` file under `catalog/` for a standard sharded or global table family.
+Every local and cloud root calls that catalogue, so a new family needs no per-cluster wiring.
+The calling root supplies placement; the declaration supplies the topic, columns, storage keys and ingestion transformation.
+`catalog/billing_usage_records.tf` is a complete sharded example and `catalog/property_definitions.tf` is a global example.
+
+```hcl
+module "example_events" {
+  source = "../lib/table_family"
+
+  name     = "example_events"
+  database = var.database
+  columns  = local.example_stored_columns
+  storage = {
+    order_by     = "(team_id, timestamp)"
+    partition_by = "toYYYYMM(timestamp)"
+    indexes      = local.example_indexes
+    projections  = local.example_projections
+  }
+  kafka = {
+    topic   = "example_events"
+    columns = local.example_input_columns
+  }
+  mv_select  = "team_id, timestamp, value"
+  deployment = merge(var.deployment.sharded, try(var.deployment.families.example_events, {}))
+}
+```
+
+`table_family` creates `sharded_<name>`, `<name>`, `writable_<name>`, `kafka_<name>` and `<name>_mv` on their selected components. Omit `kafka` and `mv_select` for a family without Kafka ingestion.
+`storage.engine` defaults to `MergeTree`; set `ReplacingMergeTree` and `engine_args = ["version"]` for versioned rows. The library supplies replication arguments.
+`sharding_key` defaults to `cityHash64(team_id)` and can be changed explicitly.
+The materialized view's `mv_select` is the expression list after `SELECT`; the library supplies its Kafka `FROM` and writable `TO`. More complex queries can use an explicit MV `query` override or the low-level helper.
+
+Indexes, projections, constraints, codecs, column TTLs and computed expressions belong to storage. Readers expose computed values as plain columns; writers expose insertable columns. Kafka has its own input columns. The library rejects index, projection and constraint overrides on other objects.
+Kafka defaults use one consumer, a 100000-row maximum block, a 10000ms poll timeout, 100 skipped broken messages and one thread per consumer. A supplied `kafka.settings` map replaces these defaults; values are SQL expressions, for example `date_time_input_format = "'best_effort'"`. Existing families preserve their existing settings and consumer groups. Billing retains its local Kafka engine/SETTINGS spelling through a deployment override; changing that spelling would otherwise replace the consumer table. Retire this exception only in an explicit Kafka change that preserves its consumer group.
+
+For a global family, set `layout = "global"` and use `var.deployment.global`. Its storage table is `<name>` with one Keeper path across the participating nodes; it has no Distributed reader. A global family without Kafka creates only storage. With Kafka, the library also creates its ingestion objects and a writable table routing to one shard of the storage cluster. Replica names must be unique across the participating nodes.
+
+New replication paths use the actual database name, so test databases are isolated without a suffix. Deployment can set a complete `keeper_path` and `replica_name`; `names` can preserve historical object names. Do not change existing Keeper paths as part of a refactor.
+Placement, exclusions and per-object overrides stay in the calling root. Cloud defaults are aux storage, small ingestion and reads on the app query cluster. Local development puts the components on one server. Existing families keep their recorded placement until an explicit migration changes it.
+
+Keep unusual views, dictionaries and extra ingestion pipelines in explicit modules built from `lib/table`, `lib/materialized_view`, `lib/view` and `lib/dictionary`. A family does not have to fit the standard five-object pattern.
+
+Run the library check with a local ClickHouse and Keeper:
+
+```bash
+bin/clickhouse-schema test-family
+```
+
+The check creates and removes its own scratch database, checks storage-only physical attributes and computed-column routing, and requires an empty second plan.
 
 ## Groups and components
 
@@ -32,7 +85,7 @@ A root module says which components of which groups go on which nodes.
 
 ## What this repository owns
 
-This repository owns the groups, the definitions, and one root: `local/`, which puts every component of every group on a single server.
+This repository owns the catalogue, explicit groups, definitions, and one root: `local/`, which puts every component of every group on a single server.
 That root is what local development, tests, CI and self-hosted installs use.
 
 Which clusters and nodes get which components in PostHog Cloud is not decided here.
@@ -52,7 +105,7 @@ Objects that exist only in PostHog Cloud are declared in the infrastructure repo
 
 1. Edit the module of the group. Column lists that several objects use are in `columns.tf` of the module, so a new column usually goes in one place.
 2. Write expressions the way ClickHouse prints them in `SHOW CREATE TABLE`. The provider compares your text with what the server reports and ignores only whitespace, so `x::Date` instead of `CAST(x, 'Date')` shows up as a change on every plan. The exception is text inside a quoted string, such as the `QUERY` of a dictionary source: ClickHouse stores that as written.
-3. A new object goes in the file of its component. A new group is a new directory under `modules/` and a `module` block in `local/modules.tf`.
+3. A standard family goes in `catalog/` and uses `lib/table_family`. An unusual object goes in its explicit group and component. A new explicit group is a directory under `modules/` and a `module` block in `local/modules.tf`.
 4. Run `bin/clickhouse-schema plan` to see the statements, then `bin/clickhouse-schema apply`.
 
 A pull request that changes this directory gets applied to a fresh ClickHouse in CI, and a second plan must come back empty.

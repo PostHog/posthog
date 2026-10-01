@@ -83,6 +83,9 @@ jobs:
             - name: Create the database
               run: docker compose exec -T clickhouse clickhouse client --query "CREATE DATABASE IF NOT EXISTS $CLICKHOUSE_DATABASE"
 
+            - name: Check table-family layouts and physical attributes
+              run: bin/clickhouse-schema test-family
+
             - name: Apply
               run: bin/clickhouse-schema apply
 
