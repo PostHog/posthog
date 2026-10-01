@@ -16,7 +16,8 @@ export function SpaceSettingsSection({ label, description, action, children }: S
         <section className="flex flex-col gap-2">
             <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-0.5">
                 <div className="flex min-w-0 flex-col gap-0.5">
-                    <Text size="xs" weight="semibold" render={<h3 />}>
+                    {/* A heading role rather than an h3, because the app's global h3 margin would push the description down. */}
+                    <Text size="xs" weight="semibold" role="heading" aria-level={3}>
                         {label}
                     </Text>
                     {description && (
