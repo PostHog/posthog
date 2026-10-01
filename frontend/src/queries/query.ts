@@ -1,5 +1,5 @@
 import api, { ApiMethodOptions, isAbortError } from 'lib/api'
-import { isTransientServerError } from 'lib/api-error'
+import { ApiError, isTransientServerError } from 'lib/api-error'
 import posthog from 'lib/posthog-typed'
 import { delay, retryWithBackoff } from 'lib/utils/async'
 import { uuid } from 'lib/utils/dom'
@@ -70,15 +70,23 @@ export const QUERY_TIMEOUT_ERROR_MESSAGE = 'Query timed out'
 /** Matches MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE in posthog/api/query.py. */
 const MANAGED_WAREHOUSE_UNAVAILABLE_CODE = 'managed_warehouse_connection_unavailable'
 
-/**
- * A transient gateway failure (502/503/504) on the submit means the request never reached the
- * backend, so the query it carried has not started and one more attempt usually lands. Submitting
- * again is safe: a query is a read, and the `client_query_id` is reused, so the server joins a run
- * that did start instead of computing it twice. `getInsightWithRetry` gives the dashboard insight
- * route the same treatment, which is why a blip there is invisible while one here loses the result.
- */
 const TRANSIENT_SUBMIT_ATTEMPTS = 3
 const TRANSIENT_SUBMIT_DELAY_MS = 600
+
+/**
+ * A 502, or a 503 without `Retry-After`, means the query did not start, so a quick resubmit is safe.
+ * A 503 with `Retry-After` is the backend saying ClickHouse is at capacity for the next 30-60 seconds,
+ * and a quick resubmit only adds load. A 504 means the gateway stopped waiting while the backend can
+ * still be running the query, so a resubmit can compute it a second time.
+ */
+function isRetryableSubmitFailure(error: unknown): boolean {
+    return (
+        error instanceof ApiError &&
+        isTransientServerError(error) &&
+        error.status !== 504 &&
+        !error.headers?.has('Retry-After')
+    )
+}
 
 /**
  * Parse error message that may be in ErrorDetail string format.
@@ -203,8 +211,6 @@ async function executeQuery<N extends DataNode>(
     if (!pollOnly) {
         const refreshParam: RefreshType = refresh || 'blocking'
         // Minted here rather than left to the server, so every attempt below names the same run.
-        // Without an id the server mints its own per request, and a retry after it already accepted
-        // the first submit would start a second computation of the same query.
         const clientQueryId = queryId || uuid()
 
         const response = await retryWithBackoff(
@@ -221,7 +227,7 @@ async function executeQuery<N extends DataNode>(
                 maxAttempts: TRANSIENT_SUBMIT_ATTEMPTS,
                 initialDelayMs: TRANSIENT_SUBMIT_DELAY_MS,
                 signal: methodOptions?.signal,
-                shouldRetry: isTransientServerError,
+                shouldRetry: isRetryableSubmitFailure,
             }
         )
 

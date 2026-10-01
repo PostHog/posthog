@@ -409,7 +409,6 @@ describe('query', () => {
             await jest.advanceTimersByTimeAsync(600)
             await promise
 
-            // Without this the server mints an id per submit, so the retry starts a second run.
             const firstId = querySpy.mock.calls[0][1]?.clientQueryId
             expect(firstId).toBeTruthy()
             expect(querySpy.mock.calls[1][1]?.clientQueryId).toBe(firstId)
@@ -424,6 +423,20 @@ describe('query', () => {
 
             await expect(settled).resolves.toMatchObject({ status: 503 })
             expect(querySpy).toHaveBeenCalledTimes(3)
+        })
+
+        it.each([
+            ['a capacity 503 with Retry-After', new ApiError('', 503, new Headers({ 'Retry-After': '45' }), {})],
+            ['a 504, where the backend can still be running the query', new ApiError('', 504, undefined, {})],
+        ])('does not submit again after %s', async (_name, error) => {
+            jest.useFakeTimers()
+            const querySpy = jest.spyOn(api, 'query').mockRejectedValue(error)
+
+            const settled = performQuery(query, undefined, 'blocking').catch((e) => e)
+            await jest.advanceTimersByTimeAsync(1800)
+
+            await expect(settled).resolves.toBe(error)
+            expect(querySpy).toHaveBeenCalledTimes(1)
         })
     })
 
