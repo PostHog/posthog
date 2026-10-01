@@ -3659,14 +3659,14 @@ Note: Important: PostHog does not use Gladly's REST list endpoints — it ingest
 
 ## Glassfrog — gaps
 
-Today (8): `assignments`, `checklist_items`, `circles`, `custom_fields`, `metrics`, `people`, `projects`, `roles`
+Today (12): `actions`, `assignments`, `checklist_items`, `circles`, `custom_fields`, `governance_meetings`, `metrics`, `people`, `projects`, `proposals`, `roles`, `tensions`
 
 Diffed against: <https://app.glassfrog.com/api/v3/docs/spec.yaml>
 
-- [ ] `/tensions` — tensions are the core Holacracy input object and the driver of every governance and tactical outcome (high)
-- [ ] `/actions` — next-actions are the operational work items sitting alongside the projects already synced (high)
-- [ ] `/proposals` — governance proposals with their responses — the transition record for how roles and circles changed (high)
-- [ ] `/governance_meetings` — governance meeting records that timestamp and group structural changes (medium)
+- [x] `/tensions` — tensions are the core Holacracy input object and the driver of every governance and tactical outcome (high)
+- [x] `/actions` — next-actions are the operational work items sitting alongside the projects already synced (high)
+- [x] `/proposals` — governance proposals with their responses — the transition record for how roles and circles changed (high)
+- [x] `/governance_meetings` — governance meeting records that timestamp and group structural changes (medium)
 - [ ] `/tactical_meetings` — tactical meeting cadence and attendance, the operational counterpart to governance meetings (medium)
 - [ ] `/agenda_items` — agenda items per meeting — the line items making meeting throughput measurable (medium)
 - [ ] `/domains` — lookup resolving the domains held by the roles and circles already synced (medium)
@@ -3674,7 +3674,7 @@ Diffed against: <https://app.glassfrog.com/api/v3/docs/spec.yaml>
 - [ ] `/organizations` — top-level org lookup that scopes every other table (medium)
 - [ ] `/triggers` — role triggers (when-then rules) attached to roles and people (low)
 
-Note: The docs page at /api/v3/docs is a Swagger UI shell; the real spec is at /api/v3/docs/spec.yaml, which is what was diffed. GlassFrog exposes 12 listable top-level collections and PostHog covers 8 nouns but none of the governance-process objects.
+Note: The docs page at /api/v3/docs is a Swagger UI shell; the real spec is at /api/v3/docs/spec.yaml, which is what was diffed. GlassFrog exposes 18 listable top-level collections and PostHog covers 12.
 
 ## GNews — adequate
 
