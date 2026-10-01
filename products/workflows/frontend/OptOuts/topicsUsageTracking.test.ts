@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -97,17 +98,17 @@ describe('topics tab usage tracking', () => {
     })
 
     it.each([
-        { action: 'creating a topic', act: () => submitTopicForm(), expected: [['messaging topic created']] },
+        { action: 'creating a topic', act: () => submitTopicForm(), expected: [['messaging topic created', {}]] },
         {
             action: 'editing a topic',
             act: () => submitTopicForm(NEWSLETTER),
-            expected: [['messaging topic updated']],
+            expected: [['messaging topic updated', {}]],
         },
-        { action: 'deleting a topic', act: deleteTopic, expected: [['messaging topic deleted']] },
+        { action: 'deleting a topic', act: deleteTopic, expected: [['messaging topic deleted', {}]] },
         {
             action: 'opening the preferences page',
             act: () => openPreferencesPage('opened'),
-            expected: [['messaging preferences page opened']],
+            expected: [['messaging preferences page opened', {}]],
         },
         { action: 'a blocked preferences page popup', act: () => openPreferencesPage('blocked'), expected: [] },
         {
@@ -120,9 +121,26 @@ describe('topics tab usage tracking', () => {
             act: importFromCustomerIOCsv,
             expected: [['messaging customer.io import completed', { source: 'csv' }]],
         },
-    ])('after $action, captures $expected', async ({ act, expected }) => {
+    ])('after $action on the broadcasts surface, captures $expected', async ({ act, expected }) => {
+        router.actions.push('/broadcasts/opt-outs')
+
         await act()
 
-        expect(messagingEvents()).toEqual(expected)
+        expect(messagingEvents()).toEqual(
+            expected.map(([event, properties]) => [event, { ...(properties as object), surface: 'broadcasts' }])
+        )
+    })
+
+    it.each([
+        { url: '/workflows/opt-outs', surface: 'workflows' },
+        { url: '/broadcasts/opt-outs', surface: 'broadcasts' },
+        { url: '/audience/topics', surface: 'audience' },
+        { url: '/project/997/audience/topics', surface: 'audience' },
+    ])('names $surface as the surface on $url', async ({ url, surface }) => {
+        router.actions.push(url)
+
+        await submitTopicForm()
+
+        expect(messagingEvents()).toEqual([['messaging topic created', { surface }]])
     })
 })
