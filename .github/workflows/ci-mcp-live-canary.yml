@@ -17,6 +17,9 @@ on:
             - '.github/workflows/ci-mcp-live-canary.yml'
             - 'services/mcp/vitest.live.config.mts'
             - 'services/mcp/tests/live/**'
+            - 'services/mcp/src/resources/internals.ts'
+            - 'services/mcp/src/resources/manifest-loader.ts'
+            - 'services/mcp/src/resources/manifest-types.ts'
 
 env:
     SLACK_CHANNEL: 'C0AS64N6DJL' # #alerts-devex
