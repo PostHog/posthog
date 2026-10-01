@@ -360,11 +360,15 @@ class _BatchRun:
 def _resolve_enrichment_target(team_id: int, saved_query_id: str) -> _EnrichmentTarget | _EnrichmentSkip:
     """Load the view and apply every eligibility gate. The gates are the source of truth for the dispatch
     pre-checks (`enrichment_dispatch_pending`), which only filter cheaply."""
-    team = (
-        Team.objects.select_related("organization")
-        .only("id", "uuid", "organization_id", "organization__is_ai_data_processing_approved")
-        .get(id=team_id)
-    )
+    try:
+        team = (
+            Team.objects.select_related("organization")
+            .only("id", "uuid", "organization_id", "organization__is_ai_data_processing_approved")
+            .get(id=team_id)
+        )
+    except Team.DoesNotExist:
+        # The team can be deleted between dispatch and run.
+        return _EnrichmentSkip(reason="team_not_found")
 
     # Respect the org's AI data-processing opt-out: this ships view metadata and core memory to the LLM.
     if team.organization.is_ai_data_processing_approved is not True:
