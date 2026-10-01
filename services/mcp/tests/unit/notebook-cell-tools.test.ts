@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { buildToolResultPayload } from '@/lib/build-tool-result'
+import { findRecoverableApiError, PostHogValidationError } from '@/lib/errors'
 import { GENERATED_TOOLS } from '@/tools/generated/notebooks'
 import { addCellHandler, NotebooksAddCellSchema } from '@/tools/notebooks/addCell'
 import { createMarkdownHandler } from '@/tools/notebooks/createMarkdown'
@@ -97,7 +98,14 @@ function createMockContext(state: MockState): Context {
         }
         if (opts.method === 'POST' && path.endsWith('/sql_v2/run/')) {
             if (state.runDispatchError) {
-                throw new Error(state.runDispatchError)
+                throw new PostHogValidationError({
+                    detail: state.runDispatchError,
+                    attr: undefined,
+                    code: undefined,
+                    extra: undefined,
+                    url: path,
+                    method: 'POST',
+                })
             }
             state.runBodies.push(opts.body)
             return { run_id: 'run-1' }
@@ -562,9 +570,15 @@ describe('notebook cell tools', () => {
             state.runDispatchError = "Referenced node 'events_df' has not been run yet — run it first."
             const context = createMockContext(state)
 
-            await expect(runCellHandler(context, { notebook_id: 'aBcD1234', node_id: 'target' })).rejects.toThrow(
+            const error = await runCellHandler(context, { notebook_id: 'aBcD1234', node_id: 'target' }).catch(
+                (caught: unknown) => caught
+            )
+
+            expect((error as Error).message).toContain(
                 'Cell upstream produces events_df. Run it with notebooks-run-cell, then run this cell again.'
             )
+            // The handler classifies by the API error in the cause chain, so the hint must keep it.
+            expect(findRecoverableApiError(error)).toBeInstanceOf(PostHogValidationError)
         })
     })
 
