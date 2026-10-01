@@ -64,12 +64,10 @@ pub enum EventResult {
 #[derive(Debug, Deserialize)]
 pub struct Batch {
     pub created_at: String,
-    /// Read like a boolean option, so an unreadable value means "not a
-    /// historical migration" instead of failing the whole batch.
+    /// An unreadable value means false instead of failing the batch.
     #[serde(default, deserialize_with = "deserialize_lenient_flag_or_false")]
     pub historical_migration: bool,
-    /// Read like a boolean option, so an unreadable value means "not set"
-    /// instead of failing the whole batch.
+    /// An unreadable value means unset instead of failing the batch.
     #[serde(default, deserialize_with = "deserialize_lenient_flag")]
     pub capture_internal: Option<bool>,
     pub batch: Vec<Event>,
@@ -114,8 +112,7 @@ pub struct Options {
 #[serde(transparent)]
 pub struct RawOptions(pub Value);
 
-/// An option key capture reads, validates and forwards. Capture ignores every
-/// other key.
+/// An option key capture validates and forwards; it ignores all other keys.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExpectedOption {
     CookielessMode,
@@ -125,7 +122,7 @@ pub enum ExpectedOption {
 }
 
 impl ExpectedOption {
-    /// The order capture checks keys in, which is also the order it reports them in.
+    /// Check and report order.
     const ALL: [Self; 4] = [
         Self::CookielessMode,
         Self::DisableSkewCorrection,
@@ -147,8 +144,7 @@ impl ExpectedOption {
     }
 }
 
-/// A set of expected option keys. It holds each key at most once and lists
-/// them in `ExpectedOption::ALL` order, so unions across a batch stay bounded.
+/// Expected option keys, each at most once, in `ExpectedOption::ALL` order.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct OptionKeys(u8);
 
@@ -177,25 +173,24 @@ impl OptionKeys {
     }
 }
 
-/// The expected option keys whose values capture cannot read, which drops the
-/// event. Empty when `options` is not a JSON object.
+/// Expected keys with unreadable values; empty when `options` is not an object.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct OptionsError(pub OptionKeys);
 
 impl OptionsError {
-    /// The per-event `details` tag, which also labels the malformed-event metric.
+    /// The per-event `details` tag and malformed-metric label.
     pub fn detail(self) -> &'static str {
         DETAIL_INVALID_OPTIONS
     }
 
-    /// The expected keys to name in logs and in the ingestion warning.
+    /// Keys to name in logs and the ingestion warning.
     pub fn failed_keys(self) -> OptionKeys {
         self.0
     }
 }
 
 impl RawOptions {
-    /// Read the expected option keys leniently and ignore every other key.
+    /// Read the expected keys leniently and ignore the rest.
     pub fn validate(&self) -> Result<Options, OptionsError> {
         let map = match &self.0 {
             Value::Null => return Ok(Options::default()),
@@ -262,8 +257,7 @@ fn read_option<T>(
     }
 }
 
-/// Read a boolean leniently: booleans, numbers (zero is off), on/off words and
-/// numeric strings. `null` and blank strings mean "not set".
+/// Booleans, numbers (zero is off), on/off words or numeric strings; `null` or blank is unset.
 fn coerce_bool(v: &Value) -> Parsed<bool> {
     match v {
         Value::Null => Parsed::Unset,
@@ -284,8 +278,7 @@ fn parse_bool_str(raw: &str) -> Parsed<bool> {
     match trimmed.to_ascii_lowercase().as_str() {
         "true" | "t" | "yes" | "y" | "on" => Parsed::Set(true),
         "false" | "f" | "no" | "n" | "off" => Parsed::Set(false),
-        // Rust's float parser also accepts "inf" and "nan", which are not numbers
-        // a sender means as a flag.
+        // `f64` parsing accepts "inf" and "nan", which are not flags.
         other => match other.parse::<f64>() {
             Ok(f) if f.is_finite() => Parsed::Set(f != 0.0),
             _ => Parsed::Invalid,
@@ -293,8 +286,7 @@ fn parse_bool_str(raw: &str) -> Parsed<bool> {
     }
 }
 
-/// `product_tour_id` is a string, forwarded unchanged. An integer becomes its
-/// decimal string; any other number is invalid. A blank string means "not set".
+/// A string as-is, or an integer as its decimal string; blank is unset.
 fn coerce_product_tour_id(v: &Value) -> Parsed<String> {
     match v {
         Value::Null => Parsed::Unset,
@@ -356,9 +348,7 @@ pub struct WrappedEvent {
 }
 
 impl WrappedEvent {
-    /// The expected option keys that made validation drop this event, empty for
-    /// any other outcome. Recomputed from the options because only dropped
-    /// events need it.
+    /// Option keys that dropped this event; recomputed since only drops need it.
     pub fn failed_option_keys(&self) -> OptionKeys {
         match self.details {
             Some(DETAIL_INVALID_OPTIONS) => self
@@ -2137,9 +2127,7 @@ mod tests {
         assert_eq!(data.properties["$process_person_profile"], false);
     }
 
-    // Ingestion turns person processing off only for a JSON `false` in
-    // `$process_person_profile`, so capture injects the parsed boolean, never
-    // the sender's raw form.
+    // Ingestion honors only a JSON `false`, so capture must inject the parsed boolean.
     #[rstest::rstest]
     #[case::cookieless_yes(ExpectedOption::CookielessMode, serde_json::json!("YES"), "$cookieless_mode", true)]
     #[case::skew_off(ExpectedOption::DisableSkewCorrection, serde_json::json!("off"), "$ignore_sent_at", false)]

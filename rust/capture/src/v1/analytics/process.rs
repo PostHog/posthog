@@ -546,8 +546,7 @@ fn validate_events(
 
         match validate_event(&event) {
             Ok(raw_ts) => {
-                // observe_malformed_events counts and logs this drop with the
-                // other validate-stage drops.
+                // `observe_malformed_events` counts and logs this drop.
                 let options = match event.options.validate() {
                     Ok(opts) => opts,
                     Err(err) => {
@@ -674,7 +673,7 @@ fn observe_malformed_events(context: &RequestContext, events: &[WrappedEvent]) {
     );
 }
 
-/// Lets at most one caller through per interval across the whole process.
+/// Admits at most one caller per interval, process-wide.
 struct LogGate {
     interval_ms: u64,
     next_allowed_ms: AtomicU64,
@@ -703,9 +702,8 @@ impl LogGate {
     }
 }
 
-/// Caps the per-request malformed-events WARN at one line per second per pod,
-/// because it floods the logs at full traffic. The metric in
-/// `observe_malformed_events` still counts every drop.
+/// Caps the malformed-events WARN at one line per second per pod to stop log floods.
+/// The metric still counts every drop.
 static MALFORMED_EVENTS_LOG_GATE: LogGate = LogGate::new(1_000);
 
 static PROCESS_START: LazyLock<Instant> = LazyLock::new(Instant::now);
@@ -1287,8 +1285,7 @@ mod tests {
         serde_json::from_str(&json.to_string()).unwrap()
     }
 
-    /// Runs `f` under a local metrics recorder and returns the counter `name`
-    /// whose labels include every pair in `labels`.
+    /// Runs `f` and returns counter `name` whose labels include all of `labels`.
     fn counter_value(name: &str, labels: &[(&str, &str)], f: impl FnOnce()) -> Option<u64> {
         use metrics_util::debugging::{DebugValue, DebuggingRecorder};
 
@@ -1320,9 +1317,7 @@ mod tests {
             })
     }
 
-    /// The recorded `capture_v1_events_dropped` counter for the given
-    /// `reason`+`stage` labels, so whole-batch-abort tests can assert the exact
-    /// per-event drop count.
+    /// The `capture_v1_events_dropped` count for `reason` and `stage` while `f` runs.
     fn dropped_count(reason: &str, stage: &str, f: impl FnOnce()) -> Option<u64> {
         counter_value(
             CAPTURE_V1_EVENTS_DROPPED,
@@ -4928,9 +4923,7 @@ mod tests {
         );
     }
 
-    /// Option drops reach the sender per event and share one `invalid_options`
-    /// warning that names each failed key once, and lenient boolean forms pass,
-    /// on the analytics and AI deployments alike.
+    /// Option drops are per event, share one `invalid_options` warning, and lenient forms pass.
     #[rstest::rstest]
     #[case::analytics_deployment(CaptureMode::Events, "$pageview")]
     #[case::ai_deployment(CaptureMode::Ai, "$ai_generation")]
