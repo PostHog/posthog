@@ -1873,7 +1873,7 @@ export const FoldPersonDocumentResponseSchema: GenMessage<FoldPersonDocumentResp
  */
 export enum DeletePersonsMode {
     /**
-     * Same as HARD.
+     * Same as TOMBSTONE.
      *
      * @generated from enum value: DELETE_PERSONS_MODE_UNSPECIFIED = 0;
      */

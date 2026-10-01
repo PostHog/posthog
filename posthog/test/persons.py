@@ -431,7 +431,13 @@ def delete_person(person: Person) -> None:
             person.team_id, did.distinct_id, str(person.uuid), version=(did.version or 0) + 100, is_deleted=True
         )
 
-    fake.delete_persons(person_pb2.DeletePersonsRequest(team_id=person.team_id, person_uuids=[str(person.uuid)]))
+    fake.delete_persons(
+        person_pb2.DeletePersonsRequest(
+            team_id=person.team_id,
+            person_uuids=[str(person.uuid)],
+            mode=person_pb2.DELETE_PERSONS_MODE_HARD,
+        )
+    )
 
 
 def update_person(person: Person) -> None:

@@ -613,7 +613,11 @@ class TestFakePersonHogClientDeleteTombstonedPersons:
 
     def test_delete_persons_still_removes_tombstoned_and_live_alike(self):
         resp = self.client.delete_persons(
-            person_pb2.DeletePersonsRequest(team_id=self.TEAM_ID, person_uuids=["tombstoned", "live", "blocked"])
+            person_pb2.DeletePersonsRequest(
+                team_id=self.TEAM_ID,
+                person_uuids=["tombstoned", "live", "blocked"],
+                mode=person_pb2.DELETE_PERSONS_MODE_HARD,
+            )
         )
 
         assert resp.deleted_count == 3

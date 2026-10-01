@@ -624,7 +624,7 @@ class FakePersonHogClient:
         self, request: person_pb2.DeletePersonsRequest, timeout: float | None = None
     ) -> person_pb2.DeletePersonsResponse:
         self.calls.append(_Call("delete_persons", request))
-        tombstone = request.mode == person_pb2.DELETE_PERSONS_MODE_TOMBSTONE
+        tombstone = request.mode != person_pb2.DELETE_PERSONS_MODE_HARD
         response = person_pb2.DeletePersonsResponse(tombstoned=tombstone)
         for uuid in request.person_uuids:
             person = self._persons_by_uuid.get((request.team_id, uuid))
