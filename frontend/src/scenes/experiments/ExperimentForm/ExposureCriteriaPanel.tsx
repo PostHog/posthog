@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 
-import { LemonCollapse, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { LemonButton, LemonCollapse, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
@@ -261,8 +262,20 @@ export function ExposureCriteriaPanel({ experiment, onChange, compact }: Exposur
         return (
             <div className="space-y-4">
                 <div className="space-y-3">
-                    <div className="flex items-center justify-between gap-2">
-                        <span className="text-sm text-secondary">Include people when</span>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="flex items-center gap-1 whitespace-nowrap text-sm text-secondary">
+                            Exposure event
+                            <Tooltip title="People count toward the results once this event happens for them. By default, that's when your code checks the experiment's feature flag.">
+                                <LemonButton
+                                    size="xsmall"
+                                    noPadding
+                                    icon={<IconInfo className="text-base text-secondary" />}
+                                    aria-label="About the exposure event"
+                                    data-attr="experiment-analytics-exposure-event-help"
+                                    className="shrink-0"
+                                />
+                            </Tooltip>
+                        </span>
                         <LemonSelect
                             size="small"
                             dropdownMatchSelectWidth={false}
@@ -335,8 +348,20 @@ export function ExposureCriteriaPanel({ experiment, onChange, compact }: Exposur
                     {isActivation && <ActivationActionFilter experiment={experiment} onChange={onChange} />}
                 </div>
 
-                <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm text-secondary">Multiple variant handling</span>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="flex items-center gap-1 whitespace-nowrap text-sm text-secondary">
+                        Multiple variant handling
+                        <Tooltip title="Some people see more than one variant, for example after the split changes. Excluding them keeps the results clean. Using their first variant keeps them in, but can bias the results.">
+                            <LemonButton
+                                size="xsmall"
+                                noPadding
+                                icon={<IconInfo className="text-base text-secondary" />}
+                                aria-label="About multiple variant handling"
+                                data-attr="experiment-analytics-multiple-variant-handling-help"
+                                className="shrink-0"
+                            />
+                        </Tooltip>
+                    </span>
                     <LemonSelect
                         size="small"
                         dropdownMatchSelectWidth={false}
@@ -348,10 +373,10 @@ export function ExposureCriteriaPanel({ experiment, onChange, compact }: Exposur
                         options={[
                             {
                                 value: 'exclude',
-                                label: 'Exclude multivariate users',
+                                label: 'Exclude from analysis',
                                 labelInMenu: (
                                     <div>
-                                        <div>Exclude multivariate users</div>
+                                        <div>Exclude from analysis</div>
                                         <div className="text-xs text-muted font-normal">
                                             Users exposed to multiple variants will be excluded (recommended)
                                         </div>
@@ -361,10 +386,10 @@ export function ExposureCriteriaPanel({ experiment, onChange, compact }: Exposur
                             },
                             {
                                 value: 'first_seen',
-                                label: 'First seen variant',
+                                label: 'Use first seen variant',
                                 labelInMenu: (
                                     <div>
-                                        <div>First seen variant</div>
+                                        <div>Use first seen variant</div>
                                         <div className="text-xs text-muted font-normal">
                                             Users will be analyzed using their first seen variant
                                         </div>
