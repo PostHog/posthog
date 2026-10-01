@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import { IconCopy, IconExternal, IconGitLab, IconGithub } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
@@ -13,8 +14,12 @@ import {
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
+import { errorPropertiesLogic } from '../errorPropertiesLogic'
 import { ErrorTrackingStackFrame, ErrorTrackingStackFrameRecord } from '../types'
 import { SourceData, framesCodeSourceLogic } from './framesCodeSourceLogic'
+import { getRepoFileLink } from './repoFileLink'
+
+type SourceLinkMethod = 'repo_path' | 'code_search'
 
 export function FrameDropDownMenu({
     frame,
@@ -28,7 +33,9 @@ export function FrameDropDownMenu({
 }): JSX.Element {
     const { raw_id } = frame
     const { getSourceDataForFrame } = useValues(framesCodeSourceLogic)
-    const sourceData = getSourceDataForFrame(raw_id)
+    const { release } = useValues(errorPropertiesLogic)
+    const repoFileLink = getRepoFileLink(frame, release)
+    const sourceData = repoFileLink ?? getSourceDataForFrame(raw_id)
     const lineLocation = getLineLocation(frame)
     const hasItems = !!(frame.resolved_name || frame.source || lineLocation || sourceData)
 
@@ -50,7 +57,9 @@ export function FrameDropDownMenu({
                 {frame.source && <CopyItem value={frame.source} description="file path" />}
                 {lineLocation && <CopyItem value={lineLocation} description="line location" />}
                 {sourceData && <DropdownMenuSeparator />}
-                {sourceData && <SourceDataLink sourceData={sourceData} />}
+                {sourceData && (
+                    <SourceDataLink sourceData={sourceData} method={repoFileLink ? 'repo_path' : 'code_search'} />
+                )}
             </DropdownMenuContent>
         </DropdownMenu>
     )
@@ -61,14 +70,37 @@ const PROVIDER_ICON_MAP: Record<string, React.ComponentType<{ className?: string
     gitlab: IconGitLab,
 }
 
-export function SourceDataLink({ sourceData }: { sourceData: SourceData }): JSX.Element {
+const PROVIDER_NAMES: Record<string, string> = {
+    github: 'GitHub',
+    gitlab: 'GitLab',
+}
+
+export function SourceDataLink({
+    sourceData,
+    method,
+}: {
+    sourceData: SourceData
+    method: SourceLinkMethod
+}): JSX.Element {
     const ProviderIcon = sourceData.provider ? PROVIDER_ICON_MAP[sourceData.provider] : null
     const Icon = ProviderIcon || IconExternal
     return (
         <DropdownMenuItem>
-            <Link to={sourceData.url} target="_blank" className="inline-flex items-center">
+            <Link
+                to={sourceData.url}
+                target="_blank"
+                className="inline-flex items-center"
+                data-attr="error-tracking-frame-source-link"
+                onClick={() => {
+                    // pinned: analytics event name and properties, renaming breaks dashboards
+                    posthog.capture('error_tracking_source_link_clicked', {
+                        method,
+                        provider: sourceData.provider,
+                    })
+                }}
+            >
                 <Icon className="w-3.5 h-3.5" />
-                Open in {sourceData.provider}
+                Open in {PROVIDER_NAMES[sourceData.provider] ?? sourceData.provider}
             </Link>
         </DropdownMenuItem>
     )
