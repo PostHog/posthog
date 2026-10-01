@@ -61662,6 +61662,35 @@ export namespace Schemas {
       allowed_idle_timeout_seconds: number[];
     }
 
+    export interface NotebookKernelCompleteRequest {
+      /**
+         * The full source of the cell being edited.
+         * @maxLength 100000
+         */
+      code: string;
+      /**
+         * Character offset of the cursor in `code`, counting from 0.
+         * @minimum 0
+         */
+      cursor_pos: number;
+    }
+
+    export interface NotebookKernelCompletion {
+      /** The text that replaces `code[cursor_start:cursor_end]`. */
+      text: string;
+      /** What the match names, as the kernel reports it: 'function', 'module', 'instance', … or blank. */
+      type: string;
+    }
+
+    export interface NotebookKernelCompleteResponse {
+      /** Completions from the live kernel's namespace. Empty when no kernel is running. */
+      matches: NotebookKernelCompletion[];
+      /** Start offset of the text the completions replace. */
+      cursor_start: number;
+      /** End offset of the text the completions replace. */
+      cursor_end: number;
+    }
+
     export interface NotebookKernelConfig {
       /** CPU cores for the notebook's sandbox kernel; must be a supported option. */
       cpu_cores?: number;
@@ -61698,6 +61727,32 @@ export namespace Schemas {
          * @nullable
          */
       preset_key?: string | null;
+    }
+
+    export interface NotebookKernelInspectRequest {
+      /**
+         * The full source of the cell being edited.
+         * @maxLength 100000
+         */
+      code: string;
+      /**
+         * Character offset of the cursor in `code`, counting from 0.
+         * @minimum 0
+         */
+      cursor_pos: number;
+      /**
+         * 0 for the signature and docstring, 1 to add the source when the kernel can find it.
+         * @minimum 0
+         * @maximum 1
+         */
+      detail_level?: number;
+    }
+
+    export interface NotebookKernelInspectResponse {
+      /** Whether the kernel found an object at the cursor. */
+      found: boolean;
+      /** The object's signature and docstring as plain text. Blank when not found. */
+      text: string;
     }
 
     export interface NotebookKernelState {

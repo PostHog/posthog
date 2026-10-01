@@ -2282,6 +2282,7 @@ button.MarkdownNotebook__component-title:focus-visible {
     --jupyter-table-hover: color-mix(in sRGB, var(--color-bg-surface-primary) 80%, var(--color-blue-400));
     --markdown-notebook-canvas-max-width: 68rem;
     --jupyter-paper-background: var(--color-bg-surface-primary);
+    --jupyter-selected-background: color-mix(in sRGB, var(--jupyter-paper-background) 88%, var(--color-blue-300));
 
     // The notebook sits on a sheet of its own, centered on the page, as in classic Jupyter.
     .MarkdownNotebook__canvas {
@@ -2324,8 +2325,19 @@ button.MarkdownNotebook__component-title:focus-visible {
         border-radius: 1px;
     }
 
-    .MarkdownNotebook__text-group:focus-within::before {
+    .MarkdownNotebook__text-group--jupyter-active::before {
         background: var(--jupyter-active-color);
+    }
+
+    // A block clips its overflow, so its existing left rail carries the selection instead.
+    .MarkdownNotebook__component-shell--jupyter-active:not(.MarkdownNotebook__jupyter-cell) {
+        border-left-color: var(--jupyter-active-color);
+    }
+
+    // Several cells picked with Shift+Up/Down, as JupyterLab tints them.
+    .MarkdownNotebook__text-group--jupyter-selected,
+    .MarkdownNotebook__component-shell--jupyter-selected {
+        background: var(--jupyter-selected-background);
     }
 
     // Other blocks (insights, recordings, …) render as rich output, indented past the prompts.
@@ -2357,8 +2369,9 @@ button.MarkdownNotebook__component-title:focus-visible {
     }
 }
 
-.MarkdownNotebook__jupyter-cell.MarkdownNotebook__component-shell--selected {
-    background: color-mix(in sRGB, var(--color-bg-surface-primary) 88%, var(--color-blue-300));
+.MarkdownNotebook__jupyter-cell.MarkdownNotebook__component-shell--selected,
+.MarkdownNotebook__jupyter-cell--selected {
+    background: var(--jupyter-selected-background);
 
     &::after {
         display: none;
@@ -2604,4 +2617,15 @@ button.MarkdownNotebook__component-title:focus-visible {
         background: var(--jupyter-editor-background);
         border-color: var(--jupyter-editor-border);
     }
+}
+
+// Holds focus while a markdown cell is in command mode. Text never takes focus itself (the
+// canvas is the editing host), so without it letter keys would type into the cell.
+.MarkdownNotebook__jupyter-command-sink {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    outline: none;
 }

@@ -1,6 +1,7 @@
 import { createContext, useContext, useSyncExternalStore } from 'react'
 
 import type { NotebookComponentRunHandler } from './componentRunHandlers'
+import type { NotebookJupyterCompletions } from './jupyterEditorKeys'
 import type { NotebookComponentBlockNode } from './types'
 
 export type MarkdownNotebookJupyterModeConfig = {
@@ -8,9 +9,19 @@ export type MarkdownNotebookJupyterModeConfig = {
     newCellTagName: string
     /** The source a cell turns into when the M key converts it to markdown. */
     getCellSource: (node: NotebookComponentBlockNode) => string
+    /** The cell with new source, as a merge or split leaves it. Clears output the new source did not produce. */
+    withCellSource: (node: NotebookComponentBlockNode, source: string) => NotebookComponentBlockNode
     /** Gives a pasted or restored copy of a cell identities of its own, such as a fresh run id. */
     prepareCellCopy?: (node: NotebookComponentBlockNode) => NotebookComponentBlockNode
     onRestartKernel?: () => void
+    /** Kernel completions for a cell's source at `cursorPos`, for Tab. */
+    completeCode?: (
+        node: NotebookComponentBlockNode,
+        code: string,
+        cursorPos: number
+    ) => Promise<NotebookJupyterCompletions | null>
+    /** The signature and docstring of the name at `cursorPos`, for Shift+Tab. */
+    inspectCode?: (node: NotebookComponentBlockNode, code: string, cursorPos: number) => Promise<string | null>
 }
 
 export type NotebookJupyterCommand =
@@ -28,8 +39,13 @@ export type NotebookJupyterCommand =
     | 'paste-below'
     | 'paste-above'
     | 'to-markdown'
+    | 'to-code'
+    | 'merge'
+    | 'split'
     | 'select-previous'
     | 'select-next'
+    | 'extend-selection-up'
+    | 'extend-selection-down'
     | 'move-up'
     | 'move-down'
     | 'interrupt'
@@ -44,7 +60,7 @@ export type NotebookJupyterKeyInput = {
     altKey: boolean
     metaKey: boolean
     ctrlKey: boolean
-    /** True when the key reached the cell from inside its code editor (edit mode). */
+    /** True when the key reached the cell while its source was being edited (edit mode). */
     inEditor: boolean
 }
 
@@ -59,6 +75,8 @@ const SEQUENCE_COMMANDS: Record<string, NotebookJupyterCommand> = {
 }
 
 const COMMAND_MODE_KEYS: Record<string, NotebookJupyterCommand> = {
+    Delete: 'delete',
+    Backspace: 'delete',
     a: 'insert-above',
     b: 'insert-below',
     z: 'undo-delete',
@@ -66,6 +84,7 @@ const COMMAND_MODE_KEYS: Record<string, NotebookJupyterCommand> = {
     x: 'cut',
     v: 'paste-below',
     m: 'to-markdown',
+    y: 'to-code',
     k: 'select-previous',
     ArrowUp: 'select-previous',
     j: 'select-next',
@@ -74,6 +93,21 @@ const COMMAND_MODE_KEYS: Record<string, NotebookJupyterCommand> = {
     l: 'toggle-line-numbers',
     h: 'show-shortcuts',
     Enter: 'enter-edit-mode',
+}
+
+const SHIFTED_COMMAND_MODE_KEYS: Record<string, NotebookJupyterCommand> = {
+    v: 'paste-above',
+    m: 'merge',
+    l: 'toggle-line-numbers',
+    k: 'extend-selection-up',
+    ArrowUp: 'extend-selection-up',
+    j: 'extend-selection-down',
+    ArrowDown: 'extend-selection-down',
+}
+
+function isSplitKey({ key, shiftKey, ctrlKey, metaKey, altKey }: NotebookJupyterKeyInput): boolean {
+    // Shift turns the minus key into an underscore on most layouts, so accept both.
+    return (key === '-' || key === '_' || key === 'Minus') && shiftKey && (ctrlKey || metaKey) && !altKey
 }
 
 /**
@@ -104,6 +138,9 @@ export function resolveNotebookJupyterKey(
         if (key === 'Escape' && !shiftKey && !altKey && !modKey) {
             return { command: 'enter-command-mode', pending: null }
         }
+        if (isSplitKey(input)) {
+            return { command: 'split', pending: null }
+        }
         return { command: null, pending: null }
     }
 
@@ -118,34 +155,35 @@ export function resolveNotebookJupyterKey(
 
     const normalizedKey = key.length === 1 ? key.toLowerCase() : key
 
-    if (normalizedKey === 'v' && shiftKey) {
-        return { command: 'paste-above', pending: null }
+    if (shiftKey) {
+        return { command: SHIFTED_COMMAND_MODE_KEYS[normalizedKey] ?? null, pending: null }
     }
 
     const sequenceCommand = SEQUENCE_COMMANDS[normalizedKey]
-    if (sequenceCommand && !shiftKey) {
+    if (sequenceCommand) {
         if (pending?.key === normalizedKey && now - pending.at <= JUPYTER_KEY_SEQUENCE_MS) {
             return { command: sequenceCommand, pending: null }
         }
         return { command: null, pending: { key: normalizedKey, at: now } }
     }
 
-    if (shiftKey && normalizedKey !== 'l') {
-        return { command: null, pending: null }
-    }
-
     return { command: COMMAND_MODE_KEYS[normalizedKey] ?? null, pending: null }
 }
 
-type NotebookJupyterDeletedCell = { markdown: string; index: number }
+type NotebookJupyterDeletedCells = { markdown: string; index: number }[]
 
 type NotebookJupyterStoreState = {
-    activeNodeId: string | null
+    /** The selected cell, named by its first node's id. Kept while the notebook toolbar has focus. */
+    activeCellId: string | null
+    /** Every selected cell, the active one included. More than one only after Shift+Up/Down. */
+    selectedCellIds: ReadonlySet<string>
     editFocusRequestNodeId: string | null
     lineNumbers: boolean
     shortcutsOpen: boolean
     runHandlers: ReadonlyMap<string, NotebookComponentRunHandler>
 }
+
+const NO_CELLS: ReadonlySet<string> = new Set()
 
 /**
  * Cell state shared between the cells and the notebook toolbar. It sits outside React state so a
@@ -153,7 +191,8 @@ type NotebookJupyterStoreState = {
  */
 export class NotebookJupyterStore {
     private state: NotebookJupyterStoreState = {
-        activeNodeId: null,
+        activeCellId: null,
+        selectedCellIds: NO_CELLS,
         editFocusRequestNodeId: null,
         lineNumbers: false,
         shortcutsOpen: false,
@@ -162,8 +201,10 @@ export class NotebookJupyterStore {
     private listeners = new Set<() => void>()
 
     pendingKey: NotebookJupyterPendingKey | null = null
+    /** The end of a Shift+Up/Down selection that stays put while the active cell moves. */
+    selectionAnchorCellId: string | null = null
     clipboard: string | null = null
-    deletedCells: NotebookJupyterDeletedCell[] = []
+    deletedCells: NotebookJupyterDeletedCells[] = []
 
     subscribe = (listener: () => void): (() => void) => {
         this.listeners.add(listener)
@@ -177,10 +218,22 @@ export class NotebookJupyterStore {
         this.listeners.forEach((listener) => listener())
     }
 
-    setActiveNodeId(activeNodeId: string | null): void {
-        if (this.state.activeNodeId !== activeNodeId) {
-            this.update({ activeNodeId })
+    /** Makes one cell the selection, or, with `selectedCellIds`, a range ending at it. */
+    setActiveCell(activeCellId: string | null, selectedCellIds?: string[]): void {
+        const nextSelection = selectedCellIds ?? (activeCellId ? [activeCellId] : [])
+        if (!selectedCellIds) {
+            this.selectionAnchorCellId = activeCellId
         }
+        const current = this.state.selectedCellIds
+        const isSameSelection =
+            current.size === nextSelection.length && nextSelection.every((cellId) => current.has(cellId))
+        if (this.state.activeCellId === activeCellId && isSameSelection) {
+            return
+        }
+        this.update({
+            activeCellId,
+            selectedCellIds: isSameSelection ? current : new Set(nextSelection),
+        })
     }
 
     requestEditFocus(nodeId: string | null): void {
@@ -210,21 +263,21 @@ export class NotebookJupyterStore {
     }
 }
 
+/** Cell operations the editor implements, for the cells' keys and the notebook toolbar. */
 export type NotebookJupyterCommands = {
     config: MarkdownNotebookJupyterModeConfig
     store: NotebookJupyterStore
+    /** Runs a command against a cell, or against the selection when the command acts on several. */
+    executeCommand: (command: NotebookJupyterCommand, cellId: string | null) => void
+    /** Adds a code cell next to a node; with no node it goes after the last cell. */
     insertCell: (nodeId: string | null, position: 'above' | 'below', options?: { edit?: boolean }) => void
-    deleteCell: (nodeId: string) => void
-    undoDeleteCell: () => boolean
-    copyCell: (nodeId: string) => void
-    cutCell: (nodeId: string) => void
-    pasteCell: (nodeId: string | null, position: 'above' | 'below') => boolean
-    moveCell: (nodeId: string, direction: 'up' | 'down') => boolean
-    convertCellToMarkdown: (nodeId: string) => void
-    selectAdjacentCell: (nodeId: string, direction: 'previous' | 'next') => boolean
-    /** Selects the next block, or adds a cell in edit mode when the cell was the last one. */
-    advanceFromCell: (nodeId: string) => void
-    isCellNode: (nodeId: string) => boolean
+    /** Splits a code cell's source at `offset`; the part after it becomes a new cell below. */
+    splitCell: (nodeId: string, offset: number) => void
+    /** Leaves a cell's editor across its edge, into the neighbouring cell's source. */
+    moveEditFocus: (cellId: string, direction: 'previous' | 'next') => void
+    /** Removes a cell whose editor was emptied with Backspace, and edits the end of the cell above. */
+    deleteEmptyCell: (cellId: string) => void
+    getCellKind: (cellId: string | null) => 'code' | 'markdown' | 'block' | null
 }
 
 export const NotebookJupyterContext = createContext<NotebookJupyterCommands | null>(null)

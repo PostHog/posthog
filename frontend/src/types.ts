@@ -4831,6 +4831,7 @@ export type HotKey =
     | 'arrowdown'
     | 'arrowup'
     | 'forwardslash'
+    | 'minus'
     | 'delete'
     | 'atsign'
 export type HotKeyOrModifier = HotKey | 'shift' | 'option' | 'command'

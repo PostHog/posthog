@@ -1,3 +1,4 @@
+import re
 import ast
 import builtins
 from dataclasses import dataclass
@@ -396,12 +397,43 @@ def collect_exported_types(body: list[ast.stmt]) -> dict[str, str]:
     return exported_types
 
 
+# IPython syntax a cell may use: `%magic`, `%%cell_magic`, `!shell`, and `x = !cmd` / `x = %magic`.
+_IPYTHON_SYNTAX = re.compile(r"^\s*[%!]|=\s*[%!]", re.MULTILINE)
+# Magics whose argument or body is Python, so the names it reads still count as inputs.
+_PYTHON_BODY_CELL_MAGICS = frozenset({"time", "timeit", "prun", "capture"})
+_PYTHON_ARGUMENT_LINE_MAGIC = re.compile(
+    r"^(\s*)%(?:time|timeit|prun)\s+(?:-[A-Za-z]+(?:\s+\d+)?\s+)*(.*)$", re.MULTILINE
+)
+# Names the transformed source calls that IPython provides at runtime, never a sibling frame.
+_IPYTHON_RUNTIME_NAMES = frozenset({"get_ipython"})
+
+
+def to_plain_python(code: str) -> str:
+    """Rewrite the IPython syntax in a cell as the plain Python the kernel would run.
+
+    Cells run through IPython, so `%pip install x` or `!ls` is valid there but a SyntaxError
+    to `ast.parse`, which would drop every input the rest of the cell reads.
+    """
+    if not _IPYTHON_SYNTAX.search(code):
+        return code
+    stripped = code.lstrip()
+    if stripped.startswith("%%"):
+        header, _, body = stripped.partition("\n")
+        magic = header[2:].split(maxsplit=1)[0] if header[2:].strip() else ""
+        # Any other cell magic (%%bash, %%html, …) holds another language: there is no Python to read.
+        return to_plain_python(body) if magic in _PYTHON_BODY_CELL_MAGICS else ""
+    code = _PYTHON_ARGUMENT_LINE_MAGIC.sub(r"\1\2", code)
+    from IPython.core.inputtransformer2 import TransformerManager  # noqa: PLC0415 — keeps IPython off the import path
+
+    return TransformerManager().transform_cell(code)
+
+
 def analyze_python_globals(code: str) -> PythonGlobalsAnalysis:
     if not code or not code.strip():
         return PythonGlobalsAnalysis(used=[], exported_with_types=[])
 
     try:
-        tree = ast.parse(code)
+        tree = ast.parse(to_plain_python(code))
     except SyntaxError:
         return PythonGlobalsAnalysis(used=[], exported_with_types=[])
 
@@ -415,6 +447,6 @@ def analyze_python_globals(code: str) -> PythonGlobalsAnalysis:
     ]
 
     return PythonGlobalsAnalysis(
-        used=sorted(analyzer.used),
+        used=sorted(analyzer.used - _IPYTHON_RUNTIME_NAMES),
         exported_with_types=exported_with_types,
     )

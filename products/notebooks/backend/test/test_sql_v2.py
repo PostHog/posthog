@@ -3377,3 +3377,69 @@ class TestDispatchNodeRunDirectly(APIBaseTest):
 
         mock_enqueue.assert_not_called()
         self.assertFalse(NotebookNodeRun.objects.for_team(self.team.id).filter(notebook=stranger).exists())
+
+
+@patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+class TestKernelIntrospection(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.notebook = Notebook.objects.create(team=self.team, short_id="nbintro1")
+
+    def _create_runtime(self) -> KernelRuntime:
+        return KernelRuntime.objects.create(
+            team=self.team,
+            notebook=self.notebook,
+            notebook_short_id=self.notebook.short_id,
+            user=self.user,
+            status=KernelRuntime.Status.RUNNING,
+            backend=KernelRuntime.Backend.DOCKER,
+            sandbox_id="sbx-1",
+            server_url="http://localhost:12345",
+            server_connect_token="connect-tok",
+        )
+
+    def _post(self, route: str, **data):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/kernel/{route}/",
+            {"code": "df.he", "cursor_pos": 5, **data},
+            format="json",
+        )
+
+    @patch("products.notebooks.backend.sql_v2.requests.post")
+    def test_without_running_kernel_answers_empty_and_never_calls_a_sandbox(self, mock_post, _mock_enabled):
+        response = self._post("complete")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"matches": [], "cursor_start": 5, "cursor_end": 5})
+        self.assertEqual(self._post("inspect").json(), {"found": False, "text": ""})
+        mock_post.assert_not_called()
+
+    @patch("products.notebooks.backend.sql_v2.requests.post")
+    def test_proxies_to_kernel_with_a_command_token_the_sandbox_accepts(self, mock_post, _mock_enabled):
+        runtime = self._create_runtime()
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "matches": [{"text": "df.head", "type": "function"}],
+            "cursor_start": 0,
+            "cursor_end": 5,
+        }
+        response = self._post("complete")
+        self.assertEqual(response.json()["matches"], [{"text": "df.head", "type": "function"}])
+        self.assertTrue(mock_post.call_args.args[0].endswith("/complete"))
+        sent = mock_post.call_args.kwargs["json"]
+        self.assertEqual((sent["code"], sent["cursor_pos"]), ("df.he", 5))
+        self.assertTrue(
+            kernel_auth.verify_command_token(
+                kernel_server_secret(str(runtime.id)),
+                sent["run_id"],
+                mock_post.call_args.kwargs["headers"]["X-Command-Token"],
+            )
+        )
+
+    @parameterized.expand([("route_missing", 404), ("kernel_error", 500)])
+    @patch("products.notebooks.backend.sql_v2.requests.post")
+    def test_kernel_that_cannot_answer_gives_no_matches(self, _name, status, mock_post, _mock_enabled):
+        self._create_runtime()
+        mock_post.return_value.status_code = status
+        response = self._post("complete")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["matches"], [])

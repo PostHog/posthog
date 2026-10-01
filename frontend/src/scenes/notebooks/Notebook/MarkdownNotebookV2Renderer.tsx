@@ -137,9 +137,9 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
     const jupyterMode = useMemo(
         () =>
             isJupyterModeAvailable(featureFlags) && isJupyterMode && mountedNotebookLogic.props.mode !== 'canvas'
-                ? getNotebookJupyterModeConfig(() => requestKernelRestart())
+                ? getNotebookJupyterModeConfig(shortId, () => requestKernelRestart())
                 : null,
-        [featureFlags, isJupyterMode, mountedNotebookLogic.props.mode, requestKernelRestart]
+        [featureFlags, isJupyterMode, mountedNotebookLogic.props.mode, requestKernelRestart, shortId]
     )
     const remoteMarkdown = useMemo(() => getMarkdownNotebookMarkdown(notebook?.content), [notebook?.content])
     const [inlineAIRequests, setInlineAIRequests] = useState<InlineNotebookAIRequest[]>([])

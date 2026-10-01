@@ -24,9 +24,18 @@ const COMMAND_MODE_SHORTCUTS: Shortcut[] = [
     { keys: [['x']], description: 'Cut the cell' },
     { keys: [['v']], description: 'Paste the cell below' },
     { keys: [['shift', 'v']], description: 'Paste the cell above' },
+    { keys: [['shift', 'm']], description: 'Merge the selected cells, or the cell and the one below' },
     { keys: [['m']], description: 'Change the cell to markdown' },
+    { keys: [['y']], description: 'Change the cell to code' },
     { keys: [['k'], ['arrowup']], description: 'Select the cell above' },
     { keys: [['j'], ['arrowdown']], description: 'Select the cell below' },
+    {
+        keys: [
+            ['shift', 'arrowup'],
+            ['shift', 'arrowdown'],
+        ],
+        description: 'Select several cells',
+    },
     { keys: [['command', 'shift', 'arrowup']], description: 'Move the cell up' },
     { keys: [['command', 'shift', 'arrowdown']], description: 'Move the cell down' },
     { keys: [['i'], ['i']], sequence: true, description: 'Interrupt the running cell' },
@@ -41,6 +50,10 @@ const EDIT_MODE_SHORTCUTS: Shortcut[] = [
     { keys: [['shift', 'enter']], description: 'Run the cell and select the next one' },
     { keys: [['command', 'enter']], description: 'Run the cell' },
     { keys: [['option', 'enter']], description: 'Run the cell and insert a new one below' },
+    { keys: [['command', 'shift', 'minus']], description: 'Split the cell at the cursor' },
+    { keys: [['tab']], description: 'Complete the name at the cursor' },
+    { keys: [['shift', 'tab']], description: 'Show the docs for the name at the cursor' },
+    { keys: [['command', 'forwardslash']], description: 'Comment or uncomment the selected lines' },
     { keys: [['command', 's']], description: 'Save the notebook' },
 ]
 

@@ -846,6 +846,35 @@ export interface NotebookCollabSaveApi {
     cursor_head?: number | null
 }
 
+export interface NotebookKernelCompleteRequestApi {
+    /**
+     * The full source of the cell being edited.
+     * @maxLength 100000
+     */
+    code: string
+    /**
+     * Character offset of the cursor in `code`, counting from 0.
+     * @minimum 0
+     */
+    cursor_pos: number
+}
+
+export interface NotebookKernelCompletionApi {
+    /** The text that replaces `code[cursor_start:cursor_end]`. */
+    text: string
+    /** What the match names, as the kernel reports it: 'function', 'module', 'instance', … or blank. */
+    type: string
+}
+
+export interface NotebookKernelCompleteResponseApi {
+    /** Completions from the live kernel's namespace. Empty when no kernel is running. */
+    matches: NotebookKernelCompletionApi[]
+    /** Start offset of the text the completions replace. */
+    cursor_start: number
+    /** End offset of the text the completions replace. */
+    cursor_end: number
+}
+
 export interface NotebookKernelConfigApi {
     /** CPU cores for the notebook's sandbox kernel; must be a supported option. */
     cpu_cores?: number
@@ -882,6 +911,32 @@ export interface NotebookKernelConfigResponseApi {
      * @nullable
      */
     preset_key?: string | null
+}
+
+export interface NotebookKernelInspectRequestApi {
+    /**
+     * The full source of the cell being edited.
+     * @maxLength 100000
+     */
+    code: string
+    /**
+     * Character offset of the cursor in `code`, counting from 0.
+     * @minimum 0
+     */
+    cursor_pos: number
+    /**
+     * 0 for the signature and docstring, 1 to add the source when the kernel can find it.
+     * @minimum 0
+     * @maximum 1
+     */
+    detail_level?: number
+}
+
+export interface NotebookKernelInspectResponseApi {
+    /** Whether the kernel found an object at the cursor. */
+    found: boolean
+    /** The object's signature and docstring as plain text. Blank when not found. */
+    text: string
 }
 
 export interface NotebookSQLV2FrameApi {

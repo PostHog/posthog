@@ -20,6 +20,12 @@ class TestAnalyzePythonGlobalsUsed(SimpleTestCase):
             ("function_local", "def f():\n    x = 1\n    return x + df.iloc[0]", ["df"]),
             ("walrus_local", "if (rows := len(df)):\n    print(rows)", ["df"]),
             ("match_capture", "match df.shape:\n    case (rows, cols):\n        print(rows, cols)", ["df"]),
+            # IPython syntax is valid in a cell, so it must not hide the inputs the rest of the cell reads.
+            ("line_magic", "%pip install polars\nout = df.head()", ["df"]),
+            ("shell_command_and_capture", "!ls /data\nfiles = !ls\nout = df.head()", ["df"]),
+            ("magic_with_python_argument", "%timeit -n 10 df.sum()", ["df"]),
+            ("python_body_cell_magic", "%%time\nout = df.head()", ["df"]),
+            ("other_language_cell_magic", "%%bash\necho $df", []),
         ]
     )
     def test_used_globals(self, _name: str, code: str, expected: list[str]) -> None:

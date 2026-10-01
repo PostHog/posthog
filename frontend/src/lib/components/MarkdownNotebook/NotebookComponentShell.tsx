@@ -31,6 +31,7 @@ import { PostHogErrorBoundary } from '@posthog/react'
 
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { findMountedCodeEditorWithin, subscribeToMountedCodeEditors } from 'lib/monaco/mountedCodeEditors'
 
 import { ComponentPanelContext } from './componentPanelContext'
 import {
@@ -49,12 +50,8 @@ import {
 } from './componentToolbarExtras'
 import { getNotebookObjectProp, getNotebookStringProp } from './documentModel'
 import { InsertMenuSelectionDirection } from './editorTypes'
-import {
-    NotebookJupyterCommand,
-    resolveNotebookJupyterKey,
-    useNotebookJupyterCommands,
-    useNotebookJupyterStoreValue,
-} from './jupyterMode'
+import { installNotebookJupyterEditorKeys } from './jupyterEditorKeys'
+import { resolveNotebookJupyterKey, useNotebookJupyterCommands, useNotebookJupyterStoreValue } from './jupyterMode'
 import { getMarkdownNotebookComponentDefinition } from './registry'
 import {
     NotebookBlockNode,
@@ -363,11 +360,16 @@ export function NotebookComponentShell({
     const jupyter = useNotebookJupyterCommands()
     const isJupyterCell = !!jupyter && jupyter.config.cellTagNames.includes(node.tagName)
     const jupyterStore = isJupyterCell ? jupyter.store : null
-    const isJupyterActive = useNotebookJupyterStoreValue((state) => isJupyterCell && state.activeNodeId === node.id)
+    const isJupyterActive = useNotebookJupyterStoreValue((state) => !!jupyter && state.activeCellId === node.id)
+    const isJupyterSelected = useNotebookJupyterStoreValue(
+        (state) => !!jupyter && state.selectedCellIds.size > 1 && state.selectedCellIds.has(node.id)
+    )
     const isJupyterEditFocusRequested = useNotebookJupyterStoreValue(
         (state) => isJupyterCell && state.editFocusRequestNodeId === node.id
     )
     const shellRef = useRef<HTMLDivElement | null>(null)
+    const nodeRef = useRef(node)
+    nodeRef.current = node
 
     useEffect(() => {
         if (!jupyterStore) {
@@ -405,90 +407,55 @@ export function NotebookComponentShell({
         // oxlint-disable-next-line exhaustive-deps
     }, [jupyterStore, isJupyterEditFocusRequested])
 
-    const runJupyterCommand = (command: NotebookJupyterCommand, shell: HTMLElement): void => {
-        if (!jupyter) {
+    // Jupyter's edit-mode keys live on the cell's code editor. The editor mounts after the cell and
+    // can be replaced, so the bindings follow whichever editor sits inside the cell right now.
+    useEffect(() => {
+        if (!isJupyterCell || !jupyter || mode !== 'edit') {
             return
         }
-        switch (command) {
-            case 'run':
-                runFromKeyboard()
-                shell.focus()
+        const { completeCode, inspectCode } = jupyter.config
+        let boundEditor: unknown = null
+        let unbind: (() => void) | null = null
+        const bind = (): void => {
+            const mounted = findMountedCodeEditorWithin(shellRef.current)
+            if ((mounted?.editor ?? null) === boundEditor) {
                 return
-            case 'run-and-advance':
-                runFromKeyboard()
-                jupyter.advanceFromCell(node.id)
-                return
-            case 'run-and-insert-below':
-                runFromKeyboard()
-                jupyter.insertCell(node.id, 'below', { edit: true })
-                return
-            case 'enter-edit-mode':
-                if (!focusCellEditor(shell)) {
-                    jupyter.store.requestEditFocus(node.id)
-                }
-                return
-            case 'enter-command-mode':
-                shell.focus()
-                return
-            case 'insert-above':
-            case 'insert-below':
-                jupyter.insertCell(node.id, command === 'insert-above' ? 'above' : 'below')
-                return
-            case 'delete':
-                jupyter.deleteCell(node.id)
-                return
-            case 'undo-delete':
-                jupyter.undoDeleteCell()
-                return
-            case 'copy':
-                jupyter.copyCell(node.id)
-                return
-            case 'cut':
-                jupyter.cutCell(node.id)
-                return
-            case 'paste-above':
-            case 'paste-below':
-                jupyter.pasteCell(node.id, command === 'paste-above' ? 'above' : 'below')
-                return
-            case 'to-markdown':
-                jupyter.convertCellToMarkdown(node.id)
-                return
-            case 'select-previous':
-            case 'select-next':
-                jupyter.selectAdjacentCell(node.id, command === 'select-previous' ? 'previous' : 'next')
-                return
-            case 'move-up':
-            case 'move-down':
-                jupyter.moveCell(node.id, command === 'move-up' ? 'up' : 'down')
-                return
-            case 'interrupt':
-                runHandler?.interrupt?.()
-                return
-            case 'restart-kernel':
-                jupyter.config.onRestartKernel?.()
-                return
-            case 'toggle-output':
-                toggleComponentPanel('results')
-                return
-            case 'toggle-line-numbers':
-                jupyter.store.toggleLineNumbers()
-                return
-            case 'show-shortcuts':
-                jupyter.store.setShortcutsOpen(true)
-                return
+            }
+            unbind?.()
+            unbind = null
+            boundEditor = mounted?.editor ?? null
+            if (mounted) {
+                unbind = installNotebookJupyterEditorKeys(mounted, {
+                    onSplit: (offset) => jupyter.splitCell(node.id, offset),
+                    onLeaveCell: (direction) => jupyter.moveEditFocus(node.id, direction),
+                    onDeleteEmptyCell: () => jupyter.deleteEmptyCell(node.id),
+                    complete: completeCode
+                        ? (code, cursorPos) => completeCode(nodeRef.current, code, cursorPos)
+                        : undefined,
+                    inspect: inspectCode
+                        ? (code, cursorPos) => inspectCode(nodeRef.current, code, cursorPos)
+                        : undefined,
+                })
+            }
         }
-    }
+        bind()
+        const unsubscribe = subscribeToMountedCodeEditors(bind)
+        return () => {
+            unsubscribe()
+            unbind?.()
+        }
+    }, [isJupyterCell, jupyter, mode, node.id])
 
     const handleJupyterKeyDown = (event: KeyboardEvent<HTMLDivElement>): boolean => {
-        if (!jupyter || !isJupyterCell || mode !== 'edit' || event.defaultPrevented) {
+        if (!jupyter || mode !== 'edit' || event.defaultPrevented) {
             return false
         }
         if (event.target instanceof Node && !event.currentTarget.contains(event.target)) {
             return false
         }
         const inEditor = event.target !== event.currentTarget
-        // Plain inputs in the cell, such as the dataframe name, keep every key but the run keys.
-        if (inEditor && isPlainInputTarget(event.target) && event.key !== 'Enter') {
+        // Only a code cell has an edit mode the cell drives; inside any other block, keys belong to it.
+        if (inEditor && (!isJupyterCell || isPlainInputTarget(event.target))) {
             return false
         }
         const { command, pending } = resolveNotebookJupyterKey(
@@ -498,21 +465,29 @@ export function NotebookComponentShell({
                 altKey: event.altKey,
                 metaKey: event.metaKey,
                 ctrlKey: event.ctrlKey,
-                inEditor: inEditor && !isPlainInputTarget(event.target),
+                inEditor,
             },
             jupyter.store.pendingKey,
             Date.now()
         )
         jupyter.store.pendingKey = pending
-        if (!command && !pending) {
+        // A split from inside the editor carries a cursor offset, so the editor binding handles it.
+        if ((!command && !pending) || command === 'split') {
             return false
         }
         event.preventDefault()
         event.stopPropagation()
         if (command) {
-            runJupyterCommand(command, event.currentTarget)
+            jupyter.executeCommand(command, node.id)
         }
         return true
+    }
+
+    const selectJupyterCell = (): void => {
+        // Focus that a Shift+Up/Down selection itself moved here must not collapse the selection.
+        if (jupyter && jupyter.store.getState().activeCellId !== node.id) {
+            jupyter.store.setActiveCell(node.id)
+        }
     }
 
     const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
@@ -625,6 +600,7 @@ export function NotebookComponentShell({
                     'MarkdownNotebook__component-shell',
                     'MarkdownNotebook__jupyter-cell',
                     isJupyterActive && 'MarkdownNotebook__jupyter-cell--active',
+                    isJupyterSelected && 'MarkdownNotebook__jupyter-cell--selected',
                     isRunning && 'MarkdownNotebook__jupyter-cell--running',
                     isSelected && 'MarkdownNotebook__component-shell--selected',
                     errors.length && 'MarkdownNotebook__component-shell--error'
@@ -633,8 +609,8 @@ export function NotebookComponentShell({
                 contentEditable={false}
                 tabIndex={canEditCells ? 0 : undefined}
                 onKeyDown={handleKeyDown}
-                onFocus={() => jupyter.store.setActiveNodeId(node.id)}
-                onMouseDown={() => jupyter.store.setActiveNodeId(node.id)}
+                onFocus={selectJupyterCell}
+                onMouseDown={() => jupyter.store.setActiveCell(node.id)}
                 data-attr="notebook-jupyter-cell"
             >
                 {ToolbarComponent ? (
@@ -718,14 +694,14 @@ export function NotebookComponentShell({
                             icon={<IconArrowUp />}
                             tooltip="Move this cell up"
                             aria-label="Move this cell up"
-                            onClick={() => jupyter.moveCell(node.id, 'up')}
+                            onClick={() => jupyter.executeCommand('move-up', node.id)}
                         />
                         <LemonButton
                             size="xsmall"
                             icon={<IconArrowDown />}
                             tooltip="Move this cell down"
                             aria-label="Move this cell down"
-                            onClick={() => jupyter.moveCell(node.id, 'down')}
+                            onClick={() => jupyter.executeCommand('move-down', node.id)}
                         />
                         <LemonButton
                             size="xsmall"
@@ -739,7 +715,7 @@ export function NotebookComponentShell({
                             icon={<IconTrash />}
                             tooltip="Delete this cell (D, D)"
                             aria-label="Delete this cell"
-                            onClick={() => jupyter.deleteCell(node.id)}
+                            onClick={() => jupyter.executeCommand('delete', node.id)}
                         />
                     </div>
                 ) : null}
@@ -753,12 +729,15 @@ export function NotebookComponentShell({
                 'MarkdownNotebook__component-shell',
                 `MarkdownNotebook__component-shell--status-${runStatus}`,
                 isSelected && 'MarkdownNotebook__component-shell--selected',
+                isJupyterActive && 'MarkdownNotebook__component-shell--jupyter-active',
+                isJupyterSelected && 'MarkdownNotebook__component-shell--jupyter-selected',
                 errors.length && 'MarkdownNotebook__component-shell--error'
             )}
             ref={setShellRef}
             contentEditable={false}
             tabIndex={mode === 'edit' ? 0 : undefined}
             onKeyDown={handleKeyDown}
+            onFocus={jupyter ? selectJupyterCell : undefined}
         >
             <div
                 className="MarkdownNotebook__component-toolbar"

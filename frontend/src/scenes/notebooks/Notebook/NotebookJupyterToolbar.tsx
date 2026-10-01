@@ -21,9 +21,9 @@ export function NotebookJupyterToolbar(): JSX.Element | null {
     const { interruptRun: interruptRunAll } = useActions(notebookRunLogic({ shortId }))
     const { isRestartingKernel } = useValues(notebookJupyterLogic({ shortId }))
     const { requestKernelRestart } = useActions(notebookJupyterLogic({ shortId }))
-    const activeNodeId = useNotebookJupyterStoreValue((state) => state.activeNodeId)
+    const activeCellId = useNotebookJupyterStoreValue((state) => state.activeCellId)
     const activeRunHandler = useNotebookJupyterStoreValue((state) =>
-        state.activeNodeId ? (state.runHandlers.get(state.activeNodeId) ?? null) : null
+        state.activeCellId ? (state.runHandlers.get(state.activeCellId) ?? null) : null
     )
     const runningHandler = useNotebookJupyterStoreValue(
         (state) => [...state.runHandlers.values()].find((handler) => handler.isRunning) ?? null
@@ -33,7 +33,8 @@ export function NotebookJupyterToolbar(): JSX.Element | null {
         return null
     }
 
-    const isActiveCell = !!activeNodeId && jupyter.isCellNode(activeNodeId)
+    const activeCellKind = jupyter.getCellKind(activeCellId)
+    const isActiveCell = activeCellKind === 'code'
     const noCellReason = 'Select a cell first'
     const isBusy = !!runningHandler || isRunAllRunning || isRestartingKernel || isStarting
     const kernelStatus = isRestartingKernel
@@ -43,14 +44,6 @@ export function NotebookJupyterToolbar(): JSX.Element | null {
           : !statusInfo || statusInfo.label === 'Running'
             ? 'Idle'
             : statusInfo.label
-
-    const runActiveCell = (): void => {
-        if (!activeNodeId || !activeRunHandler || activeRunHandler.disabledReason) {
-            return
-        }
-        activeRunHandler.run()
-        jupyter.advanceFromCell(activeNodeId)
-    }
 
     const interrupt = (): void => {
         if (isRunAllRunning) {
@@ -74,7 +67,7 @@ export function NotebookJupyterToolbar(): JSX.Element | null {
                     icon={<IconPlus />}
                     tooltip="Insert a cell below (B)"
                     aria-label="Insert a cell below"
-                    onClick={() => jupyter.insertCell(activeNodeId, 'below', { edit: true })}
+                    onClick={() => jupyter.insertCell(activeCellId, 'below', { edit: true })}
                     data-attr="notebook-jupyter-insert-cell"
                 />
                 <LemonButton
@@ -82,16 +75,16 @@ export function NotebookJupyterToolbar(): JSX.Element | null {
                     icon={<IconArrowUp />}
                     tooltip="Move the selected cell up"
                     aria-label="Move the selected cell up"
-                    disabledReason={isActiveCell ? undefined : noCellReason}
-                    onClick={() => activeNodeId && jupyter.moveCell(activeNodeId, 'up')}
+                    disabledReason={activeCellKind ? undefined : noCellReason}
+                    onClick={() => jupyter.executeCommand('move-up', activeCellId)}
                 />
                 <LemonButton
                     size="small"
                     icon={<IconArrowDown />}
                     tooltip="Move the selected cell down"
                     aria-label="Move the selected cell down"
-                    disabledReason={isActiveCell ? undefined : noCellReason}
-                    onClick={() => activeNodeId && jupyter.moveCell(activeNodeId, 'down')}
+                    disabledReason={activeCellKind ? undefined : noCellReason}
+                    onClick={() => jupyter.executeCommand('move-down', activeCellId)}
                 />
                 <LemonDivider vertical className="mx-1 h-5" />
                 <LemonButton
@@ -100,9 +93,13 @@ export function NotebookJupyterToolbar(): JSX.Element | null {
                     tooltip="Run the selected cell and select the next one (Shift+Enter)"
                     aria-label="Run the selected cell"
                     disabledReason={
-                        !isActiveCell ? noCellReason : (activeRunHandler?.disabledReason ?? undefined) || undefined
+                        !activeCellKind
+                            ? noCellReason
+                            : isActiveCell
+                              ? (activeRunHandler?.disabledReason ?? undefined) || undefined
+                              : undefined
                     }
-                    onClick={runActiveCell}
+                    onClick={() => jupyter.executeCommand('run-and-advance', activeCellId)}
                     data-attr="notebook-jupyter-run-cell"
                 />
                 <LemonButton
@@ -139,16 +136,20 @@ export function NotebookJupyterToolbar(): JSX.Element | null {
                 <LemonDivider vertical className="mx-1 h-5" />
                 <LemonSelect
                     size="small"
-                    value={isActiveCell ? 'code' : activeNodeId ? 'markdown' : null}
+                    value={activeCellKind === 'code' ? 'code' : activeCellKind === 'markdown' ? 'markdown' : null}
                     placeholder="-"
                     options={[
                         { value: 'code', label: 'Code' },
                         { value: 'markdown', label: 'Markdown' },
                     ]}
-                    disabledReason={isActiveCell ? undefined : 'Select a code cell to change its type'}
+                    disabledReason={
+                        activeCellKind === 'code' || activeCellKind === 'markdown'
+                            ? undefined
+                            : 'Select a code or markdown cell to change its type'
+                    }
                     onChange={(value) => {
-                        if (value === 'markdown' && activeNodeId) {
-                            jupyter.convertCellToMarkdown(activeNodeId)
+                        if (value && value !== activeCellKind) {
+                            jupyter.executeCommand(value === 'markdown' ? 'to-markdown' : 'to-code', activeCellId)
                         }
                     }}
                     data-attr="notebook-jupyter-cell-type"

@@ -30,6 +30,15 @@ describe('resolveNotebookJupyterKey', () => {
         ['K selects the cell above', key('k'), 'select-previous'],
         ['ArrowDown selects the cell below', key('ArrowDown'), 'select-next'],
         ['Cmd+Shift+Up moves the cell', key('ArrowUp', { metaKey: true, shiftKey: true }), 'move-up'],
+        ['Shift+Down extends the selection', key('ArrowDown', { shiftKey: true }), 'extend-selection-down'],
+        ['Shift+K extends the selection up', key('K', { shiftKey: true }), 'extend-selection-up'],
+        ['Shift+M merges', key('M', { shiftKey: true }), 'merge'],
+        ['Y converts to code', key('y'), 'to-code'],
+        ['Ctrl+Shift+Minus splits in the editor', key('_', { ctrlKey: true, shiftKey: true, inEditor: true }), 'split'],
+        ['Cmd+Shift+Minus splits in the editor', key('-', { metaKey: true, shiftKey: true, inEditor: true }), 'split'],
+        // Shift with a key that has no shifted command must not fall through to the plain command.
+        ['Shift+A does nothing', key('A', { shiftKey: true }), null],
+        ['Shift+D does not start a delete', key('D', { shiftKey: true }), null],
         // Typing in the code editor must never add, delete, or convert cells.
         ['a letter typed in the editor', key('a', { inEditor: true }), null],
         ['Enter typed in the editor', key('Enter', { inEditor: true }), null],
