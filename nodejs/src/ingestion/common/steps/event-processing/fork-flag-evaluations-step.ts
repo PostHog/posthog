@@ -12,7 +12,7 @@ import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { Team } from '~/types'
 
-import { EventToEmit } from './emit-event-step'
+import { EventToEmit, eventTooLargeWarning } from './emit-event-step'
 
 export const flagEvaluationsEventsTotal = new Counter({
     name: 'ingestion_flag_evaluations_events_total',
@@ -146,15 +146,11 @@ export function createForkFlagEvaluationsStep<T extends ForkFlagEvaluationsStepI
                         // step sends that warning.
                         return Promise.all(
                             mappableEvents.map(({ event }) =>
-                                emitIngestionWarning(outputs, event.team_id, {
-                                    type: 'message_size_too_large',
-                                    details: {
-                                        eventUuid: event.uuid,
-                                        distinctId: event.distinct_id,
-                                        personId: event.person_id,
-                                    },
-                                    pipelineStep: 'fork-flag-evaluations',
-                                })
+                                emitIngestionWarning(
+                                    outputs,
+                                    event.team_id,
+                                    eventTooLargeWarning(event, 'fork-flag-evaluations')
+                                )
                             )
                         )
                     }
