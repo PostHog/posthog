@@ -26,6 +26,7 @@ export interface AlertAdvancedOptionsSectionProps {
     enabledAdvancedOptionsCount: number
     evaluationDelayInterval?: string
     evaluationDelayPreview?: string
+    evaluationDelayUnsupportedReason?: string
     defaultOpen?: boolean
     onSetAlertFormValue: <K extends keyof AlertFormType>(key: K, value: AlertFormType[K]) => void
 }
@@ -37,6 +38,7 @@ export function AlertAdvancedOptionsSection({
     enabledAdvancedOptionsCount,
     evaluationDelayInterval,
     evaluationDelayPreview,
+    evaluationDelayUnsupportedReason,
     defaultOpen,
     onSetAlertFormValue,
 }: AlertAdvancedOptionsSectionProps): JSX.Element {
@@ -87,7 +89,9 @@ export function AlertAdvancedOptionsSection({
                                     detection of real problems and does not guarantee that a data sync has finished.
                                     Uses the insight interval; the check schedule stays the same.
                                 </p>
-                                {!ongoing.checked && evaluationDelayPreview ? (
+                                {evaluationDelayUnsupportedReason ? (
+                                    <p className="text-sm text-danger mb-0">{evaluationDelayUnsupportedReason}</p>
+                                ) : !ongoing.checked && evaluationDelayPreview ? (
                                     <p className="text-sm text-secondary mb-0">
                                         <span>If checked now: </span>
                                         <span>{evaluationDelayPreview}</span>

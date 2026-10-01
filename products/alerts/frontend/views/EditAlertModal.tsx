@@ -37,7 +37,12 @@ import { deriveAlertCheckPreviewSeries } from 'products/alerts/frontend/logic/tr
 import { InsightAlertNotificationSection } from 'products/alerts/frontend/views/InsightAlertNotificationSection'
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 
-import { alertFormLogic, canCheckOngoingInterval, insightAlertKindForQuery } from '../logic/alertFormLogic'
+import {
+    alertFormLogic,
+    canCheckOngoingInterval,
+    evaluationDelayField,
+    insightAlertKindForQuery,
+} from '../logic/alertFormLogic'
 import { alertLogic } from '../logic/alertLogic'
 import { alertNotificationLogic } from '../logic/alertNotificationLogic'
 import { isNextPlannedEvaluationStale } from '../logic/alertSchedulingStale'
@@ -257,6 +262,12 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
         ]
     )
 
+    const delayField = evaluationDelayField(
+        insightAlertKind,
+        isNonTimeSeriesDisplay,
+        alert?.evaluation_delay_intervals ?? 0
+    )
+
     const enabledAdvancedOptionsCount = useMemo(() => {
         let n = (alertForm.evaluation_delay_intervals ?? 0) > 0 ? 1 : 0
         if (
@@ -419,9 +430,8 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
             canCheckOngoingInterval={can_check_ongoing_interval}
             projectTimezone={projectTimezone}
             enabledAdvancedOptionsCount={enabledAdvancedOptionsCount}
-            evaluationDelayInterval={
-                insightAlertKind === 'trends' && !isNonTimeSeriesDisplay ? (trendInterval ?? 'day') : undefined
-            }
+            evaluationDelayInterval={delayField.show ? (trendInterval ?? 'day') : undefined}
+            evaluationDelayUnsupportedReason={delayField.unsupportedReason}
             evaluationDelayPreview={evaluationDelayPreview(
                 trendInterval ?? 'day',
                 alertForm.evaluation_delay_intervals ?? 0,

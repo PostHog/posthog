@@ -28,6 +28,7 @@ import type { AlertType } from '../types'
 import {
     alertFormLogic,
     canCheckOngoingInterval,
+    evaluationDelayField,
     ongoingIntervalField,
     thresholdAlertHasBounds,
     type AlertFormType,
@@ -1112,6 +1113,17 @@ describe('alertFormLogic', () => {
                 )
             ).toEqual(expected)
         })
+    })
+
+    it.each([
+        ['time-series trends', 'trends', false, 0, true, false],
+        ['non-time-series trends with no saved delay', 'trends', true, 0, false, true],
+        ['non-time-series trends with a saved delay', 'trends', true, 2, true, true],
+        ['funnels with a saved delay', 'funnels', false, 2, true, true],
+    ] as const)('evaluationDelayField: %s', (_name, kind, isNonTimeSeriesDisplay, savedDelay, show, unsupported) => {
+        const field = evaluationDelayField(kind, isNonTimeSeriesDisplay, savedDelay)
+        expect(field.show).toBe(show)
+        expect(field.unsupportedReason !== undefined).toBe(unsupported)
     })
 
     describe('ongoing-interval gating', () => {

@@ -143,6 +143,28 @@ export function insightAlertKindForQuery(query?: Record<string, any> | null): In
     return 'trends'
 }
 
+const EVALUATION_DELAY_UNSUPPORTED_REASON =
+    "This insight doesn't support an evaluation delay. Set it to 0 to save the alert."
+
+export interface EvaluationDelayField {
+    show: boolean
+    unsupportedReason?: string
+}
+
+/** A saved delay stays editable after its insight stops supporting one, because the API
+ * rejects every save of that alert until the delay is 0. */
+export function evaluationDelayField(
+    insightAlertKind: InsightAlertKind,
+    isNonTimeSeriesDisplay: boolean,
+    savedDelay: number
+): EvaluationDelayField {
+    const supported = insightAlertKind === 'trends' && !isNonTimeSeriesDisplay
+    return {
+        show: supported || savedDelay > 0,
+        unsupportedReason: supported ? undefined : EVALUATION_DELAY_UNSUPPORTED_REASON,
+    }
+}
+
 export interface AlertFormLogicProps {
     alert: AlertType | null
     insightId: InsightModel['id']
