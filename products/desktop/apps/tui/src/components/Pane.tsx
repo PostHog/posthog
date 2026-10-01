@@ -63,6 +63,7 @@ export function Pane({
   task,
   runs,
   local,
+  isLocalPane,
   newChatPlace,
   chat,
   composer,
@@ -87,6 +88,8 @@ export function Pane({
   runs: CloudRuns | null;
   // Set when this pane shows a chat running on this machine.
   local: LocalSession | undefined;
+  // True for a chat on this machine, also before its agent has started.
+  isLocalPane: boolean;
   // Where a new chat typed here would run.
   newChatPlace: "local" | "cloud";
   chat: ChatView;
@@ -125,7 +128,6 @@ export function Pane({
   const width = Math.max(0, paneSize.width - 2);
   const height = Math.max(0, paneSize.height - 1);
   const { view, loadOlder } = useRunView(runs, task, local);
-  const isLocalPane = paneTaskId?.startsWith("local:") ?? false;
   const transcript = useMemo(
     () =>
       // A local chat has no server task; its log is pi events.
@@ -263,7 +265,7 @@ export function Pane({
     content = <Spinner label="Starting local agent…" />;
   else if (paneTaskId && !task && !local && !pending)
     content = <Spinner label="Loading chat" />;
-  else if (task && !run)
+  else if (task && !run && !local)
     content = <Text dimColor>This task has no runs yet.</Text>;
   else if (run?.environment === "local")
     content = <Text dimColor>Local runs can't be opened here yet.</Text>;

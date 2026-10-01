@@ -1,10 +1,14 @@
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { Task } from "@posthog/shared";
 import { renderToString } from "ink";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PiChats } from "../chats";
 import { initialLayout, openTask, saveLayout } from "../layout";
+import type { LocalSession } from "../local";
 import type { PiControl } from "../models";
-import type { CloudRuns } from "../runs";
+import { type CloudRuns, emptyRunView } from "../runs";
 import { renderInTerminal } from "../testing";
 import type { WorkList } from "../work";
 import { App } from "./App";
@@ -79,5 +83,52 @@ describe("App", () => {
     instance.unmount();
 
     expect(runs.watch).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows a local chat that has a task row and no run", async () => {
+    const sessions = join(homedir(), ".config", "posthog-tui", "local");
+    mkdirSync(sessions, { recursive: true });
+    writeFileSync(join(sessions, "t2.jsonl"), "");
+    saveLayout(openTask(initialLayout(), "t2"));
+    const work = {
+      listRecent: async () => ({
+        tasks: [{ id: "t2", title: "Local", runtime: "pi" } as Task],
+        hasMore: false,
+      }),
+    } as unknown as WorkList;
+    const local = {
+      watch: (onView: (view: typeof emptyRunView) => void) => {
+        onView({
+          ...emptyRunView,
+          loaded: true,
+          error: "from the local agent",
+        });
+        return () => {};
+      },
+      watchPrompts: () => () => {},
+      stop: async () => {},
+    } as unknown as LocalSession;
+
+    const { instance, output } = renderInTerminal(
+      <App
+        session={{
+          work,
+          runs: { prefetch: async () => {} } as unknown as CloudRuns,
+          chats: {} as PiChats,
+          control: () => ({}) as PiControl,
+          startLocal: async () => local,
+        }}
+        login={async () => {}}
+        logout={() => {}}
+      />,
+    );
+    try {
+      await vi.waitFor(() =>
+        expect(output()).toContain("from the local agent"),
+      );
+    } finally {
+      instance.unmount();
+      rmSync(sessions, { recursive: true });
+    }
   });
 });
