@@ -87,34 +87,34 @@ _COMPACT_RATIO_SAMPLE_FILES = 2
 
 @frozen
 class CompactionPlan:
-    target_size: int
+    target_size: int | None
     max_concurrent_tasks: int | None
     compression_ratio: float | None
     slot_budget_mb: float | None
 
 
 def plan_compaction(compression_ratio: float | None, slot_budget_mb: float | None) -> CompactionPlan:
-    """Bin size and parallelism that keep one compaction inside its memory slot.
+    """Bin size and parallelism that keep one compaction inside its memory slot."""
+    rounded_ratio = round(compression_ratio, 2) if compression_ratio is not None else None
+    rounded_slot = round(slot_budget_mb, 1) if slot_budget_mb is not None else None
+    if compression_ratio is None or (slot_budget_mb is not None and slot_budget_mb <= 0):
+        return CompactionPlan(None, None, rounded_ratio, rounded_slot)
 
-    With no readable memory limit, only the decoded bin size is capped and delta-rs picks the
-    parallelism, as it did before.
-    """
-    ratio = max(compression_ratio or 1.0, 1.0)
+    ratio = max(compression_ratio, 1.0)
     decoded_cap = float(COMPACT_MAX_DECODED_BIN_BYTES)
-    slot_budget_bytes = slot_budget_mb * 1024 * 1024 if slot_budget_mb else None
-    if slot_budget_bytes:
+    slot_budget_bytes = slot_budget_mb * 1024 * 1024 if slot_budget_mb is not None else None
+    if slot_budget_bytes is not None:
         decoded_cap = min(decoded_cap, slot_budget_bytes / _COMPACT_TASK_MEMORY_FACTOR)
-    target_size = int(min(DEFAULT_COMPACT_TARGET_SIZE_BYTES, max(COMPACT_MIN_TARGET_SIZE_BYTES, decoded_cap / ratio)))
+    safe_target_size = decoded_cap / ratio
+    if safe_target_size < COMPACT_MIN_TARGET_SIZE_BYTES:
+        return CompactionPlan(None, None, rounded_ratio, rounded_slot)
+
+    target_size = int(min(DEFAULT_COMPACT_TARGET_SIZE_BYTES, safe_target_size))
     max_concurrent_tasks = None
-    if slot_budget_bytes:
+    if slot_budget_bytes is not None:
         per_task_bytes = target_size * ratio * _COMPACT_TASK_MEMORY_FACTOR
         max_concurrent_tasks = max(1, min(os.cpu_count() or 1, int(slot_budget_bytes // per_task_bytes)))
-    return CompactionPlan(
-        target_size=target_size,
-        max_concurrent_tasks=max_concurrent_tasks,
-        compression_ratio=round(compression_ratio, 2) if compression_ratio else None,
-        slot_budget_mb=round(slot_budget_mb, 1) if slot_budget_mb else None,
-    )
+    return CompactionPlan(target_size, max_concurrent_tasks, rounded_ratio, rounded_slot)
 
 
 def _sample_compression_ratio(table: deltalake.DeltaTable) -> float | None:
@@ -148,7 +148,7 @@ def _peak_rss_mb() -> float:
 VACUUM_RETENTION = dt.timedelta(hours=24)
 
 
-def removable_file_count(file_sizes: Iterable[int]) -> int:
+def removable_file_count(file_sizes: Iterable[int], target_size: int = DEFAULT_COMPACT_TARGET_SIZE_BYTES) -> int:
     """The fewest files a compaction is sure to remove from one partition, given the sizes of its files.
 
     delta-rs keeps a partition's files in their original order and packs neighbours into bins up to the
@@ -160,9 +160,9 @@ def removable_file_count(file_sizes: Iterable[int]) -> int:
     compaction that removes files, and a layout that compaction cannot improve never starts one.
     """
     sizes = list(file_sizes)
-    small = [size for size in sizes if size < DEFAULT_COMPACT_TARGET_SIZE_BYTES // 2]
+    small = [size for size in sizes if size < target_size // 2]
     runs = len(sizes) - len(small) + 1
-    output_files = runs + 2 * sum(small) // DEFAULT_COMPACT_TARGET_SIZE_BYTES
+    output_files = runs + 2 * sum(small) // target_size
     return max(0, len(small) - output_files)
 
 
@@ -172,14 +172,19 @@ class _PartitionFileStats:
     removable_files: int
 
 
-def _partition_file_stats(table: deltalake.DeltaTable) -> list[_PartitionFileStats]:
+def _partition_file_stats(
+    table: deltalake.DeltaTable, target_size: int = DEFAULT_COMPACT_TARGET_SIZE_BYTES
+) -> list[_PartitionFileStats]:
     """Stats for each partition, read from the Delta log with no S3 request."""
     # Each partition value is one directory, and an unpartitioned table keeps its files at the root.
     sizes: defaultdict[str, list[int]] = defaultdict(list)
     for path, size in table._table.get_add_file_sizes().items():
         sizes[path.rpartition("/")[0]].append(size or 0)
     return [
-        _PartitionFileStats(size_bytes=sum(partition_sizes), removable_files=removable_file_count(partition_sizes))
+        _PartitionFileStats(
+            size_bytes=sum(partition_sizes),
+            removable_files=removable_file_count(partition_sizes, target_size),
+        )
         for partition_sizes in sizes.values()
     ]
 
@@ -221,9 +226,16 @@ class DeltaMaintenance:
             ratio = None
         return plan_compaction(ratio, get_governor().slot_budget_mb())
 
-    async def _compact(self, table: deltalake.DeltaTable) -> None:
-        plan = await self._plan_compaction(table)
+    async def _compact(self, table: deltalake.DeltaTable, plan: CompactionPlan | None = None) -> bool:
+        plan = plan or await self._plan_compaction(table)
         target_size = plan.target_size
+        if target_size is None:
+            await self._logger.awarning(
+                "compact: skipping because no memory-safe plan is available",
+                compact_compression_ratio=plan.compression_ratio,
+                compact_slot_budget_mb=plan.slot_budget_mb,
+            )
+            return False
         max_concurrent_tasks = plan.max_concurrent_tasks
         pod_mb_before = get_governor().pod.current_mb()
         started = time.monotonic()
@@ -272,6 +284,7 @@ class DeltaMaintenance:
             peak_rss_mb=_peak_rss_mb(),
         )
         await self._logger.adebug(json.dumps(compact_stats))
+        return True
 
     async def _vacuum_due(self, last_vacuum_version: int | None, commit_threshold: int) -> bool:
         # The same cadence `vacuum_if_stale` applies. An unseeded watermark is never due.
@@ -385,7 +398,8 @@ class DeltaMaintenance:
         effective_partitions = max(partition_count or 1, 1)
         files_per_partition = total_files / effective_partitions
 
-        fragmented = files_per_partition > threshold or total_files > total_threshold
+        count_fragmented = files_per_partition > threshold or total_files > total_threshold
+        fragmented = count_fragmented
         stats = (
             f"total_files={total_files}, partitions={effective_partitions}, "
             f"files_per_partition={files_per_partition:.1f}, threshold={threshold}, "
@@ -415,8 +429,41 @@ class DeltaMaintenance:
             await self._logger.adebug(f"compact_if_fragmented: skipping ({stats})")
             return False
 
+        if count_fragmented:
+            await self._logger.ainfo(f"compact_if_fragmented: triggering compact ({stats})")
+            if not await self._compact(table):
+                return False
+            await self._vacuum(table)
+            return True
+
+        plan = await self._plan_compaction(table)
+        if plan.target_size is None:
+            await self._compact(table, plan)
+            return False
+
+        if compact_small_files:
+            partitions = await asyncio.to_thread(_partition_file_stats, table, plan.target_size)
+            max_removable = max((partition.removable_files for partition in partitions), default=0)
+            total_removable = sum(partition.removable_files for partition in partitions)
+            budget = settings.DATA_WAREHOUSE_TARGET_PARTITION_BYTES
+            compactable_over_budget = any(
+                partition.size_bytes > budget and partition.removable_files > 0 for partition in partitions
+            )
+            fragmented = (
+                max_removable >= DEFAULT_COMPACT_REMOVABLE_FILES_PER_PARTITION_THRESHOLD
+                or (table_wide_small_files and total_removable >= DEFAULT_COMPACT_REMOVABLE_FILES_THRESHOLD)
+                or compactable_over_budget
+            )
+            if not fragmented:
+                await self._logger.adebug(
+                    f"compact_if_fragmented: skipping; no files are removable at planned target_size="
+                    f"{plan.target_size} ({stats})"
+                )
+                return False
+
         await self._logger.ainfo(f"compact_if_fragmented: triggering compact ({stats})")
-        await self._compact(table)
+        if not await self._compact(table, plan):
+            return False
         await self._vacuum(table)
         return True
 
