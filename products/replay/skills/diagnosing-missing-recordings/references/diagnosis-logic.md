@@ -63,16 +63,15 @@ Typical causes:
 - Browser ad blocker extensions (uBlock Origin, AdBlock Plus, etc.)
 - Corporate content security policies (CSP)
 - Network-level blocking (Pi-hole, corporate proxies, firewalls)
-- A custom reverse proxy that forwards only the event paths
+- A custom reverse proxy that does not forward `/static/*`
 
 When `api_host` is a custom reverse proxy, the SDK loads the recorder script from `api_host` + `/static/*`, unless `asset_host` overrides it.
-Remote config goes through `/array/*` and snapshots go to `/s/`.
-A proxy that forwards only the event paths breaks replay, but event capture keeps working.
+A proxy that forwards only the event paths stops the recorder script, but event capture keeps working.
 If events arrive and recordings do not, suspect the proxy before an ad blocker.
 Fixes:
 
-- Forward `/array/*` and `/s/` through the proxy, and allow large request bodies.
-  Also forward `/static/*`, unless `asset_host` is set
+- Forward `/static/*` through the proxy, unless `asset_host` is set.
+  Replay also needs `/array/*` (remote config) and `/s/` (snapshots, see FLUSH_BLOCKED) on the same proxy
 - Set `asset_host` in the SDK config to load scripts from a host that the firewall allows
 - Use the [managed reverse proxy](https://posthog.com/docs/advanced/proxy/managed-reverse-proxy)
 

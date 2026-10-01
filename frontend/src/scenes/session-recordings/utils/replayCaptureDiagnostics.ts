@@ -127,7 +127,7 @@ export function diagnoseReplayCapture(eventProperties: Record<string, any> | nul
             reasons: [
                 'The SDK reported that the recorder script was not loaded on the page.',
                 'A browser ad blocker or a content security policy can block the recorder script.',
-                'If you send events through your own reverse proxy, the proxy must forward /array/* and /s/, not only the event paths, and it must accept large request bodies. If asset_host is not set, the SDK also loads the recorder script from the proxy, so the proxy must forward /static/* too.',
+                'If you send events through your own reverse proxy and asset_host is not set, the SDK loads the recorder script from the proxy. The proxy must forward /static/*, not only the event paths. Replay also needs /array/* and /s/ on the same proxy.',
                 'A corporate firewall can also block the script. Set asset_host in the SDK config to load scripts from a different host, or use the managed reverse proxy.',
             ],
             rawSignals,

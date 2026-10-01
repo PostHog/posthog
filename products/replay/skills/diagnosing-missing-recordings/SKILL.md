@@ -130,14 +130,14 @@ Look for patterns:
 
 Based on the verdict, recommend specific actions:
 
-| Verdict         | Recommendation                                                                                                                                                                                                           |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Ad blocked      | An ad blocker, CSP, firewall, or reverse proxy blocks rrweb. If events arrive through a custom proxy, it must forward `/array/*` and `/s/`, and `/static/*` unless `asset_host` is set. Or use the managed reverse proxy |
-| Disabled        | Check project replay settings — recording may be turned off. Link to Settings > Session replay                                                                                                                           |
-| Trigger pending | The configured trigger (URL pattern, event, or feature flag) never matched. Review trigger configuration                                                                                                                 |
-| Sampled out     | Increase the sample rate in project settings, or use a trigger to guarantee capture for important sessions                                                                                                               |
-| Buffering empty | Page closed before first snapshot. Common with very short sessions or single-page navigations. Consider lowering minimum duration                                                                                        |
-| Unknown         | Direct user to troubleshooting docs: https://posthog.com/docs/session-replay/troubleshooting                                                                                                                             |
+| Verdict         | Recommendation                                                                                                                                                                                 |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Ad blocked      | An ad blocker, CSP, firewall, or reverse proxy blocks rrweb. If events arrive through a custom proxy, it must forward `/static/*` unless `asset_host` is set. Or use the managed reverse proxy |
+| Disabled        | Check project replay settings — recording may be turned off. Link to Settings > Session replay                                                                                                 |
+| Trigger pending | The configured trigger (URL pattern, event, or feature flag) never matched. Review trigger configuration                                                                                       |
+| Sampled out     | Increase the sample rate in project settings, or use a trigger to guarantee capture for important sessions                                                                                     |
+| Buffering empty | Page closed before first snapshot. Common with very short sessions or single-page navigations. Consider lowering minimum duration                                                              |
+| Unknown         | Direct user to troubleshooting docs: https://posthog.com/docs/session-replay/troubleshooting                                                                                                   |
 
 ## Examples
 
