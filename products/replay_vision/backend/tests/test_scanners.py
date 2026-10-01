@@ -10,6 +10,8 @@ from products.replay_vision.backend.models.replay_scanner import ReplayScanner, 
 from products.replay_vision.backend.temporal.scanners import (
     ClassifierOutput,
     ClassifierScanner,
+    ExperimentOutput,
+    ExperimentScanner,
     MonitorLlmResponse,
     MonitorOutput,
     MonitorScanner,
@@ -1040,3 +1042,56 @@ class TestSignalSideMission:
         long = SignalFinding.model_validate({**self._VALID_SIGNAL, "headline": "word " * 40})
         assert len(long.headline) <= SIGNAL_HEADLINE_MAX_LENGTH
         assert not long.headline.endswith(" ")
+
+
+class TestExperimentScanner:
+    def _scanner(self, **config_overrides):
+        config = {"prompt": "watch the checkout change", "experiment_id": 42, **config_overrides}
+        return scanner_from_db(_build_replay_scanner(scanner_type=ScannerType.EXPERIMENT, scanner_config=config))
+
+    def test_scanner_from_db_picks_experiment_subclass_with_summarizer_defaults(self) -> None:
+        scanner = self._scanner()
+        assert isinstance(scanner, ExperimentScanner)
+        assert isinstance(scanner, SummarizerScanner)
+        assert (scanner.length, scanner.balance_variants, scanner.variants) == ("medium", True, None)
+
+    def test_scanner_from_db_requires_experiment_id(self) -> None:
+        with pytest.raises(ApplicationError, match="experiment_id"):
+            scanner_from_db(_build_replay_scanner(scanner_type=ScannerType.EXPERIMENT, scanner_config={"prompt": "p"}))
+
+    def test_core_step_renders_without_scan_time_context(self) -> None:
+        # The prompt env uses StrictUndefined, and the workflow that injects the experiment context
+        # ships separately, so the template must render from the persisted config alone.
+        instruction = self._scanner().core_steps()[0].instruction
+        assert "A/B experiment" in instruction
+        assert "watch the checkout change" in instruction
+        assert "(t " in instruction
+
+    def test_core_step_carries_injected_experiment_context_and_variant(self) -> None:
+        scanner = self._scanner().model_copy(
+            update={
+                "experiment_context": {
+                    "name": "Checkout CTA copy",
+                    "description": "One-click checkout raises conversion.",
+                    "feature_flag_key": "checkout-cta",
+                    "variants": [
+                        {"key": "control", "description": "", "rollout_percentage": 50.0},
+                        {"key": "test", "description": "One-click", "rollout_percentage": 50.0},
+                    ],
+                    "primary_metric_names": ["Purchases"],
+                },
+                "session_variant": "test",
+            }
+        )
+        instruction = scanner.core_steps()[0].instruction
+        assert "Checkout CTA copy" in instruction
+        assert "checkout-cta" in instruction
+        assert "Purchases" in instruction
+        assert "`test` variant" in instruction
+
+    def test_output_round_trip_keeps_the_summarizer_shape(self) -> None:
+        out = ExperimentOutput(title="Faster checkout", summary="They breezed through.", confidence=0.9)
+        round_tripped = ExperimentOutput.model_validate_json(out.model_dump_json())
+        assert round_tripped == out
+        assert round_tripped.scanner_type == ScannerType.EXPERIMENT
+        assert summary_embedding_text(round_tripped) == "Faster checkout\n\nThey breezed through."
