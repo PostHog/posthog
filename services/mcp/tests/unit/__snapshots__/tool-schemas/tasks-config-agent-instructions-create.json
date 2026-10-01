@@ -1,9 +1,9 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "description": "Markdown instructions written into cloud task runs as the agent's user-level AGENTS.md.",
+    "description": "Markdown instructions that PostHog cloud agents load as their user-level AGENTS.md in Tasks runs.",
     "properties": {
         "agent_instructions": {
-            "description": "Markdown instructions the agent reads in every eligible cloud task run, the same way it reads a local AGENTS.md. Send an empty string to clear.",
+            "description": "Markdown instructions that PostHog cloud agents read in every eligible Tasks run, the same way a local agent reads AGENTS.md. Send an empty string to clear.",
             "maxLength": 20000,
             "type": "string"
         }

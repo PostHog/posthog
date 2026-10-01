@@ -1913,7 +1913,7 @@ export const TasksMeConfigCreateBody = () => zod
     )
 
 /**
- * Set your personal instructions, written into cloud task runs you start after the project instructions. Autonomous runs never get them. Send an empty string to clear.
+ * Set your personal instructions, which PostHog cloud agents load in Tasks runs you start, after the project instructions. Autonomous runs never get them. Send an empty string to clear.
  */
 export const TasksMeConfigAgentInstructionsCreateParams = () => zod.object({
     project_id: zod
@@ -1931,10 +1931,10 @@ export const TasksMeConfigAgentInstructionsCreateBody = () => zod
             .string()
             .max(tasksMeConfigAgentInstructionsCreateBodyAgentInstructionsMax)
             .describe(
-                'Markdown instructions the agent reads in every eligible cloud task run, the same way it reads a local AGENTS.md. Send an empty string to clear.'
+                'Markdown instructions that PostHog cloud agents read in every eligible Tasks run, the same way a local agent reads AGENTS.md. Send an empty string to clear.'
             ),
     })
-    .describe("Markdown instructions written into cloud task runs as the agent's user-level AGENTS.md.")
+    .describe('Markdown instructions that PostHog cloud agents load as their user-level AGENTS.md in Tasks runs.')
 
 /**
  * Retrieve the project-wide default AI run preferences for task runs.
@@ -2002,7 +2002,7 @@ export const TasksConfigCreateBody = () => zod
     )
 
 /**
- * Set the project instructions written into every eligible cloud task run as the agent's user-level AGENTS.md, including autonomous runs. Send an empty string to clear.
+ * Set the project instructions that PostHog cloud agents load as their user-level AGENTS.md in every eligible Tasks run, including autonomous runs. Send an empty string to clear.
  */
 export const TasksConfigAgentInstructionsCreateParams = () => zod.object({
     project_id: zod
@@ -2020,10 +2020,10 @@ export const TasksConfigAgentInstructionsCreateBody = () => zod
             .string()
             .max(tasksConfigAgentInstructionsCreateBodyAgentInstructionsMax)
             .describe(
-                'Markdown instructions the agent reads in every eligible cloud task run, the same way it reads a local AGENTS.md. Send an empty string to clear.'
+                'Markdown instructions that PostHog cloud agents read in every eligible Tasks run, the same way a local agent reads AGENTS.md. Send an empty string to clear.'
             ),
     })
-    .describe("Markdown instructions written into cloud task runs as the agent's user-level AGENTS.md.")
+    .describe('Markdown instructions that PostHog cloud agents load as their user-level AGENTS.md in Tasks runs.')
 
 /**
  * Return the models a task run may use, with the reasoning efforts each one supports. Derived from the live LLM gateway catalogue, so a newly released model appears without a client change. An empty list means the gateway is unreachable — clients should fall back to their own default rather than treating it as 'no models exist'.

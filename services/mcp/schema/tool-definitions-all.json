@@ -12957,7 +12957,7 @@
         }
     },
     "tasks-config-agent-instructions-create": {
-        "description": "Set the project's agent instructions: markdown every eligible cloud task run on the project loads as its user-level AGENTS.md, including autonomous runs such as loops and scouts. Requires project admin. Replaces the stored text; send an empty string to clear. Read the current text with tasks-config-list first, and send the full new text, not a diff.",
+        "description": "Set the project's agent instructions: markdown that PostHog cloud agents load as their user-level AGENTS.md in every eligible Tasks run on the project, including autonomous runs such as loops and scouts. Requires project admin. Replaces the stored text; send an empty string to clear. Read the current text with tasks-config-list first, and send the full new text, not a diff.",
         "category": "Tasks",
         "feature": "tasks",
         "summary": "Set project agent instructions",
@@ -13047,7 +13047,7 @@
         "feature_flag": "tasks"
     },
     "tasks-me-config-agent-instructions-create": {
-        "description": "Set the caller's personal agent instructions: markdown added after the project instructions on cloud task runs the caller starts. Autonomous runs never load them. Replaces the stored text; send an empty string to clear. Read the current text with tasks-me-config-list first, and send the full new text, not a diff.",
+        "description": "Set the caller's personal agent instructions: markdown that PostHog cloud agents load after the project instructions in Tasks runs the caller starts. Autonomous runs never load them. Replaces the stored text; send an empty string to clear. Read the current text with tasks-me-config-list first, and send the full new text, not a diff.",
         "category": "Tasks",
         "feature": "tasks",
         "summary": "Set my agent instructions",
