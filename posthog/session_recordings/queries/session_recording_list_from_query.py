@@ -8,6 +8,7 @@ from opentelemetry import trace
 from rest_framework.exceptions import PermissionDenied
 
 from posthog.schema import (
+    EventMatchScope,
     HogQLQueryModifiers,
     PropertyOperator,
     RecordingOrder,
@@ -287,6 +288,8 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             listing_tags: dict[str, Any] = {}
             if in_session_narrowed:
                 listing_tags["experiment_exposures_in_session"] = True
+            if self._query.event_match_scope == EventMatchScope.RECORDING:
+                listing_tags["replay_event_match_scope"] = EventMatchScope.RECORDING.value
             plan = self._event_match_plan
             if plan is not None and plan.filter_count:
                 listing_tags["replay_event_query_strategy"] = plan.strategy
@@ -313,12 +316,18 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         # nothing to probe when the caller excluded against its own rows instead, where the scoped
         # query is bounded by the ids it was given rather than by the cap.
         if not self._skip_negative_blocklists:
-            ReplayFiltersEventsSubQuery(
-                self._team,
-                self._query,
-                self._allow_event_property_expansion,
-                hogql_query_modifiers=self._hogql_query_modifiers,
-            ).check_negative_blocklist_truncation()
+            # Under recording scope the probe re-runs the blocklist scan with its bounds join, so it
+            # carries the scope tag too; without it the query log undercounts what the scope costs.
+            probe_tags: dict[str, Any] = {}
+            if self._query.event_match_scope == EventMatchScope.RECORDING:
+                probe_tags["replay_event_match_scope"] = EventMatchScope.RECORDING.value
+            with tags_context(**probe_tags):
+                ReplayFiltersEventsSubQuery(
+                    self._team,
+                    self._query,
+                    self._allow_event_property_expansion,
+                    hogql_query_modifiers=self._hogql_query_modifiers,
+                ).check_negative_blocklist_truncation()
 
         with tracer.start_as_current_span("SessionRecordingListFromQuery._data_to_return"):
             next_cursor = None

@@ -30,9 +30,11 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from posthog.schema import ActionsNode, EventsNode, PersonsOnEventsMode, RecordingsQuery
 
+from posthog.hogql import ast
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
@@ -877,9 +879,12 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("enabled", True, {}, {}, True, "combined", True),
-            ("disabled", False, {}, {}, True, "separate", True),
-            ("unavailable", None, {}, {}, True, "separate", True),
+            ("enabled", True, {"event_match_scope": "session"}, {}, True, "combined", True),
+            ("disabled", False, {"event_match_scope": "session"}, {}, True, "separate", True),
+            ("unavailable", None, {"event_match_scope": "session"}, {}, True, "separate", True),
+            # Recording scope pays a GLOBAL bounds join per subquery, so eligible filters combine
+            # into one scan without consulting the flag.
+            ("recording_scope_combines_without_the_flag", False, {}, {}, True, "combined", True),
             ("negative_property", True, {"category_operator": "is_not"}, {}, True, "separate", False),
             ("person_property", True, {"person_property": True}, {}, True, "separate", False),
             ("sampled", True, {}, {"sample_factor": 0.5}, True, "separate", False),
@@ -906,6 +911,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         expected_eligible: bool,
     ) -> None:
         query: dict[str, Any] = {
+            "event_match_scope": shape.get("event_match_scope", "recording"),
             "events": [
                 {
                     "id": "view_item",
@@ -933,10 +939,71 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         assert (plan.strategy, plan.combined_eligible) == (expected_strategy, expected_eligible)
         if expected_strategy == "combined":
             assert len(plan.queries) == 1
-        if expected_eligible:
+        # Recording scope decides without the flag, so only eligible session-scope plans consult it.
+        if expected_eligible and query["event_match_scope"] == "session":
             assert evaluate.call_args.args[0] == "replay-combined-event-filters"
         else:
             evaluate.assert_not_called()
+
+    @parameterized.expand([("recording", True), ("session", False)])
+    def test_the_recording_bounds_join_and_its_window_predicates_travel_together(
+        self, scope: str, expects_scope: bool
+    ) -> None:
+        # The join and the window predicates come from different methods, and a subquery carrying the
+        # join without the predicates matches events outside the recording again — silently, since the
+        # join alone still returns plausible results. Every events subquery must hold both or neither.
+        def bounds_join_aliases(query: ast.SelectQuery) -> list[str]:
+            aliases = []
+            join = query.select_from
+            while join is not None:
+                if join.alias:
+                    aliases.append(join.alias)
+                join = join.next_join
+            return aliases
+
+        def bounds_fields(node: ast.AST) -> set[str]:
+            fields: set[str] = set()
+
+            class Collector(TraversingVisitor):
+                def visit_field(self, field: ast.Field) -> None:
+                    if field.chain and field.chain[0] == "recording_bounds":
+                        fields.add(str(field.chain[-1]))
+
+            Collector().visit(node)
+            return fields
+
+        query: dict[str, Any] = {
+            "event_match_scope": scope,
+            "operand": "AND",
+            "events": [
+                # A negated entity, so the plan stays on the separate path and the blocklist exists.
+                {"id": "view_item", "type": "events", "order": 0},
+                {"id": "purchase", "type": "events", "order": 1, "negation": True},
+            ],
+            "properties": [{"type": "event", "key": "source", "operator": "exact", "value": "search"}],
+        }
+        builder = ReplayFiltersEventsSubQuery(team=self.team, query=RecordingsQuery.model_validate(query))
+        subqueries: list[ast.SelectQuery] = [
+            *builder.get_session_id_match_plan(allow_combined_filters=True).queries,
+        ]
+        blocklist = builder.get_negative_blocklist_query()
+        assert blocklist is not None
+        subqueries.append(blocklist)
+        excluded = builder.get_excluded_sessions_query(["a-session-id"])
+        assert excluded is not None
+        subqueries.append(excluded)
+
+        assert len(subqueries) >= 4
+        for subquery in subqueries:
+            joined = "recording_bounds" in bounds_join_aliases(subquery)
+            assert subquery.where is not None
+            referenced = bounds_fields(subquery.where)
+            if expects_scope:
+                assert joined, subquery
+                assert referenced == {"window_start", "window_end"}, subquery
+            else:
+                assert not joined, subquery
+                assert referenced == set(), subquery
 
     @parameterized.expand(
         [
@@ -2934,16 +3001,21 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             [],
         )
 
+    # Session 2 adds the item after its recording ends, so only whole-session matching counts it.
     @parameterized.expand(
         [
-            ("AND", False, [0, 1, 2, 3]),
-            ("AND", True, [0, 1, 2]),
-            ("OR", False, [0, 1, 2, 3]),
-            ("OR", True, [0, 1, 2, 3, 4]),
+            ("recording", "AND", False, [0, 1, 3]),
+            ("recording", "AND", True, [0, 1]),
+            ("recording", "OR", False, [0, 1, 2, 3]),
+            ("recording", "OR", True, [0, 1, 2, 3, 4]),
+            ("session", "AND", False, [0, 1, 2, 3]),
+            ("session", "AND", True, [0, 1, 2]),
+            ("session", "OR", False, [0, 1, 2, 3]),
+            ("session", "OR", True, [0, 1, 2, 3, 4]),
         ]
     )
     def test_combined_event_filters_preserve_results_and_cursors(
-        self, operand: str, with_properties: bool, expected_indexes: list[int]
+        self, scope: str, operand: str, with_properties: bool, expected_indexes: list[int]
     ) -> None:
         sessions = [str(uuid7()) for _ in range(5)]
         for index, session_id in enumerate(sessions):
@@ -2971,6 +3043,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                     properties={"$session_id": session_id, **properties},
                 )
         filters: dict[str, Any] = {
+            "event_match_scope": scope,
             "operand": operand,
             "events": [
                 {
@@ -3010,8 +3083,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                     after = page.next_cursor
                     assert after is not None
                 assert not pages[-1].has_more_recording
+                # Recording scope combines without the flag, to pay its GLOBAL bounds join only once.
+                expected_strategy = "combined" if enabled or scope == "recording" else "separate"
                 assert any(
-                    call.kwargs.get("replay_event_query_strategy") == ("combined" if enabled else "separate")
+                    call.kwargs.get("replay_event_query_strategy") == expected_strategy
                     and call.kwargs.get("replay_event_filter_count") == (3 if with_properties else 2)
                     and call.kwargs.get("replay_event_query_property_filter_count") == (2 if with_properties else 0)
                     and call.kwargs.get("replay_combined_event_query_eligible") is True
@@ -3022,6 +3097,150 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         assert pages_by_strategy[0] == pages_by_strategy[1]
         expected = [sessions[index] for index in reversed(expected_indexes)]
         assert [row["session_id"] for page in pages_by_strategy[1] for row in page.results] == expected
+
+    @parameterized.expand(
+        [
+            ("session_scope_matches_before_the_recording", "session", relativedelta(minutes=-10), True),
+            ("recording_scope_rejects_before_the_recording", "recording", relativedelta(minutes=-10), False),
+            ("recording_scope_allows_the_margin_before_the_recording", "recording", relativedelta(seconds=-30), True),
+            ("recording_scope_matches_inside_the_recording", "recording", relativedelta(minutes=2), True),
+            ("recording_scope_rejects_after_the_recording", "recording", relativedelta(minutes=10), False),
+        ]
+    )
+    def test_event_match_scope_bounds_event_filters_to_the_recording(
+        self, _name: str, scope: str, event_offset: relativedelta, matches: bool
+    ) -> None:
+        distinct_id = f"event-match-scope-user-{uuid4()}"
+        create_person(team=self.team, distinct_ids=[distinct_id], properties={"email": "bla"})
+        session_id = f"event-match-scope-session-{uuid4()}"
+
+        produce_replay_summary(
+            distinct_id=distinct_id,
+            session_id=session_id,
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=self.an_hour_ago + relativedelta(minutes=5),
+            team_id=self.team.id,
+        )
+        create_event(
+            team=self.team,
+            distinct_id=distinct_id,
+            timestamp=self.an_hour_ago + event_offset,
+            event_name="$pageview",
+            properties={"$session_id": session_id},
+        )
+
+        self._assert_query_matches_session_ids(
+            {
+                "events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}],
+                "event_match_scope": scope,
+            },
+            [session_id] if matches else [],
+        )
+
+    @parameterized.expand(
+        [
+            ("session_scope_excludes_on_an_event_before_the_recording", "session", False),
+            ("recording_scope_ignores_an_event_before_the_recording", "recording", True),
+        ]
+    )
+    def test_event_match_scope_applies_to_negated_events(self, _name: str, scope: str, is_listed: bool) -> None:
+        distinct_id = f"event-match-scope-negation-user-{uuid4()}"
+        create_person(team=self.team, distinct_ids=[distinct_id], properties={"email": "bla"})
+        session_id = f"event-match-scope-negation-session-{uuid4()}"
+
+        produce_replay_summary(
+            distinct_id=distinct_id,
+            session_id=session_id,
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=self.an_hour_ago + relativedelta(minutes=5),
+            team_id=self.team.id,
+        )
+        create_event(
+            team=self.team,
+            distinct_id=distinct_id,
+            timestamp=self.an_hour_ago - relativedelta(minutes=10),
+            event_name="purchase",
+            properties={"$session_id": session_id},
+        )
+
+        self._assert_query_matches_session_ids(
+            {
+                "events": [{"id": "purchase", "type": "events", "order": 0, "name": "purchase", "negation": True}],
+                "event_match_scope": scope,
+            },
+            [session_id] if is_listed else [],
+        )
+
+    @parameterized.expand([(False,), (True,)])
+    def test_event_match_scope_includes_segments_across_the_date_boundary(self, negation: bool) -> None:
+        session_id = str(uuid4())
+        midnight = self.an_hour_ago.replace(hour=0, minute=0)
+        for start, end in [(-10, -1), (1, 10)]:
+            produce_replay_summary(
+                team_id=self.team.id,
+                session_id=session_id,
+                distinct_id="boundary-user",
+                first_timestamp=midnight + relativedelta(minutes=start),
+                last_timestamp=midnight + relativedelta(minutes=end),
+                ensure_analytics_event_in_session=False,
+            )
+        create_event(
+            team=self.team,
+            distinct_id="boundary-user",
+            timestamp=midnight + relativedelta(minutes=5),
+            event_name="purchase",
+            properties={"$session_id": session_id},
+        )
+        self._assert_query_matches_session_ids(
+            {
+                "date_from": (midnight - relativedelta(days=1)).isoformat(),
+                "date_to": (midnight - relativedelta(seconds=1)).isoformat(),
+                "event_match_scope": "recording",
+                "events": [{"id": "purchase", "type": "events", "order": 0, "negation": negation}],
+            },
+            [] if negation else [session_id],
+        )
+
+    @parameterized.expand(
+        [
+            ("session_scope_matches_a_person_property_before_the_recording", "session", True),
+            ("recording_scope_needs_the_carrying_event_inside_the_recording", "recording", False),
+        ]
+    )
+    def test_event_match_scope_applies_to_person_properties_resolved_on_events(
+        self, _name: str, scope: str, matches: bool
+    ) -> None:
+        with self.settings(PERSON_ON_EVENTS_V2_OVERRIDE=True):
+            assert self.team.person_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+            distinct_id = f"event-match-scope-person-user-{uuid4()}"
+            create_person(team=self.team, distinct_ids=[distinct_id], properties={"email": "bla@example.com"})
+            session_id = f"event-match-scope-person-session-{uuid4()}"
+
+            produce_replay_summary(
+                distinct_id=distinct_id,
+                session_id=session_id,
+                first_timestamp=self.an_hour_ago,
+                last_timestamp=self.an_hour_ago + relativedelta(minutes=5),
+                team_id=self.team.id,
+                ensure_analytics_event_in_session=False,
+            )
+            create_event(
+                team=self.team,
+                distinct_id=distinct_id,
+                timestamp=self.an_hour_ago - relativedelta(minutes=10),
+                event_name="$pageview",
+                properties={"$session_id": session_id},
+            )
+
+            self._assert_query_matches_session_ids(
+                {
+                    "properties": [
+                        {"key": "email", "value": ["bla@example.com"], "operator": "exact", "type": "person"}
+                    ],
+                    "event_match_scope": scope,
+                },
+                [session_id] if matches else [],
+            )
 
     @also_test_with_materialized_columns(event_properties=["$current_url", "$browser"], person_properties=["email"])
     @snapshot_clickhouse_queries
