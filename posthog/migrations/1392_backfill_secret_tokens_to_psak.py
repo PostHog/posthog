@@ -41,23 +41,13 @@ def backfill_tokens(apps, schema_editor):
     for team in teams.iterator(chunk_size=BATCH_SIZE):
         tokens = [(team.secret_api_token, "Migrated legacy secret API key")]
         if team.secret_api_token_backup:
-            tokens.append(
-                (team.secret_api_token_backup, "Migrated legacy key (backup)")
-            )
+            tokens.append((team.secret_api_token_backup, "Migrated legacy key (backup)"))
         for token, label in tokens:
             secure_value = hash_key_value(token)
-            if (
-                ProjectSecretAPIKey.objects.using(db)
-                .filter(secure_value=secure_value)
-                .exists()
-            ):
+            if ProjectSecretAPIKey.objects.using(db).filter(secure_value=secure_value).exists():
                 continue
             # A customer may already use this exact label; (team, label) is unique.
-            if (
-                ProjectSecretAPIKey.objects.using(db)
-                .filter(team_id=team.id, label=label)
-                .exists()
-            ):
+            if ProjectSecretAPIKey.objects.using(db).filter(team_id=team.id, label=label).exists():
                 label = f"{label[:31]} {secure_value[:8]}"
             ProjectSecretAPIKey.objects.using(db).create(
                 team_id=team.id,
