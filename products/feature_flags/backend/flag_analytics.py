@@ -357,7 +357,9 @@ def get_cached_evaluations_7d_by_team(
     """Cached variant of get_evaluations_7d_by_team with a 5-minute TTL.
 
     Every team in `team_ids` must belong to the organization `organization_id`.
-    Only an organization on FLAG_EVALUATIONS_ONLY reads flag_evaluations.
+    Only an organization on FLAG_EVALUATIONS_ONLY reads flag_evaluations. Unlike
+    the Usage tab, READ_FLAG_EVALUATIONS stays on events, because ingestion keeps
+    writing every flag call to events in that mode.
     Failure results (None) are not cached, so recovery is immediate once
     ClickHouse is reachable again.
     """
