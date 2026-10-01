@@ -16,6 +16,7 @@ import datetime as dt
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
+from django.conf import settings
 from django.utils import timezone
 
 import structlog
@@ -54,7 +55,6 @@ logger = structlog.get_logger(__name__)
 
 AI_PRODUCT = "logs_natural_language_search"
 PROPOSAL_MODEL = "gpt-4.1-mini"
-DECISION_MODEL = "posthog/hogference/jevk5-fp8-0.2"
 PROPOSAL_TIMEOUT_SECONDS = 15
 DECISION_TIMEOUT_SECONDS = 5
 MAX_CANDIDATES = 5
@@ -367,7 +367,8 @@ def rank_candidates(
                 team_id=team_id,
                 state=state,
                 questions={"best": question},
-                model=DECISION_MODEL,
+                # The same model as the HogQL jev() function, so both move together when it changes.
+                model=settings.HOGQL_PROMPT_JEV_MODEL,
                 ai_product=AI_PRODUCT,
                 distinct_id=distinct_id,
                 privacy_mode=True,
