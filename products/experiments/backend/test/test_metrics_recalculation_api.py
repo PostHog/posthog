@@ -246,6 +246,9 @@ class TestMetricsRecalculationAPI(APIBaseTest):
             total_metrics=2,
             status="completed",
             query_to=datetime(2026, 6, 1, tzinfo=UTC),
+            # Before the rows below are written, as for a run that finished before key version 2 and whose window a
+            # later run partly recomputed.
+            completed_at=timezone.now() - timedelta(minutes=5),
         )
         # Narrow nullable fields populated above. _launched_experiment always sets start_date,
         # and we just set query_to on the recalc above.

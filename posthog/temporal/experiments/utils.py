@@ -126,8 +126,13 @@ def check_significance_transition(
             calculation_key=fingerprint,
             before=query_to_utc,
         )
+        # A transition needs a previous point under the same calculation key. Without one, there is no earlier
+        # result of these settings to compare with, for example on the first point of a new experiment or the
+        # first point after a settings change, so nothing is sent.
+        if previous_result is None:
+            return
 
-        prev_significant_keys = _get_significant_variant_keys(previous_result) if previous_result else set()
+        prev_significant_keys = _get_significant_variant_keys(previous_result)
         newly_significant = new_significant_keys - prev_significant_keys
 
         if not newly_significant:

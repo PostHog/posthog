@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 from posthog.test.base import BaseTest
 
 from django.db import connection
+from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
 
@@ -97,7 +98,12 @@ class TestMetricResultStore(BaseTest):
         match reader:
             case "for_run":
                 run = ExperimentMetricsRecalculation.objects.create(
-                    team=self.team, experiment=experiment, metric_uuids=["m1"], query_to=_WINDOW
+                    team=self.team,
+                    experiment=experiment,
+                    metric_uuids=["m1"],
+                    query_to=_WINDOW,
+                    status=ExperimentMetricsRecalculation.Status.COMPLETED,
+                    completed_at=django_timezone.now(),
                 )
                 stored = store.for_run(run)
                 return [sample for item in stored for sample in _samples(item.row)], any(i.legacy for i in stored)
@@ -204,9 +210,8 @@ class TestMetricResultStore(BaseTest):
         [
             ("own_team", True, [("current", _WINDOW, 7)], 7),
             ("other_team", False, [("current", _WINDOW, 7)], None),
-            # The first daily run under key version 2 compares with the point from before it.
-            ("only_a_legacy_point", True, [("legacy", _WINDOW, 7)], 7),
-            ("a_current_point_wins_over_a_newer_legacy_one", True, [("current", _START, 5), ("legacy", _WINDOW, 9)], 5),
+            # A legacy point can come from other settings, so the significance check must not compare with it.
+            ("only_a_legacy_point", True, [("legacy", _WINDOW, 7)], None),
         ]
     )
     def test_previous_completed_metric_result(
@@ -228,6 +233,41 @@ class TestMetricResultStore(BaseTest):
         )
 
         assert result == (_stored_result(expected_samples) if expected_samples is not None else None)
+
+    @parameterized.expand(
+        [
+            ("finished_before_the_first_current_write", ExperimentMetricsRecalculation.Status.COMPLETED, -1, True),
+            ("in_progress", ExperimentMetricsRecalculation.Status.IN_PROGRESS, None, False),
+            ("superseded_without_finishing", ExperimentMetricsRecalculation.Status.FAILED, None, False),
+            ("finished_after_a_current_write", ExperimentMetricsRecalculation.Status.COMPLETED, 1, False),
+        ]
+    )
+    def test_a_run_shows_a_legacy_row_only_when_it_finished_before_the_current_keys(
+        self, _name: str, status: str, finished_hours_from_now: int | None, shows_legacy: bool
+    ) -> None:
+        experiment = self._experiment()
+        spec = plan_metric(experiment, "m1")
+        assert spec is not None
+        self._row(experiment, _recalc_fingerprint(spec.legacy_key()), query_to=_WINDOW, completed_at=_WINDOW, samples=1)
+        self._row(
+            experiment, spec.calculation_key(), query_to=_START + timedelta(days=1), completed_at=_START, samples=2
+        )
+        run = ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=experiment,
+            metric_uuids=["m1"],
+            query_to=_WINDOW,
+            status=status,
+            completed_at=(
+                django_timezone.now() + timedelta(hours=finished_hours_from_now)
+                if finished_hours_from_now is not None
+                else None
+            ),
+        )
+
+        stored = MetricResultStore(experiment_id=experiment.id).for_run(run)
+
+        assert [(_samples(item.row), item.legacy) for item in stored] == ([([1], True)] if shows_legacy else [])
 
     def _run(self, experiment: Experiment, status: str) -> ExperimentMetricsRecalculation:
         return ExperimentMetricsRecalculation.objects.create(

@@ -6,13 +6,18 @@ specs of the scheduled metrics of an experiment.
 
 A spec does not pin the events and warehouse rows, the definitions a metric references (actions,
 cohorts, warehouse tables, property types), the team's HogQL modifiers, or the clock that the maturity
-filters read. The same spec can therefore give a different result later.
+filters read. The same spec can therefore give a different result later. Equality and the key also leave out
+which event the `experiment-exposure-event` flag picks as the default exposure event, so a result stays
+reusable for its window when that flag changes for the team.
 
-The calculation key (version 2) hashes every field of a spec that equality compares, with numbers
-normalized, so equal specs have equal keys, and so do settings that differ only by float noise. Key version 1
-(`legacy_key`) hashes only part of a spec: the metric, the start date, the stats method, the exposure
-criteria as stored, maturity and the excluded variants. Results stored under version 1 can therefore come
-from other baseline, CUPED, statistics, entity or test account settings than the current ones, so readers
+Resolution resets a value that the calculation ignores to its default: the CUPED lookback without CUPED, and the
+sequential tuning parameter without sequential testing. So such a value does not split equal specs.
+
+The calculation key (version 2) hashes the metric and an explicit field list of each setting that equality
+compares, with numbers normalized. So equal specs have equal keys, and so do settings that differ only by float
+noise. Key version 1 (`legacy_key`) hashes only part of a spec: the metric, the start date, the stats method,
+the exposure criteria as stored, maturity and the excluded variants. Results stored under version 1 can therefore
+come from other baseline, CUPED, statistics, entity or test account settings than the current ones, so readers
 show them as legacy history and never reuse them.
 """
 
@@ -29,6 +34,8 @@ from zoneinfo import ZoneInfo
 
 import pydantic
 
+from posthog.schema import ActionsNode, ExperimentEventExposureConfig
+
 from posthog.dataclasses import frozen
 
 from products.experiments.backend.hogql_queries import get_baseline_variant_key
@@ -36,6 +43,13 @@ from products.experiments.backend.hogql_queries.cuped_config import CupedQueryCo
 from products.experiments.backend.hogql_queries.experiment_query_builder import (
     ExposureQueryParams,
     get_exposure_config_params_for_builder,
+)
+from products.experiments.backend.hogql_queries.exposure_query_logic import (
+    DEFAULT_EXPOSURE_EVENT,
+    get_multiple_variant_handling_from_experiment,
+    is_default_exposure_config,
+    normalize_to_exposure_criteria,
+    resolve_filter_test_accounts,
 )
 from products.experiments.backend.hogql_queries.utils import (
     BayesianSettings,
@@ -55,6 +69,7 @@ from products.experiments.backend.metric_resolution import (
 )
 from products.experiments.backend.models.experiment import Experiment, metric_display_rank
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.stats.frequentist.method import DEFAULT_SEQUENTIAL_TUNING_PARAMETER
 
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
@@ -73,9 +88,19 @@ CALCULATION_KEY_VERSION = 2
 # two keys.
 _KEY_FLOAT_DIGITS = 12
 
-# Settings fields that equality compares but the key leaves out. The team is the tenant, not an input: the
-# experiment that a result row belongs to already pins it.
-_SETTINGS_OUTSIDE_THE_KEY = frozenset({"team_id"})
+# Stands for the default exposure event in the key. The `experiment-exposure-event` flag picks that event, and each
+# process evaluates the flag locally (`resolve_default_exposure_event`). A key that hashed the picked event would
+# change at each rollout step of the flag, and two processes that evaluate the flag differently would file and look
+# up the results of one experiment under two keys. A stored result therefore stays reusable for its window when the
+# flag changes. To make results computed with the old default event stop counting for reuse when the new event
+# ships to every team, treat the switch as an engine change and bump CALCULATION_KEY_VERSION.
+_DEFAULT_EXPOSURE_EVENT_IN_KEY = "$default_exposure_event"
+
+# Metric types whose query does not read the team's time zone, so a time zone change keeps their key. A retention
+# metric truncates its window to days or hours in that time zone, and a metric type outside this set, or a legacy
+# metric without one, keeps the time zone in its key. A HogQL expression inside a metric can also read the time
+# zone, and the key does not detect that case.
+_TIMEZONE_FREE_METRIC_TYPES = frozenset({"mean", "funnel", "ratio"})
 
 # Fields of a stored metric definition that do not describe what the metric computes: its identity, its
 # display name, the stored key itself, and an experiment-level setting that some stored definitions carry.
@@ -113,8 +138,12 @@ def _analytical_definition(definition: dict[str, Any]) -> dict[str, Any]:
 
 def _canonical(value: Any) -> Any:
     """`value` as JSON data that is equal for equal settings: floats rounded to _KEY_FLOAT_DIGITS significant
-    digits, a float with an integral value as an int, enums as their values, models and dataclasses as dicts,
-    and datetimes as UTC ISO strings, so the same instant gives the same key in every timezone."""
+    digits, a float with an integral value as an int, enums as their values, and datetimes as UTC ISO strings, so
+    the same instant gives the same key in every timezone.
+
+    It refuses models and dataclasses. A dump of a whole model hashes every field the model has, so a schema change
+    that adds a defaulted field would change every key. The key reads such inputs through explicit field lists.
+    """
     if value is None or isinstance(value, bool | int | str):
         return value
     if isinstance(value, float):
@@ -124,10 +153,6 @@ def _canonical(value: Any) -> Any:
         return _canonical(value.value)
     if isinstance(value, datetime):
         return value.astimezone(ZoneInfo("UTC")).isoformat()
-    if isinstance(value, pydantic.BaseModel):
-        return _canonical(value.model_dump(mode="json", exclude_none=True))
-    if dataclasses.is_dataclass(value) and not isinstance(value, type):
-        return {item.name: _canonical(getattr(value, item.name)) for item in dataclasses.fields(value)}
     if isinstance(value, Mapping):
         return {str(key): _canonical(item) for key, item in value.items()}
     if isinstance(value, list | tuple):
@@ -160,6 +185,66 @@ def _resolve_exposure(
         return None
 
 
+def _exposure_entity(
+    config: ExperimentEventExposureConfig | ActionsNode | None, stored_config: Any, *, default_event_resolves: bool
+) -> dict[str, Any]:
+    """The event or action of an exposure or activation config, and its property filters as stored. The stored
+    filters stay the same when a schema change adds a defaulted field to a filter model, so the key does too."""
+    stored_properties = stored_config.get("properties") if isinstance(stored_config, dict) else None
+    properties = deepcopy(list(stored_properties or []))
+    if isinstance(config, ActionsNode):
+        return {"action_id": config.id, "properties": properties}
+    if config is None or (default_event_resolves and config.event == DEFAULT_EXPOSURE_EVENT):
+        return {"event": _DEFAULT_EXPOSURE_EVENT_IN_KEY, "properties": properties}
+    return {"event": config.event, "properties": properties}
+
+
+def normalize_exposure(exposure_criteria: dict[str, Any] | None) -> dict[str, Any]:
+    """The stored exposure criteria with the product defaults applied, as the calculation key reads them.
+
+    It follows `get_exposure_config_params_for_builder`, except that the default exposure event stays unresolved
+    (`_DEFAULT_EXPOSURE_EVENT_IN_KEY`). Activation applies only with the default exposure, and an activation config
+    names its event literally, as in the query builder.
+    """
+    try:
+        criteria = normalize_to_exposure_criteria(exposure_criteria)
+    except pydantic.ValidationError:
+        # The query runner rejects such criteria. Their stored form keeps them apart from every valid configuration.
+        return {"unparsed": deepcopy(exposure_criteria)}
+    stored = exposure_criteria if isinstance(exposure_criteria, dict) else {}
+    exposure_config = criteria.exposure_config if criteria is not None else None
+    normalized: dict[str, Any] = {
+        "exposure": _exposure_entity(exposure_config, stored.get("exposure_config"), default_event_resolves=True),
+        "multiple_variant_handling": get_multiple_variant_handling_from_experiment(criteria).value,
+        "filter_test_accounts": resolve_filter_test_accounts(criteria),
+    }
+    if criteria is not None and criteria.activation_config is not None and is_default_exposure_config(exposure_config):
+        normalized["activation"] = _exposure_entity(
+            criteria.activation_config, stored.get("activation_config"), default_event_resolves=False
+        )
+    return normalized
+
+
+def _statistics_key_input(stats: BayesianSettings | FrequentistSettings) -> dict[str, Any]:
+    if isinstance(stats, FrequentistSettings):
+        return {
+            "method": "frequentist",
+            "alpha": _canonical(stats.alpha),
+            "difference_type": stats.difference_type.value,
+            "sequential_testing_enabled": stats.sequential_testing_enabled,
+            "sequential_tuning_parameter": _canonical(stats.sequential_tuning_parameter),
+        }
+    return {
+        "method": "bayesian",
+        "ci_level": _canonical(stats.ci_level),
+        "difference_type": stats.difference_type.value,
+    }
+
+
+def _cuped_key_input(cuped: CupedQueryConfig) -> dict[str, Any]:
+    return {"enabled": cuped.enabled, "lookback_days": cuped.lookback_days}
+
+
 @frozen
 class ExperimentCalculationSettings:
     """What every metric calculation of an experiment reads outside the metric definition, with the
@@ -174,8 +259,12 @@ class ExperimentCalculationSettings:
     variants: tuple[str, ...]
     baseline: str
     excluded_variants: tuple[str, ...]
-    # None when the stored exposure criteria do not parse. The query runner rejects such an experiment.
-    exposure: ExposureQueryParams | None
+    # What the query runner resolves from the stored exposure criteria. The `experiment-exposure-event` flag picks its
+    # default exposure event, so equality and the key read `normalized_exposure` instead. None when the stored
+    # criteria do not parse. The query runner rejects such an experiment.
+    exposure: ExposureQueryParams | None = field(compare=False)
+    # The stored exposure criteria as `normalize_exposure` returns them.
+    normalized_exposure: dict[str, Any]
     # The team's test account filters when the exposure filters test accounts, else empty.
     test_account_filters: tuple[dict[str, Any], ...]
     stats: BayesianSettings | FrequentistSettings
@@ -224,6 +313,10 @@ class ExperimentCalculationSettings:
                 team_default_sequential_testing_enabled=config.default_sequential_testing_enabled,
                 team_default_sequential_tuning_parameter=config.default_sequential_tuning_parameter,
             )
+            # Only the sequential test reads the tuning parameter. Without sequential testing, the stored value
+            # computes the same thing as the default, as a CUPED lookback does without CUPED.
+            if not stats.sequential_testing_enabled:
+                stats = dataclasses.replace(stats, sequential_tuning_parameter=DEFAULT_SEQUENTIAL_TUNING_PARAMETER)
         else:
             stats = resolve_bayesian_settings(stats_config)
         return cls(
@@ -235,6 +328,7 @@ class ExperimentCalculationSettings:
             baseline=get_baseline_variant_key(stats_config, list(variants)),
             excluded_variants=excluded,
             exposure=exposure,
+            normalized_exposure=normalize_exposure(exposure_criteria),
             test_account_filters=(
                 tuple(deepcopy(test_account_filters))
                 if exposure is not None and exposure.filter_test_accounts and isinstance(test_account_filters, list)
@@ -304,21 +398,31 @@ class CalculationSpec:
     def calculation_key(self) -> str:
         """The key that files and finds the results of this spec, a SHA-256 hex digest (key version 2).
 
-        It hashes the metric and every settings field that equality compares, except the team, together
-        with CALCULATION_KEY_VERSION. Result rows in ExperimentMetricResult and the stored `fingerprint` of
-        each inline metric hold this key. A change to the hashed payload makes every stored result
-        unreachable for reuse, so it goes with a bump of CALCULATION_KEY_VERSION.
+        It hashes the metric and each settings field that equality compares, except the team, together
+        with CALCULATION_KEY_VERSION. Nested settings enter through explicit field lists. The time zone enters
+        only for a metric type that reads it (`_TIMEZONE_FREE_METRIC_TYPES`). Result rows in
+        ExperimentMetricResult and the stored `fingerprint` of each inline metric hold this key. A change to the
+        hashed payload makes every stored result unreachable for reuse, so it goes with a bump of
+        CALCULATION_KEY_VERSION.
         """
         settings = self.settings
         payload: dict[str, Any] = {
             "key_version": CALCULATION_KEY_VERSION,
             "metric": _canonical(self.metric),
-            # The settings class tells the two methods apart only by the type of `stats`.
-            "stats_method": settings.stats_method,
+            "start_date": _canonical(settings.start_date),
+            "feature_flag_key": settings.feature_flag_key,
+            "aggregation_group_type_index": settings.aggregation_group_type_index,
+            "variants": list(settings.variants),
+            "baseline": settings.baseline,
+            "excluded_variants": list(settings.excluded_variants),
+            "exposure": _canonical(settings.normalized_exposure),
+            "test_account_filters": _canonical(settings.test_account_filters),
+            "stats": _statistics_key_input(settings.stats),
+            "cuped": _cuped_key_input(settings.cuped),
+            "only_count_matured_users": settings.only_count_matured_users,
         }
-        for settings_field in dataclasses.fields(settings):
-            if settings_field.compare and settings_field.name not in _SETTINGS_OUTSIDE_THE_KEY:
-                payload[settings_field.name] = _canonical(getattr(settings, settings_field.name))
+        if self.metric.get("metric_type") not in _TIMEZONE_FREE_METRIC_TYPES:
+            payload["timezone"] = settings.timezone
         return _sha256(payload)
 
     def legacy_key(self) -> str:
