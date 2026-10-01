@@ -1083,7 +1083,7 @@ class EventDefinitionViewSet(
             }
         )
 
-    @action(detail=True, methods=["GET"], url_path="metrics")
+    @action(detail=True, methods=["GET"], url_path="metrics", required_scopes=["event_definition:read"])
     def metrics_totals(self, *args, **kwargs):
         instance: EventDefinition = self.get_object()
 

@@ -23,6 +23,8 @@ from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 from posthog.constants import EventDefinitionType
 from posthog.models import ActivityLog, EventDefinition, Organization, Tag, Team
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.utils import generate_random_token_personal
 from posthog.taxonomy import definition_search
 
 from products.actions.backend.models.action import Action
@@ -794,6 +796,28 @@ class TestEventDefinitionAPI(APIBaseTest):
 
         event_definition.refresh_from_db()
         assert event_definition.primary_property is None
+
+    @parameterized.expand(
+        [
+            ("read_scope_allowed", ["event_definition:read"], status.HTTP_200_OK),
+            ("unrelated_scope_denied", ["insight:read"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    @patch("posthog.api.event_definition.sync_execute", return_value=[[7]])
+    def test_metrics_with_personal_api_key(self, _name, scopes, expected_status, _mock_sync_execute):
+        event_definition = EventDefinition.objects.get(team=self.demo_team, name="installed_app")
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="key", user=self.user, secure_value=hash_key_value(value), scopes=scopes)
+        self.client.logout()
+
+        response = self.client.get(
+            f"/api/projects/{self.demo_team.id}/event_definitions/{event_definition.id}/metrics/",
+            headers={"Authorization": f"Bearer {value}"},
+        )
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_200_OK:
+            assert response.json() == {"query_usage_30_day": 7}
 
     def test_by_name_not_found(self):
         response = self.client.get("/api/projects/@current/event_definitions/by_name/?name=nonexistent")
