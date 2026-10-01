@@ -138,7 +138,7 @@ Dates inside SQL, descriptions, or JSON strings shift only when explicitly liste
 }
 ```
 
-Declared time strings retain their written precision. A date-only or seconds-only string cannot represent a finer cutoff shift: choose an aligned target cutoff when exact textual query boundaries matter. `string_replacements` applies literal substitutions to restored property and metric text; it is an explicit preparation rule, not an anonymizer.
+Declared time strings retain their written precision. A date-only or seconds-only string cannot represent a finer cutoff shift: choose an aligned target cutoff when exact textual query boundaries matter. `string_replacements` applies literal substitutions to restored property and metric text; it is an explicit preparation rule, not an anonymizer. A value cannot be both a declared time string and a `string_replacements` key.
 
 Version 1 restores events and data-catalog metrics only. It does not reconstruct people, groups, dashboards, insights, external tables, agent state, tasks, or report history. Metrics may reference only `events`; source insight references are unsupported. Event UUIDs, distinct IDs, and source event identity values remain in the saved data, while restored metric IDs and their references receive a project-local namespace. Ensure the chosen event window and metric definitions are sufficient for the task you plan to run.
 
