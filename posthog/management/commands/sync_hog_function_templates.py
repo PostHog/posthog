@@ -135,7 +135,7 @@ class Command(BaseCommand):
 
         # Every coming-soon template comes from the Node.js service, so after a failed fetch current_template_ids
         # holds none of them and the cleanup below would delete every coming-soon template in the database.
-        if nodejs_error:
+        if nodejs_error is not None:
             self.stdout.write(
                 self.style.WARNING("Skipping cleanup of unused templates because the Node.js fetch failed")
             )
@@ -168,7 +168,7 @@ class Command(BaseCommand):
             f"Deleted: {deleted_count}, "
             f"Errors: {error_count}"
         )
-        self.stdout.write(self.style.ERROR(summary) if nodejs_error else self.style.SUCCESS(summary))
+        self.stdout.write(self.style.ERROR(summary) if nodejs_error is not None else self.style.SUCCESS(summary))
 
-        if nodejs_error:
+        if nodejs_error is not None:
             raise CommandError(f"Node.js templates were not synced: {nodejs_error}")

@@ -559,7 +559,7 @@ describe('Workflows E2E (postgres-v2)', () => {
         const apiKey = 'workflows-e2e-secret-headers-api-key-0000'
         const webhookUrl = 'https://example.com/secret-headers-webhook'
         let workflowId: string
-        let releaseRetry: (() => void) | undefined
+        let releaseRetry: () => void = () => {}
 
         const fetchResponse = (status: number) => ({
             status,
@@ -615,27 +615,27 @@ describe('Workflows E2E (postgres-v2)', () => {
             // The retry is then held open until the test releases it, so the row can be read while it
             // still holds the state the worker resumed from.
             let attempts = 0
-            releaseRetry = undefined
-            mockFetch.mockImplementation(() => {
+            const retryGate = new Promise<void>((resolve) => {
+                releaseRetry = resolve
+            })
+            mockFetch.mockImplementation(async () => {
                 attempts += 1
-                if (attempts === 1) {
-                    return Promise.resolve(fetchResponse(500))
+                if (attempts > 1) {
+                    await retryGate
                 }
-                return new Promise((resolve) => {
-                    releaseRetry = () => resolve(fetchResponse(200))
-                })
+                return fetchResponse(attempts === 1 ? 500 : 200)
             })
             globals = createGlobals()
         })
 
         it('merges the decrypted secret headers on both attempts and keeps them off the fetch parameters', async () => {
-            await triggerWorkflow(globals)
-
-            await waitForExpect(() => {
-                expect(mockFetch).toHaveBeenCalledTimes(2)
-            }, 10000)
-
             try {
+                await triggerWorkflow(globals)
+
+                await waitForExpect(() => {
+                    expect(mockFetch).toHaveBeenCalledTimes(2)
+                }, 10000)
+
                 // Only `queueParameters` is asserted on. `state.globals.inputs` carries every resolved input,
                 // which is a property of the whole job payload and not of this template.
                 const blobs = (await queryCyclotronJobs()).map((row: any) =>
@@ -650,7 +650,7 @@ describe('Workflows E2E (postgres-v2)', () => {
                 expect(JSON.stringify(fetchBlob.queueParameters)).not.toContain(token)
                 expect(JSON.stringify(fetchBlob.queueParameters)).not.toContain(apiKey)
             } finally {
-                releaseRetry?.()
+                releaseRetry()
             }
 
             for (const [url, options] of mockFetch.mock.calls as [string, any][]) {

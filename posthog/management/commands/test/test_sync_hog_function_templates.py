@@ -108,6 +108,7 @@ class TestSyncHogFunctionTemplates:
     @parameterized.expand(
         [
             ("connection_error", Exception("API Error"), None),
+            ("error_without_message", Exception(), None),
             ("non_200_response", None, 503),
         ]
     )
