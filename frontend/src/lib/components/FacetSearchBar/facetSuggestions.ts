@@ -41,8 +41,10 @@ export interface FacetSuggestion {
     rest?: string
 }
 
+type LoadedFacet = ServerFacet & { loadValues: LoadFacetValues }
+
 export interface FacetValueRequest {
-    facet: ServerFacet & { loadValues: LoadFacetValues }
+    facet: LoadedFacet
     search: string
 }
 
@@ -50,7 +52,7 @@ export function valueLoadKey(facetKey: string, search: string): string {
     return `${facetKey}:${search.trim().toLowerCase()}`
 }
 
-export function isLoadedFacet(facet: AnyFacet): facet is ServerFacet & { loadValues: LoadFacetValues } {
+export function isLoadedFacet(facet: AnyFacet): facet is LoadedFacet {
     return 'loadValues' in facet && !!facet.loadValues
 }
 
@@ -217,39 +219,82 @@ export function buildSuggestions(
     return result
 }
 
-/** The loads the current input needs that have not started yet. */
-export function pendingValueRequests(
-    input: string,
-    draft: FacetDraft | null,
-    facets: AnyFacet[],
+interface ValueRequestContext {
+    input: string
+    draft: FacetDraft | null
+    open: boolean
+    facets: AnyFacet[]
+    filters: FacetFilter[]
+    valueLabels: FacetValueLabels
     valueLoads: FacetValueLoads
-): FacetValueRequest[] {
-    const loaded = facets.filter(isLoadedFacet)
-    if (!loaded.length) {
-        return []
-    }
-    const requests: FacetValueRequest[] = []
+}
+
+function inputValueRequests(input: string, draft: FacetDraft | null, loaded: LoadedFacet[]): FacetValueRequest[] {
     if (draft) {
         const facet = loaded.find(({ key }) => key === draft.facetKey)
-        if (facet) {
-            requests.push({ facet, search: draft.partial })
-        }
-    } else {
-        const token = splitLastToken(input).token.replace(/^-/, '')
-        if (token.length >= MIN_CROSS_FACET_TOKEN_LENGTH) {
-            requests.push(...loaded.map((facet) => ({ facet, search: token })))
-        }
+        return facet ? [{ facet, search: draft.partial }] : []
     }
-    return requests.filter(({ facet, search }) => {
-        const state = valueLoads[valueLoadKey(facet.key, search)]
-        return !state || state.status === 'error'
-    })
+    const token = splitLastToken(input).token.replace(/^-/, '')
+    return token.length >= MIN_CROSS_FACET_TOKEN_LENGTH ? loaded.map((facet) => ({ facet, search: token })) : []
+}
+
+function pillLabelRequests(
+    filters: FacetFilter[],
+    loaded: LoadedFacet[],
+    valueLabels: FacetValueLabels
+): FacetValueRequest[] {
+    return loaded
+        .filter((facet) =>
+            filters.some((filter) => filter.facet === facet.key && !valueLabels.has(labelKey(facet.key, filter.value)))
+        )
+        .map((facet) => ({ facet, search: '' }))
+}
+
+/** The loads the open suggestions and the pill labels need that have not started yet. Failed loads run again. */
+export function pendingValueRequests({
+    input,
+    draft,
+    open,
+    facets,
+    filters,
+    valueLabels,
+    valueLoads,
+}: ValueRequestContext): FacetValueRequest[] {
+    const loaded = facets.filter(isLoadedFacet)
+    const requests = [
+        ...(open ? inputValueRequests(input, draft, loaded) : []),
+        ...pillLabelRequests(filters, loaded, valueLabels),
+    ]
+    const byLoadKey = new Map(requests.map((request) => [valueLoadKey(request.facet.key, request.search), request]))
+    return [...byLoadKey]
+        .filter(([loadKey]) => {
+            const state = valueLoads[loadKey]
+            return !state || state.status === 'error'
+        })
+        .map(([, request]) => request)
 }
 
 export type FacetValueLabels = Map<string, string>
 
 function labelKey(facetKey: string, value: string): string {
-    return `${facetKey}:${value.toLowerCase()}`
+    return `${facetKey}:${value}`
+}
+
+export function forgetValuesOf(valueLoads: FacetValueLoads, facetKeys: string[]): FacetValueLoads {
+    return Object.fromEntries(
+        Object.entries(valueLoads).filter(([loadKey]) => !facetKeys.some((key) => loadKey.startsWith(`${key}:`)))
+    )
+}
+
+/** Facets whose loader changed between two renders. Their loaded values belong to the old loader. */
+export function facetsWithNewLoaders(previous: AnyFacet[], next: AnyFacet[]): string[] {
+    return next
+        .filter(isLoadedFacet)
+        .filter((facet) => {
+            const before = findFacet(previous, facet.key)
+            return !!before && isLoadedFacet(before) && before.loadValues !== facet.loadValues
+        })
+        .map((facet) => facet.key)
 }
 
 /** Labels of supplied and loaded values, so a pill reads `Team: Platform` rather than `Team: t-2`. */

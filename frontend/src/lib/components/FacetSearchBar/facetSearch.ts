@@ -70,7 +70,7 @@ export function formatFacetValue(facet: FacetDefinitionBase | undefined, value: 
 }
 
 export function facetFilterKey(filter: FacetFilter): string {
-    return `${filter.negated ? '-' : ''}${filter.facet}:${filter.value.toLowerCase()}`
+    return `${filter.negated ? '-' : ''}${filter.facet}:${filter.value}`
 }
 
 const TOKEN = /(^|\s)(-?)([\w-]+):(?:"((?:[^"\\]|\\.)*)"|([^\s"]+)(?=\s|$))/g
