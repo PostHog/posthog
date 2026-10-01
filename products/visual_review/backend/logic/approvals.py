@@ -101,7 +101,8 @@ def finalize_run(
 
     # Commit first — before DB writes — so a GitHub failure aborts cleanly. Removed snapshots
     # also need a commit, to prune them from the baseline, even when nothing was approved.
-    if commit_to_github and (approved_updates or has_removed) and run.pr_number and repo.repo_full_name:
+    committed = bool(commit_to_github and (approved_updates or has_removed) and run.pr_number and repo.repo_full_name)
+    if committed:
         baselines._commit_baseline_to_github(run, repo, approved_updates, approver_user_id=user_id)
 
     # Removed snapshots are pruned from the baseline on commit; mark them approved for cleanup.
@@ -119,6 +120,12 @@ def finalize_run(
 
     if commit_to_github:
         ci_status._post_commit_status(run, repo, "success", "Visual changes approved")
+
+    # A baseline commit starts a new CI run. Without one, the job that completed this run
+    # keeps the red verdict it read before the review, so it has to read it again.
+    check_run_id = (run.metadata or {}).get("github_check_run_id")
+    if commit_to_github and not committed and run.pr_number and check_run_id:
+        transaction.on_commit(lambda: ci_status._rerun_github_job(run, str(check_run_id)), using=WRITER_DB)
 
     if commit_to_github and review_decision == ReviewDecision.HUMAN_APPROVED:
         from ..tasks.tasks import post_approval_comment

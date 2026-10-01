@@ -177,14 +177,19 @@ class TestApproveRun:
             )
         commit = mocker.patch.object(baselines, "_commit_baseline_to_github")
         mocker.patch.object(ci_status, "_post_commit_status")
+        rerun = mocker.patch.object(ci_status, "_rerun_github_job", return_value=(True, None))
+        mocker.patch.object(transaction, "on_commit", side_effect=lambda fn, *args, **kwargs: fn())
+        mocker.patch("products.visual_review.backend.tasks.tasks.post_approval_comment.delay")
 
         updated = approvals.finalize_run(run_id=run.id, user_id=user.id, approve_all=approve_all)
 
         assert updated.approved is True
         if expect_committed:
             assert commit.call_args.args[2] == [{"identifier": "Q", "new_hash": "hq"}]
+            assert rerun.called is False
         else:
             assert commit.called is False
+            assert rerun.call_args.args[1] == "42"
 
     def _completed_quarantined_run(self, repo, mocker, result):
         artifact_store.get_or_create_artifact(repo_id=repo.id, content_hash="hq", storage_path="p/q")
@@ -198,6 +203,7 @@ class TestApproveRun:
                 pr_number=7,
                 snapshots=[SnapshotManifestItem(identifier="Q", content_hash="hq")],
                 baseline_hashes=baseline,
+                metadata={"github_check_run_id": "42"},
             ),
             team_id=repo.team_id,
         )
