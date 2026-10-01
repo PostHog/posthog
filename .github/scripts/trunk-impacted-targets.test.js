@@ -910,6 +910,9 @@ test('the node lane map follows imports in both directions and fails closed', ()
         'nodejs/src/cdp/executor.ts':
             "import { config } from '~/common/config'\nimport { exec } from '@posthog/hogvm'\n",
         'nodejs/src/ingestion/step.ts': "import type { T } from '~/common/types'\nimport fs from 'node:fs'\n",
+        'nodejs/src/cdp/executor.test.ts': "import { seed } from '~/tests/helpers/seed'\n",
+        'nodejs/tests/helpers/seed.ts': "import { rows } from '~/ingestion/rows'\n",
+        'nodejs/src/ingestion/rows.ts': 'export const rows = []\n',
         [`${RASTERIZER_DIR}/player.ts`]: "import { Player } from '@posthog/replay-headless/protocol'\n",
         [`${RASTERIZER_DIR}/__tests__/guard.test.ts`]: "const script = `require('./missing-in-child-process')`\n",
         'nodejs/src/servers/cdp-server.ts':
@@ -927,6 +930,7 @@ test('the node lane map follows imports in both directions and fails closed', ()
     assert.deepEqual(lanesOf('nodejs/src/common/config.ts'), [CDP_LANE, 'node:ingestion'].sort())
     assert.deepEqual(lanesOf('nodejs/src/common/kafka.ts'), [CDP_LANE, 'node:ingestion'].sort())
     assert.deepEqual(lanesOf('nodejs/src/ingestion/step.ts'), ['node:ingestion'])
+    assert.deepEqual(lanesOf('nodejs/src/ingestion/rows.ts'), [CDP_LANE, 'node:ingestion'].sort())
     assert.deepEqual(lanesOf(`${RASTERIZER_DIR}/player.ts`), [RASTERIZER_LANE])
     assert.deepEqual(lanesOf('nodejs/src/servers/cdp-server.ts'), [])
     assert.deepEqual([...map.packageLanes.get('@posthog/replay-headless')], [RASTERIZER_LANE])
@@ -1078,7 +1082,7 @@ test('a JS lockfile change claims the node lanes whose dependencies it moved', (
             nodeLaneMap,
             [CDP_LANE],
         ],
-        ['a root dependency no lane imports', lockfileWith({ tool: '1.0.1' }), WORKSPACE, nodeLaneMap, []],
+        ['a root dependency no lane imports', lockfileWith({ tool: '1.0.1' }), WORKSPACE, nodeLaneMap, ALL_NODE_LANES],
         ['a root copy of a package nodejs declares', lockfileWith({ rootKafka: '3.0.1' }), WORKSPACE, nodeLaneMap, []],
         ['a root dependency with no node lane map', lockfileWith({ pad: '1.0.1' }), WORKSPACE, null, ALL_NODE_LANES],
         ['an unchanged lockfile', base, WORKSPACE, nodeLaneMap, []],
@@ -1141,29 +1145,38 @@ test('a JS lockfile lane keeps only the node lanes the lockfile reached', () => 
     const nodeLanesOf = (files, context) =>
         computeTargets(files, context).filter((target) => target.startsWith('node:'))
     for (const file of ['pnpm-lock.yaml', 'pnpm-workspace.yaml']) {
-        const narrowed = computeTargets([file], { ...NODE_CONTEXT, jsLockfileNodeLanes: new Set([RASTERIZER_LANE]) })
+        const narrowed = computeTargets([file], {
+            ...NODE_CONTEXT,
+            jsLockfileNodeLanes: () => new Set([RASTERIZER_LANE]),
+        })
         assert.deepEqual(
             narrowed.filter((target) => target.startsWith('node:')),
             [RASTERIZER_LANE],
             file
         )
         assert.equal(narrowed.includes('fe:core'), true, file)
-        for (const answer of [null, undefined]) {
+        for (const [label, answer] of [
+            ['null', () => null],
+            ['absent', undefined],
+        ]) {
             assert.deepEqual(
                 nodeLanesOf([file], { ...NODE_CONTEXT, jsLockfileNodeLanes: answer }),
                 ALL_NODE_LANES,
-                `${file} ${answer}`
+                `${file} ${label}`
             )
         }
     }
     assert.deepEqual(
         nodeLanesOf(['nodejs/src/ingestion/pipelines/step.ts', 'pnpm-lock.yaml'], {
             ...NODE_CONTEXT,
-            jsLockfileNodeLanes: new Set(),
+            jsLockfileNodeLanes: () => new Set(),
         }),
         ['node:ingestion']
     )
-    assert.deepEqual(nodeLanesOf(['package.json'], { ...NODE_CONTEXT, jsLockfileNodeLanes: new Set() }), ALL_NODE_LANES)
+    assert.deepEqual(
+        nodeLanesOf(['package.json'], { ...NODE_CONTEXT, jsLockfileNodeLanes: () => new Set() }),
+        ALL_NODE_LANES
+    )
 
     let reads = 0
     const lazy = {

@@ -154,9 +154,9 @@ const SEMGREP = 'semgrep'
 // moved, degrading to every crate when that answer is absent.
 const CARGO_LOCK = 'cargo-lock'
 
-// The nodejs lane on its own, for files whose only reader is the ingestion
-// suite or an image built from nodejs/ sources and native bindings that claim
-// this lane already. The rust and proto rules also use it to name that lane
+// The nodejs lanes on their own, for files whose only readers are the nodejs
+// suites or an image built from nodejs/ sources and native bindings that claim
+// these lanes already. The rust and proto rules also use it to name those lanes
 // without dragging in the frontend.
 const NODE = 'node'
 const JS_LOCKFILE = 'js-lockfile'
@@ -600,7 +600,7 @@ const TRIPWIRE_RULES = [
     // workflow or suite, whose rule above already carries the radius.
     // Dockerfile.llm-analytics is built only by its master-push CD workflow,
     // Dockerfile.ml-mirror-image-scrub only from nodejs/ sources and the
-    // replay-anonymizer addon, whose changes already claim the node lane, and the
+    // replay-anonymizer addon, whose changes already claim the node lanes, and the
     // playwright and sandbox images host suites that run both language
     // families. Everything else at the root, the unified app image included,
     // backs E2E, hobby, and production, which is the app-image radius; no
@@ -1516,8 +1516,8 @@ const RUST_DETERMINATOR = 'rust:determinator'
 // and the test suite re-derives that from pnpm-workspace.yaml so a second
 // dependent fails there rather than silently going unclaimed here. The
 // image-scrub sidecar under nodejs/src/ingestion loads the replay-anonymizer
-// addon too, built from the crate rather than installed from the package, and
-// it sits in this same lane.
+// addon too, built from the crate rather than installed from the package.
+// A binding change claims every node lane.
 const NODE_INGESTION = 'node:ingestion'
 const NODE_SUB_LANES = [
     ['node:recording-rasterizer', 'nodejs/src/session-replay/recording-rasterizer'],
@@ -1692,8 +1692,7 @@ function addJsLockfileLanes(targets, context) {
     if (!addJavaScriptLanes(lanes, context)) {
         return false
     }
-    const reached =
-        typeof context.jsLockfileNodeLanes === 'function' ? context.jsLockfileNodeLanes() : context.jsLockfileNodeLanes
+    const reached = context.jsLockfileNodeLanes ? context.jsLockfileNodeLanes() : null
     if (reached) {
         for (const lane of NODE_LANES) {
             if (!reached.has(lane)) {
@@ -2369,6 +2368,8 @@ function parseRustAffectedCrates(raw, rustInventory) {
 }
 
 const NODE_SOURCE_ROOT = 'nodejs/src'
+const NODE_TESTS_ROOT = 'nodejs/tests'
+const NODE_IMPORT_ROOTS = [NODE_SOURCE_ROOT, NODE_TESTS_ROOT]
 const NODE_IMPORTER = 'nodejs'
 const ROOT_IMPORTER = '.'
 const NODE_SPECIFIER = String.raw`([^'"\s\x60$]+)`
@@ -2390,6 +2391,9 @@ function nodeSubLaneOf(file) {
 }
 
 function isNodeEntryPoint(file) {
+    if (!file.startsWith(`${NODE_SOURCE_ROOT}/`)) {
+        return true
+    }
     const rest = file.slice(NODE_SOURCE_ROOT.length + 1)
     return !rest.includes('/') || rest.startsWith('servers/')
 }
@@ -2410,7 +2414,7 @@ function nodeImportSpecifiers(text) {
 
 function nodeImportBase(fromFile, specifier) {
     if (specifier.startsWith('~/tests/')) {
-        return `nodejs/tests/${specifier.slice('~/tests/'.length)}`
+        return `${NODE_TESTS_ROOT}/${specifier.slice('~/tests/'.length)}`
     }
     if (specifier.startsWith('~/')) {
         return `${NODE_SOURCE_ROOT}/${specifier.slice(2)}`
@@ -2467,7 +2471,8 @@ function listFilesUnder(repoRoot, relativeDir) {
 
 function readNodeImports(repoRoot) {
     const edges = new Map()
-    for (const file of listFilesUnder(repoRoot, NODE_SOURCE_ROOT)) {
+    const roots = NODE_IMPORT_ROOTS.filter((dir) => fs.existsSync(path.join(repoRoot, dir)))
+    for (const file of roots.flatMap((dir) => listFilesUnder(repoRoot, dir))) {
         const imports = { files: [], packages: new Set() }
         for (const specifier of nodeImportSpecifiers(fs.readFileSync(path.join(repoRoot, file), 'utf8'))) {
             const resolved = resolveNodeImport(repoRoot, file, specifier)
@@ -2805,22 +2810,13 @@ function jsLockfileNodeLanes({ baseLockfile, headLockfile, baseWorkspace, headWo
         }
         throw error
     }
-    const reached = new Set()
-    for (const name of changedDependencies(baseFingerprints.node, headFingerprints.node)) {
-        for (const lane of nodeLanesForPackage(name, { nodeLaneMap })) {
-            reached.add(lane)
-        }
-    }
-    for (const name of changedDependencies(baseFingerprints.root, headFingerprints.root)) {
-        if (baseFingerprints.node.has(name) || headFingerprints.node.has(name)) {
-            continue
-        }
-        const lanes = nodeLaneMap ? nodeLaneMap.packageLanes.get(name) || [] : NODE_LANES
-        for (const lane of lanes) {
-            reached.add(lane)
-        }
-    }
-    return reached
+    const changed = [
+        ...changedDependencies(baseFingerprints.node, headFingerprints.node),
+        ...changedDependencies(baseFingerprints.root, headFingerprints.root).filter(
+            (name) => !baseFingerprints.node.has(name) && !headFingerprints.node.has(name)
+        ),
+    ]
+    return new Set(changed.flatMap((name) => nodeLanesForPackage(name, { nodeLaneMap })))
 }
 
 function nodeWorkspaceDependencies(headLockfile) {
