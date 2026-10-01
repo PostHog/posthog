@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { ActivitySceneTabs } from 'scenes/activity/ActivitySceneTabs'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -17,7 +18,7 @@ import { buildExploreAgentContext } from '../activityAgentContext'
 import { eventsSceneLogic } from './eventsSceneLogic'
 
 export function EventsScene(): JSX.Element {
-    const { query } = useValues(eventsSceneLogic())
+    const { query, showFlagCallsNote } = useValues(eventsSceneLogic())
     const { setQuery } = useActions(eventsSceneLogic())
 
     useAttachedContext(buildExploreAgentContext(ActivityTab.ExploreEvents, query))
@@ -32,6 +33,12 @@ export function EventsScene(): JSX.Element {
                     type: sceneConfigurations[Scene.ExploreEvents].iconType || 'default_icon_type',
                 }}
             />
+            {showFlagCallsNote && (
+                <LemonBanner type="info">
+                    Feature flag calls are stored separately from other events. Filter by the "Feature flag called"
+                    event to see them.
+                </LemonBanner>
+            )}
             <Query
                 attachTo={eventsSceneLogic()}
                 uniqueKey="events-scene"

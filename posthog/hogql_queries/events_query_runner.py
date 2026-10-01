@@ -8,11 +8,21 @@ from django.utils.timezone import now
 import orjson
 import structlog
 
-from posthog.schema import CachedEventsQueryResponse, DashboardFilter, EventsQuery, EventsQueryResponse
+from posthog.schema import (
+    CachedEventsQueryResponse,
+    DashboardFilter,
+    EventPropertyFilter,
+    EventsQuery,
+    EventsQueryResponse,
+    PropertyOperator,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.ast import Alias
-from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.lazy_join_tags import PERSONS
+from posthog.hogql.database.models import LazyJoin
+from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import (
     action_to_expr,
     has_aggregation,
@@ -32,12 +42,15 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, get_query_r
 from posthog.hogql_queries.utils.person_display_name import person_display_name_property_exprs
 from posthog.models import Person, PropertyDefinition
 from posthog.models.element import chain_to_elements
+from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_SOURCE_EVENT
 from posthog.models.person.person import MAX_LIMIT_DISTINCT_IDS, get_distinct_ids_for_subquery
 from posthog.models.person.util import get_person_by_pk_or_uuid, get_persons_mapped_by_distinct_id
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.utils import relative_date_parse
 
 from products.actions.backend.models.action import Action, ActionStepJSON
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.facade.flags import get_organization_flag_evaluations_mode
 
 logger = structlog.get_logger(__name__)
 
@@ -56,6 +69,44 @@ SELECT_STAR_FROM_EVENTS_FIELDS = [
 
 # Wide columns that defeat presorted optimization
 WIDE_COLUMNS = {"elements_chain", "properties"}
+
+
+@frozen
+class EventsListTable:
+    chain: tuple[str, ...]
+    alias: str | None
+    select_star: str
+    person_id: str
+
+    def join_expr(self) -> ast.JoinExpr:
+        return ast.JoinExpr(table=ast.Field(chain=[*self.chain]), alias=self.alias)
+
+
+def _select_star(fields: list[str]) -> str:
+    return f"tuple({', '.join(fields)})"
+
+
+EVENTS_LIST_TABLE = EventsListTable(
+    chain=("events",),
+    alias=None,
+    select_star=_select_star(SELECT_STAR_FROM_EVENTS_FIELDS),
+    person_id="person.id",
+)
+FLAG_EVALUATIONS_LIST_TABLE = EventsListTable(
+    chain=("posthog", "flag_evaluations"),
+    # The lazy join resolver registers an unaliased posthog.flag_evaluations as "posthog__flag_evaluations".
+    # It looks for a join's source table by chain[0], which is "posthog". Without the alias that lookup misses.
+    # The resolver then prints the persons join before the override join that its condition reads.
+    alias="flag_evaluations",
+    # flag_evaluations has no elements_chain or person_mode column. Empty strings keep the tuple in the
+    # order that _expand_star_column zips with SELECT_STAR_FROM_EVENTS_FIELDS.
+    select_star=_select_star(
+        ["''" if field in ("elements_chain", "person_mode") else field for field in SELECT_STAR_FROM_EVENTS_FIELDS]
+    ),
+    # The persons join reads a zero UUID from person.id for a distinct_id with no person row.
+    # person_id holds the id that flag_evaluations resolved through person merges.
+    person_id="person_id",
+)
 
 # Pagination cursors are encoded as ``<timestamp>|<uuid>`` so a stable uuid tiebreaker can advance
 # past events that share the boundary timestamp instead of dropping every tied row beyond the page
@@ -123,14 +174,14 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         if self.query.source is not None:
             self.source_runner.validate()
 
-    def select_cols(self) -> tuple[list[str], list[ast.Expr]]:
+    def select_cols(self, table: EventsListTable) -> tuple[list[str], list[ast.Expr]]:
         select_input: list[str] = []
         person_indices: list[int] = []
         for index, col in enumerate(self.select_input_raw()):
             # Selecting a "*" expands the list of columns, resulting in a table that's not what we asked for.
             # Instead, ask for a tuple with all the columns we want. Later transform this back into a dict.
             if col == "*":
-                select_input.append(f"tuple({', '.join(SELECT_STAR_FROM_EVENTS_FIELDS)})")
+                select_input.append(table.select_star)
             elif col.split("--")[0].strip() == "person":
                 # This will be expanded into a followup query
                 select_input.append("distinct_id")
@@ -138,7 +189,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             elif col.split("--")[0].strip() == "person_display_name":
                 property_keys = self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
                 props = person_display_name_property_exprs(property_keys, "person.properties")
-                expr = f"(coalesce({', '.join([*props, 'distinct_id'])}), toString(person.id), distinct_id)"
+                expr = f"(coalesce({', '.join([*props, 'distinct_id'])}), toString({table.person_id}), distinct_id)"
                 select_input.append(expr)
             else:
                 select_input.append(col)
@@ -260,11 +311,14 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             checker.visit(map_virtual_properties(parse_expr(col, timings=self.timings)))
 
     def to_query(self) -> ast.SelectQuery:
+        return self._build_query(EVENTS_LIST_TABLE)
+
+    def _build_query(self, table: EventsListTable) -> ast.SelectQuery:
         # Note: This code is inefficient and problematic, see https://github.com/PostHog/posthog/issues/13485 for details.
         with self.timings.measure("build_ast"):
             # columns & group_by
             with self.timings.measure("columns"):
-                select_input, select = self.select_cols()
+                select_input, select = self.select_cols(table)
                 self._raise_on_restricted_property_select()
 
             with self.timings.measure("aggregations"):
@@ -273,6 +327,8 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                 has_any_aggregation = len(aggregations) > 0
 
             where_exprs = self._filter_where_exprs()
+            if table is FLAG_EVALUATIONS_LIST_TABLE:
+                where_exprs.extend(self._flag_key_where_exprs())
             where_exprs.extend(self._timestamp_where_exprs())
 
             # where & having
@@ -287,7 +343,58 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             with self.timings.measure("select"):
                 if self.query.source is not None:
                     return self._source_events_query(select, where, having, group_by, order_by, has_any_aggregation)
-                return self._events_query(select, where, having, group_by, order_by, has_any_aggregation)
+                return self._events_query(table, select, where, having, group_by, order_by, has_any_aggregation)
+
+    def _event_names(self) -> list[str]:
+        return [e for e in [self.query.event, *(self.query.events or [])] if e]
+
+    def _list_table(self) -> EventsListTable:
+        if self.query.source is not None or self.query.actionId or self.query.actionSteps:
+            return EVENTS_LIST_TABLE
+        if set(self._event_names()) != {FLAG_EVALUATIONS_SOURCE_EVENT}:
+            return EVENTS_LIST_TABLE
+        mode = get_organization_flag_evaluations_mode(self.team.organization_id)
+        if mode != FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY:
+            return EVENTS_LIST_TABLE
+        return FLAG_EVALUATIONS_LIST_TABLE
+
+    def _flag_key_where_exprs(self) -> list[ast.Expr]:
+        # HogQL reads properties.$feature_flag from the properties JSON on flag_evaluations.
+        # The sort key starts with team_id and flag_key.
+        # The same filter on flag_key lets ClickHouse skip other flags' rows.
+        exprs: list[ast.Expr] = []
+        for prop in [*(self.query.properties or []), *(self.query.fixedProperties or [])]:
+            if not (
+                isinstance(prop, EventPropertyFilter)
+                and prop.key == "$feature_flag"
+                and prop.operator == PropertyOperator.EXACT
+            ):
+                continue
+            values = prop.value if isinstance(prop.value, list) else [prop.value]
+            if values and all(isinstance(value, str) for value in values):
+                exprs.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.In,
+                        left=ast.Field(chain=["flag_key"]),
+                        right=ast.Tuple(exprs=[ast.Constant(value=value) for value in values]),
+                    )
+                )
+        return exprs
+
+    def _query_context(self, table: EventsListTable) -> HogQLContext:
+        context = self.build_hogql_context()
+        assert context.database is not None
+        if table is FLAG_EVALUATIONS_LIST_TABLE:
+            # flag_evaluations.person carries only the id, but the default columns and test account filters read
+            # person.properties. This joins persons the way events does under PERSON_ID_OVERRIDE_PROPERTIES_JOINED.
+            # The change applies only to this runner's database. Every other reader keeps the narrow person.
+            flag_evaluations = context.database.get_table([*table.chain])
+            flag_evaluations.fields["person"] = LazyJoin(
+                from_field=["person_id"],
+                join_table=context.database.get_table("persons"),
+                resolver=PERSONS,
+            )
+        return context
 
     def _filter_where_exprs(self) -> list[ast.Expr]:
         with self.timings.measure("filters"):
@@ -300,7 +407,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             if self.query.fixedProperties:
                 with self.timings.measure("fixed_properties"):
                     where_exprs.extend(property_to_expr(property, self.team) for property in self.query.fixedProperties)
-            all_events: list[str] = [e for e in [self.query.event, *(self.query.events or [])] if e]
+            all_events = self._event_names()
             if all_events:
                 with self.timings.measure("event"):
                     where_exprs.append(self._event_where_expr(all_events))
@@ -484,6 +591,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
 
     def _events_query(
         self,
+        table: EventsListTable,
         select: list[ast.Expr],
         where: ast.Expr | None,
         having: ast.Expr | None,
@@ -493,7 +601,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
     ) -> ast.SelectQuery:
         stmt = ast.SelectQuery(
             select=select,
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            select_from=table.join_expr(),
             where=where,
             having=having,
             group_by=group_by if has_any_aggregation else None,
@@ -507,16 +615,20 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                 "events_query_runner_presorted_optimization",
                 team_id=self.team.pk,
             )
-            stmt.where = self._presorted_where(where, order_by)
+            stmt.where = self._presorted_where(table, where, order_by)
 
         return stmt
 
-    def _presorted_where(self, where: ast.Expr | None, order_by: list[ast.OrderExpr]) -> ast.Expr:
-        inner_query = parse_select("SELECT uuid FROM events")
-        assert isinstance(inner_query, ast.SelectQuery)
-        inner_query.where = where
-        inner_query.order_by = order_by
-        inner_query.limit = ast.Constant(value=self.paginator.limit + self.paginator.offset + 1)
+    def _presorted_where(
+        self, table: EventsListTable, where: ast.Expr | None, order_by: list[ast.OrderExpr]
+    ) -> ast.Expr:
+        inner_query = ast.SelectQuery(
+            select=[ast.Field(chain=["uuid"])],
+            select_from=table.join_expr(),
+            where=where,
+            order_by=order_by,
+            limit=ast.Constant(value=self.paginator.limit + self.paginator.offset + 1),
+        )
 
         prefilter_sorted = parse_expr("uuid in ({inner_query})", {"inner_query": inner_query})
         return ast.And(exprs=[prefilter_sorted, where]) if where is not None else prefilter_sorted
@@ -527,15 +639,18 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         # the `select` / `where` strings it builds are platform constants. User-facing
         # `EventsQuery` execution always lands in `_calculate()` via the runner.
         tag_contains_user_hogql()
+        # Only this path reads flag_evaluations. Callers that run to_query() in their own context keep reading
+        # events. Their select or database may need columns that flag_evaluations lacks.
+        table = self._list_table()
         query_result = self.paginator.execute_hogql_query(
-            query=self.to_query(),
+            query=self._build_query(table),
             team=self.team,
             query_type="EventsQuery",
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
             user=self.user,
-            context=self.build_hogql_context(),
+            context=self._query_context(table),
         )
 
         if "*" in self.select_input_raw():
@@ -671,7 +786,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             self.query.properties = (self.query.properties or []) + dashboard_filter.properties
 
     def columns(self, result_columns: list | None) -> list[str]:
-        _, select = self.select_cols()
+        _, select = self.select_cols(EVENTS_LIST_TABLE)
         columns = result_columns or []
         return [
             columns[idx] if len(columns) > idx and isinstance(select[idx], Alias) else col
