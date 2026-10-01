@@ -5,7 +5,7 @@ from uuid import UUID
 
 import orjson
 
-from products.notifications.backend.pubsub import subscribe
+from products.notifications.backend.facade.api import subscribe_to_notifications
 
 SSE_HEARTBEAT_INTERVAL_SECONDS = 15.0
 SSE_POLL_TIMEOUT_SECONDS = 1.0
@@ -47,7 +47,7 @@ def filter_notification_for_user(payload: bytes | str, user_id: int) -> bytes | 
 async def notification_event_stream(organization_id: UUID, user_id: int) -> AsyncGenerator[bytes]:
     started_at = time.monotonic()
     max_duration = SSE_MAX_DURATION_SECONDS + random.uniform(0, SSE_MAX_DURATION_JITTER_SECONDS)
-    async with subscribe(organization_id) as subscription:
+    async with subscribe_to_notifications(organization_id) as subscription:
         last_write = time.monotonic()
         while time.monotonic() - started_at < max_duration:
             message = await subscription.get_message(timeout=SSE_POLL_TIMEOUT_SECONDS)

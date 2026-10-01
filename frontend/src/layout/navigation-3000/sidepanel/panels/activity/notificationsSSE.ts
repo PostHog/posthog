@@ -2,22 +2,21 @@ import api from 'lib/api'
 
 import { InAppNotification } from '~/types'
 
-/** Which server serves the notifications stream. Sent on the `livestream_sse_*` events. */
 export type NotificationsSSETransport = 'django' | 'livestream'
 
 export interface NotificationsSSEHooks {
     onFirstMessage?: () => void
     onError?: (error: unknown) => void
-    /** The server sent an `end` event because it rotates the stream. Reconnect when the promise resolves. */
+    /** The server is about to close the stream to rotate it. */
     onEnd?: () => void
 }
 
 /**
- * Opens an SSE connection to the notifications endpoint: livestream with a bearer
- * token, or the Django endpoint with the session cookie when no token is given.
+ * Opens an SSE connection to the livestream notifications endpoint, or to the
+ * Django endpoint (session cookie auth) when no token is given.
  * Returns a promise that rejects when the connection is lost (triggering
- * retryWithBackoff to retry), and resolves on clean shutdown via the abort
- * signal or when the server closes the stream.
+ * retryWithBackoff to retry), and resolves only on clean shutdown via the abort
+ * signal.
  */
 export function connectToNotificationsSSE(
     url: string,

@@ -19,8 +19,7 @@ def notifications_channel(organization_id: UUID | str) -> str:
 
 
 def publish_notification_payload(organization_id: UUID | str, payload: dict[str, Any]) -> None:
-    # Call only after commit. Realtime delivery is best effort: a Redis failure must not break
-    # notification creation or the Kafka publish that runs next to it.
+    # Best effort, so a Redis failure cannot break notification creation or the Kafka publish next to it.
     try:
         get_client().publish(notifications_channel(organization_id), orjson.dumps(payload))
     except Exception:
@@ -28,7 +27,7 @@ def publish_notification_payload(organization_id: UUID | str, payload: dict[str,
 
 
 @asynccontextmanager
-async def subscribe(organization_id: UUID | str) -> AsyncIterator[PubSub]:
+async def subscribe_to_notifications(organization_id: UUID | str) -> AsyncIterator[PubSub]:
     client = get_async_client()
     async with client.pubsub(ignore_subscribe_messages=True) as pubsub:
         await pubsub.subscribe(notifications_channel(organization_id))
