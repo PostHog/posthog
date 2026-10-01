@@ -31,7 +31,10 @@ export const VALID_SELF_MANAGED_MARKETING_SOURCES: ManualLinkSourceType[] = [
 ]
 
 export const NATIVE_SOURCE_FEATURE_FLAGS: Partial<Record<NativeMarketingSource, FeatureFlagKey>> = {
+    AmazonAds: FEATURE_FLAGS.MARKETING_ANALYTICS_AMAZON_ADS,
+    RoktAds: FEATURE_FLAGS.MARKETING_ANALYTICS_ROKT_ADS,
     AppleSearchAds: FEATURE_FLAGS.MARKETING_ANALYTICS_APPLE_ADS,
+    OpenAIAds: FEATURE_FLAGS.MARKETING_ANALYTICS_OPENAI_ADS,
 }
 
 /**
@@ -70,7 +73,10 @@ const NATIVE_SOURCE_DISPLAY_LABELS: Record<NativeMarketingSource, string> = {
     BingAds: 'Bing Ads',
     SnapchatAds: 'Snapchat Ads',
     PinterestAds: 'Pinterest Ads',
+    AmazonAds: 'Amazon Ads',
+    RoktAds: 'Rokt Ads',
     AppleSearchAds: 'Apple Ads',
+    OpenAIAds: 'OpenAI Ads',
 }
 export function nativeSourceDisplayLabel(sourceType: string): string {
     return NATIVE_SOURCE_DISPLAY_LABELS[sourceType as NativeMarketingSource] ?? sourceType
@@ -317,10 +323,12 @@ interface SourceColumnMappings {
     clicks: string
     reportedConversion: string
     reportedConversionValue: string
+    reportedConversionValueCurrency?: string
     costNeedsDivision?: boolean
     currencyColumn?: string
     fallbackCurrency?: string
     currencyTimestampColumn?: string
+    missingCurrencyMessage?: string
 }
 
 interface ConversionExprResult extends Partial<DataWarehouseNode> {
@@ -360,6 +368,52 @@ function buildConversionExpr(
 }
 
 const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
+    AmazonAds: {
+        idField: 'campaign_id',
+        timestampField: 'date',
+        columnMappings: {
+            cost: 'cost',
+            impressions: 'impressions',
+            clicks: 'clicks',
+            reportedConversion: 'purchases14d',
+            reportedConversionValue: 'sales14d',
+            currencyColumn: 'campaign_budget_currency_code',
+            currencyTimestampColumn: 'date',
+        },
+        specialConversionLogic: (table, column) => {
+            if (column === MarketingAnalyticsColumnsSchemaNames.ReportedConversion) {
+                return buildConversionExpr('purchases14d', table)
+            }
+            if (column === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue) {
+                return buildConversionExpr('sales14d', table)
+            }
+            return null
+        },
+    },
+    RoktAds: {
+        idField: 'campaign_id',
+        timestampField: 'datetime',
+        columnMappings: {
+            cost: 'gross_cost',
+            impressions: 'impressions',
+            clicks: 'referrals',
+            reportedConversion: 'conversions',
+            reportedConversionValue: 'conversion_value',
+            reportedConversionValueCurrency: 'USD',
+            currencyColumn: 'currency_code',
+            currencyTimestampColumn: 'datetime',
+            missingCurrencyMessage: 'Rokt Ads currency is missing. Fully resync CampaignPerformance, then try again.',
+        },
+        specialConversionLogic: (table, column) => {
+            if (column === MarketingAnalyticsColumnsSchemaNames.ReportedConversion) {
+                return buildConversionExpr('conversions', table)
+            }
+            if (column === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue) {
+                return buildConversionExpr('conversion_value', table)
+            }
+            return null
+        },
+    },
     AppleSearchAds: {
         idField: 'campaign_id',
         timestampField: 'date',
@@ -381,6 +435,29 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
                 )
             }
             if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue) {
+                return { math: HogQLMathType.HogQL, math_hogql: '0' }
+            }
+            return null
+        },
+    },
+    OpenAIAds: {
+        idField: 'campaign_id',
+        timestampField: 'start_time',
+        columnMappings: {
+            cost: 'spend',
+            impressions: 'impressions',
+            clicks: 'clicks',
+            reportedConversion: '0',
+            reportedConversionValue: '0',
+            currencyColumn: 'currency_code',
+            currencyTimestampColumn: 'start_time',
+            missingCurrencyMessage: 'OpenAI Ads currency is missing. Fully resync campaign_insights, then try again.',
+        },
+        specialConversionLogic: (_table, column) => {
+            if (
+                column === MarketingAnalyticsColumnsSchemaNames.ReportedConversion ||
+                column === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue
+            ) {
                 return { math: HogQLMathType.HogQL, math_hogql: '0' }
             }
             return null
@@ -677,9 +754,15 @@ function wrapWithCurrencyConversion(
         const dateArgument = mappings.currencyTimestampColumn
             ? `, coalesce(toDate(${mappings.currencyTimestampColumn}), today())`
             : ''
-        return `SUM(toFloat(convertCurrency(coalesce(${currencyColumn}, '${baseCurrency}'), '${baseCurrency}', ${valueExpr}${dateArgument})))`
+        const converted = `SUM(toFloat(convertCurrency(coalesce(${currencyColumn}, '${baseCurrency}'), '${baseCurrency}', ${valueExpr}${dateArgument})))`
+        return mappings.missingCurrencyMessage
+            ? `(${converted} + throwIf(countIf(empty(coalesce(${currencyColumn}, ''))) > 0, '${mappings.missingCurrencyMessage}'))`
+            : converted
     }
     if (fallbackCurrency) {
+        if (mappings.currencyTimestampColumn) {
+            return `SUM(toFloat(convertCurrency('${fallbackCurrency}', '${baseCurrency}', ${valueExpr}, coalesce(toDate(${mappings.currencyTimestampColumn}), today()))))`
+        }
         return `toFloat(convertCurrency('${fallbackCurrency}', '${baseCurrency}', SUM(${valueExpr})))`
     }
     return `SUM(${valueExpr})`
@@ -737,6 +820,56 @@ export function createMarketingTile(
         return null
     }
 
+    if (sourceType === 'RoktAds') {
+        if (
+            !['campaign_id', 'datetime', 'impressions', 'referrals', 'gross_cost'].every(
+                (field) => field in table.fields
+            )
+        ) {
+            return null
+        }
+        const monetaryColumn =
+            tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.Cost ||
+            tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue ||
+            tileColumnSelection === 'roas' ||
+            tileColumnSelection === 'cost_per_reported_conversion'
+        if (monetaryColumn && !('currency_code' in table.fields)) {
+            return null
+        }
+    }
+
+    if (sourceType === 'AmazonAds') {
+        if (!['campaign_id', 'date', 'cost', 'impressions', 'clicks'].every((field) => field in table.fields)) {
+            return null
+        }
+        const monetaryColumn =
+            tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.Cost ||
+            tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue ||
+            tileColumnSelection === 'roas' ||
+            tileColumnSelection === 'cost_per_reported_conversion'
+        if (monetaryColumn && !('campaign_budget_currency_code' in table.fields)) {
+            return null
+        }
+    }
+
+    if (sourceType === 'OpenAIAds') {
+        if (!['campaign_id', 'start_time', 'impressions', 'clicks', 'spend'].every((field) => field in table.fields)) {
+            return null
+        }
+        if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.Cost && !('currency_code' in table.fields)) {
+            return null
+        }
+    }
+
+    const conversionValueMappings: SourceColumnMappings = tileConfig.columnMappings.reportedConversionValueCurrency
+        ? {
+              ...tileConfig.columnMappings,
+              currencyColumn: undefined,
+              fallbackCurrency: tileConfig.columnMappings.reportedConversionValueCurrency,
+              missingCurrencyMessage: undefined,
+          }
+        : tileConfig.columnMappings
+
     // Handle ROAS (Return on Ad Spend) - calculated as conversion_value / cost
     if (tileColumnSelection === 'roas') {
         const costExpr = buildNativeCostExpr(tileConfig.columnMappings)
@@ -746,7 +879,16 @@ export function createMarketingTile(
             MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue,
             tileConfig.columnMappings.reportedConversionValue
         )
-        const mathHogql = conversionValueExpr === '0' ? '0' : `${conversionValueExpr} / nullIf(SUM(${costExpr}), 0)`
+        let totalValueExpr = conversionValueExpr
+        let totalCostExpr = `SUM(${costExpr})`
+        if (tileConfig.columnMappings.currencyTimestampColumn && conversionValueExpr !== '0') {
+            const perRowValue =
+                tileConfig.specialConversionLogic?.(table, MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue)
+                    ?.perRowValueExpr ?? safeFloat(tileConfig.columnMappings.reportedConversionValue)
+            totalValueExpr = wrapWithCurrencyConversion(perRowValue, conversionValueMappings, table, baseCurrency)
+            totalCostExpr = wrapWithCurrencyConversion(costExpr, tileConfig.columnMappings, table, baseCurrency)
+        }
+        const mathHogql = conversionValueExpr === '0' ? '0' : `${totalValueExpr} / nullIf(${totalCostExpr}, 0)`
         return buildNativeTileNode(table, integrationConfig, tileConfig, tileColumnSelection, mathHogql)
     }
 
@@ -785,14 +927,14 @@ export function createMarketingTile(
                 if (specialLogic.perRowValueExpr) {
                     finalMathHogql = wrapWithCurrencyConversion(
                         specialLogic.perRowValueExpr,
-                        tileConfig.columnMappings,
+                        conversionValueMappings,
                         table,
                         baseCurrency
                     )
                 } else {
                     finalMathHogql = wrapAggregatedWithCurrencyConversion(
                         finalMathHogql,
-                        tileConfig.columnMappings,
+                        conversionValueMappings,
                         table,
                         baseCurrency
                     )

@@ -53,11 +53,16 @@ from posthog.utils import relative_date_parse, str_to_bool
 
 from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
 from products.batch_exports.backend.api.destination_tests import get_destination_test
-from products.batch_exports.backend.api.utils import check_hogql_batch_exports_enabled
+from products.batch_exports.backend.api.utils import (
+    HOGQL_MODIFIERS_HELP_TEXT,
+    HogQLModifiersField,
+    check_hogql_batch_exports_enabled,
+)
 from products.batch_exports.backend.hogql_source import (
     DATA_INTERVAL_START_PLACEHOLDER,
     UnsupportedHogQLQueryError,
     find_interval_placeholders,
+    load_hogql_modifiers,
     parse_hogql_select_for_batch_export,
     serialize_batch_export_query,
     validate_hogql_query_for_batch_export,
@@ -827,6 +832,14 @@ HOGQL_QUERY_HELP_TEXT = (
 )
 
 
+class BatchExportUnpauseRequestSerializer(serializers.Serializer):
+    backfill = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Whether to backfill the runs that the batch export missed while it was paused.",
+    )
+
+
 class BatchExportRequestSerializer(serializers.Serializer):
     """Request body for create/partial_update on BatchExportViewSet.
 
@@ -856,6 +869,11 @@ class BatchExportRequestSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text=HOGQL_QUERY_HELP_TEXT,
+    )
+    hogql_modifiers = HogQLModifiersField(
+        required=False,
+        allow_null=True,
+        help_text=HOGQL_MODIFIERS_HELP_TEXT,
     )
     filters = serializers.JSONField(
         required=False,
@@ -1206,6 +1224,11 @@ class BatchExportSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text=HOGQL_QUERY_HELP_TEXT,
     )
+    hogql_modifiers = HogQLModifiersField(
+        required=False,
+        allow_null=True,
+        help_text=HOGQL_MODIFIERS_HELP_TEXT,
+    )
     timezone = serializers.ChoiceField(
         choices=TIMEZONES,
         required=False,
@@ -1244,6 +1267,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
             "end_at",
             "latest_runs",
             "hogql_query",
+            "hogql_modifiers",
             "schema",
             "filters",
             "timezone",
@@ -1320,6 +1344,11 @@ class BatchExportSerializer(serializers.ModelSerializer):
         if model == BatchExport.Model.HOGQL:
             self._validate_hogql(attrs)
             return
+
+        if attrs.get("hogql_modifiers") is not None:
+            raise serializers.ValidationError(
+                {"hogql_modifiers": "'hogql_modifiers' are only supported when 'model' is 'hogql'"}
+            )
 
         if (hogql_query := attrs.get("hogql_query")) is not None:
             # For events model, we need the resolved AST.
@@ -1457,14 +1486,6 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 "'legacy_parquet_extension' can only stay on for an export that already writes the "
                 "compression codec into its Parquet file names. It cannot be turned on for a new "
                 "export, or turned back on once an export moved to the standard '.parquet' extension."
-            )
-
-        # The legacy `S3` type predates both the AwsS3/S3Compatible split and integration-backed
-        # credentials. Every row has been migrated off it, so it accepts no writes at all.
-        if destination_type == BatchExportDestination.Destination.S3:
-            raise serializers.ValidationError(
-                "The 'S3' destination type is deprecated and can no longer be used. "
-                "Use 'AwsS3' for AWS S3, or 'S3Compatible' for S3-compatible storage."
             )
 
         merged_config = recursive_dict_merge(existing_config, config)
@@ -1739,10 +1760,11 @@ class BatchExportSerializer(serializers.ModelSerializer):
         team_id = self.context["team_id"]
         model = validated_data.get("model") or BatchExport.Model.EVENTS
         hogql_query = validated_data.pop("hogql_query", None)
+        hogql_modifiers = validated_data.pop("hogql_modifiers", None)
 
         source = None
         if model == BatchExport.Model.HOGQL:
-            source = BatchExportSource(team_id=team_id, hogql_query=hogql_query)
+            source = BatchExportSource(team_id=team_id, hogql_query=hogql_query, hogql_modifiers=hogql_modifiers)
         elif hogql_query is not None:
             # TODO: Migrate batch exports using a HogQL query to HogQL model.
             validated_data["schema"] = self.serialize_hogql_query_to_batch_export_schema(hogql_query)
@@ -1804,7 +1826,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
     def _validate_hogql(self, attrs: dict[str, typing.Any]) -> None:
         """Validate the source of a batch export with the 'hogql' model.
 
-        On update, a query missing from the request keeps the one stored in the source.
+        On update, a query or modifiers missing from the request keep the ones stored in the source.
         """
         if attrs.get("filters"):
             raise serializers.ValidationError({"filters": "'filters' are not supported when 'model' is 'hogql'"})
@@ -1817,9 +1839,16 @@ class BatchExportSerializer(serializers.ModelSerializer):
         if not hogql_query:
             raise serializers.ValidationError({"hogql_query": "'hogql_query' is required when 'model' is 'hogql'"})
 
+        try:
+            modifiers = load_hogql_modifiers(
+                attrs.get("hogql_modifiers", source.hogql_modifiers if source is not None else None)
+            )
+        except UnsupportedHogQLQueryError as e:
+            raise serializers.ValidationError({"hogql_modifiers": str(e)}) from e
+
         user = self.context["request"].user
         try:
-            validate_hogql_query_for_batch_export(hogql_query, team, user=user)
+            validate_hogql_query_for_batch_export(hogql_query, team, user=user, modifiers=modifiers)
         except UnsupportedHogQLQueryError as e:
             raise serializers.ValidationError({"hogql_query": str(e)}) from e
 
@@ -1885,6 +1914,8 @@ class BatchExportSerializer(serializers.ModelSerializer):
         destination_data = validated_data.pop("destination", None)
         hogql_query_provided = "hogql_query" in validated_data
         hogql_query = validated_data.pop("hogql_query", None)
+        hogql_modifiers_provided = "hogql_modifiers" in validated_data
+        hogql_modifiers = validated_data.pop("hogql_modifiers", None)
 
         user = self.context["request"].user
         if not isinstance(user, User):
@@ -1905,9 +1936,12 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 batch_export.destination.integration = integration
 
             if batch_export.model == BatchExport.Model.HOGQL:
-                if hogql_query is not None:
+                if hogql_query is not None or hogql_modifiers_provided:
                     source = batch_export.source or BatchExportSource(team_id=batch_export.team_id)
-                    source.hogql_query = hogql_query
+                    if hogql_query is not None:
+                        source.hogql_query = hogql_query
+                    if hogql_modifiers_provided:
+                        source.hogql_modifiers = hogql_modifiers
                     source.save()
                     batch_export.source = source
             elif hogql_query is not None:
@@ -1974,6 +2008,7 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
             return queryset.exclude(destination__type="Workflows")
         return queryset
 
+    @extend_schema(request=None)
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def pause(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Pause a BatchExport."""
@@ -1998,16 +2033,20 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
 
         return response.Response({"paused": True})
 
+    @extend_schema(request=BatchExportUnpauseRequestSerializer)
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def unpause(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Unpause a BatchExport."""
         if not isinstance(request.user, User) or request.user.current_team is None:
             raise NotAuthenticated()
 
+        serializer = BatchExportUnpauseRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        backfill = serializer.validated_data["backfill"]
+
         user_id = request.user.distinct_id
         team_id = request.user.current_team.id
         note = f"Unpause requested by user {user_id} from team {team_id}"
-        backfill = request.data.get("backfill", False)
 
         batch_export = self.get_object()
         temporal = sync_connect()
@@ -2111,10 +2150,6 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
 
         result = destination_test.run_step(test_step)
         return response.Response(result.as_dict())
-
-
-class BatchExportOrganizationViewSet(BatchExportViewSet):
-    filter_rewrite_rules = {"organization_id": "team__organization_id"}
 
 
 @dataclass

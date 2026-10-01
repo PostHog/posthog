@@ -6,7 +6,7 @@ import { urls } from 'scenes/urls'
 
 import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
-import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'EngineeringAnalytics',
@@ -70,6 +70,7 @@ export const manifest: ProductManifest = {
         '/engineering-analytics/workflows': ['EngineeringAnalytics', 'engineeringAnalyticsWorkflows'],
         '/engineering-analytics/tests': ['EngineeringAnalytics', 'engineeringAnalyticsTests'],
         '/engineering-analytics/teams': ['EngineeringAnalytics', 'engineeringAnalyticsTeams'],
+        '/engineering-analytics/authors': ['EngineeringAnalytics', 'engineeringAnalyticsAuthors'],
         '/engineering-analytics/deploys': ['EngineeringAnalytics', 'engineeringAnalyticsDeploys'],
         '/engineering-analytics/teams/:ownerTeam': ['EngineeringAnalyticsTeam', 'engineeringAnalyticsTeam'],
         '/engineering-analytics/repos/:repoOwner/:repoName/pull-requests/:number': [
@@ -94,10 +95,6 @@ export const manifest: ProductManifest = {
             combineUrl(urls.engineeringAnalyticsTests(), searchParams, hashParams).url,
         '/engineering-analytics/health': (_params, searchParams, hashParams): string =>
             combineUrl(urls.engineeringAnalyticsDeploys(), searchParams, hashParams).url,
-        // The author *list* (leaderboards / rankings) stays removed — analytics aggregate at team/repo
-        // level only (see README locked decisions). The per-author page is a filtered PR view, reachable
-        // only via the author links on PR rows, so it keeps its route above.
-        '/engineering-analytics/authors': '/engineering-analytics/overview',
     },
     urls: {
         engineeringAnalytics: (): string => '/engineering-analytics/overview',
@@ -105,6 +102,7 @@ export const manifest: ProductManifest = {
         engineeringAnalyticsWorkflows: (): string => '/engineering-analytics/workflows',
         engineeringAnalyticsTests: (): string => '/engineering-analytics/tests',
         engineeringAnalyticsTeams: (): string => '/engineering-analytics/teams',
+        engineeringAnalyticsAuthors: (): string => '/engineering-analytics/authors',
         engineeringAnalyticsDeploys: (): string => '/engineering-analytics/deploys',
         engineeringAnalyticsTeam: (ownerTeam: string): string =>
             `/engineering-analytics/teams/${encodeURIComponent(ownerTeam)}`,
@@ -126,7 +124,10 @@ export const manifest: ProductManifest = {
             category: ProductItemCategory.UNRELEASED,
             type: 'engineering_analytics',
             iconType: 'health' as FileSystemIconType,
-            iconColor: ['var(--color-product-data-warehouse-light)'] as FileSystemIconColor,
+            iconColor: [
+                'var(--color-product-engineering-analytics-light)',
+                'var(--color-product-engineering-analytics-dark)',
+            ],
             href: urls.engineeringAnalytics(),
             flag: FEATURE_FLAGS.ENGINEERING_ANALYTICS,
             tags: ['alpha'],

@@ -147,6 +147,7 @@ def run_signals_scout(
     verbose: bool = False,
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
     run_note: str | None = None,
+    check_id: str | None = None,
 ) -> RunResult:
     """Synchronous entrypoint: resolves config, spawns sandbox, persists the run row.
 
@@ -162,6 +163,7 @@ def run_signals_scout(
             verbose=verbose,
             triggered_by=triggered_by,
             run_note=run_note,
+            check_id=check_id,
         )
     )
 
@@ -175,6 +177,7 @@ async def arun_signals_scout(
     verbose: bool = False,
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
     run_note: str | None = None,
+    check_id: str | None = None,
 ) -> RunResult:
     """Async core. Safe to call from inside a running event loop (Temporal activity).
 
@@ -387,6 +390,7 @@ async def arun_signals_scout(
             service_tier=service_tier,
             triggered_by=triggered_by,
             run_note=run_note,
+            check_id=check_id,
         )
         runtime_s = time.monotonic() - started
         emitted_count, _ = await database_sync_to_async(_read_run_metrics, thread_sensitive=False)(
@@ -696,6 +700,7 @@ async def _spawn_and_run(
     service_tier: str | None = None,
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
     run_note: str | None = None,
+    check_id: str | None = None,
 ) -> tuple[str, str]:
     """Spawn the sandbox, create the bridge row before the first turn, run the agent.
 
@@ -844,6 +849,7 @@ async def _spawn_and_run(
             repositories=repositories,
             triggered_by=triggered_by,
             run_note=run_note,
+            check_id=check_id,
         )
         # Lifecycle start marker. The row + TaskRun now exist and the run has cleared the
         # reap + single-flight guards, so this counts exactly the runs that actually start —
@@ -1049,6 +1055,7 @@ def _create_run_row(
     repositories: list[str] | None = None,
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
     run_note: str | None = None,
+    check_id: str | None = None,
 ) -> SignalScoutRun:
     # Stamp the routed model triple (and the OpenAI queue it asked for) onto the row's `metadata`
     # so "which model ran this?" is a column read on the run API, not an analytics-event join. Keys
@@ -1090,6 +1097,14 @@ def _create_run_row(
     # Both inputs can change between runs, so like `github_guidance` this is stamped rather than
     # re-derived at read time, letting an eval or A/B compare only runs that got the same prompt.
     metadata["business_knowledge_maintained"] = business_knowledge_maintained
+    # Stamped only for background-managed scouts, because a person who edits the config takes it over
+    # and deleting it nulls `scout_config`. Reports this run authors keep their background origin.
+    if config.managed_by == SignalScoutConfig.ManagedBy.BACKGROUND:
+        metadata["managed_by"] = config.managed_by
+        # The band that sampled the project, so each band's pilot reads on its own. Absent for a
+        # hand-picked `team_ids` project.
+        if config.background_band is not None:
+            metadata["background_band"] = config.background_band
     # Dispatch-time snapshot of the structured-output contract. The prompt renders this exact
     # schema, so the record endpoint validates against the snapshot rather than the live config
     # value — a mid-run schema edit must not reject records that match what the run was shown.
@@ -1120,6 +1135,10 @@ def _create_run_row(
     # because the note is deliberately never stored as a scout note.
     if run_note:
         metadata["run_note"] = run_note
+    # The check a coordinator dispatch was started to answer. `scout-check-record-result` and
+    # `scout-report-check-list` read it to tie the check to this run.
+    if check_id:
+        metadata["check_id"] = check_id
     return SignalScoutRun.objects.unscoped().create(
         id=run_id,
         task_run=task_run,
@@ -1488,6 +1507,9 @@ def _attach_run_shape_props(
     properties["skill_origin"] = skill.origin
     properties["github_guidance"] = github_guidance
     properties["business_knowledge_maintained"] = business_knowledge_maintained
+    properties["managed_by"] = config.managed_by
+    if config.managed_by == SignalScoutConfig.ManagedBy.BACKGROUND and config.background_band is not None:
+        properties["background_band"] = config.background_band
     if config.network_access == SignalScoutConfig.NetworkAccess.FULL:
         properties["network_access"] = config.network_access
     if granted_write_scopes := _granted_write_scopes(config):

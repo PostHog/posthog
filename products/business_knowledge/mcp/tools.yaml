@@ -54,6 +54,69 @@ tools:
     business-knowledge-gap-suggestions-list:
         operation: business_knowledge_gap_suggestions_list
         enabled: false
+    business-knowledge-playground-chats-ask-create:
+        operation: business_knowledge_playground_chats_ask_create
+        enabled: false
+    business-knowledge-playground-chats-create:
+        operation: business_knowledge_playground_chats_create
+        enabled: false
+    business-knowledge-playground-chats-destroy:
+        operation: business_knowledge_playground_chats_destroy
+        enabled: false
+    business-knowledge-playground-chats-list:
+        operation: business_knowledge_playground_chats_list
+        enabled: false
+    business-knowledge-playground-chats-retrieve:
+        operation: business_knowledge_playground_chats_retrieve
+        enabled: false
+    business-knowledge-repositories-connect-create:
+        operation: business_knowledge_repositories_connect_create
+        enabled: false
+    business-knowledge-repositories-disconnect-create:
+        operation: business_knowledge_repositories_disconnect_create
+        enabled: false
+    business-knowledge-repositories-file-retrieve:
+        operation: business_knowledge_repositories_file_retrieve
+        enabled: true
+        scopes:
+            - business_knowledge:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Read a file from a selected repository
+        description: >
+            Read one file from a GitHub repository selected for business knowledge. The path must come from
+            business-knowledge-repositories-search. Returns the file text and a permalink. Does not search file
+            contents.
+        feature_flag: business-knowledge-github-repos
+    business-knowledge-repositories-search:
+        operation: business_knowledge_repositories_search
+        enabled: true
+        scopes:
+            - business_knowledge:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Search selected repositories
+        description: >
+            Search file paths and README text in the GitHub repositories selected for business knowledge. Pass file
+            names, path fragments, or identifiers, not a full sentence. Then read a matching file. Does not search
+            inside file contents and does not call GitHub code search.
+        feature_flag: business-knowledge-github-repos
+    business-knowledge-repositories-selection-create:
+        operation: business_knowledge_repositories_selection_create
+        enabled: false
+    business-knowledge-repositories-status-retrieve:
+        operation: business_knowledge_repositories_status_retrieve
+        enabled: false
+    business-knowledge-sandbox-create:
+        operation: business_knowledge_sandbox_create
+        enabled: false
+    business-knowledge-sandbox-retrieve:
+        operation: business_knowledge_sandbox_retrieve
+        enabled: false
     business-knowledge-settings-partial-update:
         operation: business_knowledge_settings_partial_update
         enabled: false

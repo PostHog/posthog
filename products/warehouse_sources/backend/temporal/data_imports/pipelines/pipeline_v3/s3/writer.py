@@ -57,6 +57,22 @@ def build_schema_dict(schema: pa.Schema) -> dict:
     }
 
 
+def _object_size(file_info: object) -> int:
+    # s3fs reports the object size under the lowercase `size` key. S3's own HeadObject shape
+    # uses `Size`, so both are accepted rather than trusting one client's spelling.
+    if not isinstance(file_info, dict):
+        return 0
+    for key in ("size", "Size"):
+        value = file_info.get(key)
+        if value is None:
+            continue
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            continue
+    return 0
+
+
 def _is_transient_s3_write_error(exc: BaseException) -> bool:
     # s3fs translates most S3-side write failures (IncompleteBody, InternalError,
     # SlowDown/ServiceUnavailable, ...) into a plain OSError. PermissionError,
@@ -139,8 +155,7 @@ class S3BatchWriter:
         if activity.in_activity():
             get_s3_write_duration_metric().record(write_duration)
 
-        file_info = self._s3.info(s3_path_without_protocol)
-        byte_size = file_info.get("Size", 0) if isinstance(file_info, dict) else 0
+        byte_size = _object_size(self._s3.info(s3_path_without_protocol))
 
         if self._schema is None:
             self._schema = pa_table.schema

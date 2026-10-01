@@ -168,6 +168,8 @@ class TestSpaceSetupScopes(SimpleTestCase):
             for name in sorted(named_tools)
         }
         assert {name: scopes for name, scopes in missing.items() if scopes} == {}
+        # The MCP server refuses the whole session when it cannot read the caller from `users/@me`.
+        assert "user:read" in granted
 
 
 def _granted(granted: set[str], required: str) -> bool:

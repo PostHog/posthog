@@ -88,6 +88,22 @@ tools:
             from the response envelope. Includes all messages from the customer, team members, and AI, as well as
             private internal notes. Each message contains author_type, author_name, content, and an is_private flag
             indicating internal notes.
+    conversations-tickets-notes-create:
+        operation: conversations_tickets_notes_create
+        enabled: false
+        scopes:
+            - ticket:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Add private note to support ticket
+        description: >
+            Add a private note to a support ticket. The note is visible to your team only and is never sent to the
+            customer; this tool has no privacy option. Use it to leave findings where the support engineer works. To
+            reply to the customer, use conversations-tickets-reply-create instead. To change a note later, use
+            conversations-tickets-notes-partial-update. An identical note posted again within a short window returns the
+            original note instead of adding a second one. Returns the note as it appears in the thread.
     conversations-tickets-notes-destroy:
         operation: conversations_tickets_notes_destroy
         enabled: true

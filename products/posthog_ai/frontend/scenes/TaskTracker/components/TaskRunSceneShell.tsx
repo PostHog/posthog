@@ -19,7 +19,7 @@ import {
 
 import type { TaskRunDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
 
-import { TaskEnvironmentIcon } from '../../../components/TaskEnvironmentIcon'
+import { TaskSourceIcon } from '../../../components/TaskSourceIcon'
 import type { Task } from '../../../types/taskTypes'
 import { TaskDebugLogsPanelToggle } from './TaskDebugLogsPanelToggle'
 import { TaskPanelSkeleton, TaskRunMetadataSkeleton } from './taskDetailSkeletons'
@@ -35,6 +35,8 @@ export interface TaskRunSceneShellProps {
     isHeaderLoading?: boolean
     /** Title-bar action buttons (or their skeleton). Supplied by the caller so the shell stays presentational. */
     titleActions?: JSX.Element
+    /** Omitting this leaves the title read-only, which is what the create thread needs: it renders this shell before the task exists. */
+    onRename?: (title: string) => void
     onArchive: () => void
     taskError: string | null
     onRetry: () => void
@@ -53,6 +55,7 @@ export function TaskRunSceneShell({
     selectedRun,
     isHeaderLoading = false,
     titleActions,
+    onRename,
     onArchive,
     taskError,
     onRetry,
@@ -130,10 +133,19 @@ export function TaskRunSceneShell({
                             description={null}
                             resourceType={{
                                 type: 'task',
-                                forceIcon: <TaskEnvironmentIcon environment={task?.latest_run?.environment} />,
+                                forceIcon: (
+                                    <TaskSourceIcon
+                                        originProduct={task?.origin_product}
+                                        environment={task?.latest_run?.environment}
+                                    />
+                                ),
                             }}
                             isLoading={isHeaderLoading}
-                            canEdit={false}
+                            canEdit={!!onRename}
+                            onNameChange={onRename}
+                            // One write when the field is left, rather than one per keystroke.
+                            saveOnBlur
+                            renameDebounceMs={0}
                             forceBackTo={
                                 isMobile
                                     ? {
