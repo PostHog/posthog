@@ -312,7 +312,8 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                         openFeatureFlagDeleteDialog(featureFlag, () => {
                                             void deleteWithUndo({
                                                 endpoint: `projects/${currentProjectId}/feature_flags`,
-                                                object: { name: featureFlag.key, id: featureFlag.id },
+                                                object: { id: featureFlag.id },
+                                                label: featureFlag.key,
                                                 callback: () => loadFeatureFlags(),
                                             }).catch((e) => {
                                                 lemonToast.error(`Failed to delete feature flag: ${e.detail}`)

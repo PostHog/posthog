@@ -1,10 +1,15 @@
+import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
+import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+
 /** One row in the write access picker. `scope` is the string the API stores and the token carries. */
 export interface ScoutWriteScopeRow {
     scope: string
     /** Heading the row sits under. Purely a label: the API stores a flat list of scopes. */
-    group: 'Analytics' | 'Monitoring' | 'Scouts and skills' | 'Data' | 'Replay vision' | 'Workflows'
+    group: 'Analytics' | 'Monitoring' | 'Customer analytics' | 'Scouts and skills' | 'Data' | 'Replay vision' | 'Workflows'
     label: string
     description: string
+    /** Flag the product is still released behind. Its MCP tools share it, so a grant without it is inert. */
+    featureFlag?: FeatureFlagKey
 }
 
 /**
@@ -17,7 +22,8 @@ export interface ScoutWriteScopeRow {
  *
  * Every row is offered whatever a project has set up: the MCP tools behind a grant are gated on the
  * product, so a grant on a project without it is inert, and no row needs the picker to know which
- * products the project has.
+ * products the project has. A row for a product still behind a feature flag is the exception, so the
+ * picker does not show an unreleased product.
  */
 export const SCOUT_WRITE_SCOPE_ROWS: ScoutWriteScopeRow[] = [
     {
@@ -44,6 +50,14 @@ export const SCOUT_WRITE_SCOPE_ROWS: ScoutWriteScopeRow[] = [
         label: 'Alerts',
         description:
             'Create, update, and delete insight alerts, and post them to a Slack channel your project has connected',
+    },
+    {
+        scope: 'customer_task:write',
+        group: 'Customer analytics',
+        label: 'Customer tasks',
+        description:
+            'Create tasks, update their status, due date, and assignee, archive them, and restore archived tasks. This includes tasks assigned to other people',
+        featureFlag: FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS,
     },
     {
         scope: 'llm_skill:write',
@@ -85,6 +99,14 @@ export const SCOUT_ALWAYS_GRANTED_ROWS: { label: string; description: string }[]
     { label: 'Notebooks', description: 'Every scout can write notebooks' },
     { label: 'Inbox and memory', description: 'Its reports, findings, and shared scout memory' },
 ]
+
+/**
+ * The rows the picker shows. A hidden row still counts in `offeredScoutWriteScopes`, so a save by
+ * someone without the flag keeps a grant a flagged teammate made.
+ */
+export function filterVisibleScoutWriteScopeRows(featureFlags: FeatureFlagsSet): ScoutWriteScopeRow[] {
+    return SCOUT_WRITE_SCOPE_ROWS.filter((row) => !row.featureFlag || !!featureFlags[row.featureFlag])
+}
 
 /** Short labels for the scopes a scout holds, for the settings header and the roster row. */
 export function scoutWriteScopeLabels(scopes: readonly string[] | undefined): string[] {
