@@ -49,24 +49,3 @@ class SavedInsightDefinition:
     short_id: str
     name: str | None
     query: dict[str, Any]
-
-
-@dataclass(frozen=True)
-class CachedTrendsSeries:
-    """One series of a trends insight, as its cached result holds it."""
-
-    label: str
-    math: str | None
-    days: list[str]
-    data: list[float]
-
-
-@dataclass(frozen=True)
-class CachedTrends:
-    """The cached result of a trends insight, without triggering a calculation."""
-
-    insight_id: int
-    short_id: str
-    name: str
-    interval: str | None
-    series: list[CachedTrendsSeries]

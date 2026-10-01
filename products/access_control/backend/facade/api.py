@@ -321,16 +321,6 @@ def valid_role_member_user_ids(*, role_id: str | UUID) -> list[int]:
     )
 
 
-def role_ids_for_user(*, user_id: int, organization_id: UUID) -> list[str]:
-    """Ids of the roles in the organization that currently grant the user access."""
-    return [
-        str(role_id)
-        for role_id in RoleMembership.objects.filter(user_id=user_id, role__organization_id=organization_id)
-        .valid_for_authorization()
-        .values_list("role_id", flat=True)
-    ]
-
-
 # --- Write API ---
 
 

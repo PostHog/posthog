@@ -21,7 +21,6 @@ from pydantic.dataclasses import dataclass
 from rest_framework import serializers
 
 from posthog.api.sharing_publish_gate import check_can_add_insight_to_shared_dashboard
-from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.user_permissions import UserPermissions
 
@@ -29,8 +28,6 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.dashboards.backend.facade.enums import PrivilegeLevel
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.product_analytics.backend.facade.api import cached_trends
-from products.product_analytics.backend.facade.contracts import CachedTrends
 
 if TYPE_CHECKING:
     from products.product_analytics.backend.facade.models import Insight
@@ -341,42 +338,3 @@ __all__ = [
     "unknown_dashboard_ids",
     "update_insight_dashboard_membership",
 ]
-
-
-def viewable_dashboard_refs(*, team_id: int, user: User, dashboard_ids: Sequence[int]) -> tuple[DashboardRef, ...]:
-    """The live dashboards among these ids that the user may view, in the given order."""
-    team = Team.objects.get(id=team_id)
-    queryset = UserAccessControl(user=user, team=team).filter_queryset_by_access_level(
-        Dashboard.objects.filter(team_id=team_id, id__in=list(dashboard_ids), deleted=False)
-    )
-    names = dict(queryset.values_list("id", "name"))
-    return tuple(
-        DashboardRef(id=dashboard_id, name=names[dashboard_id])
-        for dashboard_id in dashboard_ids
-        if dashboard_id in names
-    )
-
-
-def cached_trends_for_dashboard(*, team_id: int, user: User, dashboard_id: int, limit: int = 12) -> list[CachedTrends]:
-    """Cached trends results of the insight tiles on a dashboard, as the dashboard shows them.
-
-    Reads only what is already cached for the dashboard's filters and never starts a calculation.
-    """
-    team = Team.objects.get(id=team_id)
-    dashboard = Dashboard.objects.filter(team_id=team_id, id=dashboard_id, deleted=False).first()
-    if dashboard is None:
-        return []
-    tiles = (
-        DashboardTile.objects.filter(dashboard=dashboard, insight__isnull=False, insight__deleted=False)
-        .exclude(deleted=True)
-        .select_related("insight")
-        .order_by("id")[:limit]
-    )
-    results = []
-    for tile in tiles:
-        if tile.insight is None:
-            continue
-        trends = cached_trends(insight=tile.insight, team=team, user=user, dashboard=dashboard)
-        if trends is not None:
-            results.append(trends)
-    return results

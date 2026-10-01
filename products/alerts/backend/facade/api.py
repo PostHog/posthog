@@ -12,16 +12,13 @@ from typing import Final, Literal
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
-from django.db.models import Q
 from django.utils import timezone
 
 import structlog
 
 from posthog.cdp.internal_events import LEGACY_INSIGHT_ALERT_EVENT
-from posthog.dataclasses import frozen
 from posthog.models.activity_logging.model_activity import ActingUserContext
 from posthog.models.user import User
-from posthog.schema_enums import AlertState
 from posthog.user_permissions import UserPermissions
 from posthog.utils import relative_date_parse
 
@@ -205,35 +202,3 @@ __all__ = [
     "is_llm_detector_config",
     "llm_detector_access_error",
 ]
-
-
-@frozen
-class FiringAlertSummary:
-    """An enabled alert that is firing, created or followed by a user."""
-
-    alert_id: str
-    name: str
-    insight_short_id: str
-    insight_name: str
-    last_checked_at: datetime | None
-
-
-def firing_alerts_for_user(*, team_id: int, user_id: int, limit: int = 5) -> list[FiringAlertSummary]:
-    """Enabled, firing alerts that the user created or is subscribed to."""
-    alerts = (
-        AlertConfiguration.objects.filter(team_id=team_id, enabled=True, state=AlertState.FIRING)
-        .filter(Q(created_by_id=user_id) | Q(subscribed_users__id=user_id))
-        .select_related("insight")
-        .distinct()
-        .order_by("-last_checked_at")[:limit]
-    )
-    return [
-        FiringAlertSummary(
-            alert_id=str(alert.id),
-            name=alert.name or alert.insight.name or "Alert",
-            insight_short_id=alert.insight.short_id,
-            insight_name=alert.insight.name or alert.insight.derived_name or "",
-            last_checked_at=alert.last_checked_at,
-        )
-        for alert in alerts
-    ]
