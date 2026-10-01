@@ -502,6 +502,31 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         # Query count must stay flat as rows grow — five experiments must not cost more than one.
         self.assertLessEqual(len(five_rows.captured_queries), len(single_row.captured_queries))
+        # The list serializer stamps no calculation keys, so the saved metrics cost no extra query.
+        self.assertEqual(len(five_rows.captured_queries), 15)
+
+    def test_experiment_detail_with_saved_metrics_reads_each_relation_once(self) -> None:
+        experiment = self._create_fully_populated_experiment(0)
+        second_saved_metric = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name="Second saved metric",
+            created_by=self.user,
+            query={"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "EventsNode", "event": "b"}},
+        )
+        ExperimentToSavedMetric.objects.create(
+            experiment=experiment, saved_metric=second_saved_metric, metadata={"type": "secondary"}
+        )
+        self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}/")
+
+        # The saved-metric fingerprints reuse the prefetched links and add one read of the team's
+        # experiment settings, whatever the number of saved metrics.
+        with self.assertNumQueries(17):
+            response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        fingerprints = [saved_metric["query"].get("fingerprint") for saved_metric in response.json()["saved_metrics"]]
+        self.assertEqual(len(fingerprints), 2)
+        self.assertTrue(all(fingerprints))
 
     def _create_experiment_with_action_metrics(self, index: int) -> tuple[Experiment, Action]:
         action = Action.objects.create(team=self.team, name=f"Action {index}", steps_json=[{"event": f"event_{index}"}])

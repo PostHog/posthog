@@ -294,7 +294,7 @@ class TestCalculationSpec(BaseTest):
             ("non_object_cuped_settings", {"stats_config": {"cuped": ["enabled"]}}),
         ]
     )
-    def test_configuration_the_runner_rejects_still_gets_a_key(self, _name: str, overrides: dict[str, Any]) -> None:
+    def test_malformed_stored_configuration_still_gets_a_key(self, _name: str, overrides: dict[str, Any]) -> None:
         experiment = self._experiment(**overrides)
         self._add_metric(experiment, "mean", "inline")
 
