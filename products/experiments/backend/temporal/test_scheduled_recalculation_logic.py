@@ -1,3 +1,4 @@
+import contextlib
 from datetime import timedelta
 from types import SimpleNamespace
 from typing import Any
@@ -35,7 +36,9 @@ def _metric() -> dict[str, Any]:
     return {"kind": "ExperimentMetric", "metric_type": "mean", "uuid": str(uuid4())}
 
 
-@time_machine.travel("2026-09-15T12:00:00Z", tick=False)
+# Pinned at the default recalculation hour: a team with no config falls to hour 2, so a
+# test that does not care about the hour still sees its experiments selected.
+@time_machine.travel("2026-09-15T02:30:00Z", tick=False)
 class TestScheduledRecalculationLogic(BaseTest):
     def _experiment(self, *, team: Team | None = None, started_hours_ago: float = 48, **overrides: Any) -> Experiment:
         team = team or self.team
@@ -53,12 +56,23 @@ class TestScheduledRecalculationLogic(BaseTest):
         defaults.update(overrides)
         return Experiment.objects.create(**defaults)
 
-    def _candidate_ids(self, hour: int) -> set[int]:
-        with patch(
-            "products.experiments.backend.temporal.scheduled_recalculation_logic.feature_enabled_or_false",
-            return_value=True,
+    def _candidate_ids(self, hour: int | None = None) -> set[int]:
+        # Discovery reads the hour from the clock, so a case that cares about the hour selects it
+        # by travelling there. The minute stays at :30 so an age measured from the class instant
+        # does not move.
+        clock = (
+            time_machine.travel(f"2026-09-15T{hour:02d}:30:00Z", tick=False)
+            if hour is not None
+            else contextlib.nullcontext()
+        )
+        with (
+            clock,
+            patch(
+                "products.experiments.backend.temporal.scheduled_recalculation_logic.feature_enabled_or_false",
+                return_value=True,
+            ),
         ):
-            return {c.experiment_id for c in find_scheduled_recalculation_candidates(hour)}
+            return {c.experiment_id for c in find_scheduled_recalculation_candidates().candidates}
 
     def test_default_hour_picks_up_team_without_config(self):
         experiment = self._experiment()
@@ -103,7 +117,7 @@ class TestScheduledRecalculationLogic(BaseTest):
         # read the same instant or they fall a hair outside it. The class-level clock pin
         # guarantees that.
         experiment = self._experiment(started_hours_ago=started_hours_ago)
-        assert (experiment.id in self._candidate_ids(2)) is expected
+        assert (experiment.id in self._candidate_ids()) is expected
 
     def test_experiment_without_metrics_is_a_candidate(self):
         experiment = self._experiment(metrics=[])
@@ -115,7 +129,7 @@ class TestScheduledRecalculationLogic(BaseTest):
             "products.experiments.backend.temporal.scheduled_recalculation_logic.feature_enabled_or_false",
             return_value=False,
         ):
-            assert find_scheduled_recalculation_candidates(2) == []
+            assert find_scheduled_recalculation_candidates().candidates == []
 
     def test_flag_is_evaluated_once_per_team(self):
         for _ in range(3):
@@ -124,7 +138,7 @@ class TestScheduledRecalculationLogic(BaseTest):
             "products.experiments.backend.temporal.scheduled_recalculation_logic.feature_enabled_or_false",
             return_value=True,
         ) as flag:
-            find_scheduled_recalculation_candidates(2)
+            find_scheduled_recalculation_candidates()
         assert flag.call_count == 1
 
     def test_no_recalculations_means_no_skip(self):

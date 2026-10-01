@@ -49,6 +49,14 @@ class ScheduledRecalculationCandidate:
 
 
 @frozen
+class ScheduledRecalculationDiscovery:
+    """One hour's candidates, with the hour the run resolved, so callers report what it selected for."""
+
+    hour: int
+    candidates: list[ScheduledRecalculationCandidate]
+
+
+@frozen
 class SkipDecision:
     reason: str
     detail: dict[str, str | int | float | None]
@@ -65,8 +73,11 @@ def team_has_scheduled_recalculation_enabled(team_id: int, organization_id: str)
     )
 
 
-def find_scheduled_recalculation_candidates(hour: int) -> list[ScheduledRecalculationCandidate]:
-    """Experiments eligible for a scheduled recalculation at `hour`, before the exposure gate.
+def find_scheduled_recalculation_candidates() -> ScheduledRecalculationDiscovery:
+    """Experiments eligible for a scheduled recalculation right now, before the exposure gate.
+
+    Reads the hour itself rather than taking it as a parameter, so one hourly schedule serves
+    every team. An activity may read a clock; a workflow body may not.
 
     Deliberately applies no metrics filter: an experiment with no metrics gets a run, and the
     recalculation workflow completes it immediately.
@@ -78,6 +89,7 @@ def find_scheduled_recalculation_candidates(hour: int) -> list[ScheduledRecalcul
     )
 
     now = timezone.now()
+    hour = now.hour
     if hour == DEFAULT_EXPERIMENT_RECALCULATION_HOUR:
         time_filter = (
             Q(team__teamexperimentsconfig__experiment_recalculation_time__hour=hour)
@@ -115,7 +127,7 @@ def find_scheduled_recalculation_candidates(hour: int) -> list[ScheduledRecalcul
         )
 
     logger.info("scheduled_recalculation_candidates", hour=hour, count=len(candidates))
-    return candidates
+    return ScheduledRecalculationDiscovery(hour=hour, candidates=candidates)
 
 
 def recent_recalculation_skip(experiment: Experiment, team_id: int) -> SkipDecision | None:
