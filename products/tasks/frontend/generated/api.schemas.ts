@@ -4905,6 +4905,19 @@ export interface TasksUserConfigResponseApi {
     ai_run_preferences: TasksAIRunPreferencesApi
     /** The defaults a new run will use when no explicit runtime selection is sent. */
     resolved_ai_run_defaults: TasksResolvedAIRunDefaultsApi
+    /** Your personal instructions, written into cloud task runs you start, after the project instructions. Empty when unset. */
+    agent_instructions: string
+}
+
+/**
+ * Markdown instructions written into cloud task runs as the agent's user-level AGENTS.md.
+ */
+export interface TasksAgentInstructionsApi {
+    /**
+     * Markdown instructions the agent reads in every eligible cloud task run, the same way it reads a local AGENTS.md. Send an empty string to clear.
+     * @maxLength 20000
+     */
+    agent_instructions: string
 }
 
 /**
@@ -4931,6 +4944,8 @@ export interface WizardCloudRunDTOApi {
 export interface TasksTeamConfigResponseApi {
     /** Project-wide default AI run triple; all fields null when unset. */
     ai_run_preferences: TasksAIRunPreferencesApi
+    /** Project instructions written into every eligible cloud task run, including autonomous runs such as scouts and loops. Empty when unset. */
+    agent_instructions: string
 }
 
 /**

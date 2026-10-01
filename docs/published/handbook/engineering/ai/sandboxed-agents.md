@@ -109,6 +109,25 @@ or state updates. The run PATCH endpoint silently ignores attempts to replace, r
 to this key, including requests from the sandbox itself. The run detail endpoint serves the prompt
 only to the task-bound sandbox, so it can initialize the agent session.
 
+### Agent instructions
+
+A project can store instructions that every cloud run loads like a user-level `AGENTS.md`
+(Settings > AI > Agent instructions). Each member can add personal instructions on top.
+At run start the worker renders the levels that apply into `state.agent_instructions`:
+
+- Runs a person starts get the project and personal instructions.
+- Autonomous runs (loops, workflows, signal reports, scouts, support replies, ReviewHog) get the
+  project instructions only.
+- Internal tasks and PostHog AI runs get neither.
+
+The key is server-owned like `systemPrompt`, and a sandbox token cannot change the stored settings.
+Before the agent starts, the sandbox writes the text into a marked block in each harness's
+user-level file: `$CLAUDE_CONFIG_DIR/CLAUDE.md` (default `~/.claude`), `$CODEX_HOME/AGENTS.md`
+(default `~/.codex`) and `~/.pi/agent/AGENTS.md`. Content outside the block is kept. A run
+without the key removes the block, so a resumed run never keeps cleared instructions. A warm
+run receives its activating user's instructions as context with its first message, because
+its session started before that user was known.
+
 ## Creating a sandboxed agent
 
 Use `Task.create_and_run()` to launch a sandboxed agent from your product code:

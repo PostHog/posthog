@@ -103534,6 +103534,17 @@ export namespace Schemas {
     }
 
     /**
+     * Markdown instructions written into cloud task runs as the agent's user-level AGENTS.md.
+     */
+    export interface TasksAgentInstructions {
+      /**
+         * Markdown instructions the agent reads in every eligible cloud task run, the same way it reads a local AGENTS.md. Send an empty string to clear.
+         * @maxLength 20000
+         */
+      agent_instructions: string;
+    }
+
+    /**
      * * `user` - user
      * * `team` - team
      * * `none` - none
@@ -103583,6 +103594,8 @@ export namespace Schemas {
     export interface TasksTeamConfigResponse {
       /** Project-wide default AI run triple; all fields null when unset. */
       ai_run_preferences: TasksAIRunPreferences;
+      /** Project instructions written into every eligible cloud task run, including autonomous runs such as scouts and loops. Empty when unset. */
+      agent_instructions: string;
     }
 
     /**
@@ -103593,6 +103606,8 @@ export namespace Schemas {
       ai_run_preferences: TasksAIRunPreferences;
       /** The defaults a new run will use when no explicit runtime selection is sent. */
       resolved_ai_run_defaults: TasksResolvedAIRunDefaults;
+      /** Your personal instructions, written into cloud task runs you start, after the project instructions. Empty when unset. */
+      agent_instructions: string;
     }
 
     export interface TeachingCanvas {

@@ -21,6 +21,10 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { PersonalPosthogConnections } from 'lib/integrations/PosthogConnect'
 import { DefaultMinimumDetectableEffect } from 'scenes/experiments/DefaultMinimumDetectableEffect'
 import { GitHub, Linear, Slack } from 'scenes/integrations/definitions'
+import {
+    AgentPersonalInstructionsSettings,
+    AgentProjectInstructionsSettings,
+} from 'scenes/settings/environment/AgentInstructionsSettings'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
 import { CookielessServerHashModeSetting } from 'scenes/settings/environment/CookielessServerHashMode'
@@ -419,6 +423,30 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Connect your ChatGPT account so your Codex cloud tasks can run on your own ChatGPT plan. The connection is yours and applies in every project.',
                 component: <PersonalCodexIntegration />,
                 keywords: ['codex', 'chatgpt', 'openai', 'subscription', 'plan', 'billing', 'cloud', 'personal'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-task-agent-instructions',
+        title: 'Agent instructions',
+        group: 'AI',
+        settings: [
+            {
+                id: 'task-agent-project-instructions',
+                title: 'Project instructions',
+                description:
+                    'Instructions every cloud agent run on this project reads as its AGENTS.md, including scheduled and automated runs. Use them for project conventions. PostHog AI chats do not use them.',
+                component: <AgentProjectInstructionsSettings />,
+                keywords: ['ai', 'agent', 'agents.md', 'claude.md', 'instructions', 'tasks', 'cloud', 'project'],
+            },
+            {
+                id: 'task-agent-my-instructions',
+                title: 'My instructions',
+                description:
+                    'Instructions added after the project instructions on cloud agent runs you start, in the web app, in Slack, and in PostHog Desktop. Scheduled and automated runs do not use them.',
+                component: <AgentPersonalInstructionsSettings />,
+                keywords: ['ai', 'agent', 'agents.md', 'claude.md', 'instructions', 'tasks', 'cloud', 'personal'],
             },
         ],
     },

@@ -27,6 +27,7 @@ from posthog.security.url_validation import is_url_allowed, resolve_url_hosts_ip
 from posthog.temporal.oauth import POSTHOG_CODE_OAUTH_APP_CLIENT_IDS
 
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.agent_instructions import AGENT_INSTRUCTIONS_MAX_LENGTH
 from products.tasks.backend.facade.api import CHANNEL_INSTRUCTIONS_MAX_BYTES
 from products.tasks.backend.facade.client_provenance import is_api_key_request, is_sandbox_oauth_request
 from products.tasks.backend.facade.contracts import (
@@ -5149,12 +5150,32 @@ class TasksResolvedAIRunDefaultsSerializer(serializers.Serializer):
     )
 
 
+class TasksAgentInstructionsSerializer(serializers.Serializer):
+    """Markdown instructions written into cloud task runs as the agent's user-level AGENTS.md."""
+
+    agent_instructions = serializers.CharField(
+        allow_blank=True,
+        max_length=AGENT_INSTRUCTIONS_MAX_LENGTH,
+        trim_whitespace=False,
+        help_text=(
+            "Markdown instructions the agent reads in every eligible cloud task run, the same way it "
+            "reads a local AGENTS.md. Send an empty string to clear."
+        ),
+    )
+
+
 @extend_schema_serializer(many=False)
 class TasksTeamConfigResponseSerializer(serializers.Serializer):
     """Team-level tasks configuration."""
 
     ai_run_preferences = TasksAIRunPreferencesSerializer(
         help_text="Project-wide default AI run triple; all fields null when unset."
+    )
+    agent_instructions = serializers.CharField(
+        help_text=(
+            "Project instructions written into every eligible cloud task run, including autonomous "
+            "runs such as scouts and loops. Empty when unset."
+        )
     )
 
 
@@ -5167,6 +5188,12 @@ class TasksUserConfigResponseSerializer(serializers.Serializer):
     )
     resolved_ai_run_defaults = TasksResolvedAIRunDefaultsSerializer(
         help_text="The defaults a new run will use when no explicit runtime selection is sent."
+    )
+    agent_instructions = serializers.CharField(
+        help_text=(
+            "Your personal instructions, written into cloud task runs you start, after the project "
+            "instructions. Empty when unset."
+        )
     )
 
 
