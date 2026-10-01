@@ -51,6 +51,17 @@ export function panes(node: LayoutNode): PaneNode[] {
   return node.kind === "pane" ? [node] : node.children.flatMap(panes);
 }
 
+export function allPanes(state: LayoutState): PaneNode[] {
+  return state.workspaces.flatMap((w) => panes(w.root));
+}
+
+export function findPane(
+  state: LayoutState,
+  paneId: string,
+): PaneNode | undefined {
+  return allPanes(state).find((pane) => pane.id === paneId);
+}
+
 export function activeWorkspace(state: LayoutState): Workspace {
   return (
     state.workspaces.find((w) => w.id === state.activeWorkspaceId) ??
@@ -132,9 +143,7 @@ export function openTask(
   taskId: string,
   title?: string,
 ): LayoutState {
-  const open = state.workspaces
-    .flatMap((w) => panes(w.root))
-    .find((pane) => pane.taskId === taskId);
+  const open = allPanes(state).find((pane) => pane.taskId === taskId);
   if (open) return focusPane(state, open.id);
 
   const active = activeWorkspace(state);

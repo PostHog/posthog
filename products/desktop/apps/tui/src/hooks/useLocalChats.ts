@@ -8,7 +8,7 @@ import {
 } from "react";
 import { currentRepository, type PiChats } from "../chats";
 import { messageOf } from "../errors";
-import { type LayoutState, panes, renameTask } from "../layout";
+import { allPanes, type LayoutState, renameTask } from "../layout";
 import { type LocalSession, runningLocals } from "../local";
 import { LEGACY_PREFIX, LocalChats, linkLocalChats } from "../localChats";
 import type { AgentPrompt } from "../prompts";
@@ -147,8 +147,7 @@ export function useLocalChats({
   }, [chats, localChats, refreshActive, setLayout, setFresh]);
 
   // Local chats in the layout come back after a restart, from their saved pi sessions.
-  const localIds = layout.workspaces
-    .flatMap((w) => panes(w.root))
+  const localIds = allPanes(layout)
     .flatMap((pane) => (isLocal(pane.taskId) ? [pane.taskId] : []))
     .join();
   const startLocalChat = useRef(localFor);
