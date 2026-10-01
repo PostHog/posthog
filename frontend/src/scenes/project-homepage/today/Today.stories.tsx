@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { within } from '@testing-library/dom'
+import { fireEvent, waitFor, within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 import { ReactNode } from 'react'
 
@@ -9,6 +9,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
+import { todayListAppearanceLogic } from '~/layout/today/todayListAppearanceLogic'
 import { sessionPreview, spacePreview } from '~/layout/today/todayPreviewCards'
 import { DEFAULT_RECENT_FILTERS } from '~/layout/today/todayRecentFilters'
 import { TodaySessionHoverCard } from '~/layout/today/TodaySessionHoverCard'
@@ -429,7 +430,8 @@ export const SpacesPane: Story = {
     },
 }
 
-// Hovering a space row shows only its "…" menu, so the faces and the unread dot keep their place.
+// A hovered space row shows no buttons, so the faces and the unread dot keep their place.
+// Its actions, New session first, are in the hover card that opens beside it.
 export const SpacesPaneHoveringSpaceRow: Story = {
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
@@ -438,6 +440,8 @@ export const SpacesPaneHoveringSpaceRow: Story = {
         const row = labels.find((label) => label.closest('[data-attr="today-space-row"]'))
         if (row) {
             await userEvent.hover(row)
+            // The card opens in a portal outside the story's canvas.
+            await within(document.body).findByText('New session')
         }
     },
 }
@@ -494,6 +498,65 @@ export const SpacePageFiltered: Story = {
     parameters: { pageUrl: urls.taskSpace('space-checkout') },
 }
 
+// Right-click at the target's corner, where a person would, so the menu opens beside it.
+function rightClick(target: Element): void {
+    const { left, top } = target.getBoundingClientRect()
+    fireEvent.contextMenu(target, { clientX: left + 8, clientY: top + 8 })
+}
+
+async function sidebarRow(canvasElement: HTMLElement, label: string, rowAttr: string): Promise<Element> {
+    return await waitFor(() => {
+        const labels = within(canvasElement).getAllByText(label)
+        const row = labels.find((element) => element.closest(`[data-attr="${rowAttr}"]`))
+        if (!row) {
+            throw new Error(`No "${label}" text inside a [data-attr="${rowAttr}"] row`)
+        }
+        return row
+    })
+}
+
+// Right-clicking a session row opens the same actions as its hover card.
+export const SpacesPaneSessionContextMenu: Story = {
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByLabelText('Spaces'))
+        const row = await sidebarRow(canvasElement, 'Add a retry to the billing webhook', 'today-recent-session')
+        rightClick(row)
+        await within(document.body).findByText('Open in new tab')
+    },
+}
+
+// Right-clicking a space row opens its actions, New session first, like its hover card.
+export const SpacesPaneSpaceContextMenu: Story = {
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByLabelText('Spaces'))
+        const row = await sidebarRow(canvasElement, 'checkout', 'today-space-row')
+        rightClick(row)
+        await within(document.body).findByText('New session')
+    },
+}
+
+// With two sessions picked, right-clicking one of them offers the selection's actions instead of the row's.
+export const SpacesPaneSelectedSessionsContextMenu: Story = {
+    parameters: { pageUrl: urls.taskSpace('space-checkout') },
+    play: async ({ canvasElement }) => {
+        await within(canvasElement).findAllByText('Add a retry to the billing webhook')
+        todaySessionSelectionLogic.actions.setSelection({ ids: ['task-pinned', 'task-1'], anchorId: 'task-1' })
+        const row = await sidebarRow(canvasElement, 'Add a retry to the billing webhook', 'today-recent-session')
+        rightClick(row)
+        await within(document.body).findByText('Pin 2 sessions')
+    },
+}
+
+// Right-clicking a card in a space's feed opens the same actions as its "…" menu.
+export const SpaceFeedCardContextMenu: Story = {
+    parameters: { pageUrl: urls.taskSpace('space-checkout') },
+    play: async ({ canvasElement }) => {
+        const row = await sidebarRow(canvasElement, 'Add a retry to the billing webhook', 'today-space-feed-card')
+        rightClick(row)
+        await within(document.body).findByText('Open in new tab')
+    },
+}
+
 export const SpacesBrowse: Story = {
     parameters: { pageUrl: urls.taskSpaces() },
 }
@@ -528,6 +591,8 @@ export const NarrowWindowWithSidebar: Story = {
 }
 
 // The card opens on hover, which a static story can't hold, so these render its contents in the same frame.
+const noop = (): void => {}
+
 function HoverCardFrame({ children }: { children: ReactNode }): JSX.Element {
     return (
         <div className="p-4">
@@ -559,8 +624,13 @@ export const SessionHoverCard: Story = {
                         pinned: true,
                         pullRequestStates: { 'https://github.com/example-org/webapp/pull/421': 'merged' },
                         spaceNames: { 'space-checkout': 'checkout' },
+                        menuId: 'story-card',
+                        // The author, who can hand the session off, so the card lists every action a finished session has.
+                        userId: 179,
                     }
                 )}
+                onAction={noop}
+                onSubmenuOpenChange={noop}
             />
         </HoverCardFrame>
     ),
@@ -579,7 +649,28 @@ export const SpaceHoverCard: Story = {
                     { people: [GRACE, ADA], liveUuids: [GRACE.uuid] },
                     '2026-09-28T18:28:00Z'
                 )}
+                onAction={noop}
             />
         </HoverCardFrame>
     ),
+}
+
+// The details are picked through the logic, where the dialog saves them, so each session row shows a second line.
+export const SpacesPaneWithListItemDetails: Story = {
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByLabelText('Spaces'))
+        await within(canvasElement).findAllByText('Add a retry to the billing webhook')
+        todayListAppearanceLogic.actions.setFields(['repository', 'activity'])
+    },
+}
+
+export const ListItemAppearanceDialog: Story = {
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByLabelText('Spaces'))
+        await within(canvasElement).findAllByText('Add a retry to the billing webhook')
+        todayListAppearanceLogic.actions.setFields(['space', 'branch'])
+        todayListAppearanceLogic.actions.openAppearanceDialog()
+        // The dialog opens in a portal outside the story's canvas.
+        await within(document.body).findByText('Edit list item appearance')
+    },
 }
