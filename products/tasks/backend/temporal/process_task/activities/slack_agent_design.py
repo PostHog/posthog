@@ -156,6 +156,7 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
     from products.tasks.backend.logic.services.living_artifacts import (
         SlackFileDeliveryResult,
         attach_streamed_slack_files,
+        deliver_pending_slack_file_artifacts,
         stream_pending_slack_attachments,
     )
     from products.tasks.backend.models import TaskRun
@@ -194,5 +195,8 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
                 attach_streamed_slack_files(
                     task_run, delivery, attach_files=lambda file_ids: handler.attach_files(input.ts, file_ids)
                 )
+        if handler.stream_ended and task_run is not None:
+            # A closed stream takes no cards, so whatever is still pending posts under the answer as its own message.
+            deliver_pending_slack_file_artifacts(task_run)
     except Exception as e:
         logger.warning("slack_app_stop_agent_design_stream_failed", error=str(e))
