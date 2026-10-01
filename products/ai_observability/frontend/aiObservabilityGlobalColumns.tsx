@@ -6,7 +6,7 @@ import { AIObservabilityGlobalColumnCell } from './AIObservabilityGlobalColumnCe
 function globalColumn(rendererKey: string): QueryContextColumn {
     return {
         render: function AIObservabilityGlobalColumn(props) {
-            return <AIObservabilityGlobalColumnCell rendererKey={rendererKey} {...props} />
+            return <AIObservabilityGlobalColumnCell {...props} rendererKey={rendererKey} />
         },
     }
 }
