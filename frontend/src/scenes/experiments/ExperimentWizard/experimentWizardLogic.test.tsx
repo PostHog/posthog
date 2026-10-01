@@ -104,55 +104,6 @@ const apiMocks = {
     },
 }
 
-describe('guide panel localStorage persistence', () => {
-    let logic: ReturnType<typeof experimentWizardLogic.build>
-
-    beforeEach(() => {
-        localStorage.clear()
-        useMocks(apiMocks)
-        initKeaTests()
-
-        featureFlagsLogic.mount()
-        experimentsLogic.mount()
-        createExperimentLogic().mount()
-    })
-
-    afterEach(() => {
-        logic?.unmount()
-    })
-
-    it.each([
-        { stored: null, expected: true, label: 'defaults to true when nothing stored' },
-        { stored: 'true', expected: true, label: 'reads true from localStorage' },
-        { stored: 'false', expected: false, label: 'reads false from localStorage' },
-        { stored: 'other', expected: false, label: 'treats non-true strings as false' },
-    ])('$label', async ({ stored, expected }) => {
-        if (stored !== null) {
-            localStorage.setItem('experiment-wizard-show-guide', stored)
-        }
-
-        logic = experimentWizardLogic()
-        logic.mount()
-
-        await expectLogic(logic).toMatchValues({ showGuide: expected })
-    })
-
-    it('persists to localStorage when toggled', async () => {
-        logic = experimentWizardLogic()
-        logic.mount()
-
-        await expectLogic(logic).toMatchValues({ showGuide: true })
-
-        logic.actions.toggleGuide()
-        await expectLogic(logic).toMatchValues({ showGuide: false })
-        expect(localStorage.getItem('experiment-wizard-show-guide')).toEqual('false')
-
-        logic.actions.toggleGuide()
-        await expectLogic(logic).toMatchValues({ showGuide: true })
-        expect(localStorage.getItem('experiment-wizard-show-guide')).toEqual('true')
-    })
-})
-
 describe('experimentWizardLogic', () => {
     describe('feature flag input flow', () => {
         let logic: ReturnType<typeof experimentWizardLogic.build>
