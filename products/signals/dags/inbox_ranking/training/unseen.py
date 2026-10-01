@@ -55,6 +55,8 @@ POOL_NAME = "newborn"
 LEGACY_POOL_NAME = "sampled"
 
 UNSEEN_SCORES_TABLE = "inbox_ranking_unseen_scores"
+# The scoring sweep's own birth-day scores of the same pool, in the same schema (`training/served.py`).
+SERVED_SCORES_TABLE = "inbox_ranking_served_scores"
 
 CANDIDATE_ROLE = "candidate"
 CHAMPION_ROLE = "champion"

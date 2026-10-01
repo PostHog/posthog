@@ -41,6 +41,8 @@ import type {
   OrganizationMemberBasic,
   PriorityJudgmentArtefact,
   ProvisionedTaskChannels,
+  RankingModelResult,
+  RankingScoreArtefact,
   RepoSelectionArtefact,
   SafetyJudgmentArtefact,
   SandboxCustomImage,
@@ -77,6 +79,8 @@ import type {
   TaskSearchResultRun,
   TaskThreadMessage,
   UserBasic,
+  WorkClaimArtefact,
+  WorkReleaseArtefact,
 } from "@posthog/shared/domain-types";
 import { buildPosthogProjectHeaderRecord } from "@posthog/shared/posthog-property-headers";
 import {
@@ -415,7 +419,8 @@ export interface TaskSessionStorageAccess {
  * free-form column on the backend `Comment` model, so adding a resource is a
  * new member here plus a caller — no migration and no endpoint.
  */
-export type CommentScope = "task_artifact" | "desktop_canvas" | "task";
+export const COMMENT_SCOPES = ["task_artifact", "canvas", "task"] as const;
+export type CommentScope = (typeof COMMENT_SCOPES)[number];
 
 /** Named `Resource*` so it never collides with the DOM's global `Comment`.
  * Optimistic rows do not have a server version yet, while item_context is a
@@ -1139,6 +1144,7 @@ export interface CloudRunOptions {
 }
 
 export type CloudRunCommandMethod =
+  | "pi/rpc"
   | "user_message"
   | "permission_response"
   | "set_config_option"
@@ -1359,7 +1365,10 @@ type AnyArtefact =
   | LineReferenceArtefact
   | CommitArtefact
   | TaskRunArtefact
-  | NoteArtefact;
+  | NoteArtefact
+  | WorkClaimArtefact
+  | WorkReleaseArtefact
+  | RankingScoreArtefact;
 
 // Reasons valid on a dismissal artefact. Resolve reasons are included because the
 // backend stores resolve feedback on the same artefact type (a resolve writes a
@@ -1701,6 +1710,104 @@ function normalizeNoteArtefact(
   };
 }
 
+function normalizeWorkClaimArtefact(
+  value: Record<string, unknown>,
+): WorkClaimArtefact | null {
+  const id = optionalString(value.id);
+  if (!id || !isObjectRecord(value.content)) return null;
+  return {
+    id,
+    type: "work_claim",
+    ...artefactBase(value),
+    content: { display_name: optionalString(value.content.display_name) },
+  };
+}
+
+function normalizeWorkReleaseArtefact(
+  value: Record<string, unknown>,
+): WorkReleaseArtefact | null {
+  const id = optionalString(value.id);
+  if (!id || !isObjectRecord(value.content)) return null;
+  const reason = value.content.reason;
+  if (reason !== "released" && reason !== "taken_over") return null;
+  return {
+    id,
+    type: "work_release",
+    ...artefactBase(value),
+    content: { reason },
+  };
+}
+
+function normalizeRankingModelResult(
+  key: string,
+  value: unknown,
+): RankingModelResult | null {
+  if (!isObjectRecord(value)) return null;
+  const status = value.status;
+  if (status !== "scored" && status !== "skipped") return null;
+  // Mirrors `readable_head_names` in `ranking/model_contract.py`.
+  const metadataHeads =
+    isObjectRecord(value.metadata) && Array.isArray(value.metadata.heads)
+      ? value.metadata.heads
+      : [];
+  const readable = new Set(
+    metadataHeads
+      .filter((entry) => isObjectRecord(entry) && entry.readable === true)
+      .map((entry) => String((entry as Record<string, unknown>).head)),
+  );
+  const scores = isObjectRecord(value.scores) ? value.scores : {};
+  const heads = Object.entries(scores)
+    .filter(
+      (entry): entry is [string, number] =>
+        typeof entry[1] === "number" && Number.isFinite(entry[1]),
+    )
+    .map(([name, probability]) => ({
+      name,
+      probability,
+      readable: readable.has(name),
+    }))
+    .sort((a, b) => b.probability - a.probability);
+  return {
+    key,
+    roles: Array.isArray(value.roles)
+      ? value.roles.filter((role): role is string => typeof role === "string")
+      : [],
+    status,
+    skip_reason: optionalString(value.skip_reason),
+    heads,
+  };
+}
+
+/** Null when the content does not parse or `served_key` is missing from `results`. */
+function normalizeRankingScoreArtefact(
+  value: Record<string, unknown>,
+): RankingScoreArtefact | null {
+  const id = optionalString(value.id);
+  if (!id || !isObjectRecord(value.content)) return null;
+  const c = value.content;
+  const servedKey = optionalString(c.served_key);
+  if (!servedKey || !isObjectRecord(c.results)) return null;
+  const models = Object.entries(c.results).map(([key, result]) =>
+    normalizeRankingModelResult(key, result),
+  );
+  const served = models.find((model) => model?.key === servedKey);
+  if (!served) return null;
+  return {
+    id,
+    type: "ranking_score",
+    ...artefactBase(value),
+    content: {
+      scored_at: optionalString(c.scored_at),
+      manifest_version: optionalString(c.manifest_version),
+      served,
+      challengers: models.filter(
+        (model): model is RankingModelResult =>
+          !!model && model.key !== servedKey,
+      ),
+    },
+  };
+}
+
 /** Best human-readable one-liner from arbitrary artefact content. */
 function contentPreview(content: unknown): string {
   if (typeof content === "string") return content;
@@ -1800,6 +1907,21 @@ function normalizeSignalReportArtefact(value: unknown): AnyArtefact | null {
   }
   if (dispatchType === "note") {
     return normalizeNoteArtefact(value) ?? normalizeFallbackArtefact(value);
+  }
+  if (dispatchType === "work_claim") {
+    return (
+      normalizeWorkClaimArtefact(value) ?? normalizeFallbackArtefact(value)
+    );
+  }
+  if (dispatchType === "work_release") {
+    return (
+      normalizeWorkReleaseArtefact(value) ?? normalizeFallbackArtefact(value)
+    );
+  }
+  if (dispatchType === "ranking_score") {
+    return (
+      normalizeRankingScoreArtefact(value) ?? normalizeFallbackArtefact(value)
+    );
   }
 
   const id = optionalString(value.id);
@@ -3003,10 +3125,9 @@ export class PostHogAPIClient {
       "/api/projects/{project_id}/external_data_sources/{id}/bulk_update_schemas/",
       {
         path: { project_id: projectId.toString(), id: sourceId },
-        query: {},
         body: {
           schemas,
-        } as unknown as Schemas.PatchedExternalDataSourceBulkUpdateSchemas,
+        } as unknown as Schemas.ExternalDataSourceBulkUpdateSchemas,
         withResponse: true,
         throwOnStatusError: false,
       },
@@ -3216,6 +3337,14 @@ export class PostHogAPIClient {
     return normalizeTaskResponse(data, { teamId });
   }
 
+  async getTaskReview(taskId: string, page = 1): Promise<Schemas.TaskReview> {
+    const teamId = await this.getTeamId();
+    return this.api.get("/api/projects/{project_id}/tasks/{id}/review/", {
+      path: { project_id: teamId.toString(), id: taskId },
+      query: { page },
+    });
+  }
+
   async getTaskUsage(taskId: string): Promise<TaskUsage> {
     const teamId = await this.getTeamId();
     const urlPath = `/api/projects/${teamId}/tasks/${taskId}/usage/`;
@@ -3314,6 +3443,7 @@ export class PostHogAPIClient {
 
     const data = await this.withCloudUsageLimitCheck(() =>
       this.api.post(`/api/projects/{project_id}/tasks/`, {
+        header: {},
         path: { project_id: teamId.toString() },
         body: {
           ...taskOptions,
@@ -4311,6 +4441,7 @@ export class PostHogAPIClient {
 
     const data = await this.withCloudUsageLimitCheck(() =>
       this.api.post(`/api/projects/{project_id}/tasks/{id}/run/`, {
+        header: {},
         path: { project_id: teamId.toString(), id: taskId },
         body,
       }),
@@ -5442,6 +5573,59 @@ export class PostHogAPIClient {
     }
   }
 
+  async getReportReadStates(
+    reportIds: string[],
+    read?: boolean,
+  ): Promise<Record<string, boolean>> {
+    const teamId = await this.getTeamId();
+    const data = await this.api.post(
+      "/api/projects/{project_id}/signals/reports/read_state/",
+      {
+        path: { project_id: teamId.toString() },
+        body: {
+          report_ids: reportIds,
+          ...(read === undefined ? {} : { read }),
+        },
+      },
+    );
+    return data.states;
+  }
+
+  private readRequests = new Map<
+    string,
+    { resolve: (read: boolean) => void; reject: (error: unknown) => void }[]
+  >();
+
+  getReportReadState(reportId: string): Promise<boolean> {
+    const pending = this.readRequests;
+    const first = pending.size === 0;
+    const result = new Promise<boolean>((resolve, reject) => {
+      pending.set(reportId, [
+        ...(pending.get(reportId) ?? []),
+        { resolve, reject },
+      ]);
+    });
+    if (first)
+      queueMicrotask(() => {
+        const entries = [...pending.entries()];
+        pending.clear();
+        for (let offset = 0; offset < entries.length; offset += 100) {
+          const batch = entries.slice(offset, offset + 100);
+          void this.getReportReadStates(batch.map(([id]) => id))
+            .then((states) => {
+              for (const [id, listeners] of batch)
+                for (const listener of listeners)
+                  listener.resolve(states[id] === true);
+            })
+            .catch((error) => {
+              for (const [, listeners] of batch)
+                for (const listener of listeners) listener.reject(error);
+            });
+        }
+      });
+    return result;
+  }
+
   async getSignalReports(
     params?: SignalReportsQueryParams,
   ): Promise<SignalReportsResponse> {
@@ -5462,6 +5646,9 @@ export class PostHogAPIClient {
     if (params?.ordering) {
       url.searchParams.set("ordering", params.ordering);
     }
+    if (params?.search) url.searchParams.set("search", params.search);
+    if (params?.unread !== undefined)
+      url.searchParams.set("unread", String(params.unread));
     if (params?.source_product) {
       url.searchParams.set("source_product", params.source_product);
     }
@@ -7676,7 +7863,7 @@ export class PostHogAPIClient {
         const [issue, totals, daily] = await Promise.all([
           this.api.get(
             "/api/projects/{project_id}/error_tracking/issues/{id}/",
-            { path: { project_id: projectId, id } },
+            { path: { project_id: projectId, id }, query: {} },
           ),
           this.runQuery({
             kind: "HogQLQuery",
@@ -7687,6 +7874,8 @@ export class PostHogAPIClient {
             query: `SELECT toDate(timestamp) AS day, count() FROM events WHERE ${scope} GROUP BY day ORDER BY day`,
           }).catch(() => ({})),
         ]);
+        if (!("id" in issue))
+          throw new Error("This issue moved. Open it in PostHog.");
         const preview = shapeErrorIssuePreview(issue);
         const totalRow = gridRows(totals)[0];
         const facts = [...(preview.facts ?? [])];

@@ -1,0 +1,206 @@
+.TodayAppLayout {
+    background: var(--today-paper);
+}
+
+.TodayShell {
+    display: flex;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+    background: transparent;
+}
+
+.TodayShell__sidebar {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    height: 100%;
+}
+
+.TodayShell__scrim {
+    position: fixed;
+    inset: 0 0 0 var(--today-rail-width);
+    z-index: var(--z-layout-navbar-under);
+    visibility: hidden;
+    background: rgb(21 21 21 / 18%);
+    opacity: 0;
+    transition:
+        opacity 240ms var(--today-ease),
+        visibility 240ms;
+
+    [theme='dark'] & {
+        background: rgb(0 0 0 / 55%);
+    }
+
+    &[data-open='true'] {
+        visibility: visible;
+        opacity: 1;
+    }
+}
+
+.TodayShell__drawer {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: var(--today-rail-width);
+    z-index: var(--z-layout-navbar);
+    max-width: calc(100vw - var(--today-rail-width) - 3rem);
+    visibility: hidden;
+    background: var(--today-paper);
+    border-right: 1px solid var(--today-line);
+    box-shadow: 24px 0 48px -24px rgb(0 0 0 / 28%);
+    opacity: 0;
+    transition:
+        transform 280ms var(--today-ease),
+        opacity 200ms var(--today-ease),
+        visibility 280ms;
+    transform: translateX(-12px);
+
+    &[data-open='true'] {
+        visibility: visible;
+        opacity: 1;
+        transform: none;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .TodayShell__scrim,
+    .TodayShell__drawer {
+        transition: none;
+    }
+}
+
+.TodayShell__pane {
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.TodayPane {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    padding: 18px 12px 0;
+}
+
+.TodayPane__filters {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.TodayPane__scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    padding: 0 4px 24px;
+    margin-top: 6px;
+    overflow-y: auto;
+    scrollbar-color: var(--today-input-border) transparent;
+    scrollbar-width: thin;
+}
+
+.TodayPane__heading {
+    margin: 26px 8px 8px;
+    letter-spacing: 0.08em;
+}
+
+.TodayPane__state {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: flex-start;
+    padding: 8px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--today-muted);
+}
+
+.TodayPaneRow {
+    display: flex;
+    gap: 9px;
+    align-items: center;
+    width: 100%;
+    min-height: 32px;
+    padding: 6px 8px;
+    font-size: 12.5px;
+    color: var(--today-body-text);
+    text-align: left;
+    border-radius: 8px;
+
+    &[data-active='true'] {
+        color: var(--today-ink);
+        background: var(--today-soft);
+    }
+
+    @media (hover: hover) and (pointer: fine) {
+        &:hover {
+            color: var(--today-ink);
+            background: var(--today-soft);
+        }
+    }
+}
+
+.TodayPaneRow__icon {
+    display: flex;
+    flex: 0 0 18px;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+
+    svg {
+        width: 16px;
+        height: 16px;
+    }
+}
+
+.TodayPaneRow__label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.TodayPaneRow__meta {
+    flex: 0 0 auto;
+    max-width: 40%;
+    overflow: hidden;
+    font-size: 10.5px;
+    color: var(--today-faint);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.TodayPaneRow__wrap:has(.TodayPaneRow__meta) {
+    .TodayPaneRow--withAction {
+        padding-right: 8px;
+    }
+
+    &:hover .TodayPaneRow__meta,
+    &:focus-within .TodayPaneRow__meta {
+        visibility: hidden;
+    }
+}
+
+.TodayPaneRow__wrap {
+    position: relative;
+
+    .TodayPaneRow--withAction {
+        padding-right: 36px;
+    }
+}
+
+.TodayPaneRow__action {
+    position: absolute;
+    top: 50%;
+    right: 4px;
+    opacity: 0;
+    transition: opacity 0.16s;
+    transform: translateY(-50%);
+
+    .TodayPaneRow__wrap:hover &,
+    .TodayPaneRow__wrap:focus-within & {
+        opacity: 1;
+    }
+}

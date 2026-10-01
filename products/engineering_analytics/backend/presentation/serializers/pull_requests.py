@@ -3,6 +3,7 @@
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from products.engineering_analytics.backend.facade.contracts import (
+    AttentionPullRequestList,
     Author,
     BranchPRMatch,
     CICardSummary,
@@ -293,6 +294,21 @@ class PullRequestListSerializer(DataclassSerializer):
             "truncated": {
                 "help_text": "True when more pull requests match than the cap; `items` is the newest `limit` rows "
                 "and the aggregate counts in ci_cards can exceed it.",
+            },
+            "limit": {"help_text": "Maximum number of pull requests returned in `items`."},
+        }
+
+
+class AttentionPullRequestListSerializer(DataclassSerializer):
+    items = PullRequestListItemSerializer(
+        many=True, help_text="Open pull requests needing attention, failing CI first, then newest, capped at `limit`."
+    )
+
+    class Meta:
+        dataclass = AttentionPullRequestList
+        extra_kwargs = {
+            "total": {
+                "help_text": "Number of open pull requests needing attention, including the ones past the cap.",
             },
             "limit": {"help_text": "Maximum number of pull requests returned in `items`."},
         }

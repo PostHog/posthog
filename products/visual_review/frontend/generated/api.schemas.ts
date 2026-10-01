@@ -291,6 +291,8 @@ export interface QuarantineInputApi {
      * @nullable
      */
     source_run_id?: string | null
+    /** Post the quarantine to the Slack channel of the team that owns the story, naming the user who quarantined it. Only Storybook snapshots have an owning team. Best effort: skipped when the story has no owning team or the project has no Slack integration. */
+    notify_owners?: boolean
     /** @nullable */
     expires_at?: string | null
 }
@@ -336,6 +338,17 @@ export interface TolerationPileupsApi {
     generated_at: string
 }
 
+/**
+ * * `review` - review
+ * * `observe` - observe
+ */
+export type PurposeEnumApi = (typeof PurposeEnumApi)[keyof typeof PurposeEnumApi]
+
+export const PurposeEnumApi = {
+    Review: 'review',
+    Observe: 'observe',
+} as const
+
 export type SearchMatchTypeEnumApi = (typeof SearchMatchTypeEnumApi)[keyof typeof SearchMatchTypeEnumApi]
 
 export const SearchMatchTypeEnumApi = {
@@ -357,6 +370,11 @@ export type RunApiMetadata = { [key: string]: unknown }
 
 export interface RunApi {
     approved_by?: UserBasicInfoApi | null
+    /** Why CI submitted the run. `review` runs gate the PR and need approval. `observe` runs are tracking-only, for example default-branch pushes and merge-queue runs, and can never be approved.
+     *
+     * * `review` - review
+     * * `observe` - observe */
+    readonly purpose: PurposeEnumApi
     /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of branch/run type, a commit SHA prefix, or an exact PR number) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`.
      *
      * * `exact` - exact
@@ -550,6 +568,15 @@ export interface ApproveRunRequestInputApi {
     snapshots: ApproveSnapshotInputApi[]
 }
 
+export interface CompleteRunInputApi {
+    /**
+     * Numeric GitHub Actions job ID of the CI job that completes the run, from `${{ job.check_run_id }}`. Recompute re-runs this job, so it re-reads the verdict without capturing the snapshots again. Omit it outside GitHub Actions.
+     * @maxLength 32
+     * @pattern ^\d+$
+     */
+    check_run_id?: string
+}
+
 export interface FinalizeRunRequestInputApi {
     /** Approve every still-pending changed and new snapshot before finalizing (tolerated snapshots are left untouched). Leave false to finalize a run you've already reviewed — finalizing fails if any changed/new snapshot is still unreviewed. */
     approve_all?: boolean
@@ -628,7 +655,7 @@ export interface PaginatedSnapshotListApi {
     /** @nullable */
     previous?: string | null
     results: SnapshotApi[]
-    /** Count of this run's snapshots whose identifier is currently quarantined. Excluded from results unless include_quarantined=true is passed. */
+    /** Count of this run's snapshots that match the other filters and whose identifier is currently quarantined. Excluded from results unless include_quarantined=true is passed. */
     quarantined_count?: number
 }
 
@@ -810,6 +837,10 @@ export type VisualReviewRunsSnapshotHistoryListParams = {
 
 export type VisualReviewRunsSnapshotsListParams = {
     /**
+     * Whether to leave out snapshots whose result is `unchanged`. Defaults to false. Pass true to list only the changed, new and removed snapshots, which is what a review needs. A large run holds thousands of unchanged snapshots and few changes.
+     */
+    exclude_unchanged?: boolean
+    /**
      * Whether to include snapshots whose identifier is currently quarantined. Defaults to false: quarantined snapshots are excluded from results and reported in quarantined_count instead, since they are noise when reviewing real changes.
      */
     include_quarantined?: boolean
@@ -821,6 +852,10 @@ export type VisualReviewRunsSnapshotsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Return only the snapshot with this id, read from the `id` field of a snapshot in the run. Use it to fetch one snapshot without listing the whole run.
+     */
+    snapshot_id?: string
 }
 
 export type VisualReviewRunsToleratedHashesListParams = {

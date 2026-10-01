@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
-import { LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -117,14 +117,7 @@ export function ConfigureHomeModalContent(): JSX.Element {
                         options={[
                             {
                                 value: 'launchpad' as const,
-                                label: (
-                                    <>
-                                        Launchpad{' '}
-                                        <LemonTag size="small" type="highlight" className="ml-1">
-                                            New
-                                        </LemonTag>
-                                    </>
-                                ),
+                                label: 'Launchpad',
                                 'data-attr': 'configure-home-modal-set-launchpad',
                                 tooltip: 'An AI-powered home with quick actions and recent items',
                             },

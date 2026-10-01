@@ -466,7 +466,7 @@ jobs:
                   # Selective storybook runs only render a subset of stories. Without --partial,
                   # VR would flag every untouched baseline identifier as removed.
                   VR_PARTIAL: ${{ needs.select-stories.outputs.mode == 'selective' && '--partial' || '' }}
-                  # Recorded on the run so the VR UI can re-trigger this job via the GitHub API.
+                  # The rerun target for recompute until the complete job records its own ID.
                   JOB_CHECK_RUN_ID: ${{ job.check_run_id }}
               run: |
                   # shellcheck disable=SC2086
@@ -1054,6 +1054,8 @@ jobs:
                   RUN_ID: ${{ needs.vr-setup.outputs.run_id }}
                   VR_OBSERVE: ${{ github.event_name == 'push' || needs.changes.outputs.merge_queue == 'true' }}
                   VR_TOLERATE_DRIFT: ${{ github.event_name == 'push' }}
+                  # Recompute re-runs this job, which re-reads the verdict without a new capture.
+                  JOB_CHECK_RUN_ID: ${{ job.check_run_id }}
               run: |
                   args=(--run-id "$RUN_ID" --baseline frontend/snapshots.yml --token "$VR_TOKEN")
                   if [ "$VR_OBSERVE" = 'true' ]; then

@@ -1,1 +1,1 @@
-0007_platformalertconfiguration_platformalert_and_more
+0010_alertconfiguration_evaluation_delay_intervals

@@ -70,6 +70,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     get_entity_key,
     get_multiple_variant_handling_from_experiment,
     has_activation_config,
+    resolve_filter_test_accounts,
 )
 from products.experiments.backend.hogql_queries.types import PrecomputeSkipReason
 from products.experiments.backend.hogql_queries.utils import (
@@ -941,9 +942,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             team=self.team,
             feature_flag_key=feature_flag_key,
             exposure_config=exposure_config,
-            filter_test_accounts=self.experiment.exposure_criteria.get("filterTestAccounts", True)
-            if self.experiment.exposure_criteria
-            else False,
+            filter_test_accounts=resolve_filter_test_accounts(self.experiment.exposure_criteria),
             multiple_variant_handling=multiple_variant_handling,
             variants=self.variants,
             date_range_query=self.date_range_query,

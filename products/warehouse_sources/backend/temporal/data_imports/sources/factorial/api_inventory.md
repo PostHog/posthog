@@ -49,12 +49,15 @@ Source-local notes for the Factorial (HRIS) connector. See the official referenc
   `subprojects` to incremental once the filter is verified against a live account with a future-date cutoff.
 - For genuine change tracking, Factorial also exposes `employee_updates/*` change-feed resources and webhooks
   (`api_public/webhook_subscriptions`) — candidates for a future webhook-backed iteration.
+- `employee_updates/terminations` is such a change feed, but it carries no timestamp column at all (not even
+  `created_at`), so it syncs full refresh like everything else.
 
 ## Synced endpoints (`settings.py`)
 
 | Table                 | Path                                                  | Partition key |
 | --------------------- | ----------------------------------------------------- | ------------- |
 | employees             | `/resources/employees/employees`                      | created_at    |
+| terminations          | `/resources/employee_updates/terminations`            | —             |
 | teams                 | `/resources/teams/teams`                              | —             |
 | team_memberships      | `/resources/teams/memberships`                        | —             |
 | locations             | `/resources/locations/locations`                      | —             |
@@ -68,6 +71,7 @@ Source-local notes for the Factorial (HRIS) connector. See the official referenc
 | attendance_shifts     | `/resources/attendance/shifts`                        | created_at    |
 | worked_times          | `/resources/attendance/worked_times`                  | —             |
 | expenses              | `/resources/expenses/expenses`                        | created_at    |
+| cost_centers          | `/resources/finance/cost_centers`                     | —             |
 | payroll_supplements   | `/resources/payroll/supplements`                      | created_at    |
 | flexible_time_records | `/resources/project_management/flexible_time_records` | created_at    |
 | time_records          | `/resources/project_management/time_records`          | —             |
@@ -75,6 +79,9 @@ Source-local notes for the Factorial (HRIS) connector. See the official referenc
 | candidates            | `/resources/ats/candidates`                           | created_at    |
 | job_postings          | `/resources/ats/job_postings`                         | —             |
 | applications          | `/resources/ats/applications`                         | created_at    |
+| application_phases    | `/resources/ats/application_phases`                   | —             |
+| hiring_stages         | `/resources/ats/hiring_stages`                        | —             |
+| candidate_sources     | `/resources/ats/candidate_sources`                    | —             |
 
 Primary key is the `id` column on every list resource. It is serialized as an integer on `2025-04-01` and
 `2026-04-01`, and as an opaque string on `2026-07-01` (see Identifier serialization above), so the column type is
@@ -100,6 +107,17 @@ and `time_records` on its own record id. Partition keys are `created_at` where t
   for everyone else the endpoint is a permission failure, which `get_non_retryable_errors` already maps.
 - **`contracts/compensations`** holds the salary and pay-concept lines hanging off a `contract_version_id`
   we already sync. `amount` is in the smallest currency unit.
+- **`ats/hiring_stages`** is the fixed pipeline ladder (`new` → `screening` → `interview` → `assessment` →
+  `offer` → `hired`) that every job posting's `ats/application_phases` map onto through `ats_hiring_stage_id`.
+  The two together resolve the phase and stage ids carried on each synced application.
+- **`ats/candidate_sources`** resolves the source id on a candidate into a name and a category
+  (`job_board`, `agency_or_external_recruiter`, `event`, `social_media`, `referral`, …), which is what
+  source-of-hire reporting breaks down by.
+- **`finance/cost_centers`** is the cost allocation lookup. It carries counts of assigned employees but not the
+  assignments themselves — those live in `finance/cost_center_memberships`, which is not synced yet.
+- **`employee_updates/terminations`** is the attrition feed: one row per leaver with `terminated_on`,
+  `contract_end_date` and the termination reason. The `employees` snapshot carries only the current state of
+  each person, so headcount churn over time is not derivable from it.
 - **`timeoff/allowance_stats`** is a computed snapshot, not a stored record: it recalculates against a
   `reference_date` that defaults to today, so each full-refresh sync replaces the table with the balances as
   of that run. Its `id` embeds the reference date and the docs state it cannot be used to re-fetch the row.
@@ -109,9 +127,12 @@ and `time_records` on its own record id. Partition keys are `created_at` where t
 ## Verification status
 
 Endpoint paths, pagination, and the `updated_after` coverage were cross-referenced against the official docs
-and the Airbyte/Fivetran connector stream lists. The four endpoints added most recently — `worked_times`,
-`time_records`, `compensations`, `allowance_stats` — were checked against the OpenAPI document the reference
-site serves for `2026-07-01` and `2026-04-01`: each is a GET list route returning the
-`{"meta": _paged_index_meta, "data": [...]}` envelope, so they page exactly like the existing tables. They were **not** curl-verified against a live account (no
+and the Airbyte/Fivetran connector stream lists. The endpoints added since the initial set — `worked_times`,
+`time_records`, `compensations`, `allowance_stats`, and then `terminations`, `cost_centers`,
+`application_phases`, `hiring_stages`, `candidate_sources` — were checked against the OpenAPI document the
+reference site serves for `2026-07-01` and `2026-04-01`: each is a GET list route returning the
+`{"meta": _paged_index_meta, "data": [...]}` envelope, so they page exactly like the existing tables. The five
+lookup/change-feed resources take only optional id filters, so they need no static params, and none of them
+carries a `created_at` column, so none is partitioned. They were **not** curl-verified against a live account (no
 API key available). The connection (host, version path, `x-api-key`, 401-on-bad-key) was confirmed with an
 unauthenticated curl returning `401`.

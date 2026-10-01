@@ -311,36 +311,55 @@ def query_workflow_health(
             .replace("__BUCKET_FN__", bucket_expr(granularity))
         )
 
-    response = curated.run(
-        fill(_SELECT),
-        query_type="engineering_analytics.workflow_health",
-        placeholders=placeholders,
-        workload=workload,
-    )
-    if not response.results:
-        return []
-
-    bucket_response = curated.run(
-        fill(_BUCKET_SELECT),
-        query_type="engineering_analytics.workflow_health_buckets",
-        placeholders=placeholders,
-        workload=workload,
-    )
-
     end = date_to or datetime.now(tz=date_from.tzinfo)
     prev_from = date_from - (end - date_from)
-    prev_response = curated.run(
-        fill(_PREV_SELECT),
-        query_type="engineering_analytics.workflow_health_prev",
-        # The prev window scans [prev_from, date_from); its scan floor must come from prev_from, not
-        # date_from, or the raw prefilter would cut every previous-window row before the parsed filter.
-        placeholders={
-            **placeholders,
-            "prev_from": ast.Constant(value=prev_from),
-            "run_started_floor": run_started_floor_constant(prev_from),
-        },
-        workload=workload,
-    )
+    with curated.concurrent_reads() as reads:
+        headline_read = reads.submit(
+            lambda: curated.run(
+                fill(_SELECT),
+                query_type="engineering_analytics.workflow_health",
+                placeholders=placeholders,
+                workload=workload,
+            )
+        )
+        bucket_read = reads.submit(
+            lambda: curated.run(
+                fill(_BUCKET_SELECT),
+                query_type="engineering_analytics.workflow_health_buckets",
+                placeholders=placeholders,
+                workload=workload,
+            )
+        )
+        prev_read = reads.submit(
+            lambda: curated.run(
+                fill(_PREV_SELECT),
+                query_type="engineering_analytics.workflow_health_prev",
+                # The prev window scans [prev_from, date_from); its scan floor must come from prev_from, not
+                # date_from, or the raw prefilter would cut every previous-window row before the parsed filter.
+                placeholders={
+                    **placeholders,
+                    "prev_from": ast.Constant(value=prev_from),
+                    "run_started_floor": run_started_floor_constant(prev_from),
+                },
+                workload=workload,
+            )
+        )
+        cost_read = reads.submit(
+            lambda: query_workflow_window_costs(
+                curated=curated,
+                date_from=date_from,
+                date_to=date_to,
+                branch=branch,
+                run_scope=run_scope,
+                workload=workload,
+            )
+        )
+    response = headline_read.result()
+    if not response.results:
+        return []
+    bucket_response = bucket_read.result()
+    prev_response = prev_read.result()
+    cost_by_workflow = cost_read.result()
     prev_rate_by_workflow: dict[tuple[str, str, str], float | None] = {
         (repo_owner, repo_name, workflow_name): opt_float(success_rate)
         for repo_owner, repo_name, workflow_name, success_rate in prev_response.results or []
@@ -354,9 +373,6 @@ def query_workflow_health(
             bucket_start=key, run_count=run_count, completed=completed, successes=successes, failures=failures
         )
 
-    cost_by_workflow = query_workflow_window_costs(
-        curated=curated, date_from=date_from, date_to=date_to, branch=branch, run_scope=run_scope, workload=workload
-    )
     # Under an active branch or scope filter the main query's merge-queue count answers the filtered
     # population, which cannot rank workflows: under merge_queue every row would look gating, under
     # pull_request none would. So read the count from an unfiltered scan of the same window instead.

@@ -2,7 +2,7 @@
 // products/workflows/backend/metrics.py.
 export const MIN_EVIDENCE_SAMPLE = 20
 
-// Mirrors EVIDENCE_UNITS in products/workflows/backend/api/hog_flow.py.
+// Mirrors EVIDENCE_UNITS in products/workflows/backend/presentation/views/hog_flow.py.
 export type EvidenceUnit = 'rate' | 'count'
 
 export interface GuardrailReading {
