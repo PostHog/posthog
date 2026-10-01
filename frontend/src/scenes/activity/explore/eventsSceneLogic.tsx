@@ -17,6 +17,7 @@ import { urls } from 'scenes/urls'
 
 import { getDefaultEventsQueryForTeam } from '~/queries/nodes/DataTable/defaultEventsQuery'
 import { DataTableNode, Node } from '~/queries/schema/schema-general'
+import { isDataTableNodeWithSource } from '~/queries/utils'
 import { ActivityTab, Breadcrumb } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
@@ -146,16 +147,17 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
                 if (!queryParam) {
                     // restore from the persisted query if present, else fall back to default
                     const persisted = values.savedQueryFor(undefined, 'events')
-                    const target = persisted ?? values.defaultQuery
+                    const target = isDataTableNodeWithSource(persisted) ? persisted : values.defaultQuery
                     if (!objectsEqual(values.query, target)) {
                         actions.setQuery(target)
                     }
+                } else if (isDataTableNodeWithSource(queryParam)) {
+                    actions.setQuery(queryParam)
                 } else {
-                    if (typeof queryParam === 'object') {
-                        actions.setQuery(queryParam)
-                    } else {
-                        lemonToast.error('Invalid query in URL')
-                        console.error({ queryParam })
+                    lemonToast.error('Invalid query in URL')
+                    console.error({ queryParam })
+                    if (!objectsEqual(values.query, values.defaultQuery)) {
+                        actions.setQuery(values.defaultQuery)
                     }
                 }
             }
