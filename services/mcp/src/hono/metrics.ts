@@ -93,6 +93,17 @@ export const rateLimitBlockedByTeam = new Counter({
     labelNames: ['scope', 'team_id'] as const,
 })
 
+// Background context refreshes (project, org, integrations, gateway tools) that
+// a 429 stopped. These are best-effort: the caller keeps serving the stale
+// cache, so they are counted here instead of captured into Error Tracking.
+// `reason` is `rate_limited` for a refresh the API throttled, or `backed_off`
+// for one skipped while an earlier Retry-After was still outstanding.
+export const backgroundRefreshRateLimitedTotal = new Counter({
+    name: 'mcp_background_refresh_rate_limited_total',
+    help: 'Background state refreshes suppressed by PostHog API rate limiting.',
+    labelNames: ['entity', 'reason'] as const,
+})
+
 export const contextMillRevalidationsTotal = new Counter({
     name: 'mcp_context_mill_revalidations_total',
     help: 'Context-mill resource revalidation attempts by caller and result.',
