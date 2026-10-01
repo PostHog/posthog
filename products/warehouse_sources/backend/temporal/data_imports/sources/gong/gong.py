@@ -336,9 +336,13 @@ def _iter_date_filtered_rows(
         if rows:
             yield rows
 
-        cursor = data.get("records", {}).get("cursor")
-        if not cursor:
+        next_cursor = data.get("records", {}).get("cursor")
+        if not next_cursor:
             break
+        # A repeated cursor would request the same page forever, and successful responses never hit the retry limit.
+        if next_cursor == cursor:
+            raise ValueError(f"Gong returned an unchanged pagination cursor for {config.path}")
+        cursor = next_cursor
 
 
 def _iter_transcript_rows(

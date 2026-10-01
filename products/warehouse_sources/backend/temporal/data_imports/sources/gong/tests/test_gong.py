@@ -708,3 +708,26 @@ class TestDateFilteredStats:
             [{"userId": "u1", "day": "2026-03-06"}],
             [{"userId": "u1", "day": "2026-03-08"}, {"userId": "u2", "day": "2026-03-08"}],
         ]
+
+    @time_machine.travel("2026-03-10T15:00:00Z", tick=False)
+    def test_unchanged_cursor_stops_the_sync(self) -> None:
+        page = {"answeredScorecards": [{"answeredScorecardId": 1}], "records": {"cursor": "same"}}
+        session = _FakeSession([_FakeResponse(json_data=page), _FakeResponse(json_data=page)])
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
+            return_value=session,
+        ):
+            rows = get_rows(
+                "key",
+                "secret",
+                "answered_scorecards",
+                mock.MagicMock(),
+                _FakeResumableManager(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value="2026-03-05T18:30:00Z",
+            )
+            with pytest.raises(ValueError):
+                list(rows)
+
+        assert len(session.requested_urls) == 2
