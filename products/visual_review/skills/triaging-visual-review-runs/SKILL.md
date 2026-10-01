@@ -66,7 +66,7 @@ The list is paginated and does not put quarantined rows first, so follow `next` 
 - A fix for the flake changes nothing VR can see in one run, so the story renders `unchanged` and the list above leaves it out.
   Record the fix with `posthog:visual-review-runs-lift-on-merge-create { id: <run_id>, identifier: <identifier> }` for each identifier the fix should release, and name the identifiers in the PR description.
   The quarantine lifts only after the PR merges and a default-branch run that contains the merge renders the same picture against a matching entry.
-  Until then it stays, and `posthog:visual-review-runs-quarantine-lifts-list { id: <run_id> }` shows each request's `state` and `detail`.
+  Until then it stays, unless its expiry date passes first, and `posthog:visual-review-runs-quarantine-lifts-list { id: <run_id> }` shows each request's `state` and `detail`.
 - A change that deletes a quarantined story leaves its baseline entry behind.
   Only a full run classifies the story `removed`, and only finalize prunes the entry.
   The `run-ci-frontend` label takes effect on the next push or ready-for-review, not when it is added, so push after labeling and check that the new run is full.
