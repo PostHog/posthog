@@ -55,6 +55,12 @@ from products.data_warehouse.backend.presentation.managed_warehouse_monitoring i
     serialize_monitoring_series,
     serialize_monitoring_snapshot,
 )
+from products.data_warehouse.backend.presentation.managed_warehouse_trino_monitoring import (
+    ManagedWarehouseTrinoMonitoringSeriesQuerySerializer,
+    ManagedWarehouseTrinoMonitoringSnapshotResponseSerializer,
+    serialize_trino_monitoring_series,
+    serialize_trino_monitoring_snapshot,
+)
 from products.data_warehouse.backend.presentation.pipeline_stats import (
     CompletedActivityQuerySerializer,
     DataHealthIssuesResponseSerializer,
@@ -111,6 +117,11 @@ _MONITORING_ERROR_RESPONSES = {
 _TRINO_VARIANT_MONITORING_ERROR = (
     "This warehouse runs on Trino. Use the Trino monitoring endpoints "
     "(managed-warehouse-trino-monitoring and managed-warehouse-trino-monitoring-timeseries) instead."
+)
+
+_DUCKDB_VARIANT_MONITORING_ERROR = (
+    "This warehouse doesn't run on Trino. Use the managed warehouse monitoring endpoints "
+    "(managed-warehouse-monitoring and managed-warehouse-monitoring-timeseries) instead."
 )
 
 
@@ -1454,6 +1465,97 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         except ManagedWarehouseMonitoringUpstreamError:
             logger.warning(
                 "Managed warehouse monitoring series response failed validation",
+                organization_id=organization_id,
+                metric=metric,
+            )
+            return _managed_warehouse_monitoring_error_response(Response(status=status.HTTP_502_BAD_GATEWAY))
+        return Response(data)
+
+    @extend_schema(
+        responses={
+            status.HTTP_200_OK: OpenApiResponse(
+                response=ManagedWarehouseTrinoMonitoringSnapshotResponseSerializer,
+                description="Current organization-scoped Trino query activity.",
+            ),
+            **_MONITORING_ERROR_RESPONSES,
+        },
+        summary="Get managed warehouse Trino monitoring snapshot",
+        description="Get tenant-safe live Trino query totals, limits, and in-flight queries for the current organization.",
+    )
+    # nosemgrep: api-path-underscore -- sits under the shipped data_warehouse prefix, a rename breaks clients
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="managed-warehouse-trino-monitoring",
+        required_scopes=["warehouse_view:read"],
+        requires_resource_level_access=True,
+    )
+    def managed_warehouse_trino_monitoring(self, request: Request, **kwargs) -> Response:
+        organization_id = str(self.team.organization_id)
+        if managed_warehouse.data_ops_variant(organization_id) == "duckdb":
+            return _wrong_monitoring_variant_response(_DUCKDB_VARIANT_MONITORING_ERROR)
+        upstream_response = managed_warehouse.trino_monitoring_snapshot_for(organization_id)
+        if upstream_response.status_code != status.HTTP_200_OK:
+            return _managed_warehouse_monitoring_error_response(upstream_response)
+
+        try:
+            data = serialize_trino_monitoring_snapshot(
+                upstream_response.data,
+                expected_organization_id=organization_id,
+            )
+        except ManagedWarehouseMonitoringUpstreamError:
+            logger.warning(
+                "Managed warehouse Trino monitoring snapshot response failed validation",
+                organization_id=organization_id,
+            )
+            return _managed_warehouse_monitoring_error_response(Response(status=status.HTTP_502_BAD_GATEWAY))
+        return Response(data)
+
+    @validated_request(
+        query_serializer=ManagedWarehouseTrinoMonitoringSeriesQuerySerializer,
+        responses={
+            status.HTTP_200_OK: OpenApiResponse(
+                response=ManagedWarehouseMonitoringSeriesResponseSerializer,
+                description="One organization-scoped Trino monitoring metric over time.",
+            ),
+            **_MONITORING_ERROR_RESPONSES,
+        },
+        summary="Get managed warehouse Trino monitoring time series",
+        description="Get one allow-listed Trino monitoring metric for the current organization and trailing time window.",
+    )
+    # nosemgrep: api-path-underscore -- sits under the shipped data_warehouse prefix, a rename breaks clients
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="managed-warehouse-trino-monitoring-timeseries",
+        required_scopes=["warehouse_view:read"],
+        requires_resource_level_access=True,
+    )
+    def managed_warehouse_trino_monitoring_timeseries(self, request: Request, **kwargs) -> Response:
+        organization_id = str(self.team.organization_id)
+        if managed_warehouse.data_ops_variant(organization_id) == "duckdb":
+            return _wrong_monitoring_variant_response(_DUCKDB_VARIANT_MONITORING_ERROR)
+        metric = cast(
+            managed_warehouse.ManagedWarehouseTrinoMonitoringMetric,
+            request.validated_query_data["metric"],
+        )
+        window = cast(
+            managed_warehouse.ManagedWarehouseMonitoringWindow,
+            request.validated_query_data["window"],
+        )
+        upstream_response = managed_warehouse.trino_monitoring_series_for(organization_id, metric, window)
+        if upstream_response.status_code != status.HTTP_200_OK:
+            return _managed_warehouse_monitoring_error_response(upstream_response)
+
+        try:
+            data = serialize_trino_monitoring_series(
+                upstream_response.data,
+                expected_organization_id=organization_id,
+                expected_metric=metric,
+            )
+        except ManagedWarehouseMonitoringUpstreamError:
+            logger.warning(
+                "Managed warehouse Trino monitoring series response failed validation",
                 organization_id=organization_id,
                 metric=metric,
             )
