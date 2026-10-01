@@ -1,7 +1,7 @@
 import { Group } from 'kea-forms'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonInput, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
@@ -24,6 +24,8 @@ export interface AlertAdvancedOptionsSectionProps {
     canCheckOngoingInterval: boolean
     projectTimezone: string
     enabledAdvancedOptionsCount: number
+    evaluationDelayInterval?: string
+    evaluationDelayPreview?: string
     defaultOpen?: boolean
     onSetAlertFormValue: <K extends keyof AlertFormType>(key: K, value: AlertFormType[K]) => void
 }
@@ -33,6 +35,8 @@ export function AlertAdvancedOptionsSection({
     canCheckOngoingInterval,
     projectTimezone,
     enabledAdvancedOptionsCount,
+    evaluationDelayInterval,
+    evaluationDelayPreview,
     defaultOpen,
     onSetAlertFormValue,
 }: AlertAdvancedOptionsSectionProps): JSX.Element {
@@ -50,6 +54,47 @@ export function AlertAdvancedOptionsSection({
                 onChange={(next) => onSetAlertFormValue('schedule_restriction', next)}
             />
             <AlertAdvancedOptions enabledCount={enabledAdvancedOptionsCount} defaultOpen={defaultOpen}>
+                {evaluationDelayInterval ? (
+                    <LemonField name="evaluation_delay_intervals" label="Evaluation delay">
+                        {() => (
+                            <div className="space-y-2">
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <LemonInput
+                                        type="number"
+                                        min={0}
+                                        max={100}
+                                        step={1}
+                                        value={alertForm.evaluation_delay_intervals ?? 0}
+                                        onChange={(value) =>
+                                            onSetAlertFormValue('evaluation_delay_intervals', value ?? 0)
+                                        }
+                                        className="w-24"
+                                        data-attr="alert-evaluation-delay"
+                                        aria-label="Evaluation delay"
+                                        disabledReason={
+                                            ongoing.checked
+                                                ? 'Turn off Check ongoing period to use an evaluation delay.'
+                                                : undefined
+                                        }
+                                    />
+                                    <span>{`completed ${evaluationDelayInterval} intervals`}</span>
+                                </div>
+                                <p className="text-sm text-secondary mb-0">
+                                    Skip recent completed intervals to allow late data to arrive. This also delays
+                                    detection of real problems and does not guarantee that a data sync has finished.
+                                    Uses the insight interval; the check schedule stays the same.
+                                </p>
+                                {!ongoing.checked && evaluationDelayPreview ? (
+                                    <p className="text-sm text-secondary mb-0">
+                                        <span>If checked now: </span>
+                                        <span>{evaluationDelayPreview}</span>
+                                        <span>{` (${projectTimezone}).`}</span>
+                                    </p>
+                                ) : null}
+                            </div>
+                        )}
+                    </LemonField>
+                ) : null}
                 {ongoing.show ? (
                     <Group name={['config']}>
                         <div className="flex gap-1">
@@ -59,7 +104,11 @@ export function AlertAdvancedOptionsSection({
                                     data-attr="alertForm-check-ongoing-interval"
                                     fullWidth
                                     label="Check ongoing period"
-                                    disabledReason={ongoing.disabledReason}
+                                    disabledReason={
+                                        (alertForm.evaluation_delay_intervals ?? 0) > 0
+                                            ? 'Set Evaluation delay to 0 to check the ongoing period.'
+                                            : ongoing.disabledReason
+                                    }
                                 />
                             </LemonField>
                             <Tooltip title={ongoing.tooltip} placement="right" delayMs={0}>

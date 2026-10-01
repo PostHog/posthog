@@ -73,6 +73,7 @@ from posthog.tasks.alerts.utils import (
 from posthog.utils import relative_date_parse
 
 from products.alerts.backend.evaluation.contract import AlertExtractionError
+from products.alerts.backend.evaluation.delay import DelayedEvaluationUnavailable, validate_evaluation_delay
 from products.alerts.backend.evaluation.detector import simulate_detector_on_insight
 from products.alerts.backend.evaluation.validation import (
     THRESHOLD_BOUNDS_REQUIRED_MESSAGE,
@@ -633,6 +634,14 @@ class RelativeDateTimeField(serializers.DateTimeField):
 
 
 class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializer):
+    evaluation_delay_intervals = serializers.IntegerField(
+        min_value=0,
+        max_value=100,
+        required=False,
+        help_text="Skip this many completed insight intervals after excluding the ongoing interval (0-100, default 0). "
+        "Time-series Trends only. A positive delay requires check_ongoing_interval=false. Uses the insight interval, "
+        "not the check frequency. Allows late data to arrive, but also delays detection of real problems.",
+    )
     created_by = UserBasicSerializer(read_only=True)
     checks = AlertCheckSerializer(
         many=True,
@@ -805,6 +814,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             "checks_total",
             "config",
             "detector_config",
+            "evaluation_delay_intervals",
             "calculation_interval",
             "snoozed_until",
             "skip_weekend",
@@ -1101,7 +1111,10 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
 
         # Mirror the UI's default for cadences finer than the insight interval. Applied before
         # validate_alert_config so the validated config is the persisted config.
-        if isinstance(config, dict) and config.get("check_ongoing_interval") is None:
+        evaluation_delay = attrs.get(
+            "evaluation_delay_intervals", self.instance.evaluation_delay_intervals if self.instance else 0
+        )
+        if not evaluation_delay and isinstance(config, dict) and config.get("check_ongoing_interval") is None:
             if should_default_check_ongoing_interval(
                 query=query,
                 config=config,
@@ -1115,6 +1128,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         request_user = self.context["request"].user
         creating_user = request_user if isinstance(request_user, User) else None
         try:
+            validate_evaluation_delay(query, config, evaluation_delay)
             validate_alert_insight_query(
                 query,
                 team=self.context["get_team"](),
@@ -1208,6 +1222,13 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
 
 
 class AlertSimulateSerializer(serializers.Serializer):
+    evaluation_delay_intervals = serializers.IntegerField(
+        min_value=0,
+        max_value=100,
+        default=0,
+        help_text="Skip this many completed insight intervals before simulation, matching live evaluation. "
+        "Time-series Trends only; a positive delay requires check_ongoing_interval=false.",
+    )
     insight = TeamScopedInsightReferenceField(
         queryset=Insight.objects.all(),
         help_text="Numeric insight ID or saved insight short ID to simulate the detector on.",
@@ -1256,6 +1277,13 @@ class AlertSimulateSerializer(serializers.Serializer):
         _enforce_alert_feature_flags(self.context, value)
         return value
 
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        try:
+            validate_evaluation_delay(attrs["insight"].query, attrs.get("config"), attrs["evaluation_delay_intervals"])
+        except ValueError as err:
+            raise ValidationError({"evaluation_delay_intervals": [str(err)]}) from err
+        return attrs
+
     def validate_detector_config(self, value):
         # Same gate as create/update: previewing a flag-gated detector must be rejected the
         # same way saving one is, or the preview becomes the way to use it.
@@ -1287,6 +1315,12 @@ class BreakdownSimulationResultSerializer(serializers.Serializer):
 
 
 class AlertSimulateResponseSerializer(serializers.Serializer):
+    evaluation_delay_intervals = serializers.IntegerField(required=False, help_text="Completed intervals skipped.")
+    evaluated_interval_start = serializers.CharField(required=False, help_text="Start of the latest eligible interval.")
+    evaluated_interval_end = serializers.CharField(
+        required=False, help_text="Exclusive end of the latest eligible interval."
+    )
+    evaluated_interval_timezone = serializers.CharField(required=False, help_text="Project timezone of the interval.")
     data = serializers.ListField(child=serializers.FloatField(), help_text="Data values for each point.")  # type: ignore[assignment]
     dates = serializers.ListField(child=serializers.CharField(), help_text="Date labels for each point.")
     scores = serializers.ListField(
@@ -1843,8 +1877,9 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 user=cast(User, request.user),
                 config=config,
                 is_agent_billable=not is_impersonated(request),
+                evaluation_delay_intervals=serializer.validated_data["evaluation_delay_intervals"],
             )
-        except (ValueError, IndexError, AlertExtractionError) as e:
+        except (ValueError, IndexError, AlertExtractionError, DelayedEvaluationUnavailable) as e:
             raise ValidationError(str(e))
         except LLMDetectorError as e:
             capture_exception(e)

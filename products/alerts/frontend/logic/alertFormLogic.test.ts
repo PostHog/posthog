@@ -202,6 +202,10 @@ describe('alertFormLogic', () => {
     )
 
     it.each([
+        [
+            'delayed',
+            (logic: ReturnType<typeof mountForm>) => logic.actions.setAlertFormValue('evaluation_delay_intervals', 2),
+        ],
         ['cleared', (logic: ReturnType<typeof mountForm>) => logic.actions.clearSimulation()],
         ['run over another range', (logic: ReturnType<typeof mountForm>) => logic.actions.setSimulationDateFrom('-7d')],
         [

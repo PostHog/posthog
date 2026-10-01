@@ -39,6 +39,22 @@ describe('alertFormSchema', () => {
         expect(getAlertFormValidationErrors(baseAlert)).toEqual({})
     })
 
+    test.each([-1, 101, 1.5])('rejects evaluation delay %s', (delay) => {
+        expect(
+            getAlertFormValidationErrors({ ...baseAlert, evaluation_delay_intervals: delay }).evaluation_delay_intervals
+        ).toBeTruthy()
+    })
+
+    it('rejects evaluating the ongoing interval with a delay', () => {
+        expect(
+            getAlertFormValidationErrors({
+                ...baseAlert,
+                evaluation_delay_intervals: 2,
+                config: { type: 'TrendsAlertConfig', series_index: 0, check_ongoing_interval: true },
+            }).evaluation_delay_intervals
+        ).toBeTruthy()
+    })
+
     it('requires a name', () => {
         expect(getAlertFormValidationErrors({ ...baseAlert, name: '' }).name).toBe('You need to give your alert a name')
     })

@@ -69,6 +69,7 @@ export type AlertFormType = Pick<
     | 'schedule_restriction'
     | 'schedule_start_time'
     | 'detector_config'
+    | 'evaluation_delay_intervals'
     | 'investigation_agent_enabled'
     | 'investigation_gates_notifications'
     | 'investigation_inconclusive_action'
@@ -537,6 +538,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                             // SQL insights have no series_index; the config carries the evaluated column
                             // and read direction so the preview matches what the alert will score.
                             config: formConfig,
+                            evaluation_delay_intervals: values.alertForm.evaluation_delay_intervals ?? 0,
                         })) as AlertSimulationResult
                     } catch (error) {
                         if (values.simulationRequestId === requestId) {
@@ -569,6 +571,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                           created_by: null,
                           created_at: '',
                           enabled: true,
+                          evaluation_delay_intervals: 0,
                           config: defaultConfigForInsight(props.insightAlertKind),
                           threshold: {
                               configuration: {
@@ -978,6 +981,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         : simulationResult.anomaly_count
                     posthog.capture('alert simulation run', {
                         success: true,
+                        evaluation_delay_intervals: values.alertForm.evaluation_delay_intervals ?? 0,
                         detector_type: detectorConfig?.type ?? null,
                         ensemble_operator: detectorConfig?.type === 'ensemble' ? detectorConfig.operator : null,
                         date_from:
@@ -1028,7 +1032,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 const field = Array.isArray(name) ? name[0] : name
                 // The evaluated series or column, and the detector settings, are inputs to the
                 // preview, so an edit to either leaves nothing the chart can honestly show.
-                if (field === 'config' || field === 'detector_config') {
+                if (field === 'config' || field === 'detector_config' || field === 'evaluation_delay_intervals') {
                     discardSimulation()
                 }
             },

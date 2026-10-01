@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import { AlertConditionType } from '~/queries/schema/schema-general'
 
-import type { AlertType } from '../types'
+import { AlertType, supportsOngoingInterval } from '../types'
 import type { AlertFormType } from './alertFormLogic'
 import { quietHoursFormError } from './scheduleRestrictionValidation'
 
@@ -30,6 +30,7 @@ export function thresholdAlertHasBounds(alert: AlertFormType | AlertType): boole
 const alertFormSchema = z
     .object({
         name: z.string(),
+        evaluation_delay_intervals: z.number().int().min(0).max(100).optional(),
         detector_config: z.unknown().nullable(),
         condition: z.object({ type: z.nativeEnum(AlertConditionType) }),
         threshold: z
@@ -50,6 +51,18 @@ const alertFormSchema = z
     })
     .passthrough()
     .superRefine((alert, ctx) => {
+        const config = (alert as AlertFormType).config
+        if (
+            (alert.evaluation_delay_intervals ?? 0) > 0 &&
+            supportsOngoingInterval(config) &&
+            config.check_ongoing_interval
+        ) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ['evaluation_delay_intervals'],
+                message: 'Turn off Check ongoing period to use an evaluation delay.',
+            })
+        }
         if (!alert.name) {
             ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['name'], message: NAME_REQUIRED_MESSAGE })
         }
