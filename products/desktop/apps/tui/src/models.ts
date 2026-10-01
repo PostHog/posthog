@@ -2,6 +2,7 @@ import {
   type PiRemoteRpcClient,
   RemotePiRpcClient,
 } from "@posthog/agent/pi/remote-rpc-client";
+import { isOfferedModel } from "@posthog/shared/model-catalog";
 import type { Sheet } from "./sheet";
 import type { ShellResult } from "./shell";
 
@@ -36,14 +37,66 @@ export interface RunCommand {
   description?: string;
 }
 
-const choice = (model: {
-  provider: string;
-  id: string;
-  name?: string;
-}): ModelChoice => ({
+// The TUI runs only on the PostHog harness. Pi also reports models from the
+// user's own pi logins (~/.pi/agent/auth.json), and picking one leaves the
+// gateway, so those stay out of the picker. The gateway also serves models the
+// shared catalog does not offer, which the desktop picker hides too.
+const HARNESS_PROVIDER = "posthog";
+
+const BRAND_NAMES: Record<string, string> = {
+  claude: "Claude",
+  deepseek: "DeepSeek",
+  gemini: "Gemini",
+  glm: "GLM",
+  gpt: "GPT",
+  kimi: "Kimi",
+};
+
+// These vendors give each model line its own name (Opus, Astra), so the
+// brand adds nothing. Gemini and the open models do not, so they keep it.
+const NAMED_LINE_BRANDS = new Set(["claude", "gpt"]);
+
+// Words that qualify a model rather than name its line.
+const QUALIFIERS = new Set(["flash", "lite", "mini", "nano", "preview", "pro"]);
+
+const VERSION_PART = /^[kv]?(\d{1,3}(?:\.\d+)?)$/;
+
+const titleCase = (word: string): string =>
+  word.charAt(0).toUpperCase() + word.slice(1);
+
+// "claude-opus-5-5" reads "Opus 5.5", "gpt-6.1-sol" "Sol 6.1",
+// "gemini-3-pro-preview-06-05" "Gemini 3 Pro Preview", "moonshotai/kimi-k3" "Kimi 3".
+export function shortModelName(id: string): string {
+  const [brand, ...rest] = (id.split("/").pop() ?? id).toLowerCase().split("-");
+  const version: string[] = [];
+  const words: string[] = [];
+  // Only the first run of numbers is the version. Claude puts it after the
+  // line (claude-opus-5-5); numbers after a later word are a release date.
+  let versionEnded = false;
+  for (const token of rest) {
+    const part = VERSION_PART.exec(token);
+    if (part && !versionEnded) {
+      version.push(part[1]);
+    } else if (!/^\d+$/.test(token)) {
+      words.push(titleCase(token));
+      versionEnded = version.length > 0;
+    }
+  }
+  const versionText = version.join(".");
+  const lineFirst =
+    NAMED_LINE_BRANDS.has(brand) &&
+    words.length > 0 &&
+    !QUALIFIERS.has(words[0].toLowerCase());
+  const parts = lineFirst
+    ? [words[0], versionText, ...words.slice(1)]
+    : [BRAND_NAMES[brand] ?? titleCase(brand), versionText, ...words];
+  return parts.filter(Boolean).join(" ");
+}
+
+const choice = (model: { provider: string; id: string }): ModelChoice => ({
   provider: model.provider,
   id: model.id,
-  name: model.name ?? model.id,
+  name: shortModelName(model.id),
 });
 
 // The live run's own pi session, reached the same way the desktop app reaches it.
@@ -85,7 +138,12 @@ export function controlOf(
         client.getState(),
       ]);
       return {
-        available: available.map(choice),
+        available: available
+          .filter(
+            (model) =>
+              model.provider === HARNESS_PROVIDER && isOfferedModel(model.id),
+          )
+          .map(choice),
         current: state.model ? choice(state.model) : null,
       };
     },
