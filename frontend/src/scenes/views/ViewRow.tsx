@@ -21,7 +21,7 @@ export function ViewRow({ view }: { view: ViewItem }): JSX.Element {
             variant="outline"
             size="sm"
             // The app styles every link in its accent color. A whole-row link reads as a row, so it keeps the text color.
-            className="text-foreground hover:bg-fill-hover hover:text-foreground"
+            className="text-foreground hover:bg-fill-button-tertiary-hover hover:text-foreground"
             render={<LinkPrimitive to={view.href} data-attr={`views-row-${view.type}`} />}
         >
             <ItemMedia variant="icon" aria-hidden>

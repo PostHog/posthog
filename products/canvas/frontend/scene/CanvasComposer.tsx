@@ -112,7 +112,7 @@ export function CanvasComposer({
                             key={suggestion.label}
                             variant="outline"
                             size="xs"
-                            className="text-left hover:bg-fill-hover"
+                            className="text-left hover:bg-fill-button-tertiary-hover"
                             render={
                                 <button
                                     type="button"
