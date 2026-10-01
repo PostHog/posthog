@@ -36,10 +36,12 @@ PERSON_GROUP_MEMBERSHIP_CONFIG_COLUMNS = """
 
 def SHARDED_PERSON_GROUP_MEMBERSHIP_TABLE_SQL() -> str:
     # Wide parts let lightweight deletes rewrite the row mask without rewriting membership columns.
+    # The distinct_id index serves person lookups and person deletion, which the sort key cannot narrow.
     return f"""
 CREATE TABLE IF NOT EXISTS {SHARDED_PERSON_GROUP_MEMBERSHIP_TABLE}
 (
-    {PERSON_GROUP_MEMBERSHIP_COLUMNS}
+    {PERSON_GROUP_MEMBERSHIP_COLUMNS},
+    INDEX idx_distinct_id distinct_id TYPE bloom_filter(0.01) GRANULARITY 1
 )
 ENGINE = {AggregatingMergeTree(SHARDED_PERSON_GROUP_MEMBERSHIP_TABLE, replication_scheme=ReplicationScheme.SHARDED)}
 ORDER BY (team_id, group_type_index, group_key, distinct_id)

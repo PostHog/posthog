@@ -8432,7 +8432,8 @@
       group_key String,
       distinct_id String,
       first_seen SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
-      last_seen SimpleAggregateFunction(max, DateTime64(6, 'UTC'))
+      last_seen SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+      INDEX idx_distinct_id distinct_id TYPE bloom_filter(0.01) GRANULARITY 1
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_person_group_membership', '{replica}')
   ORDER BY (team_id, group_type_index, group_key, distinct_id)
@@ -14169,7 +14170,8 @@
       group_key String,
       distinct_id String,
       first_seen SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
-      last_seen SimpleAggregateFunction(max, DateTime64(6, 'UTC'))
+      last_seen SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+      INDEX idx_distinct_id distinct_id TYPE bloom_filter(0.01) GRANULARITY 1
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_person_group_membership', '{replica}')
   ORDER BY (team_id, group_type_index, group_key, distinct_id)

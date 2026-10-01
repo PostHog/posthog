@@ -132,6 +132,11 @@ def test_empty_schema_engines_and_keys() -> None:
     assert storage[1] == "team_id, group_type_index, group_key, distinct_id"
     assert "min_rows_for_wide_part = 0" in storage[3]
     assert "min_bytes_for_wide_part = 0" in storage[3]
+    assert sync_execute(
+        """SELECT expr, type_full, granularity FROM system.data_skipping_indices
+        WHERE database = %(database)s AND table = %(table)s""",
+        {"database": django_settings.CLICKHOUSE_DATABASE, "table": SHARDED_PERSON_GROUP_MEMBERSHIP_TABLE},
+    ) == [("distinct_id", "bloom_filter(0.01)", 1)]
     config = tables[PERSON_GROUP_MEMBERSHIP_CONFIG_TABLE]
     assert config[0] == "ReplicatedReplacingMergeTree"
     assert config[1] == "team_id"

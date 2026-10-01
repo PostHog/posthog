@@ -2,6 +2,11 @@ database "posthog" {
   table "sharded_person_group_membership" {
     extend = "_person_group_membership"
     order_by = ["team_id", "group_type_index", "group_key", "distinct_id"]
+    index "idx_distinct_id" {
+      expr        = "distinct_id"
+      type        = "bloom_filter(0.01)"
+      granularity = 1
+    }
     settings = {
       index_granularity = "8192"
       min_rows_for_wide_part = "0"

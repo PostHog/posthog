@@ -2356,6 +2356,11 @@ database "posthog" {
     column "last_seen" {
       type = "SimpleAggregateFunction(max, DateTime64(6, 'UTC'))"
     }
+    index "idx_distinct_id" {
+      expr        = "distinct_id"
+      type        = "bloom_filter(0.01)"
+      granularity = 1
+    }
     engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/{shard}/posthog.sharded_person_group_membership"
       replica_name = "{replica}"

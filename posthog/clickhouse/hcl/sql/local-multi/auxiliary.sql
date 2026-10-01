@@ -431,7 +431,8 @@ CREATE TABLE posthog.sharded_person_group_membership (
   group_key String,
   distinct_id String,
   first_seen SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
-  last_seen SimpleAggregateFunction(max, DateTime64(6, 'UTC'))
+  last_seen SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+  INDEX idx_distinct_id distinct_id TYPE bloom_filter(0.01) GRANULARITY 1
 ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_person_group_membership', '{replica}') ORDER BY (team_id, group_type_index, group_key, distinct_id) SETTINGS index_granularity = 8192, min_bytes_for_wide_part = 0, min_rows_for_wide_part = 0;
 CREATE TABLE posthog.sharded_platform_alert_events (
   team_id Int64,
