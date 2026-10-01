@@ -17,6 +17,7 @@ from posthog.temporal.ai_observability.evaluation_errors import (
     require_user_error_spec,
     terminal_user_error_result,
     terminal_user_error_result_from_application_error,
+    truncate_error_detail,
 )
 from posthog.temporal.ai_observability.evaluation_event_io import (
     extract_event_io,
@@ -48,6 +49,7 @@ from products.ai_observability.backend.llm.errors import (
     RateLimitError,
     StructuredOutputParseError,
     UnsupportedModelError,
+    provider_error_detail,
 )
 from products.ai_observability.backend.llm.system_one import (
     SystemOneClient,
@@ -77,6 +79,11 @@ LLM_JUDGE_RETRY_POLICY = RetryPolicy(
     maximum_interval=timedelta(seconds=60),
     backoff_coefficient=2.0,
 )
+
+
+# A retry can fix these client errors, so they stay on the retry policy like a 5xx.
+# 499 is a cancellation, which Gemini already maps to the transport lane.
+_RETRYABLE_CLIENT_ERROR_STATUSES = frozenset({408, 409, 429, 499})
 
 
 class TransientJudgeError(NonReportableError):
@@ -361,6 +368,55 @@ def _build_unparsable_response_skip_result(
         "key_id": key_id,
         "model": model,
         "provider": provider,
+    }
+    return result
+
+
+def _rejected_request_status(error: Exception) -> int | None:
+    """The 4xx status of a provider rejection that no retry can fix, or None.
+
+    The OpenAI and Anthropic SDKs put the status on `status_code`. google-genai puts it on `code`.
+    """
+    status = getattr(error, "status_code", None)
+    if not isinstance(status, int):
+        status = getattr(error, "code", None)
+    if not isinstance(status, int) or isinstance(status, bool):
+        return None
+    if 400 <= status < 500 and status not in _RETRYABLE_CLIENT_ERROR_STATUSES:
+        return status
+    return None
+
+
+def _build_rejected_request_skip_result(
+    allows_na: bool,
+    *,
+    is_byok: bool,
+    key_id: str | None,
+    status: int,
+    error: Exception,
+    output_type: str = "boolean",
+) -> EvaluationActivityResult:
+    """Per-item skip for a provider rejection that has no specific mapping.
+
+    The provider's message goes into the reasoning, because nothing else tells the user why the
+    provider rejected the request.
+    """
+    reasoning = (
+        f"The model provider rejected the evaluation request with status {status}, so this run was skipped. "
+        "Check the model and provider settings if this keeps happening."
+    )
+    detail = truncate_error_detail(provider_error_detail(error) or str(error))
+    if detail:
+        reasoning = f"{reasoning} Provider message: {detail}"
+    result: EvaluationActivityResult = {
+        **build_skipped_evaluation_result(
+            output_type=output_type,
+            allows_na=allows_na,
+            reasoning=reasoning,
+            skip_reason="request_rejected",
+        ),
+        "is_byok": is_byok,
+        "key_id": key_id,
     }
     return result
 
@@ -774,6 +830,27 @@ def call_llm_judge(
         raise
 
     except Exception as e:
+        rejected_status = _rejected_request_status(e)
+        if rejected_status is not None:
+            # A single bad input and a bad configuration look the same here, so skip this run and
+            # leave the evaluation and its key alone.
+            increment_user_errors("request_rejected", provider=provider)
+            logger.warning(
+                "LLM provider rejected the judge request",
+                evaluation_id=evaluation["id"],
+                provider=provider,
+                model=model,
+                status=rejected_status,
+                error_class=type(e).__name__,
+            )
+            return _build_rejected_request_skip_result(
+                allows_na,
+                is_byok=is_byok,
+                key_id=key_id,
+                status=rejected_status,
+                error=e,
+                output_type=output_type,
+            )
         logger.exception(
             "Unhandled error from LLM client",
             evaluation_id=evaluation["id"],

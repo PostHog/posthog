@@ -11,8 +11,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.test import override_settings
 
 import httpx
+import openai
 import posthoganalytics
 from asgiref.sync import async_to_sync, sync_to_async
+from google.genai import errors as genai_errors
 from parameterized import parameterized
 from pydantic import ValidationError as PydanticValidationError
 from temporalio import activity
@@ -579,6 +581,70 @@ def test_system_one_rate_limit_retries_without_disabling_the_evaluation() -> Non
     assert not error.value.non_retryable
     assert error.value.next_retry_delay == timedelta(seconds=15)
     assert terminal_user_error_result_from_application_error(error.value, allows_na=False) is None
+
+
+def _openai_status_error(status: int, message: str) -> openai.APIStatusError:
+    response = httpx.Response(status, request=httpx.Request("POST", "https://llm.example.com/v1/chat/completions"))
+    return openai.APIStatusError(f"Error code: {status}", response=response, body={"error": {"message": message}})
+
+
+@pytest.mark.parametrize(
+    "provider, raised_exception, expected_status, expected_detail",
+    [
+        pytest.param(
+            "openai_compatible",
+            _openai_status_error(400, "Example field is not supported."),
+            400,
+            "Example field is not supported.",
+            id="openai_sdk_400",
+        ),
+        pytest.param(
+            "openai",
+            _openai_status_error(412, "Example precondition failed."),
+            412,
+            "Example precondition failed.",
+            id="openai_sdk_412",
+        ),
+        pytest.param(
+            "gemini",
+            genai_errors.ClientError(400, {"error": {"code": 400, "message": "Example argument is invalid."}}),
+            400,
+            "Example argument is invalid.",
+            id="genai_400",
+        ),
+        pytest.param(
+            "openai_compatible",
+            _openai_status_error(400, "x" * (MAX_STATUS_REASON_DETAIL_LENGTH * 2)),
+            400,
+            "x" * (MAX_STATUS_REASON_DETAIL_LENGTH - 3) + "...",
+            id="long_message_is_truncated",
+        ),
+    ],
+)
+def test_unmapped_provider_rejection_skips_the_run_with_the_provider_message(
+    provider: str, raised_exception: Exception, expected_status: int, expected_detail: str
+) -> None:
+    with (
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as client,
+    ):
+        spec.return_value.resolve.return_value = MagicMock(
+            provider=provider, model="example-judge-v1", provider_key=MagicMock(id="example-key"), is_byok=True
+        )
+        client.return_value.complete.side_effect = raised_exception
+        result = call_llm_judge(
+            evaluation={"id": "test-evaluation", "team_id": 1, "evaluation_config": {"prompt": "Polite?"}},
+            system_prompt="",
+            user_prompt="Hello!",
+            allows_na=False,
+        )
+    assert result["skipped"] is True
+    assert result["skip_reason"] == "request_rejected"
+    assert f"status {expected_status}" in result["reasoning"]
+    assert result["reasoning"].endswith(f"Provider message: {expected_detail}")
+    assert result["key_id"] == "example-key"
+    assert "terminal_user_error" not in result
+    assert "provider_key_state" not in result
 
 
 def test_status_reason_detail_for_terminal_user_error_only_keeps_truncated_hog_errors():
@@ -2447,6 +2513,12 @@ class TestRunEvaluationWorkflow:
             pytest.param(ProviderConnectionError("connection reset"), TransientJudgeError, id="connection_error"),
             pytest.param(CancelledError("Cancelled"), CancelledError, id="cancellation"),
             pytest.param(RuntimeError("boom"), RuntimeError, id="unhandled_error"),
+            pytest.param(
+                _openai_status_error(503, "Example upstream outage."), openai.APIStatusError, id="provider_5xx"
+            ),
+            pytest.param(
+                _openai_status_error(408, "Example request timeout."), openai.APIStatusError, id="provider_timeout"
+            ),
         ],
     )
     @pytest.mark.django_db(transaction=True)
