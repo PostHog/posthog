@@ -169,38 +169,25 @@ class OptOutService:
         return BulkOptOutResult(total=len(entries), opted_out=opted_out, skipped=skipped, errors=errors)
 
     def _save_batch(self, batch: dict[str, set[str]]) -> None:
+        identifiers = sorted(batch)
         with transaction.atomic():
-            existing = {
-                preference.identifier: preference
-                for preference in MessageRecipientPreference.objects.filter(
-                    team_id=self.team_id, identifier__in=list(batch.keys())
-                )
-            }
-
-            to_create = []
-            to_update = []
-
-            for identifier, category_ids in batch.items():
-                preference = existing.get(identifier)
-                if preference is None:
-                    to_create.append(
-                        MessageRecipientPreference(
-                            team_id=self.team_id,
-                            identifier=identifier,
-                            created_by=self.user,
-                            preferences=dict.fromkeys(category_ids, PreferenceStatus.OPTED_OUT.value),
-                        )
-                    )
-                    continue
-
-                for category_id in category_ids:
+            MessageRecipientPreference.objects.bulk_create(
+                [
+                    MessageRecipientPreference(team_id=self.team_id, identifier=identifier, created_by=self.user)
+                    for identifier in identifiers
+                ],
+                batch_size=500,
+                ignore_conflicts=True,
+            )
+            preferences = list(
+                MessageRecipientPreference.objects.select_for_update()
+                .filter(team_id=self.team_id, identifier__in=identifiers)
+                .order_by("identifier")
+            )
+            for preference in preferences:
+                for category_id in batch[preference.identifier]:
                     preference.preferences[category_id] = PreferenceStatus.OPTED_OUT.value
-                to_update.append(preference)
-
-            if to_create:
-                MessageRecipientPreference.objects.bulk_create(to_create, batch_size=500)
-            if to_update:
-                MessageRecipientPreference.objects.bulk_update(to_update, ["preferences", "updated_at"], batch_size=500)
+            MessageRecipientPreference.objects.bulk_update(preferences, ["preferences", "updated_at"], batch_size=500)
 
 
 def _record_error(errors: list[str], message: str) -> None:
