@@ -746,9 +746,9 @@ async def test_matching_excludes_candidates_from_failed_reports(ateam):
         )
         for report in (failed, live, merged_into_live)
     ]
-    llm_match = AsyncMock(return_value=_new_match())
+    llm = AsyncMock(return_value=_new_match())
 
-    with patch(f"{GROUPING_MODULE_PATH}.match_signal_to_report", new=llm_match):
+    with patch(f"{GROUPING_MODULE_PATH}.call_llm", new=llm):
         await match_signal_to_report_activity(
             MatchSignalToReportInput(
                 team_id=ateam.id,
@@ -761,8 +761,10 @@ async def test_matching_excludes_candidates_from_failed_reports(ateam):
             )
         )
 
-    offered = llm_match.call_args.args[0].query_results
-    assert [[c.report_id for c in query] for query in offered] == [[str(live.id), str(merged_into_live.id)], []]
+    prompt = llm.call_args.kwargs["user_prompt"]
+    assert f"signal_id: signal-{failed.id}" not in prompt
+    assert f"signal_id: signal-{live.id}" in prompt
+    assert f"signal_id: signal-{merged_into_live.id}" in prompt
 
 
 @pytest.mark.parametrize(
