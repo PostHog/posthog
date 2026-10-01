@@ -204,15 +204,7 @@ class _ResponseValidator:
             # errors for a valid response, and this check is advisory under DEBUG, so warn instead.
             if self.strict:
                 raise
-            logger.warning(
-                "Response serializer could not parse the response it declared for status code "
-                f"{status_code} in the responses parameter of the @validated_request decorator. "
-                "The response was returned unchanged; check the declared serializer.",
-                view_func=self.view_name,
-                status_code=status_code,
-                serializer_class=type(serialized).__name__,
-                error=str(exc),
-            )
+            self._warn_parse_failure(status_code, type(serialized).__name__, exc)
             return
 
         if not body_matches_serializer:
@@ -225,6 +217,22 @@ class _ResponseValidator:
             if self.strict:
                 raise serializers.ValidationError(str(exc)) from exc
             self._warn_body_mismatch(status_code, model.__name__, exc.errors(include_url=False, include_input=False))
+        except Exception as exc:
+            # Pydantic passes some validator errors through unconverted, such as a TypeError.
+            if self.strict:
+                raise
+            self._warn_parse_failure(status_code, model.__name__, exc)
+
+    def _warn_parse_failure(self, status_code: int, serializer_class: str, exc: Exception) -> None:
+        logger.warning(
+            "Response serializer could not parse the response it declared for status code "
+            f"{status_code} in the responses parameter of the @validated_request decorator. "
+            "The response was returned unchanged; check the declared serializer.",
+            view_func=self.view_name,
+            status_code=status_code,
+            serializer_class=serializer_class,
+            error=str(exc),
+        )
 
     def _warn_body_mismatch(self, status_code: int, serializer_class: str, validation_errors: Any) -> None:
         logger.warning(

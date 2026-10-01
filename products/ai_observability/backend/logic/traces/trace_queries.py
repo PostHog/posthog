@@ -177,24 +177,33 @@ def _trace_filter(trace_id: str) -> ast.Expr:
     )
 
 
-def fallback_window(timestamp_hint: datetime) -> tuple[datetime, datetime]:
+@frozen
+class FallbackWindow:
+    start: datetime
+    end: datetime
+
+
+def fallback_window(timestamp_hint: datetime) -> FallbackWindow:
     """Raises OverflowError when the window around the hint leaves the datetime range."""
-    return timestamp_hint - FALLBACK_BEFORE_HINT, timestamp_hint + FALLBACK_AFTER_HINT
+    return FallbackWindow(start=timestamp_hint - FALLBACK_BEFORE_HINT, end=timestamp_hint + FALLBACK_AFTER_HINT)
 
 
-def _fallback_filter(trace_id: str, window: tuple[datetime, datetime] | None) -> ast.Expr:
+def _fallback_filter(trace_id: str, window: FallbackWindow | None) -> ast.Expr:
     if window is None:
         # The shared events table is not sorted by trace id, so a read without a window must not scan it.
         return ast.Constant(value=False)
-    start, end = window
     return ast.And(
         exprs=[
             _trace_filter(trace_id),
             ast.CompareOperation(
-                op=ast.CompareOperationOp.GtEq, left=ast.Field(chain=["timestamp"]), right=ast.Constant(value=start)
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value=window.start),
             ),
             ast.CompareOperation(
-                op=ast.CompareOperationOp.LtEq, left=ast.Field(chain=["timestamp"]), right=ast.Constant(value=end)
+                op=ast.CompareOperationOp.LtEq,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value=window.end),
             ),
         ]
     )
@@ -206,7 +215,7 @@ def _read(
     team: Team,
     user: User | None,
     trace_id: str,
-    window: tuple[datetime, datetime] | None,
+    window: FallbackWindow | None,
 ) -> list[Sequence[Any]]:
     tag_queries(name=name)
     response = query_ai_events(
@@ -313,7 +322,9 @@ def _read_rows(team: Team, user: User | None, trace_id: str, timestamp_hint: dat
     if results:
         return results
     logger.warning("ai_trace_unhinted_events_fallback", team_id=team.pk, trace_id_length=len(trace_id))
-    window = (UNHINTED_FALLBACK_START - FALLBACK_BEFORE_HINT, datetime.now(UTC) + FALLBACK_AFTER_HINT)
+    window = FallbackWindow(
+        start=UNHINTED_FALLBACK_START - FALLBACK_BEFORE_HINT, end=datetime.now(UTC) + FALLBACK_AFTER_HINT
+    )
     return _read(name, _trace_rows_query(), team, user, trace_id, window)
 
 

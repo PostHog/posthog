@@ -8,7 +8,7 @@ from django.test import SimpleTestCase, override_settings
 
 from drf_spectacular.utils import OpenApiResponse, PolymorphicProxySerializer
 from parameterized import parameterized
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 from pydantic.alias_generators import to_camel
 from rest_framework import serializers, status
 from rest_framework.response import Response
@@ -49,6 +49,15 @@ class RaisingResponseSerializer(serializers.Serializer):
 
     def to_internal_value(self, data: object) -> NoReturn:
         raise RuntimeError("boom")
+
+
+class RaisingResponseModel(BaseModel):
+    value: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject(cls, data: object) -> NoReturn:
+        raise TypeError("boom")
 
 
 class RequiresFlavorSerializer(serializers.Serializer):
@@ -307,11 +316,19 @@ class TestValidatedRequestDecorator(SimpleTestCase):
         assert response.status_code == status.HTTP_200_OK
         assert response.data["value"] == "ok"
 
-    def test_response_serializer_that_raises_while_parsing_logs_warning(self):
+    @parameterized.expand(
+        [
+            ("serializer", RaisingResponseSerializer, "RaisingResponseSerializer"),
+            ("pydantic_model", RaisingResponseModel, "RaisingResponseModel"),
+        ]
+    )
+    def test_response_serializer_that_raises_while_parsing_logs_warning(
+        self, _name: str, declared: type[RaisingResponseSerializer] | type[RaisingResponseModel], class_name: str
+    ) -> None:
         @validated_request(
             request_serializer=EventCaptureRequestSerializer,
             responses={
-                200: OpenApiResponse(response=RaisingResponseSerializer),
+                200: OpenApiResponse(response=declared),
             },
         )
         def mock_endpoint(view_self, request):
@@ -331,17 +348,28 @@ class TestValidatedRequestDecorator(SimpleTestCase):
                 mock_logger.warning.assert_called_once()
                 call_args = mock_logger.warning.call_args
                 assert "Response serializer could not parse the response it declared" in call_args[0][0]
-                assert call_args[1]["serializer_class"] == "RaisingResponseSerializer"
+                assert call_args[1]["serializer_class"] == class_name
                 assert "boom" in call_args[1]["error"]
 
         assert response.status_code == status.HTTP_200_OK
         assert response.data["value"] == "ok"
 
-    def test_strict_response_validation_reraises_a_parsing_exception(self):
+    @parameterized.expand(
+        [
+            ("serializer", RaisingResponseSerializer, RuntimeError),
+            ("pydantic_model", RaisingResponseModel, TypeError),
+        ]
+    )
+    def test_strict_response_validation_reraises_a_parsing_exception(
+        self,
+        _name: str,
+        declared: type[RaisingResponseSerializer] | type[RaisingResponseModel],
+        raised: type[Exception],
+    ) -> None:
         @validated_request(
             request_serializer=EventCaptureRequestSerializer,
             responses={
-                200: OpenApiResponse(response=RaisingResponseSerializer),
+                200: OpenApiResponse(response=declared),
             },
             strict_response_validation=True,
         )
@@ -354,7 +382,7 @@ class TestValidatedRequestDecorator(SimpleTestCase):
         mock_request._full_data = {}
         mock_request.data = {"event": "$pageview", "distinct_id": "user_123"}
 
-        with pytest.raises(RuntimeError, match="boom"):
+        with pytest.raises(raised, match="boom"):
             mock_endpoint(view_instance, mock_request)
 
     def test_no_response_serializers_bypasses_validation(self):

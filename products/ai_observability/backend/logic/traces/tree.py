@@ -42,33 +42,32 @@ class TreeNode:
 def build_tree(events: Sequence[TraceEvent], trace_id: str) -> tuple[TreeNode, ...]:
     nodes = [event for event in events if not event.is_annotation and not event.is_trace_event]
     known_keys = {event.node_key for event in nodes}
-    children_of: defaultdict[str, list[TraceEvent]] = defaultdict(list)
-    for event in nodes:
-        if event.parent_key != event.node_key:
-            children_of[event.parent_key].append(event)
 
     def order(event: TraceEvent) -> tuple[datetime, float]:
         latency = event.row.latency
         return event.started_at, -(latency if latency is not None and math.isfinite(latency) else 0)
 
+    ordered = sorted(nodes, key=order)
+    children_of: defaultdict[str, list[TraceEvent]] = defaultdict(list)
+    for event in ordered:
+        if event.parent_key != event.node_key:
+            children_of[event.parent_key].append(event)
+
     reached: set[str] = set()
 
     def build(event: TraceEvent) -> TreeNode:
         reached.add(event.id)
-        children = tuple(
-            build(child) for child in sorted(children_of.get(event.node_key, []), key=order) if child.id not in reached
-        )
-        return TreeNode(event=event, children=children)
+        # Popping the bucket hands every child to the first node built with this key, so events that share
+        # the key never scan it again.
+        bucket = children_of.pop(event.node_key, [])
+        return TreeNode(event=event, children=tuple(build(child) for child in bucket if child.id not in reached))
 
-    roots = sorted(
-        (
-            event
-            for event in nodes
-            if event.parent_key in (trace_id, event.node_key) or event.parent_key not in known_keys
-        ),
-        key=order,
-    )
+    roots = [
+        event
+        for event in ordered
+        if event.parent_key in (trace_id, event.node_key) or event.parent_key not in known_keys
+    ]
     built = [build(root) for root in roots if root.id not in reached]
     # Members of a parent cycle have no root above them, so they would vanish without this pass.
-    built += [build(event) for event in sorted(nodes, key=order) if event.id not in reached]
+    built += [build(event) for event in ordered if event.id not in reached]
     return tuple(built)

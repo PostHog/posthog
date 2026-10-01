@@ -1,6 +1,8 @@
 from datetime import timedelta
 from typing import Any
 
+from parameterized import parameterized
+
 from products.ai_observability.backend.logic.traces.event import TraceEvent
 from products.ai_observability.backend.logic.traces.tree import TreeNode, build_tree
 from products.ai_observability.backend.logic.traces.usage import Usage
@@ -80,16 +82,16 @@ def test_a_self_parented_event_is_a_root() -> None:
     assert shape(tree) == [("loop", [])]
 
 
-def test_events_sharing_a_span_id_all_appear() -> None:
-    tree = build_tree(
-        events(
-            {"uuid": "one", "span_id": "s"},
-            {"uuid": "two", "span_id": "s", "timestamp": T0 + timedelta(seconds=1)},
-        ),
-        "trace-1",
-    )
+@parameterized.expand([("a pair", 2), ("thousands", 2_000)])
+def test_events_sharing_a_span_id_each_appear_and_share_children_once(_name: str, count: int) -> None:
+    sharing = [{"uuid": f"dup-{i}", "span_id": "s", "timestamp": T0 + timedelta(seconds=i)} for i in range(count)]
+    children = [{"uuid": f"child-{i}", "parent_id": "s", "timestamp": T0 + timedelta(seconds=i)} for i in range(count)]
 
-    assert sorted(ids(tree)) == ["one", "two"]
+    tree = build_tree(events(*sharing, *children), "trace-1")
+
+    assert [node.event.id for node in tree] == [f"dup-{i}" for i in range(count)]
+    assert [child.event.id for child in tree[0].children] == [f"child-{i}" for i in range(count)]
+    assert all(not node.children for node in tree[1:])
 
 
 def test_a_non_finite_latency_does_not_break_ordering() -> None:
