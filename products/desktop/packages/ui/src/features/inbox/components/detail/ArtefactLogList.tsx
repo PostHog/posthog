@@ -256,14 +256,14 @@ function ReviewersBody({ reviewers }: { reviewers: SuggestedReviewer[] }) {
 
 function RankingHeadRows({ heads }: { heads: RankingHead[] }) {
   return (
-    <Box className="grid grid-cols-[minmax(0,auto)_minmax(2rem,1fr)_auto] items-center gap-x-2 gap-y-1 text-[12px]">
+    <Box className="grid grid-cols-[minmax(0,max-content)_minmax(2rem,10rem)_auto] items-center justify-start gap-x-2 gap-y-1 text-[12px]">
       {heads.map((head) => {
         const percent = Math.round(head.probability * 100);
         const tone = head.readable ? "text-(--gray-12)" : "text-(--gray-10)";
         return (
           <Fragment key={head.name}>
             <Text className={`truncate ${tone}`}>{prettify(head.name)}</Text>
-            <Box className="h-1.5 max-w-40 overflow-hidden rounded-full bg-(--gray-4)">
+            <Box className="h-1.5 overflow-hidden rounded-full bg-(--gray-4)">
               <Box
                 className={`h-full rounded-full ${head.readable ? "bg-(--accent-9)" : "bg-(--gray-8)"}`}
                 style={{ width: `${percent}%` }}

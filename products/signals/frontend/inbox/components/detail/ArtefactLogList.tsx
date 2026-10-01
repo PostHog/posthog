@@ -476,7 +476,7 @@ function CodeReviewBody({ content }: { content: CodeReviewContent }): JSX.Elemen
 
 function RankingHeadRows({ heads }: { heads: RankingHead[] }): JSX.Element {
     return (
-        <div className="grid grid-cols-[minmax(0,auto)_minmax(2rem,1fr)_auto] items-center gap-x-2 gap-y-1">
+        <div className="grid grid-cols-[minmax(0,max-content)_minmax(2rem,10rem)_auto] items-center justify-start gap-x-2 gap-y-1">
             {heads.map((head) => {
                 const percent = Math.round(head.probability * 100)
                 return (
@@ -484,7 +484,7 @@ function RankingHeadRows({ heads }: { heads: RankingHead[] }): JSX.Element {
                         <span className={`truncate ${head.readable ? 'text-default' : 'text-tertiary'}`}>
                             {prettify(head.name)}
                         </span>
-                        <div className="h-1.5 max-w-40 overflow-hidden rounded-full bg-border-light">
+                        <div className="h-1.5 overflow-hidden rounded-full bg-border-light">
                             <div
                                 className={`h-full rounded-full ${head.readable ? 'bg-primary-3000' : 'bg-border-bold'}`}
                                 // eslint-disable-next-line react/forbid-dom-props
