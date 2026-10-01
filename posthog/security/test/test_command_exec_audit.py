@@ -227,6 +227,18 @@ class TestCommandExecAuditPatching(TestCase):
                 {},
             ),
             (
+                "spoof_expression_in_forkserver_preload",
+                [
+                    "python",
+                    "-c",
+                    "import sys; from multiprocessing.forkserver import main; "
+                    "main(5, 6, [__import__('os').system('id')], **{})",
+                ],
+                False,
+                None,
+                {},
+            ),
+            (
                 "spoof_replaces_process",
                 [
                     "python",

@@ -2,6 +2,7 @@
 
 import os
 import re
+import ast
 import uuid
 import shlex
 import subprocess
@@ -98,15 +99,15 @@ _SHELL_OPERATORS = frozenset(";|&$`<>\n")
 # run continuously on dagster and the Temporal workers, so alerts exclude them by label. The label
 # hides an execution from those alerts, so it must match the exact `-c` program CPython builds
 # (multiprocessing/spawn.py, forkserver.py, resource_tracker.py), never a substring of argv.
-# The forkserver preload list and preparation dict are reprs of arbitrary data, so that shape is
-# anchored on its prefix and call signature only.
+# The forkserver preload list and preparation dict are reprs of arbitrary data, so every captured
+# group there must parse as a Python literal: an expression inside them would run on the child.
 _PYTHON_EXECUTABLE_RE = re.compile(r"^python(?:\d+(?:\.\d+)?)?$")
 _MULTIPROCESSING_PROGRAM_RES = (
     re.compile(r"^from multiprocessing\.spawn import spawn_main; spawn_main\(\w+=\d+(?:, \w+=\d+)*\)$"),
     re.compile(r"^from multiprocessing\.resource_tracker import main;main\(\d+\)$"),
     re.compile(
         r"^(?:import sys; )?from multiprocessing\.forkserver import main; "
-        r"main\(\d+, \d+, \[.*\], (?:sys_argv=sys\.argv\[1:\], )?\*\*\{.*\}\)$"
+        r"main\(\d+, \d+, (\[.*?\]), (?:sys_argv=sys\.argv\[1:\], )?\*\*(\{.*\})\)$"
     ),
 )
 
@@ -188,7 +189,17 @@ def _is_multiprocessing_bootstrap(command: Any, shell: bool) -> bool:
     if code_index + 1 >= len(argv):
         return False
     program = argv[code_index + 1]
-    return any(pattern.match(program) for pattern in _MULTIPROCESSING_PROGRAM_RES)
+    for pattern in _MULTIPROCESSING_PROGRAM_RES:
+        match = pattern.match(program)
+        if match is None:
+            continue
+        try:
+            for group in match.groups():
+                ast.literal_eval(group)
+        except Exception:
+            return False
+        return True
+    return False
 
 
 def _scrub_args(tokens: Any) -> list[str]:
