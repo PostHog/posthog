@@ -183,7 +183,8 @@ def resolve_chapters(
             continue
         start_s = float(max(0, chapter.start_t))
         nearest_cut = min(cuts, key=lambda cut: abs(cut - start_s), default=None)
-        if nearest_cut is not None and abs(nearest_cut - start_s) <= CUT_SNAP_S:
+        # The first chapter starts at 0 regardless, so snapping a 0 start would only collide it with the next one.
+        if start_s > 0 and nearest_cut is not None and abs(nearest_cut - start_s) <= CUT_SNAP_S:
             start_s = nearest_cut
         starts.setdefault(start_s, chapter)
     kept = sorted(starts.items())[:MAX_CHAPTERS]
@@ -194,17 +195,13 @@ def resolve_chapters(
     for index, (start_s, chapter) in enumerate(kept):
         start_s = 0.0 if index == 0 else start_s
         end_s = kept[index + 1][0] if index + 1 < len(kept) else video_end_s
-        thumbnail_t = chapter.thumbnail_t
-        thumbnail_s = (
-            thumbnail_t if thumbnail_t is not None and start_s <= thumbnail_t < end_s else (start_s + end_s) / 2
-        )
+        start_ms, end_ms = clock.video_s_to_session_ms(start_s), clock.video_end_s_to_session_ms(end_s)
+        # Checked on the session clock, because a video second at a cut can map onto the chapter's exclusive end.
+        thumbnail_ms = clock.video_s_to_session_ms(chapter.thumbnail_t) if chapter.thumbnail_t is not None else None
+        if thumbnail_ms is None or not start_ms <= thumbnail_ms < end_ms:
+            thumbnail_ms = clock.video_s_to_session_ms((start_s + end_s) / 2)
         resolved.append(
-            SummaryChapter(
-                start_ms=clock.video_s_to_session_ms(start_s),
-                end_ms=clock.video_end_s_to_session_ms(end_s),
-                title=chapter.title,
-                thumbnail_ms=clock.video_s_to_session_ms(thumbnail_s),
-            )
+            SummaryChapter(start_ms=start_ms, end_ms=end_ms, title=chapter.title, thumbnail_ms=thumbnail_ms)
         )
     return resolved
 

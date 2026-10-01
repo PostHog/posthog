@@ -162,6 +162,16 @@ class TestCitationsPastTheVideoEnd:
 
 
 class TestResolveChapters:
+    def test_a_start_at_0_never_snaps_so_it_cannot_swallow_a_chapter_that_snaps_onto_an_early_cut(self) -> None:
+        clock = VideoClock(
+            spans=(
+                ActiveSpan(session_from_s=0.0, session_to_s=2.0, video_from_s=0.0, video_to_s=2.0),
+                ActiveSpan(session_from_s=30.0, session_to_s=60.0, video_from_s=2.0, video_to_s=32.0),
+            )
+        )
+        resolved = resolve_chapters([_chapter(0, "Loads"), _chapter(3, "Buys")], 60_000, clock)
+        assert [(c.start_ms, c.end_ms, c.title) for c in resolved] == [(0, 2_000, "Loads"), (30_000, 60_000, "Buys")]
+
     def test_a_cut_that_costs_a_video_frame_still_ends_the_chapter_where_the_user_went_idle(self) -> None:
         clock = VideoClock(
             spans=(
@@ -169,8 +179,10 @@ class TestResolveChapters:
                 ActiveSpan(session_from_s=62.0, session_to_s=80.0, video_from_s=59.0, video_to_s=77.0),
             )
         )
-        resolved = resolve_chapters([_chapter(0, "Browses"), _chapter(60, "Buys")], 80_000, clock)
+        resolved = resolve_chapters([_chapter(0, "Browses", 58), _chapter(60, "Buys")], 80_000, clock)
         assert [(c.start_ms, c.end_ms) for c in resolved] == [(0, 58_000), (62_000, 80_000)]
+        # Video second 58 is where the user went idle, the first chapter's exclusive end, so the frame falls back.
+        assert resolved[0].thumbnail_ms == 29_500
 
     @parameterized.expand(
         [
