@@ -2,9 +2,8 @@ import { match } from 'ts-pattern'
 
 import { ActivityChange } from 'lib/components/ActivityLog/humanizeActivity'
 import { Link } from 'lib/lemon-ui/Link'
+import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
 import { urls } from 'scenes/urls'
-
-import { SharedMetric } from '../SharedMetrics/sharedMetricLogic'
 
 /**
  * id an id is provided, it returns a link to the shared metric. Otherwise, just the name.
