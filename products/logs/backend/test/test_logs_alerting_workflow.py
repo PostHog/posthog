@@ -6,13 +6,17 @@ the sandbox doesn't trip on Django imports inside `activities.py`.
 """
 
 import uuid
+import logging
+from collections import Counter
+from datetime import timedelta
 
 import pytest
+from unittest.mock import patch
 
-from temporalio import activity
+from temporalio import activity, workflow
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
 from products.logs.backend.alert_signal_emitter import NotifiedAlert
 from products.logs.backend.temporal.activities import (
@@ -25,9 +29,19 @@ from products.logs.backend.temporal.activities import (
     EvaluateCohortBatchInput,
     EvaluateCohortBatchOutput,
 )
-from products.logs.backend.temporal.workflow import LogsAlertCheckWorkflow
+from products.logs.backend.temporal.workflow import (
+    BUSY_COHORT_BACKOFF_PATCH,
+    RETRY_BUSY_COHORTS_PATCH,
+    LogsAlertCheckWorkflow,
+)
 
 TASK_QUEUE = "logs-alerting-test"
+
+
+@pytest.fixture(autouse=True)
+def temporal_info_logging(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO, logger="temporalio.workflow")
+    caplog.set_level(logging.INFO, logger="temporalio.activity")
 
 
 @pytest.mark.asyncio
@@ -69,10 +83,103 @@ async def test_workflow_chunks_manifests_and_aggregates_results() -> None:
                 CheckAlertsInput(),
                 id=f"test-workflow-aggregate-{uuid.uuid4()}",
                 task_queue=TASK_QUEUE,
+                execution_timeout=timedelta(minutes=2),
             )
 
     assert result.alerts_checked == 7
     assert result.alerts_errored == 0
+
+
+@pytest.mark.parametrize(
+    "attempts, busy_rounds, disabled_patches, expected_delays",
+    [
+        (3, 0, set(), []),
+        (3, 1, set(), [5]),
+        (3, 8, set(), [5, 15]),
+        (4, 8, set(), [5, 15, 15]),
+        (1, 8, set(), []),
+        (3, 1, {BUSY_COHORT_BACKOFF_PATCH}, []),
+        (3, 8, {RETRY_BUSY_COHORTS_PATCH, BUSY_COHORT_BACKOFF_PATCH}, []),
+    ],
+)
+@pytest.mark.asyncio
+async def test_workflow_retries_busy_cohorts_and_saves_them_on_the_last_round(
+    attempts: int, busy_rounds: int, disabled_patches: set[str], expected_delays: list[int]
+) -> None:
+    manifests = [
+        CohortManifest(
+            team_id=1,
+            projection_eligible=True,
+            date_to_iso="2026-05-05T10:05:00+00:00",
+            alert_ids=[f"alert-{i}"],
+        )
+        for i in range(3)
+    ]
+    busy = manifests[1]
+    busy_calls: Counter[str] = Counter()
+    rounds: list[tuple[list[str], bool]] = []
+
+    @activity.defn(name="discover_cohorts_activity")
+    async def fake_discover(_input: DiscoverCohortsInput) -> DiscoverCohortsOutput:
+        return DiscoverCohortsOutput(manifests=manifests, batch_size=10, busy_cohort_attempts=attempts)
+
+    @activity.defn(name="evaluate_cohort_batch_activity")
+    async def fake_evaluate(input: EvaluateCohortBatchInput) -> EvaluateCohortBatchOutput:
+        rounds.append(([m.alert_ids[0] for m in input.manifests], input.defer_busy_cohorts))
+        deferred = []
+        for manifest in input.manifests:
+            if manifest == busy and busy_calls["busy"] < busy_rounds and input.defer_busy_cohorts:
+                busy_calls["busy"] += 1
+                deferred.append(manifest)
+        return EvaluateCohortBatchOutput(
+            alerts_checked=len(input.manifests) - len(deferred),
+            alerts_fired=0,
+            alerts_resolved=0,
+            alerts_errored=0,
+            busy_cohorts=deferred,
+        )
+
+    original_patched = workflow.patched
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        with patch.object(
+            workflow, "patched", side_effect=lambda name: name not in disabled_patches and original_patched(name)
+        ):
+            async with Worker(
+                env.client,
+                task_queue=TASK_QUEUE,
+                workflows=[LogsAlertCheckWorkflow],
+                activities=[fake_discover, fake_evaluate],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                handle = await env.client.start_workflow(
+                    LogsAlertCheckWorkflow.run,
+                    CheckAlertsInput(),
+                    id=f"test-workflow-busy-retry-{uuid.uuid4()}",
+                    task_queue=TASK_QUEUE,
+                    execution_timeout=timedelta(minutes=2),
+                )
+                result = await handle.result()
+                history = await handle.fetch_history()
+
+        await Replayer(workflows=[LogsAlertCheckWorkflow], workflow_runner=UnsandboxedWorkflowRunner()).replay_workflow(
+            history
+        )
+
+    delays = [
+        event.timer_started_event_attributes.start_to_fire_timeout.seconds
+        for event in history.events
+        if event.HasField("timer_started_event_attributes")
+    ]
+    assert delays == expected_delays
+    effective_attempts = 1 if RETRY_BUSY_COHORTS_PATCH in disabled_patches else attempts
+    expected_rounds = min(effective_attempts, busy_rounds + 1)
+
+    assert len(rounds) == expected_rounds
+    assert rounds[0][0] == ["alert-0", "alert-1", "alert-2"]
+    assert all(alert_ids == ["alert-1"] for alert_ids, _ in rounds[1:])
+    # Only a round that can still be followed by another defers; the last one saves.
+    assert [defer for _, defer in rounds] == [i < effective_attempts - 1 for i in range(expected_rounds)]
+    assert result.alerts_checked == 3
 
 
 @pytest.mark.asyncio
@@ -121,6 +228,7 @@ async def test_workflow_isolates_per_batch_failure() -> None:
                 CheckAlertsInput(),
                 id=f"test-workflow-partial-fail-{uuid.uuid4()}",
                 task_queue=TASK_QUEUE,
+                execution_timeout=timedelta(minutes=2),
             )
 
     # Successful batch: 2 cohorts × 2 alerts = 4 alerts checked.
@@ -193,6 +301,7 @@ async def test_workflow_forwards_notified_alerts_to_emission_activity() -> None:
                 CheckAlertsInput(),
                 id=f"test-workflow-emit-signals-{uuid.uuid4()}",
                 task_queue=TASK_QUEUE,
+                execution_timeout=timedelta(minutes=2),
             )
 
     assert captured["count"] == 1
@@ -232,6 +341,7 @@ async def test_workflow_skips_emission_activity_when_no_alerts_notified() -> Non
                 CheckAlertsInput(),
                 id=f"test-workflow-no-signals-{uuid.uuid4()}",
                 task_queue=TASK_QUEUE,
+                execution_timeout=timedelta(minutes=2),
             )
 
     assert emit_called["n"] == 0

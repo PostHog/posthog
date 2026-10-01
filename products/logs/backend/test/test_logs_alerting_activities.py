@@ -1,10 +1,13 @@
 import json
 import time
+import uuid
 import asyncio
+import logging
 import datetime as dt
 import dataclasses
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
+from urllib.parse import parse_qs
 
 import unittest
 import time_machine
@@ -17,16 +20,29 @@ from hypothesis import (
     strategies as st,
 )
 from parameterized import parameterized
+from temporalio import activity
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+
+from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.client import sync_execute
 from posthog.errors import QueryErrorCategory
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.slo.types import SloOperation, SloOutcome
 
-from products.logs.backend.alert_check_query import AlertCheckQuery, BatchedBucketedResult, BucketedCount
+from products.logs.backend.alert_check_query import (
+    AlertCheckQuery,
+    BatchedAlertCheckQuery,
+    BatchedBucketedResult,
+    BucketedCount,
+)
 from products.logs.backend.alert_signal_emitter import AlertSignalAction, NotifiedAlert
 from products.logs.backend.alert_state_machine import AlertCheckOutcome, AlertState, CheckResult, NotificationAction
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.temporal.activities import (
+    CheckAlertsInput,
+    CheckAlertsOutput,
     EmitAlertSignalsInput,
     _AlertCohort,
     _AlertEvaluation,
@@ -37,8 +53,11 @@ from products.logs.backend.temporal.activities import (
     _evaluate_single_alert,
     _finalize_alert,
     _save_cohort_outcomes,
+    discover_cohorts_activity,
     emit_alert_signals_activity,
+    evaluate_cohort_batch_activity,
 )
+from products.logs.backend.temporal.workflow import LogsAlertCheckWorkflow
 
 
 def _evaluate_and_save_one(
@@ -330,24 +349,24 @@ class TestRunCohortQueryFallback(unittest.TestCase):
             projection_eligible=True,
         )
 
+    @parameterized.expand([("invalid_query", False), ("server_busy", True)])
     @patch("products.logs.backend.temporal.activities.increment_cohort_query_fallback")
-    @patch("products.logs.backend.temporal.activities.classify_alert_error")
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.logs.backend.temporal.activities._run_batched_query")
     def test_falls_back_to_per_alert_on_non_transient_failure(
-        self, mock_batched, mock_alert_check_query_cls, mock_classify, mock_fallback_counter
+        self, _name, busy, mock_batched, mock_alert_check_query_cls, mock_fallback_counter
     ):
         from products.logs.backend.temporal.activities import _run_cohort_query
 
         # Non-transient classification → fallback runs.
-        mock_batched.side_effect = RuntimeError("query_performance error")
-        mock_classify.return_value = MagicMock(is_transient=False, code="query_performance")
+        mock_batched.side_effect = ExposedHogQLError("Invalid cohort filter")
+        per_alert_error = ClickHouseAtCapacity() if busy else ExposedHogQLError("Invalid alert filter")
 
         # Per-alert AlertCheckQuery: alert-0 succeeds, alert-1 raises (the bad one).
         def make_query_instance(*, team, alert, **_kwargs):
             instance = MagicMock()
             if alert.id == "alert-1":
-                instance.execute_rolling_checks.side_effect = RuntimeError("alert-1 also bad")
+                instance.execute_rolling_checks.side_effect = per_alert_error
             else:
                 instance.execute_rolling_checks.return_value = [
                     BucketedCount(timestamp=datetime(2025, 1, 1, 0, 0, tzinfo=UTC), count=42)
@@ -368,7 +387,8 @@ class TestRunCohortQueryFallback(unittest.TestCase):
         assert good.buckets is not None and good.buckets[0].count == 42
         assert good.error is None
         assert bad.buckets is None
-        assert bad.error is not None and "alert-1 also bad" in str(bad.error)
+        assert bad.error is per_alert_error
+        assert result.busy_alert_ids() == ({"alert-1"} if busy else set())
 
     @patch("products.logs.backend.temporal.activities.increment_cohort_query_fallback")
     @patch("products.logs.backend.temporal.activities.classify_alert_error")
@@ -2309,6 +2329,234 @@ class TestEvaluateCohortBatchActivity(NonAtomicBaseTest):
         # First cohort errored → counts as 1 errored. Second succeeded → 1 checked.
         assert result.alerts_errored == 1
         assert result.alerts_checked == 1
+
+    @parameterized.expand(
+        [
+            ("deferred", True, False),
+            ("saved_as_skipped_check", False, False),
+            ("mixed_deferred", True, True),
+            ("mixed_saved_as_skipped_check", False, True),
+        ]
+    )
+    @time_machine.travel("2026-05-05T10:05:00Z", tick=False)
+    @patch("posthog.slo.context.emit_slo_completed")
+    @patch("posthog.slo.context.emit_slo_started")
+    @patch("products.logs.backend.temporal.activities._run_cohort_query")
+    def test_busy_cohort_is_deferred_only_when_asked(
+        self, _name, defer_busy_cohorts, mixed, mock_run_cohort_query, _mock_slo_started, mock_slo_completed
+    ):
+        from products.logs.backend.temporal.activities import (
+            CohortManifest,
+            EvaluateCohortBatchInput,
+            _CohortQueryResult,
+            _PrefetchedQuery,
+            evaluate_cohort_batch_activity,
+        )
+
+        alert = LogsAlertConfiguration.objects.create(
+            team=self.team,
+            name="a",
+            threshold_count=1,
+            threshold_operator="above",
+            window_minutes=5,
+            evaluation_periods=1,
+            filters={"serviceNames": ["s"]},
+            enabled=True,
+            next_check_at=None,
+        )
+        sibling = (
+            LogsAlertConfiguration.objects.create(team=self.team, name="successful sibling", window_minutes=5)
+            if mixed
+            else None
+        )
+        per_alert = {str(alert.id): _PrefetchedQuery(error=ClickHouseAtCapacity())}
+        if sibling:
+            per_alert[str(sibling.id)] = _PrefetchedQuery(buckets=[])
+        mock_run_cohort_query.return_value = _CohortQueryResult(per_alert=per_alert)
+        manifest = CohortManifest(
+            team_id=self.team.id,
+            projection_eligible=True,
+            date_to_iso="2026-05-05T10:05:00+00:00",
+            alert_ids=list(per_alert),
+        )
+
+        result = asyncio.run(
+            evaluate_cohort_batch_activity(
+                EvaluateCohortBatchInput(manifests=[manifest], defer_busy_cohorts=defer_busy_cohorts)
+            )
+        )
+
+        alert.refresh_from_db()
+        if sibling:
+            sibling.refresh_from_db()
+            assert sibling.last_checked_at is not None
+            assert sibling.next_check_at is not None
+        if defer_busy_cohorts:
+            assert result.busy_cohorts == [dataclasses.replace(manifest, alert_ids=[str(alert.id)])]
+            assert result.alerts_checked == int(mixed)
+            assert result.alerts_errored == 0
+            checks = [call.kwargs for call in mock_slo_completed.call_args_list]
+            busy_check = next(check for check in checks if check["properties"].resource_id == str(alert.id))
+            assert busy_check["properties"].outcome == SloOutcome.FAILURE
+            assert busy_check["extra_properties"]["failure_phase"] == "cohort_query"
+            assert busy_check["extra_properties"]["deferred_as_busy"] is True
+            if sibling:
+                sibling_check = next(check for check in checks if check["properties"].resource_id == str(sibling.id))
+                assert sibling_check["properties"].outcome == SloOutcome.SUCCESS
+                assert "deferred_as_busy" not in sibling_check["extra_properties"]
+            assert alert.next_check_at is None
+            assert not LogsAlertEvent.objects.filter(alert=alert).exists()
+        else:
+            assert result.alerts_checked == 1 + int(mixed)
+            assert result.alerts_errored == 1
+            assert result.busy_cohorts == []
+            assert alert.next_check_at is not None
+            assert LogsAlertEvent.objects.get(alert=alert).error_message.startswith("PostHog is temporarily busy")
+
+    @parameterized.expand([("whole_cohort", False), ("mixed_fallback", True)])
+    @time_machine.travel("2026-05-05T10:05:00Z", tick=False)
+    def test_busy_workflow_recovers_with_one_notification_for_original_window(self, _name: str, mixed: bool) -> None:
+        alert = LogsAlertConfiguration.objects.create(
+            team=self.team,
+            name="busy recovery",
+            threshold_count=1,
+            threshold_operator="above",
+            window_minutes=5,
+            evaluation_periods=1,
+            filters={"serviceNames": ["example-service"]},
+            enabled=True,
+            next_check_at=None,
+        )
+        sibling = (
+            LogsAlertConfiguration.objects.create(
+                team=self.team,
+                name="successful sibling",
+                threshold_count=1,
+                threshold_operator="above",
+                window_minutes=5,
+                evaluation_periods=1,
+                filters={"serviceNames": ["example-service"]},
+                enabled=True,
+                next_check_at=None,
+            )
+            if mixed
+            else None
+        )
+        original = LogsAlertConfiguration.objects.values().get(id=alert.id)
+        date_to = datetime(2026, 5, 5, 10, 4, tzinfo=UTC)
+        date_from = date_to - timedelta(minutes=5)
+        query_windows: list[tuple[datetime, datetime]] = []
+        notified: list[NotifiedAlert] = []
+
+        def query_result(query: BatchedAlertCheckQuery, **kwargs: object) -> BatchedBucketedResult:
+            query_windows.append((query.date_from, query.date_to))
+            assert kwargs["nca"] == date_to
+            assert LogsAlertConfiguration.objects.values().get(id=alert.id) == original
+            assert not LogsAlertEvent.objects.filter(alert=alert).exists()
+            if len(query_windows) == 1:
+                mock_produce.assert_not_called()
+                assert {a.id for a in query.alerts} == ({alert.id, sibling.id} if sibling else {alert.id})
+                if mixed:
+                    raise ExposedHogQLError("Invalid cohort filter")
+                raise ClickHouseAtCapacity()
+            assert [a.id for a in query.alerts] == [alert.id]
+            assert mock_produce.call_count == int(mixed)
+            if sibling:
+                sibling.refresh_from_db()
+                assert sibling.state == LogsAlertConfiguration.State.FIRING
+                assert LogsAlertEvent.objects.filter(alert=sibling).count() == 1
+            return BatchedBucketedResult(
+                per_alert={str(alert.id): [BucketedCount(timestamp=date_from, count=5)]}, query_duration_ms=1
+            )
+
+        def fallback_result(query: AlertCheckQuery, **kwargs: object) -> list[BucketedCount]:
+            assert (query.date_from, query.date_to) == (date_from, date_to)
+            assert kwargs["nca"] == date_to
+            if query.alert.id == alert.id:
+                raise ClickHouseAtCapacity()
+            return [BucketedCount(timestamp=date_from, count=5)]
+
+        @activity.defn(name="emit_alert_signals_activity")
+        async def capture_signals(input: EmitAlertSignalsInput) -> int:
+            notified.extend(input.notified)
+            return len(input.notified)
+
+        async def run_workflow() -> CheckAlertsOutput:
+            async with await WorkflowEnvironment.start_time_skipping() as env:
+                async with Worker(
+                    env.client,
+                    task_queue="logs-alerting-recovery-test",
+                    workflows=[LogsAlertCheckWorkflow],
+                    activities=[discover_cohorts_activity, evaluate_cohort_batch_activity, capture_signals],
+                    workflow_runner=UnsandboxedWorkflowRunner(),
+                ):
+                    return await env.client.execute_workflow(
+                        LogsAlertCheckWorkflow.run,
+                        CheckAlertsInput(),
+                        id=f"test-busy-recovery-{uuid.uuid4()}",
+                        task_queue="logs-alerting-recovery-test",
+                        execution_timeout=timedelta(minutes=2),
+                    )
+
+        with (
+            patch.object(logging.getLogger("temporalio.workflow"), "level", logging.INFO),
+            patch.object(logging.getLogger("temporalio.activity"), "level", logging.INFO),
+            patch("products.logs.backend.temporal.activities.fetch_live_logs_checkpoint", return_value=date_to),
+            patch.object(BatchedAlertCheckQuery, "execute_rolling_checks", autospec=True, side_effect=query_result),
+            patch.object(AlertCheckQuery, "execute_rolling_checks", autospec=True, side_effect=fallback_result),
+            patch("products.logs.backend.temporal.activities.produce_alert_internal_event") as mock_produce,
+            patch("products.logs.backend.temporal.activities.flush_alert_internal_events"),
+            patch("products.logs.backend.temporal.activities.BUSY_COHORT_ATTEMPTS", 3),
+            patch("products.logs.backend.temporal.metrics.get_metric_meter") as mock_meter,
+            patch("products.alerts.backend.facade.delivery_slo.get_instance_region", return_value="US"),
+            patch("posthog.slo.context.emit_slo_started"),
+            patch("posthog.slo.context.emit_slo_completed") as mock_slo_completed,
+        ):
+            result = asyncio.run(run_workflow())
+
+        assert result == CheckAlertsOutput(
+            alerts_checked=1 + int(mixed), alerts_fired=1 + int(mixed), alerts_resolved=0, alerts_errored=0
+        )
+        assert query_windows == [(date_from, date_to), (date_from, date_to)]
+        expected_ids = {str(alert.id), str(sibling.id)} if sibling else {str(alert.id)}
+        assert mock_produce.call_count == len(expected_ids)
+        assert {call.kwargs["properties"]["alert_id"] for call in mock_produce.call_args_list} == expected_ids
+        for call in mock_produce.call_args_list:
+            assert call.kwargs["event_name"] == "$logs_alert_firing"
+            params = parse_qs(call.kwargs["properties"]["logs_url_params"])
+            assert json.loads(params["dateRange"][0]) == {
+                "date_from": date_from.isoformat(),
+                "date_to": date_to.isoformat(),
+            }
+        alert.refresh_from_db()
+        assert alert.state == LogsAlertConfiguration.State.FIRING
+        assert alert.consecutive_failures == 0
+        assert alert.last_checked_at is not None
+        assert alert.last_notified_at is not None
+        assert alert.next_check_at > alert.last_checked_at
+        event = LogsAlertEvent.objects.get(alert=alert)
+        assert event.state_after == LogsAlertConfiguration.State.FIRING
+        assert event.result_count == 5
+        assert len(notified) == len(expected_ids)
+        assert {entry.alert_id for entry in notified} == expected_ids
+        checks = [
+            call.kwargs
+            for call in mock_slo_completed.call_args_list
+            if call.kwargs["properties"].operation == SloOperation.ALERT_CHECK
+        ]
+        busy_checks = [check for check in checks if check["properties"].resource_id == str(alert.id)]
+        assert [check["properties"].outcome for check in busy_checks] == [SloOutcome.FAILURE, SloOutcome.SUCCESS]
+        assert busy_checks[0]["extra_properties"]["failure_phase"] == "cohort_query"
+        assert busy_checks[0]["extra_properties"]["deferred_as_busy"] is True
+        if sibling:
+            sibling_checks = [check for check in checks if check["properties"].resource_id == str(sibling.id)]
+            assert len(sibling_checks) == 1
+            assert sibling_checks[0]["properties"].outcome == SloOutcome.SUCCESS
+            assert "deferred_as_busy" not in sibling_checks[0]["extra_properties"]
+        attributes = [call.args[0] for call in mock_meter.call_args_list if call.args]
+        assert {"outcome": "busy", "attempt": "1"} in attributes
+        assert {"outcome": "recovered", "attempt": "2"} in attributes
+        assert not any(attrs.get("outcome") == "exhausted" for attrs in attributes)
 
     @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
     @patch("products.alerts.backend.facade.delivery_slo.get_instance_region", return_value="US")
