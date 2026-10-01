@@ -1,6 +1,4 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { waitFor } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
@@ -988,28 +986,19 @@ export const HomeWatchFeed: StoryObj = {
     },
 }
 
+const WATCH_FEED_VIEW_STORAGE_KEY = 'products.replay_vision.frontend.replay_scanners.watchFeedLogic.view'
+
 // The same feed as thumbnail cards, each closing with why the recording was picked.
 export const HomeWatchFeedGrid: StoryObj = {
     parameters: {
         featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]: 'test' },
     },
-    // The view persists, so forget it afterwards or every later feed story renders as a grid too.
-    beforeEach: () => () => {
-        for (const key of Object.keys(localStorage)) {
-            if (key.endsWith('watchFeedLogic.view')) {
-                localStorage.removeItem(key)
-            }
-        }
-    },
-    play: async ({ canvasElement }) => {
-        const toggle = await waitFor(() => {
-            const button = canvasElement.querySelector<HTMLElement>('[data-attr="vision-watch-feed-view-grid"]')
-            if (!button) {
-                throw new Error('Grid toggle not rendered yet')
-            }
-            return button
-        })
-        await userEvent.click(toggle)
+    // Seed the saved view before render instead of clicking the toggle: the snapshot build is production
+    // React, which has no act(), so testing-library helpers fail there. Remove it afterwards, or every
+    // later feed story renders as a grid too.
+    beforeEach: () => {
+        localStorage.setItem(WATCH_FEED_VIEW_STORAGE_KEY, JSON.stringify('grid'))
+        return () => localStorage.removeItem(WATCH_FEED_VIEW_STORAGE_KEY)
     },
 }
 
