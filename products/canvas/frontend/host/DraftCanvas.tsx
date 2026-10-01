@@ -1,8 +1,8 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
 
 import type { CanvasCapabilitiesApi } from '../generated/api.schemas'
-import { assertCanvasCapability } from './canvasCapabilities'
 import { translateCanvasTextSelection } from '../sidePanel/comments/canvasCommentThreads'
+import { assertCanvasCapability } from './canvasCapabilities'
 import { CanvasDocumentBridge } from './canvasDocumentBridge'
 import { CanvasHostCallbacks, createCanvasHostMessageRouter } from './canvasHostMessageRouter'
 import {
@@ -49,8 +49,26 @@ export function DraftCanvas({
     const iframeRef = useRef<HTMLIFrameElement>(null)
     const bridgeRef = useRef<CanvasDocumentBridge | null>(null)
     const readyRef = useRef(false)
-    const latest = useRef({ capabilities, files, entry, theme, callbacks, hasUserActivation, onOpenExternal, commentHighlights })
-    latest.current = { capabilities, files, entry, theme, callbacks, hasUserActivation, onOpenExternal, commentHighlights }
+    const latest = useRef({
+        capabilities,
+        files,
+        entry,
+        theme,
+        callbacks,
+        hasUserActivation,
+        onOpenExternal,
+        commentHighlights,
+    })
+    latest.current = {
+        capabilities,
+        files,
+        entry,
+        theme,
+        callbacks,
+        hasUserActivation,
+        onOpenExternal,
+        commentHighlights,
+    }
 
     const post = (message: HostToCanvasMessage): void => {
         bridgeRef.current?.post(message)
