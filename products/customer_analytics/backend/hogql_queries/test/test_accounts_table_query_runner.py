@@ -587,6 +587,105 @@ class TestAccountsTableQueryRunner(BaseTest):
 
         assert [row.id for row in response.results] == [str(csm_account.id)]
 
+    def test_property_groups_match_either_branch_and_apply_global_filters_to_rows_and_metrics(self) -> None:
+        definition = AccountRelationshipDefinition.objects.unscoped().create(team=self.team, name="CSM")
+        staged_owner = create_custom_property_definition(
+            team_id=self.team.id, name="Staged owner", display_type=DisplayType.TEXT
+        )
+        current = create_account(team_id=self.team.id, name="Account current")
+        reassigned = create_account(team_id=self.team.id, name="Account reassigned")
+        incoming = create_account(team_id=self.team.id, name="Account incoming")
+        create_account(team_id=self.team.id, name="Account unrelated")
+        ignored = create_account(team_id=self.team.id, name="Other incoming")
+        for account in (current, reassigned):
+            AccountRelationship.objects.unscoped().create(
+                team=self.team, account=account, definition=definition, user=self.user
+            )
+        for account, value in (
+            (reassigned, "someone@example.com"),
+            (incoming, "me@example.com"),
+            (ignored, "me@example.com"),
+        ):
+            CustomPropertyValue.objects.unscoped().create(
+                team=self.team, account=account, definition=staged_owner, value_str=value
+            )
+
+        groups = [
+            [
+                AccountsTableRelationshipFilter(
+                    definitionId=str(definition.id),
+                    operator=AccountsTableRelationshipOperator.EXACT,
+                    userIds=[self.user.id],
+                ),
+                AccountsTableCustomPropertyFilter(
+                    definitionId=str(staged_owner.id), operator=AccountsTableCustomPropertyOperator.IS_NOT_SET
+                ),
+            ],
+            [
+                AccountsTableCustomPropertyFilter(
+                    definitionId=str(staged_owner.id),
+                    operator=AccountsTableCustomPropertyOperator.EXACT,
+                    values=["me@example.com"],
+                )
+            ],
+        ]
+        query = AccountsTableQuery(
+            columns=[], filters=[AccountsTableSearchFilter(query="Account")], filterGroups=groups
+        )
+        rows = self._run(query).results
+        metrics = self._run(
+            AccountsTableQuery(
+                columns=[],
+                filters=[AccountsTableSearchFilter(query="Account")],
+                filterGroups=groups,
+                metrics=[AccountsTableCountMetric()],
+            )
+        ).metricsResults
+
+        assert {row.name for row in rows} == {"Account current", "Account incoming"}
+        assert metrics == [2]
+
+    @parameterized.expand(
+        [
+            ("churned", AccountsTableAccountField.CHURNED_AT),
+            ("ignored", AccountsTableAccountField.IGNORED_AT),
+        ]
+    )
+    def test_lifecycle_filter_in_one_group_does_not_widen_other_groups(
+        self, _name: str, lifecycle_field: AccountsTableAccountField
+    ) -> None:
+        timestamp = datetime(2026, 1, 1, tzinfo=UTC)
+        create_account(team_id=self.team.id, name="Shared active")
+        create_account(team_id=self.team.id, name="Shared hidden", churned_at=timestamp, ignored_at=timestamp)
+        create_account(team_id=self.team.id, name="Target hidden", churned_at=timestamp, ignored_at=timestamp)
+        groups = [
+            [
+                AccountsTableAccountFieldFilter(
+                    field=AccountsTableAccountField.NAME,
+                    operator=AccountsTableAccountFieldOperator.ICONTAINS,
+                    values=["Shared"],
+                )
+            ],
+            [
+                AccountsTableAccountFieldFilter(
+                    field=lifecycle_field, operator=AccountsTableAccountFieldOperator.IS_SET
+                ),
+                AccountsTableAccountFieldFilter(
+                    field=AccountsTableAccountField.NAME,
+                    operator=AccountsTableAccountFieldOperator.EXACT,
+                    values=["Target hidden"],
+                ),
+            ],
+        ]
+
+        rows = self._run(AccountsTableQuery(columns=[], filterGroups=groups)).results
+        metrics = self._run(
+            AccountsTableQuery(columns=[], filterGroups=groups, metrics=[AccountsTableCountMetric()])
+        ).metricsResults
+
+        assert {row.name for row in rows} == {"Shared active", "Target hidden"}
+        assert metrics == [2]
+
     def test_unassigned_and_account_id_filters(self) -> None:
         assigned_account = create_account(team_id=self.team.id, name="Assigned")
         unassigned_account = create_account(team_id=self.team.id, name="Unassigned")
@@ -708,7 +807,7 @@ class TestAccountsTableQueryRunner(BaseTest):
                         operator=AccountsTableAccountFieldOperator.IS_SET,
                     )
                 ],
-                {"Active ignored"},
+                {"Active ignored", "Churned ignored"},
             ),
             (
                 "churned",
@@ -718,7 +817,17 @@ class TestAccountsTableQueryRunner(BaseTest):
                         operator=AccountsTableAccountFieldOperator.IS_SET,
                     )
                 ],
-                {"Churned tracked"},
+                {"Churned tracked", "Churned ignored"},
+            ),
+            (
+                "not_ignored",
+                [
+                    AccountsTableAccountFieldFilter(
+                        field=AccountsTableAccountField.IGNORED_AT,
+                        operator=AccountsTableAccountFieldOperator.IS_NOT_SET,
+                    )
+                ],
+                {"Active tracked"},
             ),
             (
                 "churned_and_ignored",
@@ -927,6 +1036,14 @@ class TestAccountsTableQueryRunner(BaseTest):
                     filters=[AccountsTableSearchFilter(query="first"), AccountsTableSearchFilter(query="second")],
                 )
             )
+
+        name_filter = AccountsTableAccountFieldFilter(
+            field=AccountsTableAccountField.NAME,
+            operator=AccountsTableAccountFieldOperator.IS_SET,
+        )
+        for groups in ([], [name_filter] * (ACCOUNTS_TABLE_MAX_FILTERS + 1)):
+            with self.assertRaises(ValidationError):
+                self._run(AccountsTableQuery(columns=[], filterGroups=[groups]))
 
     def test_rejects_excessive_custom_property_filter_values(self) -> None:
         definition = create_custom_property_definition(

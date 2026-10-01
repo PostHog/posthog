@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.test import override_settings
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
@@ -36,6 +37,7 @@ from products.growth.backend.models import (
 _BACKFILL = "products.growth.backend.management.commands.backfill_icp_fit_scores"
 
 
+@override_settings(FIRECRAWL_API_KEY="fc-test-key")
 class TestEnrichmentScoreApplication(BaseTest):
     def setUp(self):
         super().setUp()
@@ -511,7 +513,10 @@ class TestEnrichmentScoreApplication(BaseTest):
 
     @parameterized.expand([("delivered", False), ("failed", True)])
     def test_score_repairs_do_not_consume_the_classification_limit(self, _name, fail_repair):
-        repair, new_label = sorted([self.label, self._additional_label()], key=lambda label: label.organization_id)
+        repair, new_label = self.label, self._additional_label()
+        OrganizationEnrichmentFetch.objects.filter(pk=new_label.fetch_id).update(
+            fetched_at=self.fetch.fetched_at - dt.timedelta(days=1)
+        )
         new_fetch = new_label.fetch
         output = new_label.output
         new_label.delete()
@@ -568,6 +573,9 @@ class TestEnrichmentScoreApplication(BaseTest):
     @parameterized.expand([("consent",), ("signup_user_left",), ("domain",)])
     def test_ineligible_stored_result_does_not_exhaust_repair_limit(self, reason):
         eligible = self._additional_label()
+        OrganizationEnrichmentFetch.objects.filter(pk=eligible.fetch_id).update(
+            fetched_at=self.fetch.fetched_at - dt.timedelta(days=1)
+        )
         if reason == "consent":
             Organization.objects.filter(pk=self.organization.pk).update(is_ai_data_processing_approved=False)
         elif reason == "signup_user_left":

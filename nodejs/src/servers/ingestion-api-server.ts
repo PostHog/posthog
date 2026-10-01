@@ -371,6 +371,8 @@ export class IngestionApiServer implements NodeServer {
                 readMaxBytes: this.config.PERSONHOG_READ_MAX_BYTES,
                 writeMaxBytes: this.config.PERSONHOG_WRITE_MAX_BYTES,
                 clientName: 'ingestion-persons-store',
+                initialStreamWindowBytes: this.config.PERSONHOG_INITIAL_STREAM_WINDOW_BYTES,
+                initialConnectionWindowBytes: this.config.PERSONHOG_INITIAL_CONNECTION_WINDOW_BYTES,
             })
             const identityClients = createIdentityClients(
                 {
@@ -378,6 +380,8 @@ export class IngestionApiServer implements NodeServer {
                     useTls: this.config.PERSONHOG_TLS,
                     timeoutMs: this.config.PERSONHOG_TIMEOUT_MS,
                     clientName: 'ingestion-persons-store',
+                    initialStreamWindowBytes: this.config.PERSONHOG_INITIAL_STREAM_WINDOW_BYTES,
+                    initialConnectionWindowBytes: this.config.PERSONHOG_INITIAL_CONNECTION_WINDOW_BYTES,
                 },
                 { mergeTimeoutMs: this.config.PERSONHOG_MERGE_TIMEOUT_MS }
             )

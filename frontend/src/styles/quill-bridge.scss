@@ -148,7 +148,34 @@
     background-color: var(--fill-expanded);
 }
 
+/* stylelint-disable-next-line selector-class-pattern -- the name of Tailwind's hover variant class */
+[data-quill] .hover\:bg-fill-selected:hover {
+    background-color: var(--fill-selected);
+}
+
+/*
+ * PostHog's compiled `hover:bg-muted` reads `--muted-3000`, which is a text colour, and it is `!important`.
+ * Pin the hover to quill's muted surface, like `.bg-muted` above.
+ */
+/* stylelint-disable-next-line selector-class-pattern -- the name of Tailwind's hover variant class */
+[data-quill] .hover\:bg-muted:hover {
+    background-color: var(--muted) !important;
+}
+
+[data-quill] .bg-destructive-foreground {
+    background-color: var(--destructive-foreground);
+}
+
 [data-quill] .text-foreground {
+    color: var(--foreground);
+}
+
+[data-quill] .text-foreground\/70 {
+    color: color-mix(in oklab, var(--foreground) 70%, transparent);
+}
+
+/* stylelint-disable-next-line selector-class-pattern -- the name of Tailwind's hover variant class */
+[data-quill] .hover\:text-foreground:hover {
     color: var(--foreground);
 }
 
@@ -172,12 +199,32 @@
     color: var(--destructive-foreground);
 }
 
+[data-quill] .text-success-foreground {
+    color: var(--success-foreground);
+}
+
+[data-quill] .text-info-foreground {
+    color: var(--info-foreground);
+}
+
+[data-quill] .text-warning-foreground {
+    color: var(--warning-foreground);
+}
+
+[data-quill] .text-completed-foreground {
+    color: var(--completed-foreground);
+}
+
 [data-quill] .text-accent-foreground {
     color: var(--accent-foreground);
 }
 
 [data-quill] .border-border {
     border-color: var(--border);
+}
+
+[data-quill] .border-muted-foreground {
+    border-color: var(--muted-foreground);
 }
 
 [data-quill] .border-input {
@@ -205,6 +252,14 @@
 
 [data-quill] .ring-foreground\/20 {
     --tw-ring-color: color-mix(in oklab, var(--foreground) 20%, transparent);
+}
+
+[data-quill] .ring-border {
+    --tw-ring-color: var(--border);
+}
+
+[data-quill] .ring-background {
+    --tw-ring-color: var(--background);
 }
 
 [data-quill] .ring-ring {
