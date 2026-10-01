@@ -14,8 +14,16 @@ into these fragments.
 """
 
 import math
+import threading
+from collections.abc import Callable, Iterator
+from concurrent.futures import Future
+from contextlib import contextmanager
 from dataclasses import dataclass
+from functools import partial
 from typing import TYPE_CHECKING
+
+from django.conf import settings
+from django.db import connection
 
 from posthog.schema import HogQLQueryResponse
 
@@ -29,6 +37,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
+from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
 from posthog.models.team import Team
 
 from products.engineering_analytics.backend.facade.contracts import QueryWorkLimitExceededError
@@ -176,6 +185,8 @@ class CuratedGitHubSource:
         self._depot_job_attempts_table: depot_ci.DepotJobAttempts | None = None
         self._depot_job_attempts_resolved = False
         self._database: Database | None = None
+        # Guards the query budget, the catalog and the lazily resolved sources, which concurrent reads share.
+        self._lock = threading.Lock()
 
     @property
     def team(self) -> Team:
@@ -243,11 +254,12 @@ class CuratedGitHubSource:
     def _depot_job_attempts(self) -> depot_ci.DepotJobAttempts | None:
         """The repository's synced Depot CI job attempts, or None. Resolved lazily and cached like the
         Trunk tables, so a read that never touches CI pays no lookup."""
-        if not self._depot_job_attempts_resolved:
-            depot_tables = resolve_depot_job_attempts_tables(self._team, self._user_access_control)
-            self._depot_job_attempts_table = depot_tables.get(self.repository.casefold())
-            self._depot_job_attempts_resolved = True
-        return self._depot_job_attempts_table
+        with self._lock:
+            if not self._depot_job_attempts_resolved:
+                depot_tables = resolve_depot_job_attempts_tables(self._team, self._user_access_control)
+                self._depot_job_attempts_table = depot_tables.get(self.repository.casefold())
+                self._depot_job_attempts_resolved = True
+            return self._depot_job_attempts_table
 
     def _runs_table(self) -> str:
         return depot_ci.with_depot_runs(
@@ -262,20 +274,22 @@ class CuratedGitHubSource:
         opt-in merge-queue endpoint synced (the normal state) or the requesting user can't access
         one; either way consumers degrade to the GitHub-derived proxy. Resolved lazily on first
         call and cached, so probing stays as cheap as the sibling sources."""
-        if not self._trunk_table_resolved:
-            self._trunk_table = resolve_trunk_merge_queue_table(self._team, self._user_access_control)
-            self._trunk_table_resolved = True
+        with self._lock:
+            if not self._trunk_table_resolved:
+                self._trunk_table = resolve_trunk_merge_queue_table(self._team, self._user_access_control)
+                self._trunk_table_resolved = True
         if self._trunk_table is None:
             return None
         return f"({trunk_merge_queue.build_query(self._trunk_table)})"
 
     def _trunk_quarantine(self) -> "TrunkQuarantineSource | None":
-        if not self._trunk_quarantine_resolved:
-            self._trunk_quarantine_source = resolve_trunk_quarantined_tests_source(
-                self._team, self.repository, self._user_access_control
-            )
-            self._trunk_quarantine_resolved = True
-        return self._trunk_quarantine_source
+        with self._lock:
+            if not self._trunk_quarantine_resolved:
+                self._trunk_quarantine_source = resolve_trunk_quarantined_tests_source(
+                    self._team, self.repository, self._user_access_control
+                )
+                self._trunk_quarantine_resolved = True
+            return self._trunk_quarantine_source
 
     def trunk_quarantined_tests_source(self) -> str | None:
         """Curated Trunk quarantined-tests ``SELECT`` subquery, or None when no TrunkIo source has
@@ -543,6 +557,14 @@ class CuratedGitHubSource:
         """Prefix ``select`` with the given CTEs and fill its ``__PR_SOURCE__`` placeholder with the PR source."""
         return f"WITH {', '.join(ctes)} {select}".replace("__PR_SOURCE__", self.pr_source())
 
+    @contextmanager
+    def concurrent_reads(self) -> Iterator["ConcurrentReads"]:
+        """Run the reads submitted inside the block together when it exits, so a request waits for
+        its slowest read instead of the sum of all of them. Read each result after the block."""
+        reads = ConcurrentReads()
+        yield reads
+        reads.run()
+
     def run_paged(
         self,
         sql: str,
@@ -607,22 +629,23 @@ class CuratedGitHubSource:
         ``logs`` table). The warehouse-ACL reasoning above governs warehouse tables only and is a no-op
         for such reads — those tables carry no per-table ACL, so the ``team_id`` scope is their boundary.
         """
-        if self._queries_remaining is not None:
-            if self._queries_remaining <= 0:
-                raise QueryWorkLimitExceededError
-            self._queries_remaining -= 1
         uac = self._user_access_control
         user = uac.user if uac is not None else None
         bypass_warehouse_access_control = uac is None
-        if self._database is None:
-            self._database = Database.create_for(
-                team=self._team,
-                user=user,
-                user_access_control=uac,
-                modifiers=create_default_modifiers_for_team(self._team),
-                bypass_warehouse_access_control=bypass_warehouse_access_control,
-                trigger="engineering_analytics",
-            )
+        with self._lock:
+            if self._queries_remaining is not None:
+                if self._queries_remaining <= 0:
+                    raise QueryWorkLimitExceededError
+                self._queries_remaining -= 1
+            if self._database is None:
+                self._database = Database.create_for(
+                    team=self._team,
+                    user=user,
+                    user_access_control=uac,
+                    modifiers=create_default_modifiers_for_team(self._team),
+                    bypass_warehouse_access_control=bypass_warehouse_access_control,
+                    trigger="engineering_analytics",
+                )
         with tags_context(product=Product.ENGINEERING_ANALYTICS, feature=Feature.QUERY, team_id=self._team.pk):
             return execute_hogql_query(
                 query=parse_select(sql, placeholders=placeholders),
@@ -642,6 +665,50 @@ class CuratedGitHubSource:
                     database=self._database,
                 ),
             )
+
+
+class ConcurrentReads:
+    """Each worker closes the Postgres connection it opens. Under TEST the reads run inline, because a
+    worker's connection cannot see the test transaction."""
+
+    def __init__(self) -> None:
+        self._work: list[Callable[[], None]] = []
+
+    def submit[T](self, read: Callable[[], T]) -> "Future[T]":
+        future: Future[T] = Future()
+
+        def run_read() -> None:
+            try:
+                future.set_result(read())
+            except Exception as error:
+                future.set_exception(error)
+                raise
+
+        self._work.append(run_read)
+        return future
+
+    def run(self) -> None:
+        if settings.TEST:
+            errors: list[Exception] = []
+            for work in self._work:
+                try:
+                    work()
+                except Exception as error:
+                    errors.append(error)
+            if errors:
+                raise errors[0]
+            return
+        run_in_parallel_threads(
+            [partial(_closing_connection, work) for work in self._work],
+            thread_name_prefix="engineering_analytics",
+        )
+
+
+def _closing_connection(work: Callable[[], None]) -> None:
+    try:
+        work()
+    finally:
+        connection.close()
 
 
 def opt_float(value: float | None) -> float | None:
