@@ -42,15 +42,17 @@ const TOPICS_TAB_BY_FLAG = [
         flag: 'off',
         audience: false,
         TopicsTab: TopicsTabOnWorkflows,
-        shown: ['Message categories', 'Marketing opt-out list', 'Import from Customer.io', 'New message category'],
-        hidden: ['Topics', 'Unsubscribed from all marketing', 'New topic'],
+        modalTitle: 'New message category',
+        shown: ['Message categories', 'Marketing opt-out list', 'Opt-out date', 'Import from Customer.io'],
+        hidden: ['Topics', 'Unsubscribed from all marketing', 'Unsubscribed on', 'New topic'],
     },
     {
         flag: 'on',
         audience: true,
         TopicsTab: TopicsTabOnAudience,
-        shown: ['Unsubscribed from all marketing', 'New topic'],
-        hidden: ['Message categories', 'Marketing opt-out list', 'New message category', 'Key: product-updates'],
+        modalTitle: 'New topic',
+        shown: ['Topics', 'Unsubscribed from all marketing', 'Unsubscribed on'],
+        hidden: ['Message categories', 'Marketing opt-out list', 'Opt-out date', 'New message category'],
     },
 ]
 
@@ -73,26 +75,29 @@ describe('the Topics tab', () => {
 
     it.each(TOPICS_TAB_BY_FLAG)(
         'speaks the words of workflows-audience $flag',
-        async ({ audience, TopicsTab, shown, hidden }) => {
+        async ({ audience, TopicsTab, modalTitle, shown, hidden }) => {
             featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_AUDIENCE]: audience })
             render(<TopicsTab />)
             await screen.findByText('Product updates')
 
             act(() => optOutCategoriesLogic.actions.openNewCategoryModal())
 
+            expect(within(await screen.findByRole('dialog')).getByText(modalTitle)).toBeInTheDocument()
             shown.forEach((text) => expect(screen.getAllByText(text).length).toBeGreaterThan(0))
             hidden.forEach((text) => expect(screen.queryByText(text)).not.toBeInTheDocument())
         }
     )
 
-    it('shows the topic key in the row, after its name', async () => {
+    it('shows the topic key in the row after its name, and not again when the row opens', async () => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_AUDIENCE]: true })
         render(<AudienceScene />)
-
         const name = await screen.findByText('Product updates')
-        const row = name.parentElement as HTMLElement
 
-        expect(within(row).getByText('product-updates').tagName).toBe('CODE')
+        act(() => name.click())
+
+        expect(within(name.parentElement as HTMLElement).getByText('product-updates').tagName).toBe('CODE')
+        expect(await screen.findByText('Public description: What we shipped this month')).toBeInTheDocument()
+        expect(screen.queryByText(/Key:/)).not.toBeInTheDocument()
     })
 
     it('makes New topic the one primary action and tucks the rest into a More menu', async () => {

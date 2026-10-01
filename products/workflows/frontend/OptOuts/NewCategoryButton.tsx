@@ -1,12 +1,14 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { optOutCategoriesLogic } from './optOutCategoriesLogic'
+import { topicVocabularyLogic } from './topicVocabularyLogic'
 
 export function NewCategoryButton(): JSX.Element {
     const { openNewCategoryModal } = useActions(optOutCategoriesLogic)
+    const { words } = useValues(topicVocabularyLogic)
 
     return (
         <LemonButton
@@ -16,7 +18,7 @@ export function NewCategoryButton(): JSX.Element {
             type="primary"
             onClick={() => openNewCategoryModal()}
         >
-            New category
+            {words.topics.newTopic}
         </LemonButton>
     )
 }

@@ -13,10 +13,9 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { EmailSuspensionBanner } from '../EmailSuspensionBanner'
-import { NewCategoryButton } from '../OptOuts/NewCategoryButton'
-import { OptOutScene } from '../OptOuts/OptOutScene'
 import { SuppressionScene } from '../Suppression/SuppressionScene'
 import { AUDIENCE_TAB_LABELS, AudienceTab, audienceSceneLogic } from './audienceSceneLogic'
+import { AudienceTopics } from './AudienceTopics'
 
 export const scene: SceneExport = {
     component: AudienceScene,
@@ -29,7 +28,7 @@ const AUDIENCE_SCENE_TABS: LemonTab<AudienceTab>[] = [
         key: 'topics',
         label: AUDIENCE_TAB_LABELS.topics,
         link: urls.audience('topics'),
-        content: <OptOutScene />,
+        content: <AudienceTopics />,
     },
     {
         key: 'suppression',
@@ -53,7 +52,6 @@ export function AudienceScene(): JSX.Element {
                 name={sceneConfigurations[Scene.Audience].name}
                 description={sceneConfigurations[Scene.Audience].description}
                 resourceType={{ type: 'cohort' }}
-                actions={currentTab === 'topics' ? <NewCategoryButton /> : undefined}
             />
             <EmailSuspensionBanner />
             <LemonTabs activeKey={currentTab} tabs={AUDIENCE_SCENE_TABS} sceneInset data-attr="audience-scene-tabs" />

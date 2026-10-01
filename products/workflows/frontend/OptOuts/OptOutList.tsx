@@ -23,6 +23,7 @@ import type { MessagePreferencesApi } from 'products/messaging/frontend/generate
 
 import type { MessageCategory } from './optOutCategoriesLogic'
 import { optOutListLogic } from './optOutListLogic'
+import { topicVocabularyLogic } from './topicVocabularyLogic'
 
 export function OptOutList({ category }: { category?: MessageCategory }): JSX.Element {
     const logic = optOutListLogic({ category })
@@ -62,6 +63,8 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
         csvExportLoading,
         searchTerm,
     } = useValues(logic)
+    const { words } = useValues(topicVocabularyLogic)
+    const listWords = words.unsubscribedList
 
     const handleShowPersons = (identifier: string): void => {
         setSelectedIdentifier(identifier)
@@ -91,7 +94,7 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
             key: 'recipient',
         },
         {
-            title: 'Opt-out date',
+            title: listWords.dateColumn,
             dataIndex: 'updated_at',
             key: 'updated_at',
             render: (updated_at) => <TZLabel time={updated_at as string} />,
@@ -122,7 +125,7 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
                                     fullWidth
                                     icon={<IconRevert />}
                                 >
-                                    Remove opt-out
+                                    {listWords.resubscribe}
                                 </LemonButton>
                             </>
                         }
@@ -153,7 +156,7 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
                     type="secondary"
                     onClick={() => setShowAddOptOutModal(true)}
                 >
-                    Add opt-out
+                    {listWords.unsubscribe}
                 </LemonButton>
                 <LemonButton
                     icon={<IconUpload />}
@@ -163,7 +166,7 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
                         clearCsvImportResult()
                         setShowImportCsvModal(true)
                     }}
-                    tooltip="Upload a CSV of recipients to opt out"
+                    tooltip={listWords.importTooltip}
                 >
                     Import CSV
                 </LemonButton>
@@ -173,7 +176,7 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
                     type="secondary"
                     onClick={exportCsv}
                     loading={csvExportLoading}
-                    tooltip="Download this opt-out list as a CSV"
+                    tooltip={listWords.exportTooltip}
                 >
                     Export CSV
                 </LemonButton>
@@ -195,9 +198,7 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
                     loadingSkeletonRows={3}
                     rowKey="identifier"
                     emptyState={
-                        searchTerm.trim()
-                            ? 'No opt-outs match your search'
-                            : `No opt-outs found${category?.name ? ` for ${category.name}` : ''}`
+                        searchTerm.trim() ? listWords.noSearchMatches : listWords.noneUnsubscribed(category?.name)
                     }
                     size="small"
                 />
@@ -207,7 +208,7 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
                     <div className="text-sm text-muted">
                         {optOutPersons.count > 0 && (
                             <span>
-                                Showing {showingStart} - {showingEnd} of {optOutPersons.count.toLocaleString()} opt-outs
+                                {listWords.pageSummary(showingStart, showingEnd, optOutPersons.count.toLocaleString())}
                             </span>
                         )}
                     </div>
@@ -253,7 +254,7 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
             <LemonModal
                 isOpen={showAddOptOutModal}
                 onClose={() => setShowAddOptOutModal(false)}
-                title={`Add opt-out${category?.name ? ` for ${category.name}` : ''}`}
+                title={listWords.unsubscribeTitle(category?.name)}
                 footer={
                     <>
                         <LemonButton type="secondary" onClick={() => setShowAddOptOutModal(false)}>
@@ -267,7 +268,7 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
                                 addOptOut(newOptOutIdentifier.trim())
                             }}
                         >
-                            Add opt-out
+                            {listWords.unsubscribe}
                         </LemonButton>
                     </>
                 }
@@ -296,8 +297,8 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
             <LemonModal
                 isOpen={showImportCsvModal}
                 onClose={() => setShowImportCsvModal(false)}
-                title={`Import opt-outs${category?.name ? ` for ${category.name}` : ''}`}
-                description="Bring an opt-out list over from another email tool, or bulk add recipients."
+                title={listWords.importTitle(category?.name)}
+                description={listWords.importDescription}
                 footer={
                     <>
                         <LemonButton type="secondary" onClick={() => setShowImportCsvModal(false)}>
@@ -317,14 +318,11 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
                 <div className="space-y-3 max-w-160">
                     <p className="mb-0">
                         Upload a CSV with one recipient per row and a column named <code>identifier</code> or{' '}
-                        <code>email</code>. Everyone in the file is opted out of{' '}
-                        {category?.name ? <b>{category.name}</b> : 'all marketing messages'}, unless the row names a
-                        different category in a <code>category_key</code> column.
+                        <code>email</code>. {listWords.importScope}{' '}
+                        {category?.name ? <b>{category.name}</b> : listWords.importScopeAllMarketing},{' '}
+                        {listWords.importOtherTopic} <code>category_key</code> column.
                     </p>
-                    <p className="mb-0 text-muted">
-                        Importing never opts anyone back in, so it's safe to upload the same file twice. A file exported
-                        from here imports back as-is.
-                    </p>
+                    <p className="mb-0 text-muted">{listWords.importIsSafe}</p>
                     {csvFile ? (
                         <div className="flex items-center justify-between border rounded p-3">
                             <div>
@@ -358,8 +356,10 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
                     {csvImportResult && (
                         <LemonBanner type={csvImportResult.errors.length > 0 ? 'warning' : 'success'}>
                             <div>
-                                Added {csvImportResult.opted_out.toLocaleString()} opt-outs from{' '}
-                                {csvImportResult.total.toLocaleString()} rows.
+                                {listWords.importResult(
+                                    csvImportResult.opted_out.toLocaleString(),
+                                    csvImportResult.total.toLocaleString()
+                                )}
                                 {csvImportResult.skipped > 0 &&
                                     ` Skipped ${csvImportResult.skipped.toLocaleString()} rows.`}
                             </div>
