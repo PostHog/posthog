@@ -78,7 +78,7 @@ def toString(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]
     elif args[0] is None:
         return "null"
     else:
-        return str(args[0])
+        return print_hog_string_output(args[0])
 
 
 def toInt(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float):
@@ -434,7 +434,7 @@ def arrayStringConcat(args: list[Any], team: Optional["Team"], stdout: Optional[
     sep = args[1] if len(args) > 1 else ""
     if not isinstance(arr, list):
         return ""
-    return sep.join([str(s) for s in arr])
+    return sep.join(["" if s is None else toString([s], team, stdout, timeout) for s in arr])
 
 
 def has(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> bool:

@@ -96,6 +96,7 @@ print(arraySort([3, 2, 1]));
 print(arrayReverse([1, 2, 3]));
 print(arrayReverseSort([3, 2, 1]));
 print(arrayStringConcat([1, 2, 3], ","));
+print(arrayStringConcat([1, null, true, false], ","));
 print("-----");
 let arr = [1, 2, 3, 4];
 print(arr);
