@@ -4,7 +4,7 @@
 // Encode the frames with `annotate-evidence.py animate --frames-dir`.
 //
 // Usage: node reel-render.mjs <capture-dir> <frames-dir>
-import { mkdirSync, readFileSync } from 'node:fs'
+import { mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -16,6 +16,7 @@ const OUTPUT_SCALE = 2
 // annotate-evidence.py animate --frames-dir defaults to the same rate.
 const FPS = 15
 const TEMPLATE = new URL('./reel-template.html', import.meta.url).href
+const FRAME_NAME = /^\d{4}\.png$/
 
 async function main() {
     const [captureDir, framesDir] = process.argv.slice(2)
@@ -31,6 +32,10 @@ async function main() {
         })),
     }
     mkdirSync(framesDir, { recursive: true })
+    // A shorter re-render would otherwise leave old frames at the end of the reel.
+    for (const name of readdirSync(framesDir).filter((name) => FRAME_NAME.test(name))) {
+        rmSync(path.join(framesDir, name))
+    }
 
     const browser = await chromium.launch()
     const page = await browser.newPage({ deviceScaleFactor: OUTPUT_SCALE })

@@ -46,17 +46,17 @@ The reel drives the steps itself, because a `play` function cannot be paused bet
 }
 ```
 
-| Field             | Meaning                                                                                              |
-| ----------------- | ---------------------------------------------------------------------------------------------------- |
-| `url`             | The iframe URL of the story: `http://localhost:6006/iframe.html?id=<story-id>&viewMode=story`        |
-| `viewport`        | Size in CSS pixels. The default is 1280×800                                                          |
-| `steps[].caption` | Text on screen while the cursor moves to the target                                                  |
-| `steps[].action`  | `click`, `rightclick` or `hover`                                                                     |
-| `steps[].target`  | `{ "label": … }` (accessible name), `{ "text": …, "within": "<css>" }`, or `{ "selector": "<css>" }` |
-| `steps[].at`      | Optional point in CSS pixels from the top-left corner of the target. The default is the center       |
-| `steps[].waitFor` | Optional target that must show after the action                                                      |
-| `steps[].focus`   | Optional target that the step shows, such as a menu. The camera frames it in the final shot          |
-| `finalCaption`    | Text on screen at the end                                                                            |
+| Field             | Meaning                                                                                                                                                                                     |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `url`             | The iframe URL of the story: `http://localhost:6006/iframe.html?id=<story-id>&viewMode=story`                                                                                               |
+| `viewport`        | Size in CSS pixels. The default is 1280×800                                                                                                                                                 |
+| `steps[].caption` | Text on screen while the cursor moves to the target                                                                                                                                         |
+| `steps[].action`  | `click`, `rightclick` or `hover`                                                                                                                                                            |
+| `steps[].target`  | `{ "label": … }` (accessible name), `{ "text": … }` (exact text), `{ "text": …, "within": "<css>" }` (the `<css>` element that holds the text, such as a row), or `{ "selector": "<css>" }` |
+| `steps[].at`      | Optional point in CSS pixels from the top-left corner of the target. The default is the center                                                                                              |
+| `steps[].waitFor` | Optional target that must show after the action                                                                                                                                             |
+| `steps[].focus`   | Optional target that the step shows, such as a menu. The camera frames it in the final shot                                                                                                 |
+| `finalCaption`    | Text on screen at the end                                                                                                                                                                   |
 
 Keep a reel to two to four steps. Each step adds about 1.4 seconds.
 Captions are user-facing copy, so `/writing-user-facing-copy` applies: sentence case, a few words, no em dashes.
@@ -85,7 +85,8 @@ The upload gate in `references/safety-rules.md` applies: show the developer the 
 Storybook renders mock data, but a scratch story or a caption can still carry names that must not be public.
 
 ```bash
-hogli pr:upload-image --alt "<what the flow shows>" "$RUN_DIR/feature-reel.webp"
+# --yes only after the developer approves this exact file
+hogli pr:upload-image --yes --alt "<what the flow shows>" "$RUN_DIR/feature-reel.webp"
 ```
 
 Paste the markdown line that the command prints as the "after" of the change. For the "before", follow "Screenshots" in `/writing-pr-descriptions`.

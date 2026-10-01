@@ -38,14 +38,21 @@ function locate(page, target) {
     if (target.label) {
         return scope.getByLabel(target.label, { exact: true }).first()
     }
-    if (target.text) {
+    if (target.text && target.within) {
+        // The `within` element that holds the text, such as a list row.
         return scope.filter({ hasText: target.text }).first()
+    }
+    if (target.text) {
+        return scope.getByText(target.text, { exact: true }).first()
     }
     return scope.locator(target.selector).first()
 }
 
 async function settle(page, timeout) {
     // Lazy scenes mount their spinner late, so wait for a quiet stretch, not one clean check.
+    await page.evaluate(() => {
+        window.__reelQuietSince = undefined
+    })
     await page.waitForFunction(
         ({ selector, quietMs }) => {
             const busy = [...document.querySelectorAll(selector)].some((el) => el.checkVisibility())

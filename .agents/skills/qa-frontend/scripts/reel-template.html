@@ -161,6 +161,7 @@
                         at: t,
                         camera: cameraFor(focus),
                         point,
+                        clicks: frame.target.action !== 'hover',
                         click: t + GLIDE,
                         swap: t + GLIDE + CLICK_HOLD,
                         caption: frame.caption,
@@ -279,6 +280,10 @@
 
                     let press = 1
                     plan.beats.forEach((beat, i) => {
+                        if (!beat.clicks) {
+                            rings[i].style.opacity = 0
+                            return
+                        }
                         const p = (t - beat.click) / RING
                         const visible = p >= 0 && p <= 1
                         rings[i].style.opacity = visible ? 0.95 * (1 - p) : 0
