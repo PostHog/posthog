@@ -1,5 +1,4 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { delay, HttpResponse } from 'msw'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
@@ -1869,10 +1868,7 @@ export const ScannerEditorGoalOverviewLoading: StoryObj = {
         // A draft request that never answers, because a failed one sends the page back to the goal step.
         mswDecorator({
             post: {
-                '/api/projects/:team_id/vision/scanners/draft/': async () => {
-                    await delay('infinite')
-                    return HttpResponse.json({})
-                },
+                '/api/projects/:team_id/vision/scanners/draft/': (): Promise<never> => new Promise(() => {}),
             },
         }),
         (StoryFn) => {
