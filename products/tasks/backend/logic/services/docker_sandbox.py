@@ -377,7 +377,13 @@ class DockerSandbox(AgentServerLaunchMixin):
             dockerfile_path = os.path.join(
                 settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-notebook"
             )
-            DockerSandbox._build_image_if_needed(NOTEBOOK_IMAGE_NAME, dockerfile_path)
+            # The kernel package reaches a stale image as a tarball, but the notebook's Python
+            # libraries only come from the image, so an edited Dockerfile has to rebuild it.
+            DockerSandbox._build_image_if_needed(
+                NOTEBOOK_IMAGE_NAME,
+                dockerfile_path,
+                force=_is_image_built_from_other_dockerfile(NOTEBOOK_IMAGE_NAME, dockerfile_path),
+            )
             return NOTEBOOK_IMAGE_NAME
 
         # Slim ships its own standalone image (git + node + uv, no agent server, no skills)
@@ -1345,6 +1351,18 @@ def _base_image_source_sha(dockerfile_path: str) -> str:
         if path.is_file():
             digest.update(path.read_bytes())
     return digest.hexdigest()
+
+
+def _is_image_built_from_other_dockerfile(image_name: str, dockerfile_path: str) -> bool:
+    """True when the image exists but was stamped from different Dockerfile bytes, or predates the stamp."""
+    inspect = DockerSandbox._run(
+        ["docker", "image", "inspect", image_name, "-f", f'{{{{index .Config.Labels "{_DOCKERFILE_SHA_LABEL}"}}}}']
+    )
+    if inspect.returncode != 0:
+        return False  # missing: the regular build path creates it
+    with open(dockerfile_path, "rb") as dockerfile:
+        current_sha = hashlib.sha256(dockerfile.read()).hexdigest()
+    return _none_if_blank(inspect.stdout) != current_sha
 
 
 def _none_if_blank(value: str) -> str | None:
