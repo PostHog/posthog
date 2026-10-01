@@ -53,6 +53,12 @@ const meta: Meta = {
                     paginated(new URL(request.url).searchParams.has('search') ? [] : FIXTURE_WORKFLOWS),
                 ],
                 '/api/projects/:team_id/hog_flows/metrics/global/': FIXTURE_METRICS,
+                '/api/projects/:team_id/hog_flows/email_sending_suspension/': {
+                    email_sending_suspended: false,
+                    email_sending_suspended_at: null,
+                    email_sending_suspension_reason: '',
+                },
+                '/api/projects/:team_id/hog_flow_templates/': paginated([]),
             },
         }),
     ],
