@@ -394,7 +394,7 @@ const visionObservationsGet = (): ToolBase<
         })
         return withAgentNote(
             await withPostHogUrl(context, result, `/replay/${result.session_id}`),
-            "`_posthogUrl` opens the recording this observation analysed. `scanner_result.model_output.reasoning_segments` interleaves prose with `chip` segments, and a chip's `timestamp_ms` is the recording-relative offset of the moment being cited — append `?t=<seconds>` (`timestamp_ms` / 1000, rounded down) to that URL to seek straight to it. When you report a finding to someone, deep-link the one or two moments it turns on rather than only describing them.\n"
+            "`_posthogUrl` opens the recording this observation analysed. `scanner_result.model_output.reasoning_segments` interleaves prose with `chip` segments, and a chip's `timestamp_ms` is the recording-relative offset of the moment being cited — append `?t=<seconds>` (`timestamp_ms` / 1000, rounded down) to that URL to seek straight to it. When you report a finding to someone, deep-link the one or two moments it turns on rather than only describing them. A summarizer's `model_output.chapters` breaks the recording into ordered parts; each chapter's `start_ms` seeks the same way.\n"
         )
     },
 })
@@ -1357,7 +1357,7 @@ const visionScannersObservationsGet = (): ToolBase<
         })
         return withAgentNote(
             await withPostHogUrl(context, result, `/replay/${result.session_id}`),
-            "`_posthogUrl` opens the recording this observation analysed. `scanner_result.model_output.reasoning_segments` interleaves prose with `chip` segments, and a chip's `timestamp_ms` is the recording-relative offset of the moment being cited — append `?t=<seconds>` (`timestamp_ms` / 1000, rounded down) to that URL to seek straight to it. When you report a finding to someone, deep-link the one or two moments it turns on rather than only describing them.\n"
+            "`_posthogUrl` opens the recording this observation analysed. `scanner_result.model_output.reasoning_segments` interleaves prose with `chip` segments, and a chip's `timestamp_ms` is the recording-relative offset of the moment being cited — append `?t=<seconds>` (`timestamp_ms` / 1000, rounded down) to that URL to seek straight to it. When you report a finding to someone, deep-link the one or two moments it turns on rather than only describing them. A summarizer's `model_output.chapters` breaks the recording into ordered parts; each chapter's `start_ms` seeks the same way.\n"
         )
     },
 })
