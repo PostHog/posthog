@@ -21,12 +21,15 @@ import { TodaySessionBulkBar } from './TodaySessionBulkBar'
 import { TodaySessionRow } from './TodaySessionRow'
 import { selectionClick } from './todaySessionSelection'
 import { todaySessionSelectionLogic } from './todaySessionSelectionLogic'
+import { todayRecentClearLabel, todaySidebarSectionState } from './todaySidebarSectionState'
 import { TodaySpaceContextMenu } from './TodaySpaceContextMenu'
 import { TodaySpaceGlyph } from './TodaySpaceGlyph'
 import { TodayWorkSectionId, isLockedSpace, spaceLabel, todaySpacesLogic } from './todaySpacesLogic'
 import { TodaySpacesRow } from './TodaySpacesRow'
 import { TodayWorkItem } from './todayWorkItems'
 import { useTodaySectionLayout } from './useTodaySectionLayout'
+
+const SKELETON_ROW_WIDTHS = ['w-3/5', 'w-4/5', 'w-2/5'] as const
 
 export function TodaySpacesSidebar(): JSX.Element {
     const {
@@ -38,6 +41,8 @@ export function TodaySpacesSidebar(): JSX.Element {
         recentItems,
         recentGroups,
         recentSearchVisible,
+        recentQuery,
+        recentFiltersActive,
         recentLoading,
         recentTasksUnavailable,
         collapsedSections,
@@ -112,25 +117,44 @@ export function TodaySpacesSidebar(): JSX.Element {
         }
     }
 
-    const loadingRows = (
-        <div className="flex flex-col gap-2 px-2 py-1">
-            <Skeleton className="h-4 w-3/4" />
-            <Skeleton className="h-4 w-1/2" />
-            <Skeleton className="h-4 w-2/3" />
+    const recentState = todaySidebarSectionState({
+        loading: recentLoading,
+        failed: recentTasksUnavailable,
+        total: allRecentItems.length,
+        shown: recentItems.length,
+    })
+    const spacesState = todaySidebarSectionState({
+        loading: spacesLoading,
+        failed: spacesUnavailable,
+        total: visibleSpaces.length,
+        shown: visibleSpaces.length,
+    })
+
+    const loadingRows = (label: string): JSX.Element => (
+        <div role="status" aria-label={label} className="flex flex-col gap-px">
+            {SKELETON_ROW_WIDTHS.map((width) => (
+                <div key={width} aria-hidden className="flex h-7 items-center gap-2 px-2">
+                    <Skeleton className="size-3.5 shrink-0 rounded-sm" />
+                    <Skeleton className={cn('h-2.5', width)} />
+                </div>
+            ))}
         </div>
     )
-    const notice = (message: string, action: string, onClick: () => void, dataAttr: string): JSX.Element => (
+    const notice = (message: string, actions: JSX.Element): JSX.Element => (
         <div className="flex flex-col items-start gap-2 px-2 py-1">
             <Text size="xs" variant="muted">
                 {message}
             </Text>
-            <Button variant="outline" size="sm" onClick={onClick} data-attr={dataAttr}>
-                {action}
-            </Button>
+            <div className="flex flex-wrap gap-1">{actions}</div>
         </div>
     )
     const loadError = (message: string, onRetry: () => void, dataAttr: string): JSX.Element =>
-        notice(message, 'Try again', onRetry, dataAttr)
+        notice(
+            message,
+            <Button variant="outline" size="sm" onClick={onRetry} data-attr={dataAttr}>
+                Try again
+            </Button>
+        )
 
     return (
         <TooltipProvider>
@@ -190,20 +214,25 @@ export function TodaySpacesSidebar(): JSX.Element {
                             </>
                         }
                     >
-                        {recentLoading && !allRecentItems.length ? (
-                            loadingRows
-                        ) : recentTasksUnavailable && !allRecentItems.length ? (
+                        {recentState === 'loading' ? (
+                            loadingRows('Loading recent')
+                        ) : recentState === 'error' ? (
                             loadError('Recent sessions didn’t load.', loadRecentTasks, 'today-recent-retry')
-                        ) : !allRecentItems.length ? (
+                        ) : recentState === 'empty' ? (
                             <Text size="xs" variant="muted" className="px-2 py-1">
-                                Sessions and chats you open show up here.
+                                Sessions and chats you open show up here. Start one with New chat.
                             </Text>
-                        ) : !recentItems.length ? (
+                        ) : recentState === 'no-matches' ? (
                             notice(
-                                'Nothing here matches.',
-                                'Clear filters',
-                                clearRecentSearchAndFilters,
-                                'today-recent-clear-filters'
+                                'No matches',
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={clearRecentSearchAndFilters}
+                                    data-attr="today-recent-clear-filters"
+                                >
+                                    {todayRecentClearLabel(recentQuery !== '', recentFiltersActive)}
+                                </Button>
                             )
                         ) : (
                             <>
@@ -282,12 +311,37 @@ export function TodaySpacesSidebar(): JSX.Element {
                             </>
                         }
                     >
-                        {spacesLoading && !visibleSpaces.length ? (
-                            loadingRows
-                        ) : spacesUnavailable ? (
+                        {spacesState === 'loading' ? (
+                            loadingRows('Loading spaces')
+                        ) : spacesState === 'error' ? (
                             loadError('Spaces didn’t load.', loadSpaces, 'today-spaces-retry')
+                        ) : spacesState === 'empty' ? (
+                            notice(
+                                'Spaces you star show up here.',
+                                <>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={openNewSpace}
+                                        data-attr="today-spaces-empty-new-space"
+                                    >
+                                        <IconPlus />
+                                        New space…
+                                    </Button>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        render={<LinkPrimitive to={urls.taskSpaces()} />}
+                                        data-attr="today-spaces-add"
+                                    >
+                                        Browse spaces
+                                    </Button>
+                                </>
+                            )
                         ) : (
                             <>
+                                {spacesUnavailable &&
+                                    loadError('Spaces didn’t refresh.', loadSpaces, 'today-spaces-retry')}
                                 {visibleSpaces.map((space) => {
                                     const presence = spacePresence[space.id]
                                     return (
@@ -314,7 +368,7 @@ export function TodaySpacesSidebar(): JSX.Element {
                                         </TodaySpaceContextMenu>
                                     )
                                 })}
-                                {visibleSpaces.length <= 1 && (
+                                {visibleSpaces.length === 1 && (
                                     <Button
                                         variant="outline"
                                         size="sm"
