@@ -83,10 +83,12 @@ from products.alerts.backend.evaluation.validation import (
 from products.alerts.backend.facade.api import (
     INSIGHT_ALERT_DESTINATION_TYPES,
     INSIGHT_ALERT_EVENT_IDS,
+    LLM_DETECTOR_OUT_OF_CREDITS_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
     MAX_PROMPT_POINTS,
     LLMAlertWrite,
     LLMDetectorError,
+    LLMDetectorOutOfCreditsError,
     LLMDetectorUnavailableError,
     admit_llm_alert_write,
     is_llm_detector_config,
@@ -575,7 +577,12 @@ class AlertCheckSerializer(serializers.ModelSerializer):
         # Only reasons written for the alert's owner pass through. Anything else may carry an
         # internal detail, so the history shows a generic message instead.
         code = instance.error.get("code")
-        if code in ("email_unavailable", "invalid_configuration", LLM_DETECTOR_UNAVAILABLE_ERROR_CODE):
+        if code in (
+            "email_unavailable",
+            "invalid_configuration",
+            LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
+            LLM_DETECTOR_OUT_OF_CREDITS_ERROR_CODE,
+        ):
             return {"code": code, "message": message}
         return {"message": "This alert encountered an error. Check the alert configuration and try again."}
 
@@ -1882,6 +1889,8 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 evaluation_delay_intervals=serializer.validated_data["evaluation_delay_intervals"],
             )
         except (ValueError, IndexError, AlertExtractionError, DelayedEvaluationUnavailable) as e:
+            raise ValidationError(str(e))
+        except LLMDetectorOutOfCreditsError as e:
             raise ValidationError(str(e))
         except LLMDetectorError as e:
             capture_exception(e)

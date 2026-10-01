@@ -54,6 +54,12 @@ LLM_DETECTOR_CONSENT_MESSAGE = (
 
 LLM_DETECTOR_ROLLOUT_MESSAGE = "The AI detector is not enabled for your account."
 
+LLM_DETECTOR_AI_CREDITS_MESSAGE = (
+    "Your organization has used all its AI credits, so the AI detector cannot check this alert. "
+    "The alert stays on and runs again when credits are available. Switch it to a statistical "
+    "detector to keep it running now."
+)
+
 LLM_DETECTOR_NO_CREATOR_MESSAGE = (
     "This alert has no creator to attribute AI detector calls to, which happens when that person was "
     "deleted. Recreate the alert to use the AI detector."

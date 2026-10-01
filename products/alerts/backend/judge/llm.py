@@ -29,13 +29,14 @@ from products.alerts.backend.judge.contract import (
     MAX_PROMPT_POINTS,
     JudgeAttribution,
     LLMDetectorMisconfiguredError,
+    LLMDetectorOutOfCreditsError,
     LLMDetectorUnavailableError,
     SeriesContext,
     SeriesJudgment,
 )
 from products.alerts.backend.judge.prompt import PROMPT_REVISION, SYSTEM_PROMPT, build_human_message
 from products.alerts.backend.judge.verdict import LLMDetectionVerdict
-from products.alerts.backend.llm_detector_limits import llm_detector_access_error
+from products.alerts.backend.llm_detector_limits import LLM_DETECTOR_AI_CREDITS_MESSAGE, llm_detector_access_error
 
 logger = structlog.get_logger(__name__)
 
@@ -193,6 +194,19 @@ class LLMSeriesJudge:
                 f"{access_error} This alert cannot be checked until that changes. Switch it to a statistical "
                 "detector to keep it running."
             )
+
+        from ee.billing.quota_limiting import (  # noqa: PLC0415 — keeps the billing query stack off the import path
+            is_team_over_ai_credit_budget,
+        )
+
+        try:
+            over_budget = is_team_over_ai_credit_budget(attribution.team.api_token)
+        except Exception:
+            # Fail open: a quota cache that cannot be read must not error every AI alert.
+            logger.warning("alerts.llm_detector.credit_budget_check_failed", exc_info=True)
+            over_budget = False
+        if over_budget:
+            raise LLMDetectorOutOfCreditsError(LLM_DETECTOR_AI_CREDITS_MESSAGE)
 
         memo_key = _verdict_memo_key(series, attribution, data=data, window=window, judge_every_point=judge_every_point)
         memoized = _memoized_verdict(memo_key)
