@@ -10,7 +10,7 @@ export interface SpaceSettingsSectionProps {
     children: ReactNode
 }
 
-/** A labeled block of the space settings page, modeled on PostHog Desktop's `SettingsSection`. */
+/** A labeled block of a space page (Settings, Loops), modeled on PostHog Desktop's `SettingsSection`. */
 export function SpaceSettingsSection({ label, description, action, children }: SpaceSettingsSectionProps): JSX.Element {
     return (
         <section className="flex flex-col gap-2">

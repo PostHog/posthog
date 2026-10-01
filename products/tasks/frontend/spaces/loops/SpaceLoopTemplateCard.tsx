@@ -1,14 +1,14 @@
-import { IconBolt, IconClock, IconPlug } from '@posthog/icons'
+import { IconBolt, IconClock } from '@posthog/icons'
 import { Item, ItemContent, ItemDescription, ItemMedia, ItemTitle, Text, cn } from '@posthog/quill'
 
 import { SpaceLoopTemplate, SpaceLoopTemplateTone } from './spaceLoopTemplates'
 
 const TONE_CLASSES: Record<SpaceLoopTemplateTone, string> = {
-    info: 'bg-info text-info-foreground',
-    destructive: 'bg-destructive text-destructive-foreground',
-    completed: 'bg-completed text-completed-foreground',
-    success: 'bg-success text-success-foreground',
-    warning: 'bg-warning text-warning-foreground',
+    info: 'text-info-foreground',
+    destructive: 'text-destructive-foreground',
+    completed: 'text-completed-foreground',
+    success: 'text-success-foreground',
+    warning: 'text-warning-foreground',
 }
 
 export function SpaceLoopTemplateCard({
@@ -23,31 +23,24 @@ export function SpaceLoopTemplateCard({
 
     return (
         <Item
-            variant="pressable"
+            variant="outline"
+            size="sm"
             render={<button type="button" onClick={onSelect} />}
-            className="h-full items-start text-left"
+            className="h-full items-start text-left transition-colors hover:bg-fill-hover"
             data-attr="today-space-loop-template"
         >
-            <ItemMedia variant="icon" className={cn('rounded-md', TONE_CLASSES[template.tone])}>
+            <ItemMedia variant="icon" className={cn(TONE_CLASSES[template.tone])}>
                 <Icon />
             </ItemMedia>
             <ItemContent className="min-w-0">
                 <ItemTitle>{template.name}</ItemTitle>
                 <ItemDescription className="line-clamp-none">{template.description}</ItemDescription>
-                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground">
-                    <span className="flex items-center gap-1">
-                        <TriggerIcon className="size-3 shrink-0" />
-                        <Text render={<span />} size="xs" variant="muted">
-                            {template.triggerLabel}
-                        </Text>
-                    </span>
-                    <span className="flex items-center gap-1">
-                        <IconPlug className="size-3 shrink-0" />
-                        <Text render={<span />} size="xs" variant="muted">
-                            {`Works with ${template.worksWith.join(' · ')}`}
-                        </Text>
-                    </span>
-                </div>
+                <span className="mt-0.5 flex items-center gap-1 text-muted-foreground">
+                    <TriggerIcon className="size-3 shrink-0" />
+                    <Text render={<span />} size="xs" variant="muted">
+                        {`${template.triggerLabel} · ${template.worksWith.join(', ')}`}
+                    </Text>
+                </span>
             </ItemContent>
         </Item>
     )

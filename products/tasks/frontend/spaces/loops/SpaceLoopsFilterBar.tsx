@@ -2,12 +2,12 @@ import { useActions, useValues } from 'kea'
 import { ChangeEvent } from 'react'
 
 import { IconCheck, IconSearch } from '@posthog/icons'
-import { Button, InputGroup, InputGroupAddon, InputGroupInput, Text } from '@posthog/quill'
+import { Button, InputGroup, InputGroupAddon, InputGroupInput } from '@posthog/quill'
 
 import { spaceLoopsLogic } from './spaceLoopsLogic'
 
 export function SpaceLoopsFilterBar({ id }: { id: string }): JSX.Element {
-    const { search, hidePaused, activeCount } = useValues(spaceLoopsLogic({ id }))
+    const { search, hidePaused } = useValues(spaceLoopsLogic({ id }))
     const { setSearch, setHidePaused } = useActions(spaceLoopsLogic({ id }))
 
     return (
@@ -26,6 +26,7 @@ export function SpaceLoopsFilterBar({ id }: { id: string }): JSX.Element {
                 </InputGroupAddon>
             </InputGroup>
             <Button
+                size="sm"
                 variant={hidePaused ? 'outline' : 'link-muted'}
                 aria-pressed={hidePaused}
                 onClick={() => setHidePaused(!hidePaused)}
@@ -34,9 +35,6 @@ export function SpaceLoopsFilterBar({ id }: { id: string }): JSX.Element {
                 {hidePaused && <IconCheck />}
                 Hide paused
             </Button>
-            <Text render={<span />} size="xs" variant="muted" className="ml-auto">
-                {`${activeCount} active`}
-            </Text>
         </div>
     )
 }

@@ -13,6 +13,7 @@ import {
 
 import { spaceLabel } from '~/layout/today/todaySpacesLogic'
 
+import { SpaceSettingsSection } from '../SpaceSettingsSection'
 import { spaceLoopsLogic } from './spaceLoopsLogic'
 
 function quickStarts(spaceName: string): { label: string; prompt: string }[] {
@@ -23,7 +24,7 @@ function quickStarts(spaceName: string): { label: string; prompt: string }[] {
     ]
 }
 
-/** The "describe it and an agent builds it" box under the loops, like PostHog Desktop's loop builder. */
+/** The "describe it and an agent builds it" box, like PostHog Desktop's loop builder. */
 export function SpaceLoopBuilderComposer({ id }: { id: string }): JSX.Element {
     const { builderDraft, builderFocusRequest, space } = useValues(spaceLoopsLogic({ id }))
     const { setBuilderDraft, submitBuilder, focusBuilder } = useActions(spaceLoopsLogic({ id }))
@@ -41,24 +42,10 @@ export function SpaceLoopBuilderComposer({ id }: { id: string }): JSX.Element {
     }, [builderFocusRequest])
 
     return (
-        <div className="sticky bottom-0 flex flex-col gap-2 bg-background pt-2 pb-4">
-            <div className="flex flex-wrap gap-2">
-                {quickStarts(spaceName).map(({ label, prompt }) => (
-                    <Button
-                        key={label}
-                        size="sm"
-                        variant="outline"
-                        className="rounded-full"
-                        onClick={() => {
-                            setBuilderDraft(prompt)
-                            focusBuilder()
-                        }}
-                        data-attr="today-space-loop-quick-start"
-                    >
-                        {label}
-                    </Button>
-                ))}
-            </div>
+        <SpaceSettingsSection
+            label="Build a loop"
+            description="An agent builds the loop with you in a new session, then creates it when you confirm."
+        >
             <InputGroup ref={groupRef}>
                 <InputGroupTextarea
                     rows={2}
@@ -75,9 +62,7 @@ export function SpaceLoopBuilderComposer({ id }: { id: string }): JSX.Element {
                     data-attr="today-space-loop-builder-input"
                 />
                 <InputGroupAddon align="block-end">
-                    <InputGroupText>
-                        An agent builds the loop with you, then creates it when you confirm.
-                    </InputGroupText>
+                    <InputGroupText>Enter to send, Shift+Enter for a new line</InputGroupText>
                     <InputGroupButton
                         size="icon-sm"
                         variant="primary"
@@ -91,6 +76,22 @@ export function SpaceLoopBuilderComposer({ id }: { id: string }): JSX.Element {
                     </InputGroupButton>
                 </InputGroupAddon>
             </InputGroup>
-        </div>
+            <div className="flex flex-wrap gap-1">
+                {quickStarts(spaceName).map(({ label, prompt }) => (
+                    <Button
+                        key={label}
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                            setBuilderDraft(prompt)
+                            focusBuilder()
+                        }}
+                        data-attr="today-space-loop-quick-start"
+                    >
+                        {label}
+                    </Button>
+                ))}
+            </div>
+        </SpaceSettingsSection>
     )
 }
