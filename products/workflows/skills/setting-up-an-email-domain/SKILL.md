@@ -35,7 +35,9 @@ If they only give a domain, default the sender to `hello@<domain>` with the comp
 Free mailbox domains such as gmail.com are rejected, and so is a domain another PostHog organization already uses; relay that error and suggest contacting support for the second case.
 
 Check `integrations-list` with `kind=email` first.
-If a sender on the same domain exists, the domain is already registered: skip to step 3 with that sender's `id` instead of creating a duplicate.
+If a sender with the exact requested address exists, skip to step 3 with its `id` instead of creating it again.
+A sender with a different address on the same domain still needs its own sender: create it in step 2.
+It shares the domain's records, so step 3 usually reports them as `success` already.
 
 ### 2. Create the sender
 

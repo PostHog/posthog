@@ -138,6 +138,8 @@ tools:
             integrations-domain-connect-check-retrieve and integrations-domain-connect-apply-url-create, or with your
             own DNS tools. Calling it again with the same email updates that sender. Free mailbox domains such as
             gmail.com are rejected, and a domain already used by another organization fails.
+        exclude_params:
+            - kind
         inject_body:
             kind: email
         param_overrides:
@@ -161,6 +163,7 @@ tools:
         param_overrides:
             config:
                 input_schema: EmailSenderConfigSchema
+                required: true
         feature_flag: workflows-email-domain-agent-setup
     integrations-email-verify-create:
         operation: integrations_email_verify_create

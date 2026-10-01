@@ -142,7 +142,8 @@ class DomainConnectCheckResponseSerializer(serializers.Serializer):
 
 
 class DomainConnectApplyUrlRequestSerializer(serializers.Serializer):
-    context = serializers.ChoiceField(
+    # DRF's metaclass moves declared fields off the class, so this never replaces Serializer.context at runtime.
+    context = serializers.ChoiceField(  # type: ignore[assignment]
         choices=DomainConnectContextKind.choices,
         help_text="`email` to configure an email sending domain, `proxy` for a reverse proxy domain.",
         error_messages={

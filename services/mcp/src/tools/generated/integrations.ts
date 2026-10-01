@@ -163,9 +163,6 @@ const integrationsEmailCreate = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof IntegrationsEmailCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.kind !== undefined) {
-            body['kind'] = params.kind
-        }
         if (params.config !== undefined) {
             body['config'] = params.config
         }
@@ -184,7 +181,7 @@ const IntegrationsEmailPartialUpdateSchema = () => {
     const IntegrationsEmailPartialUpdateParams = orvalSchemas.IntegrationsEmailPartialUpdateParams()
     return IntegrationsEmailPartialUpdateParams.omit({ project_id: true })
         .extend(IntegrationsEmailPartialUpdateBody.shape)
-        .extend({ config: EmailSenderConfigSchema.optional() })
+        .extend({ config: EmailSenderConfigSchema })
 }
 
 const integrationsEmailPartialUpdate = (): ToolBase<
