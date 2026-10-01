@@ -77,9 +77,14 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
         alert_id = response.json()["id"]
         assert response.json()["evaluation_delay_intervals"] == 2
         url = f"/api/projects/{self.team.id}/alerts/{alert_id}"
+        scheduled_check = datetime.now(UTC) + timedelta(days=20)
+        AlertConfiguration.objects.filter(id=alert_id).update(state=AlertState.FIRING, next_check_at=scheduled_check)
         changed = self.client.patch(url, {"name": "Delayed completed orders"}, format="json")
         assert changed.status_code == status.HTTP_200_OK, changed.content
         assert changed.json()["evaluation_delay_intervals"] == 2
+        renamed = AlertConfiguration.objects.get(id=alert_id)
+        assert renamed.state == AlertState.FIRING
+        assert renamed.next_check_at == scheduled_check
         for patch_data in (
             {"config": {"type": "TrendsAlertConfig", "series_index": 0, "check_ongoing_interval": True}},
             {"insight": self.insight["id"]},
@@ -88,6 +93,12 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
             invalid = self.client.patch(url, patch_data, format="json")
             assert invalid.status_code == status.HTTP_400_BAD_REQUEST, invalid.content
         assert AlertConfiguration.objects.get(id=alert_id).evaluation_delay_intervals == 2
+        delayed = self.client.patch(url, {"evaluation_delay_intervals": 3}, format="json")
+        assert delayed.status_code == status.HTTP_200_OK, delayed.content
+        saved = AlertConfiguration.objects.get(id=alert_id)
+        assert saved.state == AlertState.NOT_FIRING
+        assert saved.next_check_at is not None
+        assert saved.next_check_at <= datetime.now(UTC)
 
     def setUp(self):
         super().setUp()

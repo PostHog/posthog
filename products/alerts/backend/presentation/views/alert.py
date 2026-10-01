@@ -976,7 +976,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
 
         evaluation_changed = conditions_or_threshold_changed or any(
             validated_data.get(field, getattr(instance, field)) != getattr(instance, field)
-            for field in ("condition", "config", "skip_weekend", "detector_config")
+            for field in ("condition", "config", "skip_weekend", "detector_config", "evaluation_delay_intervals")
         )
         calculation_interval_changed = (
             "calculation_interval" in validated_data
