@@ -110,7 +110,7 @@ export interface sessionReplayTemplatesLogicActions {
         value: true
     }
     reportTemplateUsed: (source: ReplayTemplateUsedSource) => {
-        source: ReplayTemplateUsedSource
+        source: 'filters_panel'
     }
     resetVariable: (variable: ReplayTemplateVariableType) => {
         variable: ReplayTemplateVariableType
