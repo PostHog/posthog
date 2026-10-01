@@ -817,6 +817,9 @@ class _ForeignKeyStatePolicy(MigrationPolicy):
             return False
         model_name = model_state.name.lower()
         for migration in loader.disk_migrations.values():
+            # AddForeignKeyNotValid resolves model_name in its own app, and model names repeat across apps.
+            if migration.app_label != model_state.app_label:
+                continue
             for op in migration.operations or []:
                 for candidate in (
                     list(getattr(op, "database_operations", []) or []) if hasattr(op, "database_operations") else [op]
