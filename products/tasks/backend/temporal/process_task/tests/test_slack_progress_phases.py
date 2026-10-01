@@ -1,8 +1,10 @@
+from datetime import timedelta
 from typing import Any
 
 from parameterized import parameterized
 
 from products.tasks.backend.temporal.process_task.slack_progress_phases import (
+    done_plan_title,
     phase_for_tool_call,
     tool_call_from_acp_update,
 )
@@ -19,15 +21,37 @@ def _codex_command(command: str, kind: str) -> dict[str, Any]:
     return {"title": command, "kind": kind}
 
 
-def _codex_mcp(server: str, tool: str) -> dict[str, Any]:
-    return {"title": f"{server}/{tool}", "kind": "other", "_meta": {"posthog": {"toolName": f"mcp__{server}__{tool}"}}}
+def _codex_mcp(server: str, tool: str, raw_input: dict[str, Any] | None = None) -> dict[str, Any]:
+    return {
+        "title": f"{server}/{tool}",
+        "kind": "other",
+        "_meta": {"posthog": {"toolName": f"mcp__{server}__{tool}"}},
+        "rawInput": raw_input or {},
+    }
 
 
 class TestPhaseForToolCall:
     @parameterized.expand(
         [
-            ("posthog_mcp", _claude("mcp__posthog__exec", {"command": "call execute-sql {}"}), "posthog_data"),
-            ("codex_posthog_mcp", _codex_mcp("posthog", "exec"), "posthog_data"),
+            ("posthog_sql", _claude("mcp__posthog__exec", {"command": "call execute-sql {}"}), "posthog_data"),
+            (
+                "posthog_errors",
+                _claude("mcp__posthog__exec", {"command": "call error-tracking-issues-list {}"}),
+                "posthog_errors",
+            ),
+            (
+                "posthog_call_flags",
+                _claude("mcp__posthog__exec", {"command": "call --json dashboard-get {}"}),
+                "posthog_dashboards",
+            ),
+            (
+                "codex_posthog_replays",
+                _codex_mcp("posthog", "exec", {"command": "call session-recordings-list {}"}),
+                "posthog_replays",
+            ),
+            ("posthog_direct_tool", _claude("mcp__posthog__feature-flag-get-all", {}), "posthog_flags"),
+            # Looking up what the server offers is not work on the user's data.
+            ("posthog_search", _claude("mcp__posthog__exec", {"command": "search error issues"}), None),
             ("read", _claude("Read", {"file_path": "/repo/a.py"}, kind="read"), "reading_code"),
             ("grep_command", _claude("Bash", {"command": "grep -rn foo src"}, kind="execute"), "reading_code"),
             ("codex_read_command", _codex_command("cat README.md", "read"), "reading_code"),
@@ -54,7 +78,49 @@ class TestPhaseForToolCall:
 
         assert (phase.key if phase else None) == expected
 
-    def test_claude_shell_call_waits_for_its_command(self) -> None:
-        # Claude streams the call before its input. Classifying it then would file every
-        # test run and pull request under "Running commands".
-        assert tool_call_from_acp_update(_claude("Bash", {}, kind="execute")) is None
+    @parameterized.expand(
+        [
+            ("shell", _claude("Bash", {}, kind="execute")),
+            ("posthog_exec", _claude("mcp__posthog__exec", {})),
+        ]
+    )
+    def test_call_waits_for_its_command(self, _name: str, update: dict[str, Any]) -> None:
+        # Claude streams the call before its input. Classifying it then would file every test run
+        # under "Running commands" and every PostHog call under the generic data line.
+        assert tool_call_from_acp_update(update) is None
+
+    @parameterized.expand(
+        [
+            (
+                "claude_shell",
+                _claude("Bash", {"command": "pytest", "description": "Run the relay tests."}, kind="execute"),
+                "Run the relay tests",
+            ),
+            # Another tool's description argument is content, such as a new dashboard's text.
+            (
+                "posthog_tool",
+                _claude("mcp__posthog__dashboard-create", {"description": "Weekly revenue for the board"}),
+                None,
+            ),
+        ]
+    )
+    def test_only_the_shell_description_reaches_the_plan(
+        self, _name: str, update: dict[str, Any], expected: str | None
+    ) -> None:
+        tool_call = tool_call_from_acp_update(update)
+
+        assert tool_call is not None
+        assert tool_call.description == expected
+
+
+class TestDonePlanTitle:
+    @parameterized.expand(
+        [
+            (timedelta(seconds=48), "Done in 48s"),
+            (timedelta(seconds=72), "Done in 1m 12s"),
+            (timedelta(minutes=2), "Done in 2m"),
+            (timedelta(minutes=63, seconds=5), "Done in 1h 3m"),
+        ]
+    )
+    def test_reads_as_a_short_duration(self, elapsed: timedelta, expected: str) -> None:
+        assert done_plan_title(elapsed) == expected

@@ -836,8 +836,9 @@ def _extract_tool_call_phase(event_data: dict, seen: set[str]) -> dict[str, Any]
     """Build ``{"phase": key}`` for the Slack plan block from an ACP tool_call/tool_call_update.
 
     The plan names the kind of work only, so the payload carries no tool name and no arguments.
-    A Claude shell call arrives with an empty rawInput first; the id is not marked seen until
-    the command is known, so the next tool_call_update retries.
+    The one exception is ``activity``: the description Claude writes for people on a shell command.
+    A Claude shell or PostHog call arrives with an empty rawInput first; the id is not marked seen
+    until the command is known, so the next tool_call_update retries.
     """
     if not _is_session_update(event_data):
         return None
@@ -855,7 +856,12 @@ def _extract_tool_call_phase(event_data: dict, seen: set[str]) -> dict[str, Any]
     seen.add(tool_call_id)
     phase = phase_for_tool_call(tool_call)
     # A hidden tool still ends the narrative burst before it, so it is signaled without a phase.
-    return {"phase": phase.key if phase is not None else None}
+    if phase is None:
+        return {"phase": None}
+    payload: dict[str, Any] = {"phase": phase.key}
+    if tool_call.description:
+        payload["activity"] = tool_call.description
+    return payload
 
 
 def _extract_agent_message_text(event_data: dict) -> str | None:

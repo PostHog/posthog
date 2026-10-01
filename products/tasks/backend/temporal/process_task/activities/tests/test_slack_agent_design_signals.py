@@ -82,6 +82,16 @@ class TestSlackAgentDesignSignalEmitter:
         assert first == [("agent_status_update", {"phase": "reading_code"})]
         assert repeat == []
 
+    def test_shell_call_carries_its_description_to_the_open_line(self) -> None:
+        emitter = SlackAgentDesignSignalEmitter(SLACK_CTX)
+        emitter.process(_text_chunk("thinking"))
+        call = _tool_call("call-2", "Bash", "")
+        call["notification"]["params"]["update"]["rawInput"] = {"command": "pytest", "description": "Run the tests"}
+
+        signals = emitter.process(call)
+
+        assert signals == [("agent_status_update", {"phase": "running_checks", "activity": "Run the tests"})]
+
     def test_turn_completed_emitted_only_when_turn_active(self) -> None:
         emitter = SlackAgentDesignSignalEmitter(SLACK_CTX)
 

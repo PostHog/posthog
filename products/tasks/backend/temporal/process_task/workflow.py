@@ -148,7 +148,7 @@ from .activities.update_task_run_status import (
 )
 from .credential_refresh import CredentialRefreshExitReason, run_credential_refresh_loop, sandbox_gone_error_message
 from .slack_agent_design_relay import SlackAgentDesignRelayInput, SlackAgentDesignRelayWorkflow
-from .slack_progress_phases import RESTORING_WORKSPACE, STARTING_WORKSPACE
+from .slack_progress_phases import SETUP_LINE_TITLE
 
 DEAD_SANDBOX_ERROR_TYPES = ("SandboxNotRunningError", "SandboxNotFoundError")
 MAX_ACCEPTED_MESSAGE_IDS = 500
@@ -1839,7 +1839,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             # The first turn's relay starts now, so the plan shows while the sandbox provisions.
             await self._start_slack_agent_design_relay(
                 self._slack_thread_context,
-                setup_title=RESTORING_WORKSPACE.title if self.context.is_snapshot_resume else STARTING_WORKSPACE.title,
+                setup_title=SETUP_LINE_TITLE,
             )
             self._early_slack_relay_open = True
 

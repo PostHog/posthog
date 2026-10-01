@@ -1,10 +1,13 @@
 """Plain-language progress phases for the Slack agent-design plan block.
 
 The plan shows one line per kind of work, never tool names or tool arguments. A tool call
-maps to a phase here, and the relay counts calls per phase for the line's details.
+maps to a phase here, and the relay counts calls per phase for the line's title. The one
+exception is the short description Claude writes for each shell command: it is written
+for people, so the open line may show it while the command runs.
 """
 
 import re
+from datetime import timedelta
 from typing import Any
 
 from posthog.dataclasses import frozen
@@ -18,20 +21,40 @@ class ProgressPhase:
     counter: tuple[str, str] | None
 
 
+_LOOKUPS = ("lookup", "lookups")
+
 POSTHOG_DATA = ProgressPhase(key="posthog_data", title="Looking at PostHog data", counter=("query", "queries"))
+POSTHOG_DASHBOARDS = ProgressPhase(key="posthog_dashboards", title="Checking dashboards and insights", counter=_LOOKUPS)
+POSTHOG_ERRORS = ProgressPhase(key="posthog_errors", title="Checking error tracking", counter=_LOOKUPS)
+POSTHOG_REPLAYS = ProgressPhase(key="posthog_replays", title="Checking session recordings", counter=_LOOKUPS)
+POSTHOG_FLAGS = ProgressPhase(key="posthog_flags", title="Checking feature flags and experiments", counter=_LOOKUPS)
+POSTHOG_LOGS = ProgressPhase(key="posthog_logs", title="Checking logs and traces", counter=_LOOKUPS)
+POSTHOG_AI = ProgressPhase(key="posthog_ai", title="Checking AI observability", counter=_LOOKUPS)
+POSTHOG_SURVEYS = ProgressPhase(key="posthog_surveys", title="Checking surveys", counter=_LOOKUPS)
+POSTHOG_WAREHOUSE = ProgressPhase(key="posthog_warehouse", title="Checking the data warehouse", counter=_LOOKUPS)
 GETTING_CODE = ProgressPhase(key="getting_code", title="Getting the code", counter=None)
-READING_CODE = ProgressPhase(key="reading_code", title="Reading the code", counter=("lookup", "lookups"))
-SEARCHING_WEB = ProgressPhase(key="searching_web", title="Searching the web", counter=("lookup", "lookups"))
+READING_CODE = ProgressPhase(key="reading_code", title="Reading the code", counter=_LOOKUPS)
+SEARCHING_WEB = ProgressPhase(key="searching_web", title="Searching the web", counter=_LOOKUPS)
 MAKING_CHANGES = ProgressPhase(key="making_changes", title="Making changes", counter=("edit", "edits"))
 RUNNING_CHECKS = ProgressPhase(key="running_checks", title="Running checks", counter=("check", "checks"))
 RUNNING_COMMANDS = ProgressPhase(key="running_commands", title="Running commands", counter=("command", "commands"))
 PREPARING_FILES = ProgressPhase(key="preparing_files", title="Preparing attachments", counter=("file", "files"))
 OPENING_PR = ProgressPhase(key="opening_pr", title="Opening a pull request", counter=None)
+# The relay folds phases past its line limit into this line, so the plan stays short.
+OTHER_WORK = ProgressPhase(key="other_work", title="Other work", counter=("step", "steps"))
 
 PHASES: dict[str, ProgressPhase] = {
     phase.key: phase
     for phase in (
         POSTHOG_DATA,
+        POSTHOG_DASHBOARDS,
+        POSTHOG_ERRORS,
+        POSTHOG_REPLAYS,
+        POSTHOG_FLAGS,
+        POSTHOG_LOGS,
+        POSTHOG_AI,
+        POSTHOG_SURVEYS,
+        POSTHOG_WAREHOUSE,
         GETTING_CODE,
         READING_CODE,
         SEARCHING_WEB,
@@ -40,15 +63,14 @@ PHASES: dict[str, ProgressPhase] = {
         RUNNING_COMMANDS,
         PREPARING_FILES,
         OPENING_PR,
+        OTHER_WORK,
     )
 }
 
-# Lines the relay shows around the agent's own phases.
-UNDERSTANDING_REQUEST = ProgressPhase(key="understanding_request", title="Understanding the request", counter=None)
-STARTING_WORKSPACE = ProgressPhase(key="starting_workspace", title="Starting a workspace", counter=None)
-RESTORING_WORKSPACE = ProgressPhase(key="restoring_workspace", title="Restoring the workspace", counter=None)
+SETUP_LINE_TITLE = "Getting ready"
+# The setup line becomes this when the turn answers without a tool.
+ANSWER_LINE_TITLE = "Writing the answer"
 PLAN_TITLE_WORKING = "Working on it"
-PLAN_TITLE_DONE = "Done"
 PLAN_TITLE_STOPPED = "Stopped"
 
 # Tools that manage the agent's own session. They say nothing about the work, so no line shows them.
@@ -81,6 +103,42 @@ _READ_TOOL_NAMES = frozenset({"read", "grep", "glob", "ls", "notebookread", "vie
 _WEB_TOOL_NAMES = frozenset({"websearch", "webfetch", "web_search", "web_fetch"})
 _SHELL_TOOL_NAMES = frozenset({"bash", "exec_command", "exec", "shell", "terminal"})
 
+# The PostHog MCP server exposes its tools through one `exec` tool: `call <tool> <json>` runs a
+# tool, and the other verbs only look up what the server offers.
+_POSTHOG_EXEC_TOOL = "exec"
+_POSTHOG_LOOKUP_VERBS = frozenset({"search", "info", "schema", "tools", "learn"})
+# First match wins, so a narrower prefix sits above a broader one that shares its start.
+_POSTHOG_TOOL_PREFIXES: tuple[tuple[str, ProgressPhase], ...] = (
+    ("query-error", POSTHOG_ERRORS),
+    ("query-session", POSTHOG_REPLAYS),
+    ("error-", POSTHOG_ERRORS),
+    ("session-recording", POSTHOG_REPLAYS),
+    ("vision-", POSTHOG_REPLAYS),
+    ("inline-scan", POSTHOG_REPLAYS),
+    ("dashboard", POSTHOG_DASHBOARDS),
+    ("insight", POSTHOG_DASHBOARDS),
+    ("notebook", POSTHOG_DASHBOARDS),
+    ("feature-flag", POSTHOG_FLAGS),
+    ("create-feature", POSTHOG_FLAGS),
+    ("delete-feature", POSTHOG_FLAGS),
+    ("flag-value", POSTHOG_FLAGS),
+    ("experiment", POSTHOG_FLAGS),
+    ("early-access", POSTHOG_FLAGS),
+    ("logs-", POSTHOG_LOGS),
+    ("apm-", POSTHOG_LOGS),
+    ("llma-", POSTHOG_AI),
+    ("llm-", POSTHOG_AI),
+    ("ai-observability", POSTHOG_AI),
+    ("survey", POSTHOG_SURVEYS),
+    ("data-warehouse", POSTHOG_WAREHOUSE),
+    ("external-data", POSTHOG_WAREHOUSE),
+    ("warehouse", POSTHOG_WAREHOUSE),
+    ("managed-warehouse", POSTHOG_WAREHOUSE),
+    ("data-modeling", POSTHOG_WAREHOUSE),
+    ("data-quality", POSTHOG_WAREHOUSE),
+    ("batch-export", POSTHOG_WAREHOUSE),
+)
+
 _PR_COMMAND = re.compile(r"\b(gh\s+pr\s+(create|edit|ready)|git\s+(commit|push))\b")
 _CHECK_COMMAND = re.compile(
     r"\b(pytest|jest|vitest|playwright|hogli\s+(test|lint|ci)|ruff|mypy|tsc|eslint|oxlint|prettier|"
@@ -91,6 +149,7 @@ _READ_COMMAND = re.compile(
     r"^\s*(cd\s+\S+\s*(&&|;)\s*)?(grep|rg|cat|ls|find|head|tail|wc|tree|jq|less|sed\s+-n|awk|"
     r"git\s+(log|show|diff|status|blame|grep|ls-files))\b"
 )
+_ACTIVITY_LIMIT = 80
 
 
 @frozen
@@ -100,6 +159,8 @@ class ToolCall:
     name: str
     kind: str | None
     command: str | None
+    # The plain-language description the agent gave a shell command, when it gave one.
+    description: str | None = None
 
 
 def _phase_for_command(command: str) -> ProgressPhase:
@@ -110,6 +171,25 @@ def _phase_for_command(command: str) -> ProgressPhase:
     if _READ_COMMAND.match(command):
         return READING_CODE
     return RUNNING_COMMANDS
+
+
+def _posthog_tool_name(tool_name: str, command: str | None) -> str | None:
+    """The PostHog tool a call runs, or None when it only looks up what the server offers."""
+    if tool_name != _POSTHOG_EXEC_TOOL:
+        return tool_name
+    words = [word for word in (command or "").split() if not word.startswith("--")]
+    if not words or words[0].lower() in _POSTHOG_LOOKUP_VERBS:
+        return None
+    if words[0].lower() == "call":
+        return words[1].lower() if len(words) > 1 else ""
+    return ""
+
+
+def _phase_for_posthog_tool(tool_name: str) -> ProgressPhase:
+    for prefix, phase in _POSTHOG_TOOL_PREFIXES:
+        if tool_name.startswith(prefix):
+            return phase
+    return POSTHOG_DATA
 
 
 def phase_for_tool_call(call: ToolCall) -> ProgressPhase | None:
@@ -125,8 +205,10 @@ def phase_for_tool_call(call: ToolCall) -> ProgressPhase | None:
         return GETTING_CODE
     if "artifact" in name:
         return PREPARING_FILES
-    if name.startswith(_POSTHOG_MCP_PREFIXES):
-        return POSTHOG_DATA
+    for prefix in _POSTHOG_MCP_PREFIXES:
+        if name.startswith(prefix):
+            posthog_tool = _posthog_tool_name(name.removeprefix(prefix), call.command)
+            return _phase_for_posthog_tool(posthog_tool) if posthog_tool is not None else None
     if name in _WEB_TOOL_NAMES or call.kind == "fetch":
         return SEARCHING_WEB
     if name in _EDIT_TOOL_NAMES or call.kind == "edit":
@@ -139,27 +221,53 @@ def phase_for_tool_call(call: ToolCall) -> ProgressPhase | None:
     return None
 
 
-def phase_line_title(phase: ProgressPhase, count: int) -> str:
+def phase_line_title(phase: ProgressPhase, count: int, activity: str | None = None) -> str:
     """The plan line for a phase, such as "Looking at PostHog data (7 queries)".
 
-    The counter goes in the title because Slack replaces a step's title on each
+    ``activity`` replaces the counter while the line is open, so the reader sees what runs now.
+    The line carries everything in its title because Slack replaces a step's title on each
     task_update but appends its details and output to the text it already shows.
     """
+    if activity:
+        return f"{phase.title}: {activity}"
     if phase.counter is None or count <= 0:
         return phase.title
     singular, plural = phase.counter
     return f"{phase.title} ({count} {singular if count == 1 else plural})"
 
 
+def done_plan_title(elapsed: timedelta) -> str:
+    """The plan title of a finished turn, such as "Done in 1m 12s"."""
+    seconds = max(int(elapsed.total_seconds()), 1)
+    hours, rest = divmod(seconds, 3600)
+    minutes, seconds = divmod(rest, 60)
+    if hours:
+        duration = f"{hours}h {minutes}m" if minutes else f"{hours}h"
+    elif minutes:
+        duration = f"{minutes}m {seconds}s" if seconds else f"{minutes}m"
+    else:
+        duration = f"{seconds}s"
+    return f"Done in {duration}"
+
+
 def _dict_or_empty(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def tool_call_from_acp_update(update: dict[str, Any]) -> ToolCall | None:
-    """Read the tool name, kind and shell command from an ACP ``tool_call``/``tool_call_update``.
+def _short_activity(description: Any) -> str | None:
+    if not isinstance(description, str):
+        return None
+    text = " ".join(description.split()).rstrip(".")
+    if not text:
+        return None
+    return text if len(text) <= _ACTIVITY_LIMIT else text[: _ACTIVITY_LIMIT - 1] + "…"
 
-    Returns None while a Claude shell call has no command yet: Claude streams the call with an
-    empty ``rawInput`` first, and the command decides between reading, checks and a pull request.
+
+def tool_call_from_acp_update(update: dict[str, Any]) -> ToolCall | None:
+    """Read the tool name, kind, command and description from an ACP ``tool_call``/``tool_call_update``.
+
+    Returns None while a Claude shell or PostHog call has no command yet: Claude streams the
+    call with an empty ``rawInput`` first, and the command decides the phase.
     """
     meta = _dict_or_empty(update.get("_meta"))
     claude_tool_name = _dict_or_empty(meta.get("claudeCode")).get("toolName")
@@ -174,12 +282,17 @@ def tool_call_from_acp_update(update: dict[str, Any]) -> ToolCall | None:
     if not isinstance(name, str) or not name:
         return None
 
-    raw_input = update.get("rawInput")
-    command = raw_input.get("command") if isinstance(raw_input, dict) else None
+    raw_input = _dict_or_empty(update.get("rawInput"))
+    command = raw_input.get("command")
     if isinstance(command, list):
         command = " ".join(str(part) for part in command)
     if not isinstance(command, str) or not command:
         command = None
-    if command is None and (name.lower() in _SHELL_TOOL_NAMES or kind == "execute"):
+    lowered = name.lower()
+    needs_command = lowered in _SHELL_TOOL_NAMES or kind == "execute" or lowered.endswith(f"__{_POSTHOG_EXEC_TOOL}")
+    if command is None and needs_command:
         return None
-    return ToolCall(name=name, kind=kind, command=command)
+    # Only Claude's shell tool writes its description for people. A description argument on
+    # other tools is content, such as the text of a dashboard the agent creates.
+    description = _short_activity(raw_input.get("description")) if lowered == "bash" else None
+    return ToolCall(name=name, kind=kind, command=command, description=description)

@@ -2252,7 +2252,7 @@ class TestProcessTaskWorkflowUnit:
         relay_sandbox_events_mock.assert_not_called()
         relay_agent_design_signals_mock.assert_called_once()
         # The plan shows while the sandbox provisions, so the relay starts before the first turn.
-        start_slack_relay_mock.assert_awaited_once_with({"channel": "C1"}, setup_title="Starting a workspace")
+        start_slack_relay_mock.assert_awaited_once_with({"channel": "C1"}, setup_title="Getting ready")
 
     @pytest.mark.parametrize(
         "origin_product, pr_progress_emitted, ci_repetitions, end_of_turn_received, expected_status",
