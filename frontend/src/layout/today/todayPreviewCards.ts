@@ -46,7 +46,15 @@ export interface TodaySpacePreview {
     hiddenRepositoryCount: number
 }
 
-export type TodayPreviewPayload = TodaySessionPreview | TodaySpacePreview
+export interface TodayChatPreview {
+    kind: 'chat'
+    chatId: string
+    title: string
+    source: string
+    timestamp: string | null
+}
+
+export type TodayPreviewPayload = TodaySessionPreview | TodaySpacePreview | TodayChatPreview
 
 export function spaceKind(space: Pick<ChannelDTOApi, 'channel_type' | 'system_role'>): TodaySpaceKind {
     if (space.system_role === 'personal' || space.channel_type === 'personal') {
@@ -109,6 +117,16 @@ function spacePeople(
         }
     }
     return people
+}
+
+export function chatPreview(item: TodayWorkItem): TodayChatPreview {
+    return {
+        kind: 'chat',
+        chatId: item.id,
+        title: item.title || 'Untitled chat',
+        source: 'PostHog AI',
+        timestamp: item.timestamp,
+    }
 }
 
 export function spacePreview(
