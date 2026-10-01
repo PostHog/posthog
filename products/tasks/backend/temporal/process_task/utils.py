@@ -1486,6 +1486,7 @@ def ai_gateway_env_vars(
                 runtime=runtime,
                 internal=internal,
                 prior_slack_run=prior_slack_run,
+                distinct_id=distinct_id,
             )
             if refusal:
                 AI_GATEWAY_TOKEN_MINTS.labels(result="skipped").inc()

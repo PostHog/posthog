@@ -35,6 +35,7 @@ export function TodayChatRow({ item, dataAttr }: TodayChatRowProps): JSX.Element
                         to={urls.ai(item.id)}
                         active={location.pathname.endsWith('/ai') && searchParams.chat === item.id}
                         dataAttr={dataAttr}
+                        weight="regular"
                     />
                 </TodayPreviewTrigger>
             </ContextMenuTrigger>

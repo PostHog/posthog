@@ -403,8 +403,8 @@ def _fetch_pr_metadata(github: GitHubIntegration, owner: str, repo: str, pr_numb
 def _in_progress_report_ids(team_id: int, reports: list[ReviewReport]) -> set[str]:
     """Which ACTIVE reports are visibly running: artefact or report activity within the staleness window.
 
-    Artefacts stream in throughout a run (snapshot, chunk set, per-chunk results, verdicts), so the
-    newest artefact is the liveness signal; a crashed run goes quiet and ages out instead of showing
+    Artefacts mark persisted progress, and long review activities refresh the report timestamp while
+    their sandbox runs. Both stop when a worker dies, so a crashed run ages out instead of showing
     a stuck spinner forever.
 
     `finding_outcome` is excluded because it is the one artefact type not written by a turn: the
@@ -592,9 +592,11 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         probe_limit = limit + 1
         team_id, queryset = self._reports(request, scope=params.validated_data["scope"])
         completed = list(queryset.filter(last_run_at__isnull=False).order_by("-last_run_at")[:probe_limit])
-        # First-turn runs have no completed turn yet; they only surface while visibly running.
+        # First-turn runs have no completed turn yet; they only surface while visibly running. A crashed
+        # run stays ACTIVE, so rank by report activity: ranked by creation, newer crashed runs fill the
+        # slice and hide an older live run.
         running_first_turn = list(
-            queryset.filter(status=ReviewReport.Status.ACTIVE, last_run_at__isnull=True).order_by("-created_at")[
+            queryset.filter(status=ReviewReport.Status.ACTIVE, last_run_at__isnull=True).order_by("-updated_at")[
                 :probe_limit
             ]
         )

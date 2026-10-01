@@ -1,6 +1,8 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { NEW_QUERY_STARTED_ERROR_MESSAGE } from 'lib/utils/kea-logic-builders'
 import { insightsApi } from 'scenes/insights/utils/api'
 
@@ -264,6 +266,20 @@ describe('metricsViewerLogic', () => {
         logic.actions.fetchAnomaly({})
         await new Promise((resolve) => setTimeout(resolve, 310))
         expect(firstSignal?.aborted).toBe(true)
+    })
+
+    it('hides the anomaly badge silently when characterize fails', async () => {
+        jest.mocked(metricsCharacterizeCreate).mockRejectedValue({ status: 500, detail: 'boom' })
+        const toastSpy = jest.spyOn(lemonToast, 'error')
+        logic.actions.setMetricName('requests_total')
+
+        await expectLogic(logic, () => {
+            logic.actions.fetchAnomaly({})
+        }).toDispatchActions(['fetchAnomalySuccess'])
+
+        expect(logic.values.anomalyReport).toBeNull()
+        expect(toastSpy).not.toHaveBeenCalled()
+        toastSpy.mockRestore()
     })
 
     it('names a formula insight after the formula and its inputs', async () => {

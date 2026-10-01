@@ -986,6 +986,22 @@ export const HomeWatchFeed: StoryObj = {
     },
 }
 
+const WATCH_FEED_VIEW_STORAGE_KEY = 'products.replay_vision.frontend.replay_scanners.watchFeedLogic.view'
+
+// The same feed as thumbnail cards, each closing with why the recording was picked.
+export const HomeWatchFeedGrid: StoryObj = {
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]: 'test' },
+    },
+    // Seed the saved view before render instead of clicking the toggle: the snapshot build is production
+    // React, which has no act(), so testing-library helpers fail there. Remove it afterwards, or every
+    // later feed story renders as a grid too.
+    beforeEach: () => {
+        localStorage.setItem(WATCH_FEED_VIEW_STORAGE_KEY, JSON.stringify('grid'))
+        return () => localStorage.removeItem(WATCH_FEED_VIEW_STORAGE_KEY)
+    },
+}
+
 // A quiet window: nothing scored on any source, so the feed pads to three newest clips and says so
 // rather than filling the page with them.
 export const HomeWatchFeedOnlyNewest: StoryObj = {

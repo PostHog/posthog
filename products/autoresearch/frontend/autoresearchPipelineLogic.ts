@@ -21,6 +21,7 @@ import {
     autoresearchResumeCreate,
     autoresearchRetrieve,
     autoresearchRunsList,
+    autoresearchRunsRetrieve,
     autoresearchScoreCreate,
     autoresearchSuggestionsCreate,
     autoresearchSuggestionsList,
@@ -54,6 +55,29 @@ const AUTORESEARCH_PIPELINE_TABS: AutoresearchPipelineTab[] = [
 
 function isPipelineTab(value: string | undefined): value is AutoresearchPipelineTab {
     return value !== undefined && (AUTORESEARCH_PIPELINE_TABS as string[]).includes(value)
+}
+
+/** How often the Score now button checks a running scoring run. */
+export const SCORE_RUN_POLL_INTERVAL_MS = 5000
+
+/** Matches the backend cutoff: a run still running after the workflow timeout lost its worker. */
+export const SCORE_RUN_STALE_AFTER_MS = 5 * 60 * 60 * 1000
+
+function isScoreRunInProgress(run: AutoresearchRunApi): boolean {
+    return run.status === 'running' || run.status === 'pending'
+}
+
+/** The inference run that is scoring now, if any. Scoring runs in the background, so a reload resumes from it. */
+function findRunningScoreRun(runs: AutoresearchRunApi[]): AutoresearchRunApi | null {
+    const cutoff = Date.now() - SCORE_RUN_STALE_AFTER_MS
+    return (
+        runs.find(
+            (r) =>
+                r.run_type === 'inference' &&
+                isScoreRunInProgress(r) &&
+                new Date(r.started_at ?? r.created_at).getTime() >= cutoff
+        ) ?? null
+    )
 }
 
 /** One decile of the latest scoring run's predicted probabilities: `lower` ≤ p < `lower` + 0.1. */
@@ -177,6 +201,7 @@ export interface OnlinePerformanceRow {
 export interface autoresearchPipelineLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     currentTeamId: number | null // teamLogic
+    activeScoreRun: AutoresearchRunApi | null
     activeTab: AutoresearchPipelineTab
     artifactsByRun: Record<string, string[]>
     artifactsByRunLoading: boolean
@@ -430,6 +455,9 @@ export interface autoresearchPipelineLogicActions {
         pipeline: AutoresearchPipelineApi | null
         payload?: any
     }
+    pollScoreRun: () => {
+        value: true
+    }
     resumePipeline: () => any
     resumePipelineFailure: (
         error: string,
@@ -460,6 +488,12 @@ export interface autoresearchPipelineLogicActions {
         scoreResult: AutoresearchRunApi | null
         payload?: any
     }
+    scoreRunFinished: (run: AutoresearchRunApi) => {
+        run: AutoresearchRunApi
+    }
+    setActiveScoreRun: (run: AutoresearchRunApi | null) => {
+        run: AutoresearchRunApi | null
+    }
     setActiveTab: (tab: AutoresearchPipelineTab) => {
         tab: AutoresearchPipelineTab
     }
@@ -468,6 +502,9 @@ export interface autoresearchPipelineLogicActions {
     }
     setSuggestionPriority: (priority: CreateSuggestionPriorityEnumApi) => {
         priority: CreateSuggestionPriorityEnumApi
+    }
+    startScorePolling: () => {
+        value: true
     }
     startTraining: () => any
     startTrainingFailure: (
@@ -570,6 +607,10 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
         toggleRunArtifacts: (runId: string) => ({ runId }),
         setSuggestionDraft: (draft: string) => ({ draft }),
         setSuggestionPriority: (priority: CreateSuggestionPriorityEnumApi) => ({ priority }),
+        setActiveScoreRun: (run: AutoresearchRunApi | null) => ({ run }),
+        startScorePolling: true,
+        pollScoreRun: true,
+        scoreRunFinished: (run: AutoresearchRunApi) => ({ run }),
     }),
     reducers({
         detailRequested: [
@@ -582,6 +623,15 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             'overview' as AutoresearchPipelineTab,
             {
                 setActiveTab: (_, { tab }) => tab,
+            },
+        ],
+        activeScoreRun: [
+            null as AutoresearchRunApi | null,
+            {
+                setActiveScoreRun: (_, { run }) => run,
+                scoreNowSuccess: (_, { scoreResult }) => (scoreResult?.status === 'running' ? scoreResult : null),
+                loadRunsSuccess: (current, { runs }) => current ?? findRunningScoreRun(runs),
+                scoreRunFinished: () => null,
             },
         ],
         expandedRunId: [
@@ -809,7 +859,7 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             null as ProbabilityBucket[] | null,
             {
                 loadProbabilityDistribution: async () => {
-                    // A scoring run stamps its whole batch with one timestamp, so the latest batch is its exact timestamp.
+                    // Capture can shift the timestamps of one batch apart, so the latest batch is its prediction date.
                     const response = await api.queryHogQL(
                         hogql`
                             SELECT least(floor(p * 10), 9) AS bucket, count() AS users
@@ -820,8 +870,9 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                                 FROM events
                                 WHERE event = 'autoresearch_prediction'
                                   AND properties.$autoresearch_pipeline_id = ${props.id}
-                                  AND timestamp = (
-                                      SELECT max(timestamp)
+                                  AND timestamp >= now() - INTERVAL ${LATEST_BATCH_LOOKBACK_DAYS} DAY
+                                  AND properties.$autoresearch_prediction_date = (
+                                      SELECT max(properties.$autoresearch_prediction_date)
                                       FROM events
                                       WHERE event = 'autoresearch_prediction'
                                         AND properties.$autoresearch_pipeline_id = ${props.id}
@@ -958,7 +1009,7 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values, props, cache }) => ({
         loadDetail: () => {
             actions.loadPipeline()
             actions.loadModels()
@@ -1017,17 +1068,81 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             lemonToast.error('Could not resume the model')
         },
         scoreNowSuccess: ({ scoreResult }) => {
-            posthog.capture('autoresearch model scored', { pipeline_id: props.id })
+            if (!scoreResult) {
+                return
+            }
+            posthog.capture('autoresearch model score started', { pipeline_id: props.id, run_id: scoreResult.id })
+            if (scoreResult.status === 'running') {
+                lemonToast.info('Scoring started. Predictions update when it finishes.')
+                actions.startScorePolling()
+            } else {
+                actions.scoreRunFinished(scoreResult)
+            }
+        },
+        scoreNowFailure: ({ error }) => {
+            posthog.capture('autoresearch model action failed', { action: 'score', pipeline_id: props.id })
+            lemonToast.error(error ? `Could not start scoring. ${error}` : 'Could not start scoring. Try again.')
+        },
+        loadRunsSuccess: () => {
+            // A run started before a reload, or by the daily schedule, is still followed to the end.
+            if (values.activeScoreRun) {
+                actions.startScorePolling()
+            }
+        },
+        startScorePolling: () => {
+            if (cache.disposables.registry.has('scorePoll')) {
+                return
+            }
+            cache.disposables.add(() => {
+                const timer = window.setInterval(() => actions.pollScoreRun(), SCORE_RUN_POLL_INTERVAL_MS)
+                return () => clearInterval(timer)
+            }, 'scorePoll')
+        },
+        pollScoreRun: async () => {
+            const active = values.activeScoreRun
+            if (!values.currentTeamId || !active) {
+                cache.disposables.dispose('scorePoll')
+                return
+            }
+            let run: AutoresearchRunApi
+            try {
+                run = await autoresearchRunsRetrieve(String(values.currentTeamId), props.id, active.id)
+            } catch {
+                // A failed check is retried on the next interval.
+                return
+            }
+            if (isScoreRunInProgress(run)) {
+                return
+            }
+            actions.scoreRunFinished(run)
+        },
+        scoreRunFinished: ({ run }) => {
+            cache.disposables.dispose('scorePoll')
             actions.loadRuns()
             actions.loadPipeline()
-            actions.loadProbabilityDistribution()
-            actions.loadDailyVolume()
-            const scored = scoreResult?.rows_scored
-            lemonToast.success(scored != null ? `Scored ${scored.toLocaleString()} users` : 'Scoring run started')
-        },
-        scoreNowFailure: () => {
-            posthog.capture('autoresearch model action failed', { action: 'score', pipeline_id: props.id })
-            lemonToast.error('Could not score users. Train a champion model first.')
+            if (run.status === 'completed') {
+                posthog.capture('autoresearch model scored', {
+                    pipeline_id: props.id,
+                    run_id: run.id,
+                    rows_scored: run.rows_scored,
+                })
+                actions.loadProbabilityDistribution()
+                actions.loadDailyVolume()
+                const scored = run.rows_scored ?? 0
+                lemonToast.success(`Scored ${scored.toLocaleString()} users`)
+            } else {
+                posthog.capture('autoresearch model action failed', {
+                    action: 'score',
+                    stage: 'run',
+                    pipeline_id: props.id,
+                    run_id: run.id,
+                })
+                lemonToast.error(
+                    run.error
+                        ? `Scoring failed. ${run.error}`
+                        : 'Scoring failed. Try again, and contact support if it keeps happening.'
+                )
+            }
         },
         submitSuggestionSuccess: () => {
             posthog.capture('autoresearch model suggestion sent', { pipeline_id: props.id })
