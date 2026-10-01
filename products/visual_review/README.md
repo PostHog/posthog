@@ -267,7 +267,15 @@ The procedure is: open a PR that renders the story, approve the `changed` or `ne
 A PR renders only the stories its diff affects, so a story the PR does not touch needs the full matrix: add the `run-ci-frontend` label before the push that should render it.
 The label only widens a Storybook run that happens anyway, so the PR must also change a path the Storybook workflow watches.
 
+Neither the gate nor the PR comment shows a quarantined story's diff.
+So the author of a change to a quarantined story has to look for it: list the run's snapshots with `include_quarantined=true`.
+A fix for the flake itself leaves nothing in the run to approve, and nothing records it, so the PR description names the identifiers the fix should release.
+
 Lift the quarantine after the merge.
+Check first that the default branch renders the story as its entry.
+When the latest default-branch run still lists the story as changed, the lift fails nearly every run, and so does the expiry date.
+A `broken` entry is the usual sign, but its state covers 7 days, so it can lag a fix.
+Re-baseline such a story with the procedure above before the quarantine ends.
 A lift records the default branch's head commit, and a run whose commit does not contain that commit still treats the story as quarantined.
 That matters because an entry on the default branch does not reach a branch that forked before it, and healing cannot supply it either: healing reads the merge-base, which for such a branch also predates the entry.
 So an older branch keeps the quarantine until it merges the default branch, and the lift cannot red its gate.
