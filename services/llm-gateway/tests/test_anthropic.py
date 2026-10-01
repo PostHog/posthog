@@ -10,7 +10,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from starlette.datastructures import Headers
 
-from llm_gateway.api.anthropic import _is_anthropic_billing_block
+from llm_gateway.api.anthropic import _is_anthropic_billing_block, _point_posthog_code_at_app_update
 from llm_gateway.api.handler import ProviderError
 from llm_gateway.request_context import (
     extract_posthog_flags_from_headers,
@@ -2151,3 +2151,34 @@ class TestAnthropicBillingBlockDetection:
             },
         )
         assert _is_anthropic_billing_block(exc) is False
+
+
+class TestOutdatedClaudeCodeMessage:
+    _UPSTREAM_MESSAGE = '{"type":"error","error":{"type":"invalid_request_error","message":"Claude Code 1.0.0 is too old.","details":{"error_code":"claude_code_version_too_old"}}}'
+
+    @pytest.mark.parametrize(
+        "product,exc_type,status_code,message,rewritten",
+        [
+            ("posthog_code", ProviderError, 400, _UPSTREAM_MESSAGE, True),
+            ("twig", ProviderError, 400, _UPSTREAM_MESSAGE, True),
+            ("llm_gateway", ProviderError, 400, _UPSTREAM_MESSAGE, False),
+            ("posthog_code", HTTPException, 400, _UPSTREAM_MESSAGE, False),
+            ("posthog_code", ProviderError, 500, _UPSTREAM_MESSAGE, False),
+            ("posthog_code", ProviderError, 400, "prompt is too long: 1010381 tokens > 1000000 maximum", False),
+        ],
+    )
+    def test_rewrites_only_posthog_code_version_rejections(
+        self, product: str, exc_type: type[HTTPException], status_code: int, message: str, rewritten: bool
+    ) -> None:
+        exc = exc_type(status_code=status_code, detail={"error": {"message": message, "type": "invalid_request_error"}})
+
+        _point_posthog_code_at_app_update(exc, model="claude-opus-5-5", product=product)
+
+        error = exc.detail["error"]
+        if rewritten:
+            assert error["code"] == "claude_code_version_too_old"
+            assert "Update PostHog Code" in error["message"]
+            assert "claude-opus-5-5" in error["message"]
+        else:
+            assert error["message"] == message
+            assert "code" not in error
