@@ -1072,7 +1072,12 @@ def materialize_features(
     """
     # The inference sandbox imports pandas and pyarrow; the router imports this module for
     # every web worker, so the heavy path loads only when a run materializes.
-    from ..inference.sandbox import SandboxInferenceError, label_classes, materialize_training_data  # noqa: PLC0415
+    from ..inference.sandbox import (  # noqa: PLC0415
+        SandboxInferenceError,
+        label_classes,
+        materialize_training_data,
+        training_anchor_ts,
+    )
 
     training_run = _training_run_row(team_id, training_run_id, pipeline_id=pipeline_id, with_iterations=False)
     if training_run.status != AutoresearchTrainingRun.Status.RUNNING:
@@ -1082,7 +1087,13 @@ def materialize_features(
     sandbox_id = _resolve_run_sandbox_id(training_run)
     team = Team.objects.get(pk=team_id)
     try:
-        data = materialize_training_data(team=team, pipeline=training_run.pipeline, feature_sql=features_sql, user=user)
+        data = materialize_training_data(
+            team=team,
+            pipeline=training_run.pipeline,
+            feature_sql=features_sql,
+            user=user,
+            anchor_ts=training_anchor_ts(training_run),
+        )
     except (SandboxInferenceError, RecipeValidationError) as exc:
         raise AutoresearchConflict(f"Feature materialization failed: {exc}") from exc
     if not data.train_rows:

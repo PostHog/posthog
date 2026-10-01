@@ -692,6 +692,15 @@ class TestAnchorsRecipeQueries(TeamScopedTestMixin, BaseTest):
         assert mock_run_hogql.call_args.kwargs["query"].values["cutoff_ts"] == 1_700_000_000
         assert count.call_args.kwargs["cutoff_ts"] == 1_700_000_000
 
+    def test_training_rows_and_anchor_count_bind_one_instant(self):
+        pipeline = self._make_pipeline()
+        with (
+            patch.object(scoring, "run_hogql", return_value=HogQLResult(columns=[], rows=[])) as mock_run_hogql,
+            patch.object(scoring, "count_training_anchors", return_value=0) as count,
+        ):
+            _fetch_training_rows(team=self.team, pipeline=pipeline, feature_sql=_ANCHORS_FEATURE_SQL, user=self.user)
+        assert mock_run_hogql.call_args.kwargs["query"].values["anchor_ts"] == count.call_args.kwargs["anchor_ts"]
+
     @parameterized.expand(
         [
             ("duplicate_person", [["p1", 1, 0, 1], ["p1", 2, 1, 2]]),

@@ -28,6 +28,7 @@ from posthog.models.scoping import team_scope
 from products.autoresearch.backend.inference.sandbox import (
     SandboxInferenceError,
     fit_champion_model,
+    training_anchor_ts,
     validate_runnable_feature_sql,
 )
 from products.autoresearch.backend.inference.scoring import check_recipe_estimator
@@ -337,19 +338,24 @@ def _activate_pipeline(pipeline: AutoresearchPipeline) -> None:
     pipeline.save(update_fields=["status", "updated_at"])
 
 
-def _schedule_champion_fit(*, pipeline: AutoresearchPipeline, prefix: str, training_run_id: str) -> None:
+def _schedule_champion_fit(
+    *, pipeline: AutoresearchPipeline, prefix: str, training_run: AutoresearchTrainingRun
+) -> None:
     """The train run produces the serving artifact: fit the champion and persist model.pkl so
     predict runs are pure inference. Deferred to on_commit, because the sandbox and the
     object-storage write are side effects that must not run inside the atomic block, and the
     fit only makes sense once the row is durably committed. A failure leaves the champion
-    without a model.pkl, and every scoring run then fails until a later promotion fits one."""
+    without a model.pkl, and every scoring run then fails until a later promotion fits one.
+    The fit labels at the run's anchor instant, so it sees the anchor set the agent scored."""
+    training_run_id = str(training_run.id)
+    anchor_ts = training_anchor_ts(training_run)
 
     def _fit_after_commit() -> None:
         # Every failure is caught, not only SandboxInferenceError: the run is already
         # committed, so raising here would report a failed completion for a finished run
         # that a retry can only answer with its no-op.
         try:
-            fit_champion_model(team=pipeline.team, pipeline=pipeline, prefix=prefix)
+            fit_champion_model(team=pipeline.team, pipeline=pipeline, prefix=prefix, anchor_ts=anchor_ts)
         except Exception:
             logger.exception("autoresearch_champion_fit_failed", training_run_id=training_run_id, prefix=prefix)
 
@@ -469,7 +475,7 @@ def _finalize_under_lock(
         # A rejected challenger is not fitted: inference reads the champion only, and no path
         # promotes a challenger row later, so its fit would cost a sandbox run for nothing.
         if artifact_prefix:
-            _schedule_champion_fit(pipeline=pipeline, prefix=artifact_prefix, training_run_id=str(training_run.id))
+            _schedule_champion_fit(pipeline=pipeline, prefix=artifact_prefix, training_run=training_run)
 
     return {
         "promoted": promoted,

@@ -45,6 +45,8 @@ from dataclasses import field
 from decimal import Decimal
 from typing import Any, Protocol
 
+from django.utils import timezone as django_timezone
+
 import pandas as pd
 import pyarrow as pa
 import structlog
@@ -69,7 +71,7 @@ from products.autoresearch.backend.dataset.labeling import (
     build_random_t0_labeler_sql,
     build_training_features_sql,
 )
-from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline
+from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline, AutoresearchTrainingRun
 from products.autoresearch.backend.query import run_hogql
 from products.autoresearch.backend.training.artifacts import (
     MAX_ARTIFACT_BYTES,
@@ -171,10 +173,13 @@ def fit_champion_model(
     prefix: str,
     bundle: ArtifactBundle | None = None,
     user: User | None = None,
+    anchor_ts: int | None = None,
 ) -> dict[str, Any]:
     """
     Train run: fit the champion against the LABELED training population and persist
     the resulting ``model.pkl`` under ``prefix``. Idempotent: it overwrites any prior fit.
+
+    Pass the training run's ``anchor_ts`` so the fit sees the anchor set the agent scored.
 
     ``predict.py`` runs once against the holdout features before the model is persisted,
     so a bundle whose two scripts disagree fails here rather than on the first cadence.
@@ -190,7 +195,9 @@ def fit_champion_model(
     acting_user = _resolve_acting_user(team=team, pipeline=pipeline, user=user)
     _validate_bundle_feature_sql(bundle)
 
-    data = materialize_training_data(team=team, pipeline=pipeline, feature_sql=bundle.features_sql, user=acting_user)
+    data = materialize_training_data(
+        team=team, pipeline=pipeline, feature_sql=bundle.features_sql, user=acting_user, anchor_ts=anchor_ts
+    )
     if not data.train_rows:
         raise SandboxInferenceError("No training rows to fit on")
     if not data.feature_cols:
@@ -343,15 +350,27 @@ def _feature_lookback_days(pipeline: AutoresearchPipeline) -> int:
     return max(30, pipeline.horizon_days * 4)
 
 
+def training_anchor_ts(training_run: AutoresearchTrainingRun) -> int:
+    """The instant a training run labels against, so its materializations and its completion fit share one anchor set."""
+    return int((training_run.started_at or training_run.created_at).timestamp())
+
+
 def materialize_training_data(
-    *, team: Team, pipeline: AutoresearchPipeline, feature_sql: str, user: User | None = None
+    *,
+    team: Team,
+    pipeline: AutoresearchPipeline,
+    feature_sql: str,
+    user: User | None = None,
+    anchor_ts: int | None = None,
 ) -> MaterializedData:
     """
     Train run materialization: the bundle's feature SQL against the LABELED training
     anchors (per-user random T0, with __label + __fold). Splits train/holdout by fold
     so the bundle never sees __fold. The labeler window is the pipeline's configured
-    training_lookback_days.
+    training_lookback_days, ending at ``anchor_ts`` (default: now).
     """
+    if anchor_ts is None:
+        anchor_ts = int(django_timezone.now().timestamp())
     feature_sql_resolved = feature_sql.replace("{lookback_days}", str(_feature_lookback_days(pipeline)))
     train_sql, train_values = build_training_features_sql(
         feature_sql=feature_sql_resolved,
@@ -361,9 +380,10 @@ def materialize_training_data(
         horizon_days=pipeline.horizon_days,
         lookback_days=pipeline.training_lookback_days,
         training_population=pipeline.training_population,
+        anchor_ts=anchor_ts,
     )
     training_rows = _materialize_rows(team=team, sql=train_sql, values=train_values, user=user)
-    expected = count_training_anchors(team=team, pipeline=pipeline, user=user)
+    expected = count_training_anchors(team=team, pipeline=pipeline, anchor_ts=anchor_ts, user=user)
     _validate_rows_key_one_person(training_rows, source="training feature_sql", expected_count=expected)
     # The training wrapper LEFT JOINs the labels onto the feature rows. A feature row
     # whose distinct_id matched no anchor comes back with NULL label and fold, and the
@@ -419,10 +439,13 @@ def _materialize_score_data(
     return score_rows
 
 
-def count_training_anchors(*, team: Team, pipeline: AutoresearchPipeline, user: User | None = None) -> int:
+def count_training_anchors(
+    *, team: Team, pipeline: AutoresearchPipeline, anchor_ts: int, user: User | None = None
+) -> int:
     """
     How many labeled anchors the trainer materializes, so feature SQL that drops some of them
-    fails: a selection-biased fit and a distorted holdout AUC look valid row by row.
+    fails: a selection-biased fit and a distorted holdout AUC look valid row by row. Pass the
+    ``anchor_ts`` the feature query bound, or the two counts can differ at a window edge.
     """
     sql, values = build_random_t0_labeler_sql(
         target_event=pipeline.target_event,
@@ -432,6 +455,7 @@ def count_training_anchors(*, team: Team, pipeline: AutoresearchPipeline, user: 
         lookback_days=pipeline.training_lookback_days,
         training_population=pipeline.training_population,
         sample_limit=None,
+        anchor_ts=anchor_ts,
     )
     return _count(team=team, sql=sql, values=values, user=user, what="Training anchor count")
 

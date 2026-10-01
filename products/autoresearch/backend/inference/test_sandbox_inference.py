@@ -144,11 +144,13 @@ class TestMaterializeData(TeamScopedTestMixin, BaseTest):
     def test_training_data_splits_folds_and_extracts_feature_cols(self):
         pipeline = self._pipeline()
         with (
-            patch.object(sandbox_inference, "count_training_anchors", return_value=len(_TRAINING_ROWS)),
-            patch.object(sandbox_inference, "_materialize_rows", return_value=_TRAINING_ROWS),
+            patch.object(sandbox_inference, "count_training_anchors", return_value=len(_TRAINING_ROWS)) as count,
+            patch.object(sandbox_inference, "_materialize_rows", return_value=_TRAINING_ROWS) as run,
         ):
             data = materialize_training_data(team=self.team, pipeline=pipeline, feature_sql="SELECT 1 FROM {anchors}")
 
+        # Each query would read its own now(), so a person at a window edge could be in one and not the other.
+        assert run.call_args.kwargs["values"]["anchor_ts"] == count.call_args.kwargs["anchor_ts"]
         assert data.feature_cols == ["events_total", "pageviews"]
         assert [r["distinct_id"] for r in data.train_rows] == ["p1", "p2"]
         assert [r["distinct_id"] for r in data.holdout_rows] == ["p3"]
