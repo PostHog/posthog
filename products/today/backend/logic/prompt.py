@@ -88,6 +88,7 @@ def build_prompt(
     user: User,
     reports: Sequence[signals.BriefingReport],
     previous: Sequence[DailyBriefing],
+    github_login: str | None,
 ) -> str:
     """The prompt for one briefing: `reports` already in briefing order, `previous` the person's latest ones."""
     return _environment.get_template("briefing.md.j2").render(
@@ -101,4 +102,5 @@ def build_prompt(
         max_signal_chars=MAX_SIGNAL_CHARS,
         reports_json=_data_block(_report_rows(reports, briefing.team_id)),
         recent_json=_data_block(_recent_rows(previous)),
+        github_login=github_login,
     )
