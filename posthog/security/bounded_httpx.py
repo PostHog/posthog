@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import Awaitable, Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from django.utils.asyncio import async_unsafe
@@ -79,15 +80,25 @@ class _BoundedResponseStream(httpx.SyncByteStream):
         finally:
             await self._transport.aclose()
 
-    def close(self) -> None:
-        if self._closed:
-            return
-        self._closed = True
+    def _close_in_runner(self) -> None:
         try:
             self._runner.run(self._close())
         finally:
             self._runner.close()
             self._owner.streams.discard(self)
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            self._close_in_runner()
+        else:
+            # ASGI disconnects can finalize generators on an active event-loop thread, which cannot run another loop.
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                executor.submit(self._close_in_runner).result()
 
 
 class BoundedHTTPTransport(httpx.BaseTransport):

@@ -1,4 +1,5 @@
 import json
+import asyncio
 from collections.abc import AsyncIterator, Iterator
 
 import pytest
@@ -28,6 +29,8 @@ from products.ai_observability.backend.llm.providers.openai_compatible import (
     is_allowed_custom_base_url,
 )
 from products.ai_observability.backend.llm.types import AnalyticsContext, CompletionRequest
+
+from ee.hogai.utils.asgi import SyncIterableToAsync
 
 # A public IP literal keeps the DNS-resolution check offline in tests.
 ALLOWED_BASE_URL = "https://8.8.8.8/v1"
@@ -385,7 +388,8 @@ class TestOpenAICompatibleRequestBounds:
         assert send.call_count == 2
         assert fallback_body.closed
 
-    def test_closing_stream_closes_the_connection(self) -> None:
+    @pytest.mark.parametrize("close_in_event_loop", [False, True])
+    def test_closing_stream_closes_the_connection(self, close_in_event_loop: bool) -> None:
         payload = json.dumps(
             {
                 "id": "fixture",
@@ -404,7 +408,15 @@ class TestOpenAICompatibleRequestBounds:
             patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response),
         ):
             stream = adapter.stream(_completion_request(), "test-key", AnalyticsContext(capture=False))
-            assert next(stream).data == {"text": "hello"}
-            stream.close()
+            if close_in_event_loop:
+
+                async def consume_then_close() -> None:
+                    assert (await anext(SyncIterableToAsync(stream))).data == {"text": "hello"}
+                    stream.close()
+
+                asyncio.run(consume_then_close())
+            else:
+                assert next(stream).data == {"text": "hello"}
+                stream.close()
 
         assert body.closed

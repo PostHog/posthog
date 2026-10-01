@@ -47,6 +47,7 @@ Key validation and model listing use a 10-second total deadline.
 Responses, including errors and streamed completions, are limited to 1 MiB.
 The endpoint must return uncompressed responses; compressed responses are rejected before decoding.
 Expired requests, rejected responses, and streams closed by the caller close their underlying connection.
+Stream cleanup also closes the connection when a playground disconnect finalizes a generator on an active event-loop thread.
 
 The OpenAI SDK does not retry custom-provider requests. Online evaluations use their existing Temporal retry policy for transient failures, and worker cancellation propagates to Temporal.
 Models without native structured-output support retain the JSON fallback, which can make one additional bounded request.
