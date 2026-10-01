@@ -124,7 +124,7 @@ export const ContentAutopilotOpportunities = (): JSX.Element => {
                 </div>
             </div>
 
-            {opportunities === null && opportunitiesLoading ? (
+            {opportunities === null && !opportunitiesError ? (
                 <LemonSkeleton className="h-40 w-full" />
             ) : opportunitiesError ? (
                 <LemonBanner
@@ -264,7 +264,10 @@ export const ContentAutopilotOpportunities = (): JSX.Element => {
                                             disabledReason={
                                                 opportunity.status === 'queued'
                                                     ? 'Wait for the draft to finish'
-                                                    : undefined
+                                                    : dismissingOpportunityId &&
+                                                        dismissingOpportunityId !== opportunity.id
+                                                      ? 'Wait for the other question to finish dismissing'
+                                                      : undefined
                                             }
                                             data-attr="content-autopilot-dismiss-opportunity"
                                         >

@@ -153,22 +153,39 @@ export const ContentAutopilot = (): JSX.Element => {
                                     {
                                         key: 'drafts',
                                         label: `Drafts (${siteProposals.length})`,
-                                        content: (
-                                            <>
-                                                <ContentAutopilotProposalSection
-                                                    title="New content"
-                                                    description="Original articles for topics people search for that do not have a dedicated page."
-                                                    proposals={newContentProposals}
-                                                    onReview={selectProposal}
-                                                />
-                                                <ContentAutopilotProposalSection
-                                                    title="Page improvements"
-                                                    description="Focused metadata, linking, and content changes."
-                                                    proposals={pageImprovementProposals}
-                                                    onReview={selectProposal}
-                                                />
-                                            </>
-                                        ),
+                                        content:
+                                            siteProposals.length === 0 ? (
+                                                <LemonCard hoverEffect={false} className="p-8 text-center">
+                                                    <h3 className="m-0">No drafts yet</h3>
+                                                    <p className="m-0 mt-2 text-muted max-w-xl mx-auto">
+                                                        Pick questions on the Opportunities tab and draft them. Drafts
+                                                        show up here for review.
+                                                    </p>
+                                                    <LemonButton
+                                                        type="secondary"
+                                                        className="mt-4 mx-auto"
+                                                        onClick={() => setWorkspaceTab('opportunities')}
+                                                        data-attr="content-autopilot-drafts-empty-opportunities"
+                                                    >
+                                                        Go to opportunities
+                                                    </LemonButton>
+                                                </LemonCard>
+                                            ) : (
+                                                <>
+                                                    <ContentAutopilotProposalSection
+                                                        title="New content"
+                                                        description="Original articles for topics people search for that do not have a dedicated page."
+                                                        proposals={newContentProposals}
+                                                        onReview={selectProposal}
+                                                    />
+                                                    <ContentAutopilotProposalSection
+                                                        title="Page improvements"
+                                                        description="Focused metadata, linking, and content changes."
+                                                        proposals={pageImprovementProposals}
+                                                        onReview={selectProposal}
+                                                    />
+                                                </>
+                                            ),
                                     },
                                 ]}
                             />
