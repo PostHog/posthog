@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING, Any, Final
 
-from django.db import models, transaction
+from django.db import models, router, transaction
 from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
 from django.utils.functional import Promise
@@ -239,18 +239,19 @@ class HogFlow(UUIDTModel):
             update_fields -= {self._meta.get_field(attname).name for attname in deferred}
             kwargs["update_fields"] = update_fields
         if update_fields is None or not SEARCH_TEXT_SOURCE_FIELDS.isdisjoint(update_fields):
-            self.search_text = build_search_text(**self._search_text_sources(update_fields))
+            using = kwargs.get("using") or router.db_for_write(type(self), instance=self)
+            self.search_text = build_search_text(**self._search_text_sources(update_fields, using))
             if update_fields is not None:
                 kwargs["update_fields"] = update_fields | {"search_text"}
         super().save(*args, **kwargs)
 
-    def _search_text_sources(self, update_fields: set[str] | None) -> dict[str, Any]:
+    def _search_text_sources(self, update_fields: set[str] | None, using: str) -> dict[str, Any]:
         """The source values that the row holds after this save: this instance's values for the fields the save
         writes, and the stored values for the others."""
         unwritten = set() if update_fields is None else SEARCH_TEXT_SOURCE_FIELDS - update_fields
         sources: dict[str, Any] = {field: getattr(self, field) for field in SEARCH_TEXT_SOURCE_FIELDS - unwritten}
         if unwritten:
-            stored = HogFlow.objects.filter(pk=self.pk).values(*unwritten).first()
+            stored = HogFlow.objects.using(using).filter(pk=self.pk).values(*unwritten).first()
             sources.update(stored or dict.fromkeys(unwritten))
         return sources
 

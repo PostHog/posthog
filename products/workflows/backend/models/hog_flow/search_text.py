@@ -18,6 +18,7 @@ DEFAULT_MAX_MATCHED_STEPS: Final = 2
 MAX_MATCHED_STEPS: Final = 10
 DEFAULT_EXCERPT_CHARS: Final = 80
 MAX_EXCERPT_CHARS: Final = 160
+_WHITESPACE: Final = re.compile(r"\s+")
 
 # The HogFlow fields that `build_search_text` reads. Saving any of them rebuilds `HogFlow.search_text`.
 SEARCH_TEXT_SOURCE_FIELDS: Final[frozenset[str]] = frozenset({"name", "description", "actions", "draft"})
@@ -225,18 +226,22 @@ def build_search_text(*, name: str | None, description: str | None, actions: obj
 def _excerpt(text: str, regex: re2._Regexp, max_chars: int) -> str:
     if max_chars == 0:
         return ""
-    collapsed = " ".join(text.split())
-    match = regex.search(collapsed)
+    match = regex.search(text)
     if match is None:
-        return collapsed[:max_chars]
-    padding = max(0, (max_chars - (match.end() - match.start())) // 2)
-    start = max(0, match.start() - padding)
-    end = min(len(collapsed), match.end() + padding, start + max_chars)
+        return " ".join(text.split())[:max_chars]
+    # Find the match before collapsing whitespace: the term can hold a literal tab or no-break space.
+    before = _WHITESPACE.sub(" ", text[: match.start()]).lstrip()
+    matched = _WHITESPACE.sub(" ", match.group())
+    collapsed = before + matched + _WHITESPACE.sub(" ", text[match.end() :]).rstrip()
+    match_start, match_end = len(before), len(before) + len(matched)
+    padding = max(0, (max_chars - len(matched)) // 2)
+    start = max(0, match_start - padding)
+    end = min(len(collapsed), match_end + padding, start + max_chars)
     # Snap to word boundaries so the excerpt does not open or close in the middle of a word.
-    first_space = collapsed.find(" ", start, match.start())
+    first_space = collapsed.find(" ", start, match_start)
     if start > 0 and first_space != -1:
         start = first_space + 1
-    last_space = collapsed.rfind(" ", match.end() + 1, end)
+    last_space = collapsed.rfind(" ", match_end + 1, end)
     if end < len(collapsed) and last_space != -1:
         end = last_space
     prefix = "…" if start > 0 else ""

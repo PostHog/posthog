@@ -1,7 +1,5 @@
 from enum import StrEnum
 
-from django.db import models
-
 from posthog.enums import LabeledStrEnum
 
 __all__ = [
@@ -55,24 +53,24 @@ class HogFlowBatchJobState(LabeledStrEnum):
     FAILED = "failed"
 
 
-class StepSearchField(models.TextChoices):
+class StepSearchField(LabeledStrEnum):
     STEP_NAME = "step_name"
     SUBJECT = "subject"
     PREHEADER = "preheader"
     BODY = "body"
 
 
-class StepSearchVersion(models.TextChoices):
+class StepSearchVersion(LabeledStrEnum):
     LIVE = "live"
     DRAFT = "draft"
 
 
-class WorkflowMetadataField(models.TextChoices):
+class WorkflowMetadataField(LabeledStrEnum):
     NAME = "name"
     DESCRIPTION = "description"
 
 
-class WorkflowSearchOutput(models.TextChoices):
+class WorkflowSearchOutput(LabeledStrEnum):
     NAMES = "names"
     COUNTS = "counts"
     MATCHES = "matches"

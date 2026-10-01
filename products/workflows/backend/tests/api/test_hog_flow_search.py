@@ -9,7 +9,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core.management import call_command
-from django.db import connection
+from django.db import connection, router
 from django.test import SimpleTestCase, TestCase
 from django.test.utils import CaptureQueriesContext
 
@@ -309,7 +309,10 @@ class TestHogFlowSearchAPI(APIBaseTest):
             flow.draft = {"actions": [_email_step("email_2", "Access email", subject="Your beta access starts today")]}
             flow.draft_updated_at = datetime(2026, 1, 1, tzinfo=UTC)
 
-        with patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers") as reload:
+        with (
+            patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers") as reload,
+            patch.object(router, "db_for_read", return_value="unavailable_replica"),
+        ):
             flow.save(update_fields=update_fields)
 
         assert reload.called is expect_reload
@@ -443,15 +446,17 @@ class TestFindStepMatches(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("around_the_match", "renewal date", 30, "…Your renewal date moved…"),
-            ("match_longer_than_budget", "renewal date moved to the first", 10, "…renewal da…"),
-            ("no_text", "renewal date", 0, ""),
+            ("around_the_match", " ", "renewal date", 30, "…Your renewal date moved…"),
+            ("match_longer_than_budget", " ", "renewal date moved to the first", 10, "…renewal da…"),
+            ("no_text", " ", "renewal date", 0, ""),
+            ("literal_tab_in_term", "\t", "renewal\tdate", 30, "…Your renewal date moved…"),
+            ("literal_no_break_space_in_term", "\u00a0", "renewal\u00a0date", 30, "…Your renewal date moved…"),
         ]
     )
     def test_excerpt_stays_within_the_character_budget(
-        self, _name: str, term: str, excerpt_chars: int, expected: str
+        self, _name: str, separator: str, term: str, excerpt_chars: int, expected: str
     ) -> None:
-        body = "Filler words before it. Your renewal date moved to the first of the month. Filler words after it."
+        body = f"Filler words before it. Your renewal{separator}date moved to the first of the month. Filler words after it."
         actions = [_email_step("email_1", "Notice", text=body)]
 
         (match,) = find_step_matches(actions, None, step_regex(term), max_steps=1, excerpt_chars=excerpt_chars).steps

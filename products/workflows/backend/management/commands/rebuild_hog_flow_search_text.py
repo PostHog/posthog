@@ -4,7 +4,8 @@ from typing import Any
 from uuid import UUID
 
 from django.core.management.base import BaseCommand, CommandParser
-from django.db.models import Q, QuerySet
+from django.db import transaction
+from django.db.models import QuerySet
 
 import structlog
 
@@ -43,12 +44,29 @@ def rebuild_search_text(queryset: QuerySet[HogFlow], *, page_size: int, dry_run:
             if dry_run:
                 changed += 1
                 continue
-            # A save between the read above and this write stores text built from newer content. The write is
-            # conditional on the text read above, so it never replaces that newer text with an older build.
-            # update() skips post_save, so no worker reload fires: search text never changes how a workflow runs.
-            read = Q(search_text__isnull=True) if hog_flow.search_text is None else Q(search_text=hog_flow.search_text)
-            changed += HogFlow.objects.filter(read, id=hog_flow.id).update(search_text=search_text)
+            changed += _rebuild_locked(hog_flow.id)
     return SearchTextRebuild(checked=checked, changed=changed)
+
+
+def _rebuild_locked(hog_flow_id: UUID) -> int:
+    """Rebuild one row under a row lock. A concurrent save either commits before this read or waits for this write,
+    so the stored text never comes from older content than the row holds."""
+    with transaction.atomic():
+        hog_flow = (
+            HogFlow.objects.select_for_update()
+            .only("id", "name", "description", "actions", "draft", "search_text")
+            .filter(id=hog_flow_id)
+            .first()
+        )
+        if hog_flow is None:
+            return 0
+        search_text = build_search_text(
+            name=hog_flow.name, description=hog_flow.description, actions=hog_flow.actions, draft=hog_flow.draft
+        )
+        if hog_flow.search_text == search_text:
+            return 0
+        # update() skips post_save, so no worker reload fires: search text never changes how a workflow runs.
+        return HogFlow.objects.filter(id=hog_flow_id).update(search_text=search_text)
 
 
 def _positive_int(value: str) -> int:
