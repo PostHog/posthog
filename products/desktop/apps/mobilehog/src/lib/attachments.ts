@@ -14,8 +14,8 @@ const MAX_PHOTO_BYTES = 30 * 1024 * 1024;
 // already on disk rather than download it again.
 const sentPhotoUris = new Map<string, string>();
 
-export function sentPhotoUri(artifactId: string): string | undefined {
-  return sentPhotoUris.get(artifactId);
+export function sentPhotoUri(artifactId: string): string | null {
+  return sentPhotoUris.get(artifactId) ?? null;
 }
 
 function rememberSent(photos: Photo[], artifactIds: string[]): string[] {
