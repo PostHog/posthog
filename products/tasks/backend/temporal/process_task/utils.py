@@ -603,9 +603,8 @@ def get_user_mcp_server_configs(
 
     The `x-posthog-mcp-consumer` header is set on every config so the agent's
     identity propagates through the MCP Store proxy to whichever upstream MCP
-    the user installed. The PostHog MCP needs this to resolve single-exec mode
-    (without it, calls to `exec` fail with "Tool exec not found"); non-PostHog
-    upstreams ignore the header.
+    the user installed. The PostHog MCP reads it to attribute calls and to tailor
+    the session to the consumer; non-PostHog upstreams ignore the header.
 
     Returns an empty list on errors (non-fatal).
     """

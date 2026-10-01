@@ -69,7 +69,10 @@ These are the failure modes that produce a plausible-looking answer rather than 
 
 1. **Always resolve the effective tool name through `EFFECTIVE_TOOL_SQL`.** The expression
    lives once, in `products/mcp_analytics/backend/hogql_queries/base.py`:
-   `coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name))`.
+   a three-arm `coalesce` of `$mcp_exec_tool_call_name`, then (when `$mcp_tool_name = 'exec'`
+   and `$mcp_exec_verb = 'call'`) `$mcp_exec_target_tool` unless it is `unrecognized`, then
+   `$mcp_tool_name`. The middle arm counts an exec `call` that the server rejected before
+   dispatch against the tool it named, instead of under `exec`.
    It exists because a single-exec server can report the tool two different ways, and the two
    eras of data coexist. Today `services/mcp` resolves the inner tool itself and passes it
    straight in as the tool name (`execToolName()` in `src/hono/tool-executor.ts`, which falls
@@ -250,8 +253,8 @@ carries the property reference and worked query examples.
    (`sessions/{id}/tool_calls`, `sessions/{id}/generate_intent`, `sessions/intent_digest`,
    `sessions/activity_overview`, `intent_clusters/recompute`). Parallel surface: step 4's
    runners, exposed to agents as the `query-mcp-*` tools. The intent-cluster read and
-   recompute endpoints require `mcp-analytics-intent-routing`; the other endpoints use
-   `mcp-analytics`.
+   recompute endpoints require `mcp-analytics-intent-routing`; the other endpoints have no
+   feature flag.
 8. **Frontend** -> Kea scene `MCPAnalyticsScene.tsx`, with tabs enumerated by
    `MCPAnalyticsTab` in `mcpAnalyticsSceneLogic.ts`: activity, dashboard, sessions,
    tool quality, intent clustering, notifications. The landing tab is volume-gated by
@@ -329,10 +332,7 @@ reports, `mcp_analytics` access control, the shared `ProductEmptyState` adoption
 failure-occurrence drill-down with "create fix task", the migration of every chart to typed
 query runners, the demo seeder, and exec-mode inner-tool breakout (Hard rule 1).
 
-What still lags, all checkable in this repo: the `services/mcp` alias pin is `0.10.2` against a
-0.11.7 SDK (Hard rule 5 — no 0.11.x SDK-side fix or SDK-emitted property reaches dogfood data,
-though the server independently stamps `$mcp_client_user_agent` and the legacy non-`$`
-`mcp_vendor_client` regardless of the pin; harness resolution reads the SDK-emitted
-`$mcp_vendor_client` first and coalesces the legacy name for those rows);
-the exec-property emitter is still absent from
+What still lags, all checkable in this repo: the exec-property emitter is still absent from
 master (Hard rule 1); and the clustering schedule still covers only `GUARANTEED_TEAM_IDS = [2]`.
+The `services/mcp` alias pin moves with SDK releases, so compare `services/mcp/package.json`
+with the published `@posthog/mcp` version before relying on a new SDK property (Hard rule 5).

@@ -11,6 +11,8 @@ Two consumers:
 
 - `benchmark/tasks.yaml` — the task set (v2). Each task is a realistic agent goal with the tools a competent agent should reach for, plus a `fixtures` block naming the entities a run needs in place.
 - `benchmark/schema.ts` — zod schema, loader, and types. `tests/evals/benchmark.test.ts` validates the fixtures against the schema and the live tool catalog, so a tool rename or removal fails CI here instead of silently invalidating the benchmark.
+- `runner/probe.ts` — the probe runner. See [Probe mode](#probe-mode).
+- `runner/results.ts` — result types and score aggregation for probe runs, unit-tested in `tests/evals/results.test.ts`.
 - `runner/seed.ts` — writes the `fixtures` block to the target project. See [Seeding](#seeding).
 
 ## Task format
@@ -21,32 +23,42 @@ Two consumers:
   intent: 'List all our active feature flags.' # what the agent is asked, phrased like a real request
   expected_tools: [feature-flag-get-all] # what a competent agent should call
   acceptable_tools: [execute-sql] # also fine; no tool-selection penalty
-  success_criteria: "Returns the project's active flags by key." # pass condition for the agent-mode judge
+  success_criteria: "Returns the project's active flags by key." # pass condition for an agent run; no runner reads it
   probe: # optional: deterministic call, no LLM needed
     tool: feature-flag-get-all
     args: {}
     max_ms: 15000
 ```
 
-## Modes
+## Probe mode
 
-**Probe mode** (deterministic, no LLM): executes each task's `probe` against a live server and validates schemas, latency, and error responses for every referenced tool. Probes must reference read-only tools — the fixture test enforces `readOnlyHint`, and the runner refuses anything else, so a bad fixture cannot mutate project data.
+Probe mode is the only runner in this directory. It is deterministic and uses no LLM:
 
-**Agent mode** (LLM): replays each `intent` through an agent loop against the live server, then scores task success against `success_criteria` (LLM judge) and tool selection against `expected_tools`/`acceptable_tools`.
+```bash
+LIVE_MCP_URL=http://localhost:9876 LIVE_MCP_TOKEN=phx_... \
+  pnpm exec tsx evals/runner/probe.ts [--out score.json]
+```
 
-Scores per run: task success rate, tool-selection accuracy, schema-validation failure count, tool error rate, retries per task, latency p50/p95, tokens per task.
+It checks that the server advertises every tool a task requires, then executes each task's `probe` and records its status and latency.
+Probes must reference read-only tools — the fixture test enforces `readOnlyHint`, and the runner refuses any tool the live server does not advertise as read-only, so a bad fixture cannot mutate project data.
+
+The summary reports missing tools, probes passed and failed, and latency p50/p95.
+The exit code is non-zero when a required tool is missing or a probe fails.
+
+No agent-mode runner or LLM judge exists yet.
+`intent`, `expected_tools`, `acceptable_tools`, and `success_criteria` describe the task for an agent run, but no code here scores them.
 
 ## Seeding
 
-Agent mode mutates state, so it needs state to mutate.
-`fixtures` in `tasks.yaml` declares it, and `runner/seed.ts` writes it:
+Tasks that create or change entities need those entities in a known state before an agent runs them.
+`fixtures` in `tasks.yaml` declares that state, and `runner/seed.ts` writes it:
 
 ```bash
 LIVE_POSTHOG_URL=http://localhost:8000 LIVE_MCP_TOKEN=phx_... \
   pnpm exec tsx evals/runner/seed.ts [--project 12345]
 ```
 
-Run it before every agent-mode run.
+Run it before every agent run against the benchmark.
 It is idempotent over the keys it owns: it rewrites every flag in `fixtures.feature_flags` and clears the keys in `fixtures.absent_feature_flags`, so those tasks start a second run where they started the first.
 `flag-create-routes-to-experiment` is the exception. The agent picks the key of the flag its experiment manages, so the seeder cannot name that key in `absent_feature_flags`, and the experiment and flag from an earlier run are still there on the next one. Delete them by hand when a rerun needs a clean project.
 Probe mode needs no seeding — probes are read-only.
