@@ -449,6 +449,7 @@ class QuarantineInput:
     # "what was wrong" later. Omitted when quarantining from the snapshot
     # history page where no run is in context.
     source_run_id: UUID | None = None
+    notify_owners: bool = False
 
 
 @dataclass(frozen=True)

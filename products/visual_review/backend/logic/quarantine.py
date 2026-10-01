@@ -118,6 +118,7 @@ def quarantine_identifier(
     expires_at: datetime | None = None,
     source_run_id: UUID | None = None,
     source: ActorType = ActorType.HUMAN,
+    notify_owners: bool = False,
 ) -> QuarantinedIdentifier:
     repos.get_repo(repo_id, team_id)  # raises RepoNotFoundError if repo not owned by team
     now = timezone.now()
@@ -144,7 +145,7 @@ def quarantine_identifier(
             run_type=run_type,
             team_id=team_id,
         ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now)).update(expires_at=now)
-        return QuarantinedIdentifier.objects.using(WRITER_DB).create(
+        entry = QuarantinedIdentifier.objects.using(WRITER_DB).create(
             repo_id=repo_id,
             identifier=identifier,
             run_type=run_type,
@@ -155,6 +156,21 @@ def quarantine_identifier(
             source_run=source_run,
             source=source,
         )
+    if notify_owners:
+        from ..tasks.tasks import (  # noqa: PLC0415 — avoids the logic/tasks circular import
+            QUARANTINE_NOTICE_EXPIRY_SECONDS,
+            notify_quarantine_owners,
+        )
+
+        entry_id = str(entry.id)
+        transaction.on_commit(
+            lambda: notify_quarantine_owners.apply_async(
+                args=(team_id, entry_id), expires=QUARANTINE_NOTICE_EXPIRY_SECONDS
+            ),
+            using=WRITER_DB,
+            robust=True,
+        )
+    return entry
 
 
 def unquarantine_identifier(repo_id: UUID, identifier: str, run_type: str, team_id: int) -> None:
