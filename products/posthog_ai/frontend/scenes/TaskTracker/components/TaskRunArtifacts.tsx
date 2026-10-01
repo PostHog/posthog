@@ -97,6 +97,7 @@ import {
     isTextPreview,
     parseCsv,
     LIVE_OBJECT_KINDS,
+    LIVING_ADAPTER_LABEL,
     postHogObjectRef,
 } from '../taskRunArtifacts'
 import { artifactDownloadUrl, taskRunArtifactsLogic } from '../taskRunArtifactsLogic'
@@ -150,8 +151,11 @@ function ArtifactIcon({ artifact, className }: { artifact: RunArtifact; classNam
     return <KindIcon kind={artifactPreviewKind(artifact)} className={className} />
 }
 
-/** Size for a file, the object kind for a cited PostHog object. */
+/** Size for a file, the object kind for a cited PostHog object, where the agent sent a living document. */
 function artifactDetail(artifact: RunArtifact): string {
+    if (artifact.living) {
+        return LIVING_ADAPTER_LABEL[artifact.living.adapter] ?? 'Document'
+    }
     const ref = postHogObjectRef(artifact)
     return ref ? objectKindLink(ref.objectKind, ref.objectId, '').kind.kindLabel : formatArtifactSize(artifact.size)
 }
@@ -413,6 +417,20 @@ function ArtifactPreview({ taskId, mode }: { taskId: string; mode: PreviewMode }
     if (selectedKind === 'video') {
         return <VideoPreview taskId={taskId} name={selectedArtifact.name} />
     }
+    if (selectedArtifact.living && selectedArtifact.living.text === null) {
+        return (
+            <Empty className="h-full">
+                <EmptyHeader>
+                    <EmptyTitle>No preview for this document</EmptyTitle>
+                    <EmptyDescription>
+                        {selectedArtifact.living.adapter.startsWith('slack_')
+                            ? "PostHog can't show this version here. Open the Slack thread the agent replied in to see it."
+                            : "PostHog can't show this version here. Open it where the agent saved it."}
+                    </EmptyDescription>
+                </EmptyHeader>
+            </Empty>
+        )
+    }
     if (selectedKind === 'none') {
         return (
             <Empty className="h-full">
@@ -485,6 +503,7 @@ function ArtifactNav({ taskId }: { taskId: string }): JSX.Element {
     const { selectArtifact } = useActions(taskRunArtifactsLogic({ taskId }))
     // Cited PostHog objects sit under their own label, after the files.
     const objects = files.filter((file) => !!postHogObjectRef(file.latest))
+    const livingDocuments = files.filter((file) => !!file.latest.living)
     const renderRow = (file: ArtifactFile): JSX.Element => {
         const selected = file.key === selectedFile?.key
         return (
@@ -519,7 +538,7 @@ function ArtifactNav({ taskId }: { taskId: string }): JSX.Element {
                     Files
                 </Text>
                 <Text size="xs" variant="muted" render={<span />} className="tabular-nums">
-                    {files.length - objects.length}
+                    {files.length - objects.length - livingDocuments.length}
                 </Text>
             </div>
             <div
@@ -527,7 +546,7 @@ function ArtifactNav({ taskId }: { taskId: string }): JSX.Element {
                 aria-label="Files"
                 className="flex min-h-0 flex-1 flex-col gap-px overflow-y-auto p-1.5"
             >
-                {files.filter((file) => !postHogObjectRef(file.latest)).map(renderRow)}
+                {files.filter((file) => !postHogObjectRef(file.latest) && !file.latest.living).map(renderRow)}
                 {objects.length > 0 && (
                     <div role="group" aria-label="In PostHog" className="flex flex-col gap-px">
                         <Text
@@ -540,6 +559,20 @@ function ArtifactNav({ taskId }: { taskId: string }): JSX.Element {
                             In PostHog
                         </Text>
                         {objects.map(renderRow)}
+                    </div>
+                )}
+                {livingDocuments.length > 0 && (
+                    <div role="group" aria-label="Living documents" className="flex flex-col gap-px">
+                        <Text
+                            size="xs"
+                            weight="medium"
+                            variant="muted"
+                            render={<span aria-hidden />}
+                            className="px-2 pt-3 pb-1"
+                        >
+                            Living documents
+                        </Text>
+                        {livingDocuments.map(renderRow)}
                     </div>
                 )}
             </div>
@@ -567,7 +600,7 @@ function VersionSelect({ taskId, file }: { taskId: string; file: ArtifactFile })
             </SelectTrigger>
             <SelectContent>
                 {file.versions.map((version, index) => (
-                    <SelectItem key={version.id} value={version.id ?? ''}>
+                    <SelectItem key={version.id} value={version.id ?? ''} className="pe-7">
                         <span className="flex w-52 items-center gap-2">
                             <span>{`Version ${total - index}`}</span>
                             {index === 0 && <Badge variant="success">Latest</Badge>}
@@ -776,7 +809,8 @@ function ArtifactToolbar({
                     </IconAction>
                 </div>
                 <CopyLinkAction taskId={taskId} />
-                {kind !== 'reference' && (
+                {/* No endpoint serves a living document's bytes, so it has no download. */}
+                {kind !== 'reference' && !artifact.living && (
                     <IconAction
                         label={versioned ? 'Download this version' : 'Download'}
                         href={downloadUrl ?? undefined}
