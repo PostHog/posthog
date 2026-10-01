@@ -172,7 +172,14 @@ class NaturalLanguageQueryResult:
 
 def gather_filter_context(team: Team, date_range: DateRange) -> FilterContext:
     empty_group = PropertyGroupFilter(type=FilterLogicalOperator.AND_, values=[])
-    service_query = LogsQuery(dateRange=date_range, filterGroup=empty_group, severityLevels=[], serviceNames=[])
+    # One row past the cap tells a complete list from a cut-off one.
+    service_query = LogsQuery(
+        dateRange=date_range,
+        filterGroup=empty_group,
+        severityLevels=[],
+        serviceNames=[],
+        limit=MAX_SERVICES + 1,
+    )
     service_response = LogFacetValuesQueryRunner(
         team=team, query=service_query, facet_field="service_name", facet_search=None
     ).run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
@@ -192,7 +199,7 @@ def gather_filter_context(team: Team, date_range: DateRange) -> FilterContext:
     resource_keys, resource_count = attribute_keys("resource")
     return FilterContext(
         services=services[:MAX_SERVICES],
-        services_truncated=len(services) >= MAX_SERVICES,
+        services_truncated=len(services) > MAX_SERVICES,
         log_attribute_keys=tuple(log_keys),
         resource_attribute_keys=tuple(resource_keys),
         attribute_keys_truncated=log_count > len(log_keys) or resource_count > len(resource_keys),
@@ -251,7 +258,7 @@ def propose_candidates(
         raise NaturalLanguageQueryFailed("The proposal model did not return usable candidates") from error
 
 
-def _valid_date(value: str | None) -> bool:
+def is_valid_date(value: str | None) -> bool:
     if value is None:
         return True
     if _RELATIVE_DATE.match(value):
@@ -302,7 +309,7 @@ def _to_filter(proposed: _ProposedFilter, context: FilterContext) -> dict[str, A
 
 def validate_candidate(proposed: _ProposedCandidate, context: FilterContext) -> dict[str, Any] | None:
     """The viewer query for a proposed reading, or None when it names something the team lacks."""
-    if not _valid_date(proposed.date_from) or not _valid_date(proposed.date_to):
+    if not is_valid_date(proposed.date_from) or not is_valid_date(proposed.date_to):
         return None
 
     services: list[str] = []

@@ -13,6 +13,7 @@ from products.logs.backend.natural_language_query import (
     rank_candidates,
     validate_candidate,
 )
+from products.logs.backend.presentation.views.natural_language_api import LogsNaturalLanguageQueryRequestSerializer
 from products.ml_inference.backend.facade.contracts import ChoiceAnswer, DecisionGatewayError, DecisionResult
 
 CONTEXT = FilterContext(
@@ -131,3 +132,20 @@ class TestRankCandidates(SimpleTestCase):
 
         assert [c.label for c in ranked] == ["First proposed", "Second proposed"]
         assert (confidence, ranked_by) == (None, "proposal_order")
+
+
+class TestRequestSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("relative_range", {"date_from": "-2h", "date_to": None}, True),
+            ("iso_range", {"date_from": "2026-10-01T10:00:00Z", "date_to": "2026-10-01T12:00:00Z"}, True),
+            ("unreadable_start", {"date_from": "garbage"}, False),
+            ("unreadable_end", {"date_from": "-2h", "date_to": "yesterday-ish"}, False),
+        ]
+    )
+    def test_date_range_validation(self, _name: str, date_range: dict[str, Any], valid: bool) -> None:
+        serializer = LogsNaturalLanguageQueryRequestSerializer(
+            data={"query": "error logs from checkout", "dateRange": date_range}
+        )
+
+        assert serializer.is_valid() is valid

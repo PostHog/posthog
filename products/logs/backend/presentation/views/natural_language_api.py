@@ -18,6 +18,7 @@ from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from products.logs.backend.natural_language_query import (
     NaturalLanguageQueryFailed,
     NaturalLanguageQueryUnavailable,
+    is_valid_date,
     translate_natural_language_query,
 )
 
@@ -35,6 +36,20 @@ class _LogsNaturalLanguageDateRangeSerializer(serializers.Serializer):
         allow_null=True,
         help_text='End of the date range. Same format as date_from. Null means "now".',
     )
+
+    # The date parser turns an unreadable value into "now" without an error, which would silently
+    # scope the service and attribute lists to the wrong window.
+    @staticmethod
+    def _check_date(value: str | None) -> str | None:
+        if not is_valid_date(value):
+            raise serializers.ValidationError("Use an ISO 8601 timestamp or a relative date such as -1h or -7d.")
+        return value
+
+    def validate_date_from(self, value: str | None) -> str | None:
+        return self._check_date(value)
+
+    def validate_date_to(self, value: str | None) -> str | None:
+        return self._check_date(value)
 
 
 class LogsNaturalLanguageQueryRequestSerializer(serializers.Serializer):
