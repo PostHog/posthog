@@ -360,6 +360,32 @@ class TestPersonIdPushdown(ClickhouseTestMixin, APIBaseTest):
         end = sql.index(" AS events__person ON")
         assert "SAMPLE 1/2 OFFSET 1/2" in sql[sql.rindex("FROM events", 0, end) : end]
 
+    @parameterized.expand(
+        [
+            ("aliased_from", "FROM events AS e WHERE e.timestamp >= '2024-01-01'", True),
+            ("event_property_term", "FROM events WHERE properties.$host != 'localhost'", True),
+            ("rand_term", "FROM events WHERE (timestamp >= '2024-01-01' OR rand() = 0)", False),
+            (
+                "block_position_term",
+                "FROM events WHERE (timestamp >= '2024-01-01' OR rowNumberInAllBlocks() < 100)",
+                False,
+            ),
+        ]
+    )
+    def test_pushdown_copies_only_terms_that_evaluate_the_same_in_the_subquery(
+        self, _name: str, from_where: str, pushed: bool
+    ):
+        response = execute_hogql_query(
+            f"SELECT event {from_where} AND person.properties.plan = 'paid'",
+            self.team,
+            modifiers=HogQLQueryModifiers(
+                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED, personIdPushdown=True
+            ),
+        )
+
+        assert response.clickhouse is not None
+        assert ("SELECT DISTINCT" in " ".join(response.clickhouse.split())) == pushed
+
 
 class TestPersonsV2LimitPushDown(ClickhouseTestMixin, APIBaseTest):
     """Tests for the V2 argmax ORDER BY / LIMIT push-down into the inner subquery.

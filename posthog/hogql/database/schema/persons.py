@@ -268,6 +268,10 @@ def select_from_persons_table(
     return select
 
 
+# These return different values in the subquery and in the outer query.
+_NONDETERMINISTIC_FUNCTIONS = frozenset({"rand", "rownumberinblock", "rownumberinallblocks", "nowinblock"})
+
+
 class _CopyableConjunctVisitor(TraversingVisitor):
     def __init__(self, table_type: ast.Type):
         super().__init__()
@@ -282,19 +286,15 @@ class _CopyableConjunctVisitor(TraversingVisitor):
         else:
             self.copyable = False
 
-    # A subquery or a lambda does not resolve again inside a new FROM.
+    # A nested subquery already has its lazy joins expanded. A copy of it would also run a second time.
     def visit_select_query(self, node: ast.SelectQuery):
         self.copyable = False
 
     def visit_select_set_query(self, node: ast.SelectSetQuery):
         self.copyable = False
 
-    def visit_lambda(self, node: ast.Lambda):
-        self.copyable = False
-
     def visit_call(self, node: ast.Call):
-        # rand() returns different values in the subquery and in the outer query.
-        if node.name.lower() == "rand":
+        if node.name.lower() in _NONDETERMINISTIC_FUNCTIONS:
             self.copyable = False
         super().visit_call(node)
 
@@ -309,8 +309,11 @@ def build_person_id_pushdown_predicate(join_to_add: LazyJoinToAdd, node: SelectQ
     """Build `id IN (SELECT person_id FROM <left table> WHERE <conjuncts>)` for the joined persons subquery.
 
     The conjuncts are the top-level AND terms of the outer WHERE and PREWHERE that read only the left table.
+    A term must read at least one left-table column, because a constant term narrows nothing.
     Every row that the outer query keeps satisfies all of them. Its person stays in the set. The join returns the same
     rows. A term is copied whole or left out. Leaving a term out only widens the set.
+    The subquery reads the left table before the outer scan does. A row that arrives between the two reads can lack
+    its person columns.
     Returns None unless the left table is the query's own FROM table and at least one term qualifies.
     """
     left = node.select_from
