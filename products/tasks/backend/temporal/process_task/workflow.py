@@ -403,12 +403,6 @@ _ORIGIN_PRODUCT_SIGNAL_REPORT = "signal_report"
 # Two-step deprecate-then-delete cleanup lifecycle as above.
 _PATCH_ID_SLACK_AGENT_DESIGN_STATUS = "tasks-slack-agent-design-status"
 
-# Gates the relay child that starts before provisioning, so the plan shows during setup.
-_PATCH_ID_SLACK_AGENT_DESIGN_EARLY_PLAN = "tasks-slack-agent-design-early-plan-2026-09"
-
-# Gates the signals that show each sandbox setup step in the early Slack plan.
-_PATCH_ID_SLACK_AGENT_DESIGN_SETUP_STEPS = "tasks-slack-agent-design-setup-steps-2026-09"
-
 # Progress steps of sandbox setup. The Slack plan shows them until the first turn starts.
 _SLACK_SETUP_PROGRESS_STEPS = frozenset({"sandbox", "clone", "checkout", "wizard", "agent"})
 
@@ -1839,7 +1833,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         # Agent-design path owns this surface via per-turn relay children.
         if not self._is_agent_design_enabled:
             await self._post_slack_update()
-        elif self._slack_thread_context and workflow.patched(_PATCH_ID_SLACK_AGENT_DESIGN_EARLY_PLAN):
+        elif self._slack_thread_context:
             # The first turn's relay starts now, so the plan shows while the sandbox provisions.
             await self._start_slack_agent_design_relay(self._slack_thread_context, setup_title=sandbox_label)
             self._early_slack_relay_open = True
@@ -2821,8 +2815,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
     def _forward_slack_setup_step(self, step: str, status: str, label: str) -> None:
         """Show a sandbox setup step in the Slack plan, in the order the steps happen."""
-        if not workflow.patched(_PATCH_ID_SLACK_AGENT_DESIGN_SETUP_STEPS):
-            return
         payload = {"step": step, "status": status, "title": label}
         self._slack_setup_chain = asyncio.create_task(
             self._signal_slack_setup_step_in_order(self._slack_setup_chain, payload)

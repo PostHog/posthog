@@ -2595,12 +2595,6 @@ export class AgentServer {
       this.logger.debug("Failed to read agentsh runtime info", error),
     );
     this.logger.debug(`Initial permission mode: ${initialPermissionMode}`);
-    if (this.isSlackReplyContext()) {
-      // The checklist request rides on a backend flag, so the run log says which way it went.
-      this.logger.debug(
-        `Slack progress checklist: ${this.slackProgressChecklist ? "on" : "off"}`,
-      );
-    }
 
     // Lifecycle handshake: clients gate "agent is ready to accept user
     // messages" on this notification. Persisted to the session log so

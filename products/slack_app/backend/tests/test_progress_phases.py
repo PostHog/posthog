@@ -3,7 +3,7 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.tasks.backend.temporal.process_task.slack_progress_phases import (
+from products.slack_app.backend.logic.progress_phases import (
     agent_plan_steps,
     done_plan_title,
     intent_from_narrative,
@@ -114,7 +114,7 @@ class TestPhaseForToolCall:
                 _claude(
                     "mcp__posthog__exec", {"command": "call execute-sql {}", "description": "Count weekly signups"}
                 ),
-                "Count weekly signups",
+                None,
             ),
             # Another tool's description argument is content, such as a new dashboard's text.
             (

@@ -263,28 +263,10 @@ function classifyLearnError(error: unknown): unknown {
     return new ExecCommandError(error.message, reason)
 }
 
-// Slack-launched task runs show each call's description as a progress step.
-const DESCRIBED_CALLS_CONSUMER = 'slack'
-
-const EXEC_DESCRIPTION_REFERENCE =
-    'At most 8 plain words on what this call is for, such as "Count daily active users for last week". ' +
-    'The user sees it as a progress step while the call runs, so write it for someone who does not read code: ' +
-    'no SQL, IDs, or tool names.'
-
-type ExecInputShape = { command: z.ZodString }
-type DescribedExecInputShape = ExecInputShape & { description: z.ZodOptional<z.ZodString> }
-
-function makeExecSchema(
-    commandReference: string,
-    describeCalls: boolean
-): z.ZodObject<ExecInputShape> | z.ZodObject<DescribedExecInputShape> {
-    const schema = z.object({
+function makeExecSchema(commandReference: string): z.ZodObject<{ command: z.ZodString }> {
+    return z.object({
         command: z.string().describe(commandReference),
     })
-    // Only a client that shows progress asks for the description, so other clients do not pay its tokens.
-    return describeCalls
-        ? schema.extend({ description: z.string().optional().describe(EXEC_DESCRIPTION_REFERENCE) })
-        : schema
 }
 
 function parseCommand(input: string): { verb: string; rest: string } {
@@ -1658,7 +1640,7 @@ export function createExecTool(
     scopeGatedTools: ScopeGatedTool[] = [],
     options: ExecToolOptions = {}
 ): Tool<ExecSchema> {
-    const ExecSchema = makeExecSchema(commandReference, mcpConsumer === DESCRIBED_CALLS_CONSUMER)
+    const ExecSchema = makeExecSchema(commandReference)
     const flagGatedTools = options.flagGatedTools ?? []
 
     return {

@@ -127,7 +127,7 @@ class ToolCall:
     name: str
     kind: str | None
     command: str | None
-    # The plain-language description the agent gave a shell command or a PostHog call.
+    # The plain-language description the agent gave a shell command.
     description: str | None = None
     # The PostHog tool the call runs, or None for a call that is not a PostHog tool call.
     posthog_tool: str | None = None
@@ -306,12 +306,9 @@ def tool_call_from_acp_update(update: dict[str, Any]) -> ToolCall | None:
     needs_command = lowered in _SHELL_TOOL_NAMES or kind == "execute" or lowered.endswith(f"__{_POSTHOG_EXEC_TOOL}")
     if command is None and needs_command:
         return None
-    # Claude's shell tool and the PostHog exec tool take a description written for people. A
-    # description argument on other tools is content, such as the text of a new dashboard.
-    describes_call = lowered == "bash" or any(
-        lowered == f"{prefix}{_POSTHOG_EXEC_TOOL}" for prefix in _POSTHOG_MCP_PREFIXES
-    )
-    description = _short_activity(raw_input.get("description")) if describes_call else None
+    # Only Claude's shell tool takes a description written for people. A description argument on
+    # other tools is content, such as the text of a new dashboard.
+    description = _short_activity(raw_input.get("description")) if lowered == "bash" else None
     return ToolCall(
         name=name, kind=kind, command=command, description=description, posthog_tool=_posthog_tool(lowered, command)
     )

@@ -1,7 +1,7 @@
 """Per-turn child of ProcessTaskWorkflow that streams one Slack reply.
 
 The reply is a plan block and the final answer. The plan shows one line per kind of work (see
-``slack_progress_phases``), or the agent's todo list when it keeps one. Each line lists the
+``products.slack_app.backend.logic.progress_phases``), or the agent's todo list when it keeps one. Each line lists the
 descriptions of its calls. The agent's prose does not stream: the last burst before the turn
 ends is the answer. While the turn runs, one line always spins and the plan title says what
 happens now.
@@ -21,17 +21,7 @@ from temporalio.common import RetryPolicy
 from posthog.temporal.common.base import PostHogWorkflow
 
 with workflow.unsafe.imports_passed_through():
-    from .activities.slack_agent_design import (
-        AppendSlackAgentDesignStepsInput,
-        SlackAgentDesignStream,
-        StartSlackAgentDesignStreamInput,
-        StopSlackAgentDesignStreamInput,
-        TaskUpdateChunk,
-        append_slack_agent_design_steps,
-        start_slack_agent_design_stream,
-        stop_slack_agent_design_stream,
-    )
-    from .slack_progress_phases import (
+    from products.slack_app.backend.facade.api import (
         ANSWER_LINE_TITLE,
         OTHER_WORK,
         PLAN_TITLE_STOPPED,
@@ -44,6 +34,17 @@ with workflow.unsafe.imports_passed_through():
         intent_from_narrative,
         phase_for_key,
         phase_line_title,
+    )
+
+    from .activities.slack_agent_design import (
+        AppendSlackAgentDesignStepsInput,
+        SlackAgentDesignStream,
+        StartSlackAgentDesignStreamInput,
+        StopSlackAgentDesignStreamInput,
+        TaskUpdateChunk,
+        append_slack_agent_design_steps,
+        start_slack_agent_design_stream,
+        stop_slack_agent_design_stream,
     )
 
 
