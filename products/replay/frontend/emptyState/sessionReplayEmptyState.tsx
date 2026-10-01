@@ -31,7 +31,7 @@ export const sessionReplayEmptyState: SceneProductEmptyState = {
             },
             'waiting-for-data': {
                 headline: 'Recording is on. Waiting for the first session',
-                lead: 'New sessions start recording as users visit your site. The first replays usually show up here a few minutes after a visit.',
+                lead: 'New sessions start recording as users visit your site. A recording shows up a few minutes after its session ends. This page updates by itself, so you can leave it open.',
             },
         },
         // Recording is already on in `waiting-for-data`, so the opt-in only belongs on the setup screen.

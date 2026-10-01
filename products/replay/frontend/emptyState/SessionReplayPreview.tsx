@@ -1,5 +1,8 @@
 import './SessionReplayPreview.scss'
 
+import { Spinner } from '@posthog/lemon-ui'
+
+import type { ProductEmptyStateMode } from 'lib/components/ProductEmptyState/types'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
@@ -12,9 +15,13 @@ import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
  * only run while checked, per the preview rules in the
  * `building-product-empty-states` skill. Playing/paused pairs are stacked in
  * `__swap` grids, so nothing shifts.
+ *
+ * While waiting for the first recording, the list shows only a listening row. Fake rows
+ * next to "Recording is on" read as the project's own recordings.
  */
-export function SessionReplayPreview(): JSX.Element {
+export function SessionReplayPreview({ mode }: { mode: ProductEmptyStateMode }): JSX.Element {
     const isStatic = inStorybook() || inStorybookTestRunner()
+    const waiting = mode === 'waiting-for-data'
 
     return (
         <div className={cn('ReplayPreview', isStatic && 'ReplayPreview--static')}>
@@ -27,30 +34,41 @@ export function SessionReplayPreview(): JSX.Element {
                         <span className="ReplayPreview__rec-dot" aria-hidden="true" />
                         Recordings
                     </span>
-                    <LemonTag size="small">example data</LemonTag>
+                    {waiting ? null : <LemonTag size="small">example data</LemonTag>}
                 </div>
-                <div className="ReplayPreview__rows">
-                    <label htmlFor="replay-preview-play" className="ReplayPreview__row ReplayPreview__row--hero">
-                        <span className="ReplayPreview__person">Mia K.</span>
-                        <span className="ReplayPreview__meta">checkout flow · 12 clicks</span>
-                        <span className="ReplayPreview__duration ReplayPreview__swap">
-                            <span className="ReplayPreview__when-paused">4:12</span>
-                            <span className="ReplayPreview__now-playing ReplayPreview__when-playing">playing</span>
-                        </span>
-                    </label>
-                    <div className="ReplayPreview__row">
-                        <span className="ReplayPreview__person">Anonymous user</span>
-                        <span className="ReplayPreview__meta">pricing page · 3 clicks</span>
-                        <span className="ReplayPreview__duration">1:03</span>
+                {waiting ? (
+                    <div className="ReplayPreview__listening">
+                        <Spinner className="text-sm" />
+                        Listening for your first recording…
                     </div>
-                    <div className="ReplayPreview__row">
-                        <span className="ReplayPreview__person">Sam T.</span>
-                        <span className="ReplayPreview__meta">dashboard · 41 clicks</span>
-                        <span className="ReplayPreview__duration">12:40</span>
+                ) : (
+                    <div className="ReplayPreview__rows">
+                        <label htmlFor="replay-preview-play" className="ReplayPreview__row ReplayPreview__row--hero">
+                            <span className="ReplayPreview__person">Mia K.</span>
+                            <span className="ReplayPreview__meta">checkout flow · 12 clicks</span>
+                            <span className="ReplayPreview__duration ReplayPreview__swap">
+                                <span className="ReplayPreview__when-paused">4:12</span>
+                                <span className="ReplayPreview__now-playing ReplayPreview__when-playing">playing</span>
+                            </span>
+                        </label>
+                        <div className="ReplayPreview__row">
+                            <span className="ReplayPreview__person">Anonymous user</span>
+                            <span className="ReplayPreview__meta">pricing page · 3 clicks</span>
+                            <span className="ReplayPreview__duration">1:03</span>
+                        </div>
+                        <div className="ReplayPreview__row">
+                            <span className="ReplayPreview__person">Sam T.</span>
+                            <span className="ReplayPreview__meta">dashboard · 41 clicks</span>
+                            <span className="ReplayPreview__duration">12:40</span>
+                        </div>
                     </div>
-                </div>
+                )}
                 <div className="ReplayPreview__hint ReplayPreview__swap">
-                    <span className="ReplayPreview__when-paused">Click a recording to watch the session.</span>
+                    <span className="ReplayPreview__when-paused">
+                        {waiting
+                            ? 'Click the player to watch an example replay.'
+                            : 'Click a recording to watch the session.'}
+                    </span>
                     <span className="ReplayPreview__when-playing">
                         Every click, scroll, and console log, replayed. Click again to pause.
                     </span>
@@ -58,7 +76,8 @@ export function SessionReplayPreview(): JSX.Element {
             </div>
 
             <div className="ReplayPreview__player">
-                <div className="ReplayPreview__screen">
+                {/* A label too, so the pulsing play button is never a dead click. */}
+                <label htmlFor="replay-preview-play" className="ReplayPreview__screen">
                     {/* The recorded app: a wireframe page the cursor travels through while playing. */}
                     <div className="ReplayPreview__wire" aria-hidden="true">
                         <span className="ReplayPreview__wire-nav" />
@@ -70,7 +89,7 @@ export function SessionReplayPreview(): JSX.Element {
                     <div className="ReplayPreview__overlay ReplayPreview__when-paused" aria-hidden="true">
                         <span className="ReplayPreview__overlay-play">▶</span>
                     </div>
-                </div>
+                </label>
                 <div className="ReplayPreview__controls">
                     <span className="ReplayPreview__play-glyph ReplayPreview__swap" aria-hidden="true">
                         <span className="ReplayPreview__when-paused">▶</span>
