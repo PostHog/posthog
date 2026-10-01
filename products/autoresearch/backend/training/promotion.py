@@ -338,7 +338,7 @@ def _activate_pipeline(pipeline: AutoresearchPipeline) -> None:
 
 
 def _schedule_champion_fit(
-    *, pipeline: AutoresearchPipeline, prefix: str, training_run: AutoresearchTrainingRun
+    *, pipeline: AutoresearchPipeline, prefix: str, training_run: AutoresearchTrainingRun, model_id: str
 ) -> None:
     """The train run produces the serving artifact: fit the champion and persist model.pkl so
     predict runs are pure inference. Deferred to on_commit, because the sandbox and the
@@ -354,7 +354,9 @@ def _schedule_champion_fit(
         # committed, so raising here would report a failed completion for a finished run
         # that a retry can only answer with its no-op.
         try:
-            fit_champion_model(team=pipeline.team, pipeline=pipeline, prefix=prefix, anchor_ts=anchor_ts)
+            fit_champion_model(
+                team=pipeline.team, pipeline=pipeline, prefix=prefix, anchor_ts=anchor_ts, model_id=model_id
+            )
         except Exception:
             logger.exception("autoresearch_champion_fit_failed", training_run_id=training_run_id, prefix=prefix)
 
@@ -474,7 +476,9 @@ def _finalize_under_lock(
         # A rejected challenger is not fitted: inference reads the champion only, and no path
         # promotes a challenger row later, so its fit would cost a sandbox run for nothing.
         if artifact_prefix:
-            _schedule_champion_fit(pipeline=pipeline, prefix=artifact_prefix, training_run=training_run)
+            _schedule_champion_fit(
+                pipeline=pipeline, prefix=artifact_prefix, training_run=training_run, model_id=str(model.pk)
+            )
 
     return {
         "promoted": promoted,
