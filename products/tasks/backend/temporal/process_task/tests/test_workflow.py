@@ -2242,6 +2242,8 @@ class TestProcessTaskWorkflowUnit:
         )
         monkeypatch.setattr(workflow, "_relay_sandbox_events", relay_sandbox_events_mock)
         monkeypatch.setattr(workflow, "_relay_agent_design_signals", relay_agent_design_signals_mock)
+        start_slack_relay_mock = AsyncMock()
+        monkeypatch.setattr(workflow, "_start_slack_agent_design_relay", start_slack_relay_mock)
         monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
 
         result = await workflow.run(ProcessTaskInput(run_id="run-id", slack_thread_context={"channel": "C1"}))
@@ -2249,6 +2251,47 @@ class TestProcessTaskWorkflowUnit:
         assert result.success is True
         relay_sandbox_events_mock.assert_not_called()
         relay_agent_design_signals_mock.assert_called_once()
+        # The plan shows while the sandbox provisions, so the relay starts before the first turn.
+        start_slack_relay_mock.assert_awaited_once_with({"channel": "C1"}, setup_title="Setting up sandbox")
+
+    @pytest.mark.parametrize("early_relay_open, starts_relay", [(True, False), (False, True)])
+    async def test_turn_started_reuses_the_relay_started_during_provisioning(self, early_relay_open, starts_relay):
+        # A second relay for the first turn would post a second reply in the thread.
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+        workflow._is_agent_design_enabled = True
+        workflow._early_slack_relay_open = early_relay_open
+        start_relay_mock = AsyncMock()
+        workflow._start_slack_agent_design_relay = start_relay_mock  # type: ignore[method-assign]
+
+        await workflow.turn_started({"slack_thread_context": {"channel": "C1"}})
+
+        assert start_relay_mock.called is starts_relay
+        assert workflow._early_slack_relay_open is False
+
+    @pytest.mark.parametrize(
+        "relay_open, step, forwarded",
+        [
+            (True, "clone", True),
+            # Pull request and CI steps come after the agent starts, and its own lines cover them.
+            (True, "pr", False),
+            # A follow-up turn reuses the running sandbox, so no setup shows in its plan.
+            (False, "clone", False),
+        ],
+    )
+    async def test_emit_progress_shows_sandbox_setup_in_the_early_slack_plan(
+        self, monkeypatch, relay_open, step, forwarded
+    ):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+        workflow._early_slack_relay_open = relay_open
+        monkeypatch.setattr(workflow, "_run_progress_activity", AsyncMock(return_value=True))
+        forward_mock = Mock()
+        monkeypatch.setattr(workflow, "_forward_slack_setup_step", forward_mock)
+
+        await workflow._emit_progress(step, "in_progress", "Cloning repository", "setup")
+
+        assert forward_mock.called is forwarded
 
     @pytest.mark.parametrize(
         "origin_product, pr_progress_emitted, ci_repetitions, end_of_turn_received, expected_status",
