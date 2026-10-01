@@ -19,6 +19,7 @@ import {
 import type { ScoutSuggestionItemApi, ScoutSuggestionSetApi } from 'products/signals/frontend/generated/api.schemas'
 import { llmSkillsNameRetrieve } from 'products/skills/frontend/generated/api'
 
+import type { SignalScoutConfigApi } from '../../generated/api.schemas'
 import {
     captureScoutSuggestionClicked,
     captureScoutSuggestionCreated,
@@ -222,7 +223,7 @@ export interface scoutSuggestionsLogicActions {
         surface: ScoutSuggestionSurface,
         config: SignalScoutConfig
     ) => {
-        config: SignalScoutConfig
+        config: SignalScoutConfigApi
         item: ScoutSuggestionItemApi
         surface: ScoutSuggestionSurface
     }
@@ -234,7 +235,7 @@ export interface scoutSuggestionsLogicMeta {
         suggestions: (
             suggestionSet: ScoutSuggestionSetApi | null,
             hiddenSuggestionIds: string[],
-            scoutConfigs: import('products/signals/frontend/generated/api.schemas').SignalScoutConfigApi[] | null
+            scoutConfigs: SignalScoutConfigApi[] | null
         ) => ScoutSuggestionItemApi[]
         batchStatus: (suggestionSet: ScoutSuggestionSetApi | null) => string
         batchAgeHours: (suggestionSet: ScoutSuggestionSetApi | null) => number | null

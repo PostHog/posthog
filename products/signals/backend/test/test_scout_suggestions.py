@@ -197,7 +197,11 @@ class TestSuggestionPersistence(BaseTest):
         )
         first_id, custom_id = (record["id"] for record in row.items)
         self.assertIsNotNone(dismiss_suggestion(self.team.id, first_id, user_id=self.user.id))
-        self.assertIsNotNone(mark_suggestion_created(self.team.id, custom_id, config_id="cfg-1"))
+        self.assertIsNotNone(
+            mark_suggestion_created(
+                self.team.id, custom_id, kind="custom", config_id="cfg-1", skill_name="signals-scout-checkout-drop"
+            )
+        )
         row.refresh_from_db()
         self.assertEqual(visible_items(row), [])
 
