@@ -164,14 +164,17 @@ export const supportTicketCounterLogic = kea<supportTicketCounterLogicType>([
         // when the tab is hidden and resumes it when visible.
         loadUnreadCountSuccess: ({ unreadCount }) => {
             // The first load after mount or a team change only sets the baseline, so messages that already exist do not notify.
-            if (
-                cache.notificationBaseline !== undefined &&
-                unreadCount > cache.notificationBaseline &&
-                values.canShowNotifications
-            ) {
-                actions.showNotification()
+            // A failed load returns the previous value, which is 0 after a reset, so it must not become the baseline.
+            if (!values.errorCounter) {
+                if (
+                    cache.notificationBaseline !== undefined &&
+                    unreadCount > cache.notificationBaseline &&
+                    values.canShowNotifications
+                ) {
+                    actions.showNotification()
+                }
+                cache.notificationBaseline = unreadCount
             }
-            cache.notificationBaseline = unreadCount
             actions.schedulePoll()
         },
         resetCount: () => {

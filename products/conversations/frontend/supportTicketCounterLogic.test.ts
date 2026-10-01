@@ -77,5 +77,16 @@ describe('supportTicketCounterLogic', () => {
         await jest.advanceTimersByTimeAsync(1)
         expect(logic.values.unreadCount).toBe(7)
         expect(notificationTitles).toEqual(['New support message'])
+
+        teamLogic.actions.loadCurrentTeamSuccess({ ...team, conversations_enabled: false })
+        unreadCount.mockRejectedValue(new Error('network'))
+        teamLogic.actions.loadCurrentTeamSuccess(team)
+        await jest.advanceTimersByTimeAsync(1)
+        expect(logic.values.unreadCount).toBe(0)
+
+        unreadCount.mockResolvedValue({ count: 9 })
+        await jest.advanceTimersByTimeAsync(10_001)
+        expect(logic.values.unreadCount).toBe(9)
+        expect(notificationTitles).toEqual(['New support message'])
     })
 })
