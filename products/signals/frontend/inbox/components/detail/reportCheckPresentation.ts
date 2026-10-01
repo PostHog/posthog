@@ -95,8 +95,7 @@ function openCheckRow(check: SignalReportCheckApi): Pick<ReportCheckRowData, 'ta
         const start = check.soak_minutes
             ? `Starts ${soakLabel(check.soak_minutes)} after this report is resolved`
             : 'Starts when this report is resolved'
-        const timing = check.kind === 'metric_threshold' ? `${start} · Waits for a full query window` : start
-        return { tag: { label: 'Waiting', type: 'muted' }, detail: joinDetail([timing, lane && `${lane} runs it`]) }
+        return { tag: { label: 'Waiting', type: 'muted' }, detail: joinDetail([start, lane && `${lane} runs it`]) }
     }
 
     if (isRunning(check)) {
