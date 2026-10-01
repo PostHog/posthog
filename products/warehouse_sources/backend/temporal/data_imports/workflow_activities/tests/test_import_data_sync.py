@@ -97,9 +97,6 @@ def _temporal_control(*, attempt: int) -> RunControl:
     # The Temporal heartbeater needs a real activity to enter.
     return dataclasses.replace(control, heartbeat=no_heartbeat)
 
-    def run_on_shutdown(self, callback):
-        pass
-
 
 def _passthrough(fn):
     """Stand-in for database_sync_to_async_pool that just calls the wrapped fn."""
