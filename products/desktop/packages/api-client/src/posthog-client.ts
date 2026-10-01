@@ -41,6 +41,8 @@ import type {
   OrganizationMemberBasic,
   PriorityJudgmentArtefact,
   ProvisionedTaskChannels,
+  RankingModelResult,
+  RankingScoreArtefact,
   RepoSelectionArtefact,
   SafetyJudgmentArtefact,
   SandboxCustomImage,
@@ -77,6 +79,8 @@ import type {
   TaskSearchResultRun,
   TaskThreadMessage,
   UserBasic,
+  WorkClaimArtefact,
+  WorkReleaseArtefact,
 } from "@posthog/shared/domain-types";
 import { buildPosthogProjectHeaderRecord } from "@posthog/shared/posthog-property-headers";
 import {
@@ -1361,7 +1365,10 @@ type AnyArtefact =
   | LineReferenceArtefact
   | CommitArtefact
   | TaskRunArtefact
-  | NoteArtefact;
+  | NoteArtefact
+  | WorkClaimArtefact
+  | WorkReleaseArtefact
+  | RankingScoreArtefact;
 
 // Reasons valid on a dismissal artefact. Resolve reasons are included because the
 // backend stores resolve feedback on the same artefact type (a resolve writes a
@@ -1703,6 +1710,104 @@ function normalizeNoteArtefact(
   };
 }
 
+function normalizeWorkClaimArtefact(
+  value: Record<string, unknown>,
+): WorkClaimArtefact | null {
+  const id = optionalString(value.id);
+  if (!id || !isObjectRecord(value.content)) return null;
+  return {
+    id,
+    type: "work_claim",
+    ...artefactBase(value),
+    content: { display_name: optionalString(value.content.display_name) },
+  };
+}
+
+function normalizeWorkReleaseArtefact(
+  value: Record<string, unknown>,
+): WorkReleaseArtefact | null {
+  const id = optionalString(value.id);
+  if (!id || !isObjectRecord(value.content)) return null;
+  const reason = value.content.reason;
+  if (reason !== "released" && reason !== "taken_over") return null;
+  return {
+    id,
+    type: "work_release",
+    ...artefactBase(value),
+    content: { reason },
+  };
+}
+
+function normalizeRankingModelResult(
+  key: string,
+  value: unknown,
+): RankingModelResult | null {
+  if (!isObjectRecord(value)) return null;
+  const status = value.status;
+  if (status !== "scored" && status !== "skipped") return null;
+  // Mirrors `readable_head_names` in `ranking/model_contract.py`.
+  const metadataHeads =
+    isObjectRecord(value.metadata) && Array.isArray(value.metadata.heads)
+      ? value.metadata.heads
+      : [];
+  const readable = new Set(
+    metadataHeads
+      .filter((entry) => isObjectRecord(entry) && entry.readable === true)
+      .map((entry) => String((entry as Record<string, unknown>).head)),
+  );
+  const scores = isObjectRecord(value.scores) ? value.scores : {};
+  const heads = Object.entries(scores)
+    .filter(
+      (entry): entry is [string, number] =>
+        typeof entry[1] === "number" && Number.isFinite(entry[1]),
+    )
+    .map(([name, probability]) => ({
+      name,
+      probability,
+      readable: readable.has(name),
+    }))
+    .sort((a, b) => b.probability - a.probability);
+  return {
+    key,
+    roles: Array.isArray(value.roles)
+      ? value.roles.filter((role): role is string => typeof role === "string")
+      : [],
+    status,
+    skip_reason: optionalString(value.skip_reason),
+    heads,
+  };
+}
+
+/** Null when the content does not parse or `served_key` is missing from `results`. */
+function normalizeRankingScoreArtefact(
+  value: Record<string, unknown>,
+): RankingScoreArtefact | null {
+  const id = optionalString(value.id);
+  if (!id || !isObjectRecord(value.content)) return null;
+  const c = value.content;
+  const servedKey = optionalString(c.served_key);
+  if (!servedKey || !isObjectRecord(c.results)) return null;
+  const models = Object.entries(c.results).map(([key, result]) =>
+    normalizeRankingModelResult(key, result),
+  );
+  const served = models.find((model) => model?.key === servedKey);
+  if (!served) return null;
+  return {
+    id,
+    type: "ranking_score",
+    ...artefactBase(value),
+    content: {
+      scored_at: optionalString(c.scored_at),
+      manifest_version: optionalString(c.manifest_version),
+      served,
+      challengers: models.filter(
+        (model): model is RankingModelResult =>
+          !!model && model.key !== servedKey,
+      ),
+    },
+  };
+}
+
 /** Best human-readable one-liner from arbitrary artefact content. */
 function contentPreview(content: unknown): string {
   if (typeof content === "string") return content;
@@ -1802,6 +1907,21 @@ function normalizeSignalReportArtefact(value: unknown): AnyArtefact | null {
   }
   if (dispatchType === "note") {
     return normalizeNoteArtefact(value) ?? normalizeFallbackArtefact(value);
+  }
+  if (dispatchType === "work_claim") {
+    return (
+      normalizeWorkClaimArtefact(value) ?? normalizeFallbackArtefact(value)
+    );
+  }
+  if (dispatchType === "work_release") {
+    return (
+      normalizeWorkReleaseArtefact(value) ?? normalizeFallbackArtefact(value)
+    );
+  }
+  if (dispatchType === "ranking_score") {
+    return (
+      normalizeRankingScoreArtefact(value) ?? normalizeFallbackArtefact(value)
+    );
   }
 
   const id = optionalString(value.id);

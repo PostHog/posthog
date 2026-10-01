@@ -6,7 +6,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.db import connection
+from django.db import IntegrityError, connection, transaction
 from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
@@ -241,6 +241,35 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
             format="json",
         )
         self.assertEqual(resp.status_code, 400)
+
+    def test_unique_name_clash_at_the_database_is_a_name_error(self) -> None:
+        self._create_scanner(name="dup")
+        with self.assertRaises(IntegrityError) as clash, transaction.atomic():
+            self._create_scanner(name="dup")
+
+        with self.assertRaises(DRFValidationError) as raised:
+            ReplayScannerSerializer._reraise_unique_name_violation(clash.exception)
+        self.assertIn("name", cast(dict, raised.exception.detail))
+
+    def test_goal_is_kept_on_create_and_ignored_on_update(self) -> None:
+        resp = self.client.post(
+            self.scanners_url,
+            data={
+                "name": "with-goal",
+                "goal": "find where people give up in billing",
+                "scanner_type": ScannerType.MONITOR,
+                "scanner_config": {"prompt": "p"},
+                "model": ScannerModel.GEMINI_3_8_FLASH,
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 201, resp.json())
+        scanner_id = resp.json()["id"]
+
+        patch_resp = self.client.patch(f"{self.scanners_url}{scanner_id}/", data={"goal": "rewritten"}, format="json")
+
+        self.assertEqual(patch_resp.status_code, 200, patch_resp.json())
+        self.assertEqual(ReplayScanner.objects.get(id=scanner_id).goal, "find where people give up in billing")
 
     def test_list_returns_only_team_scanners(self) -> None:
         self._create_scanner(name="ours")
@@ -1238,6 +1267,7 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
         self.assertEqual(properties["sampling_rate"], 0.25)
         self.assertTrue(properties["has_filters"])
         self.assertFalse(properties["has_experiment_targeting"])
+        self.assertFalse(properties["uses_template_prompt"])
         self.assertTrue(properties["enabled"])
         self.assertEqual(properties["organization_id"], str(self.team.organization_id))
         # Session auth resolves to "web" (the app UI), MCP callers to "mcp".

@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 from unittest import mock
 
-from products.engineering_analytics.backend.facade.contracts import RepoRef, WorkflowRunDetail
+from products.engineering_analytics.backend.facade.contracts import CIEngine, RepoRef, WorkflowRunDetail
 from products.engineering_analytics.backend.logic.queries import ci_failure_logs as module
 
 
@@ -10,6 +10,7 @@ def _run(run_id: int) -> WorkflowRunDetail:
     return WorkflowRunDetail(
         repo=RepoRef(provider="github", owner="o", name="r"),
         id=run_id,
+        ci_engine=CIEngine.GITHUB_ACTIONS,
         workflow_name="CI",
         head_sha="sha",
         head_branch="main",
@@ -29,7 +30,7 @@ def _run(run_id: int) -> WorkflowRunDetail:
 # (run_id, job_id, conclusion, branch, orig_total, orig_line, body)
 def _query(rows, runs):
     curated = mock.Mock()
-    curated.run.return_value = SimpleNamespace(results=rows)
+    curated.run.return_value = SimpleNamespace(results=[(*row, "") if len(row) == 7 else row for row in rows])
     with mock.patch.object(module, "query_pr_runs", return_value=runs):
         return module.query_ci_failure_logs(curated=curated, pr_number=5, repo_owner="o", repo_name="r"), curated
 
@@ -66,6 +67,18 @@ def test_no_attributed_runs_short_circuits_without_querying_logs():
     result, curated = _query(rows=[], runs=[])
     assert (result.runs_attributed, result.logs_available, result.jobs) == (0, False, [])
     curated.run.assert_not_called()
+
+
+def test_colliding_engine_job_ids_keep_failure_lines_separate():
+    rows = [
+        ("100", "9", "failure", "main", "20", "1", "Depot failure", "depot_ci"),
+        ("100", "9", "failure", "main", "30", "2", "GitHub failure", "github_actions"),
+    ]
+    result, _ = _query(rows, [_run(100)])
+    assert [(job.ci_engine, [line.text for line in job.lines]) for job in result.jobs] == [
+        (CIEngine.DEPOT_CI, ["Depot failure"]),
+        (CIEngine.GITHUB_ACTIONS, ["GitHub failure"]),
+    ]
 
 
 def test_per_job_lines_are_capped(monkeypatch):

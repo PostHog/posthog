@@ -324,6 +324,11 @@ class AutoresearchTrainingRun(PipelineScopedModel):
             min_value_constraint("iteration_count", 0, "autoresearch_training_run_iteration_count_nonnegative"),
         ]
 
+    @property
+    def anchor_ts(self) -> int:
+        """The instant this run labels against, so its materializations and its completion fit share one anchor set."""
+        return int((self.started_at or self.created_at).timestamp())
+
 
 class AutoresearchIteration(PipelineScopedModel):
     """One recipe attempt within a training run."""

@@ -29,6 +29,7 @@ import {
     taskChannelsRetrieve,
     taskChannelsStarCreate,
     tasksList,
+    tasksPullRequestTitlesCreate,
 } from '../generated/api'
 import { ChannelDTOApi, PatchedChannelUpdateApi, TaskListItemApi, TaskUserBasicInfoApi } from '../generated/api.schemas'
 import {
@@ -41,7 +42,7 @@ import {
     spaceFeedSections,
 } from './spaceFeedEntries'
 import { spaceFeedViewLogic } from './spaceFeedViewLogic'
-import { sessionIdsWithPullRequests } from './taskPullRequests'
+import { sessionIdsWithPullRequests, spacePullRequests } from './taskPullRequests'
 
 const SPACE_FEED_LIMIT = 50
 
@@ -100,6 +101,7 @@ export interface spaceSceneLogicValues {
     pinnedItems: TodayWorkItem[] // todaySpacesLogic
     unreadSessionIds: Set<string> // todaySpacesLogic
     user: UserType | null // userLogic
+    accessConfirmOpen: boolean
     activeTab: SpaceTab
     autoArchiveCustomDays: number | null
     autoArchiveCustomError: string | null
@@ -125,9 +127,12 @@ export interface spaceSceneLogicValues {
     filteredFeedItems: TodayWorkItem[]
     members: TaskUserBasicInfoApi[]
     membersLoading: boolean
+    membersUnavailable: boolean
     nameDraft: string | null
     nameError: string | null
     pendingName: string | null
+    pullRequestTitles: Record<string, string>
+    pullRequestTitlesLoading: boolean
     renameDisabledReason: string | null
     savingSpace: boolean
     sessions: TaskListItemApi[]
@@ -203,6 +208,21 @@ export interface spaceSceneLogicActions {
         members: TaskUserBasicInfoApi[]
         payload?: any
     }
+    loadPullRequestTitles: () => any
+    loadPullRequestTitlesFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadPullRequestTitlesSuccess: (
+        pullRequestTitles: Record<string, string>,
+        payload?: any
+    ) => {
+        pullRequestTitles: Record<string, string>
+        payload?: any
+    }
     loadSessions: () => any
     loadSessionsFailure: (
         error: string,
@@ -241,6 +261,9 @@ export interface spaceSceneLogicActions {
     }
     sessionStarted: (sessionId: string) => {
         sessionId: string
+    }
+    setAccessConfirmOpen: (open: boolean) => {
+        open: boolean
     }
     setAutoArchiveCustomDays: (days: number | null) => {
         days: number | null
@@ -382,6 +405,7 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
         setNameDraft: (name: string | null) => ({ name }),
         commitName: true,
         ensureCanvases: true,
+        setAccessConfirmOpen: (open: boolean) => ({ open }),
     }),
     loaders(({ props, values }) => ({
         space: [
@@ -419,6 +443,31 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
                 },
             },
         ],
+        pullRequestTitles: [
+            {} as Record<string, string>,
+            {
+                loadPullRequestTitles: async () => {
+                    const sessionIds = [
+                        ...new Set(
+                            spacePullRequests(values.feedItems)
+                                .filter(({ pullRequest }) => !(pullRequest.url in values.pullRequestTitles))
+                                .map(({ session }) => session.id)
+                        ),
+                    ]
+                    if (!values.types.includes('pr') || !sessionIds.length || !values.currentTeamId) {
+                        return values.pullRequestTitles
+                    }
+                    try {
+                        const { titles } = await tasksPullRequestTitlesCreate(String(values.currentTeamId), {
+                            ids: sessionIds,
+                        })
+                        return { ...values.pullRequestTitles, ...titles }
+                    } catch {
+                        return values.pullRequestTitles
+                    }
+                },
+            },
+        ],
         // `null` until the first load, which waits until the Canvases type shows.
         canvases: [
             null as CanvasApi[] | null,
@@ -437,9 +486,11 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
         ],
     })),
     reducers({
+        accessConfirmOpen: [false, { setAccessConfirmOpen: (_, { open }) => open, spaceSaved: () => false }],
         sessionsUnavailable: [false, { loadSessions: () => false, loadSessionsFailure: () => true }],
         sessionsLoaded: [false, { loadSessionsSuccess: () => true }],
         canvasesUnavailable: [false, { loadCanvases: () => false, loadCanvasesFailure: () => true }],
+        membersUnavailable: [false, { loadMembers: () => false, loadMembersFailure: () => true }],
         spaceUnavailable: [false, { loadSpace: () => false, loadSpaceFailure: () => true }],
         spaceMissing: [
             false,
@@ -683,12 +734,14 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
         },
         loadSessionsSuccess: ({ sessions }) => {
             actions.loadPullRequestStates(sessionIdsWithPullRequests(sessions))
+            actions.loadPullRequestTitles()
         },
         sessionUpdated: () => {
             actions.loadSessions()
         },
         setTypes: () => {
             actions.ensureCanvases()
+            actions.loadPullRequestTitles()
         },
         // A failed load leaves `null`, so showing the type again retries it.
         ensureCanvases: () => {

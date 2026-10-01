@@ -142,7 +142,7 @@ export const EngineeringAnalyticsPrLifecycleQueryParams = () => zod.object({
 })
 
 /**
- * Open pull requests plus any merged or closed since date_from (default -30d), newest first, each with its head-SHA CI rollup. The list is capped; when more match, `truncated` is true and the ci_cards counts can exceed it. open_to_merge_seconds is coarse: it fuses draft and ready-for-review time; CI counts can lag until late completions settle.
+ * Open pull requests plus any merged or closed since date_from (default -30d), newest first, each with its head-SHA CI rollup. The list is capped; when more match, `truncated` is true and the ci_cards counts can exceed it. open_to_merge_seconds is coarse: it fuses draft and ready-for-review time; CI counts can lag until late completions settle. Cost and billable minutes can lag new CI by up to 5 minutes.
  */
 export const EngineeringAnalyticsPullRequestsParams = () => zod.object({
     project_id: zod
@@ -181,6 +181,10 @@ export const EngineeringAnalyticsRunFailureLogsParams = () => zod.object({
 })
 
 export const EngineeringAnalyticsRunFailureLogsQueryParams = () => zod.object({
+    ci_engine: zod
+        .enum(['depot_ci', 'github_actions'])
+        .optional()
+        .describe('CI engine. Required when run_id exists in both engines.'),
     repo: zod
         .string()
         .optional()
@@ -305,6 +309,10 @@ export const EngineeringAnalyticsWorkflowJobsParams = () => zod.object({
 })
 
 export const EngineeringAnalyticsWorkflowJobsQueryParams = () => zod.object({
+    ci_engine: zod
+        .enum(['depot_ci', 'github_actions'])
+        .optional()
+        .describe('CI engine. Required when run_id exists in both engines.'),
     repo: zod
         .string()
         .optional()

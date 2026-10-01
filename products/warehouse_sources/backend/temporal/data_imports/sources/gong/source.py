@@ -59,6 +59,11 @@ To also sync the `calls_extensive` table (call participants and CRM associations
 
 To also sync the `transcripts` table (what was said on each call), additionally grant:
 - `api:calls:read:transcript`
+
+To also sync these tables, additionally grant the scope listed next to each:
+- `trackers` (keyword tracker definitions): `api:settings:trackers:read`
+- `answered_scorecards` (scorecard reviews of calls): `api:stats:scorecards`
+- `interaction_stats` (daily talk ratio, patience, and other conversation metrics per user): `api:stats:interaction`
 """,
             iconPath="/static/services/gong.png",
             docsUrl="https://posthog.com/docs/cdp/sources/gong",
