@@ -1,6 +1,7 @@
 """Unit tests for logic/approvals.py — Approving snapshots and finalizing a run."""
 
 import pytest
+from unittest.mock import MagicMock
 
 from django.db import transaction
 
@@ -13,6 +14,7 @@ from products.visual_review.backend.logic import (
     baselines,
     ci_status,
     errors,
+    github_api,
     repos,
     run_queries,
     runs,
@@ -20,6 +22,12 @@ from products.visual_review.backend.logic import (
 )
 from products.visual_review.backend.models import QuarantinedIdentifier
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
+
+
+def _fake_github_job_api(method, repo, path, **kwargs):
+    if method == "GET":
+        return MagicMock(status_code=200, json=lambda: {"head_sha": "abc", "run_id": 777})
+    return MagicMock(status_code=201)
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -202,7 +210,7 @@ class TestApproveRun:
             )
         commit = mocker.patch.object(baselines, "_commit_baseline_to_github")
         mocker.patch.object(ci_status, "_post_commit_status")
-        rerun = mocker.patch.object(ci_status, "_rerun_github_job", return_value=(True, None))
+        github = mocker.patch.object(github_api, "_github_api_request", side_effect=_fake_github_job_api)
         mocker.patch.object(transaction, "on_commit", side_effect=lambda fn, *args, **kwargs: fn())
         mocker.patch("products.visual_review.backend.tasks.tasks.post_approval_comment.delay")
 
@@ -211,10 +219,10 @@ class TestApproveRun:
         assert updated.approved is True
         if expect_committed:
             assert commit.call_args.args[2] == [{"identifier": "Q", "new_hash": "hq"}]
-            assert rerun.called is False
         else:
             assert commit.called is False
-            assert rerun.call_args.args[1] == "42"
+        reruns = [c.args[2] for c in github.call_args_list if c.args[0] == "POST"]
+        assert reruns == ([] if expect_committed else ["actions/jobs/42/rerun"])
 
     def _completed_quarantined_run(self, repo, mocker, result):
         artifact_store.get_or_create_artifact(repo_id=repo.id, content_hash="hq", storage_path="p/q")
@@ -228,7 +236,7 @@ class TestApproveRun:
                 pr_number=7,
                 snapshots=[SnapshotManifestItem(identifier="Q", content_hash="hq")],
                 baseline_hashes=baseline,
-                metadata={"github_check_run_id": "42"},
+                metadata={"github_check_run_id": "42", "github_run_id": "777"},
             ),
             team_id=repo.team_id,
         )

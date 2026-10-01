@@ -7,10 +7,25 @@ from uuid import UUID
 from django.db import transaction
 from django.utils import timezone
 
+import structlog
+
 from ..db import WRITER_DB
 from ..facade.enums import ReviewDecision, ReviewState, RunPurpose, RunStatus, SnapshotResult
 from ..models import Run
 from . import artifact_store, baselines, ci_status, errors, gating, run_queries
+
+logger = structlog.get_logger(__name__)
+
+
+def _rerun_completing_job(run: Run, check_run_id: str) -> None:
+    """Re-run the CI job that completed a finalized run, and log a failure.
+
+    Recompute refuses a finalized run, so after a failure GitHub's "Re-run failed jobs"
+    is the way to clear the required check.
+    """
+    triggered, error = ci_status._rerun_github_job(run, check_run_id)
+    if not triggered:
+        logger.warning("visual_review.finalize_ci_rerun_failed", run_id=str(run.id), error=error)
 
 
 @transaction.atomic(using=WRITER_DB)
@@ -125,7 +140,7 @@ def finalize_run(
     # keeps the red verdict it read before the review, so it has to read it again.
     check_run_id = (run.metadata or {}).get("github_check_run_id")
     if commit_to_github and not committed and run.pr_number and check_run_id:
-        transaction.on_commit(lambda: ci_status._rerun_github_job(run, str(check_run_id)), using=WRITER_DB)
+        transaction.on_commit(lambda: _rerun_completing_job(run, str(check_run_id)), using=WRITER_DB)
 
     if commit_to_github and review_decision == ReviewDecision.HUMAN_APPROVED:
         from ..tasks.tasks import post_approval_comment
