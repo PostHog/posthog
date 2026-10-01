@@ -1522,27 +1522,27 @@ class TestStartupFailureDiagnostics:
         "probe_stdout, expected, unexpected",
         [
             (
-                "api.anthropic.com http_code=200 curl_exit=0\nmcp-eu.posthog.com http_code=000 curl_exit=7",
+                "api.anthropic.com http_code=200 curl_exit=0\nmcp.eu.posthog.com http_code=000 curl_exit=7",
                 "egress blocked",
                 "timed out",
             ),
             (
-                "api.anthropic.com http_code=200\nmcp-eu.posthog.com http_code=000\nFAILED",
+                "api.anthropic.com http_code=200\nmcp.eu.posthog.com http_code=000\nFAILED",
                 "egress blocked",
                 "timed out",
             ),
             (
-                "api.anthropic.com http_code=000 curl_exit=28\nmcp-eu.posthog.com http_code=000 curl_exit=28",
+                "api.anthropic.com http_code=000 curl_exit=28\nmcp.eu.posthog.com http_code=000 curl_exit=28",
                 "timed out",
                 "egress blocked",
             ),
             (
-                "api.anthropic.com http_code=000 curl_exit=28\nmcp-eu.posthog.com http_code=000 curl_exit=7",
+                "api.anthropic.com http_code=000 curl_exit=28\nmcp.eu.posthog.com http_code=000 curl_exit=7",
                 "egress blocked",
                 "timed out",
             ),
             (
-                "api.anthropic.com http_code=200 curl_exit=0\nmcp-eu.posthog.com  curl_exit=127",
+                "api.anthropic.com http_code=200 curl_exit=0\nmcp.eu.posthog.com  curl_exit=127",
                 "did not run",
                 "no egress block detected",
             ),
@@ -1555,7 +1555,7 @@ class TestStartupFailureDiagnostics:
             "curl_never_ran",
         ],
     )
-    @override_settings(SITE_URL="https://eu.posthog.com", SANDBOX_MCP_URL=None)
+    @override_settings(MCP_SERVER_URL="https://mcp.eu.posthog.com/mcp", SANDBOX_MCP_URL=None)
     def test_reports_blocked_egress_host(self, probe_stdout: str, expected: str, unexpected: str):
         sandbox = self._sandbox()
 
@@ -1575,7 +1575,7 @@ class TestStartupFailureDiagnostics:
         assert diagnostics["sandbox_terminated"] == "false"
         assert expected in diagnostics["failure_reason"]
         assert unexpected not in diagnostics["failure_reason"]
-        assert "mcp-eu.posthog.com" in diagnostics["failure_reason"]
+        assert "mcp.eu.posthog.com" in diagnostics["failure_reason"]
 
     def test_transfer_error_after_a_response_is_not_an_egress_failure(self):
         assert _egress_failure_reason("api.anthropic.com http_code=200 curl_exit=56") is None
@@ -2645,22 +2645,21 @@ class TestModalSandboxCreateSnapshot:
 
 class TestSessionInitProbeHosts:
     @pytest.mark.parametrize(
-        ("site_url", "mcp_url", "expected_host", "unused_host"),
+        ("mcp_server_url", "mcp_url", "expected_host", "unused_host"),
         [
-            ("https://us.posthog.com", None, "mcp.posthog.com", "mcp-eu.posthog.com"),
-            ("https://eu.posthog.com", None, "mcp-eu.posthog.com", "mcp.posthog.com"),
+            ("https://mcp.eu.posthog.com/mcp", None, "mcp.eu.posthog.com", "custom-mcp.example.com"),
             (
-                "https://us.posthog.com",
+                "https://mcp.eu.posthog.com/mcp",
                 "https://custom-mcp.example.com/mcp",
                 "custom-mcp.example.com",
-                "mcp.posthog.com",
+                "mcp.eu.posthog.com",
             ),
         ],
     )
     def test_includes_only_resolved_mcp_host(
-        self, site_url: str, mcp_url: str | None, expected_host: str, unused_host: str
+        self, mcp_server_url: str, mcp_url: str | None, expected_host: str, unused_host: str
     ):
-        with override_settings(SITE_URL=site_url, SANDBOX_MCP_URL=mcp_url):
+        with override_settings(MCP_SERVER_URL=mcp_server_url, SANDBOX_MCP_URL=mcp_url):
             hosts = _session_init_probe_hosts()
 
         assert expected_host in hosts

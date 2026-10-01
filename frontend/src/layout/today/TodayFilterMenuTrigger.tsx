@@ -1,5 +1,5 @@
 import { IconFilter } from '@posthog/icons'
-import { Button, Dot, DropdownMenuTrigger, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
+import { Button, DropdownMenuTrigger, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
 
 /** The funnel button that opens a list's filter menu. A dot says a filter narrows the list. */
 export function TodayFilterMenuTrigger({ active, dataAttr }: { active: boolean; dataAttr: string }): JSX.Element {
@@ -25,7 +25,7 @@ export function TodayFilterMenuTrigger({ active, dataAttr }: { active: boolean; 
                 }
             >
                 <IconFilter />
-                {active && <Dot aria-hidden className="absolute top-0 right-0" />}
+                {active && <span aria-hidden className="absolute top-0 right-0 size-1.5 rounded-full bg-primary" />}
             </TooltipTrigger>
             <TooltipContent>{label}</TooltipContent>
         </Tooltip>

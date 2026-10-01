@@ -51,7 +51,7 @@ from ..facade.contracts import (
     UploadTarget,
     UserBasicInfo,
 )
-from ..facade.enums import FlakinessState, ShiftBandKind
+from ..facade.enums import FlakinessState, RunPurpose, ShiftBandKind
 
 # --- Output Serializers ---
 
@@ -143,6 +143,14 @@ class SnapshotSerializer(DataclassSerializer):
 
 class RunSerializer(DataclassSerializer):
     approved_by = UserBasicInfoSerializer(allow_null=True, required=False)
+    purpose = serializers.ChoiceField(
+        choices=[p.value for p in RunPurpose],
+        read_only=True,
+        help_text=(
+            "Why CI submitted the run. `review` runs gate the PR and need approval. `observe` runs are "
+            "tracking-only, for example default-branch pushes and merge-queue runs, and can never be approved."
+        ),
+    )
     search_match_type = serializers.ChoiceField(
         choices=["exact", "similar"],
         allow_null=True,
