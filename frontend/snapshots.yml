@@ -2896,6 +2896,26 @@ snapshots:
         hash: v1.k794b7964.7cb2348662f942bc00e904aca1cf74990ac3b8e25549be308b29e907c156d0eb.WQ5R8L0lbbFdH9oG3RShU2S1nHfj_SHpnz9PrjLAx6A
     errortracking-volumesparkline--events-before-data-range--light:
         hash: v1.k794b7964.c88c4e3b028915efba3fdbbac7107a063662d8210dfb6ba8667e96d719fa3d4f.tzwEQFa4F1f1O9PGqBkcaqSavbFVgAwPAjyh9Uf9NL8
+    experiments-howtoreadtooltip--intervals-bayesian--dark:
+        hash: v1.k794b7964.a06d267cee9cb54bafc732335b35d461d3c1a59250c6daa8becace0fcb8492d2.vR5tecOozn6B51xE8LrByAFVsi03J4w-iUu-j2hQUTU
+    experiments-howtoreadtooltip--intervals-bayesian--light:
+        hash: v1.k794b7964.67f8e6169d6f04559f3c8efb3ca516f016232a921ff9a2eda3a852f14694ec91.GWksJumrqD-b3xQ_rZf2McGG74JQzRNPJh6Hg2maoN8
+    experiments-howtoreadtooltip--intervals-frequentist--dark:
+        hash: v1.k794b7964.45e418047b3bfef9d9c883f8869e79d54db79aec905f795cb73cb1df3e782b4d.es7CGfi3IYq7FR2jksPvs4ZwRfFAEYDnmW0eUJOj9XE
+    experiments-howtoreadtooltip--intervals-frequentist--light:
+        hash: v1.k794b7964.6b960964c45594a39ce511a2b0df7f92f9c5cb88cb8e8c546b1da595c58b32cf.g8ab6KGU2K_coyrxU8OWVfOiTFWtiAUAYO5nGpXu8Gc
+    experiments-howtoreadtooltip--significance--dark:
+        hash: v1.k794b7964.9631ad1c251ce66e1c73406eb3a1abb32d4b6e1720f3a6f26a201dd2c81de239.MmFmhRzkQKwaOEwUKkrOLyl-U23RYJFGKAGohojKT3M
+    experiments-howtoreadtooltip--significance--light:
+        hash: v1.k794b7964.2ee60cd67ad15086f67f28b3504dbfa1530b9d9a485b5a54a77180b7baabba6d.IGe2yov7iGtRbrwzbBOxrrPS2oQ7OFHAjA0gaAVav24
+    experiments-howtoreadtooltip--tooltip-bayesian--dark:
+        hash: v1.k794b7964.030c95e50318c77d8010cb0a0fa7829cfba90270045068a0db974e232504f9ad.AG9LsrbB1y1IfTfCTuxh3csNlAmUFRyoEyXgZ4DCvx0
+    experiments-howtoreadtooltip--tooltip-bayesian--light:
+        hash: v1.k794b7964.06d76f5dd20d9afc251e95a391666454d01199bf6a587ed1443c19540bd92f57.xcgxyLD_7JGIED0p5gslUholiddo9Ryo5zsmrcpwYeY
+    experiments-howtoreadtooltip--tooltip-frequentist--dark:
+        hash: v1.k794b7964.030c95e50318c77d8010cb0a0fa7829cfba90270045068a0db974e232504f9ad.iP86lD1msdXZjVXPQ1hzjV9tizv3xhQfntQDguO8GLg
+    experiments-howtoreadtooltip--tooltip-frequentist--light:
+        hash: v1.k794b7964.06d76f5dd20d9afc251e95a391666454d01199bf6a587ed1443c19540bd92f57.qvlIJTJCzqS5DL7nVn55PYJujlSmxLxgPDYwA8a5wWo
     experiments-varianttimeseriestooltip--pending-day--dark:
         hash: v1.k794b7964.f97da973c97eab91ecdcbecedb9a1065107791def08411296c66f656cf021914.QvKHBwki9F0yI62j134QSU7jkV2sUlHq6SHddrzmRNo
     experiments-varianttimeseriestooltip--pending-day--light:
