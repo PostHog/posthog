@@ -7059,13 +7059,17 @@ snapshots:
     products-posthog-ai-threadview-quill--compared-with-lemon--light:
         hash: v1.k794b7964.c7a5ffd2925080a181b740d34b2c27b38ad09f50892b11d14ceceba7e336a968.6xFkSM46Y-L3sx2EzN4vegRwjUqUwaxMc4usQN_1Bcw
     products-posthog-ai-threadview-quill--completed-turn--dark:
-        hash: v1.k794b7964.bd9bb2903f370c2f1030c1b31e69f004007f3aeb9c1be958381f91ecfc1aeca0.RxgqjdEnZ5RANGV5fD3rSvbYHYRo-6M7N2L-KS4oGNk
+        hash: v1.k794b7964.18e0af3b40dd5dff18d7d9f35711a38735850eb1f40edb62250c12dc57138857.0QpvMwB4_kWqBkYx-UFabEDT7gjUyyUCRt53i7ekBu4
     products-posthog-ai-threadview-quill--completed-turn--light:
-        hash: v1.k794b7964.7814b44a7cdb67fe04b11c0b67cd29da9df560fdd443a6a049127785b87eaddb.Ms_Zza_5d6X6oEsJVYbLuYXaZDqrN80vHn7E9nSP_bw
+        hash: v1.k794b7964.aaffd4821833cbd7be9d8c7cd77e9f0809e71ffcc3e5084dd838907c9a4555c7.TK23ojxPSurDuQlaipSd9dkwMzO20ChsfIc1mUjYTts
+    products-posthog-ai-threadview-quill--long-run--dark:
+        hash: v1.k794b7964.649d59f9d5e3d4dda17e70d3328394cee09f2cfdef39250ec1bfbfefc876b476.0YWMro0yyOCP9-2KChyQ3IqVUigeNmVYfRzoS1ijTZc
+    products-posthog-ai-threadview-quill--long-run--light:
+        hash: v1.k794b7964.d86e7871a7a187ef1637cb1434b4baefdf7695f68abe3f0adaebdc39ff8e220a.NK0Pld_NMcqp8eaGZhDeuLYcNb69l5kYYstVtK3r2HE
     products-posthog-ai-threadview-quill--streaming-turn--dark:
-        hash: v1.k794b7964.dc0c5375f7622aa8755a424c981f16489ca45e0b178a147a1ef45f1bf85d4c4a.PmyP1cKLntqhPrftuHkvd3HvPYcS7iE9spSH9NXVbho
+        hash: v1.k794b7964.01bd9095cf2448a061749878dfe6b7987084fbcbbc8fbb666ed4289e7087e332.AMVJTk5ixhgsTacK3PZ4heII47WXHCgGBohPR2DaO1s
     products-posthog-ai-threadview-quill--streaming-turn--light:
-        hash: v1.k794b7964.ab821f2b11da4c0a45f57411e64e6a420e09d024c3580da2b24f465810606212.-muSpXCIxCIulLSskbyWyNXWTqn16CR6ZXl03tuiwLo
+        hash: v1.k794b7964.caabab4d290dda51a4d3c302bfdcd4f16a6a54cc9f613da835afab3b8f2c60d3.6KgDrcJZ1u-Sm9NkUS-sUti399TsxKBCytKuU_A-EmU
     products-posthog-ai-virtualizedthread--anchored-open--dark:
         hash: v1.k794b7964.eecc3dde9e8475fb8f20f259880edae96e2750529897fc326c44d33ce20e0885.hQlXYcfwZ9CiFajcBHUg9oY6h2QcGrm91CkXVIht-OE
     products-posthog-ai-virtualizedthread--anchored-open--light:
@@ -12998,6 +13002,10 @@ snapshots:
         hash: v1.k794b7964.7eef9b267cd20f210bf5f20c395acbd04f412df23a4e5591fb5513ffd82334e8.igtYZYdMAjdMTWuPyiI8UjcKM2v2atwlbdF2GcbufqU
     scenes-app-tasks--new-task--light:
         hash: v1.k794b7964.318e9c80dc685a794981c4718212c0ff1529a62113f0fe53b1babb86e990ab6e.lc7xztqxXpgNPLRIPef1RY3WwIquiwVm64iyEciqcUg
+    scenes-app-tasks--new-task-quill--dark:
+        hash: v1.k794b7964.8cd8e701c13df761d9ba1d08b279e64b94678066aed4304b2eeb32c1c956203a.fDdtlf4c5GL9F3YlxR3_x_tAJEVQznyJzpabKxbtECc
+    scenes-app-tasks--new-task-quill--light:
+        hash: v1.k794b7964.6e2cf93013fbef02c8e2940abcde2e309a6e84a06d54890f51743d5ce7763212.Zm-mjYbWHC6sCEYuAVqmHaP2-EbushTDRwqCZQwHPFw
     scenes-app-tasks--new-task-with-repository--dark:
         hash: v1.k794b7964.183b80968dd176e810833f6237d50559eb2b45905a12715d7615b79dd3987304.glKUf15z01yE2oekRT1Y_QLcT87dpxpWCTxnUOh4a-M
     scenes-app-tasks--new-task-with-repository--light:

@@ -959,8 +959,8 @@ export function TaskRunTabs({ taskId, conversation }: { taskId: string; conversa
                 className="flex min-h-0 flex-1 flex-col gap-0"
                 data-quill
             >
-                <div className="shrink-0 border-b border-border px-4">
-                    <TabsList variant="line" aria-label="Task views">
+                <div className="shrink-0 border-b border-border px-2">
+                    <TabsList variant="line" aria-label="Task views" className="p-0">
                         <TabsTrigger value="conversation" data-attr="task-run-tab-conversation">
                             Conversation
                         </TabsTrigger>
