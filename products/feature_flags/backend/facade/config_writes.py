@@ -14,12 +14,14 @@ Four things a v2 write needs that the pure validator deliberately does not do:
   rejected. Byte limits apply only to the candidate so oversized rows can be reduced.
 - **Writer-only rules.** ``check_writer_rules`` rejects what readers accept but a writer may
   not store. It runs on the submitted document and on a stored one being enabled, never on
-  the stored side of an update, so tightening a rule never blocks replacing a stored row.
+  the stored side of an update, so tightening a rule never blocks replacing a stored row. A
+  rule may also accept what the stored document already holds.
 
 Deliberately free of Django ORM and DRF imports: the endpoint owns HTTP error shapes and
 the row lock, this module owns the document.
 """
 
+import re
 import sys
 import json
 from collections.abc import Callable, Iterator, Mapping
@@ -32,6 +34,7 @@ import structlog
 
 from posthog.hogql.constants import FEATURE_FLAG_FALSE_VARIANT_SENTINEL
 
+from posthog.dataclasses import frozen
 from posthog.ph_client import feature_enabled_or_false
 
 from products.feature_flags.backend.facade.config_validation import (
@@ -238,7 +241,7 @@ def review_update(
         )
     warnings = review_config(document, limits=limits, current=current).warnings
     assert isinstance(document, Mapping)  # review_config rejects anything else
-    check_writer_rules(document)
+    check_writer_rules(document, stored=stored)
     return warnings
 
 
@@ -257,25 +260,26 @@ def _validated_stored(
     try:
         config = validate_config(stored, limits=limits)
         if writer_rules:
-            check_writer_rules(stored)
+            check_writer_rules(stored, stored=stored)
         return config
     except ConfigValidationError as exc:
         detail = f"This flag's stored configuration cannot be {operation} through this API."
         raise ConfigValidationError([ConfigError(code="unsupported", detail=detail, attr="filters")]) from exc
 
 
-def check_writer_rules(document: Mapping[str, Any]) -> None:
+def check_writer_rules(document: Mapping[str, Any], *, stored: Mapping[str, Any]) -> None:
     """Reject a document ``validate_config`` admitted that a writer still may not store.
 
     Readers never apply these. Each entry in ``_WRITER_RULES`` reads the validated document
+    and the validated stored document it replaces (empty on create, itself when enabling)
     and yields its field errors.
     """
-    errors = [error for rule in _WRITER_RULES for error in rule(document)]
+    errors = [error for rule in _WRITER_RULES for error in rule(document, stored)]
     if errors:
         raise ConfigValidationError(errors)
 
 
-def _reserved_string_values(document: Mapping[str, Any]) -> Iterator[ConfigError]:
+def _reserved_string_values(document: Mapping[str, Any], _stored: Mapping[str, Any]) -> Iterator[ConfigError]:
     # A string value is served as the variant, and `$false` is the event-storage sentinel that v1 reserves as a variant key.
     if document["return_type"] != "string":
         return
@@ -287,4 +291,42 @@ def _reserved_string_values(document: Mapping[str, Any]) -> Iterator[ConfigError
             yield ConfigError(code="invalid", detail=f"{detail}.", attr=f"filters.rules[{index}].value")
 
 
-_WRITER_RULES: tuple[Callable[[Mapping[str, Any]], Iterator[ConfigError]], ...] = (_reserved_string_values,)
+def _compilable_patterns(document: Mapping[str, Any], stored: Mapping[str, Any]) -> Iterator[ConfigError]:
+    """New ``regex`` and ``not_regex`` patterns must compile with Python's ``re``, as v1 writes must.
+
+    The flags service compiles with fancy_regex, which accepts some patterns ``re`` rejects, so
+    like v1 this keeps any pattern the stored document already holds; enabling adds none.
+    """
+    held = {regex.pattern for regex in _regex_patterns(stored)} if stored else set()
+    for regex in _regex_patterns(document):
+        if regex.pattern not in held and not _compiles(regex.pattern):
+            yield ConfigError(code="invalid", detail="Must be a valid regular expression.", attr=regex.attr)
+
+
+@frozen
+class _RegexPattern:
+    attr: str
+    pattern: str
+
+
+def _regex_patterns(document: Mapping[str, Any]) -> Iterator[_RegexPattern]:
+    for rule_index, rule in enumerate(document["rules"]):
+        for index, prop in enumerate(rule["targeting"]["properties"]):
+            if prop.get("operator") in ("regex", "not_regex"):
+                yield _RegexPattern(
+                    attr=f"filters.rules[{rule_index}].targeting.properties[{index}].value", pattern=prop["value"]
+                )
+
+
+def _compiles(pattern: str) -> bool:
+    try:
+        re.compile(pattern)
+    except (re.error, ValueError, OverflowError, RecursionError):
+        return False
+    return True
+
+
+_WRITER_RULES: tuple[Callable[[Mapping[str, Any], Mapping[str, Any]], Iterator[ConfigError]], ...] = (
+    _reserved_string_values,
+    _compilable_patterns,
+)
