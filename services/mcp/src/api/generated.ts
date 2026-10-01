@@ -48550,7 +48550,7 @@ export namespace Schemas {
       /** Whether this condition matched properties but was excluded due to rollout */
       rollout_excluded: boolean;
       /**
-         * Variant associated with this condition
+         * Variant associated with this condition. Empty or null when the condition has no variant override.
          * @nullable
          */
       variant: string | null;
