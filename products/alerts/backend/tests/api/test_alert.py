@@ -24,7 +24,8 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.alerts.backend.facade.api import INSIGHT_ALERT_EVENT_IDS, LLMDetectorUnavailableError
+from products.alerts.backend.facade.api import LLMDetectorUnavailableError
+from products.alerts.backend.facade.contracts import INSIGHT_ALERT_EVENT_IDS
 from products.alerts.backend.facade.destinations import MAX_DESTINATIONS_PER_ALERT, count_active_alert_destinations
 from products.alerts_platform.backend.facade.scheduling import CalendarInterval, alert_check_offset
 from products.alerts.backend.judge.verdict import LLMDetectionVerdict

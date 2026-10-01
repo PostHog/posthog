@@ -1,8 +1,9 @@
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
@@ -14,7 +15,12 @@ from posthog.models.scoping import team_scope
 
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import due_checks, record_outcomes, slot_of
-from products.alerts_platform.backend.facade.contracts import AlertEventKind, SourceBatchEvaluation, SourceKind
+from products.alerts_platform.backend.facade.contracts import (
+    AlertEventKind,
+    PlatformConfigurationSnapshot,
+    SourceBatchEvaluation,
+    SourceKind,
+)
 from products.alerts_platform.backend.facade.lifecycle import AlertState
 from products.alerts_platform.backend.facade.temporal import SOURCE_EVALUATION_TIMEOUT
 from products.logs.backend.alert_check_query import BatchedBucketedResult, BucketedCount
@@ -35,9 +41,9 @@ class TestLogsAlertEvaluation(APIBaseTest):
         super().setUp()
         self.cutoff = datetime(2026, 9, 16, 10, tzinfo=UTC)
 
-    def _configuration(self, **overrides):
-        defaults = {
-            "team": self.team,
+    def _configuration(self, **overrides: Any) -> PlatformConfigurationSnapshot:
+        defaults: dict[str, Any] = {
+            "team_id": self.team.id,
             "name": "API errors",
             "source_kind": SourceKind.LOGS,
             "source_config": {},
@@ -51,7 +57,12 @@ class TestLogsAlertEvaluation(APIBaseTest):
         with team_scope(self.team.id):
             return platform_testing.create_configuration(**defaults)
 
-    def _run(self, *configurations, query_error: Exception | None = None, now: datetime | None = None):
+    def _run(
+        self,
+        *configurations: PlatformConfigurationSnapshot,
+        query_error: Exception | None = None,
+        now: datetime | None = None,
+    ) -> tuple[SourceBatchEvaluation, MagicMock]:
         now = now or self.cutoff
         breaching = {str(c.id): [BucketedCount(timestamp=now, count=500)] for c in configurations}
         with (

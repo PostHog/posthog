@@ -81,8 +81,6 @@ from products.alerts.backend.evaluation.validation import (
     validate_alert_insight_query,
 )
 from products.alerts.backend.facade.api import (
-    INSIGHT_ALERT_DESTINATION_TYPES,
-    INSIGHT_ALERT_EVENT_IDS,
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
     MAX_PROMPT_POINTS,
     LLMAlertWrite,
@@ -92,6 +90,7 @@ from products.alerts.backend.facade.api import (
     is_llm_detector_config,
     llm_detector_access_error,
 )
+from products.alerts.backend.facade.contracts import INSIGHT_ALERT_DESTINATION_TYPES, INSIGHT_ALERT_EVENT_IDS
 from products.alerts.backend.facade.destinations import (
     MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
     MAX_DESTINATIONS_PER_ALERT,

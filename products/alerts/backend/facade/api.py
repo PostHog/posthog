@@ -22,10 +22,6 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import relative_date_parse
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.alerts.backend.facade.contracts import (
-    INSIGHT_ALERT_DESTINATION_TYPES as INSIGHT_ALERT_DESTINATION_TYPES,
-    INSIGHT_ALERT_EVENT_IDS as INSIGHT_ALERT_EVENT_IDS,
-)
 from products.alerts.backend.insight_alert_state_machine import apply_snooze
 from products.alerts.backend.judge.contract import (
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
@@ -52,8 +48,6 @@ SlackSnoozeOutcome = Literal["snoozed", "no_access", "disabled", "not_found", "i
 # Mirrors the in-app SnoozeButton's DateFilter max — Slack's datetimepicker has no bounds of
 # its own, so the cap has to live here.
 SLACK_SNOOZE_MAX_DAYS = 31
-
-# The event an insight alert check emits, named legacy where it is defined because it predates the
 
 
 def get_alert_team_id(alert_id: uuid.UUID) -> int | None:
