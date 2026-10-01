@@ -2,11 +2,12 @@ import { Combobox } from '@base-ui/react/combobox'
 import { useActions, useValues } from 'kea'
 import { useCallback, useMemo, useRef, useState } from 'react'
 
-import { IconCheck, IconLetter, IconPlusSmall, IconSearch, IconX } from '@posthog/icons'
+import { IconCheck, IconPlusSmall, IconSearch, IconX } from '@posthog/icons'
 
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { IconBlank } from 'lib/lemon-ui/icons'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -320,13 +321,16 @@ export function OrgSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Elemen
                                                     tooltip={`Accept pending invitation to ${item.invite.organization_name}`}
                                                     tooltipPlacement="right"
                                                 >
-                                                    <IconLetter className="text-warning" />
-                                                    <span className="truncate flex-1">
-                                                        {item.invite.organization_name}
-                                                    </span>
-                                                    <span className="text-xxs text-tertiary shrink-0 ml-1">
-                                                        Pending invite
-                                                    </span>
+                                                    <IconBlank />
+                                                    <UploadedLogo
+                                                        size="xsmall"
+                                                        name={item.invite.organization_name}
+                                                        entityId={item.invite.organization_id}
+                                                    />
+                                                    <span className="truncate">{item.invite.organization_name}</span>
+                                                    <div className="ml-auto">
+                                                        <LemonTag>pending invite</LemonTag>
+                                                    </div>
                                                 </ButtonPrimitive>
                                             )}
                                         />

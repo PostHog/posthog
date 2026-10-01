@@ -121,7 +121,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                             )}
                             {hasPendingInvites && (
                                 <PendingInviteDot
-                                    className={isLayoutNavCollapsed ? 'absolute top-0.5 right-0.5' : 'mr-0.5'}
+                                    className={isLayoutNavCollapsed ? 'absolute top-0 right-0' : 'ml-1 mr-0.5'}
                                 />
                             )}
                         </ButtonPrimitive>

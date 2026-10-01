@@ -32,16 +32,17 @@ export function PendingInviteDot({ className }: { className?: string }): JSX.Ele
     const organizationNames = pendingInvites.map((invite) => invite.organization_name)
     const title =
         organizationNames.length === 1
-            ? `You have a pending invite to join ${organizationNames[0]}. Open the organization menu to accept it.`
-            : `You have pending invites to join ${organizationNames.length} organizations. Open the organization menu to accept them.`
+            ? `You have a pending invite to join ${organizationNames[0]}.`
+            : `You have pending invites to join ${organizationNames.length} organizations.`
 
     return (
         <Tooltip title={title} placement="right">
             <span
                 aria-label="Pending invite"
-                className={cn('relative flex items-center justify-center size-1.5 shrink-0', className)}
+                className={cn('relative flex items-center justify-center size-3 shrink-0', className)}
             >
-                <span className="absolute inset-0 rounded-full bg-accent opacity-60 animate-ping" />
+                {/* The ping halo scales to twice the dot, so the box is twice the dot to keep it off the neighbors */}
+                <span className="absolute size-1.5 rounded-full bg-accent opacity-60 animate-ping" />
                 <span className="relative size-1.5 rounded-full bg-accent" />
             </span>
         </Tooltip>
@@ -79,9 +80,7 @@ export function ProjectMenu({
                     ) : (
                         <span className="truncate">{currentTeam.name ?? 'Project'}</span>
                     )}
-                    {hasPendingInvites && (
-                        <PendingInviteDot className={iconOnly ? 'absolute top-0.5 right-0.5' : 'ml-1'} />
-                    )}
+                    {hasPendingInvites && <PendingInviteDot className={iconOnly ? 'absolute top-0 right-0' : 'ml-1'} />}
                     {!iconOnly && <MenuOpenIndicator className="ml-auto" />}
                 </ButtonPrimitive>
             </PopoverPrimitiveTrigger>
