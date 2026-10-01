@@ -659,6 +659,7 @@ describe('inboxReportDetailLogic', () => {
                 approved_at: null,
                 updated_at: '2026-09-29T00:00:00Z',
             } as SignalReportCheckApi
+            const approved = { ...old, approved_at: '2026-09-30T00:00:00Z', updated_at: '2026-09-30T00:00:00Z' }
             let releaseResponse!: () => void
             const responseReady = new Promise<void>((resolve) => {
                 releaseResponse = resolve
@@ -668,6 +669,9 @@ describe('inboxReportDetailLogic', () => {
                 requestStarted = resolve
             })
             useMocks({
+                post: {
+                    '/api/projects/:team_id/signals/reports/:id/checks/:check_id/approve/': [200, approved],
+                },
                 get: {
                     '/api/projects/:team_id/signals/reports/:id/checks/': async () => {
                         requestStarted()
@@ -676,10 +680,10 @@ describe('inboxReportDetailLogic', () => {
                     },
                 },
             })
+            logic.actions.loadReportChecksSuccess([old])
             logic.actions.loadReportChecks()
             await requested
-            const approved = { ...old, approved_at: '2026-09-30T00:00:00Z', updated_at: '2026-09-30T00:00:00Z' }
-            logic.actions.loadReportChecksSuccess([approved])
+            await logic.asyncActions.approveReportCheck(old.id)
             releaseResponse()
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.reportChecksError).toBeNull()

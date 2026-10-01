@@ -142,6 +142,8 @@ This final request is optional: if generation or note conversion fails, research
 The findings, actionability, priority, title, and summary remain available.
 Core research failures and cancellation still fail the run and trigger session cleanup.
 
+The note names proposed follow-up checks without claiming they were scheduled. The Follow-up checks sidebar shows the stored checks. If any optional check spec is malformed, research keeps valid verification prose and skips check reconciliation, preserving existing checks. An explicitly empty, valid check list still retires omitted checks.
+
 The plan separates `Confirm the current state` guidance from `Confirm the outcome` guidance.
 Each section says what evidence to collect, which result supports a conclusion, and which result is inconclusive.
 The guidance can use a query, test, log search, replay, code review, or manual check, and does not prescribe a resolution.

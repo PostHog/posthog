@@ -1457,6 +1457,7 @@ async def test_run_agentic_report_activity_does_not_persist_partial_artefacts(mo
         ("not_actionable", ActionabilityChoice.NOT_ACTIONABLE, None),
         ("timeout", ActionabilityChoice.IMMEDIATELY_ACTIONABLE, TimeoutError),
         ("validation_failure", ActionabilityChoice.IMMEDIATELY_ACTIONABLE, ValidationError),
+        ("malformed_optional_checks", ActionabilityChoice.IMMEDIATELY_ACTIONABLE, None),
         ("cancellation", ActionabilityChoice.IMMEDIATELY_ACTIONABLE, asyncio.CancelledError),
     ]
 )
@@ -1503,9 +1504,16 @@ async def test_run_multi_turn_research_requests_verification_note_as_the_final_a
         responses.append(
             verification_error
             if verification_error is not None
-            else FixVerificationOutput(
-                current_state="Run query-trends for onboarding_completed over the same 14-day window.",
-                outcome="Confirm event volume returns to the pre-regression baseline.",
+            else FixVerificationOutput.model_validate(
+                {
+                    "current_state": "Run query-trends for onboarding_completed over the same 14-day window.",
+                    "outcome": "Confirm event volume returns to the pre-regression baseline.",
+                    **(
+                        {"checks": [{"kind": "metric_threshold", "title": "A malformed check"}]}
+                        if _name == "malformed_optional_checks"
+                        else {}
+                    ),
+                }
             )
         )
     session.send_followup = AsyncMock(side_effect=responses)
@@ -1524,7 +1532,12 @@ async def test_run_multi_turn_research_requests_verification_note_as_the_final_a
                 await run_multi_turn_research(_build_signals()[:1], Mock(team_id=1), signal_report_id="report-id")
             assert canceled.value is verification_error
         else:
-            result = await run_multi_turn_research(_build_signals()[:1], Mock(team_id=1), signal_report_id="report-id")
+            result = await run_multi_turn_research(
+                _build_signals()[:1],
+                Mock(team_id=1),
+                signal_report_id="report-id",
+                metrics_enabled=_name == "malformed_optional_checks",
+            )
             assert result.effective_findings() == [first_finding]
             assert result.effective_actionability() == actionability_result
             assert result.effective_priority() == priority_result
