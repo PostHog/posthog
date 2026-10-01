@@ -141,14 +141,11 @@ const recalculationHasGap = (experiment: Experiment, recalculation: Recalculatio
         return false
     }
 
-    const resultCount = recalculation.results?.length ?? 0
-    const metricUuids = currentMetricUuids(experiment)
     const coveredUuids = new Set(coveredMetricUuids(recalculation))
 
     return (
         recalculation.completed_metrics + recalculation.failed_metrics < recalculation.total_metrics ||
-        resultCount < recalculation.completed_metrics ||
-        metricUuids.some((uuid) => !coveredUuids.has(uuid))
+        currentMetricUuids(experiment).some((uuid) => !coveredUuids.has(uuid))
     )
 }
 
