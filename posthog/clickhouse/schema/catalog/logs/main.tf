@@ -301,7 +301,7 @@ module "logs34_family" {
   }
   routing = {
     read          = true
-    read_columns  = local.logs34_columns
+    read_columns  = local.test ? local.logs32_columns : local.logs34_columns
     write_columns = local.logs34_columns
   }
   kafka = {
