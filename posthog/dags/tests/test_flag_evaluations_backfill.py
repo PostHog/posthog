@@ -531,7 +531,7 @@ def test_disk_headroom_leaves_out_the_share_the_mover_keeps_free(
     [
         pytest.param({"end_date": "2026-03-10"}, id="end_date_after_yesterday"),
         pytest.param({"start_date": "2026-03-01", "end_date": "2026-03-01"}, id="empty_window"),
-        pytest.param({"start_date": "2025-12-10"}, id="start_date_expiring_on_the_run_date"),
+        pytest.param({"start_date": "2025-12-10"}, id="start_date_already_expired"),
     ],
 )
 def test_resolve_backfill_days_rejects_an_unsafe_window(overrides: dict[str, Any]) -> None:

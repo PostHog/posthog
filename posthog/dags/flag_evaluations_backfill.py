@@ -86,9 +86,10 @@ class FlagEvaluationsBackfillConfig(dagster.Config):
     start_date: str | None = pydantic.Field(
         default=None,
         description=(
-            "First day to copy (YYYY-MM-DD, UTC, inclusive). Defaults to 89 days before today, which is also the "
-            "earliest allowed value. A run copies the oldest days last, so a run that lasts several days should "
-            "start a few days later, or the TTL drops those days soon after they are copied."
+            f"First day to copy (YYYY-MM-DD, UTC, inclusive). Defaults to {FLAG_EVALUATIONS_TTL_DAYS - 1} days "
+            "before today, which is also the earliest allowed value. A run copies the oldest days last, so move "
+            "start_date one day later for each day the run lasts past the day it starts, or the TTL drops the "
+            "oldest days soon after they are copied."
         ),
     )
     end_date: str | None = pydantic.Field(
