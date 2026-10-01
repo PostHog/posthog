@@ -259,7 +259,11 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const CompletedTurn: Story = {}
-export const StreamingTurn: Story = { args: { streamKey: 'example-quill-streaming', entries: STREAMING_TURN } }
+export const StreamingTurn: Story = {
+    args: { streamKey: 'example-quill-streaming', entries: STREAMING_TURN },
+    // A turn that is still running shows its progress spinner for as long as the story is open.
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+}
 export const LongRun: Story = {
     args: { streamKey: 'example-quill-long-run', entries: LONG_RUN_TURN },
     parameters: { mockDate: '2024-03-11T14:15:00Z' },
