@@ -16,7 +16,13 @@ import { composerSeedLogic } from 'products/posthog_ai/frontend/api/logics'
 import { TaskListItemApi } from '../generated/api.schemas'
 import { DEFAULT_SPACE_FEED_FILTERS, SpaceFeedFilters, SpaceFeedType } from './spaceFeedEntries'
 import { spaceFeedViewLogic } from './spaceFeedViewLogic'
-import { AutoArchiveSelection, SpaceFeedStatus, spaceComposerPanelId, spaceSceneLogic } from './spaceSceneLogic'
+import {
+    AutoArchiveSelection,
+    SpaceFeedStatus,
+    SpaceTab,
+    spaceComposerPanelId,
+    spaceSceneLogic,
+} from './spaceSceneLogic'
 
 describe('spaceSceneLogic', () => {
     let sessionSpace = 'space-a'
@@ -294,6 +300,24 @@ describe('spaceSceneLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(canvasRequests).toEqual(['space-a'])
+    })
+
+    it.each<[string, SpaceTab, string[]]>([
+        [urls.taskSpace('space-a'), 'feed', []],
+        [urls.taskSpaceCanvases('space-a'), 'canvases', ['space-a']],
+        [urls.taskSpaceSettings('space-a'), 'settings', []],
+    ])('opens %s on the %s tab and loads its canvases: %j', async (url, tab, expectedRequests) => {
+        spaceFeedViewLogic.mount()
+        spaceFeedViewLogic.actions.setTypes(['task'])
+        const logic = spaceSceneLogic({ id: 'space-a' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        router.actions.push(url)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.activeTab).toBe(tab)
+        expect(canvasRequests).toEqual(expectedRequests)
     })
 
     it.each<[string, number, SpaceFeedType[], SpaceFeedStatus, string[]]>([

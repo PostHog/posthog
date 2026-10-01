@@ -1,4 +1,3 @@
-import { IconDocument, IconGraph, IconLineGraph, IconPalette } from '@posthog/icons'
 import { Badge, Card, Text, cn } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
@@ -7,33 +6,19 @@ import { shortTimeAgo } from '~/layout/today/todayWorkItems'
 
 import type { CanvasApi } from 'products/canvas/frontend/generated/api.schemas'
 
-import { TaskAvatarUser, TaskUserAvatar, taskUserName } from './TaskUserAvatar'
-
-const TEMPLATE_ICONS: Record<string, typeof IconGraph> = {
-    'web-analytics': IconLineGraph,
-    blank: IconDocument,
-    freeform: IconPalette,
-}
+import { spaceCanvasAuthor, spaceCanvasTemplateIcon } from './spaceCanvases'
+import { spaceCanvasUrl } from './spaceCanvasUrls'
+import { TaskUserAvatar, taskUserName } from './TaskUserAvatar'
 
 interface SpaceFeedCanvasRowProps {
     canvas: CanvasApi
     listRow: boolean
 }
 
-/** The canvas page from the canvas product. */
-function spaceFeedCanvasUrl(canvasId: string): string {
-    return `/canvases/${canvasId}`
-}
-
 /** A canvas in the feed's Canvases view, as a card or a list row, like PostHog Desktop's. */
 export function SpaceFeedCanvasRow({ canvas, listRow }: SpaceFeedCanvasRowProps): JSX.Element {
-    const author: TaskAvatarUser = {
-        uuid: canvas.created_by.uuid,
-        email: canvas.created_by.email,
-        first_name: canvas.created_by.first_name ?? '',
-        last_name: canvas.created_by.last_name ?? '',
-    }
-    const TemplateIcon = TEMPLATE_ICONS[canvas.template_id] ?? IconGraph
+    const author = spaceCanvasAuthor(canvas)
+    const TemplateIcon = spaceCanvasTemplateIcon(canvas.template_id)
     const icon = <TemplateIcon className="size-3.5 shrink-0 text-muted-foreground" />
     const age = shortTimeAgo(canvas.updated_at)
     const avatar = (
@@ -43,7 +28,7 @@ export function SpaceFeedCanvasRow({ canvas, listRow }: SpaceFeedCanvasRowProps)
     )
     const name = (className: string): JSX.Element => (
         <LinkPrimitive
-            to={spaceFeedCanvasUrl(canvas.id)}
+            to={spaceCanvasUrl(canvas.id)}
             className={cn('min-w-0 truncate text-foreground after:absolute after:inset-0', className)}
             data-attr="today-space-feed-canvas-row"
         >

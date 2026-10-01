@@ -33,6 +33,7 @@ import {
     tasksPullRequestTitlesCreate,
 } from '../generated/api'
 import { ChannelDTOApi, PatchedChannelUpdateApi, TaskListItemApi, TaskUserBasicInfoApi } from '../generated/api.schemas'
+import { SpaceCanvasSections, spaceCanvasSections } from './spaceCanvases'
 import {
     SpaceFeedFilters,
     SpaceFeedGrouping,
@@ -47,7 +48,7 @@ import { sessionIdsWithPullRequests, spacePullRequests } from './taskPullRequest
 
 const SPACE_FEED_LIMIT = 50
 
-export type SpaceTab = 'feed' | 'settings'
+export type SpaceTab = 'feed' | 'canvases' | 'settings'
 
 export type SpaceFeedSourceStatus = 'hidden' | 'loading' | 'failed' | 'ready'
 
@@ -115,6 +116,7 @@ export interface spaceSceneLogicValues {
     autoArchiveDisabledReason: string | null
     autoArchiveSelection: AutoArchiveSelection
     breadcrumbs: Breadcrumb[]
+    canvasSections: SpaceCanvasSections
     canvases: CanvasApi[] | null
     canvasesLoading: boolean
     canvasesUnavailable: boolean
@@ -332,6 +334,7 @@ export interface spaceSceneLogicMeta {
             space: ChannelDTOApi | null
         ) => string | null
         activeTab: (location: { hash: string; pathname: string; search: string }) => SpaceTab
+        canvasSections: (canvases: CanvasApi[] | null) => SpaceCanvasSections
         feedItems: (sessions: TaskListItemApi[]) => TodayWorkItem[]
         feedSourceOptions: (feedItems: TodayWorkItem[], filters: SpaceFeedFilters) => string[]
         filteredFeedItems: (
@@ -482,7 +485,7 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
                 },
             },
         ],
-        // `null` until the first load, which waits until the Canvases type shows.
+        // `null` until the first load, which waits until the Canvases type or tab shows.
         canvases: [
             null as CanvasApi[] | null,
             {
@@ -620,7 +623,15 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
         activeTab: [
             () => [router.selectors.location],
             (location: { pathname: string }): SpaceTab =>
-                location.pathname.endsWith('/settings') ? 'settings' : 'feed',
+                location.pathname.endsWith('/settings')
+                    ? 'settings'
+                    : location.pathname.endsWith('/canvases')
+                      ? 'canvases'
+                      : 'feed',
+        ],
+        canvasSections: [
+            (s) => [s.canvases],
+            (canvases: CanvasApi[] | null): SpaceCanvasSections => spaceCanvasSections(canvases ?? []),
         ],
         feedItems: [
             (s) => [s.sessions],
@@ -761,9 +772,10 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
             actions.ensureCanvases()
             actions.loadPullRequestTitles()
         },
-        // A failed load leaves `null`, so showing the type again retries it.
+        // A failed load leaves `null`, so showing the type or the tab again retries it.
         ensureCanvases: () => {
-            if (values.types.includes('canvas') && values.canvases === null && !values.canvasesLoading) {
+            const shown = values.types.includes('canvas') || values.activeTab === 'canvases'
+            if (shown && values.canvases === null && !values.canvasesLoading) {
                 actions.loadCanvases()
             }
         },
@@ -865,6 +877,11 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
             // Drop the param, so a reload or a back navigation does not focus the composer again.
             const { [SPACE_COMPOSE_PARAM]: _compose, ...rest } = searchParams
             router.actions.replace(urls.taskSpace(props.id), rest, hashParams)
+        },
+        [urls.taskSpaceCanvases(':id')]: ({ id }) => {
+            if (id === props.id) {
+                actions.ensureCanvases()
+            }
         },
     })),
     afterMount(({ actions }) => {
