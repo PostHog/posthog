@@ -5,7 +5,9 @@ from uuid import UUID
 import structlog
 from temporalio import activity
 
+from posthog.event_usage import groups
 from posthog.models.team.team import Team
+from posthog.ph_client import ph_background_capture
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
@@ -35,15 +37,31 @@ def _retrieve_sync(input: RetrieveInput) -> RetrieveOutput:
     team = Team.objects.select_related("organization").get(id=input.team_id)
     all_results = []
     seen_chunk_ids: set[str] = set()
+    result_count = 0
 
     for query in input.queries:
         results = search_knowledge_for_team(team, query, limit=RETRIEVE_LIMIT)
+        result_count += len(results)
         reranked = rerank_chunks(team, query, results, top_k=RERANK_TOP_K)
         for r in reranked:
             cid = str(r.chunk_id)
             if cid not in seen_chunk_ids:
                 seen_chunk_ids.add(cid)
                 all_results.append(r)
+
+    try:
+        ph_background_capture()(
+            distinct_id=str(team.uuid),
+            event="business knowledge searched",
+            properties={
+                "surface": "support",
+                "query_count": len(input.queries),
+                "result_count": result_count,
+            },
+            groups=groups(team=team),
+        )
+    except Exception:
+        logger.warning("business_knowledge_search_capture_failed", team_id=team.id, exc_info=True)
 
     if input.widen and input.prior_citation_chunk_ids:
         for cid_str in input.prior_citation_chunk_ids[:5]:
