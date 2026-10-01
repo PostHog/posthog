@@ -118,7 +118,8 @@ tools:
             - Compare breakdown values or series as totals ("top pages", "failures by reason"): `ActionsBarValue`, or
             `ActionsPie` for the share of a whole with a few values.
 
-            - One number for the period: `Metric`, or `BoldNumber` when a trend has no meaning.
+            - One number for the period, or this period against the previous one: `Metric` with `compareFilter.compare:
+            true` for a comparison, or `BoldNumber` when a trend has no meaning.
 
             - Many breakdown rows that a person reads rather than compares: `ActionsTable`.
 
