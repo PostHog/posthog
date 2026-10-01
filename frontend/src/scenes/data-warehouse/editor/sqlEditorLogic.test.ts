@@ -408,6 +408,7 @@ describe('sqlEditorLogic', () => {
                         ...router.values.location,
                         searchParams: {},
                         hashParams: { q: 'SELECT 1' },
+                        url: urls.sqlEditor(),
                         method: 'POP',
                     })
                 }
