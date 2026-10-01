@@ -48,13 +48,13 @@ class _LogsNaturalLanguageDateRangeSerializer(serializers.Serializer):
     # The date parser turns an unreadable value into "now" without an error, which would silently
     # scope the service and attribute lists to the wrong window.
     @staticmethod
-    def _check_date(value: str | None) -> str | None:
-        if not is_valid_date(value):
+    def _check_date(value: str | None, *, allow_all: bool = False) -> str | None:
+        if not is_valid_date(value, allow_all=allow_all):
             raise serializers.ValidationError("Use an ISO 8601 timestamp or a relative date such as -1h or -7d.")
         return value
 
     def validate_date_from(self, value: str | None) -> str | None:
-        return self._check_date(value)
+        return self._check_date(value, allow_all=True)
 
     def validate_date_to(self, value: str | None) -> str | None:
         return self._check_date(value)

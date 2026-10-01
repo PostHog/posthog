@@ -62,7 +62,7 @@ MAX_REQUEST_CHARS = 500
 MAX_SERVICES = 200
 MAX_ATTRIBUTE_KEYS = 150
 
-_RELATIVE_DATE = re.compile(r"^-\d+(s|m|h|d|w|M|y|q)(Start|End)?$")
+_RELATIVE_DATE = re.compile(r"^(-\d+)?(s|m|h|d|w|M|y|q)(Start|End)?$")
 _VALUELESS_OPERATORS = frozenset({"is_set", "is_not_set"})
 _LIST_VALUE_OPERATORS = frozenset({"exact", "is_not"})
 
@@ -260,8 +260,10 @@ def propose_candidates(
         raise NaturalLanguageQueryFailed("The proposal model did not return usable candidates") from error
 
 
-def is_valid_date(value: str | None) -> bool:
+def is_valid_date(value: str | None, *, allow_all: bool = False) -> bool:
     if value is None:
+        return True
+    if allow_all and value == "all":
         return True
     if _RELATIVE_DATE.match(value):
         return True
@@ -311,7 +313,7 @@ def _to_filter(proposed: _ProposedFilter, context: FilterContext) -> dict[str, A
 
 def validate_candidate(proposed: _ProposedCandidate, context: FilterContext) -> dict[str, Any] | None:
     """The viewer query for a proposed reading, or None when it names something the team lacks."""
-    if not is_valid_date(proposed.date_from) or not is_valid_date(proposed.date_to):
+    if not is_valid_date(proposed.date_from, allow_all=True) or not is_valid_date(proposed.date_to):
         return None
 
     services: list[str] = []

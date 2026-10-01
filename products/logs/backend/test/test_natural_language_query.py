@@ -53,10 +53,18 @@ class TestValidateCandidate(SimpleTestCase):
             ),
             ("empty_message_search", {"filters": [_filter("message", "message", "icontains", ["  "])]}),
             ("unparseable_date", {"date_from": "two hours ago"}),
+            ("all_as_end_date", {"date_to": "all"}),
         ]
     )
     def test_drops_readings_the_team_cannot_run(self, _name: str, overrides: dict[str, Any]) -> None:
         assert validate_candidate(_proposal(**overrides), CONTEXT) is None
+
+    @parameterized.expand([("start_of_today", "dStart"), ("all_time", "all")])
+    def test_keeps_readings_with_viewer_date_anchors(self, _name: str, date_from: str) -> None:
+        query = validate_candidate(_proposal(date_from=date_from), CONTEXT)
+
+        assert query is not None
+        assert query["dateRange"] == {"date_from": date_from}
 
     def test_builds_viewer_query_with_canonical_names(self) -> None:
         query = validate_candidate(
@@ -141,6 +149,11 @@ class TestRequestSerializer(SimpleTestCase):
             ("iso_range", {"date_from": "2026-10-01T10:00:00Z", "date_to": "2026-10-01T12:00:00Z"}, True),
             ("unreadable_start", {"date_from": "garbage"}, False),
             ("unreadable_end", {"date_from": "-2h", "date_to": "yesterday-ish"}, False),
+            ("start_of_today", {"date_from": "dStart", "date_to": None}, True),
+            ("start_of_month", {"date_from": "mStart"}, True),
+            ("all_time", {"date_from": "all"}, True),
+            ("all_as_end_date", {"date_from": "-2h", "date_to": "all"}, False),
+            ("bare_number", {"date_from": "-2"}, False),
         ]
     )
     def test_date_range_validation(self, _name: str, date_range: dict[str, Any], valid: bool) -> None:
