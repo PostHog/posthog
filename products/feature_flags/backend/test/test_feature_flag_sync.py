@@ -840,7 +840,7 @@ class TestSyncFeatureFlagLastCalledSource(ClickhouseTestMixin, BaseTest):
         # The call happened before the scan window opened and reached ClickHouse inside it.
         # Only a filter on inserted_at reads it.
         called_at = (now - timedelta(days=2)).replace(microsecond=0)
-        inserted_at = now - timedelta(minutes=10)
+        inserted_at = now - timedelta(minutes=20)
         self._insert_flag_call("events", "called-in-events", called_at, inserted_at)
         self._insert_flag_call("flag_evaluations", "called-in-flag-evaluations", called_at, inserted_at)
 
@@ -855,16 +855,35 @@ class TestSyncFeatureFlagLastCalledSource(ClickhouseTestMixin, BaseTest):
     @parameterized.expand([("events", "called-in-events"), ("flag_evaluations", "called-in-flag-evaluations")])
     def test_call_without_a_flag_key_does_not_take_the_row_limit(self, source: str, flag_key: str) -> None:
         now = tz.now()
-        called_at = (now - timedelta(minutes=20)).replace(microsecond=0)
-        inserted_at = now - timedelta(minutes=10)
+        called_at = (now - timedelta(minutes=30)).replace(microsecond=0)
+        inserted_at = now - timedelta(minutes=20)
         self._insert_flag_call(source, flag_key, called_at, inserted_at)
         # The query sorts the newest call first. Without the empty-key filter, this call takes the only row.
-        self._insert_flag_call(source, "", now - timedelta(minutes=15), inserted_at)
+        self._insert_flag_call(source, "", now - timedelta(minutes=25), inserted_at)
 
         with self.settings(
             FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE=source,
             FEATURE_FLAG_LAST_CALLED_AT_SYNC_CLICKHOUSE_LIMIT=1,
         ):
             sync_feature_flag_last_called()
+
+        assert self._last_called_at_by_key()[flag_key] == called_at
+
+    @parameterized.expand(
+        [("events", "called-in-events", True), ("flag_evaluations", "called-in-flag-evaluations", False)]
+    )
+    def test_call_inside_the_buffer_waits_for_a_later_run(
+        self, source: str, flag_key: str, read_on_first_run: bool
+    ) -> None:
+        now = tz.now()
+        called_at = (now - timedelta(minutes=5)).replace(microsecond=0)
+        self._insert_flag_call(source, flag_key, called_at, now - timedelta(minutes=5))
+
+        with self.settings(FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE=source):
+            sync_feature_flag_last_called()
+            assert self._last_called_at_by_key()[flag_key] == (called_at if read_on_first_run else None)
+
+            with time_machine.travel(now + timedelta(minutes=16)):
+                sync_feature_flag_last_called()
 
         assert self._last_called_at_by_key()[flag_key] == called_at

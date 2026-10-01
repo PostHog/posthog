@@ -1375,11 +1375,14 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
             )
             last_sync_timestamp = max_lookback
 
-        # Stop short of now so rows that have not reached the replica answering this query yet
-        # fall into the next run's window rather than being skipped for good.
-        current_sync_timestamp = now - timedelta(
-            seconds=settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_REPLICATION_BUFFER_SECONDS
+        # Stop short of now so rows that have not reached ClickHouse or the replica answering this
+        # query yet fall into the next run's window rather than being skipped for good.
+        buffer_seconds = (
+            settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_FLAG_EVALUATIONS_BUFFER_SECONDS
+            if source == "flag_evaluations"
+            else settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_REPLICATION_BUFFER_SECONDS
         )
+        current_sync_timestamp = now - timedelta(seconds=buffer_seconds)
         window_seconds = (current_sync_timestamp - last_sync_timestamp).total_seconds()
 
         logger.info(
