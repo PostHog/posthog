@@ -18,8 +18,8 @@ from products.slack_app.backend.services.slack_messages import (
     context_block,
     fork_menu_actions_block,
     fork_menu_element,
+    leading_mention_prefix,
     load_run_footer,
-    mentions_slack_user,
     normalize_labeled_mentions_to_bare,
     personal_integrations_url,
     post_slack_thread_reply,
@@ -405,7 +405,7 @@ class SlackThreadHandler:
         """chat.startStream in plan-block mode. Seed with plan-block steps, a
         markdown_text chunk, or both. The plan block stays where its first step
         lands, and later task_update chunks change that block in place."""
-        if not self.context.mentioning_slack_user_id:
+        if not self.actor_slack_user_id:
             return None
         if first_markdown_text:
             first_markdown_text = self._with_leading_mention(first_markdown_text)
@@ -423,7 +423,7 @@ class SlackThreadHandler:
             response = client.chat_startStream(
                 channel=self.context.channel,
                 thread_ts=self.context.thread_ts,
-                recipient_user_id=self.context.mentioning_slack_user_id,
+                recipient_user_id=self.actor_slack_user_id,
                 recipient_team_id=integration.integration_id,
                 task_display_mode="plan",
                 chunks=chunks,
@@ -488,7 +488,7 @@ class SlackThreadHandler:
                 logger.warning("slack_app_status_stream_attachments_failed", error=str(e))
 
         final_chunks: list[dict[str, Any]] = []
-        recipient = self.context.mentioning_slack_user_id
+        recipient = self.actor_slack_user_id
         if recipient and not final_markdown and not mention_sent:
             # Newlines keep the mention off the tail of the last streamed prose chunk.
             final_chunks.append({"type": "markdown_text", "text": f"\n\n<@{recipient}>"})
@@ -507,10 +507,7 @@ class SlackThreadHandler:
             logger.warning("slack_app_status_stream_stop_failed", error=str(e))
 
     def _with_leading_mention(self, markdown: str) -> str:
-        recipient = self.context.mentioning_slack_user_id
-        if not recipient or mentions_slack_user(markdown, recipient):
-            return markdown
-        return f"<@{recipient}> {markdown}"
+        return leading_mention_prefix(markdown, self.actor_slack_user_id) + markdown
 
     def attach_files(self, ts: str, file_ids: list[str]) -> bool:
         """Attach uploaded files to a message whose stream has closed, keeping its blocks and text.

@@ -120,6 +120,14 @@ completion signal arrived during delivery. This applies to user and peer message
 An open turn blocks sandbox rotation. If its sandbox disappears before completion,
 a workflow-origin run fails instead of reporting unfinished work as completed.
 
+With `tasks-rotation-activity-guard`, active heartbeats also block rotation until
+the agent reports idle, including background work after a user turn ends.
+Activity during snapshot capture or replacement startup abandons the handoff and
+keeps the live sandbox. The event relay stays active until startup finishes, and
+an abandoned handoff with new activity requests a fresh snapshot.
+Directory resume snapshots cover `/tmp/workspace`, including nested Git worktrees
+and agent state. Paths outside that directory are not included.
+
 ## Running via the UI
 
 This is very minimal at the moment, but the tasks page can be used to see what
@@ -370,6 +378,12 @@ override all four (`posthog-sandbox-modal-docker-*`, `posthog-sandbox-evals`), s
 in a production app. A new app name has to be a class attribute for that to keep holding.
 
 ### Sandbox templates
+
+Staff can inspect the agent release pipeline at `/admin/tasks/task/infrastructure/` in each region.
+The read-only page compares the published package, master version pin, registry platforms, custom-image bases, and the last recorded dev-stack bake.
+Release evidence separates workflow status from image build and base promotion results, including skipped builds.
+Select a custom image to inspect its latest Temporal execution. A failed refresh can leave a ready image on an older base.
+Missing or stale sources remain unverified. This view does not measure versions inside running sandboxes or reconstruct historical rollout completion.
 
 Each sandbox is created from a template that determines its base image and capabilities.
 
