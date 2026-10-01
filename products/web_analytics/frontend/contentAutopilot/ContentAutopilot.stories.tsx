@@ -122,6 +122,7 @@ export const ActiveRun: StoryFn<typeof ContentAutopilot> = () => (
         <ContentAutopilot />
     </div>
 )
+ActiveRun.parameters = { testOptions: { waitForLoadersToDisappear: false } }
 ActiveRun.decorators = [
     workspaceHandlers({
         profiles: [EXAMPLE_PROFILE],

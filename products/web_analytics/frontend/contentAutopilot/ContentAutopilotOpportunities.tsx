@@ -202,7 +202,14 @@ export const ContentAutopilotOpportunities = (): JSX.Element => {
                                     <div className="flex flex-col gap-1">
                                         {gap.competitor_domains.slice(0, 3).map((domain) => (
                                             <span key={domain} className="flex items-center gap-1 text-sm">
-                                                <img src={faviconUrl(domain)} alt="" className="size-4 shrink-0" />
+                                                <img
+                                                    src={faviconUrl(domain)}
+                                                    width={16}
+                                                    height={16}
+                                                    alt=""
+                                                    className="shrink-0"
+                                                    onError={(e) => (e.currentTarget.style.display = 'none')}
+                                                />
                                                 <span className="truncate">{domain}</span>
                                             </span>
                                         ))}
