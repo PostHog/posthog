@@ -29,7 +29,7 @@ export function createAuthenticatedClient(
   return client;
 }
 
-function tokenAccessors(hostClient: HostTrpcClient) {
+export function tokenAccessors(hostClient: HostTrpcClient) {
   return {
     getValidAccessToken: () =>
       hostClient.auth.getValidAccessToken.query().then((r) => r.accessToken),
