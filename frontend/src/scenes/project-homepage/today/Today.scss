@@ -231,22 +231,6 @@
     }
 }
 
-.TodaySidebarFooter__avatar {
-    display: flex;
-    flex: 0 0 32px;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    font-family: var(--font-mono);
-    font-size: 10px;
-    font-weight: 700;
-    color: #b84413;
-    background: #ffe7da;
-    border: 1px solid #ffd4bf;
-    border-radius: 8px;
-}
-
 .TodaySidebarFooter__projectText {
     display: flex;
     flex-direction: column;

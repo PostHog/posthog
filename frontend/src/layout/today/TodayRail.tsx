@@ -85,7 +85,7 @@ export function TodayRail(): JSX.Element {
                 >
                     {sidebarVisible ? <IconSidebarClose /> : <IconSidebarOpen />}
                 </ButtonPrimitive>
-                <NewAccountMenu isLayoutNavCollapsed />
+                {!sidebarVisible && <NewAccountMenu isLayoutNavCollapsed />}
             </div>
         </nav>
     )
