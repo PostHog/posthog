@@ -16,6 +16,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import boto3
+import requests
 from botocore.client import Config as BotoConfig
 from google.genai import types as genai_types
 from pydantic import ValidationError
@@ -550,6 +551,34 @@ def test_collect_records_the_org_and_reuses_only_the_collected_teams_cases(tmp_p
     assert dataset.organization_id == _ORG_ID
     assert [case.case_id for case in dataset.cases] == ["c1"]
     assert load_dataset(tmp_path) == dataset
+
+
+@pytest.mark.parametrize("error", [requests.ReadTimeout("slow"), requests.HTTPError("500")])
+def test_collect_skips_a_case_whose_request_fails(tmp_path: Path, error: Exception) -> None:
+    api = MagicMock()
+    api.get_json.side_effect = lambda path: (
+        {"id": 2, "project_id": 2, "organization": _ORG_ID, "name": "Team"}
+        if path == "/api/environments/2/"
+        else {"is_ai_data_processing_approved": True}
+    )
+    candidates = [{"scanner_type": "monitor", "observation": {"id": f"o{i}", "session_id": f"s{i}"}} for i in (1, 2)]
+    kept = _golden_case_on_disk("c2", tmp_path)
+
+    with (
+        patch.object(collector, "PostHogApi", return_value=api),
+        patch.object(collector, "fetch_product_context_via_api", return_value=""),
+        patch.object(collector, "EventDescriptionLookup"),
+        patch.object(collector, "_fetch_candidates", return_value=candidates),
+        patch.object(collector, "order_candidates", return_value={"monitor": candidates}),
+        patch.object(collector, "lookup_video_assets", return_value={"s1": MagicMock(), "s2": MagicMock()}),
+        patch.object(collector, "asset_is_recorded_video", return_value=True),
+        patch.object(collector, "_write_case", side_effect=[error, kept]),
+    ):
+        dataset = collector.collect(
+            host="https://us.posthog.com", project_id=2, api_key="test-key", output=tmp_path, per_type=2
+        )
+
+    assert [case.case_id for case in dataset.cases] == ["c2"]
 
 
 def test_download_pinned_dataset_replaces_existing_local_case_files(tmp_path: Path, pin_store: _FakePinStore) -> None:

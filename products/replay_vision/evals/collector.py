@@ -589,7 +589,8 @@ def collect(
                 continue
             try:
                 case = _write_case(api, output, candidate, asset, source)
-            except requests.HTTPError as exc:
+            # Timeouts too, not only HTTP errors, so one slow query skips its case instead of ending the run.
+            except requests.RequestException as exc:
                 logger.warning("collector.case_failed", observation_id=candidate["observation"]["id"], error=str(exc))
                 continue
             if case is None:
