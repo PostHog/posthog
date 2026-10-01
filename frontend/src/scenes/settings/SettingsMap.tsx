@@ -89,6 +89,7 @@ import {
     ActivityLogOrgLevelSettings,
     ActivityLogSettings,
 } from './environment/ActivityLogSettings'
+import { AgentUsageSettings } from './environment/AgentUsageSettings'
 import { AutocaptureSettings, WebVitalsAutocaptureSettings } from './environment/AutocaptureSettings'
 import { CorrelationConfig } from './environment/CorrelationConfig'
 import { CSPReportingSettings } from './environment/CSPReportingSettings'
@@ -509,6 +510,30 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Instructions that PostHog cloud agents read after the project instructions in Tasks runs you start, from PostHog AI, Slack, or PostHog Desktop. Use them for your personal preferences and for anything you want agents to remember about how you work. Anyone who continues a task you started can see them, so leave out anything private. Self-driving and scheduled runs do not use them.',
                 component: <AgentPersonalInstructionsSettings />,
                 keywords: ['ai', 'agent', 'agents.md', 'claude.md', 'instructions', 'tasks', 'cloud', 'personal'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-ai-usage',
+        title: 'Usage',
+        group: 'AI',
+        flag: 'TODAY_RAIL_NAV',
+        keywords: ['plan & usage', 'cost management', 'spend', 'credits', 'billing'],
+        settings: [
+            {
+                id: 'ai-usage-spend',
+                title: (
+                    <>
+                        Your agent spend
+                        <SettingScopeTag scope="user" />
+                    </>
+                ),
+                searchTerm: 'Your agent spend',
+                description: 'What your PostHog Desktop and cloud agent runs cost, across all your projects.',
+                component: <AgentUsageSettings />,
+                keywords: ['spend', 'cost', 'usage', 'credits', 'billing', 'models', 'desktop'],
+                hideOn: [Realm.SelfHostedClickHouse, Realm.SelfHostedPostgres],
             },
         ],
     },
