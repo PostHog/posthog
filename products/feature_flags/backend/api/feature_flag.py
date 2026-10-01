@@ -3270,6 +3270,11 @@ class FeatureFlagTestEvaluationRequestSerializer(serializers.Serializer):
         help_text="Groups for feature flag evaluation (JSON object, defaults to empty dict)",
     )
 
+    def validate_groups(self, value: Any) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("groups must be a JSON object")
+        return value
+
     def validate(self, attrs):
         distinct_id = attrs.get("distinct_id")
         person_id = attrs.get("person_id")
@@ -3315,7 +3320,11 @@ class FeatureFlagConditionAnalysisSerializer(serializers.Serializer):
     rollout_excluded = serializers.BooleanField(
         help_text="Whether this condition matched properties but was excluded due to rollout"
     )
-    variant = serializers.CharField(allow_null=True, help_text="Variant associated with this condition")
+    variant = serializers.CharField(
+        allow_null=True,
+        allow_blank=True,
+        help_text="Variant associated with this condition. Empty or null when the condition has no variant override.",
+    )
     properties = FeatureFlagConditionPropertyAnalysisSerializer(
         many=True, help_text="Analysis of each property in this condition"
     )
@@ -5853,6 +5862,9 @@ class FeatureFlagViewSet(
                 flag_keys=[feature_flag.key],
                 internal_request_token=internal_token,
                 override_flags_definitions=override_definitions,
+                # A pooled connection that the service closed fails once with a reset, so retry it.
+                # The retry also covers a timeout, which doubles the worst-case wait to about 2x the proxy timeout.
+                max_retries=1,
             )
 
             # Extract the flag result from the Rust response
@@ -5947,9 +5959,75 @@ class FeatureFlagViewSet(
             }
 
             response_serializer = FeatureFlagTestEvaluationResponseSerializer(data=response_data)
-            response_serializer.is_valid(raise_exception=True)
+            if not response_serializer.is_valid():
+                logger.error(
+                    "Flag evaluation service response failed validation in test_evaluation",
+                    extra={**log_context, "flag_key": feature_flag.key, "errors": response_serializer.errors},
+                )
+                capture_exception(serializers.ValidationError(response_serializer.errors))
+                return Response(
+                    {"error": "Unexpected response format from flag evaluation service"},
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
             return Response(response_serializer.data)
 
+        except RETRYABLE_FLAGS_SERVICE_EXCEPTIONS as e:
+            logger.warning(
+                "Flag evaluation service unreachable for flag %s: %s", feature_flag.key, e, extra=log_context
+            )
+            return Response(
+                {"error": "Flag evaluation service temporarily unavailable. Please retry."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except requests.exceptions.HTTPError as e:
+            service_status = e.response.status_code if e.response is not None else None
+            if service_status in (
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                status.HTTP_504_GATEWAY_TIMEOUT,
+            ):
+                # The service sends these statuses when it is overloaded or a dependency is down.
+                # They clear on retry like a connection error, so they are not captured as exceptions.
+                logger.warning(
+                    "Flag evaluation service busy for flag %s: HTTP %s",
+                    feature_flag.key,
+                    service_status,
+                    extra=log_context,
+                )
+                return Response(
+                    {"error": "Flag evaluation service temporarily unavailable. Please retry."},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
+            # Django builds the request body and the request serializer validates the user input,
+            # so any other error status, a 400 included, is a fault on our side or in the service.
+            logger.exception(
+                "Flag evaluation service returned an error for flag %s", feature_flag.key, extra=log_context
+            )
+            capture_exception(e)
+            return Response(
+                {"error": f"Flag evaluation service returned HTTP {service_status}. Please retry."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        except requests.exceptions.JSONDecodeError as e:
+            logger.exception(
+                "Flag evaluation service returned a body that is not JSON for flag %s",
+                feature_flag.key,
+                extra=log_context,
+            )
+            capture_exception(e)
+            return Response(
+                {"error": "Unexpected response format from flag evaluation service"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        except requests.exceptions.RequestException as e:
+            logger.warning(
+                "Flag evaluation service call failed for flag %s: %s", feature_flag.key, e, extra=log_context
+            )
+            capture_exception(e)
+            return Response(
+                {"error": "Flag evaluation service temporarily unavailable. Please retry."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
         except Exception as e:
             logger.exception(
                 "Error evaluating flag '%s' for distinct_id='%s' person_id='%s' timestamp='%s': %s",
