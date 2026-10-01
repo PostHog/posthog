@@ -279,6 +279,14 @@ export function validateDraft(mode: ScoreDefinitionModalMode, draft: ScoreDefini
             const minimum = parseOptionalInteger(draft.categoricalMinSelections)
             const maximum = parseOptionalInteger(draft.categoricalMaxSelections)
 
+            if (minimum !== null && minimum < 1) {
+                return 'Minimum selections must be at least 1.'
+            }
+
+            if (maximum !== null && maximum < 1) {
+                return 'Maximum selections must be at least 1.'
+            }
+
             if (minimum !== null && minimum > draft.options.length) {
                 return 'Minimum selections cannot exceed the number of options.'
             }

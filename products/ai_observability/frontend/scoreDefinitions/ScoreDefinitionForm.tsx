@@ -180,7 +180,7 @@ export function ScoreDefinitionForm({
                                             type="number"
                                             value={getIntegerInputValue(draft[field])}
                                             onChange={(value) => setDraftField(field, formatNumericInputValue(value))}
-                                            min={0}
+                                            min={1}
                                             max={draft.options.length}
                                             step={1}
                                             placeholder="Not set"

@@ -64,4 +64,39 @@ describe('scorer form configuration', () => {
         expect(validateDraft('config', { ...draft, numericPassingEnabled: false })).toBeUndefined()
         expect(buildConfigFromDraft({ ...draft, numericPassingEnabled: false })).toEqual({ min: 0, max: 10 })
     })
+
+    it.each([
+        {
+            categoricalMinSelections: '0',
+            categoricalMaxSelections: '',
+            error: 'Minimum selections must be at least 1.',
+        },
+        {
+            categoricalMinSelections: '',
+            categoricalMaxSelections: '0',
+            error: 'Maximum selections must be at least 1.',
+        },
+        { categoricalMinSelections: '1', categoricalMaxSelections: '1', error: undefined },
+        { categoricalMinSelections: '', categoricalMaxSelections: '', error: undefined },
+    ])(
+        'validates multiple selection bounds min=$categoricalMinSelections max=$categoricalMaxSelections',
+        ({ categoricalMinSelections, categoricalMaxSelections, error }) => {
+            const draft = {
+                ...createDraft('config', {
+                    ...definition,
+                    kind: 'categorical',
+                    config: {
+                        options: [
+                            { key: 'good', label: 'Good' },
+                            { key: 'bad', label: 'Bad' },
+                        ],
+                    },
+                }),
+                selectionMode: 'multiple' as const,
+                categoricalMinSelections,
+                categoricalMaxSelections,
+            }
+            expect(validateDraft('config', draft)).toBe(error)
+        }
+    )
 })
