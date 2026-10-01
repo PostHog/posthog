@@ -120,6 +120,14 @@ completion signal arrived during delivery. This applies to user and peer message
 An open turn blocks sandbox rotation. If its sandbox disappears before completion,
 a workflow-origin run fails instead of reporting unfinished work as completed.
 
+With `tasks-rotation-activity-guard`, active heartbeats also block rotation until
+the agent reports idle, including background work after a user turn ends.
+Activity during snapshot capture or replacement startup abandons the handoff and
+keeps the live sandbox. The event relay stays active until startup finishes, and
+an abandoned handoff with new activity requests a fresh snapshot.
+Directory resume snapshots cover `/tmp/workspace`, including nested Git worktrees
+and agent state. Paths outside that directory are not included.
+
 ## Running via the UI
 
 This is very minimal at the moment, but the tasks page can be used to see what
