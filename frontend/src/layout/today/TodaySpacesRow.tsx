@@ -15,7 +15,6 @@ const HOVER_TRAILING_PADDING = [
     'group-hover/row:pr-16 group-focus-within/row:pr-16 group-has-[[data-popup-open]]/row:pr-16',
     'group-hover/row:pr-20 group-focus-within/row:pr-20 group-has-[[data-popup-open]]/row:pr-20',
     'group-hover/row:pr-24 group-focus-within/row:pr-24 group-has-[[data-popup-open]]/row:pr-24',
-    'group-hover/row:pr-28 group-focus-within/row:pr-28 group-has-[[data-popup-open]]/row:pr-28',
 ] as const
 
 interface TodaySpacesRowProps {
@@ -29,8 +28,6 @@ interface TodaySpacesRowProps {
     badge?: JSX.Element | null
     /** How many icon-sized slots `badge` takes, so the label truncates before them. */
     badgeCount?: 1 | 2 | 3
-    /** How many icon buttons `action` holds, so the label truncates before them. */
-    actionCount?: 1 | 2
     unread?: boolean
     /** Off when the row's icon already marks it unread. */
     unreadDot?: boolean
@@ -51,7 +48,6 @@ export function TodaySpacesRow({
     action,
     badge,
     badgeCount = 1,
-    actionCount = 1,
     unread = false,
     unreadDot = true,
     ticker = false,
@@ -61,7 +57,7 @@ export function TodaySpacesRow({
     const [hovered, setHovered] = useState(false)
     const [keyboardFocused, setKeyboardFocused] = useState(false)
     const badgeSlots = badge ? badgeCount : 0
-    const actionSlots = action ? actionCount : 0
+    const actionSlots = action ? 1 : 0
     const showUnreadDot = unread && unreadDot && !active
     // Like PostHog Desktop, a row with badges shows its unread dot after them.
     const trailingDot = showUnreadDot && !!badge
@@ -122,14 +118,17 @@ export function TodaySpacesRow({
                 // Like PostHog Desktop, the badges sit at the end of the row and move left for the hover action.
                 // The action stays while its menu is open, so the menu keeps its anchor after the pointer leaves.
                 <div className="absolute right-1 flex min-w-0 items-center gap-0.5">
-                    {badge}
-                    {trailingDot && (
-                        <span
-                            aria-hidden
-                            className="mx-1 size-1.5 shrink-0 rounded-full bg-primary"
-                            data-attr="today-unread-dot"
-                        />
-                    )}
+                    {/* Desktop's spacing between the faces and the unread dot. */}
+                    <span className="flex shrink-0 items-center gap-1.5">
+                        {badge}
+                        {trailingDot && (
+                            <span
+                                aria-hidden
+                                className="mr-1 size-1.5 shrink-0 rounded-full bg-primary"
+                                data-attr="today-unread-dot"
+                            />
+                        )}
+                    </span>
                     {action && (
                         <div className="hidden group-focus-within/row:flex group-hover/row:flex group-has-[[data-popup-open]]/row:flex">
                             {action}
