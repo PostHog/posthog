@@ -452,10 +452,13 @@ describe('featureFlagLogic', () => {
             expect(logic.values.originalFeatureFlag?.name).toBe('second agent change')
         })
 
-        const mutationsDuringRefresh: [string, (flag: FeatureFlagType) => void][] = [
+        type MutationDuringRefresh = [string, (flag: FeatureFlagType) => void]
+
+        // These update only the fields they persisted. The inline tag and description saves and the
+        // cross-project toggle re-baseline without dispatching any loader success, so a guard keyed
+        // to those actions cannot see them.
+        const partialFoldsDuringRefresh: MutationDuringRefresh[] = [
             ['a toggle', (flag) => logic.actions.updateFeatureFlagActiveSuccess(flag)],
-            // The inline tag and description saves and the cross-project toggle re-baseline without
-            // dispatching any loader success, so a guard keyed to those actions cannot see them.
             [
                 'an inline field save',
                 (flag) => {
@@ -463,47 +466,49 @@ describe('featureFlagLogic', () => {
                     logic.actions.setOriginalFeatureFlag(flag)
                 },
             ],
-            ['a full reload', (flag) => logic.actions.loadFeatureFlagSuccess(flag)],
         ]
+        const fullReload: MutationDuringRefresh = [
+            'a full reload',
+            (flag) => logic.actions.loadFeatureFlagSuccess(flag),
+        ]
+        const fullSave: MutationDuringRefresh = ['a full save', (flag) => logic.actions.saveFeatureFlagSuccess(flag)]
+
+        // A flag GET held open until `failAfter` lands `mutate`, then answered with a 500. The loader
+        // samples its counters before it calls the API, so mutating before the request is open would
+        // pass without exercising the guard.
+        function heldRefreshFailure(): {
+            mocks: Parameters<typeof useMocks>[0]
+            failAfter: (mutate: (flag: FeatureFlagType) => void) => Promise<void>
+        } {
+            const response = deferred()
+            const requestStarted = deferred()
+            return {
+                mocks: {
+                    get: {
+                        [FLAG_URL]: async () => {
+                            requestStarted.resolve()
+                            await response.promise
+                            return [500, SERVER_ERROR_BODY]
+                        },
+                    },
+                },
+                failAfter: async (mutate) => {
+                    logic.actions.refreshFeatureFlagAfterAgentChange()
+                    await requestStarted.promise
+                    mutate({ ...MOCK_FEATURE_FLAG, active: false, version: 7 } as FeatureFlagType)
+                    response.resolve()
+                },
+            }
+        }
 
         // The case above holds a refresh against a second refresh, which `breakpoint()` covers on
         // its own. A mutation landing mid-request needs a separate guard, so it needs its own case.
-        it.each(mutationsDuringRefresh)('discards a refresh response that %s superseded', async (_label, mutate) => {
-            const response = deferred()
-            // The loader samples the mutation count before it calls the API, so mutating before the
-            // request is open would pass without exercising the guard.
-            const requestStarted = deferred()
-
-            useMocks({
-                get: {
-                    [FLAG_URL]: async () => {
-                        requestStarted.resolve()
-                        await response.promise
-                        return [200, { ...MOCK_FEATURE_FLAG, name: 'agent change', active: true, version: 3 }]
-                    },
-                },
-            })
-
-            logic.actions.refreshFeatureFlagAfterAgentChange()
-            await requestStarted.promise
-
-            mutate({ ...MOCK_FEATURE_FLAG, active: false, version: 7 } as FeatureFlagType)
-            expect(logic.values.featureFlag.active).toBe(false)
-
-            response.resolve()
-            await expectLogic(logic).toDispatchActions(['refreshFeatureFlagSuccess']).toFinishAllListeners()
-
-            expect(logic.values.featureFlag.active).toBe(false)
-            expect(logic.values.featureFlag.name).toBe('test-name')
-            expect(logic.values.featureFlag.version).toBe(7)
-        })
-
-        // The failure notice never closes on its own, so a failure that lands after newer state would
-        // tell the reader a current page is stale until they act on it.
-        it.each(mutationsDuringRefresh)('says nothing when a refresh fails after %s', async (_label, mutate) => {
-            silenceKeaLoadersErrors()
-            try {
+        it.each([...partialFoldsDuringRefresh, fullReload])(
+            'discards a refresh response that %s superseded',
+            async (_label, mutate) => {
                 const response = deferred()
+                // The loader samples the mutation count before it calls the API, so mutating before the
+                // request is open would pass without exercising the guard.
                 const requestStarted = deferred()
 
                 useMocks({
@@ -511,7 +516,7 @@ describe('featureFlagLogic', () => {
                         [FLAG_URL]: async () => {
                             requestStarted.resolve()
                             await response.promise
-                            return [500, SERVER_ERROR_BODY]
+                            return [200, { ...MOCK_FEATURE_FLAG, name: 'agent change', active: true, version: 3 }]
                         },
                     },
                 })
@@ -520,14 +525,48 @@ describe('featureFlagLogic', () => {
                 await requestStarted.promise
 
                 mutate({ ...MOCK_FEATURE_FLAG, active: false, version: 7 } as FeatureFlagType)
+                expect(logic.values.featureFlag.active).toBe(false)
 
                 response.resolve()
+                await expectLogic(logic).toDispatchActions(['refreshFeatureFlagSuccess']).toFinishAllListeners()
+
+                expect(logic.values.featureFlag.active).toBe(false)
+                expect(logic.values.featureFlag.name).toBe('test-name')
+                expect(logic.values.featureFlag.version).toBe(7)
+            }
+        )
+
+        // The failure notice never closes on its own, so a failure that lands after a whole-flag
+        // replacement would tell the reader a current page is stale until they act on it.
+        it.each([fullReload, fullSave])('says nothing when a refresh fails after %s', async (_label, mutate) => {
+            silenceKeaLoadersErrors()
+            try {
+                const held = heldRefreshFailure()
+                useMocks(held.mocks)
+                await held.failAfter(mutate)
                 await expectLogic(logic)
                     .toDispatchActions(['refreshFeatureFlagSuccess'])
                     .toNotHaveDispatchedActions(['refreshFeatureFlagFailure'])
                     .toFinishAllListeners()
 
                 expect(lemonToast.error).not.toHaveBeenCalled()
+            } finally {
+                resumeKeaLoadersErrors()
+            }
+        })
+
+        // A partial fold leaves the page without the agent's other changes and carries the fresh
+        // `version` into the form, so the next save passes the stale-write check and overwrites
+        // them with no error. The notice is the only warning.
+        it.each(partialFoldsDuringRefresh)('still says the refresh failed after %s', async (_label, mutate) => {
+            silenceKeaLoadersErrors()
+            try {
+                const held = heldRefreshFailure()
+                useMocks(held.mocks)
+                await held.failAfter(mutate)
+                await expectLogic(logic).toDispatchActions(['refreshFeatureFlagFailure']).toFinishAllListeners()
+
+                expect(lemonToast.error).toHaveBeenCalledTimes(1)
             } finally {
                 resumeKeaLoadersErrors()
             }

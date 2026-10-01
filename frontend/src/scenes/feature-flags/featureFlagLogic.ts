@@ -1013,6 +1013,7 @@ export interface featureFlagLogicValues {
     >
     flagIntent: FlagIntent | null
     flagMutationCount: number
+    flagReplacementCount: number
     flagStatus: FeatureFlagStatusResponseApi | null
     flagStatusLoading: boolean
     flagType: 'boolean' | 'multivariate' | 'remote_config'
@@ -2353,6 +2354,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 setOriginalFeatureFlag: (state) => state + 1,
             },
         ],
+        flagReplacementCount: [
+            0,
+            {
+                loadFeatureFlagSuccess: (state) => state + 1,
+                saveFeatureFlagSuccess: (state) => state + 1,
+            },
+        ],
         originalFeatureFlag: [
             null as FeatureFlagType | null,
             {
@@ -3325,6 +3333,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         return null
                     }
                     const mutationsBefore = values.flagMutationCount
+                    const replacementsBefore = values.flagReplacementCount
                     let retrievedFlag: FeatureFlagType
                     try {
                         retrievedFlag = await api.featureFlags.get(props.id)
@@ -3339,10 +3348,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         // about values the page already shows. kea-loaders swallows the breakpoint
                         // and dispatches no failure, as the status loader below does for its verdict.
                         breakpoint()
-                        // A load or save that landed while this request was open replaced the values
-                        // the notice calls old, and the notice never closes on its own. The success
-                        // path below discards its response on the same check.
-                        if (values.flagMutationCount !== mutationsBefore) {
+                        // A full load or save that landed while this request was open replaced every
+                        // field, so the values the notice would call old are gone. A partial fold (a
+                        // toggle, an inline description or tag save) must not count: it updates only
+                        // its own fields and carries the fresh `version` into the form, so the page
+                        // still lacks the agent's other changes while a later save passes the
+                        // stale-write check and overwrites them. The notice is the only warning.
+                        if (values.flagReplacementCount !== replacementsBefore) {
                             return null
                         }
                         throw error
