@@ -22,7 +22,7 @@ describe('cloudImagesLogic', () => {
     let logic: ReturnType<typeof cloudImagesLogic.build>
     let createBody: Record<string, unknown> | null
 
-    const mountWith = (listResponse: unknown): void => {
+    const useMountedLogicWith = (listResponse: unknown): void => {
         createBody = null
         useMocks({
             get: { '/api/projects/:team/sandbox_custom_images/': listResponse as any },
@@ -41,7 +41,10 @@ describe('cloudImagesLogic', () => {
     afterEach(() => logic.unmount())
 
     it('marks custom images as unavailable when the project cannot use them', async () => {
-        mountWith(() => [403, { detail: 'Custom sandbox images require the Modal VM runtime, which is not enabled' }])
+        useMountedLogicWith(() => [
+            403,
+            { detail: 'Custom sandbox images require the Modal VM runtime, which is not enabled' },
+        ])
 
         await expectLogic(logic).toFinishAllListeners()
 
@@ -50,7 +53,7 @@ describe('cloudImagesLogic', () => {
     })
 
     it('hides archived images', async () => {
-        mountWith({ count: 2, results: [IMAGE, { ...IMAGE, id: 'old', status: 'archived' }] })
+        useMountedLogicWith({ count: 2, results: [IMAGE, { ...IMAGE, id: 'old', status: 'archived' }] })
 
         await expectLogic(logic).toFinishAllListeners()
 
@@ -58,7 +61,7 @@ describe('cloudImagesLogic', () => {
     })
 
     it('creates an image and opens its builder task', async () => {
-        mountWith({ count: 0, results: [] })
+        useMountedLogicWith({ count: 0, results: [] })
         await expectLogic(logic).toFinishAllListeners()
 
         logic.actions.startNewImage()
