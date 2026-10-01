@@ -24,10 +24,10 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.schema.persons_pdi import PersonsPDITable
 from posthog.hogql.database.schema.persons_revenue_analytics import PersonsRevenueAnalyticsTable
-from posthog.hogql.database.schema.util.where_clause_extractor import WhereClauseExtractor
+from posthog.hogql.database.schema.util.where_clause_extractor import WhereClauseExtractor, top_level_conjuncts
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.parser import parse_select
-from posthog.hogql.visitor import CloningVisitor, clone_expr
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.schema_enums import PersonsArgMaxVersion
 
@@ -268,6 +268,86 @@ def select_from_persons_table(
     return select
 
 
+class _CopyableConjunctVisitor(TraversingVisitor):
+    def __init__(self, table_type: ast.Type):
+        super().__init__()
+        self.table_type = table_type
+        self.reads_table = False
+        self.copyable = True
+
+    def visit_field(self, node: ast.Field):
+        field_type = node.type.field_type if isinstance(node.type, ast.PropertyType) else node.type
+        if isinstance(field_type, ast.FieldType) and field_type.table_type is self.table_type:
+            self.reads_table = True
+        else:
+            self.copyable = False
+
+    # A subquery or a lambda does not resolve again inside a new FROM.
+    def visit_select_query(self, node: ast.SelectQuery):
+        self.copyable = False
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery):
+        self.copyable = False
+
+    def visit_lambda(self, node: ast.Lambda):
+        self.copyable = False
+
+    def visit_call(self, node: ast.Call):
+        # rand() returns different values in the subquery and in the outer query.
+        if node.name.lower() == "rand":
+            self.copyable = False
+        super().visit_call(node)
+
+
+# The copy drops the hidden alias that the resolver puts on every field. The resolver adds it back.
+class _AliasStrippingCloner(CloningVisitor):
+    def visit_alias(self, node: ast.Alias) -> Expr:
+        return self.visit(node.expr)
+
+
+def build_person_id_pushdown_predicate(join_to_add: LazyJoinToAdd, node: SelectQuery) -> Optional[Expr]:
+    """Build `id IN (SELECT person_id FROM <left table> WHERE <conjuncts>)` for the joined persons subquery.
+
+    The conjuncts are the top-level AND terms of the outer WHERE and PREWHERE that read only the left table.
+    Every row that the outer query keeps satisfies all of them. Its person stays in the set. The join returns the same
+    rows. A term is copied whole or left out. Leaving a term out only widens the set.
+    Returns None unless the left table is the query's own FROM table and at least one term qualifies.
+    """
+    left = node.select_from
+    if (
+        left is None
+        or not isinstance(left.table, ast.Field)
+        or left.table_args
+        or left.type is not join_to_add.lazy_join_type.table_type
+    ):
+        return None
+
+    cloner = _AliasStrippingCloner(clear_types=True, clear_locations=True)
+    conjuncts: list[Expr] = []
+    for where in (node.where, node.prewhere):
+        if where is None:
+            continue
+        for conjunct in top_level_conjuncts(where):
+            visitor = _CopyableConjunctVisitor(left.type)
+            visitor.visit(conjunct)
+            if visitor.copyable and visitor.reads_table:
+                conjuncts.append(cloner.visit(conjunct))
+    if not conjuncts:
+        return None
+
+    return ast.CompareOperation(
+        op=ast.CompareOperationOp.In,
+        left=ast.Field(chain=["id"]),
+        # The resolver turns this into GLOBAL IN. GLOBAL IN does not deduplicate the set that it ships to each shard.
+        right=ast.SelectQuery(
+            distinct=True,
+            select=[ast.Field(chain=[join_to_add.from_table, "person_id"])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=list(left.table.chain)), alias=left.alias),
+            where=conjuncts[0] if len(conjuncts) == 1 else ast.And(exprs=conjuncts),
+        ),
+    )
+
+
 def join_with_persons_table(
     join_to_add: LazyJoinToAdd,
     context: HogQLContext,
@@ -277,7 +357,8 @@ def join_with_persons_table(
 
     if not join_to_add.fields_accessed:
         raise ResolutionError("No fields requested from persons table")
-    join_expr = ast.JoinExpr(table=select_from_persons_table(join_to_add, context, node))
+    pushdown = build_person_id_pushdown_predicate(join_to_add, node) if context.modifiers.personIdPushdown else None
+    join_expr = ast.JoinExpr(table=select_from_persons_table(join_to_add, context, node, filter=pushdown))
 
     organization: Organization | None = context.team.organization if context.team else None
     if organization is None:
