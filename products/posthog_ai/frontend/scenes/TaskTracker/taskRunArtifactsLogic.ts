@@ -274,6 +274,8 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
             setActiveTab: ({ tab }) => {
                 if (tab === 'artifacts') {
                     posthog.capture('task artifacts tab opened', { artifact_count: values.artifacts.length })
+                    // The agent can upload a file after the page loads, so read the manifests again.
+                    actions.loadChainRuns(values.runs.map((run) => run.id))
                 }
                 previewSelected()
             },

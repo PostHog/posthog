@@ -266,7 +266,8 @@ function taskMocks(
                 count: runs.length,
                 next: null,
                 previous: null,
-                results: runs,
+                // The real runs list carries no artifact manifests.
+                results: runs.map(({ artifacts: _artifacts, ...rest }) => rest),
             },
             [`/api/projects/:team_id/tasks/${TASK_ID}/runs/${RUN_ID}/`]: run,
             [`/api/projects/:team_id/tasks/${TASK_ID}/runs/${EARLIER_RUN_ID}/`]: earlierRun,
