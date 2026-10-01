@@ -28,14 +28,22 @@ import {
     TaskActivityReadMarkerApi,
     TaskListItemApi,
 } from 'products/tasks/frontend/generated/api.schemas'
+import {
+    SpaceActivity,
+    SpacePresence,
+    lastActivityBySpace,
+    presenceBySpace,
+} from 'products/tasks/frontend/spaces/spacePresence'
 import { pullRequestStates, sessionIdsWithPullRequests } from 'products/tasks/frontend/spaces/taskPullRequests'
 
+import { TodaySpacePreview, spacePreview } from './todayPreviewCards'
 import {
     DEFAULT_RECENT_FILTERS,
     TodayRecentFilters,
     filterRecentItems,
     hasActiveRecentFilters,
     recentSourceOptions,
+    withRecentFilterDefaults,
 } from './todayRecentFilters'
 import {
     DEFAULT_RECENT_GROUPING,
@@ -63,6 +71,10 @@ const RECENT_ITEM_LIMIT = 30
 const UNREAD_ACTIVITY_LIMIT = 200
 // The sidebar and a space scene both refresh on mount, so collapse their requests into one.
 const UNREAD_ACTIVITY_DEBOUNCE_MS = 100
+// Like PostHog Desktop: one page of the team's newest activity across all spaces, polled slowly.
+// A space whose latest activity sits below this page shows no faces.
+const SPACE_PRESENCE_FETCH_LIMIT = 100
+const SPACE_PRESENCE_POLL_INTERVAL_MS = 90_000
 
 export type TodayWorkSectionId = 'pinned' | 'recent' | 'spaces'
 
@@ -81,7 +93,7 @@ export function sortSpaces(spaces: ChannelDTOApi[]): ChannelDTOApi[] {
 }
 
 export function spaceLabel(space: Pick<ChannelDTOApi, 'name' | 'system_role'>): string {
-    return space.system_role === 'personal' ? 'Me' : space.name
+    return space.system_role === 'personal' ? 'personal' : space.name
 }
 
 /** Only some people can see it: the personal space, or a private shared space. */
@@ -141,10 +153,15 @@ export interface todaySpacesLogicValues {
     recentTasksUnavailable: boolean
     sectionHeights: Partial<Record<TodayWorkSectionId, number>>
     sortedSpaces: ChannelDTOApi[]
+    spaceActivity: SpaceActivity
+    spaceActivityLoading: boolean
     spaceNames: Record<string, string>
+    spacePresence: Record<string, SpacePresence>
+    spacePreviews: Record<string, TodaySpacePreview>
     spaces: ChannelDTOApi[]
     spacesLoading: boolean
     spacesUnavailable: boolean
+    storedRecentFilters: Partial<TodayRecentFilters>
     taskActivity: TaskActivityDTOApi[]
     taskActivityLoading: boolean
     unreadSessionIds: Set<string>
@@ -215,6 +232,27 @@ export interface todaySpacesLogicActions {
         payload?: any
     ) => {
         recentTasks: TaskListItemApi[]
+        payload?: any
+    }
+    loadSpaceActivity: () => any
+    loadSpaceActivityFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadSpaceActivitySuccess: (
+        spaceActivity: {
+            lastActivityAt: Record<string, string>
+            presence: Record<string, SpacePresence>
+        },
+        payload?: any
+    ) => {
+        spaceActivity: {
+            lastActivityAt: Record<string, string>
+            presence: Record<string, SpacePresence>
+        }
         payload?: any
     }
     loadSpaces: () => any
@@ -311,15 +349,19 @@ export interface todaySpacesLogicMeta {
             conversationHistory: ConversationDetail[],
             pinnedTasks: TaskListItemApi[]
         ) => TodayWorkItem[]
+        recentFilters: (storedRecentFilters: Partial<TodayRecentFilters>) => TodayRecentFilters
         recentSourceOptions: (allRecentItems: TodayWorkItem[], recentFilters: TodayRecentFilters) => string[]
         recentSearchVisible: (recentSearchOpen: boolean, recentQuery: string) => boolean
         recentFiltersActive: (recentFilters: TodayRecentFilters) => boolean
+        unreadSessionIds: (taskActivity: TaskActivityDTOApi[]) => Set<string>
         recentItems: (
             allRecentItems: TodayWorkItem[],
             recentQuery: string,
             recentFilters: TodayRecentFilters,
             recentSort: TodayRecentSort,
-            user: UserType | null
+            user: UserType | null,
+            unreadSessionIds: Set<string>,
+            pinnedItems: TodayWorkItem[]
         ) => TodayWorkItem[]
         spaceNames: (spaces: ChannelDTOApi[]) => Record<string, string>
         recentGroups: (
@@ -329,8 +371,12 @@ export interface todaySpacesLogicMeta {
             spaceNames: Record<string, string>
         ) => TodayRecentSection[]
         recentLoading: (recentTasksLoading: boolean, conversationHistoryLoading: boolean) => boolean
-        unreadSessionIds: (taskActivity: TaskActivityDTOApi[]) => Set<string>
         unreadSpaceIds: (taskActivity: TaskActivityDTOApi[]) => Set<string>
+        spacePresence: (spaceActivity: SpaceActivity) => Record<string, SpacePresence>
+        spacePreviews: (
+            visibleSpaces: ChannelDTOApi[],
+            spaceActivity: SpaceActivity
+        ) => Record<string, TodaySpacePreview>
     }
 }
 
@@ -420,6 +466,25 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
                 },
             },
         ],
+        spaceActivity: [
+            { presence: {}, lastActivityAt: {} } as SpaceActivity,
+            {
+                loadSpaceActivity: async () => {
+                    if (!values.currentTeamId) {
+                        return { presence: {}, lastActivityAt: {} }
+                    }
+                    const response = await tasksList(String(values.currentTeamId), {
+                        ordering: '-last_activity_at',
+                        basic: true,
+                        limit: SPACE_PRESENCE_FETCH_LIMIT,
+                    })
+                    return {
+                        presence: presenceBySpace(response.results, Date.now()),
+                        lastActivityAt: lastActivityBySpace(response.results),
+                    }
+                },
+            },
+        ],
         taskActivity: [
             [] as TaskActivityDTOApi[],
             {
@@ -465,9 +530,10 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
             false,
             { setRecentSearchOpen: (_, { open }) => open, clearRecentSearchAndFilters: () => false },
         ],
-        recentFilters: [
-            DEFAULT_RECENT_FILTERS,
-            { persist: true },
+        storedRecentFilters: [
+            DEFAULT_RECENT_FILTERS as Partial<TodayRecentFilters>,
+            // pinned: localStorage key. A new key resets every person's saved Recent filters.
+            { persist: true, storageKey: 'layout.today.todaySpacesLogic.recentFilters' },
             {
                 setRecentFilters: (_, { filters }) => filters,
                 clearRecentFilters: () => DEFAULT_RECENT_FILTERS,
@@ -525,6 +591,11 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
                     RECENT_ITEM_LIMIT
                 ),
         ],
+        recentFilters: [
+            (s) => [s.storedRecentFilters],
+            (storedRecentFilters: Partial<TodayRecentFilters>): TodayRecentFilters =>
+                withRecentFilterDefaults(storedRecentFilters),
+        ],
         recentSourceOptions: [
             (s) => [s.allRecentItems, s.recentFilters],
             (allRecentItems: TodayWorkItem[], recentFilters: TodayRecentFilters): string[] =>
@@ -538,17 +609,35 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
             (s) => [s.recentFilters],
             (recentFilters: TodayRecentFilters): boolean => hasActiveRecentFilters(recentFilters),
         ],
+        unreadSessionIds: [
+            (s) => [s.taskActivity],
+            (taskActivity: TaskActivityDTOApi[]): Set<string> => unreadSessionIds(taskActivity),
+        ],
         recentItems: [
-            (s) => [s.allRecentItems, s.recentQuery, s.recentFilters, s.recentSort, s.user],
+            (s) => [
+                s.allRecentItems,
+                s.recentQuery,
+                s.recentFilters,
+                s.recentSort,
+                s.user,
+                s.unreadSessionIds,
+                s.pinnedItems,
+            ],
             (
                 allRecentItems: TodayWorkItem[],
                 recentQuery: string,
                 recentFilters: TodayRecentFilters,
                 recentSort: TodayRecentSort,
-                user: UserType | null
+                user: UserType | null,
+                unreadSessionIds: Set<string>,
+                pinnedItems: TodayWorkItem[]
             ): TodayWorkItem[] =>
                 sortRecentItems(
-                    filterRecentItems(allRecentItems, recentQuery, recentFilters, user?.id ?? null),
+                    filterRecentItems(allRecentItems, recentQuery, recentFilters, {
+                        userId: user?.id ?? null,
+                        unreadIds: unreadSessionIds,
+                        pinnedIds: new Set(pinnedItems.map((item) => item.id)),
+                    }),
                     recentSort
                 ),
         ],
@@ -571,13 +660,29 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
             (recentTasksLoading: boolean, conversationHistoryLoading: boolean): boolean =>
                 recentTasksLoading || conversationHistoryLoading,
         ],
-        unreadSessionIds: [
-            (s) => [s.taskActivity],
-            (taskActivity: TaskActivityDTOApi[]): Set<string> => unreadSessionIds(taskActivity),
-        ],
         unreadSpaceIds: [
             (s) => [s.taskActivity],
             (taskActivity: TaskActivityDTOApi[]): Set<string> => unreadSpaceIds(taskActivity),
+        ],
+        spacePresence: [
+            (s) => [s.spaceActivity],
+            (spaceActivity: SpaceActivity): Record<string, SpacePresence> => spaceActivity.presence,
+        ],
+        // One object per space that changes only when its inputs do, so the hover card's payload stays stable.
+        spacePreviews: [
+            (s) => [s.visibleSpaces, s.spaceActivity],
+            (visibleSpaces: ChannelDTOApi[], spaceActivity: SpaceActivity): Record<string, TodaySpacePreview> =>
+                Object.fromEntries(
+                    visibleSpaces.map((space) => [
+                        space.id,
+                        spacePreview(
+                            space,
+                            spaceLabel(space),
+                            spaceActivity.presence[space.id],
+                            spaceActivity.lastActivityAt[space.id]
+                        ),
+                    ])
+                ),
         ],
     }),
     listeners(({ actions, values }) => {
@@ -639,9 +744,15 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
             }
         },
     })),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, cache }) => {
         actions.loadSpaces()
         actions.loadPinnedTasks()
         actions.loadRecentTasks()
+        // Setup runs now and again whenever the tab comes back, so the faces refresh on return.
+        cache.disposables.add(() => {
+            actions.loadSpaceActivity()
+            const pollTimer = window.setInterval(() => actions.loadSpaceActivity(), SPACE_PRESENCE_POLL_INTERVAL_MS)
+            return () => clearInterval(pollTimer)
+        }, 'spacePresencePoll')
     }),
 ])

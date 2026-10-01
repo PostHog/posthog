@@ -167,6 +167,7 @@ async fn leader_channel(addr: SocketAddr, http2_windows: Http2Windows) -> Channe
         LeaderBackendConfig {
             num_partitions: 1,
             timeout: Duration::from_secs(5),
+            num_channels: 1,
             http2_windows,
         },
         StashTable::with_bounds(usize::MAX, usize::MAX),
