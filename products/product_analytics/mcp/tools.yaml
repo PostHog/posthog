@@ -154,9 +154,9 @@ tools:
             - Paths: suggest nothing.
 
 
-            Use the chart names a person sees, such as "bar chart per category" or "line chart", not enum values or
-            tool names. If the user named the chart they want, do not suggest others. If you create several insights
-            in this task, give one short list of alternatives at the end, not one per insight.
+            Use the chart names a person sees, such as "bar chart per category" or "line chart", not enum values or tool
+            names. If the user named the chart they want, do not suggest others. If you create several insights in this
+            task, give one short list of alternatives at the end, not one per insight.
 
 
             After creating a Trends, SQL (HogQL), Funnels or Metrics insight, call insight-query with the returned
