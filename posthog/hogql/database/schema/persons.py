@@ -342,7 +342,10 @@ def build_person_id_pushdown_predicate(join_to_add: LazyJoinToAdd, node: SelectQ
         right=ast.SelectQuery(
             distinct=True,
             select=[ast.Field(chain=[join_to_add.from_table, "person_id"])],
-            select_from=ast.JoinExpr(table=ast.Field(chain=list(left.table.chain)), alias=left.alias),
+            # SAMPLE BY is deterministic, so the copied sample reads the same rows as the outer query.
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=list(left.table.chain)), alias=left.alias, sample=cloner.visit(left.sample)
+            ),
             where=conjuncts[0] if len(conjuncts) == 1 else ast.And(exprs=conjuncts),
         ),
     )

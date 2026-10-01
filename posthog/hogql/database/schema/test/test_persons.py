@@ -263,10 +263,12 @@ class TestPersonIdPushdown(ClickhouseTestMixin, APIBaseTest):
             _create_event(event=event, distinct_id=distinct_id, team=self.team, timestamp=timestamp)
         create_person_id_override_by_distinct_id("merged_from", "merged_to", self.team.pk)
 
-    def _execute(self, where: str | None, mode: PersonsOnEventsMode, pushdown: bool) -> HogQLQueryResponse:
+    def _execute(
+        self, where: str | None, mode: PersonsOnEventsMode, pushdown: bool, sample: str = ""
+    ) -> HogQLQueryResponse:
         where_clause = f"WHERE {where}" if where else ""
         return execute_hogql_query(
-            f"SELECT event, person.properties.plan FROM events {where_clause} ORDER BY event",
+            f"SELECT event, person.properties.plan FROM events {sample} {where_clause} ORDER BY event",
             self.team,
             modifiers=HogQLQueryModifiers(personsOnEventsMode=mode, personIdPushdown=pushdown),
         )
@@ -332,6 +334,19 @@ class TestPersonIdPushdown(ClickhouseTestMixin, APIBaseTest):
         # The last events scan before the persons alias is the semi-join. Only the window puts timestamp there.
         assert "timestamp" in sql[sql.rindex("FROM events", 0, end) : end]
         self.assertQueryMatchesSnapshot(response.clickhouse)
+
+    def test_pushdown_copies_sample_into_persons_subquery(self):
+        mode = PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED
+        without_pushdown = self._execute(WINDOW_AND_PAID, mode, pushdown=False, sample="SAMPLE 1/2 OFFSET 1/2")
+
+        with_pushdown = self._execute(WINDOW_AND_PAID, mode, pushdown=True, sample="SAMPLE 1/2 OFFSET 1/2")
+
+        assert {row[0] for row in without_pushdown.results} == {"in_window_paid", "in_window_merged"}
+        assert with_pushdown.results == without_pushdown.results
+        assert with_pushdown.clickhouse is not None
+        sql = " ".join(with_pushdown.clickhouse.split())
+        end = sql.index(" AS events__person ON")
+        assert "SAMPLE 1/2 OFFSET 1/2" in sql[sql.rindex("FROM events", 0, end) : end]
 
 
 class TestPersonsV2LimitPushDown(ClickhouseTestMixin, APIBaseTest):
