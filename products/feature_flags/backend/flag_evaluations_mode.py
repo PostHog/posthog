@@ -10,9 +10,9 @@ from django.db.models import QuerySet
 from posthog.dataclasses import frozen
 from posthog.models import Organization, Team
 
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.flags import get_organization_flag_evaluations_mode
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
-from products.feature_flags.backend.models.team_feature_flags_config import FlagEvaluationsMode
 
 
 @frozen

@@ -1,48 +1,38 @@
-import { expectLogic } from 'kea-test-utils'
-
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { DEFAULT_RECENT_FILTERS, TodayRecentFilters } from './todayRecentFilters'
 import { todaySpacesLogic } from './todaySpacesLogic'
+
+const SAVED_FILTERS_KEY = 'layout.today.todaySpacesLogic.recentFilters'
 
 describe('todaySpacesLogic', () => {
     beforeEach(() => {
+        localStorage.clear()
         useMocks({
             get: {
                 '/api/projects/:team_id/task_channels/': [],
-                '/api/projects/:team_id/tasks/': ({ request }) => {
-                    const channel = new URL(request.url).searchParams.get('channel')
-                    if (channel === 'space-broken') {
-                        return [500, { detail: 'Server error' }]
-                    }
-                    return [200, { results: [{ id: `task-${channel}`, title: `Session in ${channel}` }], count: 1 }]
-                },
+                '/api/projects/:team_id/task_activity/': { results: [] },
+                '/api/projects/:team_id/tasks/': { results: [], count: 0 },
             },
         })
+    })
+
+    it.each<[string, object, Partial<TodayRecentFilters>, boolean]>([
+        ['an untouched menu stays clear', { createdBy: 'anyone', sources: [] }, {}, false],
+        [
+            'a saved choice stays',
+            { createdBy: 'me', sources: ['slack'] },
+            { createdBy: 'me', sources: ['slack'] },
+            true,
+        ],
+    ])('reads Recent filters saved before Status, Pinned and Environment: %s', (_, saved, expected, active) => {
+        localStorage.setItem(SAVED_FILTERS_KEY, JSON.stringify(saved))
         initKeaTests()
-    })
-
-    it('keeps the sessions of every space expanded at the same time', async () => {
         const logic = todaySpacesLogic()
         logic.mount()
 
-        logic.actions.toggleSpace('space-a')
-        logic.actions.toggleSpace('space-b')
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(Object.keys(logic.values.spaceTasks).sort()).toEqual(['space-a', 'space-b'])
-        expect(logic.values.spaceTasks['space-a'][0].id).toBe('task-space-a')
-        expect(logic.values.loadingSpaceIds).toEqual([])
-    })
-
-    it('marks a space whose sessions fail to load, so the sidebar can offer a retry', async () => {
-        const logic = todaySpacesLogic()
-        logic.mount()
-
-        logic.actions.toggleSpace('space-broken')
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(logic.values.failedSpaceIds).toEqual(['space-broken'])
-        expect(logic.values.spaceTasks['space-broken']).toBeUndefined()
+        expect(logic.values.recentFilters).toEqual({ ...DEFAULT_RECENT_FILTERS, ...expected })
+        expect(logic.values.recentFiltersActive).toBe(active)
     })
 })

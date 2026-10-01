@@ -2,6 +2,7 @@ import json
 import urllib.error
 import importlib.util
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,9 @@ assert SPEC is not None
 assert SPEC.loader is not None
 route = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(route)
+
+EVENT_AT = "2026-09-30T05:44:10Z"
+EVENT_EPOCH = datetime.strptime(EVENT_AT, route.EVENT_TIME).replace(tzinfo=UTC).timestamp()
 
 
 def pr(
@@ -157,8 +161,19 @@ def test_parse_percent_fails_closed(raw: str | None, expected: int) -> None:
     assert route.parse_percent(raw) == expected
 
 
-@pytest.mark.parametrize("labels", [json.dumps(["other"]), "null", ""])
-def test_main_writes_outputs(labels: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    "labels,started,expected",
+    [
+        (json.dumps(["other"]), True, "engine=depot\nreason=bucket 30 < 50%\n"),
+        ("null", True, "engine=depot\nreason=bucket 30 < 50%\n"),
+        ("", True, "engine=depot\nreason=bucket 30 < 50%\n"),
+        ("[]", False, "engine=github\nreason=Depot CI started no run for this event\n"),
+        (json.dumps(["ci-backend-depot"]), False, "engine=github\nreason=Depot CI started no run for this event\n"),
+    ],
+)
+def test_main_writes_outputs(
+    labels: str, started: bool, expected: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     output = tmp_path / "out"
     monkeypatch.setenv("GITHUB_OUTPUT", str(output))
     monkeypatch.setenv("EVENT", "pull_request")
@@ -166,11 +181,12 @@ def test_main_writes_outputs(labels: str, tmp_path: Path, monkeypatch: pytest.Mo
     monkeypatch.setenv("PR_NUMBER", "7")
     monkeypatch.setenv("LABELS", labels)
     monkeypatch.setattr(route, "fetch_handoff_checks", lambda repo, sha, token: [])
+    monkeypatch.setattr(route, "depot_started", lambda *_: started)
     monkeypatch.setenv("REPO", "PostHog/posthog")
     monkeypatch.setenv("SHA", "abc")
     monkeypatch.setenv("GH_TOKEN", "t")
     assert route.main() == 0
-    assert output.read_text() == "engine=depot\nreason=bucket 30 < 50%\n"
+    assert output.read_text() == expected
 
 
 @pytest.mark.parametrize("percent", ["", "0", "5"])
@@ -190,6 +206,7 @@ def test_main_keeps_a_handed_off_commit_on_depot_after_rollback(
     monkeypatch.setenv("SHA", "abc")
     monkeypatch.setenv("GH_TOKEN", "t")
     monkeypatch.setattr(route, "fetch_handoff_checks", fetch)
+    monkeypatch.setattr(route, "depot_started", lambda *_: False)
     assert route.main() == 0
     assert output.read_text().startswith("engine=depot\n")
 
@@ -224,3 +241,38 @@ def test_main_never_switches_engines_on_an_unreadable_handoff(
     monkeypatch.setattr(route.time, "sleep", lambda seconds: None)
     assert route.main() == 1
     assert not output.exists()
+
+
+class FakeReader:
+    def __init__(self, polls: list[bool | Exception]) -> None:
+        self.polls = polls
+
+    def read(self, name: str) -> list[str]:
+        assert name == f"Backend CI on Depot / Depot run started (PR 7, event {EVENT_AT})"
+        answer = self.polls.pop(0) if len(self.polls) > 1 else self.polls[0]
+        if isinstance(answer, Exception):
+            raise answer
+        return ["check"] if answer else []
+
+
+@pytest.mark.parametrize(
+    "polls,started,routed_after",
+    [
+        ([True], True, 15),
+        ([False, False, True], True, 15),
+        ([route.ReadFailedError("boom"), True], True, 15),
+        ([False], False, 15),
+        ([route.ReadRefusedError("refused")], False, 15),
+        ([False], False, 400),
+    ],
+)
+def test_depot_started_waits_for_the_started_check_of_the_event(
+    polls: list[bool | Exception], started: bool, routed_after: int
+) -> None:
+    now = [EVENT_EPOCH + routed_after]
+
+    def sleep(seconds: float) -> None:
+        now[0] += seconds
+
+    assert route.depot_started(FakeReader(polls), 7, EVENT_AT, clock=lambda: now[0], sleep=sleep) is started
+    assert now[0] <= max(EVENT_EPOCH + route.DEPOT_START_SECONDS + route.DEPOT_POLL_SECONDS, EVENT_EPOCH + routed_after)

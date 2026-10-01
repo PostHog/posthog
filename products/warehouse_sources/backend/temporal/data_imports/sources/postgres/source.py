@@ -328,6 +328,16 @@ _SSH_GATEWAY_UNREACHABLE_MESSAGE = f"{_SSH_GATEWAY_UNREACHABLE_GUIDANCE}."
 # Mirrors `_SSH_HANDSHAKE_EOF_ERROR` below, the same gateway-configuration class.
 _SSH_GATEWAY_UNREACHABLE_SYNC_MESSAGE = f"{_SSH_GATEWAY_UNREACHABLE_GUIDANCE}, then re-enable the sync."
 
+# sshtunnel raises this once the SSH session is up but no forwarded tunnel came up with it: the
+# bastion could not open a channel to the database host and port, or it refuses port forwarding
+# altogether. Its own wording names neither, so it leaves the user nothing to act on.
+_SSH_FORWARD_FAILED_ERROR = "An error occurred while opening tunnels."
+_SSH_FORWARD_FAILED_MESSAGE = (
+    "PostHog signed in to your SSH server but couldn't reach the database through it. Check that "
+    "the database host and port are reachable from the SSH server, and that the server allows port "
+    "forwarding."
+)
+
 # A source past the SSL cutoff connects with sslmode=require, so a server built without SSL support
 # fails the moment the sync — or a direct query — opens its connection. An SSH tunnel with
 # `require_tls` off is the supported way to reach such a server.
@@ -1688,10 +1698,14 @@ class PostgresSource(
             raw = e.value or ""
             if _SSH_GATEWAY_SESSION_ERROR in raw:
                 return False, _SSH_GATEWAY_UNREACHABLE_MESSAGE
+            if _SSH_FORWARD_FAILED_ERROR in raw:
+                return False, _SSH_FORWARD_FAILED_MESSAGE
+            # sshtunnel writes its messages for whoever is reading a traceback, so an unmapped one
+            # gives the user nothing and can carry the host it was dialing. Keep it for triage.
+            capture_exception(e)
             return (
                 False,
-                raw
-                or f"Could not connect to {self.source_name} via the SSH tunnel. Please check all connection details are valid.",
+                f"Could not connect to {self.source_name} via the SSH tunnel. Please check all connection details are valid.",
             )
         except Exception as e:
             capture_exception(e)
@@ -1912,13 +1926,13 @@ class PostgresSource(
         if job is None:
             raise ValueError(f"Buffered CDC schema {schema.name} has no job row for run {inputs.job_id}")
 
-        proof_time = async_to_sync(completed_listing_proof)(schema)
+        proof = async_to_sync(completed_listing_proof)(schema)
         # The bucket deletes a buffer file once it is older than BUFFER_FILE_RETENTION. A table that has
         # consumed nothing for longer may have lost changes it never loaded, so reading on would leave it
         # wrong for good, and only a re-snapshot makes it correct. Capture does the reset once this run
         # has finished, as it does for any reset a sync could interfere with. A recent proof settles it
         # without the longer read.
-        if proof_time is None and async_to_sync(buffer_expired_unread)(schema):
+        if proof is None and async_to_sync(buffer_expired_unread)(schema):
             inputs.logger.warning(
                 "cdc_buffer_expired_before_consumption", schema_name=schema.name, last_synced_at=schema.last_synced_at
             )
@@ -1938,7 +1952,7 @@ class PostgresSource(
             inputs,
             inputs.logger,
             deletion_floor=deletion_floor,
-            proof_time=proof_time,
+            proof=proof,
         )
         return SourceResponse(
             name=lanes[0].name,

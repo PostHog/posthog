@@ -591,7 +591,7 @@ def sync_cdc_extraction_schedule(
         create_schedule(temporal, id=schedule_id, schedule=schedule, trigger_immediately=trigger_immediately)
     else:
         try:
-            update_schedule(temporal, id=schedule_id, schedule=schedule)
+            update_schedule(temporal, id=schedule_id, schedule=schedule, keep_paused=True)
         except temporalio.service.RPCError as e:
             if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
                 create_schedule(temporal, id=schedule_id, schedule=schedule, trigger_immediately=trigger_immediately)
@@ -707,7 +707,7 @@ async def bulk_sync_cdc_extraction_schedules(
             schedule_id = _get_cdc_extraction_schedule_id(str(source.id))
             schedule = get_cdc_extraction_schedule(source, min_interval)
             try:
-                await a_update_schedule(temporal, id=schedule_id, schedule=schedule)
+                await a_update_schedule(temporal, id=schedule_id, schedule=schedule, keep_paused=True)
             except temporalio.service.RPCError as e:
                 if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
                     await a_create_schedule(temporal, id=schedule_id, schedule=schedule, trigger_immediately=True)

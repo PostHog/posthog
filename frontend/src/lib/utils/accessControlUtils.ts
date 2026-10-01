@@ -318,7 +318,8 @@ export const getProductAccessDisabledReason = (item: {
         return undefined
     }
     const resourceType = sceneToAccessControlResourceType[item.sceneKey as Scene]
-    if (!resourceType || !productHasEffectiveNoneAccess(resourceType)) {
+    const resources = Array.isArray(resourceType) ? resourceType : resourceType ? [resourceType] : []
+    if (!resources.length || !resources.every(productHasEffectiveNoneAccess)) {
         return undefined
     }
     return `You don't have access to ${item.displayLabel || item.path || 'this product'}`

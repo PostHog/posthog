@@ -533,6 +533,8 @@ export interface HogQLQueryModifiers {
     materializedColumnsOptimizationMode?: 'disabled' | 'optimized'
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
     useMaterializedViews?: boolean
+    /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it. */
+    useNewEventsSchema?: boolean
     customChannelTypeRules?: CustomChannelRule[]
     customBotDefinitions?: CustomBotRule[]
     /** Do not treat a missing user agent as automation on cookieless events. Positive bot signals and custom project rules still apply. Resolved server-side; not intended to be set by clients. */
@@ -804,6 +806,15 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
      * @default "AND"
      * */
     operand?: FilterLogicalOperator
+    /**
+     * Where a filter that is evaluated against events must match. 'session' (default) matches an event
+     * anywhere in the session, including before the recording started or after it ended. 'recording' only
+     * matches events from one minute before the recording starts until one minute after it ends.
+     * This applies to every filter the events table answers: events, actions,
+     * event properties, and, when the project resolves them on events, person, group, and cohort properties.
+     * @default "session"
+     */
+    event_match_scope?: 'recording' | 'session'
     session_ids?: string[]
     /** Exclude recordings already viewed by the current user ('current-user'), by any team member ('any-user'), or none (default). Applied server-side so pagination and the result cursor operate on the filtered set. */
     hide_viewed_recordings?: 'current-user' | 'any-user' | null
@@ -8900,6 +8911,11 @@ export interface EndpointsUsageTrendsQuery extends EndpointsUsageQueryBase<Endpo
     compareFilter?: CompareFilter
 }
 
+export interface CustomerAnalyticsPinnedProperty {
+    kind: 'custom_property' | 'relationship'
+    id: string
+}
+
 export interface CustomerAnalyticsConfig {
     activity_event: EventsNode | ActionsNode
     signup_pageview_event: EventsNode | ActionsNode
@@ -8907,6 +8923,7 @@ export interface CustomerAnalyticsConfig {
     subscription_event: EventsNode | ActionsNode
     payment_event: EventsNode | ActionsNode
     account_group_type_index?: integer | null
+    default_pinned_properties?: CustomerAnalyticsPinnedProperty[]
 }
 
 /**
