@@ -69,8 +69,17 @@ class TestKernelSessionRunNode(SimpleTestCase):
         self.assertIn("hello from the kernel", envelope["stdout"])
         self.assertEqual(envelope["columns"], [])
 
-    def test_matplotlib_figure_is_captured_as_png(self):
-        envelope = self._run("import matplotlib.pyplot as plt\nplt.plot([1, 2, 3])")
+    @parameterized.expand(
+        [
+            ("plain", "import matplotlib.pyplot as plt\nplt.plot([1, 2, 3])"),
+            # The inline backend closes each figure after the cell, before the session collects it.
+            ("inline_magic", "%matplotlib inline\nimport matplotlib.pyplot as plt\nplt.plot([1, 2, 3])"),
+            ("show", "%matplotlib inline\nimport matplotlib.pyplot as plt\nplt.plot([1, 2, 3])\nplt.show()"),
+        ]
+    )
+    def test_matplotlib_figure_is_captured_as_png(self, _name, code):
+        envelope = self._run(code)
+        self.assertEqual(envelope["stderr"], "")
         self.assertEqual(len(envelope["media"]), 1)
         self.assertEqual(envelope["media"][0]["mime_type"], "image/png")
         self.assertTrue(envelope["media"][0]["data"])

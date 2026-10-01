@@ -34,6 +34,7 @@ import json
 import uuid
 import base64
 import logging
+import warnings
 from typing import Any, NamedTuple
 
 import duckdb
@@ -138,7 +139,14 @@ def _load_headless_pyplot() -> Any:
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt  # noqa: PLC0415 — heavy, sandbox-only
 
+    # The session renders figures itself, so `plt.show()` has nothing to report.
+    warnings.filterwarnings("ignore", message="FigureCanvasAgg is non-interactive", category=UserWarning)
+
     return plt
+
+
+def _keep_headless_backend(line: str = "") -> None:
+    """Stand in for `%matplotlib`: the session captures every open figure after each run."""
 
 
 class KernelSession:
@@ -168,6 +176,10 @@ class KernelSession:
         self._bound_variables: set[str] = set()
         # Agg backend set now, before any user `import matplotlib.pyplot`, so plots stay headless.
         self._plt = _load_headless_pyplot()
+        # `%matplotlib inline` would switch to a backend that closes each figure when the cell
+        # ends, before the session collects it. Every figure already renders inline here, so the
+        # magic keeps the headless backend instead.
+        self.shell.register_magic_function(_keep_headless_backend, magic_kind="line", magic_name="matplotlib")
 
     def run_node(self, payload: dict[str, Any]) -> dict[str, Any]:
         result = self._execute_node(payload)
