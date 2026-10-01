@@ -194,6 +194,7 @@ export interface SettingsSectionSummary {
         titleString: string | null
         descriptionString: string | null
         keywords?: string[]
+        flag?: SettingSection['flag']
     }[]
 }
 
@@ -1406,12 +1407,6 @@ export const searchLogic = kea<searchLogicType>([
                         section.level === 'environment' ? section.id.replace('environment-', 'project-') : section.id
                     ) as SettingSectionId
 
-                    // Skip duplicate project sections (environment sections take priority)
-                    if (seenSectionIds.has(effectiveSectionId)) {
-                        continue
-                    }
-                    seenSectionIds.add(effectiveSectionId)
-
                     // Filter by feature flag if required
                     if (section.flag) {
                         if (!checkFlag(section.flag as Pick<Setting, 'flag'>['flag'])) {
@@ -1419,13 +1414,19 @@ export const searchLogic = kea<searchLogicType>([
                         }
                     }
 
+                    // Skip duplicate project sections (environment sections take priority)
+                    if (seenSectionIds.has(effectiveSectionId)) {
+                        continue
+                    }
+                    seenSectionIds.add(effectiveSectionId)
+
                     // Create a search item for each settings section
                     const levelPrefix = toSentenceCase(effectiveLevel)
 
                     const searchTerms = [
                         ...(section.keywords ?? []),
                         ...section.settings
-                            .filter((setting) => setting.hasTitle)
+                            .filter((setting) => setting.hasTitle && checkFlag(setting.flag))
                             .flatMap((setting) => [
                                 toSentenceCase(setting.id.replace(/[-]/g, ' ')),
                                 ...(setting.titleString ? [setting.titleString] : []),
@@ -1935,6 +1936,7 @@ export const searchLogic = kea<searchLogicType>([
                                 setting.searchDescription ??
                                 (typeof setting.description === 'string' ? setting.description : null),
                             keywords: setting.keywords,
+                            flag: setting.flag,
                         })),
                     }))
                 )
