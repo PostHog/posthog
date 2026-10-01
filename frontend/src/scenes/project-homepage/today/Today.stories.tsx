@@ -422,6 +422,11 @@ export const SpacesPaneWithRecentFilterMenu: Story = {
     },
 }
 
+export const SpacePageListView: Story = {
+    decorators: [withSpaceFeedView({ view: 'list' })],
+    parameters: { pageUrl: urls.taskSpace('space-checkout') },
+}
+
 export const SpacePagePullRequests: Story = {
     decorators: [withSpaceFeedView({ types: ['pr'] })],
     parameters: { pageUrl: urls.taskSpace('space-checkout') },
