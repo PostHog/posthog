@@ -379,6 +379,38 @@ describe("PostHogAPIClient", () => {
     });
   });
 
+  describe("getInsightSummary", () => {
+    it("reads the insight from cache and falls back to its derived name", async () => {
+      const fetch = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            id: 1,
+            short_id: "sdyR2Pn8",
+            name: "",
+            derived_name: "Pageview count",
+            description: "",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      await expect(client.getInsightSummary("sdyR2Pn8")).resolves.toEqual({
+        name: "Pageview count",
+        description: null,
+      });
+      const url = fetch.mock.calls[0][0] as URL;
+      expect(url.pathname).toBe("/api/projects/42/insights/sdyR2Pn8/");
+      expect(url.searchParams.get("refresh")).toBe("force_cache");
+    });
+  });
+
   describe("getEvidencePreview", () => {
     it("retrieves an Inbox report from the signals endpoint", async () => {
       const fetch = vi.fn().mockResolvedValue(

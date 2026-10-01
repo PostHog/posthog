@@ -25,6 +25,7 @@ export const keys = {
   models: ["models"] as const,
   repository: ["repository"] as const,
   repositories: ["repositories"] as const,
+  insight: (shortId: string) => ["insights", shortId] as const,
 };
 
 const PAGE_SIZE = 50;
@@ -111,6 +112,16 @@ export function useTask(taskId: string) {
       const status = (query.state.data as Task | undefined)?.latest_run?.status;
       return status && !TERMINAL.has(status) ? 5000 : false;
     },
+  });
+}
+
+export function useInsightSummary(shortId: string) {
+  const session = useAuth((s) => s.session);
+  return useQuery({
+    queryKey: keys.insight(shortId),
+    queryFn: () => getClient().getInsightSummary(shortId),
+    enabled: !!session,
+    staleTime: 5 * 60_000,
   });
 }
 

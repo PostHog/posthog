@@ -7535,6 +7535,33 @@ export class PostHogAPIClient {
   }
 
   /**
+   * The insight's name and description by short id. Reads the cache only, so
+   * a reference card never runs the insight's query.
+   */
+  async getInsightSummary(shortId: string): Promise<{
+    name: string | null;
+    description: string | null;
+  } | null> {
+    const projectId = (await this.getTeamId()).toString();
+    try {
+      const insight = await this.api.get(
+        "/api/projects/{project_id}/insights/{id}/",
+        {
+          path: { project_id: projectId, id: shortId },
+          query: { refresh: "force_cache" },
+        },
+      );
+      return {
+        name: insight.name || insight.derived_name || null,
+        description: insight.description || null,
+      };
+    } catch (error) {
+      if (requestErrorStatus(error) === 404) return null;
+      throw error;
+    }
+  }
+
+  /**
    * Resolves an `evidence:<kind>/<id>` citation from an agent message to a
    * small live summary of the object it points at. Returns null for kinds
    * without a lookup and for ids that don't resolve, so the caller can fall
