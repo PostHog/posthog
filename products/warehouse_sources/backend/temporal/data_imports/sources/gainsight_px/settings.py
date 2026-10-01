@@ -169,6 +169,45 @@ GAINSIGHT_PX_ENDPOINTS: dict[str, GainsightPxEndpointConfig] = {
         partition_key=EVENT_DATE_FIELD,
         incremental_fields=EVENT_INCREMENTAL_FIELDS,
     ),
+    "segment_match_events": GainsightPxEndpointConfig(
+        name="segment_match_events",
+        path="/events/segment_match",
+        # The vendor spec wraps segment matches under the same key as feature matches.
+        data_key="featureMatchEvents",
+        pagination="scroll",
+        primary_keys=["eventId"],
+        partition_key=EVENT_DATE_FIELD,
+        incremental_fields=EVENT_INCREMENTAL_FIELDS,
+    ),
+    "custom_events": GainsightPxEndpointConfig(
+        name="custom_events",
+        path="/events/custom",
+        data_key="customEvents",
+        pagination="scroll",
+        primary_keys=["eventId"],
+        partition_key=EVENT_DATE_FIELD,
+        incremental_fields=EVENT_INCREMENTAL_FIELDS,
+    ),
+    "identify_events": GainsightPxEndpointConfig(
+        name="identify_events",
+        path="/events/identify",
+        data_key="identifyEvents",
+        pagination="scroll",
+        primary_keys=["eventId"],
+        partition_key=EVENT_DATE_FIELD,
+        incremental_fields=EVENT_INCREMENTAL_FIELDS,
+    ),
+    # Survey responses are engagement view events filtered to survey content, so they take the same
+    # date window filter and scroll pagination as the `/events/*` streams.
+    "survey_responses": GainsightPxEndpointConfig(
+        name="survey_responses",
+        path="/survey/responses",
+        data_key="results",
+        pagination="scroll",
+        primary_keys=["eventId"],
+        partition_key=EVENT_DATE_FIELD,
+        incremental_fields=EVENT_INCREMENTAL_FIELDS,
+    ),
 }
 
 ENDPOINTS = tuple(GAINSIGHT_PX_ENDPOINTS.keys())
