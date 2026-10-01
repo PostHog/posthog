@@ -12,7 +12,7 @@ from .constants import Channel, ChannelDetail, Priority, Status
 _TICKET_NUMBER_LOCK_NAMESPACE = 0x0C0F_5E71
 
 if TYPE_CHECKING:
-    from posthog.models import Person
+    from posthog.models import Person, TaggedItem
 
 
 class TicketManager(models.Manager):
@@ -50,6 +50,10 @@ class Ticket(Taggable, UUIDTModel):
 
     # Dynamic attribute set by TicketViewSet._attach_persons_to_tickets for serialization
     person: "Person | None"
+    # Dynamic attribute set by the tag prefetch and by tag writes for serialization.
+    # It has no default because tag readers use hasattr to tell loaded tags from tags
+    # that still need a query.
+    prefetched_tags: "list[TaggedItem]"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     ticket_number = models.PositiveIntegerField()
