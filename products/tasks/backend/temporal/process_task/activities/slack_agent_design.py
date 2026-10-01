@@ -131,20 +131,21 @@ def start_slack_agent_design_stream(input: StartSlackAgentDesignStreamInput) -> 
 
 @activity.defn
 @close_db_connections
-def append_slack_agent_design_steps(input: AppendSlackAgentDesignStepsInput) -> None:
-    """Append plan-block step transitions and a new plan title."""
+def append_slack_agent_design_steps(input: AppendSlackAgentDesignStepsInput) -> bool:
+    """Append plan-block step transitions and a new plan title. Returns False once Slack has closed the stream."""
     from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
 
     try:
         context = SlackThreadContext.from_dict(input.slack_thread_context)
         handler = SlackThreadHandler(context)
-        handler.append_status_chunks(
+        return handler.append_status_chunks(
             ts=input.ts,
             task_updates=_chunk_dicts(input.task_updates),
             plan_title=input.plan_title,
         )
     except Exception as e:
         logger.warning("slack_app_append_agent_design_steps_failed", error=str(e))
+        return True
 
 
 @activity.defn
