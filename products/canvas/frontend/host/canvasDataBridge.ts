@@ -1,7 +1,9 @@
+import { z } from 'zod'
+
 import api from 'lib/api'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 
-import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
+import { DashboardFilter, HogQLVariable, NodeKind } from '~/queries/schema/schema-general'
 import { InsightShortId } from '~/types'
 
 import {
@@ -30,6 +32,7 @@ const DEFAULT_READ_TTL_SECONDS = 5 * 60
 // Connector results describe live external state, so they go stale faster than an insight.
 const CONNECTOR_READ_TTL_SECONDS = 60
 const MAX_STATE_PAGES = 20
+const canvasQuerySchema = z.object({ kind: z.nativeEnum(NodeKind) }).passthrough()
 // pinned: `$lib` value on events a canvas captures, shared with PostHog Desktop
 const CANVAS_CAPTURE_LIB = 'posthog-canvas'
 
@@ -179,7 +182,7 @@ export class CanvasDataBridge {
             throw new Error('ph.query parameters are not supported. Use a typed query with variables instead.')
         }
         const refresh = refreshSeconds(input.refresh)
-        const node = typed ? (input.query as Record<string, unknown>) : { kind: 'HogQLQuery', query: hogql }
+        const node = canvasQuerySchema.parse(typed ? input.query : { kind: NodeKind.HogQLQuery, query: hogql })
         return this.cache.read(
             'query',
             { node, params: input.params },

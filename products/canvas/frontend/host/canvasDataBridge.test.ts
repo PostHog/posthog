@@ -1,7 +1,54 @@
+import api from 'lib/api'
+
 import { canvasesActionsInvoke, canvasesActionsRetrieve } from '../generated/api'
 import { CanvasDataBridge } from './canvasDataBridge'
 
 jest.mock('../generated/api')
+jest.mock('lib/api')
+
+describe('CanvasDataBridge query routing', () => {
+    const bridge = (): CanvasDataBridge =>
+        new CanvasDataBridge(
+            () => ({
+                projectId: '1',
+                canvasId: 'canvas-1',
+                sourceVersionId: 'v1',
+                captureToken: null,
+                distinctId: null,
+            }),
+            {
+                confirmAction: jest.fn(),
+                confirmAgentRequest: jest.fn(),
+                requestConnectorPermission: jest.fn(),
+                hasUserActivation: () => true,
+            }
+        )
+
+    beforeEach(() => {
+        jest.mocked(api.query).mockReset().mockResolvedValue({ results: [], columns: [] })
+    })
+
+    test.each([
+        '../tasks/example-task/run',
+        '..\\tasks\\example-task\\run',
+        '%2e%2e/tasks/example-task/run',
+        'UnknownQuery',
+    ])('rejects an unrecognized query kind before any request: %s', async (kind) => {
+        await expect(bridge().handle('query', { query: { kind } })).rejects.toThrow()
+        expect(api.query).not.toHaveBeenCalled()
+    })
+
+    test.each([
+        { query: { kind: 'TrendsQuery', series: [{ kind: 'EventsNode', event: '$pageview' }] } },
+        { query: { kind: 'HogQLQuery', query: 'SELECT 1' } },
+        { hogql: 'SELECT 1' },
+    ])('runs a supported query: %j', async (input) => {
+        await expect(bridge().handle('query', input)).resolves.toEqual({ results: [], columns: [] })
+        expect(api.query).toHaveBeenCalledWith(input.query ?? { kind: 'HogQLQuery', query: input.hogql }, {
+            refresh: 'blocking',
+        })
+    })
+})
 
 describe('CanvasDataBridge action confirmation', () => {
     test.each([false, true])('only starts a paid task after approval: %s', async (allowed) => {
