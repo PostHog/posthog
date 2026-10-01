@@ -58,6 +58,22 @@ describe('audience routing', () => {
         expect(posthog.capture).not.toHaveBeenCalledWith('messaging tab redirected to audience', expect.anything())
     })
 
+    it('redirects a moved tab that opened before the flags arrived', () => {
+        router.actions.push('/broadcasts/suppression')
+
+        setAudienceFlag(true)
+
+        expect(currentPath()).toBe('/audience/suppression')
+    })
+
+    it('leaves other tabs alone when the flags arrive', () => {
+        router.actions.push('/workflows/library')
+
+        setAudienceFlag(true)
+
+        expect(currentPath()).toBe('/workflows/library')
+    })
+
     it.each([
         { visited: ['/audience'], tab: 'topics' },
         { visited: ['/audience/topics'], tab: 'topics' },
