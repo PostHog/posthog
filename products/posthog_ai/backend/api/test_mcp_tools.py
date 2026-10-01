@@ -94,6 +94,24 @@ class TestMCPToolsAPI(APIBaseTest):
         self.assertFalse(data["success"])
         self.assertIn("validation error", data["content"].lower())
 
+    @parameterized.expand([("missing", "00000000-0000-4000-8000-000000000000"), ("malformed", "not-a-uuid")])
+    def test_invoke_execute_sql_with_invalid_connection(self, _name: str, connection_id: str) -> None:
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_tools/execute_sql/",
+            {"args": {"query": "SELECT 1", "connectionId": connection_id}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "success": False,
+                "content": "Tool failed: MaxToolRetryableError: Invalid connectionId: no direct-query-capable data source with this id in this team, or you don't have access to it.. You may retry with adjusted inputs.",
+                "error_type": "validation",
+            },
+        )
+
     @parameterized.expand([("text_only", False), ("structured_query", True)])
     @patch("ee.hogai.tools.execute_sql.mcp_tool.ExecuteSQLMCPTool.execute", new_callable=AsyncMock)
     def test_invoke_execute_sql_success(self, _name: str, structured: bool, mock_execute: AsyncMock) -> None:
