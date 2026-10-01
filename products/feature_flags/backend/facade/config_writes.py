@@ -34,6 +34,7 @@ import structlog
 
 from posthog.hogql.constants import FEATURE_FLAG_FALSE_VARIANT_SENTINEL
 
+from posthog.dataclasses import frozen
 from posthog.ph_client import feature_enabled_or_false
 
 from products.feature_flags.backend.facade.config_validation import (
@@ -296,17 +297,25 @@ def _compilable_patterns(document: Mapping[str, Any], stored: Mapping[str, Any])
     The flags service compiles with fancy_regex, which accepts some patterns ``re`` rejects, so
     like v1 this keeps any pattern the stored document already holds; enabling adds none.
     """
-    held = {pattern for _, pattern in _regex_patterns(stored)} if stored else set()
-    for attr, pattern in _regex_patterns(document):
-        if pattern not in held and not _compiles(pattern):
-            yield ConfigError(code="invalid", detail="Must be a valid regular expression.", attr=attr)
+    held = {regex.pattern for regex in _regex_patterns(stored)} if stored else set()
+    for regex in _regex_patterns(document):
+        if regex.pattern not in held and not _compiles(regex.pattern):
+            yield ConfigError(code="invalid", detail="Must be a valid regular expression.", attr=regex.attr)
 
 
-def _regex_patterns(document: Mapping[str, Any]) -> Iterator[tuple[str, str]]:
+@frozen
+class _RegexPattern:
+    attr: str
+    pattern: str
+
+
+def _regex_patterns(document: Mapping[str, Any]) -> Iterator[_RegexPattern]:
     for rule_index, rule in enumerate(document["rules"]):
         for index, prop in enumerate(rule["targeting"]["properties"]):
             if prop.get("operator") in ("regex", "not_regex"):
-                yield f"filters.rules[{rule_index}].targeting.properties[{index}].value", prop["value"]
+                yield _RegexPattern(
+                    attr=f"filters.rules[{rule_index}].targeting.properties[{index}].value", pattern=prop["value"]
+                )
 
 
 def _compiles(pattern: str) -> bool:
