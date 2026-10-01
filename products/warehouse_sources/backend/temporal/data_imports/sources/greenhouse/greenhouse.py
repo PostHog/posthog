@@ -42,8 +42,8 @@ MISSING_V3_CREDENTIALS_ERROR = (
 )
 MISSING_V1_CREDENTIALS_ERROR = "Greenhouse Harvest v1 requires an API key."
 V3_ONLY_ENDPOINT_ERROR = (
-    "This Greenhouse table is only available on Harvest v3. "
-    "Reconnect the source with a Harvest V3 (OAuth) credential to sync it."
+    "This Greenhouse table needs Harvest v3, but this source uses Harvest v1. "
+    "Create a new Greenhouse source with a Harvest V3 (OAuth) credential to sync it."
 )
 
 

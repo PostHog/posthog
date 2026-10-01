@@ -8,7 +8,7 @@ GREENHOUSE_V1 = "v1"
 GREENHOUSE_V3 = "v3"
 
 
-@dataclass
+@dataclass(frozen=True)
 class GreenhouseEndpointConfig:
     name: str
     path: str
