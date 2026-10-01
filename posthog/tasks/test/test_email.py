@@ -60,6 +60,7 @@ from posthog.tasks.test.utils_email_tests import mock_email_messages
 from posthog.test.api_keys import create_project_secret_api_key
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import Role, RoleMembership
 from products.batch_exports.backend.facade import testing as batch_exports_testing
 from products.batch_exports.backend.facade.enums import BatchExportDestinationType, BatchExportRunStatus
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -2233,6 +2234,48 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert f"Ticket #{ticket.ticket_number}" in message.subject
         assert message.html_body
         assert "Test Customer" in message.html_body
+
+    def test_send_ticket_assigned_notification_to_role(self, MockEmailMessage: MagicMock) -> None:
+        from products.conversations.backend.models import Ticket, TicketAssignment
+
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        role = Role.objects.create(name="Support", organization=self.organization)
+        role_member = User.objects.create_and_join(
+            organization=self.organization,
+            email="role-member@posthog.com",
+            password=None,
+            level=OrganizationMembership.Level.MEMBER,
+        )
+        User.objects.create_and_join(
+            organization=self.organization,
+            email="outside-role@posthog.com",
+            password=None,
+            level=OrganizationMembership.Level.MEMBER,
+        )
+        # The assigner is in the role too, and must still not hear about their own assignment.
+        for member in (role_member, self.user):
+            RoleMembership.objects.create(role=role, user=member)
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id="test-session-id",
+            distinct_id="test-distinct-id",
+            channel_source="widget",
+            status="new",
+        )
+        TicketAssignment.objects.create(ticket=ticket, role=role)
+
+        send_ticket_assigned_notification(
+            ticket_id=str(ticket.id),
+            team_id=self.team.id,
+            assignee_type="role",
+            assignee_id=str(role.id),
+            assigned_at="2026-01-01T00:00:00+00:00",
+            assigner_id=self.user.id,
+        )
+
+        assert len(mocked_email_messages) == 1
+        assert {dest["raw_email"] for dest in mocked_email_messages[0].to} == {"role-member@posthog.com"}
 
     def test_send_ticket_assigned_notification_opted_out(self, MockEmailMessage: MagicMock) -> None:
         from products.conversations.backend.models import Ticket, TicketAssignment
