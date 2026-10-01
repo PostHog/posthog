@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
@@ -15,11 +16,13 @@ import type { TaskRunDetailDTOApi } from 'products/tasks/frontend/generated/api.
 import type { TaskRun } from '../../types/taskTypes'
 import { taskDetailSceneLogic } from './taskDetailSceneLogic'
 import {
+    ArtifactFile,
     ArtifactPreviewKind,
     RunArtifact,
     TaskRunTab,
     artifactPreviewKind,
     collectRunArtifacts,
+    groupArtifactVersions,
     isTextPreview,
 } from './taskRunArtifacts'
 
@@ -44,11 +47,16 @@ export interface taskRunArtifactsLogicValues {
     artifacts: RunArtifact[]
     chainRuns: TaskRunDetailDTOApi[]
     chainRunsLoading: boolean
+    files: ArtifactFile[]
     selectedArtifact: RunArtifact | null
-    selectedArtifactId: string | null
+    selectedFile: ArtifactFile | null
+    selectedFileName: string | null
     selectedIndex: number
     selectedKind: ArtifactPreviewKind | null
     selectedText: ArtifactText | null
+    selectedVersion: RunArtifact | null
+    selectedVersionId: string | null
+    selectedVersionIndex: number
     textsById: Record<string, ArtifactText>
 }
 
@@ -97,8 +105,18 @@ export interface taskRunArtifactsLogicActions {
         chainRuns: TaskRunDetailDTOApi[]
         payload?: string[]
     }
-    selectArtifact: (artifactId: string) => {
-        artifactId: string
+    openFromUrl: (
+        fileName: string,
+        versionId: string | null
+    ) => {
+        fileName: string
+        versionId: string | null
+    }
+    selectArtifact: (fileName: string) => {
+        fileName: string
+    }
+    selectVersion: (artifactId: string | null) => {
+        artifactId: string | null
     }
     setActiveTab: (tab: TaskRunTab) => {
         tab: TaskRunTab
@@ -113,8 +131,12 @@ export interface taskRunArtifactsLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         artifacts: (selectedRun: TaskRunDetailDTOApi | null, chainRuns: TaskRunDetailDTOApi[]) => RunArtifact[]
-        selectedIndex: (artifacts: RunArtifact[], selectedArtifactId: string | null) => number
-        selectedArtifact: (artifacts: RunArtifact[], selectedIndex: number) => RunArtifact | null
+        files: (artifacts: RunArtifact[]) => ArtifactFile[]
+        selectedIndex: (files: ArtifactFile[], selectedFileName: string | null) => number
+        selectedFile: (files: ArtifactFile[], selectedIndex: number) => ArtifactFile | null
+        selectedVersionIndex: (selectedFile: ArtifactFile | null, selectedVersionId: string | null) => number
+        selectedVersion: (selectedFile: ArtifactFile | null, selectedVersionIndex: number) => RunArtifact | null
+        selectedArtifact: (selectedVersion: RunArtifact | null) => RunArtifact | null
         selectedKind: (selectedArtifact: RunArtifact | null) => ArtifactPreviewKind | null
         selectedText: (
             selectedArtifact: RunArtifact | null,
@@ -141,6 +163,15 @@ export function artifactDownloadUrl(projectId: number | null, taskId: string, ar
     return getTasksRunsArtifactsDownloadRetrieveUrl(String(projectId), taskId, artifact.runId, artifact.id)
 }
 
+// A shared link opens the tab on one file, and on one version when it is not the latest.
+const ARTIFACT_PARAM = 'artifact'
+const VERSION_PARAM = 'artifact_version'
+
+/** The standalone page puts the task in the path, an embedded runner in `?task=`. */
+function urlIsForTask(pathname: string, searchParams: Record<string, any>, taskId: string): boolean {
+    return searchParams.task === taskId || pathname.split('/').includes(taskId)
+}
+
 export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
     props({} as TaskRunArtifactsLogicProps),
     key((props) => props.taskId),
@@ -156,10 +187,13 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
     })),
     actions({
         setActiveTab: (tab: TaskRunTab) => ({ tab }),
-        selectArtifact: (artifactId: string) => ({ artifactId }),
+        selectArtifact: (fileName: string) => ({ fileName }),
+        // `null` follows the latest version, so a new upload of the open file shows at once.
+        selectVersion: (artifactId: string | null) => ({ artifactId }),
         stepArtifact: (delta: number) => ({ delta }),
         downloadArtifact: (artifact: RunArtifact) => ({ artifact }),
         ensureSelectedText: true,
+        openFromUrl: (fileName: string, versionId: string | null) => ({ fileName, versionId }),
     }),
     loaders(({ props, values }) => ({
         chainRuns: [
@@ -212,8 +246,22 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
         ],
     })),
     reducers({
-        activeTab: ['conversation' as TaskRunTab, { setActiveTab: (_, { tab }) => tab }],
-        selectedArtifactId: [null as string | null, { selectArtifact: (_, { artifactId }) => artifactId }],
+        activeTab: [
+            'conversation' as TaskRunTab,
+            { setActiveTab: (_, { tab }) => tab, openFromUrl: () => 'artifacts' },
+        ],
+        selectedFileName: [
+            null as string | null,
+            { selectArtifact: (_, { fileName }) => fileName, openFromUrl: (_, { fileName }) => fileName },
+        ],
+        selectedVersionId: [
+            null as string | null,
+            {
+                selectArtifact: () => null,
+                selectVersion: (_, { artifactId }) => artifactId,
+                openFromUrl: (_, { versionId }) => versionId,
+            },
+        ],
         textsById: [
             {} as Record<string, ArtifactText>,
             {
@@ -228,17 +276,34 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
             (selectedRun: TaskRunDetailDTOApi | null, chainRuns: TaskRunDetailDTOApi[]): RunArtifact[] =>
                 collectRunArtifacts([selectedRun, ...chainRuns]),
         ],
+        files: [(s) => [s.artifacts], (artifacts: RunArtifact[]): ArtifactFile[] => groupArtifactVersions(artifacts)],
         selectedIndex: [
-            (s) => [s.artifacts, s.selectedArtifactId],
-            (artifacts: RunArtifact[], selectedArtifactId: string | null): number =>
+            (s) => [s.files, s.selectedFileName],
+            (files: ArtifactFile[], selectedFileName: string | null): number =>
                 Math.max(
                     0,
-                    artifacts.findIndex((artifact) => artifact.id === selectedArtifactId)
+                    files.findIndex((file) => file.name === selectedFileName)
                 ),
         ],
+        selectedFile: [
+            (s) => [s.files, s.selectedIndex],
+            (files: ArtifactFile[], selectedIndex: number): ArtifactFile | null => files[selectedIndex] ?? null,
+        ],
+        /** 0 is the latest version. */
+        selectedVersionIndex: [
+            (s) => [s.selectedFile, s.selectedVersionId],
+            (selectedFile: ArtifactFile | null, selectedVersionId: string | null): number =>
+                Math.max(0, selectedFile?.versions.findIndex((version) => version.id === selectedVersionId) ?? 0),
+        ],
+        selectedVersion: [
+            (s) => [s.selectedFile, s.selectedVersionIndex],
+            (selectedFile: ArtifactFile | null, selectedVersionIndex: number): RunArtifact | null =>
+                selectedFile?.versions[selectedVersionIndex] ?? null,
+        ],
+        // The same value as `selectedVersion`, under the name the preview and download code use.
         selectedArtifact: [
-            (s) => [s.artifacts, s.selectedIndex],
-            (artifacts: RunArtifact[], selectedIndex: number): RunArtifact | null => artifacts[selectedIndex] ?? null,
+            (s) => [s.selectedVersion],
+            (selectedVersion: RunArtifact | null): RunArtifact | null => selectedVersion,
         ],
         selectedKind: [
             (s) => [s.selectedArtifact],
@@ -268,6 +333,7 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
             posthog.capture('task artifact previewed', {
                 kind: values.selectedKind,
                 content_type: artifact.content_type ?? null,
+                version_count: values.selectedFile?.versions.length ?? 1,
             })
         }
         return {
@@ -280,22 +346,70 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
                 previewSelected()
             },
             selectArtifact: previewSelected,
+            selectVersion: () => {
+                // pinned: analytics event name and properties. Renaming them breaks insights.
+                posthog.capture('task artifact version selected', {
+                    version_index: values.selectedVersionIndex,
+                    version_count: values.selectedFile?.versions.length ?? 1,
+                })
+            },
             ensureSelectedText: loadSelectedText,
             loadTaskRunsSuccess: ({ runs }) => {
                 actions.loadChainRuns(runs.map((run) => run.id))
             },
             stepArtifact: ({ delta }) => {
-                const { artifacts, selectedIndex } = values
-                const next = artifacts[(selectedIndex + delta + artifacts.length) % artifacts.length]
-                if (next?.id) {
-                    actions.selectArtifact(next.id)
+                const { files, selectedIndex } = values
+                const next = files[(selectedIndex + delta + files.length) % files.length]
+                if (next) {
+                    actions.selectArtifact(next.name)
                 }
             },
             downloadArtifact: ({ artifact }) => {
                 posthog.capture('task artifact downloaded', { kind: artifactPreviewKind(artifact) })
             },
+            openFromUrl: ({ versionId }) => {
+                // pinned: analytics event name and properties. Renaming them breaks insights.
+                posthog.capture('task artifact link opened', { has_version: !!versionId })
+            },
         }
     }),
+    actionToUrl(({ values, props }) => {
+        const syncUrl = (): [string, Record<string, any>, Record<string, any>, { replace: true }] | undefined => {
+            const { pathname, searchParams, hashParams } = router.values.currentLocation
+            if (!urlIsForTask(pathname, searchParams, props.taskId)) {
+                return undefined
+            }
+            const next = { ...searchParams }
+            delete next[ARTIFACT_PARAM]
+            delete next[VERSION_PARAM]
+            const fileName = values.selectedFileName ?? values.selectedFile?.name
+            if (values.activeTab === 'artifacts' && fileName) {
+                next[ARTIFACT_PARAM] = fileName
+                if (values.selectedVersionId) {
+                    next[VERSION_PARAM] = values.selectedVersionId
+                }
+            }
+            return [pathname, next, hashParams, { replace: true }]
+        }
+        return { setActiveTab: syncUrl, selectArtifact: syncUrl, selectVersion: syncUrl }
+    }),
+    urlToAction(({ actions, values, props }) => ({
+        '*': (_, searchParams, __, { pathname }) => {
+            const fileName = searchParams[ARTIFACT_PARAM]
+            if (typeof fileName !== 'string' || !fileName || !urlIsForTask(pathname, searchParams, props.taskId)) {
+                return
+            }
+            const versionId = typeof searchParams[VERSION_PARAM] === 'string' ? searchParams[VERSION_PARAM] : null
+            // Our own `actionToUrl` writes land here too. Those match the state already.
+            if (
+                values.activeTab !== 'artifacts' ||
+                values.selectedFileName !== fileName ||
+                values.selectedVersionId !== versionId
+            ) {
+                actions.openFromUrl(fileName, versionId)
+            }
+        },
+    })),
     afterMount(({ actions, values }) => {
         if (values.runs.length > 0) {
             actions.loadChainRuns(values.runs.map((run) => run.id))

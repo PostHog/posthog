@@ -52,6 +52,12 @@ export const VisualReviewReposQuarantineCreateBody = /* @__PURE__ */ zod.object(
         .string()
         .max(visualReviewReposQuarantineCreateBodyReasonMax)
         .describe('Why this snapshot is being quarantined.'),
+    expires_at: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe(
+            'When the quarantine lifts itself, as an ISO 8601 datetime. Through MCP an omitted or later expiry becomes 30 days from now; anywhere else omitting it means no expiry.'
+        ),
     source_run_id: zod
         .uuid()
         .nullish()
@@ -64,7 +70,6 @@ export const VisualReviewReposQuarantineCreateBody = /* @__PURE__ */ zod.object(
         .describe(
             'Post the quarantine to the Slack channel of the team that owns the story, naming the user who quarantined it. Only Storybook snapshots have an owning team. Best effort: skipped when the story has no owning team or the project has no Slack integration.'
         ),
-    expires_at: zod.iso.datetime({ offset: true }).nullish(),
 })
 
 /**
