@@ -244,7 +244,9 @@ class CuratedGitHubSource:
         adds the raw-string scan floor — callers must register {run_started_floor} (see
         run_started_floor_constant)."""
         query = workflow_runs.build_query(
-            self._runs_table(), pull_requests_table=self._tables.pull_requests, started_floor=started_floor
+            self._runs_table(),
+            pull_requests_table=self._tables.pull_requests,
+            started_floor=started_floor,
         )
         return f"({query})"
 

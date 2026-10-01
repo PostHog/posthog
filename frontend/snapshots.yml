@@ -9410,6 +9410,10 @@ snapshots:
         hash: v1.k794b7964.1138e5d885f169ffa0619c3084ed98c52d0e0d9c50495114716a6c51876df00e.WtOFtpae27Ff_bRa4lJQc7WjeR4k90SEi3jx2GRAoXc
     scenes-app-engineering-analytics-workflow--workflow-detail-section-load-errors--light:
         hash: v1.k794b7964.84f8223fcaa0e115cd1f9ee5f5198a9af1a51270c7bc10fdc9ebd1b5616708eb.23dbZo3jWrrPpnetF_gpnOvNz3FsB8Z80ovfVXiFsmE
+    scenes-app-engineering-analytics-workflow-run--depot-run--dark:
+        hash: v1.k794b7964.700c8e576002a8ee86244357b292b70ce82ff204414e001f67ac70908178f246.fCt9_ACi4OPiDvNY1z_1iu04-E4zW42XoVXunMJoDa0
+    scenes-app-engineering-analytics-workflow-run--depot-run--light:
+        hash: v1.k794b7964.92e946b11c14dd56f65a492866e85a716c4cf44866830ac96c41e236eabf0e3d.ntCPLQEnZ-toghbJD8tLx9kaywEU-NA_OZJncYcu1YM
     scenes-app-engineering-analytics-workflow-run--failed-run--dark:
         hash: v1.k794b7964.a00911d6c52b4049f604b641659b6fdcfbda71c715e1bbcb937eb2e5d8f7af25.Cn8V_cwoSpfwEXevukgCHuTVDB8Fpcid4fxJ2GZI7kc
     scenes-app-engineering-analytics-workflow-run--failed-run--light:
