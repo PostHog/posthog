@@ -191,7 +191,7 @@ export interface taskRunArtifactsLogicMeta {
             selectedFileName: string | null,
             selectedFile: ArtifactFile | null,
             selectedVersionId: string | null,
-            taskId: string
+            arg: any
         ) => string | null
         selectedText: (
             selectedArtifact: RunArtifact | null,
