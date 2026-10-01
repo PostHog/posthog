@@ -195,23 +195,25 @@ export function TrinoMonitoringTab(): JSX.Element {
                 title="Queries in flight"
                 description="Queries submitted to the warehouse and not yet finished."
             >
-                <LemonTable
-                    columns={queryColumns}
-                    dataSource={monitoringSnapshot?.queries ?? []}
-                    rowKey="query_id"
-                    loading={initialLoading}
-                    loadingSkeletonRows={3}
-                    pagination={{ pageSize: 20 }}
-                    expandable={{
-                        expandedRowRender: (query) => <TrinoQueryDetails query={query} />,
-                        noIndent: true,
-                    }}
-                    emptyState={
-                        liveDataUnavailable
-                            ? 'Live query data is not available right now.'
-                            : 'No queries are running right now.'
-                    }
-                />
+                <div className="@container">
+                    <LemonTable
+                        columns={queryColumns}
+                        dataSource={monitoringSnapshot?.queries ?? []}
+                        rowKey="query_id"
+                        loading={initialLoading}
+                        loadingSkeletonRows={3}
+                        pagination={{ pageSize: 20 }}
+                        expandable={{
+                            expandedRowRender: (query) => <TrinoQueryDetails query={query} />,
+                            noIndent: true,
+                        }}
+                        emptyState={
+                            liveDataUnavailable
+                                ? 'Live query data is not available right now.'
+                                : 'No queries are running right now.'
+                        }
+                    />
+                </div>
                 {monitoringSnapshot?.queries_truncated && (
                     <p className="mb-0 text-xs text-muted">Showing the 200 longest-running queries.</p>
                 )}
