@@ -20,7 +20,7 @@ import { FLAG_EVALUATIONS_MODE_LABELS, featureFlagsStaffToolsLogic } from './fea
 const MODE_DESCRIPTIONS: Record<FlagEvaluationsModeEnumApi, string> = {
     0: 'The Usage tab reads $feature_flag_called events from the events table.',
     1: 'The Usage tab reads the flag_evaluations table, and the table is available in SQL. While the FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS instance setting is on, the Usage tab reads the events table instead.',
-    2: 'The Usage tab and any events list filtered to $feature_flag_called read the flag_evaluations table, and the table is available in SQL. Ingestion also stops writing $feature_flag_called to the events table.',
+    2: 'The Usage tab and any events list filtered to $feature_flag_called read the flag_evaluations table, and the table is available in SQL. For teams in the ingestion allowlist, ingestion also stops writing $feature_flag_called to the events table.',
 }
 
 export function StaffFlagEvaluationsModeModal(): JSX.Element {
@@ -116,9 +116,11 @@ export function StaffFlagEvaluationsModeModal(): JSX.Element {
 
                 {mode === FlagEvaluationsModeEnumApi.Number2 && (
                     <LemonBanner type="warning">
-                        Ingestion no longer writes $feature_flag_called to the events table for these organizations, so
-                        a failed write to flag_evaluations loses the event. Lowering an organization from this mode
-                        restarts the events writes, but the events table keeps a gap for the time it spent here.
+                        For teams in the ingestion allowlist, ingestion writes $feature_flag_called only to
+                        flag_evaluations, so a failed write there loses the event. Other teams still write to the events
+                        table, and so does every team while INGESTION_FLAG_EVALUATIONS_ONLY_DISABLED is on. Lowering an
+                        organization from this mode restarts any events writes it stopped, but the events table keeps a
+                        gap for that time.
                     </LemonBanner>
                 )}
 
@@ -152,8 +154,8 @@ export function StaffFlagEvaluationsModeModal(): JSX.Element {
                             <LemonBanner type="warning">
                                 Lowering{' '}
                                 {pluralize(summary.organizationsLoweredFromFlagEvaluationsOnly, 'organization')} from
-                                Flag evaluations only restarts their events writes, but the events table keeps a gap for
-                                the time they spent on that mode.
+                                Flag evaluations only restarts any events writes ingestion stopped for them, but the
+                                events table keeps a gap for that time.
                             </LemonBanner>
                         )}
                         {summary.organizationsLeftAboveMode > 0 && (
