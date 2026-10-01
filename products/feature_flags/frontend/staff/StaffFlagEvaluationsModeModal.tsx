@@ -148,6 +148,14 @@ export function StaffFlagEvaluationsModeModal(): JSX.Element {
                             columns={columns}
                             rowKey="organization_id"
                         />
+                        {summary.organizationsLoweredFromFlagEvaluationsOnly > 0 && (
+                            <LemonBanner type="warning">
+                                Lowering{' '}
+                                {pluralize(summary.organizationsLoweredFromFlagEvaluationsOnly, 'organization')} from
+                                Flag evaluations only restarts their events writes, but the events table keeps a gap for
+                                the time they spent on that mode.
+                            </LemonBanner>
+                        )}
                         {summary.organizationsLeftAboveMode > 0 && (
                             <p className="text-secondary mb-0">
                                 {pluralize(summary.organizationsLeftAboveMode, 'organization')} above this mode will

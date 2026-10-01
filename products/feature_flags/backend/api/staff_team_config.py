@@ -111,9 +111,8 @@ class StaffTeamConfigSerializer(serializers.Serializer):
         choices=FlagEvaluationsMode.choices,
         help_text=(
             "Which table the $feature_flag_called data of this team's organization is read from. Every team of "
-            "an organization shares one mode. 0 reads events, 1 and 2 read flag_evaluations. 2 is reserved for "
-            "ingestion to stop writing $feature_flag_called to events. Ingestion ignores 2 until that support "
-            "deploys, so 2 acts as 1 until then. This is the stored mode: while the "
+            "an organization shares one mode. 0 reads events, 1 and 2 read flag_evaluations. 2 also stops "
+            "ingestion writing $feature_flag_called to events. This is the stored mode: while the "
             "FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS instance setting is on, an organization on 1 has its Usage tab "
             "read events anyway."
         ),
@@ -173,8 +172,7 @@ class StaffFlagEvaluationsModeMutationSerializer(serializers.Serializer):
         choices=FlagEvaluationsMode.choices,
         help_text=(
             "Target flag_evaluations mode. 0 reads events, 1 reads flag_evaluations, 2 also stops writing "
-            "$feature_flag_called to events. Ingestion ignores 2 until its support for 2 deploys, so 2 acts "
-            "as 1 until then."
+            "$feature_flag_called to events."
         ),
     )
     team_ids = serializers.ListField(

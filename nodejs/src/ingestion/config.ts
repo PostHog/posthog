@@ -253,7 +253,7 @@ export type IngestionConsumerConfig = {
     EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS: string
 
     // $feature_flag_called fork into the flag_evaluations ClickHouse table
-    /** 'disabled' | 'dual_write' (produce to flag_evaluations while the event continues to events) */
+    /** 'disabled' | 'dual_write' (produce to flag_evaluations). With dual_write the event also continues to events unless its organization is on FLAG_EVALUATIONS_ONLY. */
     INGESTION_FLAG_EVALUATIONS_MODE: string
     /** '*' for all teams, or comma-separated team IDs */
     INGESTION_FLAG_EVALUATIONS_TEAMS: string

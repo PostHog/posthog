@@ -480,13 +480,15 @@ describe('featureFlagsStaffToolsLogic', () => {
 
         it('previews the request as a dry run, then applies the same request', async () => {
             const bodies: StaffFlagEvaluationsModeMutationApi[] = []
-            // Three organizations move, one stays above the mode, and one is already on it. A summary
-            // that reads the wrong field, or counts every unchanged organization as left above, fails.
+            // Four organizations move, one of them down from mode 2. One stays above the mode on mode 2,
+            // and one is already on it. A summary that reads the wrong field, or counts every unchanged
+            // organization as left above or lowered, fails.
             const organizations: StaffOrganizationModeChangeApi[] = (
                 [
                     [0, true, false],
                     [0, true, false],
                     [0, true, false],
+                    [2, true, false],
                     [2, false, true],
                     [1, false, false],
                 ] as const
@@ -522,8 +524,9 @@ describe('featureFlagsStaffToolsLogic', () => {
             expect(logic.values.flagEvaluationsModePreview).toBeNull()
             await expectLogic(logic).toDispatchActions(['loadFlagEvaluationsModePreviewSuccess'])
             expect(logic.values.flagEvaluationsModePreviewSummary).toMatchObject({
-                organizationsChanged: 3,
+                organizationsChanged: 4,
                 organizationsLeftAboveMode: 1,
+                organizationsLoweredFromFlagEvaluationsOnly: 1,
             })
 
             // A selection change after the preview must not widen the write past what the preview showed.

@@ -234,16 +234,18 @@ describe('createForkFlagEvaluationsStep', () => {
                 mode: FlagEvaluationsMode.Events,
                 outcome: 'continued_message_too_large',
                 producedOutputs: ['flag_evaluations'],
+                warnedEventUuids: [],
             },
             {
                 name: 'a FLAG_EVALUATIONS_ONLY',
                 mode: FlagEvaluationsMode.FlagEvaluationsOnly,
                 outcome: 'lost_message_too_large',
                 producedOutputs: ['flag_evaluations', 'ingestion_warnings'],
+                warnedEventUuids: ['event-uuid-1'],
             },
         ])(
             'does not block the batch when the row exceeds the broker message limit for $name team',
-            async ({ mode, outcome, producedOutputs }) => {
+            async ({ mode, outcome, producedOutputs, warnedEventUuids }) => {
                 const { step, outputs } = createStep(enabledService())
                 outputs.queueMessages.mockRejectedValueOnce(
                     new MessageSizeTooLarge('too large', new Error('too large'))
@@ -254,12 +256,19 @@ describe('createForkFlagEvaluationsStep', () => {
 
                 expect(isOkResult(result)).toBe(true)
                 if (isOkResult(result)) {
-                    await expect(result.sideEffects[0]).resolves.not.toThrow()
+                    await result.sideEffects[0]
                 }
-                expect((await flagEvaluationsEventsTotal.get()).values).toContainEqual(
-                    expect.objectContaining({ labels: { outcome }, value: 1 })
-                )
+                expect((await flagEvaluationsEventsTotal.get()).values).toEqual([
+                    expect.objectContaining({ labels: { outcome }, value: 1 }),
+                ])
                 expect(outputs.queueMessages.mock.calls.map(([output]) => output)).toEqual(producedOutputs)
+                const warnings = outputs.queueMessages.mock.calls
+                    .filter(([output]) => output === 'ingestion_warnings')
+                    .flatMap(([, messages]) => messages.map((message) => parseJSON(message.value!.toString())))
+                expect(warnings.map((warning) => warning.type)).toEqual(
+                    warnedEventUuids.map(() => 'message_size_too_large')
+                )
+                expect(warnings.map((warning) => parseJSON(warning.details).eventUuid)).toEqual(warnedEventUuids)
                 expect((await flagEvaluationsPendingAcks.get()).values[0].value).toBe(0)
             }
         )
