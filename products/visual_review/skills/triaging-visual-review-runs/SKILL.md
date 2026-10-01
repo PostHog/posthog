@@ -274,7 +274,9 @@ Once you have a suspect snapshot row from `visual-review-runs-snapshots-list`, a
 - `soft_rate`: the share that a toleration absorbed.
 - `window_runs`: the repo's default-branch runs behind those rates. It is the same for every entry and says nothing about the story.
 
-A story with no entry is quiet. Nothing is tolerated for it, and it did not fail recently.
+A story with no entry is quiet only when the response has `truncated: false`.
+The cap drops the least urgent entries first, so a truncated list still holds every `broken` and `unstable` story, but an absent story can be `noisy`.
+Before you tolerate a story that is absent from a truncated list, check `visual-review-runs-tolerated-hashes-list` for earlier variants.
 
 **Did the baseline move?** Call
 `posthog:visual-review-runs-snapshot-history-list { id: <run_id>, identifier: <identifier> }`. It returns one row for
