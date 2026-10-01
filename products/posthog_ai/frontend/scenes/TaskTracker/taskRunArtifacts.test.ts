@@ -53,6 +53,7 @@ describe('taskRunArtifacts', () => {
             'image',
         ],
         ['the extension with no type', { name: 'weeks.csv' }, 'csv'],
+        ['a video by extension', { name: 'walkthrough.webm' }, 'video'],
         ['an unknown binary', { name: 'bundle.zip', content_type: 'application/zip' }, 'none'],
     ])('artifactPreviewKind reads %s', (_, overrides, expected) => {
         expect(artifactPreviewKind(artifact(overrides))).toBe(expected)

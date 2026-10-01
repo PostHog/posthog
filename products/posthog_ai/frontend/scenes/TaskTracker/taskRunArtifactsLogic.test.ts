@@ -36,6 +36,11 @@ describe('taskRunArtifactsLogic', () => {
             selectedVersionId: 'v1',
         })
 
+        // The copied link must reopen the same file and version.
+        expect(logic.values.shareUrl).toBe(
+            `http://localhost/project/${logic.values.currentProjectId}/ai?task=${TASK_ID}&artifact=report.md&artifact_version=v1`
+        )
+
         logic.actions.selectArtifact('chart.svg')
         expect(router.values.searchParams).toEqual({ artifact: 'chart.svg' })
 
