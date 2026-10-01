@@ -434,7 +434,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'task-agent-project-instructions',
                 title: 'Project instructions',
                 description:
-                    'Instructions that PostHog cloud agents read as their AGENTS.md in every Tasks run on this project, including scheduled and automated runs. Use them for project conventions.',
+                    'Instructions that PostHog cloud agents read as their AGENTS.md in every Tasks run on this project, including scouts, Self-driving research and implementation runs, and scheduled runs. Use them for project conventions.',
                 component: <AgentProjectInstructionsSettings />,
                 keywords: ['ai', 'agent', 'agents.md', 'claude.md', 'instructions', 'tasks', 'cloud', 'project'],
             },
@@ -442,7 +442,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'task-agent-my-instructions',
                 title: 'My instructions',
                 description:
-                    'Instructions that PostHog cloud agents read after the project instructions in Tasks runs you start, from the web app, Slack, or PostHog Desktop. Scheduled and automated runs do not use them.',
+                    'Instructions that PostHog cloud agents read after the project instructions in Tasks runs you start, from PostHog AI, Slack, or PostHog Desktop. Scouts, Self-driving runs, and scheduled runs do not use them.',
                 component: <AgentPersonalInstructionsSettings />,
                 keywords: ['ai', 'agent', 'agents.md', 'claude.md', 'instructions', 'tasks', 'cloud', 'personal'],
             },
