@@ -8,7 +8,7 @@ import {
     InputGroupTextarea,
     Item,
     ItemContent,
-    ItemGroup,
+    ItemDescription,
     ItemMedia,
     ItemTitle,
     Text,
@@ -119,17 +119,17 @@ export function CanvasComposer({
                 </InputGroup>
             </form>
             {showSuggestions && (
-                <section aria-labelledby="canvas-suggestions-label" className="flex flex-col gap-2">
+                <section aria-labelledby="canvas-suggestions-label" className="@container flex flex-col gap-2">
                     <Text id="canvas-suggestions-label" size="xs" variant="muted" weight="medium" render={<h2 />}>
-                        Start from an example
+                        Suggestions
                     </Text>
-                    <ItemGroup combined>
+                    <div className="grid grid-cols-1 gap-2 @min-[32rem]:grid-cols-2">
                         {CANVAS_GENERATE_SUGGESTIONS.map((suggestion) => (
                             <Item
                                 key={suggestion.label}
                                 variant="outline"
-                                size="xs"
-                                className="text-left hover:bg-fill-button-tertiary-hover"
+                                size="sm"
+                                className="flex-nowrap bg-card text-left hover:bg-fill-hover"
                                 render={
                                     <button
                                         type="button"
@@ -147,10 +147,11 @@ export function CanvasComposer({
                                 </ItemMedia>
                                 <ItemContent className="min-w-0">
                                     <ItemTitle className="truncate">{suggestion.label}</ItemTitle>
+                                    <ItemDescription className="truncate">{suggestion.description}</ItemDescription>
                                 </ItemContent>
                             </Item>
                         ))}
-                    </ItemGroup>
+                    </div>
                 </section>
             )}
         </div>
