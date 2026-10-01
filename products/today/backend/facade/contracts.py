@@ -38,6 +38,8 @@ class BriefingItemReport:
     summary: str
     pull_request_state: str | None
     pull_request_url: str | None
+    signal_count: int
+    updated_at: datetime
     metrics: list[BriefingItemMetric]
 
 

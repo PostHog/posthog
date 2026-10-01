@@ -1,8 +1,8 @@
 import { getOriginProductMeta } from 'products/posthog_ai/frontend/api/taskSource'
+import type { ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
 import { ChannelDTOApi, PrStateEnumApi, TaskUserBasicInfoApi } from 'products/tasks/frontend/generated/api.schemas'
 import { SpacePresence } from 'products/tasks/frontend/spaces/spacePresence'
 import { TaskPullRequest } from 'products/tasks/frontend/spaces/taskPullRequests'
-import type { BriefingItemApi } from 'products/today/frontend/generated/api.schemas'
 
 import { recentSourceLabel } from './todayRecentFilters'
 import { TodaySessionDot, todaySessionDot } from './todaySessionDot'
@@ -59,10 +59,30 @@ export interface TodayChatPreview {
     timestamp: string | null
 }
 
-/** What a briefing report's hover card says. The item carries everything the card shows, so it opens without a request. */
+/** What a report's hover card says, read from a personal briefing item or from one of the team's reports. */
+export interface TodayReportCard {
+    /** Stable per report and list. It keys the card's live metric queries and its analytics. */
+    key: string
+    title: string
+    /** Why the briefing picked the report. Null for the team's reports, which no briefing picked. */
+    reason: string | null
+    /** Resolved or dismissed since the briefing, or null while open. */
+    stateLabel: string | null
+    resolved: boolean
+    priority: string | null
+    summary: string | null
+    pullRequestState: PrStateEnumApi | null
+    pullRequestUrl: string | null
+    signalCount: number | null
+    updatedAt: string | null
+    metrics: ReportMetricApi[]
+    sourceLabel: string
+}
+
+/** A report's hover card. The card text comes with the page, so it opens without a request. */
 export interface TodayReportPreview {
     kind: 'report'
-    item: BriefingItemApi
+    card: TodayReportCard
     /** Where the card opened: a link in the briefing text, or a left-bar row. */
     surface: 'briefing' | 'sidebar'
 }

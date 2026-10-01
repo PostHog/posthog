@@ -23,23 +23,23 @@ import {
  * line, then the chart. The saved value shows until the live query answers.
  */
 export function TodayReportHoverCardMetric({
-    itemKey,
+    cardKey,
     metric,
     aggregateQuery,
     seriesQuery,
 }: {
-    itemKey: string
+    cardKey: string
     metric: ReportMetricApi
     aggregateQuery: TrendsQuery
     seriesQuery: TrendsQuery
 }): JSX.Element {
     const aggregateProps: DataNodeLogicProps = {
-        key: `TodayReportMetricAggregate.${itemKey}.${metric.metric_id}`,
+        key: `TodayReportMetricAggregate.${cardKey}.${metric.metric_id}`,
         query: aggregateQuery,
         autoLoad: true,
     }
     const seriesProps: DataNodeLogicProps = {
-        key: `TodayReportMetricSeries.${itemKey}.${metric.metric_id}`,
+        key: `TodayReportMetricSeries.${cardKey}.${metric.metric_id}`,
         query: seriesQuery,
         autoLoad: true,
     }

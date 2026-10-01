@@ -15,6 +15,7 @@ from products.signals.backend.briefing_reports import (
     open_report_counts,
     report_details,
     reports_for_briefing,
+    summary_lead,
 )
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.test.report_metric_test_fixtures import trends_metric_query
@@ -167,3 +168,17 @@ class TestBriefingOrder(SimpleTestCase):
         ordered = sorted(reports, key=lambda r: _briefing_order(r[3], r[1], r[2], updated_at))
 
         assert [report_id for report_id, *_ in ordered] == expected
+
+
+class TestSummaryLead(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("plain text", "Signups fail.\nPeople leave.", "Signups fail. People leave."),
+            ("stops at a section", "Signups fail.\n\n## Impact\nNew teams cannot sign up.", "Signups fail."),
+            ("skips an opening heading", "## Summary\nSignups fail.\n## Impact\nMore.", "Signups fail."),
+            ("a hash inside a line stays", "Issue #42 ## fails", "Issue #42 ## fails"),
+            ("no summary", None, ""),
+        ]
+    )
+    def test_summary_lead(self, _name: str, summary: str | None, expected: str) -> None:
+        assert summary_lead(summary, 300) == expected

@@ -1,5 +1,7 @@
 import { dayjs } from 'lib/dayjs'
 
+import type { TodayReportCard } from '~/layout/today/todayPreviewCards'
+
 import { isActionCapableReport } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 
@@ -75,6 +77,33 @@ export function sourceStyle(source: string | null | undefined): TodayReportSourc
 /** The style of the product that contributed the report's first signal. */
 export function reportSource(report: Pick<SignalReport, 'source_products'>): TodayReportSource {
     return sourceStyle(report.source_products?.[0])
+}
+
+const MARKDOWN_HEADING_LINE = /^ {0,3}#{1,6}\s.*$/m
+
+/** The opening of a report's markdown summary, on one line: the text before its first section heading. */
+export function reportSummaryLead(summary: string | null | undefined): string | null {
+    const lead = (summary ?? '').split(MARKDOWN_HEADING_LINE).find((section) => section.trim())
+    return lead ? lead.split(/\s+/).filter(Boolean).join(' ') : null
+}
+
+/** The hover card of one of the team's reports, shown while the personal briefing is not written yet. */
+export function teamReportCard(report: SignalReport): TodayReportCard {
+    return {
+        key: `team-report:${report.id}`,
+        title: reportTitle(report),
+        reason: null,
+        stateLabel: null,
+        resolved: false,
+        priority: report.priority ?? null,
+        summary: reportSummaryLead(report.summary),
+        pullRequestState: report.implementation_pr_merged ? 'merged' : (report.implementation_pr_state ?? null),
+        pullRequestUrl: report.implementation_pr_url ?? null,
+        signalCount: report.signal_count,
+        updatedAt: report.updated_at,
+        metrics: report.metrics ?? [],
+        sourceLabel: reportSource(report).label,
+    }
 }
 
 export function reportIcon(report: Pick<SignalReport, 'source_products' | 'implementation_pr_url'>): TodayReportIcon {

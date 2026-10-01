@@ -4,6 +4,7 @@ The briefing ranks items across products, so this module only answers "which rep
 person, and how". It does not order across relations; the caller does that.
 """
 
+import re
 from collections.abc import Sequence
 from datetime import datetime
 from enum import StrEnum
@@ -83,6 +84,8 @@ class BriefingReportDetails:
     # One of IMPLEMENTATION_PR_STATES, or None when the report has no implementation PR.
     pull_request_state: str | None
     pull_request_url: str | None
+    signal_count: int
+    updated_at: datetime
     # Only metrics with a saved snapshot, so the briefing shows a figure before the live query answers.
     metrics: list[ReportMetricSnapshot]
 
@@ -294,6 +297,16 @@ def _trimmed(text: str | None, limit: int) -> str:
     return " ".join((text or "").split())[:limit]
 
 
+_MARKDOWN_HEADING_LINE = re.compile(r"^ {0,3}#{1,6}\s.*$", re.MULTILINE)
+
+
+def summary_lead(summary: str | None, limit: int) -> str:
+    """The opening of a report's markdown summary, on one line: the text before its first section heading."""
+    sections = _MARKDOWN_HEADING_LINE.split(summary or "")
+    lead = next((section for section in sections if section.strip()), "")
+    return _trimmed(lead, limit)
+
+
 def report_details(*, team_id: int, report_ids: Sequence[str]) -> list[BriefingReportDetails]:
     """Current status, priority, summary, implementation PR and metric snapshots of the given reports.
 
@@ -302,7 +315,9 @@ def report_details(*, team_id: int, report_ids: Sequence[str]) -> list[BriefingR
     if not report_ids:
         return []
     reports = list(
-        SignalReport.objects.filter(team_id=team_id, id__in=list(report_ids)).only("id", "status", "summary", "metrics")
+        SignalReport.objects.filter(team_id=team_id, id__in=list(report_ids)).only(
+            "id", "status", "summary", "metrics", "signal_count", "updated_at"
+        )
     )
     found_ids = [str(report.id) for report in reports]
     priorities = _priorities(found_ids)
@@ -316,11 +331,13 @@ def report_details(*, team_id: int, report_ids: Sequence[str]) -> list[BriefingR
                 report_id=report_id,
                 status=report.status,
                 priority=priorities.get(report_id),
-                summary=_trimmed(report.summary, _SUMMARY_LIMIT),
+                summary=summary_lead(report.summary, _SUMMARY_LIMIT),
                 pull_request_state=_pull_request_state(pull_request.state, pull_request.merged)
                 if pull_request
                 else None,
                 pull_request_url=pull_request.url if pull_request else None,
+                signal_count=report.signal_count,
+                updated_at=report.updated_at,
                 metrics=saved_metric_snapshots(report.metrics),
             )
         )

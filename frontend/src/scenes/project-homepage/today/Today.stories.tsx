@@ -7,6 +7,7 @@ import { Card } from '@posthog/quill'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
+import { briefingItemReportCard } from 'scenes/project-homepage/today/todayBriefingItems'
 import { TodayReportHoverCard } from 'scenes/project-homepage/today/TodayReportHoverCard'
 import { urls } from 'scenes/urls'
 
@@ -412,6 +413,8 @@ const PERSONAL_BRIEFING: BriefingApi = {
                     'Since the release on Friday, the signup form rejects emails with a plus sign. People who try again with another address finish signup, the rest drop off at the email step.',
                 pull_request_state: 'open',
                 pull_request_url: 'https://github.com/example-org/web/pull/4821',
+                signal_count: 23,
+                updated_at: '2026-09-28T15:10:00Z',
                 metrics: [
                     {
                         metric_id: 'affected-users',
@@ -433,6 +436,17 @@ const PERSONAL_BRIEFING: BriefingApi = {
             signal: 'P2, claimed by you',
             rank: 2,
             source_product: 'llm_analytics',
+            title: 'Summarize tool costs doubled after the prompt change',
+            report: {
+                priority: 'P2',
+                summary:
+                    'The summarize tool now sends the whole thread as context instead of the last ten messages. Token use per call doubled on Tuesday and has stayed there. Cost per conversation rose the same amount, while answer ratings did not change. Trimming the context back would undo the rise.',
+                pull_request_state: null,
+                pull_request_url: null,
+                signal_count: 7,
+                updated_at: '2026-09-27T09:00:00Z',
+                metrics: [],
+            },
         }),
         briefingItem({
             key: 'dashboard:12',
@@ -940,7 +954,13 @@ export const SpaceHoverCard: Story = {
 export const ReportHoverCard: Story = {
     render: () => (
         <HoverCardFrame>
-            <TodayReportHoverCard preview={{ kind: 'report', item: PERSONAL_BRIEFING.items[0], surface: 'sidebar' }} />
+            <TodayReportHoverCard
+                preview={{
+                    kind: 'report',
+                    card: briefingItemReportCard(PERSONAL_BRIEFING.items[0]),
+                    surface: 'sidebar',
+                }}
+            />
         </HoverCardFrame>
     ),
 }
@@ -951,7 +971,7 @@ export const ReportHoverCardResolved: Story = {
             <TodayReportHoverCard
                 preview={{
                     kind: 'report',
-                    item: { ...PERSONAL_BRIEFING.items[1], state: 'done' },
+                    card: briefingItemReportCard({ ...PERSONAL_BRIEFING.items[1], state: 'done' }),
                     surface: 'sidebar',
                 }}
             />

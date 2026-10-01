@@ -43,6 +43,8 @@ def _report_details(report_id: uuid.UUID, status: str) -> signals.BriefingReport
         summary="Checkout fails for some users",
         pull_request_state="merged",
         pull_request_url="https://github.com/example/app/pull/1",
+        signal_count=12,
+        updated_at=datetime(2026, 9, 30, 12, 0, tzinfo=UTC),
         metrics=[
             signals.ReportMetricSnapshot(
                 metric_id="affected-users",

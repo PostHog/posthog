@@ -153,6 +153,10 @@ export interface BriefingItemReportApi {
      * @nullable
      */
     pull_request_url: string | null
+    /** How many signals the report groups. */
+    signal_count: number
+    /** When the report last changed. */
+    updated_at: string
     /** The report's metrics that have a saved snapshot, in the report's order. */
     metrics: BriefingItemMetricApi[]
 }

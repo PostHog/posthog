@@ -67,6 +67,7 @@ export function TodayHomeSidebar(): JSX.Element {
         reportSummary,
         showPersonalBriefing,
         personalBriefing,
+        teamReportPreviews,
     } = useValues(todayLogic)
     const { reportOpened, setHoveredReportId } = useActions(todayLogic)
 
@@ -113,19 +114,20 @@ export function TodayHomeSidebar(): JSX.Element {
                         </>
                     ) : (
                         reports.map((report) => (
-                            <TodayNavItem
-                                key={report.id}
-                                title={reportTitle(report)}
-                                meta={reportMeta(report)}
-                                color={reportSource(report).color}
-                                icon={<TodayIcon icon={reportIcon(report)} />}
-                                to={urls.todayReport(report.id)}
-                                active={hoveredReportId === report.id}
-                                current={reportId === report.id}
-                                dataAttr="today-nav-report"
-                                onClick={() => reportOpened(report, 'sidebar')}
-                                onHoverChange={(hovered) => setHoveredReportId(hovered ? report.id : null)}
-                            />
+                            <TodayPreviewTrigger key={report.id} payload={teamReportPreviews.sidebar[report.id]}>
+                                <TodayNavItem
+                                    title={reportTitle(report)}
+                                    meta={reportMeta(report)}
+                                    color={reportSource(report).color}
+                                    icon={<TodayIcon icon={reportIcon(report)} />}
+                                    to={urls.todayReport(report.id)}
+                                    active={hoveredReportId === report.id}
+                                    current={reportId === report.id}
+                                    dataAttr="today-nav-report"
+                                    onClick={() => reportOpened(report, 'sidebar')}
+                                    onHoverChange={(hovered) => setHoveredReportId(hovered ? report.id : null)}
+                                />
+                            </TodayPreviewTrigger>
                         ))
                     )}
                 </div>

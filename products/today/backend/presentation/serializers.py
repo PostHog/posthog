@@ -76,6 +76,8 @@ class BriefingItemReportSerializer(DataclassSerializer):
     pull_request_url = serializers.CharField(
         allow_null=True, help_text="URL of the report's implementation pull request, or null when it has none."
     )
+    signal_count = serializers.IntegerField(help_text="How many signals the report groups.")
+    updated_at = serializers.DateTimeField(help_text="When the report last changed.")
     metrics = BriefingItemMetricSerializer(
         many=True, help_text="The report's metrics that have a saved snapshot, in the report's order."
     )

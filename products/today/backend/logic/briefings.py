@@ -263,6 +263,8 @@ def _report_contract(detail: signals.BriefingReportDetails) -> contracts.Briefin
         summary=detail.summary,
         pull_request_state=detail.pull_request_state,
         pull_request_url=detail.pull_request_url,
+        signal_count=detail.signal_count,
+        updated_at=detail.updated_at,
         metrics=[
             contracts.BriefingItemMetric(
                 metric_id=metric.metric_id,

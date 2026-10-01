@@ -1,5 +1,7 @@
 import { urls } from 'scenes/urls'
 
+import type { TodayReportCard } from '~/layout/today/todayPreviewCards'
+
 import type {
     BriefingApi,
     BriefingItemApi,
@@ -47,6 +49,24 @@ const STATE_LABELS: Record<BriefingItemStateEnumApi, string | null> = {
 /** What happened to the item since the briefing was written, or null while it is still open. */
 export function itemStateLabel(item: Pick<BriefingItemApi, 'state'>): string | null {
     return STATE_LABELS[item.state]
+}
+
+export function briefingItemReportCard(item: BriefingItemApi): TodayReportCard {
+    return {
+        key: item.key,
+        title: item.title,
+        reason: itemReasonLabel(item),
+        stateLabel: itemStateLabel(item),
+        resolved: item.state === 'done',
+        priority: item.report?.priority ?? null,
+        summary: item.report?.summary || null,
+        pullRequestState: item.report?.pull_request_state ?? null,
+        pullRequestUrl: item.report?.pull_request_url ?? null,
+        signalCount: item.report?.signal_count ?? null,
+        updatedAt: item.report?.updated_at ?? null,
+        metrics: item.report?.metrics ?? [],
+        sourceLabel: itemSource(item).label,
+    }
 }
 
 /** The report id of a `report:<id>` item, else null. */

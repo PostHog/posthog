@@ -10,7 +10,7 @@ import type { BriefingApi } from 'products/today/frontend/generated/api.schemas'
 
 import { BRIEFING_POLL_MS, TOP_REPORT_COUNT, reportIdFromPath, todayLogic } from './todayLogic'
 import { isSampleReportId } from './todaySampleReports'
-import { GENERAL_REPORT_PROMPTS, briefingForReports, reportPrompts } from './todaySignalReports'
+import { GENERAL_REPORT_PROMPTS, briefingForReports, reportPrompts, reportSummaryLead } from './todaySignalReports'
 
 function makeBriefing(overrides: Partial<BriefingApi> = {}): BriefingApi {
     return {
@@ -155,8 +155,9 @@ describe('todayLogic', () => {
             .toMatchValues({ briefingProgress: expected })
     })
 
-    it('gives a hover card only to reports', async () => {
+    it('gives a hover card to the reports of both lists, and to nothing else', async () => {
         const [item] = makeBriefing().items
+        listResponse = [200, { results: [makeReport({ id: 'team-a' })], count: 1 }]
         briefingResponses = [
             [
                 200,
@@ -174,6 +175,8 @@ describe('todayLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadPersonalBriefingSuccess'])
         expect(Object.keys(logic.values.reportPreviews.briefing)).toEqual(['report:a'])
         expect(Object.keys(logic.values.reportPreviews.sidebar)).toEqual(['report:a'])
+        expect(Object.keys(logic.values.teamReportPreviews.briefing)).toEqual(['team-a'])
+        expect(Object.keys(logic.values.teamReportPreviews.sidebar)).toEqual(['team-a'])
     })
 
     it('asks for the top reports for the person and counts the rest', async () => {
@@ -245,5 +248,14 @@ describe('todayLogic', () => {
     ])('offers the right prompts for %s', (_, overrides, expected) => {
         const report = makeReport({ suggested_prompts: ['Draft the fix'], ...(overrides as Partial<SignalReport>) })
         expect(reportPrompts(report)).toEqual(expected)
+    })
+
+    test.each([
+        ['stops at the first section', 'Signups fail.\n\n## Impact\nNew teams cannot sign up.', 'Signups fail.'],
+        ['skips an opening heading', '## Summary\nSignups fail.\n## Impact\nMore.', 'Signups fail.'],
+        ['keeps a hash inside a line', 'Issue #42 ## fails', 'Issue #42 ## fails'],
+        ['has nothing to show', null, null],
+    ])('shows the summary lead on a team report card when it %s', (_, summary, expected) => {
+        expect(reportSummaryLead(summary)).toEqual(expected)
     })
 })

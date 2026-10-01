@@ -25,13 +25,14 @@ import type { TeamPublicType } from '../../../types'
 import {
     TodayItemOpenSurface,
     briefingDayKey,
+    briefingItemReportCard,
     hasBriefingText,
     isBriefingSettled,
     isExternalHref,
     itemHref,
 } from './todayBriefingItems'
 import { SAMPLE_BRIEFING, parseSampleParam, sampleTopReports } from './todaySampleReports'
-import { TodayBriefingSegment, briefingForReports } from './todaySignalReports'
+import { TodayBriefingSegment, briefingForReports, teamReportCard } from './todaySignalReports'
 
 export const TOP_REPORT_COUNT = 5
 const CLOCK_MS = 30_000
@@ -133,6 +134,7 @@ export interface todayLogicValues {
     reports: SignalReport[]
     reportsFailed: boolean
     showPersonalBriefing: boolean
+    teamReportPreviews: Record<TodayReportPreview['surface'], Record<string, TodayReportPreview>>
     topReports: TodayReports | null
     topReportsLoading: boolean
     useSampleData: boolean
@@ -172,10 +174,10 @@ export interface todayLogicActions {
         surface: TodayItemOpenSurface
     }
     reportPreviewed: (
-        itemKey: string,
+        cardKey: string,
         surface: TodayReportPreview['surface']
     ) => {
-        itemKey: string
+        cardKey: string
         surface: TodayReportPreview['surface']
     }
     loadPersonalBriefing: () => any
@@ -281,6 +283,9 @@ export interface todayLogicMeta {
         reportPreviews: (
             briefingItems: BriefingItemApi[]
         ) => Record<TodayReportPreview['surface'], Record<string, TodayReportPreview>>
+        teamReportPreviews: (
+            reports: SignalReport[]
+        ) => Record<TodayReportPreview['surface'], Record<string, TodayReportPreview>>
         briefingWaiting: (
             personalBriefing: BriefingApi | null,
             gaveUpWaitingFor: string | null,
@@ -307,7 +312,7 @@ export const todayLogic = kea<todayLogicType>([
         setHoveredItemKey: (itemKey: string | null) => ({ itemKey }),
         openItem: (item: BriefingItemApi, surface: TodayItemOpenSurface) => ({ item, surface }),
         itemOpened: (item: BriefingItemApi, surface: TodayItemOpenSurface) => ({ item, surface }),
-        reportPreviewed: (itemKey: string, surface: TodayReportPreview['surface']) => ({ itemKey, surface }),
+        reportPreviewed: (cardKey: string, surface: TodayReportPreview['surface']) => ({ cardKey, surface }),
         pollBriefing: true,
         stopWaitingForBriefing: (briefingId: string) => ({ briefingId }),
     }),
@@ -476,7 +481,18 @@ export const todayLogic = kea<todayLogicType>([
                     Object.fromEntries(
                         briefingItems
                             .filter((item) => item.group === 'report')
-                            .map((item) => [item.key, { kind: 'report', item, surface }])
+                            .map((item) => [item.key, { kind: 'report', card: briefingItemReportCard(item), surface }])
+                    )
+                return { briefing: previews('briefing'), sidebar: previews('sidebar') }
+            },
+        ],
+        // The team's reports stand in until the personal briefing is written, and get the same card.
+        teamReportPreviews: [
+            (s) => [s.reports],
+            (reports: SignalReport[]): Record<TodayReportPreview['surface'], Record<string, TodayReportPreview>> => {
+                const previews = (surface: TodayReportPreview['surface']): Record<string, TodayReportPreview> =>
+                    Object.fromEntries(
+                        reports.map((report) => [report.id, { kind: 'report', card: teamReportCard(report), surface }])
                     )
                 return { briefing: previews('briefing'), sidebar: previews('sidebar') }
             },
@@ -602,19 +618,30 @@ export const todayLogic = kea<todayLogicType>([
                     surface,
                 })
             },
-            reportPreviewed: ({ itemKey, surface }) => {
-                const item = values.briefingItems.find((candidate) => candidate.key === itemKey)
-                if (!item) {
+            reportPreviewed: ({ cardKey, surface }) => {
+                const item = values.briefingItems.find((candidate) => candidate.key === cardKey)
+                if (item) {
+                    // pinned: analytics event name and properties. Renaming them breaks dashboards.
+                    posthog.capture('today report previewed', {
+                        list: 'personal',
+                        group: item.group,
+                        source: item.source,
+                        reason: item.reason,
+                        rank: item.rank,
+                        state: item.state,
+                        has_metric: !!item.report?.metrics.length,
+                        surface,
+                    })
                     return
                 }
-                // pinned: analytics event name and properties. Renaming them breaks dashboards.
+                const rank = values.reports.findIndex((report) => teamReportCard(report).key === cardKey) + 1
+                if (rank === 0 || values.useSampleData) {
+                    return
+                }
                 posthog.capture('today report previewed', {
-                    group: item.group,
-                    source: item.source,
-                    reason: item.reason,
-                    rank: item.rank,
-                    state: item.state,
-                    has_metric: !!item.report?.metrics.length,
+                    list: 'team',
+                    rank,
+                    has_metric: !!values.reports[rank - 1].metrics?.length,
                     surface,
                 })
             },

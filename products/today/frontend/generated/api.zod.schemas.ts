@@ -124,6 +124,8 @@ export const BriefingItemReportApi = zod.object({
         .string()
         .nullable()
         .describe("URL of the report's implementation pull request, or null when it has none."),
+    signal_count: zod.number().describe('How many signals the report groups.'),
+    updated_at: zod.iso.datetime({ offset: true }).describe('When the report last changed.'),
     metrics: zod
         .array(
             zod.object({
@@ -259,6 +261,8 @@ export const BriefingItemApi = zod.object({
                     .string()
                     .nullable()
                     .describe("URL of the report's implementation pull request, or null when it has none."),
+                signal_count: zod.number().describe('How many signals the report groups.'),
+                updated_at: zod.iso.datetime({ offset: true }).describe('When the report last changed.'),
                 metrics: zod
                     .array(
                         zod.object({
@@ -431,6 +435,8 @@ export const BriefingApi = zod.object({
                                 .string()
                                 .nullable()
                                 .describe("URL of the report's implementation pull request, or null when it has none."),
+                            signal_count: zod.number().describe('How many signals the report groups.'),
+                            updated_at: zod.iso.datetime({ offset: true }).describe('When the report last changed.'),
                             metrics: zod
                                 .array(
                                     zod.object({
