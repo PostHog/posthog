@@ -824,6 +824,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         not yet produced an active-state signal counts as in flight too, which is why the
         follow-up task is checked alongside the agent's own state.
 
+        An open turn blocks rotation even when `_agent_active` is None. A delivered follow-up
+        resets `_agent_active` to None, and the relay only re-signals active on its own
+        False-to-True transition, so a follow-up delivered while the agent already works
+        leaves `_agent_active` at None for the rest of that turn.
+
         The reason is what tells a rollout whether rotation is idle-gated out of the runs that
         need it most, so it is a metric label rather than a log line.
         """
@@ -831,6 +836,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             return "flag_disabled"
         if self._agent_active:
             return "agent_active"
+        if self._end_of_turn_received is False:
+            return "turn_open"
         if self._active_followup_task is not None and not self._active_followup_task.done():
             return "followup_in_flight"
         if self._task_completed:
