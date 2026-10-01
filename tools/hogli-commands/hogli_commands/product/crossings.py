@@ -65,6 +65,7 @@ from .isolation import (
     COMPUTED_WIRING_LOCATIONS,
     MODEL_CROSSINGS,
     FacadeShapeFinding,
+    _iter_facade_modules,
     facade_model_crossings,
     facade_shape_findings,
 )
@@ -808,7 +809,7 @@ def _wiring_location_exports(product: str, location: str) -> dict[_Export, str]:
         module = _dotted_module(path)
         for name in _top_level_names(tree):
             exports[_Export(module, name)] = label
-    for facade_path in sorted((PRODUCTS_DIR / product / "backend" / "facade").glob("*.py")):
+    for facade_path in _iter_facade_modules(PRODUCTS_DIR / product / "backend"):
         tree = ast_parse_safe(facade_path)
         if tree is None:
             continue

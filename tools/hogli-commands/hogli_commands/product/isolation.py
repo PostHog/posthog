@@ -737,7 +737,7 @@ class _HandedOutName:
 
 
 def _iter_handed_out_names(
-    tree: ast.Module, backend_dir: Path, package_parts: Sequence[str] = ("facade",)
+    tree: ast.Module, backend_dir: Path, package_parts: Sequence[str]
 ) -> Iterator[_HandedOutName]:
     """Every product-internal name one facade module hands out, wiring locations included (callers
     filter). Three shapes are read:
@@ -1086,7 +1086,7 @@ def _facade_import_env(
     tree: ast.Module,
     model_names: _ModelNames,
     backend_dir: Path,
-    package_parts: Sequence[str] = ("facade",),
+    package_parts: Sequence[str],
 ) -> _FacadeImportEnv:
     types: dict[str, _ForbiddenType] = {}
     modules: dict[str, str] = {}

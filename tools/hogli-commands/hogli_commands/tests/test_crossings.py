@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import ast
 import textwrap
 from pathlib import Path
@@ -677,6 +678,25 @@ class TestGarageDrives:
             "PathsQueryRunner": "products.product_analytics.backend.hogql_queries.paths.paths_query_runner",
             "helper": "products.product_analytics.backend.logic.helpers",
         }
+
+    def test_lazy_map_in_a_nested_facade_module_exports_the_wiring_location(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        backend = tmp_path / "products" / "acme" / "backend"
+        (backend / "temporal").mkdir(parents=True)
+        (backend / "temporal" / "workflows.py").write_text("class SyncWorkflow: ...\n")
+        (backend / "facade" / "destinations").mkdir(parents=True)
+        (backend / "facade" / "destinations" / "lazy.py").write_text(
+            '_LAZY = {"SyncWorkflow": "products.acme.backend.temporal.workflows"}\n\n'
+            "def __getattr__(name):\n    return None\n"
+        )
+        monkeypatch.setattr(crossings, "REPO_ROOT", tmp_path)
+        monkeypatch.setattr(crossings, "PRODUCTS_DIR", tmp_path / "products")
+        monkeypatch.setattr(crossings, "_REPO_PREFIX", f"{tmp_path}{os.sep}")
+
+        exports = crossings._wiring_location_exports("acme", "backend/temporal/")
+
+        assert crossings._Export("products.acme.backend.facade.destinations.lazy", "SyncWorkflow") in exports
 
     def test_top_level_names_include_constants(self) -> None:
         module = "BOT_DEFINITIONS = [...]\nLIMIT: int = 5\n_private = 1\n\nclass Runner: ...\n\ndef helper(): ...\n"
