@@ -359,7 +359,8 @@ export const projectSecretAPIKeysLogic = kea<projectSecretAPIKeysLogicType>([
                 const result: Record<string, string> = {}
                 editingKey.scopes?.forEach((scope: string) => {
                     const [key, action] = scope.split(':')
-                    result[key] = result[key] && result[key] !== action ? READ_AND_WRITE : action
+                    const holdsBothActions = result[key] && result[key] !== action
+                    result[key] = holdsBothActions && READ_AND_WRITE_SCOPE_OBJECTS.has(key) ? READ_AND_WRITE : action
                 })
                 return result
             },

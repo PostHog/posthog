@@ -67,4 +67,10 @@ describe('projectSecretAPIKeysLogic', () => {
         expect(logic.values.editingKey.scopes).toEqual(expectedScopes)
         expect(logic.values.formScopeRadioValues['messaging_preference'] ?? 'none').toBe(choice)
     })
+
+    it('shows the last action for other scopes that hold both read and write', () => {
+        logic.actions.setEditingKeyValue('scopes', ['account:read', 'account:write'])
+
+        expect(logic.values.formScopeRadioValues['account']).toBe('write')
+    })
 })

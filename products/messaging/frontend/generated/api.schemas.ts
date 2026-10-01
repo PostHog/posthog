@@ -80,6 +80,20 @@ export interface MessagePreferencesApi {
     preferences: unknown
 }
 
+/**
+ * Only the preference this request set. A caller without read access learns nothing else about the recipient, including whether they existed before.
+ */
+export type MessagePreferenceWriteReceiptApiPreferences = { [key: string]: 'OPTED_IN' | 'OPTED_OUT' | 'NO_PREFERENCE' }
+
+export interface MessagePreferenceWriteReceiptApi {
+    /** The recipient identifier from the request. */
+    identifier: string
+    /** Only the preference this request set. A caller without read access learns nothing else about the recipient, including whether they existed before. */
+    preferences: MessagePreferenceWriteReceiptApiPreferences
+}
+
+export type MessagePreferenceWriteResultApi = MessagePreferencesApi | MessagePreferenceWriteReceiptApi
+
 export interface BulkOptOutEntryApi {
     /**
      * The recipient identifier to opt out (e.g. email address).

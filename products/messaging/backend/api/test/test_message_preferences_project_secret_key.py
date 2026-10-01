@@ -73,11 +73,42 @@ class TestMessagePreferencesProjectSecretKeyAccess(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("write_only", ["messaging_preference:write"], False),
-            ("read_and_write", ["messaging_preference:read", "messaging_preference:write"], True),
+            ("add_new_recipient", "add_opt_out", PreferenceStatus.OPTED_OUT, False),
+            ("add_existing_recipient", "add_opt_out", PreferenceStatus.OPTED_OUT, True),
+            ("remove_new_recipient", "remove_opt_out", PreferenceStatus.OPTED_IN, False),
+            ("remove_existing_recipient", "remove_opt_out", PreferenceStatus.OPTED_IN, True),
         ]
     )
-    def test_write_response_shows_stored_preferences_only_to_readers(self, _name, scopes, sees_stored_preferences):
+    def test_write_only_response_reveals_nothing_stored(self, _name, endpoint, written_status, recipient_exists):
+        if recipient_exists:
+            self._store_opted_out_recipient()
+        token = self._create_project_secret_key(self.team, ["messaging_preference:write"])
+
+        response = self._sdk_request(
+            endpoint, f"Bearer {token}", {"identifier": "user@example.com", "category_key": "newsletter"}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(
+            response.json(),
+            {"identifier": "user@example.com", "preferences": {str(self.category.id): written_status.value}},
+        )
+
+    def test_write_response_shows_stored_preferences_to_a_key_that_can_read(self):
+        stored_preferences = self._store_opted_out_recipient()
+        token = self._create_project_secret_key(self.team, ["messaging_preference:read", "messaging_preference:write"])
+
+        response = self._sdk_request(
+            "add_opt_out", f"Bearer {token}", {"identifier": "user@example.com", "category_key": "newsletter"}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(
+            response.json()["preferences"],
+            {**stored_preferences, str(self.category.id): PreferenceStatus.OPTED_OUT.value},
+        )
+
+    def _store_opted_out_recipient(self) -> dict[str, str]:
         other_category = MessageCategory.objects.create(team=self.team, key="product", name="Product")
         stored_preferences = {
             ALL_MESSAGE_PREFERENCE_CATEGORY_ID: PreferenceStatus.OPTED_OUT.value,
@@ -86,18 +117,7 @@ class TestMessagePreferencesProjectSecretKeyAccess(APIBaseTest):
         MessageRecipientPreference.objects.create(
             team=self.team, identifier="user@example.com", preferences=stored_preferences
         )
-        token = self._create_project_secret_key(self.team, scopes)
-
-        response = self._sdk_request(
-            "add_opt_out",
-            f"Bearer {token}",
-            {"identifier": "user@example.com", "category_key": "newsletter"},
-        )
-
-        written = {str(self.category.id): PreferenceStatus.OPTED_OUT.value}
-        expected_preferences = {**stored_preferences, **written} if sees_stored_preferences else written
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
-        self.assertEqual(response.json()["preferences"], expected_preferences)
+        return stored_preferences
 
     def test_bulk_opt_outs_record_no_creator(self):
         token = self._create_project_secret_key(self.team, ["messaging_preference:write"])
