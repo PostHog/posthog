@@ -1,6 +1,7 @@
 """OpenAI provider for LLM summarization, routed through the internal Go ai-gateway
 when configured, else the Python LLM gateway."""
 
+import time
 from typing import Any, Literal
 
 import structlog
@@ -14,7 +15,7 @@ from posthog.llm.openai_flex import FLEX_CAPABLE_MODELS, is_flex_recoverable
 from posthog.temporal.common.errors import NonReportableError
 
 from ..constants import SUMMARIZATION_FLEX_TIMEOUT, SUMMARIZATION_TIMEOUT
-from ..models import OpenAIModel, SummarizationMode
+from ..models import OpenAIModel, SummarizationCallContext, SummarizationMode
 from ..utils import load_summarization_template
 from .schema import SummarizationResponse
 
@@ -62,13 +63,15 @@ def summarize_with_openai(
     model: OpenAIModel,
     user_id: str | None = None,
     flex: bool = False,
+    call_context: SummarizationCallContext | None = None,
 ) -> SummarizationResponse:
     """Generate summary using OpenAI API via LLM gateway with structured outputs."""
     resolved_distinct_id = user_id or team_distinct_id(team_id)
+    context_properties = call_context.as_properties() if call_context else {}
     client = build_openai_client(
         "llma_summarization",
         ai_product="aio_summarization",
-        properties={"team_id": str(team_id)},
+        properties={"team_id": str(team_id), **{key: str(value) for key, value in context_properties.items()}},
         distinct_id=resolved_distinct_id,
     )
 
@@ -96,6 +99,7 @@ def summarize_with_openai(
             service_tier=service_tier,
         )
 
+    started_at = time.monotonic()
     try:
         if flex and model in FLEX_CAPABLE_MODELS:
             fell_back = False
@@ -142,14 +146,33 @@ def summarize_with_openai(
     except Exception as e:
         status_code = _provider_status(e)
         reason = _failure_reason(e, status_code)
+        failure_properties: dict[str, Any] = {
+            "team_id": team_id,
+            "model": str(model),
+            "flex": flex,
+            "provider_status": status_code,
+            # The OpenAI SDK reads this from the X-Request-ID response header. The Go ai-gateway sets
+            # that header to the id it stamps as $ai_gateway_request_id on the generation event.
+            "gateway_request_id": getattr(e, "request_id", None),
+            "duration_s": round(time.monotonic() - started_at, 2),
+            **context_properties,
+        }
+        if call_context is not None and not call_context.final_attempt:
+            # Temporal retries the activity, so the summary is not lost yet. A failed retry reaches the
+            # capture below, which keeps exception alerts to failures that cost a user their summary.
+            logger.warning(
+                "OpenAI API call failed, retry pending",
+                error=str(e),
+                error_type=type(e).__name__,
+                exc_info=True,
+                **failure_properties,
+            )
+            raise SummarizationFailedError(f"Failed to generate summary{reason}")
         logger.exception(
             "OpenAI API call failed",
             error=str(e),
             error_type=type(e).__name__,
-            provider_status=status_code,
-            team_id=team_id,
-            model=model,
-            flex=flex,
+            **failure_properties,
         )
         # Capture here because no caller reports the raised exception: the exceptions-hog handler
         # skips DRF APIExceptions, and the activity interceptor skips NonReportableError. The
@@ -160,10 +183,7 @@ def summarize_with_openai(
             additional_properties={
                 "$exception_fingerprint": f"aio_summarization.{type(e).__name__}"
                 + (f".{status_code}" if status_code is not None else ""),
-                "team_id": team_id,
-                "model": str(model),
-                "provider_status": status_code,
-                "flex": flex,
+                **failure_properties,
             },
         )
         raise SummarizationFailedError(f"Failed to generate summary{reason}")

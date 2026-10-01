@@ -12,7 +12,11 @@ from posthog.temporal.common.posthog_client import is_expected_activity_failure
 from products.ai_observability.backend.summarization.constants import SUMMARIZATION_FLEX_TIMEOUT, SUMMARIZATION_TIMEOUT
 from products.ai_observability.backend.summarization.llm.openai import summarize_with_openai
 from products.ai_observability.backend.summarization.llm.schema import SummarizationResponse
-from products.ai_observability.backend.summarization.models import OpenAIModel, SummarizationMode
+from products.ai_observability.backend.summarization.models import (
+    OpenAIModel,
+    SummarizationCallContext,
+    SummarizationMode,
+)
 
 _REQUEST = httpx.Request("POST", "https://example.com/v1/chat/completions")
 
@@ -127,7 +131,13 @@ class TestSummarizeWithOpenAI:
 
             assert str(raised.value.detail) == expected_detail
 
-    def test_api_error_is_captured_with_a_status_specific_fingerprint(self):
+    @pytest.mark.parametrize("final_attempt", [True, False])
+    def test_api_error_is_captured_only_when_no_retry_remains(self, final_attempt):
+        error = BadRequestError(
+            "bad request",
+            response=httpx.Response(400, request=_REQUEST, headers={"x-request-id": "req-123"}),
+            body=None,
+        )
         with (
             patch("products.ai_observability.backend.summarization.llm.openai.build_openai_client") as mock_get_client,
             patch("products.ai_observability.backend.summarization.llm.openai.capture_exception") as mock_capture,
@@ -135,7 +145,7 @@ class TestSummarizeWithOpenAI:
             mock_client = MagicMock()
             mock_get_client.return_value = mock_client
             mock_client.with_options.return_value = mock_client
-            mock_client.chat.completions.create.side_effect = _bad_request_error()
+            mock_client.chat.completions.create.side_effect = error
 
             with pytest.raises(exceptions.APIException) as raised:
                 summarize_with_openai(
@@ -143,13 +153,21 @@ class TestSummarizeWithOpenAI:
                     team_id=1,
                     mode=SummarizationMode.MINIMAL,
                     model=OpenAIModel.GPT_4_1_MINI,
+                    call_context=SummarizationCallContext(
+                        source="batch", trace_id="trace-1", final_attempt=final_attempt
+                    ),
                 )
 
-            mock_capture.assert_called_once()
             assert is_expected_activity_failure(raised.value)
+            if not final_attempt:
+                mock_capture.assert_not_called()
+                return
+            mock_capture.assert_called_once()
             properties = mock_capture.call_args[1]["additional_properties"]
             assert properties["$exception_fingerprint"] == "aio_summarization.BadRequestError.400"
             assert properties["provider_status"] == 400
+            assert properties["gateway_request_id"] == "req-123"
+            assert properties["summarized_trace_id"] == "trace-1"
 
     def test_uses_correct_model(self, valid_response_json):
         mock_response = MagicMock()

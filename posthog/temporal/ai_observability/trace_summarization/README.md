@@ -207,6 +207,16 @@ Text representations (up to 2 MB) are stored in Redis between the two activities
 - `TextReprExpiredError` is non-retryable (Redis key missing means fetch must re-run, but this is handled by workflow-level retry)
 - Embedding failures tracked separately, don't fail summary generation
 - Activity retries use exponential backoff via centralized retry policies
+- A failed LLM call is captured as an exception only on the last attempt of `summarize_and_save_activity`. An earlier attempt logs `OpenAI API call failed, retry pending` at warning level, because the retry can still save the summary.
+
+### Debugging a failed summary
+
+The log line, the captured exception, and the gateway `$ai_generation` event carry the same labels: `summarization_source` (`api`, `batch`, or `posthog_ai`), `summarized_trace_id`, `summarized_generation_id`, and, for batch calls, `temporal_activity_id`, `temporal_attempt`, and `final_attempt`.
+The log line and the exception also carry `gateway_request_id`, which equals `$ai_gateway_request_id` on the gateway event, and `duration_s`.
+
+1. Read `summarization_source` and `final_attempt` on the exception to see which path failed and whether a retry was still pending.
+2. Use `gateway_request_id` to find the gateway `$ai_generation` event, which has the provider status, latency, and service tier.
+3. Filter the `temporal-worker-llm-analytics` logs on `temporal_activity_id` to see every attempt and the final outcome.
 
 ## Testing
 

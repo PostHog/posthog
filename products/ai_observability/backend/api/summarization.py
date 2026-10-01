@@ -56,7 +56,7 @@ from products.access_control.backend.facade.api import (
 from products.ai_observability.backend.api.metrics import llma_track_latency
 from products.ai_observability.backend.summarization.budget import bounded_text_repr, text_repr_budget
 from products.ai_observability.backend.summarization.llm import summarize
-from products.ai_observability.backend.summarization.models import SummarizationMode
+from products.ai_observability.backend.summarization.models import SummarizationCallContext, SummarizationMode
 from products.ai_observability.backend.summarization.utils import (
     get_summarization_lookup_date_range,
     get_summary_cache_key,
@@ -673,6 +673,11 @@ The response includes the structured summary, the text representation, and metad
                 mode=mode,
                 model=model,
                 user_id=user_distinct_id,
+                call_context=SummarizationCallContext(
+                    source="api",
+                    trace_id=entity_id if summarize_type == "trace" else None,
+                    generation_id=entity_id if summarize_type == "event" else None,
+                ),
             )
 
             duration_seconds = time.time() - start_time

@@ -22,7 +22,11 @@ from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.ai_observability.backend.summarization.llm import summarize
 from products.ai_observability.backend.summarization.llm.schema import SummarizationResponse
-from products.ai_observability.backend.summarization.models import OpenAIModel, SummarizationMode
+from products.ai_observability.backend.summarization.models import (
+    OpenAIModel,
+    SummarizationCallContext,
+    SummarizationMode,
+)
 
 from ee.hogai.llm_traces_summaries.constants import LLM_TRACES_SUMMARIES_DOCUMENT_TYPE, LLM_TRACES_SUMMARIES_PRODUCT
 from ee.hogai.llm_traces_summaries.tools.embed_summaries import LLMTracesSummarizerEmbedder
@@ -207,6 +211,15 @@ async def summarize_and_save_activity(input: SummarizeAndSaveInput) -> Summariza
         # Step 2: Generate summary using LLM
         mode_enum = SummarizationMode(input.mode)
         model_enum = OpenAIModel(input.model) if input.model else None
+        activity_info = temporalio.activity.info()
+        call_context = SummarizationCallContext(
+            source="batch",
+            trace_id=input.trace_id,
+            generation_id=input.generation_id,
+            temporal_activity_id=activity_info.activity_id,
+            temporal_attempt=activity_info.attempt,
+            final_attempt=activity_info.attempt >= constants.SUMMARIZE_AND_SAVE_RETRY_POLICY.maximum_attempts,
+        )
 
         t0 = time.monotonic()
         summary_result = await database_sync_to_async(summarize, thread_sensitive=False)(
@@ -218,6 +231,7 @@ async def summarize_and_save_activity(input: SummarizeAndSaveInput) -> Summariza
             # The batch pipeline can wait for its summaries, so it takes the cheaper flex tier.
             # The provider falls back to the standard tier when flex is refused or stalls.
             flex=True,
+            call_context=call_context,
         )
         llm_duration_s = time.monotonic() - t0
         log.info(
