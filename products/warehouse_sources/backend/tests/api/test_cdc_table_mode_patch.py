@@ -19,6 +19,7 @@ from temporalio.service import RPCError, RPCStatusCode
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
+from posthog.models import Team, User
 
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
@@ -333,6 +334,144 @@ def test_toggling_sync_drops_the_snapshot_marker(team, user, client: HttpClient,
     assert response.status_code == 200, response.content
     schema.refresh_from_db()
     assert "cdc_snapshot_lane" not in schema.sync_type_config
+
+
+@pytest.mark.parametrize("should_sync_before", [True, False])
+@pytest.mark.parametrize("new_sync_type", [ExternalDataSchema.SyncType.FULL_REFRESH, None])
+def test_moving_a_table_off_cdc_drops_it_from_the_publication(
+    team: Team, user: User, client: HttpClient, should_sync_before: bool, new_sync_type: str | None
+) -> None:
+    _, schema = _make_cdc_source_and_schema(team, cdc_table_mode="consolidated")
+    ExternalDataSchema.objects.filter(id=schema.id).update(
+        should_sync=should_sync_before,
+        sync_type_config={key: value for key, value in schema.sync_type_config.items() if key != "primary_key_columns"},
+    )
+    client.force_login(user)
+    with (
+        mock.patch(_PATCH_TARGETS["is_cdc_enabled_for_team"], return_value=True),
+        mock.patch(_PATCH_TARGETS["alter_cdc_publication"]) as alter_publication,
+        mock.patch(_PATCH_TARGETS["external_data_workflow_exists"], return_value=True),
+        mock.patch(_PATCH_TARGETS["sync_external_data_job_workflow"]),
+        mock.patch(_PATCH_TARGETS["sync_cdc_extraction_schedule"]) as sync_capture_schedule,
+        mock.patch(_PATCH_TARGETS["trigger_external_data_workflow"]),
+        mock.patch(f"{_VIEW}.pause_external_data_schedule"),
+        mock.patch(f"{_VIEW}.unpause_external_data_schedule"),
+    ):
+        response = client.patch(
+            f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+            data={"sync_type": new_sync_type, "should_sync": True},
+            content_type="application/json",
+        )
+
+    assert response.status_code == 200, response.content
+    assert [call.kwargs["add"] for call in alter_publication.call_args_list] == [False]
+    sync_capture_schedule.assert_called_once()
+    schema.refresh_from_db()
+    assert schema.sync_type == new_sync_type
+
+
+@pytest.mark.parametrize("management_mode", ["posthog", "self_managed"])
+def test_a_table_moved_off_cdc_during_a_handed_over_reset_syncs_again(
+    team: Team, user: User, client: HttpClient, management_mode: str
+) -> None:
+    source, schema = _make_cdc_source_and_schema(team, cdc_table_mode="consolidated")
+    source.job_inputs = {**source.job_inputs, "cdc_management_mode": management_mode}
+    source.save()
+    ExternalDataSchema.objects.filter(id=schema.id).update(
+        sync_type_config={
+            **schema.sync_type_config,
+            "cdc_reset_pending": {"trigger": True},
+            "cdc_snapshot_lane": "buffer",
+        }
+    )
+    client.force_login(user)
+    with (
+        mock.patch(_PATCH_TARGETS["is_cdc_enabled_for_team"], return_value=True),
+        mock.patch(_PATCH_TARGETS["alter_cdc_publication"]),
+        mock.patch(_PATCH_TARGETS["external_data_workflow_exists"], return_value=True),
+        mock.patch(_PATCH_TARGETS["sync_external_data_job_workflow"]),
+        mock.patch(_PATCH_TARGETS["sync_cdc_extraction_schedule"]),
+        mock.patch(_PATCH_TARGETS["trigger_external_data_workflow"]),
+        mock.patch(f"{_VIEW}.unpause_external_data_schedule") as unpause,
+    ):
+        response = client.patch(
+            f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+            data={"sync_type": "full_refresh"},
+            content_type="application/json",
+        )
+
+    assert response.status_code == 200, response.content
+    schema.refresh_from_db()
+    assert "cdc_reset_pending" not in schema.sync_type_config
+    assert "cdc_snapshot_lane" not in schema.sync_type_config
+    unpause.assert_called_once_with(str(schema.id))
+
+
+@pytest.mark.parametrize(
+    ("table_mode", "over_billing_limit", "expected_status", "resynced"),
+    [
+        ("cdc_only", False, 200, True),
+        ("cdc_only", True, 400, False),
+        ("both", False, 200, False),
+    ],
+)
+def test_moving_a_cdc_only_table_off_cdc_resyncs_it(
+    team: Team,
+    user: User,
+    client: HttpClient,
+    table_mode: str,
+    over_billing_limit: bool,
+    expected_status: int,
+    resynced: bool,
+) -> None:
+    _, schema = _make_cdc_source_and_schema(team, cdc_table_mode=table_mode)
+    client.force_login(user)
+    with (
+        mock.patch(_PATCH_TARGETS["is_cdc_enabled_for_team"], return_value=True),
+        mock.patch(_PATCH_TARGETS["alter_cdc_publication"]),
+        mock.patch(_PATCH_TARGETS["external_data_workflow_exists"], return_value=True),
+        mock.patch(_PATCH_TARGETS["sync_external_data_job_workflow"]),
+        mock.patch(_PATCH_TARGETS["sync_cdc_extraction_schedule"]),
+        mock.patch(_PATCH_TARGETS["trigger_external_data_workflow"]) as trigger,
+        mock.patch(_PATCH_TARGETS["is_any_external_data_schema_paused"], return_value=over_billing_limit),
+    ):
+        response = client.patch(
+            f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+            data={"sync_type": "full_refresh"},
+            content_type="application/json",
+        )
+
+    assert response.status_code == expected_status, response.content
+    schema.refresh_from_db()
+    assert bool(schema.sync_type_config.get("reset_pipeline")) is resynced
+    assert trigger.called is resynced
+
+
+def test_a_table_stays_in_the_publication_when_its_move_off_cdc_is_not_saved(
+    team: Team, user: User, client: HttpClient
+) -> None:
+    _, schema = _make_cdc_source_and_schema(team, cdc_table_mode="consolidated")
+    client.force_login(user)
+    client.raise_request_exception = False
+    with (
+        mock.patch(_PATCH_TARGETS["is_cdc_enabled_for_team"], return_value=True),
+        mock.patch(_PATCH_TARGETS["alter_cdc_publication"]) as alter_publication,
+        mock.patch(_PATCH_TARGETS["sync_cdc_extraction_schedule"]),
+        mock.patch(
+            f"{_VIEW}.ExternalDataSchemaSerializer._save_merging_sync_type_config",
+            side_effect=RuntimeError("save failed"),
+        ),
+    ):
+        response = client.patch(
+            f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+            data={"sync_type": "full_refresh"},
+            content_type="application/json",
+        )
+
+    assert response.status_code == 500
+    alter_publication.assert_not_called()
+    schema.refresh_from_db()
+    assert schema.sync_type == ExternalDataSchema.SyncType.CDC
 
 
 @pytest.mark.parametrize(("sync_frequency", "expected_status"), [("7day", 200), ("30day", 400)])

@@ -40,6 +40,9 @@ SEED_B = "7c9e6f82-1a2b-4c3d-9e8f-5a6b7c8d9e0f"
 UNKNOWN_RULE = "00000000-0000-4000-8000-000000000000"
 
 
+type JsonValue = bool | int | float | str | None | list["JsonValue"] | dict[str, "JsonValue"]
+
+
 def admit_v2(team_id: int, *, creation: bool = False):
     """Turn the writer flags on for one project the way the local flag client would answer."""
     enabled = {config_writes.V2_WRITES_FLAG} | ({config_writes.V2_CREATION_FLAG} if creation else set())
@@ -315,6 +318,43 @@ class TestAdmittedV2Updates(AdmittedV2TestCase):
         flag.refresh_from_db()
         assert flag.filters == document
 
+    @parameterized.expand(
+        [
+            ("string", "compact", "compact"),
+            ("number", 2, 2.0),
+            ("object", {"a": 1, "b": [True]}, {"b": [True], "a": 1}),
+        ]
+    )
+    def test_typed_documents_replace_and_report_warnings(
+        self, return_type: str, upper: JsonValue, lower: JsonValue
+    ) -> None:
+        flag = self.flag(
+            config(targeted(value=upper), rollout(value=upper), return_type=return_type, default_value=None)
+        )
+        # The same JSON value, spelled differently, below a partial rollout that continues on a miss.
+        document = config(rollout(value=upper), targeted(value=lower), return_type=return_type, default_value=None)
+        with patch("products.feature_flags.backend.api.feature_flag.logger.info") as info:
+            response = self.patch_flag(flag, {"version": 3, "filters": document})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        flag.refresh_from_db()
+        assert flag.filters == document
+        assert info.call_args.kwargs["extra"]["codes"] == ["ROLLOUT_MISS_CAN_ENTER_LOWER_RULE"]
+
+    @parameterized.expand(
+        [
+            ("values_of_the_new_type", config(targeted(value="compact"), return_type="string", default_value=None)),
+            ("only_the_type", config(targeted(), return_type="string")),
+        ]
+    )
+    def test_return_type_cannot_change(self, _name: str, document: dict) -> None:
+        flag = self.flag()
+        stored = copy.deepcopy(flag.filters)
+        response = self.patch_flag(flag, {"version": 3, "filters": document})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "filters.return_type: Cannot be changed after the flag is created."
+        flag.refresh_from_db()
+        assert (flag.filters, flag.version) == (stored, 3)
+
     @parameterized.expand([("zero", 0), ("hundred", 100), ("two_decimals", 33.33)])
     def test_percentages_round_trip(self, _name: str, percentage: Any) -> None:
         flag = self.flag()
@@ -549,7 +589,7 @@ class TestV2AdmissionBoundary(AdmittedV2TestCase):
         [
             ("malformed", {"version": 2, "rules": "broken"}),
             ("deferred_experiment", config({"id": RULE_A, "rule_type": "experiment", "targeting": {}})),
-            ("deferred_string", config(return_type="string")),
+            ("string_with_boolean_default", config(return_type="string")),
         ]
     )
     def test_unsupported_stored_configs_are_not_replaced(self, _name: str, stored: dict) -> None:

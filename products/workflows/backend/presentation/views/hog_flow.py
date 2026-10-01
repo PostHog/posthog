@@ -1982,7 +1982,7 @@ class HogFlowScheduleSerializer(serializers.Serializer):
     next_run_at = serializers.DateTimeField(
         read_only=True, allow_null=True, help_text="Next scheduled fire time, computed by the scheduler."
     )
-    created_at = serializers.DateTimeField(read_only=True)
+    created_at = serializers.DateTimeField(read_only=True, help_text="When this version was published.")
     updated_at = serializers.DateTimeField(read_only=True)
 
     def validate(self, data):
@@ -3456,7 +3456,7 @@ class HogFlowPublishResponseSerializer(serializers.Serializer):
 
 class HogFlowRevisionBasicSerializer(serializers.Serializer):
     version = serializers.IntegerField(read_only=True, help_text="Workflow version this snapshot was published as.")
-    created_at = serializers.DateTimeField(read_only=True)
+    created_at = serializers.DateTimeField(read_only=True, help_text="When this version was published.")
     # allow_null: the first tracked write bootstraps a snapshot of the pre-existing live content,
     # which has no author.
     created_by = UserBasicSerializer(read_only=True, allow_null=True)
@@ -6448,7 +6448,10 @@ class HogFlowViewSet(
             # Conditional so a completion that landed mid-cancel wins over the flip; the
             # resolver's own terminal write absorbs the reverse race.
             set_batch_job_status(
-                batch_job_id=batch_job.id, status=HogFlowBatchJobState.CANCELLED, from_statuses=non_terminal
+                team_id=self.team_id,
+                batch_job_id=batch_job.id,
+                status=HogFlowBatchJobState.CANCELLED,
+                from_statuses=non_terminal,
             )
 
         batch_job = get_batch_job(team_id=self.team_id, hog_flow_id=hog_flow.id, batch_job_id=str(batch_job.id))
@@ -6826,7 +6829,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
             )
 
         try:
-            set_batch_job_status(batch_job_id=batch_job.id, status=HogFlowBatchJobState(new_status))
+            set_batch_job_status(team_id=team.id, batch_job_id=batch_job.id, status=HogFlowBatchJobState(new_status))
             return Response(
                 {
                     "id": str(batch_job.id),

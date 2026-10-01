@@ -18,6 +18,8 @@ import { ReasoningAnswer } from '../messages/ReasoningAnswer'
 import type { ProgressStep, ThreadItem } from '../types/streamTypes'
 import { resolveToolCall } from '../utils/toolResolver'
 import { Activity } from './ActivityPrimitives'
+import { QuillAssistantMessage, QuillHumanMessage } from './quill/QuillMessages'
+import { useQuillThread } from './quill/quillThreadContext'
 import { RunErrorRow } from './RunErrorRow'
 import { ThreadAttachments } from './ThreadAttachments'
 import { CompactBoundaryItem, ConversationClearedItem, StatusItem, TaskNotificationItem } from './ThreadItems'
@@ -145,7 +147,11 @@ export const ThreadRow = memo(function ThreadRow({
     turnCancelled,
     runEnded = true,
 }: ThreadRowProps): JSX.Element | null {
+    const quill = useQuillThread()
     if (item.type === 'human_message') {
+        if (quill) {
+            return <QuillHumanMessage item={item} />
+        }
         return (
             <MessageTemplate
                 type="human"
@@ -158,6 +164,9 @@ export const ThreadRow = memo(function ThreadRow({
         )
     }
     if (item.type === 'assistant_message') {
+        if (quill) {
+            return <QuillAssistantMessage item={item} />
+        }
         return (
             <MessageTemplate type="ai" wrapperClassName="max-w-4/5">
                 <MarkdownMessage content={item.text ?? ''} id={item.id} />
