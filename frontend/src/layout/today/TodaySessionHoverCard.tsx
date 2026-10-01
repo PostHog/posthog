@@ -130,7 +130,18 @@ export function TodaySessionHoverCard({
                                 <span title={updated.title}>{updated.text}</span>
                             </TodayHoverCardFact>
                         )}
-                        {preview.source && <TodayHoverCardFact label="Source">{preview.source}</TodayHoverCardFact>}
+                        {preview.source && (
+                            <TodayHoverCardFact label="Source">
+                                <span className="flex min-w-0 items-center gap-1.5">
+                                    {preview.sourceIcon && (
+                                        <span className="flex size-3 shrink-0 text-muted-foreground [&>svg]:size-full">
+                                            {preview.sourceIcon}
+                                        </span>
+                                    )}
+                                    <span className="truncate">{preview.source}</span>
+                                </span>
+                            </TodayHoverCardFact>
+                        )}
                     </div>
                 </ItemContent>
                 {author && (

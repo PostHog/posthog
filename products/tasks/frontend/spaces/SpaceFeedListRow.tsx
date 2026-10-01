@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { useId } from 'react'
 
-import { Badge, Spinner, Text } from '@posthog/quill'
+import { Badge, Spinner, Text, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
@@ -14,6 +14,8 @@ import { todaySessionMenuLogic } from '~/layout/today/todaySessionMenuLogic'
 import { TodaySessionRenameInput } from '~/layout/today/TodaySessionRenameInput'
 import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 import { sessionItem, sessionMenuTarget, shortTimeAgo } from '~/layout/today/todayWorkItems'
+
+import { getOriginProductMeta } from 'products/posthog_ai/frontend/api/taskSource'
 
 import { TaskListItemApi } from '../generated/api.schemas'
 import { spaceFeedStatus } from './spaceFeedStatus'
@@ -37,6 +39,7 @@ export function SpaceFeedListRow({ task, pinned, unread }: SpaceFeedListRowProps
     const [mainPullRequest] = item.pullRequests
     const status = spaceFeedStatus(task.latest_run, mainPullRequest && pullRequestStates[mainPullRequest.url])
     const author = task.created_by
+    const source = getOriginProductMeta(item.originProduct ?? undefined)
 
     if (renaming?.sessionId === task.id && renaming.surface === 'feed') {
         return (
@@ -67,6 +70,23 @@ export function SpaceFeedListRow({ task, pinned, unread }: SpaceFeedListRowProps
                             className="size-1.5 shrink-0 rounded-full bg-primary"
                             data-attr="today-unread-feed-dot"
                         />
+                    )}
+                    {source && (
+                        <Tooltip>
+                            <TooltipTrigger
+                                render={
+                                    <span
+                                        role="img"
+                                        aria-label={`Source: ${source.label}`}
+                                        className="relative flex size-3.5 shrink-0 text-muted-foreground [&>svg]:size-full"
+                                        data-attr="today-space-feed-source"
+                                    />
+                                }
+                            >
+                                {source.icon}
+                            </TooltipTrigger>
+                            <TooltipContent>{`Source: ${source.label}`}</TooltipContent>
+                        </Tooltip>
                     )}
                     {status && (
                         <Badge variant={status.variant} className="shrink-0">
