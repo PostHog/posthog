@@ -29,6 +29,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async_pool
+from posthog.temporal.common.errors import NonReportableApplicationError
 
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
 from products.experiments.backend.hogql_queries.error_handling import (
@@ -38,7 +39,7 @@ from products.experiments.backend.hogql_queries.error_handling import (
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method, sanitize_non_finite
-from products.experiments.backend.metric_resolution import build_metric, find_metric_dict, is_scheduled_metric
+from products.experiments.backend.metric_resolution import build_metric, find_metric_dict, resolve_scheduled_metrics
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -126,32 +127,10 @@ def discover_experiment_metrics(experiment: Experiment) -> list[ExperimentMetric
     ``recalculation_activities.py`` shares the name but takes a ``recalculation_id`` — disambiguate by
     import path and argument type at the call site.
     """
-    metrics_to_recalculate: list[ExperimentMetricToRecalculate] = []
-
-    def _add(metric_uuid: str | None, metric_type: str) -> None:
-        if metric_uuid:
-            metrics_to_recalculate.append(
-                ExperimentMetricToRecalculate(
-                    experiment_id=experiment.id, metric_uuid=metric_uuid, metric_type=metric_type
-                )
-            )
-
-    # Inline metrics carry their uuid directly on the dict; the metric_type is the source list.
-    for source, metric_type in [(experiment.metrics, "primary"), (experiment.metrics_secondary, "secondary")]:
-        for metric in source or []:
-            if is_scheduled_metric(metric):
-                _add(metric.get("uuid"), metric_type)
-
-    # Saved (shared) metrics live in the M2M through-model: uuid is on saved_metric.query["uuid"], and
-    # primary/secondary is recorded on the link's metadata["type"] (default "primary").
-    for link in experiment.experimenttosavedmetric_set.select_related("saved_metric").all():
-        saved_query = link.saved_metric.query
-        if not is_scheduled_metric(saved_query):
-            continue
-        metric_type = link.metadata.get("type", "primary") if link.metadata else "primary"
-        _add(saved_query.get("uuid"), metric_type)
-
-    return metrics_to_recalculate
+    return [
+        ExperimentMetricToRecalculate(experiment_id=experiment.id, metric_uuid=metric.uuid, metric_type=metric.role)
+        for metric in resolve_scheduled_metrics(experiment)
+    ]
 
 
 @database_sync_to_async_pool
@@ -182,7 +161,13 @@ def _discover_experiment_metrics_sync(recalculation_id: str) -> list[ExperimentM
 
 # Triggers that keep the prior window so unchanged metrics hit the (experiment, metric, query_to, fingerprint)
 # cache and only new or changed metrics recompute. Every other trigger advances the window to now.
-_REUSE_WINDOW_TRIGGERS = frozenset({ExperimentMetricsRecalculation.Trigger.METRIC_CONFIG_CHANGE})
+_REUSE_WINDOW_TRIGGERS = frozenset(
+    {
+        ExperimentMetricsRecalculation.Trigger.METRIC_CONFIG_CHANGE,
+        ExperimentMetricsRecalculation.Trigger.MANUAL_RETRY,
+        ExperimentMetricsRecalculation.Trigger.HEAL_LATEST_RUN,
+    }
+)
 
 
 def _resolve_query_to(experiment: Experiment, trigger: str | None) -> datetime:
@@ -369,8 +354,11 @@ def _capture_results_refresh_completed(update: RecalculationProgressUpdate) -> N
         experiment_duration_hours = (
             round((timezone.now() - experiment.start_date).total_seconds() / 3600) if experiment.start_date else None
         )
-        primary_metrics_count = len(experiment.metrics or [])
-        secondary_metrics_count = len(experiment.metrics_secondary or [])
+        # Count from the discovery list that also sets total_metrics, so saved metrics count and legacy
+        # metrics that the run never calculates do not.
+        roles = [metric.metric_type for metric in discover_experiment_metrics(experiment)]
+        primary_metrics_count = roles.count("primary")
+        secondary_metrics_count = roles.count("secondary")
         # Global client, like most Temporal workflows: the worker is long-lived, so its background flush
         # runs fine, and a scoped client's synchronous shutdown stalls the activity (~2x flush_interval).
         posthoganalytics.capture(
@@ -962,5 +950,10 @@ def _calculate_experiment_metric_for_recalculation_sync(
                     trigger=state.trigger,
                 )
             if is_permanent:
+                if error_type == "validation_error":
+                    # The activity interceptor captures any ApplicationError that escapes, which
+                    # would undo the capture skip above. The non-reportable variant keeps the
+                    # stored failure out of error tracking.
+                    raise NonReportableApplicationError(message, type=error_type, non_retryable=True) from e
                 raise ApplicationError(message, type=error_type, non_retryable=True) from e
             raise

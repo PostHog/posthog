@@ -103,6 +103,8 @@ interface RootContextValue {
     measureElement: (node: Element | null) => void
     /** Inter-row spacing (px), applied as bottom padding on the measured row so heights include it. */
     gap: number
+    /** The last row takes no gap: nothing follows it, and an empty footer would otherwise leave a blank strip. */
+    lastIndex: number
     maxWidthClassName: string
     /** When false, rows render in document flow (no virtualization) and an ancestor owns scroll. */
     virtualized: boolean
@@ -190,6 +192,7 @@ export interface VirtualizedThreadRootProps<T> {
      */
     virtualized?: boolean
     listClassName?: string
+    endInset?: number
     children: (item: T, index: number) => ReactNode
 }
 
@@ -216,6 +219,7 @@ function Root<T>({
     maxWidthClassName = 'max-w-180',
     className,
     listClassName,
+    endInset = 0,
     virtualized = true,
     children,
 }: VirtualizedThreadRootProps<T>): JSX.Element {
@@ -350,6 +354,7 @@ function Root<T>({
         estimateSize: estimateVirtualRow,
         overscan: overscanCount,
         getItemKey: getVirtualItemKey,
+        paddingEnd: endInset,
         // The virtualizer writes container height + row offsets to the DOM itself, in the same tick as each
         // measurement — no stale-offset overlap while rows measure, and React re-renders only on range change.
         directDomUpdates: true,
@@ -895,12 +900,13 @@ function Root<T>({
         () => ({
             measureElement: virtualizer.measureElement,
             gap,
+            lastIndex: rowCount - 1,
             maxWidthClassName,
             virtualized,
             isFollowing: stickToBottom && (!virtualized || pinned),
             pauseFollowing: () => setPinned(false),
         }),
-        [virtualizer, gap, maxWidthClassName, virtualized, stickToBottom, pinned, setPinned]
+        [virtualizer, gap, rowCount, maxWidthClassName, virtualized, stickToBottom, pinned, setPinned]
     )
 
     // Flow mode: render rows directly so an ancestor scroll container (and its auto-scroller) keeps working.
@@ -968,7 +974,7 @@ function Row({ children, className }: { children: ReactNode; className?: string 
     if (!root || !row) {
         throw new Error('VirtualizedThread.Row must be rendered inside VirtualizedThread.Root')
     }
-    const { measureElement, gap, maxWidthClassName, virtualized } = root
+    const { measureElement, gap, lastIndex, maxWidthClassName, virtualized } = root
     const { index } = row
 
     // Re-registers the node whenever `index` changes: the virtualizer's element cache (which both direct
@@ -1000,7 +1006,7 @@ function Row({ children, className }: { children: ReactNode; className?: string 
         <div ref={measureRef} style={ROW_BASE_STYLE}>
             <div
                 className={cn('w-full mx-auto @container/thread', maxWidthClassName, className)}
-                style={{ paddingBottom: gap }}
+                style={{ paddingBottom: index === lastIndex ? 0 : gap }}
             >
                 {children}
             </div>

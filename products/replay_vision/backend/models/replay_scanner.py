@@ -1,3 +1,4 @@
+import hashlib
 import datetime as dt
 from typing import TYPE_CHECKING
 
@@ -87,6 +88,11 @@ class ScannerOrigin(models.TextChoices):
     INLINE = "inline", "Inline"
 
 
+def prompt_fingerprint(prompt: str) -> str:
+    """Identifies a prompt's text, so a condensed question can be matched to the prompt it came from."""
+    return hashlib.sha256(prompt.encode()).hexdigest()
+
+
 def initial_watermark() -> "datetime":
     """A new scanner's sweep watermark, started one settle-interval back so its first sweep immediately picks up
     recordings that have just cleared the settle window instead of a ~settle-interval cold start; it advances
@@ -125,6 +131,11 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         blank=True,
         default="",
         help_text="Free-form description for the scanner management UI. Not used by the model.",
+    )
+    goal = models.TextField(
+        null=True,
+        blank=True,
+        help_text="The goal the creator typed or picked when an AI draft built this scanner, kept as written. Null for scanners built any other way.",
     )
 
     scanner_type = models.CharField(max_length=32, choices=ScannerType.choices)
@@ -275,6 +286,22 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         null=True,
         blank=True,
         help_text="When the Search tab last asked for this scanner's suggestions. Only viewed scanners refresh.",
+    )
+
+    # Written with the prompt by every path that sets one, see `prompt_questions`; inline scanners keep only a
+    # template's question. Not version-tracked: it restates the prompt and changes nothing about how the scanner scans.
+    prompt_question = models.TextField(
+        blank=True,
+        default="",
+        db_default="",
+        help_text="The prompt condensed by AI into one question, shown above an observation's answer.",
+    )
+    prompt_question_source = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_default="",
+        help_text="`prompt_fingerprint` of the prompt `prompt_question` was condensed from. A mismatch means it is stale.",
     )
 
     # Not "monthly": this resets with the org's billing period, which is only a calendar month

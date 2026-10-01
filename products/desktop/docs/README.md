@@ -48,5 +48,5 @@ These documents capture design intent at a point in time. Check the current code
 - [Electron desktop app](../apps/code/README.md)
 - [Mobile app](../apps/mobile/README.md)
 - [Web app](../apps/web/README.md)
-- [Agent framework](../packages/agent/README.md)
-- [Harness](../packages/harness/README.md)
+- [Agent framework](../../../packages/agent/packages/agent/README.md)
+- [Harness](../../../packages/agent/packages/harness/README.md)

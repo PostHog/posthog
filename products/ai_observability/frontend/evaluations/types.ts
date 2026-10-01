@@ -24,6 +24,7 @@ export type EvaluationStatusReason =
     | 'provider_key_quota_exceeded'
     | 'provider_key_rate_limited'
     | 'model_not_found'
+    | 'model_not_supported'
     | 'hog_error'
 
 export interface ModelConfiguration {
@@ -129,6 +130,10 @@ export interface EvaluationRun {
     // identifies what was graded. Absent on every other target.
     session_id?: string | null
     timestamp: string
+    // When the verdict was produced. A backfilled verdict's timestamp is its unit's own time, so
+    // this is what orders two verdicts for the same unit.
+    start_time?: string | null
+    backfill_id?: string | null
     evaluation_type?: EvaluationType
     result_type?: EvaluationOutputType
     result: boolean | null
@@ -143,6 +148,7 @@ export interface EvaluationRun {
     // evaluation disallows N/A, so it has to be read alongside this rather than on its own.
     skipped?: boolean
     reasoning: string
+    probability?: number | null
     status: 'completed' | 'failed' | 'running'
 }
 

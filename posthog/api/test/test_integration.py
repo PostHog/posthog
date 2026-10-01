@@ -80,11 +80,12 @@ from posthog.slack.channels import is_shared_channel
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.batch_exports.backend.facade import testing as batch_exports_testing
-from products.batch_exports.backend.facade.contracts import DestinationType
+from products.batch_exports.backend.facade.enums import BatchExportDestinationType
 from products.cdp.backend.models import HogFunction
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.tasks.backend.facade.contracts import InProgressGithubRunsDTO
-from products.workflows.backend.models import HogFlow
+from products.workflows.backend.facade.contracts import EmailDomainVerification, WorkflowSummary
+from products.workflows.backend.facade.testing import create_workflow_for_test
 
 
 def _p256_public_pem() -> str:
@@ -621,10 +622,9 @@ class TestEmailIntegration:
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
 
-    @patch("products.workflows.backend.providers.SESProvider")
-    def test_integration_from_domain(self, mock_ses_provider_class):
-        mock_client = MagicMock()
-        mock_ses_provider_class.return_value = mock_client
+    @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
+    @patch("products.workflows.backend.facade.api.create_ses_email_domain")
+    def test_integration_from_domain(self, mock_create_email_domain, mock_verify_email_domain):
 
         integration = EmailIntegration.create_native_integration(
             {**self.valid_config, "mail_from_subdomain": "youmustnothavelikedmyemail", "provider": "ses"},
@@ -646,17 +646,16 @@ class TestEmailIntegration:
         assert integration.sensitive_config == {}
         assert integration.created_by == self.user
 
-        mock_client.create_email_domain.assert_called_once_with(
+        mock_create_email_domain.assert_called_once_with(
             "posthog.com",
             mail_from_subdomain="youmustnothavelikedmyemail",
             team_id=self.team.id,
             org_team_ids=[self.team.id],
         )
 
-    @patch("products.workflows.backend.providers.SESProvider")
-    def test_email_verify_returns_ses_result(self, mock_ses_provider_class):
-        mock_client = MagicMock()
-        mock_ses_provider_class.return_value = mock_client
+    @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
+    @patch("products.workflows.backend.facade.api.create_ses_email_domain")
+    def test_email_verify_returns_ses_result(self, mock_create_email_domain, mock_verify_email_domain):
 
         # Mock the verify_email_domain method to return a test result
         expected_result = {
@@ -685,7 +684,7 @@ class TestEmailIntegration:
                 },
             ],
         }
-        mock_client.verify_email_domain.return_value = expected_result
+        mock_verify_email_domain.return_value = expected_result
 
         integration = EmailIntegration.create_native_integration(
             {**self.valid_config, "provider": "ses"},
@@ -698,7 +697,7 @@ class TestEmailIntegration:
 
         assert verification_result == expected_result
 
-        mock_client.verify_email_domain.assert_called_once_with(
+        mock_verify_email_domain.assert_called_once_with(
             "posthog.com", mail_from_subdomain="feedback", team_id=self.team.id
         )
 
@@ -712,17 +711,16 @@ class TestEmailIntegration:
             "provider": "ses",
         }
 
-    @patch("products.workflows.backend.providers.SESProvider")
-    def test_email_verify_updates_integration(self, mock_ses_provider_class):
-        mock_client = MagicMock()
-        mock_ses_provider_class.return_value = mock_client
+    @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
+    @patch("products.workflows.backend.facade.api.create_ses_email_domain")
+    def test_email_verify_updates_integration(self, mock_create_email_domain, mock_verify_email_domain):
 
         # Mock the verify_email_domain method to return a test result
-        expected_result = {
+        expected_result: EmailDomainVerification = {
             "status": "success",
             "dnsRecords": [],
         }
-        mock_client.verify_email_domain.return_value = expected_result
+        mock_verify_email_domain.return_value = expected_result
 
         integration = EmailIntegration.create_native_integration(
             {**self.valid_config, "provider": "ses"},
@@ -735,7 +733,7 @@ class TestEmailIntegration:
 
         assert verification_result == expected_result
 
-        mock_client.verify_email_domain.assert_called_once_with(
+        mock_verify_email_domain.assert_called_once_with(
             "posthog.com", mail_from_subdomain="feedback", team_id=self.team.id
         )
 
@@ -749,19 +747,20 @@ class TestEmailIntegration:
             "provider": "ses",
         }
 
-    @patch("products.workflows.backend.providers.SESProvider")
-    def test_email_verify_updates_all_other_integrations_with_same_domain(self, mock_ses_provider_class, settings):
+    @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
+    @patch("products.workflows.backend.facade.api.create_ses_email_domain")
+    def test_email_verify_updates_all_other_integrations_with_same_domain(
+        self, mock_create_email_domain, mock_verify_email_domain, settings
+    ):
         settings.SES_ACCESS_KEY_ID = "test_access_key"
         settings.SES_SECRET_ACCESS_KEY = "test_secret_key"
 
-        mock_client = MagicMock()
-        mock_ses_provider_class.return_value = mock_client
         # Mock the verify_email_domain method to return a test result
         expected_result = {
             "status": "success",
             "dnsRecords": [],
         }
-        mock_client.verify_email_domain.return_value = expected_result
+        mock_verify_email_domain.return_value = expected_result
 
         integration1 = EmailIntegration.create_native_integration(
             {**self.valid_config, "provider": "ses"},
@@ -1869,6 +1868,60 @@ class TestIntegrationAPIKeyAccess:
         assert data["repositories"] == repos
         assert data["has_more"] is False
         mock_list_repos.assert_called_once_with(search="posthog", limit=1, offset=1)
+
+    @pytest.mark.parametrize(
+        "compact,expected_keys",
+        [
+            (True, {"id", "name", "full_name"}),
+            (False, {"id", "name", "full_name", "private", "default_branch", "archived", "can_push"}),
+        ],
+    )
+    def test_github_repos_next_offset_walks_roster_larger_than_one_page(
+        self, client: HttpClient, compact: bool, expected_keys: set[str]
+    ):
+        self.github_integration.repository_cache = [
+            {
+                "id": i,
+                "name": f"repo{i}",
+                "full_name": f"org/repo{i}",
+                "private": True,
+                "default_branch": "main",
+                "archived": False,
+                "can_push": True,
+            }
+            for i in range(250)
+        ]
+        self.github_integration.repository_cache_updated_at = timezone.now()
+        self.github_integration.save()
+
+        key_value = "test_key_123"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        seen: list[str] = []
+        offset: int | None = 0
+        pages = 0
+        while offset is not None:
+            response = client.get(
+                f"/api/environments/{self.team.pk}/integrations/{self.github_integration.id}/github_repos/"
+                f"?limit=100&offset={offset}&compact={str(compact).lower()}",
+                HTTP_AUTHORIZATION=f"Bearer {key_value}",
+            )
+            assert response.status_code == status.HTTP_200_OK
+            data = response.json()
+            assert data["total"] == 250
+            assert data["has_more"] is (data["next_offset"] is not None)
+            assert all(set(repo) == expected_keys for repo in data["repositories"])
+            seen.extend(repo["full_name"] for repo in data["repositories"])
+            offset = data["next_offset"]
+            pages += 1
+
+        assert pages == 3
+        assert seen == [f"org/repo{i}" for i in range(250)]
 
     @pytest.mark.parametrize(
         "query_string,mock_return,expected_call",
@@ -6630,9 +6683,9 @@ class TestIntegrationDeletionWorkflowGuard:
             },
         ]
 
-    def _create_flow(self, status: str = "active", actions: list | None = None) -> HogFlow:
-        return HogFlow.objects.create(
-            team=self.team,
+    def _create_flow(self, status: str = "active", actions: list | None = None) -> WorkflowSummary:
+        return create_workflow_for_test(
+            team_id=self.team.id,
             name="Welcome Email Sequence",
             status=status,
             actions=actions if actions is not None else self._email_actions(self.integration.id),
@@ -6854,8 +6907,8 @@ class TestIntegrationDeletionHogFunctionGuard:
 
     def test_destroy_blocked_message_includes_workflows_and_functions(self, client: HttpClient):
         self._create_function(name="Slack notifier")
-        HogFlow.objects.create(
-            team=self.team,
+        create_workflow_for_test(
+            team_id=self.team.id,
             name="Slack flow",
             status="active",
             actions=[
@@ -6881,7 +6934,7 @@ class TestIntegrationDeletionHogFunctionGuard:
         batch_exports_testing.create_batch_export(
             self.team.id,
             name="Test batch export",
-            destination_type=DestinationType.AWS_S3,
+            destination_type=BatchExportDestinationType.AWS_S3,
             destination_config={},
             integration_id=self.integration.id,
         )

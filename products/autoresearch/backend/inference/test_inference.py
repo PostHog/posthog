@@ -12,7 +12,10 @@ from parameterized import parameterized
 from posthog.api.capture import CaptureInternalResult
 
 from products.autoresearch.backend.dataset.labeling import PREDICTION_EVENT_NAME
-from products.autoresearch.backend.inference import scoring
+from products.autoresearch.backend.inference import (
+    sandbox as sandbox_inference,
+    scoring,
+)
 from products.autoresearch.backend.inference.sandbox import _MATERIALIZE_ROW_LIMIT, SandboxScoreResult
 from products.autoresearch.backend.inference.scoring import (
     InferenceRunError,
@@ -495,12 +498,12 @@ class TestStubFeatureRows(TeamScopedTestMixin, BaseTest):
 
         assert {r["distinct_id"] for r in rows} == {"user-1", "user-3"}
         sql, values = self._sent(mock_run)
-        assert "f.distinct_id IN (SELECT DISTINCT person_id FROM events WHERE" in sql
-        assert "person.properties[{pop_k_0}] = {pop_0}" in sql
+        assert "f.distinct_id IN (SELECT person_id FROM (SELECT id AS person_id" in sql
+        assert "argMax(ifNull((properties[{pop_k_0}] = {pop_0}), 0), version) = 1" in sql
         assert values["pop_0"] == "pro"
         assert sql.rstrip().endswith(f"LIMIT {_MATERIALIZE_ROW_LIMIT}")
         count_query = mock_run.call_args_list[1].kwargs["query"]
-        assert count_query.query.startswith("SELECT count() FROM (SELECT DISTINCT person_id FROM events WHERE")
+        assert count_query.query.startswith("SELECT count() FROM (SELECT person_id FROM (SELECT id AS person_id")
         assert count_query.values["pop_0"] == "pro"
         assert all(call.kwargs["user"] == self.user for call in mock_run.call_args_list)
 
@@ -514,7 +517,7 @@ class TestStubFeatureRows(TeamScopedTestMixin, BaseTest):
         _fetch_stub_feature_rows(team=self.team, pipeline=pipeline, recipe=_STUB_RECIPE, user=self.user)
 
         sql, values = self._sent(mock_run)
-        assert "person.is_identified" in sql
+        assert "argMax(is_identified, version) = 1" in sql
         assert f"event != '{PREDICTION_EVENT_NAME}'" in sql
         assert "timestamp < now()" in sql
         assert values["lookback"] == 30
@@ -691,6 +694,19 @@ class TestAnchorsRecipeQueries(TeamScopedTestMixin, BaseTest):
             )
         assert mock_run_hogql.call_args.kwargs["query"].values["cutoff_ts"] == 1_700_000_000
         assert count.call_args.kwargs["cutoff_ts"] == 1_700_000_000
+
+    def test_training_rows_and_anchor_count_bind_one_instant(self):
+        pipeline = self._make_pipeline()
+        with (
+            patch.object(scoring, "run_hogql", return_value=HogQLResult(columns=[], rows=[])) as features_run,
+            patch.object(
+                sandbox_inference, "run_hogql", return_value=HogQLResult(columns=["eligible"], rows=[[0]])
+            ) as count_run,
+        ):
+            _fetch_training_rows(team=self.team, pipeline=pipeline, feature_sql=_ANCHORS_FEATURE_SQL, user=self.user)
+        features_query, count_query = features_run.call_args.kwargs["query"], count_run.call_args.kwargs["query"]
+        assert "now()" not in features_query.query and "now()" not in count_query.query
+        assert features_query.values["anchor_ts"] == count_query.values["anchor_ts"]
 
     @parameterized.expand(
         [

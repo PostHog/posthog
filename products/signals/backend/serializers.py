@@ -49,7 +49,7 @@ if TYPE_CHECKING:
     from products.signals.backend.implementation_pr import ImplementationPr
     from products.signals.backend.report_claims import ReportClaim
 
-from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES, RankingScore
+from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES, RankingScore, priority_from_judgment
 from .daily_limit import reports_generated_today, team_day_start
 from .models import (
     GITHUB_LABEL_NAME_MAX_LENGTH,
@@ -1363,14 +1363,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             )
         if art is None:
             return None
-        try:
-            data = json.loads(art.content)
-        except (json.JSONDecodeError, TypeError, ValueError):
-            return None
-        if not isinstance(data, dict):
-            return None
-        p = data.get("priority")
-        return p if isinstance(p, str) else None
+        return priority_from_judgment(art.content)
 
     def get_actionability(self, obj: SignalReport) -> str | None:
         data = self._get_actionability_artefact_data(obj)
@@ -1642,6 +1635,65 @@ class SignalReportListSerializer(SignalReportSerializer):
         help_text=(
             "Snapshot-only impact measurements for inbox rows. Live query definitions and authored "
             "comparisons are available from the report detail endpoint."
+        ),
+    )
+
+
+class SignalReportListQuerySerializer(serializers.Serializer):
+    count_only = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Return the filtered total with an empty results page. Skips report ordering, "
+            "serialization, and decorative metadata lookups. Defaults to false."
+        ),
+    )
+    include_source_metadata = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "Fill `source_products` and `scout_name` on each row. These come from ClickHouse, so pass "
+            "false to skip that lookup and get the page from Postgres only: rows then carry an empty "
+            "`source_products` and a null `scout_name`. Load them after with `source_metadata`. "
+            "Defaults to true."
+        ),
+    )
+
+
+# One list page, with room for a next page's ids that have not loaded yet.
+MAX_SOURCE_METADATA_REPORTS = 100
+
+
+class SignalReportSourceMetadataRequestSerializer(serializers.Serializer):
+    report_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        min_length=1,
+        max_length=MAX_SOURCE_METADATA_REPORTS,
+        help_text=f"Reports to describe. At most {MAX_SOURCE_METADATA_REPORTS} ids per call.",
+    )
+
+
+class SignalReportSourceMetadataSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True, help_text="Report id.")
+    source_products = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text="Distinct source products contributing signals to this report. Empty when it has none yet.",
+    )
+    scout_name = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="skill_name slug of the scout that authored this report, when scout-authored; null otherwise.",
+    )
+
+
+class SignalReportSourceMetadataResponseSerializer(serializers.Serializer):
+    reports = SignalReportSourceMetadataSerializer(
+        many=True,
+        read_only=True,
+        help_text=(
+            "One entry per requested id, in request order, duplicates removed. An id with no signals in "
+            "this project, including one that is not a report here, gets empty values."
         ),
     )
 

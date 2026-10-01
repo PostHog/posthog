@@ -51,10 +51,12 @@ from posthog.helpers.trigram_search import (
     apply_trigram_search,
     drop_similar_when_exact_exists,
 )
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.plugins.plugin_server_api import create_hog_invocation_test, rerun_hog_invocations
 
+from products.batch_exports.backend.facade import api as batch_exports_api
+from products.batch_exports.backend.facade.contracts import InvalidBatchExportFilters
 from products.cdp.backend.api.hog_function_template import HogFunctionTemplateSerializer
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import (
@@ -1798,8 +1800,6 @@ class HogFunctionViewSet(
 
     @action(detail=True, methods=["POST"])
     def enable_backfills(self, request: Request, *args, **kwargs):
-        from products.batch_exports.backend.api.batch_export import BatchExportSerializer
-
         hog_function = self.get_object()
 
         # Check if backfill is already enabled
@@ -1835,27 +1835,16 @@ class HogFunctionViewSet(
         ):
             raise PermissionDenied("Backfilling Workflows is not enabled for this team.")
 
-        # Prepare batch export data matching the frontend's structure
-        batch_export_data = {
-            "name": hog_function.name,
-            "paused": True,
-            "interval": "hour",
-            "model": "events",
-            "filters": hog_function.filters.get("events", []) if hog_function.filters else [],
-            "destination": {
-                "type": "Workflows",
-                "config": {"hog_function_id": str(hog_function.id)},
-            },
-        }
-
-        batch_export_serializer = BatchExportSerializer(
-            data=batch_export_data, context={"team_id": self.team_id, "request": request}
-        )
-
-        if not batch_export_serializer.is_valid():
-            return Response(batch_export_serializer.errors, status=400)
-
-        batch_export = batch_export_serializer.save()
+        try:
+            batch_export = batch_exports_api.create_workflows_backfill_export(
+                self.team_id,
+                hog_function_id=hog_function.id,
+                name=hog_function.name or "",
+                event_filters=hog_function.filters.get("events", []) if hog_function.filters else [],
+                last_modified_by_id=cast(User, request.user).id,
+            )
+        except InvalidBatchExportFilters as e:
+            return Response({"error": str(e)}, status=400)
 
         hog_function.batch_export_id = batch_export.id
         hog_function.save(update_fields=["batch_export_id"])
