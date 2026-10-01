@@ -22,11 +22,13 @@ from requests import Response, get
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 
+from posthog.auth import ProjectSecretAPIKeyUser
 from posthog.cloud_utils import TEST_clear_instance_license_cache, get_cached_instance_license
 from posthog.constants import AvailableFeature
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -51,6 +53,7 @@ from ee.api.billing import (
 )
 from ee.api.test.base import APILicensedTest
 from ee.billing.billing_types import USAGE_TYPE_OPTIONS, BillingPeriod, CustomerInfo, CustomerProduct, UsageType
+from ee.billing.exports import _release_export_stream_slot, _take_export_stream_slot
 from ee.billing.grants import (
     BILLING_LIMIT_TODAYS_USAGE_FLAG,
     MEMBER_BILLING_USAGE_SPEND_READ_ACCESS_FLAG,
@@ -2781,6 +2784,18 @@ class TestExportLimits(APILicensedTest):
 
         self.assertEqual(b"".join(first), b"Product\nEvents\n")
         self.assertEqual(self._export([b"Product\n"]).status_code, status.HTTP_200_OK)
+
+    @patch.object(_EXPORT_STREAMS, "max_concurrency", 1)
+    def test_each_project_secret_key_has_its_own_export_slots(self):
+        first, second = (
+            ProjectSecretAPIKey.objects.create(team=self.team, label=label, secure_value=f"sha256${label}")
+            for label in ("first", "second")
+        )
+        held = _take_export_stream_slot(ProjectSecretAPIKeyUser(first))
+        try:
+            _release_export_stream_slot(_take_export_stream_slot(ProjectSecretAPIKeyUser(second)))
+        finally:
+            _release_export_stream_slot(held)
 
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     @patch.object(BillingExportThrottle, "rate", "1/minute")
