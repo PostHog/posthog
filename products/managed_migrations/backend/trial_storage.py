@@ -19,7 +19,11 @@ logger = structlog.get_logger(__name__)
 
 
 class TrialResultsUnavailable(Exception):
-    """The requested trial object no longer exists (expired) or storage is not configured."""
+    """The requested trial object no longer exists (expired)."""
+
+
+class TrialStorageNotConfigured(Exception):
+    """The trial bucket setting is empty, so no trial object can be read."""
 
 
 def is_configured() -> bool:
@@ -44,7 +48,7 @@ def _job_prefix(team_id: int, job_id: str) -> str:
 
 def _read_object(key: str) -> bytes:
     if not is_configured():
-        raise TrialResultsUnavailable("trial storage is not configured")
+        raise TrialStorageNotConfigured("trial storage is not configured")
     try:
         response = _client().get_object(Bucket=settings.MANAGED_MIGRATIONS_TRIAL_S3_BUCKET, Key=key)
         return response["Body"].read()
@@ -66,7 +70,7 @@ def read_trial_page(team_id: int, job_id: str, page: int) -> list[dict]:
     """Return one page of trial records (source event, outputs, error), in order.
 
     Raises TrialResultsUnavailable when the page object is gone (lifecycle
-    expiry) or storage is not configured.
+    expiry), and TrialStorageNotConfigured when storage is not configured.
     """
     key = f"{_job_prefix(team_id, job_id)}/pages/{page:05}.jsonl"
     body = _read_object(key)
