@@ -9,6 +9,7 @@ import { initKeaTests } from '~/test/init'
 import {
     ClientFacet,
     FacetSearchRows,
+    FacetSearchValue,
     FacetValueOption,
     ServerFacet,
     filterFacetRows,
@@ -85,7 +86,7 @@ function ClientConsumer({ url }: { url: string }): JSX.Element {
 }
 
 function ServerConsumer({ facets }: { facets: ServerFacet[] }): JSX.Element {
-    const [value, setValue] = useState({ filters: [], text: '' })
+    const [value, setValue] = useState<FacetSearchValue>({ filters: [], text: '' })
     return (
         <div>
             <FacetSearchBar
