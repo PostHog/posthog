@@ -3,6 +3,7 @@ import type { CommentType } from '~/types'
 import {
     buildCanvasCommentThreads,
     canvasCommentHighlights,
+    canvasTextAnchor,
     translateCanvasTextSelection,
 } from './canvasCommentThreads'
 
@@ -26,6 +27,19 @@ function comment(overrides: Partial<CommentType> & { id: string; created_at: str
 }
 
 describe('canvas comment threads', () => {
+    it('stores only the quoted text the viewer can review', () => {
+        expect(
+            canvasTextAnchor({
+                quote: 'Signups',
+                prefix: 'private viewer state',
+                suffix: 'private connector result',
+                start: 123456,
+                end: 123463,
+                rect: { top: 10, right: 50, bottom: 20, left: 5 },
+            })
+        ).toEqual({ kind: 'text', quote: 'Signups', prefix: '', suffix: '', start: 0, end: 7 })
+    })
+
     it.each([
         { name: 'open without state replies', states: [], expected: false },
         { name: 'resolved by a resolve reply', states: ['resolved'], expected: true },

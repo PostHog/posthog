@@ -43,7 +43,10 @@ export function CanvasSelectionCommentAction(): JSX.Element | null {
         VIEWPORT_MARGIN_PX,
         Math.min(textSelection.rect.left, window.innerWidth - width - VIEWPORT_MARGIN_PX)
     )
-    const top = Math.min(textSelection.rect.bottom + 6, window.innerHeight - (composing ? 180 : 48))
+    const top = Math.max(
+        VIEWPORT_MARGIN_PX,
+        Math.min(textSelection.rect.bottom + 6, window.innerHeight - (composing ? 300 : 48))
+    )
 
     return (
         <div
@@ -66,7 +69,7 @@ export function CanvasSelectionCommentAction(): JSX.Element | null {
                 </Button>
             ) : (
                 <form
-                    className="flex flex-col gap-2 rounded-md border border-border bg-background p-2 shadow-md"
+                    className="flex max-h-[calc(100vh-16px)] flex-col gap-2 overflow-y-auto rounded-md border border-border bg-background p-2 shadow-md"
                     onSubmit={(event) => {
                         event.preventDefault()
                         if (selectionDraft.trim() && !saving) {
@@ -74,6 +77,10 @@ export function CanvasSelectionCommentAction(): JSX.Element | null {
                         }
                     }}
                 >
+                    <div className="text-xs text-muted-foreground">This quote will be shared with your comment:</div>
+                    <blockquote className="m-0 max-h-24 shrink-0 overflow-y-auto whitespace-pre-wrap break-words border-l-2 border-border pl-2 text-xs">
+                        {textSelection.quote}
+                    </blockquote>
                     <Textarea
                         autoFocus
                         aria-label="Comment on the selected text"

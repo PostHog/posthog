@@ -155,9 +155,9 @@ export function canvasTextAnchor(selection: CanvasTextSelection): CanvasTextAnch
     return {
         kind: 'text',
         quote: selection.quote,
-        prefix: selection.prefix,
-        suffix: selection.suffix,
-        start: selection.start,
-        end: selection.end,
+        prefix: '',
+        suffix: '',
+        start: 0,
+        end: selection.quote.length,
     }
 }
