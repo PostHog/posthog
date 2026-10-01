@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
@@ -265,17 +266,15 @@ function ListViewMenu({
     const recommendedItem = useRecommendedOnlyMenuItem(filters, setFilters)
     const hideItems = useHideRecordingsMenuItems()
     const timestampItems = useTimestampFormatMenuItems()
-    const autoplayItems = useAutoplayMenuItems()
 
     const items: LemonMenuItems = [
         { title: 'Sort by', items: sortItems },
         { title: 'Show', items: [recommendedItem, ...hideItems] },
         { title: 'Timestamps', items: timestampItems },
-        { title: 'Autoplay', items: autoplayItems },
     ]
 
     return (
-        <LemonMenu items={items} buttonSize="xsmall" closeOnClickInside={false}>
+        <LemonMenu items={items} buttonSize="xsmall" closeOnClickInside={false} placement="bottom-end">
             <LemonButton
                 size="xsmall"
                 icon={<IconSort className="text-lg" />}
@@ -687,24 +686,28 @@ export function SessionRecordingsPlaylistTopSettings({
         return menuItems
     }
 
+    const selectAllDisabledReason =
+        recordings.length === 0
+            ? 'No recordings'
+            : recordings.length > MAX_SELECTED_RECORDINGS
+              ? `Cannot select more than ${MAX_SELECTED_RECORDINGS} recordings at once`
+              : undefined
+
     return (
         <SettingsBar border="none" className="justify-between">
             <div className="flex items-center">
-                <LemonCheckbox
-                    disabledReason={
-                        recordings.length === 0
-                            ? 'No recordings'
-                            : recordings.length > MAX_SELECTED_RECORDINGS
-                              ? `Cannot select more than ${MAX_SELECTED_RECORDINGS} recordings at once`
-                              : undefined
-                    }
-                    checked={checked}
-                    onChange={(checked) => handleSelectUnselectAll(checked, type)}
-                    stopPropagation
-                    className="ml-2"
-                    data-attr="select-all-recordings"
-                    aria-label="Select all recordings"
-                />
+                <Tooltip title={selectAllDisabledReason ? undefined : 'Select all recordings'}>
+                    <span className={clsx('flex', consolidatedControls ? 'ml-[7px]' : 'ml-2')}>
+                        <LemonCheckbox
+                            disabledReason={selectAllDisabledReason}
+                            checked={checked}
+                            onChange={(checked) => handleSelectUnselectAll(checked, type)}
+                            stopPropagation
+                            data-attr="select-all-recordings"
+                            aria-label="Select all recordings"
+                        />
+                    </span>
+                </Tooltip>
                 {filters && setFilters && !consolidatedControls ? (
                     <>
                         <span className="text-xs font-normal inline-flex items-center ml-2">
@@ -727,20 +730,20 @@ export function SessionRecordingsPlaylistTopSettings({
                         data-attr="bulk-action-menu"
                     />
                 )}
-                {consolidatedControls && filters && setFilters ? (
+                {consolidatedControls && filters && setFilters && (
                     <ListViewMenu
                         filters={filters}
                         setFilters={setFilters}
                         disabledReason={recordings.length === 0 ? 'No recordings' : undefined}
                     />
-                ) : (
-                    <SettingsMenu
-                        data-attr="list-autoplay-menu"
-                        items={[{ label: 'Autoplay', items: autoplayItems }]}
-                        icon={<IconEllipsis className="rotate-90" />}
-                        disabledReason={recordings.length === 0 ? 'No recordings' : undefined}
-                    />
                 )}
+                <SettingsMenu
+                    data-attr="list-autoplay-menu"
+                    items={[{ label: 'Autoplay', items: autoplayItems }]}
+                    icon={<IconEllipsis className="rotate-90" />}
+                    placement={consolidatedControls ? 'bottom-end' : undefined}
+                    disabledReason={recordings.length === 0 ? 'No recordings' : undefined}
+                />
             </div>
             <ConfirmDeleteRecordings shortId={shortId} />
             <AddToCollectionModal shortId={shortId} />
