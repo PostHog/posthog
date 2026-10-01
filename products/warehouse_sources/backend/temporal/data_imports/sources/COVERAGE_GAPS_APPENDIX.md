@@ -3815,14 +3815,14 @@ Note: The public OpenAPI declares only 5 paths: /v1/folders, /v1/notes, /v1/note
 
 ## Greenhouse — gaps
 
-Today (13): `applications`, `candidates`, `close_reasons`, `departments`, `job_posts`, `jobs`, `offers`, `offices`, `rejection_reasons`, `scheduled_interviews`, `scorecards`, `sources`, `users`
+Today (18): `applications`, `candidates`, `close_reasons`, `custom_field_options`, `custom_fields`, `departments`, `job_interview_stages`, `job_posts`, `jobs`, `offers`, `offices`, `openings`, `rejection_reasons`, `scheduled_interviews`, `scorecards`, `sources`, `user_roles`, `users`
 
 Diffed against: <https://developers.greenhouse.io/harvest.html>
 
-- [ ] `job_stages (GET /v1/job_stages, /v1/jobs/{id}/stages)` — lookup that resolves the current_stage / stage IDs already carried on synced applications and scorecards (high)
-- [ ] `user_roles (GET /v1/user_roles)` — lookup resolving the role on the users table we already sync (high)
-- [ ] `job_openings (GET /v1/jobs/{id}/openings)` — per-opening headcount, open/closed dates and close reason - required for time-to-fill and openings-filled reporting (high)
-- [ ] `custom_fields + custom_field_options (GET /v1/custom_fields, /v1/custom_fields/{id}/custom_field_options)` — lookup that decodes the custom-field IDs embedded in synced jobs, candidates and applications (high)
+- [x] `job_stages (GET /v1/job_stages, /v1/jobs/{id}/stages)` — lookup that resolves the current_stage / stage IDs already carried on synced applications and scorecards (high)
+- [x] `user_roles (GET /v1/user_roles)` — lookup resolving the role on the users table we already sync (high)
+- [x] `job_openings (GET /v1/jobs/{id}/openings)` — per-opening headcount, open/closed dates and close reason - required for time-to-fill and openings-filled reporting (high)
+- [x] `custom_fields + custom_field_options (GET /v1/custom_fields, /v1/custom_fields/{id}/custom_field_options)` — lookup that decodes the custom-field IDs embedded in synced jobs, candidates and applications (high)
 - [ ] `activity_feed (GET /v1/candidates/{id}/activity_feed)` — candidate-level event/state history - the only source of note and email activity timestamps (medium)
 - [ ] `demographic_answers (GET /v1/demographic/answers, /v1/applications/{id}/demographic/answers)` — DEI breakdown dimension joined to applications (medium)
 - [ ] `demographic_questions + question_sets + answer_options (GET /v1/demographic/questions, /question_sets, /answer_options)` — lookup tables that label the demographic answer IDs (medium)
