@@ -27,7 +27,7 @@ import { ArrowUpIcon, StopIcon } from "@/components/Icons";
 import { Waveform } from "@/components/Waveform";
 import { MAX_PHOTOS, type Photo, pickPhotos } from "@/lib/attachments";
 import { sessionIdentity } from "@/lib/auth";
-import { clearDraft, type Draft, loadDraft, saveDraft } from "@/lib/cache";
+import { beginSend, type Draft, loadDraft, saveDraft } from "@/lib/cache";
 import { useComposer } from "@/lib/composer";
 import { useDictation } from "@/lib/dictation";
 import { shortModelName } from "@/lib/models";
@@ -79,7 +79,6 @@ export function Composer({
   const [text, setText] = useState(initial?.text ?? "");
   const [photos, setPhotos] = useState<Photo[]>(initial?.photos ?? []);
   const latest = useRef<Draft>({ text, photos });
-  latest.current = { text, photos };
   const hydratedKey = useRef(draftKey);
   const dictation = useDictation();
   const withSpeech = (base: string, heard: string): string =>
@@ -93,14 +92,15 @@ export function Composer({
     : text;
   const canSend = (shown.trim().length > 0 || photos.length > 0) && !sending;
 
-  // The chat screen stays mounted across chats, so swap drafts with the key.
-  // A placeholder chat has no key; when it gets its task, keep what is typed.
   useEffect(() => {
-    const previous = hydratedKey.current;
-    if (draftKey === previous) return;
+    latest.current = { text, photos };
+  }, [text, photos]);
+
+  // The chat screen stays mounted across chats, so swap drafts with the key.
+  useEffect(() => {
+    if (draftKey === hydratedKey.current) return;
     hydratedKey.current = draftKey;
     const saved = draftKey ? loadDraft(draftKey) : null;
-    if (!saved && previous === undefined) return;
     setText(saved?.text ?? "");
     setPhotos(saved?.photos ?? []);
   }, [draftKey]);
@@ -151,32 +151,21 @@ export function Composer({
     setText("");
     setPhotos([]);
     latest.current = { text: "", photos: [] };
-    const identity = sessionIdentity();
+    const settle = draftKey
+      ? beginSend(draftKey, { text: value, photos: attached })
+      : undefined;
     try {
       await onSend(value, attached);
     } catch {
+      settle?.(false);
       if (hydratedKey.current === draftKey) {
         // Keep a draft the person started while the send was in flight.
-        setText((current) => current || value);
+        setText((current) => (current.trim() ? current : value));
         setPhotos((current) => (current.length ? current : attached));
-      } else if (draftKey && sessionIdentity() === identity) {
-        // The composer shows another chat now, so return the message to the
-        // saved draft of the chat it was sent from.
-        const saved = loadDraft(draftKey);
-        saveDraft(draftKey, {
-          text: saved?.text || value,
-          photos: saved?.photos.length ? saved.photos : attached,
-        });
       }
       return;
     }
-    // After a chat change, latest.current holds the other chat's draft. The
-    // key-change cleanup already saved this chat's draft, so keep it as is.
-    if (sessionIdentity() !== identity || hydratedKey.current !== draftKey) {
-      return;
-    }
-    const { text: typed, photos: staged } = latest.current;
-    if (draftKey && !typed.trim() && !staged.length) clearDraft(draftKey);
+    settle?.(true);
   };
 
   return (
