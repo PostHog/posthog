@@ -84,6 +84,12 @@ import {
 } from 'products/experiments/frontend/constants'
 import { hasEnded, isLaunched } from 'products/experiments/frontend/experimentStatus'
 import {
+    type ExperimentHealthFinding,
+    type ExperimentHealthFindingActionKind,
+    captureExperimentHealthFindingActedOn,
+    captureExperimentHealthFindingShown,
+} from 'products/experiments/frontend/health/experimentHealthFindingEvents'
+import {
     legacyExpectedRunningTime,
     legacyMinimumSampleSizePerVariant,
     legacyRecommendedExposureForCountData,
@@ -450,6 +456,7 @@ export interface experimentLogicValues {
     excludedVariants: string[]
     experiment: Experiment
     experimentId: Experiment['id']
+    experimentLoadCount: number
     experimentLoading: boolean
     experimentMissing: boolean
     experimentUpdate: Experiment | null
@@ -903,6 +910,16 @@ export interface experimentLogicActions {
         experiment: Experiment
         forceRefresh: boolean
     }
+    reportHealthFindingActedOn: (
+        finding: ExperimentHealthFinding,
+        actionKind: ExperimentHealthFindingActionKind
+    ) => {
+        actionKind: ExperimentHealthFindingActionKind
+        finding: ExperimentHealthFinding
+    }
+    reportHealthFindingShown: (finding: ExperimentHealthFinding) => {
+        finding: ExperimentHealthFinding
+    }
     resetRunningExperiment: () => {
         value: true
     }
@@ -1342,6 +1359,11 @@ export const experimentLogic = kea<experimentLogicType>([
                 previous_refresh_triggered_by?: string | null
             }
         ) => ({ experiment, forceRefresh, context }),
+        reportHealthFindingShown: (finding: ExperimentHealthFinding) => ({ finding }),
+        reportHealthFindingActedOn: (
+            finding: ExperimentHealthFinding,
+            actionKind: ExperimentHealthFindingActionKind
+        ) => ({ finding, actionKind }),
         setExperimentMissing: true,
         setExperiment: (experiment: Partial<Experiment>) => ({ experiment }),
         setLaunchExperimentLoading: (loading: boolean) => ({ loading }),
@@ -1577,6 +1599,14 @@ export const experimentLogic = kea<experimentLogicType>([
             false,
             {
                 toggleDebugPanel: (state) => !state,
+            },
+        ],
+        // `experiment viewed` fires once per successful load. A health finding is reported once per
+        // load too, so that a load without the finding's event means that the finding is gone.
+        experimentLoadCount: [
+            0,
+            {
+                loadExperimentSuccess: (state) => state + 1,
             },
         ],
         currentRefresh: [
@@ -2200,6 +2230,20 @@ export const experimentLogic = kea<experimentLogicType>([
                 previous_refresh_state: context?.previous_refresh_state ?? null,
                 previous_refresh_triggered_by: context?.previous_refresh_triggered_by ?? null,
             })
+        },
+        reportHealthFindingShown: ({ finding }) => {
+            // The page remounts its warnings within one load, for example on a tab change or after
+            // a save, and each mount reports again.
+            const key = `${values.experimentLoadCount}:${finding.code}:${finding.variant ?? ''}`
+            cache.shownHealthFindingKeys ??= new Set<string>()
+            if (cache.shownHealthFindingKeys.has(key)) {
+                return
+            }
+            cache.shownHealthFindingKeys.add(key)
+            captureExperimentHealthFindingShown(values.experiment, finding)
+        },
+        reportHealthFindingActedOn: ({ finding, actionKind }) => {
+            captureExperimentHealthFindingActedOn(values.experiment, finding, actionKind)
         },
         beforeUnmount: () => {
             clearTimeout(cache.notificationOfferTimer)

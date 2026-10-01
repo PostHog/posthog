@@ -18,6 +18,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { ExperimentExposureCriteria, ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
 
 import { EXPERIMENT_VARIANT_MULTIPLE } from 'products/experiments/frontend/constants'
+import { useHealthFindingReporting } from 'products/experiments/frontend/health/useHealthFindingReporting'
 
 import { experimentLogic } from '../experimentLogic'
 import { getActivationConfig, isDefaultExposureConfig } from '../exposureContract'
@@ -170,6 +171,14 @@ export function Exposures(): JSX.Element {
     // Detect sample ratio mismatch (p < 0.001 is significant)
     const hasSRM = exposures?.sample_ratio_mismatch != null && exposures.sample_ratio_mismatch.p_value < 0.001
 
+    // The header total reads 0 before the exposure query answers and after it fails. Only an
+    // answer without exposures is the zero-exposure state.
+    const hasZeroExposures =
+        !isExperimentDraft && !exposuresLoading && exposures != null && !exposures.timeseries?.length
+
+    useHealthFindingReporting(hasSRM && !isExperimentDraft && !exposuresLoading ? { code: 'srm' } : null)
+    const reportZeroExposuresActedOn = useHealthFindingReporting(hasZeroExposures ? { code: 'zero_exposures' } : null)
+
     const handleCollapseChange = useCallback((activeKey: string | null) => {
         const isOpen = activeKey === 'cumulative-exposures'
         setIsCollapsed(!isOpen)
@@ -301,7 +310,10 @@ export function Exposures(): JSX.Element {
                                                 size="xsmall"
                                                 className="flex items-center gap-2"
                                                 type="secondary"
-                                                onClick={() => openExposureCriteriaModal(exposureCriteria)}
+                                                onClick={() => {
+                                                    reportZeroExposuresActedOn('edit_exposure_criteria')
+                                                    openExposureCriteriaModal(exposureCriteria)
+                                                }}
                                             >
                                                 Edit exposure criteria
                                             </LemonButton>

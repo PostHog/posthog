@@ -1,8 +1,10 @@
 import { api } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -20,7 +22,9 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { Experiment, MultivariateFlagVariant } from '~/types'
+import { Experiment, ExperimentStatus, MultivariateFlagVariant } from '~/types'
+
+import type { ExperimentHealthFinding } from 'products/experiments/frontend/health/experimentHealthFindingEvents'
 
 import { ExperimentWarning, experimentLogic } from './experimentLogic'
 import type { ExperimentSavedMetric } from './utils'
@@ -2533,6 +2537,76 @@ describe('experimentLogic', () => {
         ])('$desc → $expected', ({ overrides, expected }) => {
             logic.actions.setExperiment(createExperiment(overrides))
             expect(logic.values.experimentWarning).toEqual(expected)
+        })
+    })
+
+    describe('health finding events', () => {
+        const findingEvents = (captureSpy: jest.SpyInstance): any[] =>
+            captureSpy.mock.calls
+                .filter(([event]) => String(event).startsWith('experiment health finding'))
+                .map(([event, properties]) => [event, properties])
+
+        it('reports a shown finding once per experiment load, without customer text', () => {
+            const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+            const draft = { ...experiment, id: 7, status: ExperimentStatus.Draft, start_date: undefined } as Experiment
+            const finding: ExperimentHealthFinding = {
+                code: 'flag_live_before_launch',
+                variant: 'not_started_but_multiple_variants_rolled_out',
+            }
+
+            logic.actions.loadExperimentSuccess(draft)
+            logic.actions.reportHealthFindingShown(finding)
+            logic.actions.reportHealthFindingShown(finding)
+
+            expect(findingEvents(captureSpy)).toEqual([
+                [
+                    'experiment health finding shown',
+                    {
+                        experiment_id: 7,
+                        experiment_status: 'draft',
+                        experiment_days_since_start: null,
+                        finding_code: 'flag_live_before_launch',
+                        finding_variant: 'not_started_but_multiple_variants_rolled_out',
+                        surface: 'experiment_page',
+                        source: 'web',
+                    },
+                ],
+            ])
+
+            logic.actions.loadExperimentSuccess(draft)
+            logic.actions.reportHealthFindingShown(finding)
+
+            expect(findingEvents(captureSpy)).toHaveLength(2)
+        })
+
+        it('reports every use of a finding action', () => {
+            const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+            logic.actions.setExperiment({
+                ...experiment,
+                id: 7,
+                status: ExperimentStatus.Running,
+                start_date: dayjs().subtract(3, 'day').toISOString(),
+            })
+
+            logic.actions.reportHealthFindingActedOn({ code: 'bias_risk_multiple_excluded' }, 'use_first_seen_variant')
+            logic.actions.reportHealthFindingActedOn({ code: 'bias_risk_multiple_excluded' }, 'use_first_seen_variant')
+
+            expect(findingEvents(captureSpy)).toEqual(
+                Array(2).fill([
+                    'experiment health finding acted on',
+                    {
+                        experiment_id: 7,
+                        experiment_status: 'running',
+                        experiment_days_since_start: 3,
+                        finding_code: 'bias_risk_multiple_excluded',
+                        finding_variant: null,
+                        surface: 'experiment_page',
+                        source: 'web',
+                        action_kind: 'use_first_seen_variant',
+                        action_step: 'started',
+                    },
+                ])
+            )
         })
     })
 

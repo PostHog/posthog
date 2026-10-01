@@ -72,6 +72,8 @@ import {
     SurveyQuestionType,
 } from '~/types'
 
+import { getExperimentStatus } from 'products/experiments/frontend/experimentStatus'
+
 import type { ExperimentMetricUnion } from '../../queries/schema/schema-general'
 import type { FunnelCorrelationResultsType, Realm, UserType } from '../../types'
 
@@ -1264,6 +1266,13 @@ export interface eventUsageLogicActions {
     reportExperimentsListAiBadgeClicked: () => {
         value: true
     }
+    reportExperimentsListViewed: (
+        experimentsShown: number,
+        statusFilter: string
+    ) => {
+        experimentsShown: number
+        statusFilter: string
+    }
     reportFeatureFlagBulkCopy: (
         flagCount: number,
         projectCount: number,
@@ -1917,6 +1926,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportExperimentWizardStarted: true,
         reportExperimentWizardAskAiClicked: (currentStep: string) => ({ currentStep }),
         reportExperimentsListAiBadgeClicked: true,
+        reportExperimentsListViewed: (experimentsShown: number, statusFilter: string) => ({
+            experimentsShown,
+            statusFilter,
+        }),
         reportExperimentViewed: (experiment: Experiment, duration: number | null) => ({ experiment, duration }),
         reportExperimentMetricBreakdownAdded: (
             experiment: Experiment,
@@ -2558,9 +2571,17 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportExperimentsListAiBadgeClicked: () => {
             posthog.capture('experiments list ai badge clicked')
         },
+        reportExperimentsListViewed: ({ experimentsShown, statusFilter }) => {
+            posthog.capture('experiments list viewed', {
+                experiments_shown: experimentsShown,
+                status_filter: statusFilter,
+            })
+        },
         reportExperimentViewed: ({ experiment, duration }) => {
             posthog.capture('experiment viewed', {
                 ...getEventPropertiesForExperiment(experiment),
+                experiment_id: experiment.id,
+                experiment_status: getExperimentStatus(experiment),
                 duration,
             })
         },

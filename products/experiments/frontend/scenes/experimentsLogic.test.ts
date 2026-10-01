@@ -330,6 +330,20 @@ describe('experimentsLogic', () => {
             expect(logic.values.experiments.results).toEqual([freshExperiment])
         })
 
+        it('reports a list view when the list loads', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadExperimentsSuccess({ results: [mockExperiment, mockRunningExperiment], count: 2 })
+            }).toDispatchActions([logic.actionCreators.reportExperimentsListViewed(2, 'all')])
+        })
+
+        it('reports no list view when the list loads behind another tab', async () => {
+            logic.actions.setExperimentsTab(ExperimentsTabs.SharedMetrics)
+
+            await expectLogic(logic, () => {
+                logic.actions.loadExperimentsSuccess({ results: [mockExperiment, mockRunningExperiment], count: 2 })
+            }).toNotHaveDispatchedActions(['reportExperimentsListViewed'])
+        })
+
         it('constructs correct params from filters', () => {
             logic.actions.setExperimentsFilters({
                 search: 'test',

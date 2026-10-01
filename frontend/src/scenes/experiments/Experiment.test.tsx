@@ -2,6 +2,7 @@ import '@testing-library/jest-dom'
 
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
@@ -150,6 +151,7 @@ describe('Experiment component', () => {
             sessionStorage.clear()
             useMocks(mockApiForExperiment(experimentData))
             mountKeaLogics()
+            const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
 
             const { sceneLogic } = renderExperimentViewPage(experimentData)
 
@@ -170,10 +172,19 @@ describe('Experiment component', () => {
                 expect(document.querySelector('[data-attr="launch-experiment"]')).not.toBeInTheDocument()
             }
 
+            const shownFindingCodes = captureSpy.mock.calls
+                .filter(([event]) => event === 'experiment health finding shown')
+                .map(([, properties]) => properties?.finding_code)
+
             if (expectWarningBanner) {
                 expect(screen.getByText('No metrics defined')).toBeInTheDocument()
+                // The fixture has no feature flag, so the flag-state banner renders too.
+                expect(shownFindingCodes).toEqual(
+                    expect.arrayContaining(['no_primary_metric', 'flag_off_while_running'])
+                )
             } else {
                 expect(screen.queryByText('No metrics defined')).not.toBeInTheDocument()
+                expect(shownFindingCodes).toEqual([])
             }
 
             cleanupKea(sceneLogic)

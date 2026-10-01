@@ -6,6 +6,8 @@ import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 
 import { getEventPropertiesForExperiment } from 'lib/utils/eventUsageLogic'
 
+import { useHealthFindingReporting } from 'products/experiments/frontend/health/useHealthFindingReporting'
+
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
 import { exposureCriteriaModalLogic } from './exposureCriteriaModalLogic'
@@ -27,6 +29,7 @@ export function MultiVariantBiasWarning(): JSX.Element | null {
             posthog.capture('experiment bias warning shown', { ...getEventPropertiesForExperiment(experiment) })
         }
     }, [risk, experiment])
+    const reportHealthFindingActedOn = useHealthFindingReporting(risk ? { code: 'bias_risk_multiple_excluded' } : null)
 
     if (!risk) {
         return null
@@ -56,18 +59,26 @@ export function MultiVariantBiasWarning(): JSX.Element | null {
                     </p>
                 </div>
                 <div className="flex gap-2 items-center flex-shrink-0">
-                    <LemonButton size="small" type="secondary" onClick={() => openDistributionModal()}>
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        onClick={() => {
+                            reportHealthFindingActedOn('adjust_distribution')
+                            openDistributionModal()
+                        }}
+                    >
                         Adjust distribution
                     </LemonButton>
                     <LemonButton
                         size="small"
                         type="secondary"
-                        onClick={() =>
+                        onClick={() => {
+                            reportHealthFindingActedOn('use_first_seen_variant')
                             openExposureCriteriaModal({
                                 ...exposureCriteria,
                                 multiple_variant_handling: 'first_seen',
                             })
-                        }
+                        }}
                     >
                         Use first seen variant
                     </LemonButton>
