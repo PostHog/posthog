@@ -1,11 +1,14 @@
 """Tests for unified summarize_and_save activity."""
 
 import uuid
+import dataclasses
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 import pytest
 from unittest.mock import patch
+
+from temporalio.testing import ActivityEnvironment
 
 from posthog.temporal.ai_observability.trace_summarization.models import SummarizeAndSaveInput, TextReprExpiredError
 from posthog.temporal.ai_observability.trace_summarization.summarize_and_save import summarize_and_save_activity
@@ -35,6 +38,12 @@ def _make_mock_summary():
         summary_bullets=[],
         interesting_notes=[],
     )
+
+
+async def _run_activity(input_data, attempt=1):
+    env = ActivityEnvironment()
+    env.info = dataclasses.replace(env.info, attempt=attempt)
+    return await env.run(summarize_and_save_activity, input_data)
 
 
 def _make_input(mock_team, generation_id=None):
@@ -71,11 +80,12 @@ class TestSummarizeAndSaveActivity:
             mock_load.return_value = None
 
             with pytest.raises(TextReprExpiredError):
-                await summarize_and_save_activity(_make_input(mock_team))
+                await _run_activity(_make_input(mock_team))
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
-    async def test_trace_summary_success(self, mock_team):
+    @pytest.mark.parametrize("attempt,final_attempt", [(1, False), (2, True)])
+    async def test_trace_summary_success(self, mock_team, attempt, final_attempt):
         mock_summary = _make_mock_summary()
         input_data = _make_input(mock_team)
 
@@ -100,7 +110,7 @@ class TestSummarizeAndSaveActivity:
             mock_load.return_value = "text_repr content"
             mock_summarize.return_value = mock_summary
 
-            result = await summarize_and_save_activity(input_data)
+            result = await _run_activity(input_data, attempt=attempt)
 
             assert result.success is True
             assert result.trace_id == input_data.trace_id
@@ -108,6 +118,8 @@ class TestSummarizeAndSaveActivity:
             assert result.embedding_requested is True
             # Dropping flex here silently doubles the pipeline's LLM bill, so pin it.
             assert mock_summarize.call_args.kwargs["flex"] is True
+            # A wrong final_attempt either alerts on failures the retry recovers or hides lost summaries.
+            assert mock_summarize.call_args.kwargs["final_attempt"] is final_attempt
             mock_create_event.assert_called_once()
             call_kwargs = mock_create_event.call_args.kwargs
             assert call_kwargs["event"] == "$ai_trace_summary"
@@ -152,7 +164,7 @@ class TestSummarizeAndSaveActivity:
             mock_load.return_value = "generation text repr"
             mock_summarize.return_value = mock_summary
 
-            result = await summarize_and_save_activity(input_data)
+            result = await _run_activity(input_data)
 
             assert result.success is True
             assert result.generation_id == generation_id
@@ -197,7 +209,7 @@ class TestSummarizeAndSaveActivity:
             mock_summarize.return_value = mock_summary
             mock_embedder_class.return_value.embed_document.side_effect = Exception("Kafka down")
 
-            result = await summarize_and_save_activity(input_data)
+            result = await _run_activity(input_data)
 
             assert result.success is True
             assert result.embedding_requested is False

@@ -108,6 +108,18 @@ describe('reportRunOutcome', () => {
         expect(output).toContain('No visual changes')
     })
 
+    it('fails a failed run even though nothing counts as unresolved', async () => {
+        const exitCode = await reportRunOutcome(
+            client,
+            { ...run({ unresolved: 0 }), status: 'failed', error_message: 'hash mismatch' } as Run,
+            'https://vr.example.com/run-1',
+            'review'
+        )
+
+        expect(exitCode).toBe(1)
+        expect(output).toContain('Run failed: hash mismatch')
+    })
+
     it('still reports when the snapshot listing fails', async () => {
         vi.spyOn(client, 'getRunSnapshots').mockRejectedValue(new Error('boom'))
 

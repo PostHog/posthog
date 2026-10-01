@@ -968,6 +968,18 @@ function buildResponseFilter(config: ToolConfig): {
 }
 
 /**
+ * When `required_when_set` is set, attach it as the `x-required-when-set` schema annotation.
+ * zod 4 copies `.meta()` keys into `toJSONSchema` output, so the advertised schema and the
+ * compact exec summary both carry it. Returns the expression unchanged otherwise.
+ */
+function withRequiredWhenSet(schemaExpr: string, config: ToolConfig): string {
+    if (!config.required_when_set || Object.keys(config.required_when_set).length === 0) {
+        return schemaExpr
+    }
+    return `(${schemaExpr}).meta({ 'x-required-when-set': ${JSON.stringify(config.required_when_set)} })`
+}
+
+/**
  * When `response.selectable` is set, emit a `.extend({ fields: ... })` clause adding an optional
  * `fields` request param constrained (via `z.enum`) to the `include` allowlist. Returns '' when the
  * tool doesn't opt in, so the schema expression is left untouched. Throws when `selectable` is set
@@ -1120,6 +1132,7 @@ function generateToolCode(
             composition.toolInputsImports.push(fn)
         }
     }
+    schemaExpr = withRequiredWhenSet(schemaExpr, config)
 
     // `param_overrides.<param>.aliases` — normalize alias keys to the canonical
     // param before validation. Outermost wrapper so the rename happens before any
@@ -1629,6 +1642,7 @@ function generateCustomSchemaToolCode(
             toolInputsImports.push(fn)
         }
     }
+    baseSchemaExpr = withRequiredWhenSet(baseSchemaExpr, config)
 
     const hasAgentNote = !!config.agent_note
     const needsWithAgentNote = hasAgentNote && !!responseType

@@ -69,6 +69,7 @@ class AlertEvaluationResult:
     triggered_dates: list[str] | None = None
     interval: str | None = None
     triggered_metadata: dict | None = None
+    skipped_reason: str | None = None
 
 
 WRAPPER_NODE_KINDS = [NodeKind.DATA_TABLE_NODE, NodeKind.DATA_VISUALIZATION_NODE, NodeKind.INSIGHT_VIZ_NODE]
@@ -608,6 +609,19 @@ def add_alert_check(
     """
     # Evaluation never ran (query error): record an all-empty result so the check row still lands.
     result = evaluation_result if evaluation_result is not None else AlertEvaluationResult(value=None, breaches=None)
+    if result.skipped_reason is not None:
+        alert.last_checked_at = datetime.now(UTC)
+        alert.next_check_at = next_check_time(alert)
+        alert_check = AlertCheck.objects.create(
+            alert_configuration=alert,
+            calculated_value=None,
+            condition=alert.condition,
+            state=alert.state,
+            targets_notified={},
+            triggered_metadata={**(result.triggered_metadata or {}), "skipped_reason": result.skipped_reason},
+        )
+        alert.save(update_fields=["last_checked_at", "next_check_at"])
+        return alert_check, False
     error_message = error.get("message") if error else None
     outcome = evaluate_alert_check(
         alert,

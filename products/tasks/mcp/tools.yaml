@@ -668,6 +668,9 @@ tools:
     tasks-presence-destroy:
         operation: tasks_presence_destroy
         enabled: false
+    tasks-pull-request-titles-create:
+        operation: tasks_pull_request_titles_create
+        enabled: false
     tasks-repo-routing-rules-create:
         operation: tasks_repo_routing_rules_create
         enabled: false
