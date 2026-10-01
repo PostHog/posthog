@@ -856,6 +856,14 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         stored = self.instance.scanner_config if isinstance(self.instance.scanner_config, dict) else {}
         if stored.get("experiment_id") is None:
             return
+        can_view = self._can_view_targeted_experiment({"experiment_id": stored["experiment_id"]})
+        if not can_view and (config.get("experiment_id") is not None or "variants" in config):
+            # to_representation strips the scope keys from this caller's read, so a legitimate save
+            # writes the config back without them. An explicit id or variants value from a denied
+            # caller is a probe: answering "fixed" only on a mismatch would confirm the hidden id
+            # (and accepting only the stored variants would confirm those), so every explicit scope
+            # key reads as not-found, matching or not.
+            raise serializers.ValidationError({"scanner_config": "Experiment not found in this project."})
         if config.get("experiment_id") is not None and config["experiment_id"] != stored["experiment_id"]:
             raise serializers.ValidationError(
                 {
@@ -865,11 +873,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
                 }
             )
         restored = {**config, "experiment_id": stored["experiment_id"]}
-        if (
-            "variants" not in restored
-            and "variants" in stored
-            and not self._can_view_targeted_experiment({"experiment_id": stored["experiment_id"]})
-        ):
+        if "variants" not in restored and "variants" in stored and not can_view:
             restored["variants"] = stored["variants"]
         attrs["scanner_config"] = restored
 

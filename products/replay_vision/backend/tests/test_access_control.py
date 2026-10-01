@@ -351,6 +351,32 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
             {"prompt": "sharper prompt", "experiment_id": experiment.id, "variants": ["test"]},
         )
 
+    def test_explicit_scope_from_a_denied_editor_never_confirms_the_hidden_values(self) -> None:
+        # The mismatch error ("fixed after creation") differing from the match path would let a
+        # denied editor enumerate the redacted experiment id (or variants) by probing PATCHes, so
+        # every explicit scope key must get the identical not-found answer.
+        experiment = create_experiment(self.team, "hidden-flag", created_by=self.user)
+        config = {"prompt": "p", "experiment_id": experiment.id, "variants": ["test"]}
+        scanner = self._create_scanner(name="probe-target", scanner_type=ScannerType.EXPERIMENT, scanner_config=config)
+        self._set_resource_default("replay_scanner", "editor")
+        self._set_resource_default("experiment", "none")
+        self._grant_object_access(self.other_user, "experiment", str(experiment.id), "none")
+
+        self.client.force_login(self.other_user)
+        probes = [
+            {"prompt": "p", "experiment_id": experiment.id},
+            {"prompt": "p", "experiment_id": experiment.id + 1},
+            {"prompt": "p", "variants": ["test"]},
+        ]
+        bodies = []
+        for probe in probes:
+            resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"scanner_config": probe}, format="json")
+            self.assertEqual(resp.status_code, 400, resp.json())
+            bodies.append(resp.json())
+        self.assertEqual(len({str(b) for b in bodies}), 1)
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.scanner_config, config)
+
     def test_estimate_treats_a_denied_experiment_targeting_as_not_found(self) -> None:
         # The query runner's own access check answers a denied experiment with a 403, which would
         # confirm the hidden id exists; the endpoint must answer 400 not-found, like the scanner
