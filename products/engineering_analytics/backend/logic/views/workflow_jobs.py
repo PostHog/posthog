@@ -85,20 +85,20 @@ class JobsTable:
     duplicates: str
 
     @classmethod
-    def of(cls, table: "str | JobsTable") -> "JobsTable":
-        return table if isinstance(table, JobsTable) else cls(rows=table, duplicates=table)
+    def of(cls, table: str) -> "JobsTable":
+        """One table for both scans."""
+        return cls(rows=table, duplicates=table)
 
 
-def build_query(table_name: str | JobsTable, *, created_floor: bool = False) -> str:
+def build_query(table: JobsTable, *, created_floor: bool = False) -> str:
     # The floor must live in its OWN innermost SELECT on the raw string column, like the runs
     # builder's: the parsing SELECT below aliases parseDateTimeBestEffort(created_at) AS created_at,
     # so a WHERE there would compare the parsed DateTime against the floor string. The jobs scan and
     # the duplicate scan each read a floored source, so the one floor bounds both.
-    def floored(table: str) -> str:
-        return f"(SELECT * FROM {table} WHERE created_at >= {{job_created_floor}})" if created_floor else table
+    def floored(source: str) -> str:
+        return f"(SELECT * FROM {source} WHERE created_at >= {{job_created_floor}})" if created_floor else source
 
-    table = JobsTable.of(table_name)
-    table_source = floored(table.rows)
+    rows_source = floored(table.rows)
     duplicates_source = floored(table.duplicates)
     return f"""
         SELECT
@@ -159,7 +159,7 @@ def build_query(table_name: str | JobsTable, *, created_floor: bool = False) -> 
                 parseDateTimeBestEffort(started_at) AS started_at,
                 parseDateTimeBestEffort(completed_at) AS completed_at,
                 {_FIRST_STEP_STARTED_AT} AS first_step_started_at
-            FROM (SELECT *, created_at AS created_at_raw FROM {table_source})
+            FROM (SELECT *, created_at AS created_at_raw FROM {rows_source})
         ) AS job
         -- The duplicated (run_id, name, started_at, completed_at) groups: the re-run copies plus
         -- their originals, from a scan that reads only these five columns. The HAVING drops the

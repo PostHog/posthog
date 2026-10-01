@@ -25,7 +25,10 @@ import re
 
 from posthog.dataclasses import frozen
 
-from products.engineering_analytics.backend.logic.queries._workflow_filters import DECISIVE_FAILURE_CONCLUSIONS_SQL
+from products.engineering_analytics.backend.logic.queries._workflow_filters import (
+    DECISIVE_FAILURE_CONCLUSIONS_SQL,
+    SUCCESSFUL_RUN_CONDITION,
+)
 from products.engineering_analytics.backend.logic.views import workflow_jobs, workflow_runs
 from products.engineering_analytics.backend.logic.views.source_schema import (
     WORKFLOW_JOBS_COLUMNS,
@@ -260,24 +263,22 @@ def _github_shells(jobs_table: str, runs_table: str, handoffs: str) -> str:
     floor = f"(SELECT toString(subtractDays(toDate(min(created_at)), 1)) FROM {handoffs})"
     handed_off = f"name = '{_GITHUB_HANDOFF_JOB}' AND conclusion = 'success' AND created_at >= {floor}"
     # A run can recover weeks after its failed attempt, so the failure check has no date floor. Every attempt
-    # keeps the id of its run, and run ids grow with time, so the first run that handed off bounds the scans
-    # instead: a scan can skip files on an id range, and no attempt of a later run is below that id.
+    # keeps the id of its run, so an id bound cannot cut an attempt. Run ids grow with time, so the first run
+    # that handed off is a bound a scan can skip files on.
     first_run = f"(SELECT min(run_id) FROM {jobs_table} WHERE {handed_off})"
-    failed = f"conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})"
-    # Only the hand-off, relay and failed rows feed the aggregates, so the grouping skips every other job.
     relays = f"""
         SELECT run_id
         FROM {jobs_table}
-        WHERE run_id >= {first_run} AND (name IN ('{_GITHUB_HANDOFF_JOB}', '{_GITHUB_RELAY_JOB}') OR {failed})
+        WHERE run_id >= {first_run}
         GROUP BY run_id
         HAVING countIf({handed_off}) > 0
             AND argMaxIf(
                 ifNull(conclusion, ''), tuple(run_attempt, id), name = '{_GITHUB_RELAY_JOB}' AND created_at >= {floor}
             ) = 'success'
-            AND countIf({failed}) = 0
+            AND countIf(conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})) = 0
     """
     # The runs builder parses JSON columns on every row, so the raw columns narrow its input first.
-    successful_relays = f"id >= {first_run} AND status = 'completed' AND conclusion = 'success' AND id IN ({relays})"
+    successful_relays = f"id >= {first_run} AND {SUCCESSFUL_RUN_CONDITION} AND id IN ({relays})"
     return f"""
         SELECT r.id
         FROM ({workflow_runs.build_query(f"({_github_runs(runs_table, successful_relays)})")}) AS r

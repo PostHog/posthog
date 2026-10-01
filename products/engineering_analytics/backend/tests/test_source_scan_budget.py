@@ -4,6 +4,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from products.engineering_analytics.backend.logic.sources import JobSourceTables
 from products.engineering_analytics.backend.logic.views import depot_ci, workflow_jobs, workflow_runs
 
 _RUNS = "raw_workflow_runs"
@@ -11,16 +12,20 @@ _JOBS = "raw_workflow_jobs"
 _PULL_REQUESTS = "raw_pull_requests"
 _DEPOT = "raw_depot_job_attempts"
 
-_DEPOT_ATTEMPTS = depot_ci.DepotJobAttempts(table=_DEPOT, repository="PostHog/posthog")
+_SOURCE = JobSourceTables(
+    github_workflow_jobs=_JOBS,
+    github_workflow_runs=_RUNS,
+    pull_requests=_PULL_REQUESTS,
+    depot_job_attempts=depot_ci.DepotJobAttempts(table=_DEPOT, repository="PostHog/posthog"),
+)
 
 
 def _runs_source() -> str:
-    table = depot_ci.with_depot_runs(_RUNS, _DEPOT_ATTEMPTS, _PULL_REQUESTS, _JOBS)
-    return workflow_runs.build_query(table, pull_requests_table=_PULL_REQUESTS, started_floor=True)
+    return workflow_runs.build_query(_SOURCE.runs_source, pull_requests_table=_PULL_REQUESTS, started_floor=True)
 
 
 def _jobs_source() -> str:
-    return workflow_jobs.build_query(depot_ci.with_depot_jobs(_JOBS, _DEPOT_ATTEMPTS, _RUNS), created_floor=True)
+    return workflow_jobs.build_query(_SOURCE.jobs_source, created_floor=True)
 
 
 class TestSourceScanBudget(SimpleTestCase):

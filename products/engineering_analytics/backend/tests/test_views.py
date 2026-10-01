@@ -492,7 +492,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         ]
         job_rows = "SELECT ci_engine, id, run_id, run_attempt, is_rerun_copy FROM ({}) AS j ORDER BY ci_engine, id, run_attempt"
         assert self._select(job_rows.format(workflow_jobs.build_query(jobs))) == self._select(
-            job_rows.format(workflow_jobs.build_query(jobs.rows))
+            job_rows.format(workflow_jobs.build_query(workflow_jobs.JobsTable.of(jobs.rows)))
         )
         assert self._select(
             "SELECT run_id, run_attempt, name, conclusion, duration_seconds, is_rerun_copy "
