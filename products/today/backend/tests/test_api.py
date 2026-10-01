@@ -49,7 +49,8 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
         sync_connect.return_value.start_workflow = AsyncMock()
         with self._flag(True):
             first = self.client.get(f"/api/projects/{self.team.id}/today/briefing/?timezone=Europe/Prague")
-            second = self.client.get(f"/api/projects/{self.team.id}/today/briefing/?timezone=Europe/Prague")
+            # An MCP call sends no timezone; it must not move the person's mornings to the project's.
+            second = self.client.get(f"/api/projects/{self.team.id}/today/briefing/")
 
         assert first.status_code == status.HTTP_200_OK, first.json()
         assert first.json()["status"] == BriefingStatus.COLLECTING

@@ -78,6 +78,11 @@ _environment = Environment(
 )
 
 
+def _data_block(rows: object) -> str:
+    """JSON for the prompt. Angle brackets are escaped so a report title cannot close the data tag around it."""
+    return json.dumps(rows, ensure_ascii=False, indent=2).replace("<", "\\u003c").replace(">", "\\u003e")
+
+
 def build_prompt(
     briefing: DailyBriefing,
     user: User,
@@ -86,7 +91,7 @@ def build_prompt(
 ) -> str:
     """The prompt for one briefing: `reports` already in briefing order, `previous` the person's latest ones."""
     return _environment.get_template("briefing.md.j2").render(
-        first_name=user.first_name or "there",
+        first_name=" ".join((user.first_name or "").split())[:40] or "there",
         team_id=briefing.team_id,
         local_day=briefing.local_day.isoformat(),
         max_items=MAX_ITEMS,
@@ -94,6 +99,6 @@ def build_prompt(
         max_link_words=MAX_LINK_WORDS,
         max_label_words=MAX_LABEL_WORDS,
         max_signal_chars=MAX_SIGNAL_CHARS,
-        reports_json=json.dumps(_report_rows(reports, briefing.team_id), ensure_ascii=False, indent=2),
-        recent_json=json.dumps(_recent_rows(previous), ensure_ascii=False, indent=2),
+        reports_json=_data_block(_report_rows(reports, briefing.team_id)),
+        recent_json=_data_block(_recent_rows(previous)),
     )

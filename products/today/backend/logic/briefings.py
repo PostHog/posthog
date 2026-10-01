@@ -126,7 +126,10 @@ def get_or_start_briefing(
     now = timezone.now()
     # The scheduler only asks who viewed in the last few days, so the stamp does not need every poll.
     if current.shown.last_viewed_at is None or current.shown.last_viewed_at < now - VIEW_STAMP_EVERY:
-        DailyBriefing.objects.for_team(team.id).filter(id=current.shown.id).update(last_viewed_at=now, timezone=tz)
+        # Only a timezone the browser sent is worth keeping for the scheduler; an API call without one
+        # must not move the person's mornings to the project timezone.
+        stamp = {"last_viewed_at": now, "timezone": tz} if timezone_name else {"last_viewed_at": now}
+        DailyBriefing.objects.for_team(team.id).filter(id=current.shown.id).update(**stamp)
     return current
 
 
@@ -143,6 +146,10 @@ def refresh_briefing(*, team: Team, user: User, timezone_name: str | None) -> Da
         # Another request started today's run between the read and the write; wait for that one.
         return refresh_briefing(team=team, user=user, timezone_name=timezone_name)
     return briefing
+
+
+def delete_for_teams(team_ids: list[int]) -> None:
+    DailyBriefing.objects.unscoped().filter(team_id__in=team_ids).delete()
 
 
 def recent_ready_briefings(briefing: DailyBriefing, limit: int) -> list[DailyBriefing]:
@@ -174,18 +181,13 @@ class InboxCounts:
 
 
 def _inbox_counts(team: Team, user: User, shown: list[FactSheetItem]) -> InboxCounts:
-    if not shown:
-        return InboxCounts(more_for_you=0, open_in_project=0)
-    reports_shown = sum(1 for item in shown if item.group == ItemGroup.REPORT)
+    shown_reports = [item.key.split(":", 1)[1] for item in shown if item.group == ItemGroup.REPORT]
     try:
-        counts = signals.open_report_counts(team_id=team.id, user=user)
+        counts = signals.open_report_counts(team_id=team.id, user=user, exclude_report_ids=shown_reports)
     except Exception as error:
         capture_exception(error, {"team_id": team.id, "product": "today"})
         return InboxCounts(more_for_you=0, open_in_project=0)
-    return InboxCounts(
-        more_for_you=max(counts.for_person - reports_shown, 0),
-        open_in_project=max(counts.in_project - reports_shown, 0),
-    )
+    return InboxCounts(more_for_you=counts.for_person, open_in_project=counts.in_project)
 
 
 def _live_states(team: Team, items: list[FactSheetItem]) -> dict[str, ItemState]:

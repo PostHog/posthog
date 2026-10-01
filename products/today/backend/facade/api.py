@@ -22,6 +22,11 @@ def refresh_briefing(*, team: Team, user: User, timezone_name: str | None) -> co
     return get_briefing(team=team, user=user, timezone_name=timezone_name)
 
 
+def delete_briefings_for_teams(team_ids: list[int]) -> None:
+    """Remove every briefing of the given teams. Called from team deletion, which no foreign key covers."""
+    briefings.delete_for_teams(team_ids)
+
+
 def list_candidates(*, team: Team, user: User, timezone_name: str | None) -> contracts.CandidateList:
     """Today's ranked items with their facts and reasons, without the written text."""
     return briefings.list_candidates(team=team, user=user, timezone_name=timezone_name)

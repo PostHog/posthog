@@ -11,6 +11,8 @@ from .content import BriefingContent, ContentSegment
 from .fact_sheet import FactSheet, FactSheetItem
 
 MAX_ITEMS = 5
+# An item opens inside this project or on GitHub; anything else the agent was talked into is refused.
+_ALLOWED_URL_HOSTS = ("https://github.com/",)
 
 
 # The runtime enforces this schema on the agent's final message, so every field is required.
@@ -92,9 +94,21 @@ def to_content(output: BriefingOutput) -> BriefingContent:
     )
 
 
-def problems_with(output: BriefingOutput) -> list[str]:
+def _allowed_url(url: str, team_id: int) -> bool:
+    return url.startswith(f"/project/{team_id}/") or url.startswith(_ALLOWED_URL_HOSTS)
+
+
+def problems_with(output: BriefingOutput, team_id: int) -> list[str]:
     """Every rule the answer breaks."""
     problems = []
     if len(output.items) > MAX_ITEMS:
         problems.append(f"at most {MAX_ITEMS} items, got {len(output.items)}")
+    keys = [item.key for item in output.items]
+    for key in sorted({key for key in keys if keys.count(key) > 1}):
+        problems.append(f"item {key} appears {keys.count(key)} times, expected once")
+    for item in output.items:
+        if not _allowed_url(item.url, team_id):
+            problems.append(
+                f"url of {item.key} must start with /project/{team_id}/ or https://github.com/, got {item.url!r}"
+            )
     return problems + check_content(to_fact_sheet(output), to_content(output))

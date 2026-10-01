@@ -169,8 +169,9 @@ def reports_for_briefing(
 ) -> list[BriefingReport]:
     """Open, actionable reports for one person, in briefing order, each tagged with its strongest relation.
 
-    A report appears once, under the first `BriefingReportRelation` that matches. `limit` keeps the
-    best ones after sorting, so the per-report lookups run only for those.
+    A report appears once, under the first `BriefingReportRelation` that matches. Each relation
+    contributes its newest `limit_per_relation` rows (more for urgent-unowned, which is filtered to
+    P0 afterwards) to the candidate set; `limit` then keeps the best of the ranked set.
     """
     open_reports = _open_reports(team_id)
     names_me = _names_person(team_id, User.objects.get(id=user_id))
@@ -197,7 +198,7 @@ def reports_for_briefing(
         # Urgent-unowned is only meaningful at P0, which is filtered after the priority lookup,
         # so it reads a wider page than the other buckets.
         page = limit_per_relation * 4 if relation == BriefingReportRelation.URGENT_UNOWNED else limit_per_relation
-        for report in open_reports.filter(condition).order_by("-updated_at")[: page * 3]:
+        for report in open_reports.filter(condition).order_by("-updated_at")[:page]:
             key = str(report.id)
             if key not in seen:
                 seen.add(key)
@@ -205,17 +206,14 @@ def reports_for_briefing(
     # Priorities decide which urgent-unowned rows survive, so they load for every picked row; the
     # other lookups only feed the rows that make it into the result.
     priorities = _priorities([str(report.id) for _, report in picked])
-    chosen: list[tuple[BriefingReportRelation, SignalReport]] = []
-    counts: dict[BriefingReportRelation, int] = {}
-    for relation, report in picked:
-        if relation == BriefingReportRelation.URGENT_UNOWNED and priorities.get(str(report.id)) != "P0":
-            continue
-        if counts.get(relation, 0) >= limit_per_relation:
-            continue
-        counts[relation] = counts.get(relation, 0) + 1
-        chosen.append((relation, report))
-    chosen_ids = [str(report.id) for _, report in chosen]
-    merge_chances = _pr_merged_probabilities(chosen_ids)
+    chosen = [
+        (relation, report)
+        for relation, report in picked
+        if relation != BriefingReportRelation.URGENT_UNOWNED or priorities.get(str(report.id)) == "P0"
+    ]
+    merge_chances = _pr_merged_probabilities([str(report.id) for _, report in chosen])
+    # Rank the whole candidate set before any limit, so a sixth report that waits for the person
+    # outranks the first claimed one instead of falling off its own bucket.
     chosen.sort(
         key=lambda pair: _briefing_order(
             pair[0], priorities.get(str(pair[1].id)), merge_chances.get(str(pair[1].id)), pair[1].updated_at
@@ -223,7 +221,7 @@ def reports_for_briefing(
     )
     if limit is not None:
         chosen = chosen[:limit]
-        chosen_ids = [str(report.id) for _, report in chosen]
+    chosen_ids = [str(report.id) for _, report in chosen]
     source_products = _source_products(team_id, chosen_ids)
     with_pr = set(
         SignalReport.objects.filter(team_id=team_id, id__in=chosen_ids)
@@ -253,10 +251,16 @@ class OpenReportCounts:
     in_project: int
 
 
-def open_report_counts(*, team_id: int, user: User) -> OpenReportCounts:
-    """How many open, actionable reports the project has, and how many of them name this person."""
-    row = _open_reports(team_id).aggregate(
-        in_project=Count("id"), for_person=Count("id", filter=_names_person(team_id, user))
+def open_report_counts(*, team_id: int, user: User, exclude_report_ids: Sequence[str] = ()) -> OpenReportCounts:
+    """How many open, actionable reports the project has, and how many of them name this person.
+
+    `exclude_report_ids` leaves out the reports a briefing already shows; one that is resolved or
+    does not name the person was never in the set, so it is not subtracted from it.
+    """
+    row = (
+        _open_reports(team_id)
+        .exclude(id__in=list(exclude_report_ids))
+        .aggregate(in_project=Count("id"), for_person=Count("id", filter=_names_person(team_id, user)))
     )
     return OpenReportCounts(for_person=row["for_person"], in_project=row["in_project"])
 

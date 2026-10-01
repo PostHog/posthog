@@ -6,6 +6,7 @@ interface TodayNavItemProps {
     color: string
     icon: JSX.Element
     to: string
+    target?: string
     /** Highlighted because the matching report is hovered elsewhere on the page. */
     active?: boolean
     current?: boolean
@@ -22,6 +23,7 @@ export function TodayNavItem({
     color,
     icon,
     to,
+    target,
     active = false,
     current = false,
     done = false,
@@ -32,6 +34,7 @@ export function TodayNavItem({
     return (
         <Link
             to={to}
+            target={target}
             subtle
             className="TodayNavItem"
             data-active={active || current}

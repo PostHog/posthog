@@ -58,7 +58,9 @@ def _title(briefing: DailyBriefing) -> str:
 def _preranked_reports(team: Team, user: User) -> list[signals.BriefingReport]:
     """The reports PostHog already ranked for the person. A failure here costs the agent its head start, not the run."""
     try:
-        return signals.reports_for_briefing(team_id=team.id, user_id=user.id, limit=PRERANKED_REPORTS)
+        return signals.reports_for_briefing(
+            team_id=team.id, user_id=user.id, limit_per_relation=PRERANKED_REPORTS, limit=PRERANKED_REPORTS
+        )
     except Exception as error:
         capture_exception(error, {"team_id": team.id, "product": "today"})
         return []
@@ -88,6 +90,8 @@ def _prepare(team_id: int, briefing_id: str) -> _PreparedRun | None:
         user_id=user.id,
         sandbox_environment_id=sandbox_environment_id,
         posthog_mcp_scopes="read_only",
+        # A headless agent that reads untrusted report text must never hold a write-capable GitHub token.
+        github_read_access=True,
         model=MODEL,
         runtime_adapter=RUNTIME_ADAPTER,
         reasoning_effort=REASONING_EFFORT,
@@ -109,7 +113,7 @@ def _fix_message(problems: list[str]) -> str:
 
 def _store(team_id: int, briefing_id: str, output: BriefingOutput) -> list[str]:
     """Store the agent's answer, or return the rules it broke so the agent can fix them."""
-    problems = problems_with(output)
+    problems = problems_with(output, team_id)
     if not problems:
         briefing = DailyBriefing.objects.for_team(team_id).get(id=briefing_id)
         store_briefing(briefing, to_fact_sheet(output), to_content(output))
@@ -152,7 +156,8 @@ async def run_agent(*, team_id: int, briefing_id: str) -> None:
             if attempt == WRITE_ATTEMPTS:
                 raise RuntimeError("The agent's briefing kept breaking the rules: " + "; ".join(problems))
             output = await session.send_followup(_fix_message(problems), BriefingOutput, label=f"fix_{attempt}")
-    except Exception as error:
+    except BaseException as error:
+        # Also on cancellation from the activity deadline, so the sandbox does not run on alone.
         await session.end(status="failed", error=str(error)[:500])
         raise
     await session.end()

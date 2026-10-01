@@ -60,7 +60,12 @@ def _fail_stuck_briefings(now: datetime) -> int:
 
 
 def _due_briefings() -> list[DailyBriefing]:
-    """Create the rows for people whose briefing day starts in this window and who opened Today recently."""
+    """The scheduled rows to start for people whose briefing day starts in this window and who opened Today recently.
+
+    Rows are created first and their workflows started afterwards, so a start that fails leaves a
+    row behind; it is returned again on the next tick, until its workflow exists or the stuck sweep
+    fails it.
+    """
     now = timezone.now()
     _fail_stuck_briefings(now)
     since = now - timedelta(days=ACTIVE_VIEWER_DAYS)
@@ -83,25 +88,23 @@ def _due_briefings() -> list[DailyBriefing]:
     user_ids = {user_id for _, user_id, _, _ in due}
     teams = Team.objects.in_bulk(team_ids)
     users = User.objects.filter(is_active=True).in_bulk(user_ids)
-    existing = set(
-        DailyBriefing.objects.unscoped()
-        .filter(team_id__in=team_ids, user_id__in=user_ids, local_day__in={day for _, _, _, day in due})
-        .values_list("team_id", "user_id", "local_day")
+    due_rows = DailyBriefing.objects.unscoped().filter(
+        team_id__in=team_ids, user_id__in=user_ids, local_day__in={day for _, _, _, day in due}
     )
-    created: list[DailyBriefing] = []
+    existing = set(due_rows.values_list("team_id", "user_id", "local_day"))
+    created = 0
     for team_id, user_id, timezone_name, day in due:
-        if len(created) >= MAX_STARTS_PER_RUN:
+        if created >= MAX_STARTS_PER_RUN:
             break
         team, user = teams.get(team_id), users.get(user_id)
         if (team_id, user_id, day) in existing or team is None or user is None or not may_get_briefing(user, team):
             continue
         # None when the person opened Today themselves since the rows were read.
-        briefing = create_briefing(
+        if create_briefing(
             team=team, user=user, local_day=day, timezone_name=timezone_name, trigger=BriefingTrigger.SCHEDULED
-        )
-        if briefing is not None:
-            created.append(briefing)
-    return created
+        ):
+            created += 1
+    return list(due_rows.filter(trigger=BriefingTrigger.SCHEDULED, status=BriefingStatus.COLLECTING))
 
 
 @temporalio.activity.defn

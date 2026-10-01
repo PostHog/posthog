@@ -457,120 +457,133 @@ export const todayLogic = kea<todayLogicType>([
                     !isBriefingSettled(personalBriefing)),
         ],
     }),
-    listeners(({ actions, values, cache }) => ({
-        askAi: ({ prompt }) => {
-            router.actions.push(urls.ai(undefined, prompt))
-        },
-        tick: () => {
-            // An open tab moves to the new day's briefing at 8:00 without a reload, including a laptop
-            // that slept through it. The first tick, at mount, only records the day.
-            const day = briefingDayKey(values.now)
-            if (cache.day !== undefined && day !== cache.day && !values.useSampleData) {
-                actions.loadPersonalBriefing()
-            }
-            cache.day = day
-        },
-        openReport: ({ report, source }) => {
-            router.actions.push(urls.todayReport(report.id))
-            actions.reportOpened(report, source)
-        },
-        setUseSampleData: ({ useSampleData }) => {
-            actions.loadTopReports()
-            if (!useSampleData) {
-                actions.loadPersonalBriefing()
-            }
-        },
-        loadPersonalBriefingSuccess: ({ personalBriefing }) => {
-            if (!personalBriefing) {
-                return
-            }
-            if (values.briefingWaiting) {
-                if (values.briefingPolls >= MAX_BRIEFING_POLLS) {
-                    actions.stopWaitingForBriefing(personalBriefing.id)
+    listeners(({ actions, values, cache }) => {
+        const schedulePoll = (): void => {
+            cache.disposables.add(() => {
+                const poll = window.setTimeout(() => actions.pollBriefing(), BRIEFING_POLL_MS)
+                return () => clearTimeout(poll)
+            }, 'briefingPoll')
+        }
+        return {
+            askAi: ({ prompt }) => {
+                router.actions.push(urls.ai(undefined, prompt))
+            },
+            tick: () => {
+                // An open tab moves to the new day's briefing at 8:00 without a reload, including a laptop
+                // that slept through it. The first tick, at mount, only records the day.
+                const day = briefingDayKey(values.now)
+                if (cache.day !== undefined && day !== cache.day && !values.useSampleData) {
+                    actions.loadPersonalBriefing()
+                }
+                cache.day = day
+            },
+            openReport: ({ report, source }) => {
+                router.actions.push(urls.todayReport(report.id))
+                actions.reportOpened(report, source)
+            },
+            setUseSampleData: ({ useSampleData }) => {
+                actions.loadTopReports()
+                if (!useSampleData) {
+                    actions.loadPersonalBriefing()
+                }
+            },
+            loadPersonalBriefingSuccess: ({ personalBriefing }) => {
+                if (!personalBriefing) {
                     return
                 }
-                cache.disposables.add(() => {
-                    const poll = window.setTimeout(() => actions.pollBriefing(), BRIEFING_POLL_MS)
-                    return () => clearTimeout(poll)
-                }, 'briefingPoll')
-                return
-            }
-            if (cache.viewedBriefingId === personalBriefing.id) {
-                return
-            }
-            cache.viewedBriefingId = personalBriefing.id
-            // pinned: analytics event name and properties. Renaming them breaks dashboards.
-            posthog.capture('today briefing viewed', {
-                status: personalBriefing.status,
-                writer: personalBriefing.writer,
-                item_count: personalBriefing.items.length,
-                done_item_count: personalBriefing.items.filter((item) => item.state === 'done').length,
-                more_reports_count: personalBriefing.more_reports_count,
-            })
-        },
-        pollBriefing: () => {
-            actions.loadPersonalBriefing()
-        },
-        refreshBriefing: () => {
-            // pinned: analytics event name. Renaming it breaks dashboards.
-            posthog.capture('today refresh clicked', { writer: values.personalBriefing?.writer ?? null })
-        },
-        refreshBriefingSuccess: () => {
-            actions.loadPersonalBriefing()
-        },
-        refreshBriefingFailure: ({ errorObject }) => {
-            const detail = errorObject instanceof ApiError ? errorObject.detail : null
-            lemonToast.error(detail || 'Couldn’t refresh your briefing. Try again in a minute.')
-        },
-        openItem: ({ item, surface }) => {
-            const href = itemHref(item)
-            if (isExternalHref(href)) {
-                window.open(href, '_blank', 'noopener')
-            } else {
-                navigateToHref(href)
-            }
-            actions.itemOpened(item, surface)
-        },
-        itemOpened: ({ item, surface }) => {
-            // pinned: analytics event name and properties. Renaming them breaks dashboards.
-            posthog.capture('today item opened', {
-                group: item.group,
-                source: item.source,
-                reason: item.reason,
-                rank: item.rank,
-                state: item.state,
-                surface,
-            })
-        },
-        locationChanged: ({ searchParams }) => {
-            const useSampleData = parseSampleParam(searchParams.sample)
-            if (useSampleData !== null && useSampleData !== values.useSampleData) {
-                actions.setUseSampleData(useSampleData)
-            }
-        },
-        loadTopReportsSuccess: ({ topReports }) => {
-            if (values.useSampleData) {
-                return
-            }
-            // pinned: analytics event name and properties. Renaming them breaks dashboards.
-            posthog.capture('today home loaded', {
-                report_count: topReports.results.length,
-                more_report_count: values.moreReportCount,
-            })
-        },
-        reportOpened: ({ report, source }) => {
-            if (values.useSampleData) {
-                return
-            }
-            // pinned: analytics event name and properties. Renaming them breaks dashboards.
-            posthog.capture('today report opened', {
-                report_id: report.id,
-                priority: report.priority ?? null,
-                has_pr: !!report.implementation_pr_url,
-                source,
-            })
-        },
-    })),
+                if (values.briefingWaiting) {
+                    if (values.briefingPolls >= MAX_BRIEFING_POLLS) {
+                        actions.stopWaitingForBriefing(personalBriefing.id)
+                        return
+                    }
+                    schedulePoll()
+                    return
+                }
+                if (cache.viewedBriefingId === personalBriefing.id) {
+                    return
+                }
+                cache.viewedBriefingId = personalBriefing.id
+                // pinned: analytics event name and properties. Renaming them breaks dashboards.
+                posthog.capture('today briefing viewed', {
+                    status: personalBriefing.status,
+                    writer: personalBriefing.writer,
+                    item_count: personalBriefing.items.length,
+                    done_item_count: personalBriefing.items.filter((item) => item.state === 'done').length,
+                    more_reports_count: personalBriefing.more_reports_count,
+                })
+            },
+            loadPersonalBriefingFailure: ({ errorObject }) => {
+                // A poll that fails while the briefing is written keeps polling; a 404 means there is no
+                // briefing for this person, so the report list stays.
+                const notFound = errorObject instanceof ApiError && errorObject.status === 404
+                if (values.briefingWaiting && !notFound && values.briefingPolls < MAX_BRIEFING_POLLS) {
+                    schedulePoll()
+                }
+            },
+            pollBriefing: () => {
+                actions.loadPersonalBriefing()
+            },
+            refreshBriefing: () => {
+                // pinned: analytics event name. Renaming it breaks dashboards.
+                posthog.capture('today refresh clicked', { writer: values.personalBriefing?.writer ?? null })
+            },
+            refreshBriefingSuccess: () => {
+                actions.loadPersonalBriefing()
+            },
+            refreshBriefingFailure: ({ errorObject }) => {
+                const detail = errorObject instanceof ApiError ? errorObject.detail : null
+                lemonToast.error(detail || 'Couldn’t refresh your briefing. Try again in a minute.')
+            },
+            openItem: ({ item, surface }) => {
+                const href = itemHref(item)
+                if (isExternalHref(href)) {
+                    window.open(href, '_blank', 'noopener')
+                } else {
+                    navigateToHref(href)
+                }
+                actions.itemOpened(item, surface)
+            },
+            itemOpened: ({ item, surface }) => {
+                // pinned: analytics event name and properties. Renaming them breaks dashboards.
+                posthog.capture('today item opened', {
+                    group: item.group,
+                    source: item.source,
+                    reason: item.reason,
+                    rank: item.rank,
+                    state: item.state,
+                    surface,
+                })
+            },
+            locationChanged: ({ searchParams }) => {
+                const useSampleData = parseSampleParam(searchParams.sample)
+                if (useSampleData !== null && useSampleData !== values.useSampleData) {
+                    actions.setUseSampleData(useSampleData)
+                }
+            },
+            loadTopReportsSuccess: ({ topReports }) => {
+                if (values.useSampleData) {
+                    return
+                }
+                // pinned: analytics event name and properties. Renaming them breaks dashboards.
+                posthog.capture('today home loaded', {
+                    report_count: topReports.results.length,
+                    more_report_count: values.moreReportCount,
+                })
+            },
+            reportOpened: ({ report, source }) => {
+                if (values.useSampleData) {
+                    return
+                }
+                // pinned: analytics event name and properties. Renaming them breaks dashboards.
+                posthog.capture('today report opened', {
+                    report_id: report.id,
+                    priority: report.priority ?? null,
+                    has_pr: !!report.implementation_pr_url,
+                    source,
+                })
+            },
+        }
+    }),
     afterMount(({ actions, values, cache }) => {
         // `now` defaults to the time the module loaded, so set it before anything reads the hour.
         actions.tick()

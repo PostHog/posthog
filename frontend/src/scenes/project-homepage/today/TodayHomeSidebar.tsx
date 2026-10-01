@@ -8,7 +8,7 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
-import { itemHref, itemSource } from './todayBriefingItems'
+import { isExternalHref, itemHref, itemSource } from './todayBriefingItems'
 import { TodayIcon } from './TodayIcon'
 import { todayLogic } from './todayLogic'
 import { TodayNavItem } from './TodayNavItem'
@@ -33,6 +33,7 @@ function PersonalBriefingNavItems(): JSX.Element {
                         color={source.color}
                         icon={<TodayIcon icon={source.icon} />}
                         to={href}
+                        target={isExternalHref(href) ? '_blank' : undefined}
                         active={hoveredItemKey === item.key}
                         current={removeProjectIdIfPresent(href) === currentPath}
                         done={item.state === 'done'}

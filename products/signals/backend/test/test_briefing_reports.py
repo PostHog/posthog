@@ -9,7 +9,12 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from products.signals.backend.artefact_schemas import ActionabilityChoice, RankingModelResult, RankingScore
-from products.signals.backend.briefing_reports import BriefingReportRelation, _briefing_order, reports_for_briefing
+from products.signals.backend.briefing_reports import (
+    BriefingReportRelation,
+    _briefing_order,
+    open_report_counts,
+    reports_for_briefing,
+)
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 
 
@@ -55,6 +60,18 @@ class TestReportsForBriefing(BaseTest):
             ).model_dump_json(),
         )
         SignalReportArtefact.objects.filter(pk=artefact.pk).update(created_at=timezone.now() - age)
+
+    def test_open_report_counts_do_not_subtract_a_report_that_was_never_open(self) -> None:
+        shown_open = self._urgent_report("Shown, still open")
+        self._urgent_report("Not shown")
+        resolved = self._urgent_report("Shown, resolved since")
+        SignalReport.objects.filter(pk=resolved.pk).update(status=SignalReport.Status.RESOLVED)
+
+        counts = open_report_counts(
+            team_id=self.team.id, user=self.user, exclude_report_ids=[str(shown_open.id), str(resolved.id)]
+        )
+
+        assert counts.in_project == 1
 
     def test_merge_chance_comes_from_the_latest_readable_served_score(self) -> None:
         rescored = self._urgent_report("Rescored")

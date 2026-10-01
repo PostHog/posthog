@@ -111,6 +111,9 @@ class TestRunAgent(TodayTeamScopedTestMixin, BaseTest):
             _report("a", signals.BriefingReportRelation.WAITING_FOR_YOU, "P3"),
         ]
 
+    def _answer(self, **item_overrides: Any) -> BriefingOutput:
+        return _output(url=f"/project/{self.team.id}/inbox/a", **item_overrides)
+
     def _run(self, first: BriefingOutput, *followups: BriefingOutput) -> tuple[MagicMock, MagicMock]:
         session = MagicMock()
         session.end = AsyncMock()
@@ -127,7 +130,7 @@ class TestRunAgent(TodayTeamScopedTestMixin, BaseTest):
         return start, session
 
     def test_a_good_answer_is_stored_and_the_run_was_read_only(self) -> None:
-        start, session = self._run(_output())
+        start, session = self._run(self._answer())
 
         self.briefing.refresh_from_db()
         assert (self.briefing.status, self.briefing.writer) == (BriefingStatus.READY, BriefingWriter.AGENT)
@@ -135,6 +138,7 @@ class TestRunAgent(TodayTeamScopedTestMixin, BaseTest):
         assert self.briefing.facts["items"][0]["source_product"] == "error_tracking"
         prompt, context = start.call_args.args
         assert (context.user_id, context.posthog_mcp_scopes, context.model) == (self.user.id, "read_only", MODEL)
+        assert context.github_read_access is True
         assert start.call_args.kwargs["model"] is BriefingOutput
         assert prompt.index("report:b") < prompt.index("report:a")
         assert "Yesterday's headline" in prompt
@@ -142,7 +146,7 @@ class TestRunAgent(TodayTeamScopedTestMixin, BaseTest):
         session.end.assert_awaited_once_with()
 
     def test_an_answer_that_breaks_a_rule_comes_back_fixed_in_a_follow_up(self) -> None:
-        start, session = self._run(_output(headline="One report needs you — now"), _output())
+        start, session = self._run(self._answer(headline="One report needs you — now"), self._answer())
 
         self.briefing.refresh_from_db()
         assert self.briefing.status == BriefingStatus.READY
@@ -151,7 +155,7 @@ class TestRunAgent(TodayTeamScopedTestMixin, BaseTest):
         assert "em or en dash" in message and model is BriefingOutput
 
     def test_an_answer_that_keeps_breaking_rules_fails_the_run(self) -> None:
-        broken = _output(headline="One report needs you — now")
+        broken = self._answer(headline="One report needs you — now")
         with self.assertRaises(RuntimeError):
             self._run(broken, broken, broken)
 
@@ -162,7 +166,7 @@ class TestRunAgent(TodayTeamScopedTestMixin, BaseTest):
         self.organization.is_ai_data_processing_approved = False
         self.organization.save()
 
-        start, _ = self._run(_output())
+        start, _ = self._run(self._answer())
 
         start.assert_not_called()
         assert not DailyBriefing.objects.for_team(self.team.id).filter(id=self.briefing.id).exists()
@@ -215,7 +219,8 @@ class TestWhoGetsABriefing(TodayTeamScopedTestMixin, BaseTest):
             again = _due_briefings()
 
         assert [row.local_day for row in created] == ([now.date()] if expected else [])
-        assert again == []
+        # The next tick returns the same pending row for dispatch, and never a second one.
+        assert [row.id for row in again] == [row.id for row in created]
 
     def test_the_run_deletes_the_row_when_the_flag_turned_off(self) -> None:
         briefing = self._viewer_row()

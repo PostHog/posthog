@@ -20,7 +20,7 @@ def is_enabled_for(user: User, team: Team) -> bool:
             TODAY_RAIL_NAV_FLAG,
             str(user.distinct_id),
             groups={"organization": str(team.organization_id), "project": str(team.id)},
-            group_properties={"organization": {"id": str(team.organization_id)}},
+            group_properties={"organization": {"id": str(team.organization_id)}, "project": {"id": str(team.id)}},
             person_properties={"email": user.email},
             only_evaluate_locally=False,
             # The scheduler checks every recent viewer on every tick, so no $feature_flag_called event per call.

@@ -5,6 +5,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from products.today.backend.logic.agent_output import BriefingOutput, problems_with
 from products.today.backend.logic.checks import check_content
 from products.today.backend.logic.content import BriefingContent
 from products.today.backend.logic.fact_sheet import FactSheet
@@ -96,3 +97,56 @@ class TestCheckContent(SimpleTestCase):
         problems = check_content(FACT_SHEET, _with(path, value))
 
         assert any(expected in problem for problem in problems), problems
+
+
+def _answer(*items: dict[str, Any]) -> BriefingOutput:
+    segments = [{"text": "Look at ", "item_key": None, "highlight": False}]
+    for index, item in enumerate(items):
+        segments.append({"text": item["label"], "item_key": item["key"], "highlight": index == 0})
+        segments.append({"text": " and " if index < len(items) - 1 else ".", "item_key": None, "highlight": False})
+    return BriefingOutput.model_validate(
+        {
+            "headline": f"{len(items)} items need you",
+            "paragraphs": [segments],
+            "items": [
+                {
+                    "group": "report",
+                    "source": "self_driving",
+                    "reason": "waiting_for_you",
+                    "title": item["label"],
+                    "signal": "P2, waits for you",
+                    "urgency": 0,
+                    "source_product": None,
+                    "facts": [],
+                    **item,
+                }
+                for item in items
+            ],
+        }
+    )
+
+
+class TestProblemsWith(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("project path", "/project/1/inbox/a", []),
+            ("github", "https://github.com/PostHog/posthog/pull/1", []),
+            ("another project", "/project/2/inbox/a", ["url of report:a must start with /project/1/"]),
+            ("outside site", "https://example.com/login", ["url of report:a must start with /project/1/"]),
+            ("javascript", "javascript:alert(1)", ["url of report:a must start with /project/1/"]),
+        ]
+    )
+    def test_an_item_opens_inside_the_project_or_on_github(self, _name: str, url: str, expected: list[str]) -> None:
+        problems = problems_with(_answer({"key": "report:a", "label": "report a", "url": url}), team_id=1)
+
+        assert [problem for problem in problems if problem.startswith("url of")] == [
+            f"{prefix} or https://github.com/, got {url!r}" for prefix in expected
+        ]
+
+    def test_an_item_listed_twice_is_rejected(self) -> None:
+        twice = _answer(
+            {"key": "report:a", "label": "report a", "url": "/project/1/inbox/a"},
+            {"key": "report:a", "label": "report a again", "url": "/project/1/inbox/a"},
+        )
+
+        assert "item report:a appears 2 times, expected once" in problems_with(twice, team_id=1)
