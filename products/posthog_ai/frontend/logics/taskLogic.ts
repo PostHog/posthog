@@ -235,7 +235,6 @@ export const taskLogic = kea<taskLogicType>([
             },
             updateTask: syncToTaskList,
             updateTaskSuccess: syncToTaskList,
-            // The toast says why the title went back, so a rejected rename does not just look undone.
             updateTaskFailure: ({ error, errorObject }) => {
                 lemonToast.error(loadErrorMessage(error, errorObject) || "Couldn't save the task. Try again.")
                 if (values.confirmedTask) {
