@@ -2,7 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "archived": {
-            "description": "Optional. true returns only archived dashboards, false returns only non-archived ones. Omitted, both are included.",
+            "description": "Return only archived dashboards when true, or only non-archived dashboards when false.",
             "type": "boolean"
         },
         "exclude_generated": {
