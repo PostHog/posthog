@@ -12,7 +12,7 @@ from django.core.cache import cache
 from django.test import override_settings
 
 import jwt
-from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from jwt.utils import base64url_encode
 from parameterized import parameterized
 from rest_framework.parsers import JSONParser
@@ -158,8 +158,19 @@ class TestClientAssertion(BaseTest):
     def test_symmetric_jwks_key_never_verifies(self, _name, header_alg):
         # Seeded straight into the cache so the check at verification runs without the loader's.
         cache.set(f"{JWKS_CACHE_PREFIX}{JWKS_URI}", _jwks_with_symmetric_key())
-        with self.assertRaises(ClientAssertionError):
+        with (
+            patch("posthog.api.oauth.client_assertion.fetch_client_json_document", side_effect=AssertionError),
+            self.assertRaisesMessage(ClientAssertionError, "must be an RSA or EC public key"),
+        ):
             verify_client_assertion(self.app, _hmac_signed(self._claims(), header_alg))
+
+    def test_private_jwks_key_never_verifies(self):
+        private_key = ec.generate_private_key(ec.SECP256R1())
+        jwk = json.loads(jwt.algorithms.ECAlgorithm.to_jwk(private_key))
+        jwk.update({"kid": KID, "alg": "ES256"})
+        self.jwks = {"keys": [jwk]}
+        with self.assertRaisesMessage(ClientAssertionError, "must be an RSA or EC public key"):
+            self._verify(self._assertion(key=private_key, algorithm="ES256"))
 
     def test_unsigned_assertion_is_rejected(self):
         # nosemgrep: python.jwt.security.jwt-none-alg.jwt-python-none-alg (forging an alg=none token is the point: this asserts verify_client_assertion refuses it)
@@ -272,13 +283,17 @@ class TestClientAssertion(BaseTest):
     @parameterized.expand(
         [
             # The cap is on key count, so the same key material under distinct kids exercises it.
-            ("too_many_keys", {"keys": [_jwks_for(KEY, kid=f"k{i}")["keys"][0] for i in range(11)]}),
-            ("symmetric_key", _jwks_with_symmetric_key()),
+            (
+                "too_many_keys",
+                {"keys": [_jwks_for(KEY, kid=f"k{i}")["keys"][0] for i in range(11)]},
+                "must not contain more than",
+            ),
+            ("symmetric_key", _jwks_with_symmetric_key(), "symmetric key"),
         ]
     )
-    def test_unacceptable_jwks_is_rejected(self, _name, jwks):
+    def test_unacceptable_jwks_is_rejected(self, _name, jwks, expected_message):
         with patch("posthog.api.oauth.client_assertion.fetch_client_json_document", return_value=(jwks, None)):
-            with self.assertRaises(ClientAssertionError):
+            with self.assertRaisesMessage(ClientAssertionError, expected_message):
                 load_jwks(JWKS_URI)
 
     @parameterized.expand(
