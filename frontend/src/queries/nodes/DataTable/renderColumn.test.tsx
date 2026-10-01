@@ -130,4 +130,11 @@ describe('renderColumn', () => {
         expect(screen.getByText(value)).toBeInTheDocument()
         expect(screen.queryByText(/years ago/)).toBeNull()
     })
+
+    it('renders a sub-millisecond timestamp after the epoch as a time, not as the epoch', () => {
+        const value = '1970-01-01T00:00:00.000001Z'
+        render(<Provider>{renderColumn('min(timestamp)', value, [value], 0, 1, hogqlTable)}</Provider>)
+
+        expect(screen.queryByText(value)).toBeNull()
+    })
 })

@@ -185,7 +185,7 @@ export function renderColumn(
             }
             if (value.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3,6})?(?:Z|[+-]\d{2}:\d{2})?$/)) {
                 // ClickHouse returns the epoch for min() or max() over no rows, because DateTime is not Nullable
-                if (new Date(value).getTime() === 0) {
+                if (new Date(value).getTime() === 0 && !/\.\d*[1-9]/.test(value)) {
                     return (
                         <Tooltip title="Unix epoch. An aggregate like min() or max() returns this when no rows match.">
                             <span className="cursor-default">{value}</span>
