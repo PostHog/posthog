@@ -347,8 +347,14 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
             sandbox_created_at = timezone.now()
             used_snapshot = bool((resume_snapshot_ext_id or snapshot) and sandbox.config.snapshot_restored)
             sandbox_creation_timer.set_used_snapshot(used_snapshot)
-        if not sandbox.start_cpu_billing_sampler():
-            activity.logger.warning("Failed to start sandbox CPU billing sampler", extra={"sandbox_id": sandbox.id})
+        try:
+            if not sandbox.start_cpu_billing_sampler():
+                activity.logger.warning("Failed to start sandbox CPU billing sampler", extra={"sandbox_id": sandbox.id})
+        except Exception:
+            # The sampler is best-effort, so a provider error here must not fail the launch.
+            activity.logger.warning(
+                "Failed to start sandbox CPU billing sampler", extra={"sandbox_id": sandbox.id}, exc_info=True
+            )
         if sandbox.config.image_fallback:
             emit_agent_log(ctx.run_id, "warn", f"Sandbox image downgraded: {sandbox.config.image_fallback}")
         if sandbox.launch_dev_stack_bootstrap():
