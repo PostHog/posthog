@@ -11,13 +11,13 @@ import type {
 import {
   type QueryClient,
   useMutation,
+  useQueries,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
 import { type Href, router } from "expo-router";
-import * as SecureStore from "expo-secure-store";
-import { create } from "zustand";
-import { accountStorageKey, sessionIdentity, useAuth } from "@/lib/auth";
+import { useCallback, useMemo } from "react";
+import { useAuth } from "@/lib/auth";
 import { getClient } from "@/lib/client";
 import { currentRunConfig } from "@/lib/composer";
 import {
@@ -25,6 +25,11 @@ import {
   type ReportFilter,
   reportFilterParams,
 } from "@/lib/reportFilters";
+import {
+  type ReadStateResult,
+  type ReportReadStates,
+  summarizeReadStates,
+} from "@/lib/reportReadState";
 import { fetchHasLiveImplementationTask } from "@/lib/reportTasks";
 import { useSessions } from "@/lib/session";
 
@@ -32,6 +37,7 @@ export const reportKeys = {
   all: ["reports"] as const,
   list: ["reports", "list"] as const,
   detail: (id: string) => ["reports", "detail", id] as const,
+  read: (id: string) => ["reports", "read", id] as const,
   signals: (id: string) => ["reports", id, "signals"] as const,
   artefacts: (id: string) => ["reports", id, "artefacts"] as const,
   liveTask: (id: string) => ["reports", id, "live-task"] as const,
@@ -223,43 +229,56 @@ export function useStartReportTask() {
   return { start: run, isPending: start.isPending };
 }
 
-// Which reports this device has already surfaced in triage, so only new ones
-// pop the deck automatically.
-const SEEN_KEY = "mobilehog_seen_reports";
-const SEEN_CAP = 500;
-
-interface SeenState {
-  seen: Set<string>;
-  hydrated: boolean;
-  hydrate: () => Promise<void>;
-  markSeen: (ids: string[]) => Promise<void>;
+// Read state lives on the server, so a report read on one device is read on
+// all of them. The client batches the per-report lookups into one request.
+export function useReportReadStates(
+  reportIds: readonly string[],
+): ReportReadStates {
+  const results = useQueries({
+    queries: reportIds.map((id) => ({
+      queryKey: reportKeys.read(id),
+      queryFn: () => getClient().getReportReadState(id),
+      staleTime: 15_000,
+      refetchInterval: 30_000,
+    })),
+    combine: pickReadStates,
+  });
+  return useMemo(
+    () => summarizeReadStates(reportIds, results),
+    [reportIds, results],
+  );
 }
 
-export const useSeenReports = create<SeenState>((set, get) => ({
-  seen: new Set(),
-  hydrated: false,
-  hydrate: async () => {
-    if (!useAuth.getState().session) return;
-    const identity = sessionIdentity();
-    try {
-      const raw = await SecureStore.getItemAsync(accountStorageKey(SEEN_KEY));
-      if (sessionIdentity() !== identity) return;
-      set({
-        seen: new Set(raw ? (JSON.parse(raw) as string[]) : []),
-        hydrated: true,
-      });
-    } catch {
-      if (sessionIdentity() === identity) set({ hydrated: true });
-    }
-  },
-  markSeen: async (ids) => {
-    const next = new Set(get().seen);
-    for (const id of ids) next.add(id);
-    const list = [...next].slice(-SEEN_CAP);
-    set({ seen: new Set(list) });
-    await SecureStore.setItemAsync(
-      accountStorageKey(SEEN_KEY),
-      JSON.stringify(list),
-    );
-  },
-}));
+function pickReadStates(results: ReadStateResult[]): ReadStateResult[] {
+  return results.map(({ data, isFetchedAfterMount }) => ({
+    data,
+    isFetchedAfterMount,
+  }));
+}
+
+export function useMarkReportRead(): (reportId: string) => void {
+  const queryClient = useQueryClient();
+  const { mutate } = useMutation({
+    mutationFn: (reportId: string) =>
+      getClient().getReportReadStates([reportId], true),
+    onMutate: async (reportId) => {
+      const key = reportKeys.read(reportId);
+      await queryClient.cancelQueries({ queryKey: key });
+      queryClient.setQueryData(key, true);
+    },
+    onSuccess: (states, reportId) =>
+      queryClient.setQueryData(
+        reportKeys.read(reportId),
+        states[reportId] === true,
+      ),
+    onError: (_error, reportId) =>
+      queryClient.invalidateQueries({ queryKey: reportKeys.read(reportId) }),
+  });
+  return useCallback(
+    (reportId: string) => {
+      if (queryClient.getQueryData(reportKeys.read(reportId)) === true) return;
+      mutate(reportId);
+    },
+    [queryClient, mutate],
+  );
+}
