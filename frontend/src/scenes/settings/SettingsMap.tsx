@@ -83,6 +83,7 @@ import { WorkflowsEngagementEventsSettings } from 'products/workflows/frontend/s
 import { WorkflowsTaskLimitsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsTaskLimitsSettings'
 
 import { IntegrationsList } from '../../lib/integrations/IntegrationsList'
+import { SettingScopeTag } from './components/SettingScopeTag'
 import {
     ActivityLogNotifications,
     ActivityLogOrgLevelSettings,
@@ -386,8 +387,47 @@ export const SETTINGS_MAP: SettingSection[] = [
     {
         level: 'environment',
         id: 'environment-task-agents',
+        title: 'Agent preferences',
+        group: 'AI',
+        flag: 'TODAY_RAIL_NAV',
+        keywords: ['model preferences', 'personalization', 'desktop'],
+        settings: [
+            {
+                id: 'task-agent-project-default',
+                title: (
+                    <>
+                        Project default model
+                        <SettingScopeTag scope="project" />
+                    </>
+                ),
+                searchTerm: 'Project default model',
+                description:
+                    'The model agent runs launch with when nobody picks one. Everyone on this project inherits it in the new PostHog AI view, in Slack, and in PostHog Desktop.',
+                component: <TaskAgentProjectDefaultSettings />,
+                keywords: ['ai', 'model', 'claude', 'codex', 'agent', 'tasks', 'default', 'slack', 'desktop'],
+            },
+            {
+                id: 'task-agent-my-preference',
+                title: (
+                    <>
+                        My default model
+                        <SettingScopeTag scope="user" />
+                    </>
+                ),
+                searchTerm: 'My default model',
+                description:
+                    'The model your own runs launch with, overriding the project default. Applies in the new PostHog AI view, in Slack, and in PostHog Desktop.',
+                component: <TaskAgentMyPreferenceSettings />,
+                keywords: ['ai', 'model', 'claude', 'codex', 'agent', 'tasks', 'preference', 'slack', 'desktop'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-task-agents',
         title: 'Model preferences',
         group: 'AI',
+        flag: '!TODAY_RAIL_NAV',
         settings: [
             {
                 id: 'task-agent-project-default',
@@ -410,9 +450,33 @@ export const SETTINGS_MAP: SettingSection[] = [
     {
         level: 'environment',
         id: 'environment-ai-subscriptions',
+        title: 'Bring your own subscription',
+        group: 'AI',
+        flag: ['POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD', 'TODAY_RAIL_NAV'],
+        keywords: ['subscriptions', 'byos', 'plan & usage'],
+        settings: [
+            {
+                id: 'ai-subscription-codex',
+                title: (
+                    <>
+                        Codex
+                        <SettingScopeTag scope="user" />
+                    </>
+                ),
+                searchTerm: 'Codex',
+                description:
+                    'Connect your ChatGPT account so your Codex cloud tasks can run on your own ChatGPT plan. The connection is yours and applies in every project.',
+                component: <PersonalCodexIntegration />,
+                keywords: ['codex', 'chatgpt', 'openai', 'subscription', 'plan', 'billing', 'cloud', 'personal'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-ai-subscriptions',
         title: 'Subscriptions',
         group: 'AI',
-        flag: 'POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD',
+        flag: ['POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD', '!TODAY_RAIL_NAV'],
         settings: [
             {
                 id: 'ai-subscription-codex',
