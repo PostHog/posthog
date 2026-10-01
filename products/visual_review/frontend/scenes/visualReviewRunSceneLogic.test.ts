@@ -7,6 +7,9 @@ import { visualReviewRunSceneLogic } from './visualReviewRunSceneLogic'
 
 const RUN_ID = '00000000-0000-0000-0000-0000000000aa'
 const TOLERATED_URL = `/api/projects/:team_id/visual_review/runs/${RUN_ID}/tolerated-hashes/`
+const SNAPSHOTS_URL = `/api/projects/:team_id/visual_review/runs/${RUN_ID}/snapshots/`
+const CHANGED_SNAPSHOT = { id: 'snapshot-changed', identifier: 'changed', result: 'changed' }
+const UNCHANGED_SNAPSHOT = { id: 'snapshot-unchanged', identifier: 'unchanged', result: 'unchanged' }
 
 const toleratedToday = (index: number): Record<string, unknown> => ({
     id: `tolerated-${index}`,
@@ -26,7 +29,7 @@ describe('visualReviewRunSceneLogic', () => {
         useMocks({
             get: {
                 [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/`]: [404, {}],
-                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/snapshots/`]: [404, {}],
+                [SNAPSHOTS_URL]: [404, {}],
                 [TOLERATED_URL]: async ({ request }) => {
                     const identifier = new URL(request.url).searchParams.get('identifier')
                     if (identifier === 'other') {
@@ -62,6 +65,98 @@ describe('visualReviewRunSceneLogic', () => {
         await expectLogic(logic, () => logic.actions.loadToleratedHashes('other'))
             .toDispatchActions(['loadToleratedHashesFailure'])
             .toMatchValues({ recentTolerations: { manual: 0, agent: 0, auto: 0 } })
+    })
+
+    it('loads a deep-linked snapshot that the changes-only list leaves out', async () => {
+        useMocks({
+            get: {
+                [SNAPSHOTS_URL]: ({ request }) => {
+                    const params = new URL(request.url).searchParams
+                    const results =
+                        params.get('snapshot_id') === UNCHANGED_SNAPSHOT.id
+                            ? [UNCHANGED_SNAPSHOT]
+                            : params.get('exclude_unchanged') === 'true'
+                              ? [CHANGED_SNAPSHOT]
+                              : [CHANGED_SNAPSHOT, UNCHANGED_SNAPSHOT]
+                    return [200, { count: results.length, next: null, previous: null, results }]
+                },
+            },
+        })
+        logic.actions.setSelectedSnapshotId(UNCHANGED_SNAPSHOT.id)
+
+        await expectLogic(logic, () => logic.actions.loadSnapshots())
+            .toDispatchActions(['loadSnapshotsSuccess', 'loadDeepLinkedSnapshotSuccess'])
+            .toMatchValues({ snapshots: [CHANGED_SNAPSHOT], selectedSnapshot: UNCHANGED_SNAPSHOT })
+    })
+
+    it('shows the latest deep link when an earlier one is still loading', async () => {
+        const otherUnchangedSnapshot = { id: 'snapshot-other', identifier: 'other-unchanged', result: 'unchanged' }
+        let releaseFirst: () => void = () => {}
+        useMocks({
+            get: {
+                [SNAPSHOTS_URL]: async ({ request }) => {
+                    const snapshotId = new URL(request.url).searchParams.get('snapshot_id')
+                    if (snapshotId === UNCHANGED_SNAPSHOT.id) {
+                        await new Promise<void>((resolve) => {
+                            releaseFirst = resolve
+                        })
+                    }
+                    const results =
+                        snapshotId === UNCHANGED_SNAPSHOT.id
+                            ? [UNCHANGED_SNAPSHOT]
+                            : snapshotId === otherUnchangedSnapshot.id
+                              ? [otherUnchangedSnapshot]
+                              : [CHANGED_SNAPSHOT]
+                    return [200, { count: results.length, next: null, previous: null, results }]
+                },
+            },
+        })
+        logic.actions.setSelectedSnapshotId(UNCHANGED_SNAPSHOT.id)
+        await expectLogic(logic, () => logic.actions.loadSnapshots()).toDispatchActions(['loadDeepLinkedSnapshot'])
+
+        await expectLogic(logic, () => logic.actions.setSelectedSnapshotId(otherUnchangedSnapshot.id))
+            .toDispatchActions(['loadDeepLinkedSnapshotSuccess'])
+            .toMatchValues({ selectedSnapshot: otherUnchangedSnapshot })
+
+        releaseFirst()
+        await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(logic).toMatchValues({ selectedSnapshot: otherUnchangedSnapshot })
+    })
+
+    it('keeps a cached deep link when the user returns to it before a newer one loads', async () => {
+        const otherUnchangedSnapshot = { id: 'snapshot-other', identifier: 'other-unchanged', result: 'unchanged' }
+        let releaseOther: () => void = () => {}
+        useMocks({
+            get: {
+                [SNAPSHOTS_URL]: async ({ request }) => {
+                    const snapshotId = new URL(request.url).searchParams.get('snapshot_id')
+                    if (snapshotId === otherUnchangedSnapshot.id) {
+                        await new Promise<void>((resolve) => {
+                            releaseOther = resolve
+                        })
+                    }
+                    const results =
+                        snapshotId === UNCHANGED_SNAPSHOT.id
+                            ? [UNCHANGED_SNAPSHOT]
+                            : snapshotId === otherUnchangedSnapshot.id
+                              ? [otherUnchangedSnapshot]
+                              : [CHANGED_SNAPSHOT]
+                    return [200, { count: results.length, next: null, previous: null, results }]
+                },
+            },
+        })
+        logic.actions.setSelectedSnapshotId(UNCHANGED_SNAPSHOT.id)
+        await expectLogic(logic, () => logic.actions.loadSnapshots()).toDispatchActions([
+            'loadDeepLinkedSnapshotSuccess',
+        ])
+        await expectLogic(logic, () =>
+            logic.actions.setSelectedSnapshotId(otherUnchangedSnapshot.id)
+        ).toDispatchActions(['loadDeepLinkedSnapshot'])
+
+        logic.actions.setSelectedSnapshotId(UNCHANGED_SNAPSHOT.id)
+        releaseOther()
+        await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(logic).toMatchValues({ selectedSnapshot: UNCHANGED_SNAPSHOT })
     })
 
     it.each([
