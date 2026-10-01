@@ -86,7 +86,7 @@ Per-version reads are what make this checkable: `workflows-version-stats` with `
 
 File a suggestion through `workflows-suggest` when, and only when, all of these hold:
 
-- The workflow is on the opted-in list, and has no suggestion still waiting on a person.
+- No suggestion for this workflow is still waiting on a person.
 - The step clears the sample floor: at least 20 tracked sends in the window you read, and the version has been sending for at least 48 hours so its opens have had time to arrive.
 - The counter-metrics are not the story. If bounces or complaints are elevated, that is the finding, and it belongs in a report rather than in a copy change.
 - You can state the change as a concrete edit, not advice. "Shorten the subject" is advice. The new subject line is a change.
@@ -139,9 +139,6 @@ The same goes for signals. The harness prompt that opens your run describes the 
 
 Do not file a suggestion when:
 
-- The workflow is not on the opted-in list. Someone turned this off, or never turned it on.
-- The workflow is archived or draft. Its metrics are history, and a suggestion about it changes nothing that runs.
-- A suggestion for this workflow is still waiting on a person.
 - The same idea was rejected before. A rejection is an answer, unless that suggestion was behind the live version when it was rejected.
 - The step is transactional — a receipt, a password reset, a verification code. Open rates there are not a campaign metric, and the copy is usually load-bearing.
 - The workflow was published since you read its metrics. Your suggestion carries a version, and one written against an older version is refused at approve time.
