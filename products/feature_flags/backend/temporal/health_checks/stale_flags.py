@@ -15,6 +15,7 @@ from posthog.ph_client import get_feature_flag_or_none
 from posthog.temporal.health_checks.detectors import HealthExecutionPolicy
 from posthog.temporal.health_checks.framework import AlertContent, HealthCheck, Remediation
 from posthog.temporal.health_checks.models import HealthCheckResult
+from posthog.utils import get_instance_region
 
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
@@ -76,10 +77,6 @@ class StaleFeatureFlagsCheck(HealthCheck):
     # Postgres-heavy and one issue per stale flag rather than per team, so smaller
     # batches than the default policy.
     policy = HealthExecutionPolicy(batch_size=250, max_concurrent=2)
-    # The live gate refuses a batch only when it holds a team with open issues, and every active
-    # team is batched, so a broken gate fails a small share of batches. The default 10% threshold
-    # would report that run as a success, so any failed team fails the run here.
-    not_processed_threshold = 0.0
     remediation = Remediation(
         human="""
             Open the flag and confirm the staleness evidence is still current. Check every
@@ -133,13 +130,25 @@ class StaleFeatureFlagsCheck(HealthCheck):
             link=f"/feature_flags/{flag_id}" if flag_id is not None else "/feature_flags",
         )
 
-    def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
-        # The framework reads a team missing from the return value as healthy, not skipped, so
-        # a team disabled after it got issues has them resolved on the next run.
-        team_ids = _live_gate_team_ids(team_ids)
-        if not team_ids:
-            return {}
+    @classmethod
+    def eligible_team_ids(cls, team_ids: list[int]) -> list[int]:
+        """Only the teams `LIVE_GATE_FLAG` answers `True` for.
 
+        Every other answer drops the team from the run, which leaves whatever issues it already
+        holds untouched. That covers a deliberate `False`, a flag that does not exist, an
+        archived or switched-off gate, an unreadable definition set, and an SDK that is off by
+        configuration. None of them can resolve an issue, so none of them needs a guard.
+
+        Turning the gate off for a team therefore stops new issues without closing open ones.
+        Closing those is a deliberate act, not a side effect of a flag flip.
+        """
+        if posthoganalytics.disabled or not posthoganalytics.feature_flag_definitions():
+            return []
+        enabled = [team_id for team_id in team_ids if _live_gate_answer(team_id) is True]
+        logger.info("stale_feature_flags_live_gate_evaluated", team_count=len(team_ids), enabled_count=len(enabled))
+        return enabled
+
+    def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
         reportable_flags = FeatureFlag.objects.filter(
             team_id__in=team_ids,
             deleted=False,
@@ -217,115 +226,21 @@ class StaleFeatureFlagsCheck(HealthCheck):
         return issues
 
 
-def _live_gate_team_ids(team_ids: list[int]) -> list[int]:
-    """The teams `LIVE_GATE_FLAG` enables, evaluated locally with no HTTP call per team.
-
-    The gate reads three answers, not two, and the difference decides what is safe to omit.
-    `detect` omitting a team reads to the framework as "this team is healthy", so it resolves
-    that team's active issues and emits a resolved alert for each one.
-
-    - `True`  enables the team.
-    - `False` disables it deliberately. Omitting it is the intended kill switch, and resolving
-      its issues is what turning the check off for a team means.
-    - Neither, because the flag is absent or could not be evaluated. Omitting the team would
-      resolve issues nobody decided to close, so this raises instead, unless no such team holds
-      an active issue and there is therefore nothing to lose.
-
-    An inactive gate answers `False` for every team, which the per-team answer cannot tell from
-    a deliberate per-team disable, so it is read from the definition instead and counts as no
-    answer. Retiring the check for good is therefore two steps: roll the flag to 0%, which
-    resolves the open issues deliberately, then archive it.
-    """
-    if posthoganalytics.disabled:
-        # An SDK off by configuration (OPT_OUT_CAPTURE, DEBUG, tests) decides nothing about any
-        # team, so every team is undecided rather than disabled.
-        _refuse_to_resolve_undecided(team_ids)
-        return []
-    definitions = posthoganalytics.feature_flag_definitions()
-    # None means the SDK has not loaded definitions yet. Checking once per batch is what keeps
-    # `only_evaluate_locally` cheap, because the SDK calls `load_feature_flags()` whenever its
-    # definitions are None and a /flags/definitions timeout would then be paid once per team.
-    # The raise lets the activity retry find the loaded set.
-    if definitions is None:
-        logger.warning("stale_feature_flags_live_gate_definitions_unavailable", team_count=len(team_ids))
-        raise RuntimeError(f"{LIVE_GATE_FLAG} is unreadable: the SDK holds no flag definitions")
-    # The SDK keeps an empty list when it has no personal API key, after a 401 or a 402, and when
-    # the project holds no flags. The gate flag is absent from it, so every team is undecided.
-    # Raising regardless would fail every run on an instance that can never enable a team.
-    if not definitions:
-        _refuse_to_resolve_undecided(team_ids)
-        return []
-
-    # Archiving a flag forces `active=False`, and the definitions carry `active` without
-    # `archived`, so the SDK answers `False` for an archived gate exactly as it does for a team
-    # that matched no condition. Reading the definition is the only way to tell those apart, and
-    # archiving the gate is the documented way to retire it.
-    gate = next((definition for definition in definitions if definition.get("key") == LIVE_GATE_FLAG), None)
-    if gate is not None and not gate.get("active"):
-        logger.warning("stale_feature_flags_live_gate_inactive", team_count=len(team_ids))
-        _refuse_to_resolve_undecided(team_ids)
-        return []
-
-    enabled: list[int] = []
-    undecided: list[int] = []
-    for team_id in team_ids:
-        answer = _live_gate_answer(team_id)
-        if answer is True:
-            enabled.append(team_id)
-        elif answer is None:
-            undecided.append(team_id)
-
-    _refuse_to_resolve_undecided(undecided)
-    logger.info(
-        "stale_feature_flags_live_gate_evaluated",
-        team_count=len(team_ids),
-        enabled_count=len(enabled),
-        undecided_count=len(undecided),
-    )
-    return enabled
-
-
-def _refuse_to_resolve_undecided(team_ids: list[int]) -> None:
-    """Raise if omitting these teams would resolve issues the gate never decided to close.
-
-    Covers the cases the definitions check cannot see: a definition set that loads without this
-    flag in it, a stale cache on one worker, an archived flag. Each reads as no answer for every
-    team, and without this the batch would close every open issue and tell those teams so.
-    """
-    if not team_ids:
-        return
-    at_risk = HealthIssue.objects.filter(
-        team_id__in=team_ids,
-        kind=StaleFeatureFlagsCheck.kind,
-        status=HealthIssue.Status.ACTIVE,
-    ).count()
-    if not at_risk:
-        return
-    logger.warning(
-        "stale_feature_flags_live_gate_undecided_with_active_issues",
-        team_count=len(team_ids),
-        active_issue_count=at_risk,
-    )
-    raise RuntimeError(
-        f"{LIVE_GATE_FLAG} gave no answer for {len(team_ids)} team(s) holding {at_risk} active issue(s); "
-        "refusing to run, because reporting nothing for them would resolve those issues"
-    )
-
-
-def _live_gate_answer(team_id: int) -> bool | None:
-    # Local evaluation only sees the properties supplied here, so a project-id rollout needs
-    # the id passed in or the condition never matches and the team reads as disabled. The batch
-    # carries team ids and nothing else, so target this flag by project id or by percentage; an
-    # organization condition would need a Team query and matches nothing without one.
+def _live_gate_answer(team_id: int) -> bool | str | None:
+    # Local evaluation only sees the properties supplied here, so a project-id rollout needs the
+    # id passed in or the condition never matches. Team ids are per region and EU evaluates a
+    # mirror of this flag, so every condition needs a `region` filter as well or it matches the
+    # same-numbered project in both regions, which are different customers.
+    region = get_instance_region() or "DEV"
     answer = get_feature_flag_or_none(
         LIVE_GATE_FLAG,
         f"team-{team_id}",
-        groups={"project": str(team_id)},
-        group_properties={"project": {"id": str(team_id)}},
+        groups={"project": f"{region}:{team_id}"},
+        group_properties={"project": {"id": str(team_id), "region": region}},
         only_evaluate_locally=True,
         send_feature_flag_events=False,
     )
-    return answer if isinstance(answer, bool) else None
+    return answer
 
 
 def _v1_flags(flags: Iterable[FeatureFlag]) -> list[FeatureFlag]:

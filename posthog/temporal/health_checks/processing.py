@@ -4,6 +4,7 @@ import structlog
 
 from posthog.temporal.health_checks.alerts import emit_health_check_alert
 from posthog.temporal.health_checks.db import resolve_stale_issues_with_deltas, upsert_issues_with_deltas
+from posthog.temporal.health_checks.framework import health_check_class_for_kind
 from posthog.temporal.health_checks.models import BatchDetectFn, BatchResult
 from posthog.temporal.health_checks.registry import HEALTH_CHECKS, ensure_registry_loaded, get_detect_fn
 from posthog.temporal.health_checks.signal_emitter import emit_health_check_signals
@@ -37,6 +38,13 @@ def _process_batch_detection(
     dry_run: bool = False,
 ) -> BatchResult:
     result = BatchResult(batch_size=len(team_ids))
+
+    check_cls = health_check_class_for_kind(kind)
+    if check_cls is not None:
+        # Teams dropped here never reach the resolve below, so they keep their issues.
+        team_ids = check_cls.eligible_team_ids(team_ids)
+        if not team_ids:
+            return result
 
     start = time.monotonic()
     issues_by_team = detect_fn(team_ids)
