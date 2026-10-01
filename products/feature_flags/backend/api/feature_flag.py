@@ -15,8 +15,7 @@ from typing import TYPE_CHECKING, Any, Literal, NoReturn, Optional, cast
 from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Prefetch, Q, QuerySet, Value, deletion
-from django.db.models.functions import Coalesce
+from django.db.models import Count, Prefetch, Q, QuerySet, deletion
 from django.http.request import RawPostDataException
 
 import grpc
@@ -73,7 +72,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.dashboard_templates import add_enriched_insights_to_feature_flag_dashboard
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team
-from posthog.models.activity_logging.activity_log import Change, Detail, LogActivityEntry, load_activity, log_activity
+from posthog.models.activity_logging.activity_log import Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.person.point_in_time_properties import (
@@ -655,56 +654,11 @@ def _get_flag_rollout_info(flag: FeatureFlag, checker: FeatureFlagStatusChecker)
     return {"rollout_state": rollout_state, "active_variant": active_variant}
 
 
-def _disable_and_bump_non_v1_flags(
-    flags: list[FeatureFlag], *, team_id: int, renamed_ids: set[int], user: Any, was_impersonated: bool
-) -> list[LogActivityEntry]:
-    """Disable and bump `version` on rows outside config version 1 that a bulk delete removes.
-
-    For these rows `version` is the concurrency token, so this matches the single-flag delete:
-    a client still holding the old version gets a conflict instead of writing on. A queryset
-    update logs nothing, so this returns the history entries, built from values read under the
-    row lock so they match what is written. Call it before the soft delete: the default manager
-    hides deleted rows, and the keys must not be tombstoned yet.
-    """
-    before = {
-        pk: (version, active)
-        for pk, version, active in FeatureFlag.objects.filter(pk__in=[flag.pk for flag in flags], team_id=team_id)
-        .select_for_update(of=("self",))
-        .order_by("pk")
-        .values_list("pk", "version", "active")
-    }
-    FeatureFlag.objects.filter(pk__in=before.keys(), team_id=team_id).update(
-        active=False, version=Coalesce("version", Value(0)) + 1
-    )
-
-    entries: list[LogActivityEntry] = []
-    for flag in flags:
-        if flag.pk not in before:
-            continue
-        version, active = before[flag.pk]
-        changes = [
-            Change(type="FeatureFlag", action="changed", field="deleted", before=False, after=True),
-            Change(type="FeatureFlag", action="changed", field="version", before=version, after=(version or 0) + 1),
-        ]
-        if active:
-            changes.append(Change(type="FeatureFlag", action="changed", field="active", before=True, after=False))
-        if flag.pk in renamed_ids:
-            changes.append(
-                Change(type="FeatureFlag", action="changed", field="key", before=flag.key, after=flag.tombstoned_key())
-            )
-        entries.append(
-            LogActivityEntry(
-                organization_id=flag.team.organization_id,
-                team_id=flag.team_id,
-                user=user,
-                was_impersonated=was_impersonated,
-                item_id=flag.pk,
-                scope="FeatureFlag",
-                activity="deleted",
-                detail=Detail(changes=changes, name=flag.key),
-            )
-        )
-    return entries
+def _first_error_message(detail: Any) -> str:
+    """The first message in a DRF error detail, which nests messages in dicts and lists."""
+    while isinstance(detail, (dict, list)) and detail:
+        detail = next(iter(detail.values())) if isinstance(detail, dict) else detail[0]
+    return str(detail)
 
 
 def calculate_filter_size_bytes(filters: dict | None) -> int:
@@ -5226,7 +5180,7 @@ class FeatureFlagViewSet(
         # Also track which need key renames (have deleted experiments)
         flags_to_delete_normal: list[FeatureFlag] = []
         flags_to_delete_with_rename: list[FeatureFlag] = []
-        non_v1_flags: list[FeatureFlag] = []
+        v2_flags: list[tuple[FeatureFlag, dict]] = []
         activity_log_entries: list[LogActivityEntry] = []
 
         current_user = request.user if request.user.is_authenticated else None
@@ -5293,6 +5247,10 @@ class FeatureFlagViewSet(
             rollout_info = _get_flag_rollout_info(flag, checker)
             old_key = flag.key
 
+            if detect_config_format(flag.filters).kind == "v2":
+                v2_flags.append((flag, {"id": flag_id, "key": old_key, **rollout_info}))
+                continue
+
             # Rename the key if the flag is linked to any experiment, to free it up.
             # Use the prefetched experiment_set cache (see queryset above) rather than
             # .exists(), which would issue a fresh query per flag.
@@ -5301,11 +5259,6 @@ class FeatureFlagViewSet(
                 flags_to_delete_with_rename.append(flag)
             else:
                 flags_to_delete_normal.append(flag)
-
-            deleted.append({"id": flag_id, "key": old_key, **rollout_info})
-            if detect_config_format(flag.filters).kind != "v1":
-                non_v1_flags.append(flag)
-                continue
 
             # Prepare activity log entry
             activity_log_entries.append(
@@ -5321,6 +5274,8 @@ class FeatureFlagViewSet(
                 )
             )
 
+            deleted.append({"id": flag_id, "key": old_key, **rollout_info})
+
         # Perform bulk database updates
         # Using queryset.update() instead of individual saves means Django signals don't fire.
         # The signals (feature_flag_changed_flags_cache, feature_flag_changed, etc.)
@@ -5333,15 +5288,6 @@ class FeatureFlagViewSet(
             team_id = sample_flag.team_id
 
             with transaction.atomic():
-                if non_v1_flags:
-                    activity_log_entries += _disable_and_bump_non_v1_flags(
-                        non_v1_flags,
-                        team_id=team_id,
-                        renamed_ids={f.id for f in flags_to_delete_with_rename},
-                        user=current_user,
-                        was_impersonated=was_impersonated,
-                    )
-
                 if flags_to_delete_normal:
                     normal_ids = [f.id for f in flags_to_delete_normal]
                     FeatureFlag.objects.filter(id__in=normal_ids, team_id=team_id).update(
@@ -5373,6 +5319,24 @@ class FeatureFlagViewSet(
                     update_team_remote_config.delay(team_id)
 
                 transaction.on_commit(invalidate_caches)
+
+        if v2_flags:
+            from products.feature_flags.backend.facade.api import update_flag
+
+            for flag, entry in v2_flags:
+                try:
+                    update_flag(
+                        flag,
+                        {"deleted": True, "version": flag.version or 0},
+                        team=flag.team,
+                        user=request.user,
+                        request=FlagLifecycleWriteRequest(request),
+                        serializer_context=self.get_serializer_context(),
+                    )
+                except exceptions.APIException as exc:
+                    errors.append({"id": flag.id, "key": flag.key, "reason": _first_error_message(exc.detail)})
+                else:
+                    deleted.append(entry)
 
         return Response(
             {

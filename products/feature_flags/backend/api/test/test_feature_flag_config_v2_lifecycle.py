@@ -94,6 +94,46 @@ class TestV2SafetyWritesNeedNoAdmission(V2UpdateTestCase):
         with self.assertRaises(Conflict):
             flag_facade.update_flag(stale, {"version": 3, "active": False}, team=self.team, user=self.user)
 
+    def test_bulk_delete_reports_a_row_the_single_delete_refuses(self) -> None:
+        ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="feature_flag.disable",
+            approver_config={},
+            enabled=True,
+        )
+        flag = self.flag(active=True)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/", {"ids": [flag.id]}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["deleted"] == []
+        assert response.json()["errors"] == [
+            {
+                "id": flag.id,
+                "key": flag.key,
+                "reason": "This flag cannot be written while an approval policy is enabled.",
+            }
+        ]
+        flag.refresh_from_db()
+        assert (flag.deleted, flag.active, flag.version) == (False, True, 3)
+        assert self.activity(flag) == []
+        assert not ChangeRequest.objects.filter(organization=self.organization).exists()
+
+    def test_bulk_delete_still_soft_deletes_a_row_in_an_unsupported_format(self) -> None:
+        flag = self.flag({"version": 99}, active=True)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/", {"ids": [flag.id]}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [item["id"] for item in response.json()["deleted"]] == [flag.id]
+        flag.refresh_from_db()
+        assert (flag.deleted, flag.active, flag.version) == (True, True, 3)
+
     def test_soft_deleting_disables_an_enabled_row_in_the_same_write(self) -> None:
         flag = self.flag(active=True)
         response = self.patch_flag(flag, {"version": 3, "deleted": True})
