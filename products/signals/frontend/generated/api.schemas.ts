@@ -2805,6 +2805,40 @@ export interface CheckComparisonApi {
 }
 
 /**
+ * How to draw this measurement; copied from a referenced metric.
+ */
+export type MetricThresholdConfigApiMetricKind =
+    | (typeof MetricThresholdConfigApiMetricKind)[keyof typeof MetricThresholdConfigApiMetricKind]
+    | null
+
+export const MetricThresholdConfigApiMetricKind = {
+    AffectedUsers: 'affected_users',
+    AffectedSessions: 'affected_sessions',
+    Occurrences: 'occurrences',
+    ConversionRate: 'conversion_rate',
+    ErrorRate: 'error_rate',
+    Duration: 'duration',
+    Revenue: 'revenue',
+    Custom: 'custom',
+} as const
+
+/**
+ * How to format measured values; copied from a referenced metric.
+ */
+export type MetricThresholdConfigApiValueFormat =
+    | (typeof MetricThresholdConfigApiValueFormat)[keyof typeof MetricThresholdConfigApiValueFormat]
+    | null
+
+export const MetricThresholdConfigApiValueFormat = {
+    Number: 'number',
+    Count: 'count',
+    Percentage: 'percentage',
+    PercentageScaled: 'percentage_scaled',
+    Duration: 'duration',
+    Currency: 'currency',
+} as const
+
+/**
  * Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. `dateRange.date_from` must be a relative window such as `-13d`, and `date_to` must be empty, so the check measures the days before each run rather than the days before it was written. The query must produce exactly one output series: use one event or action series, or combine up to ten of them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric` turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`, which keeps compare mode off already.
  */
 export type MetricThresholdConfigApiQuery = { [key: string]: unknown } | null
@@ -2832,6 +2866,12 @@ export interface MetricThresholdConfigApi {
     comparison: CheckComparisonApi
     /** The value observed when the check was written, recorded on each result for context. */
     baseline_value?: number | null
+    /** How to draw this measurement; copied from a referenced metric. */
+    metric_kind?: MetricThresholdConfigApiMetricKind
+    /** How to format measured values; copied from a referenced metric. */
+    value_format?: MetricThresholdConfigApiValueFormat
+    /** Optional value suffix. */
+    unit?: string | null
 }
 
 /**
@@ -2910,7 +2950,7 @@ export interface SignalReportCheckApi {
     /** When the coordinator next evaluates the check. Provisional while the check is `pending`: the report resolving is what sets it. */
     readonly next_run_at: string
     /**
-     * How long after the report resolves a `pending` check waits before its first run. Null on a check that named its own `next_run_at`.
+     * Minimum wait after resolution, in minutes. Metric checks also wait for a full post-resolution query window. Null on legacy checks that did not record a soak.
      * @nullable
      */
     readonly soak_minutes: number | null
