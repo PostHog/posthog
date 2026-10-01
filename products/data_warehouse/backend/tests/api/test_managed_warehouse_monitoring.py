@@ -330,6 +330,16 @@ class TestManagedWarehouseMonitoringAccessControl(WarehouseAccessControlTestMixi
                 "monitoring_series_for",
                 "managed-warehouse-monitoring-timeseries/?metric=query_rate&window=6h",
             ),
+            (
+                "trino_snapshot",
+                "trino_monitoring_snapshot_for",
+                "managed-warehouse-trino-monitoring/",
+            ),
+            (
+                "trino_timeseries",
+                "trino_monitoring_series_for",
+                "managed-warehouse-trino-monitoring-timeseries/?metric=query_rate&window=6h",
+            ),
         ]
     )
     def test_org_wide_monitoring_requires_resource_level_warehouse_access(
@@ -379,5 +389,21 @@ class TestManagedWarehouseMonitoringPersonalAPIKey(APIBaseTest):
         denied_response = self._get_snapshot(denied_token)
 
         assert allowed_response.status_code == status.HTTP_200_OK
+        assert denied_response.status_code == status.HTTP_403_FORBIDDEN
+        assert mock_snapshot.call_count == 1
+
+    @patch(
+        "products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.trino_monitoring_snapshot_for"
+    )
+    def test_trino_snapshot_requires_the_warehouse_view_read_scope(self, mock_snapshot: MagicMock) -> None:
+        mock_snapshot.return_value = Response({"error": "unused"}, status=status.HTTP_502_BAD_GATEWAY)
+        url = f"/api/projects/{self.team.id}/data_warehouse/managed-warehouse-trino-monitoring/"
+        allowed_token = self.create_personal_api_key_with_scopes(["warehouse_view:read"])
+        denied_token = self.create_personal_api_key_with_scopes(["query:read"])
+
+        allowed_response = self.client.get(url, headers={"authorization": f"Bearer {allowed_token}"})
+        denied_response = self.client.get(url, headers={"authorization": f"Bearer {denied_token}"})
+
+        assert allowed_response.status_code == status.HTTP_502_BAD_GATEWAY
         assert denied_response.status_code == status.HTTP_403_FORBIDDEN
         assert mock_snapshot.call_count == 1
