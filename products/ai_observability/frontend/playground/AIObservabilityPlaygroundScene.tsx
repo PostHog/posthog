@@ -60,6 +60,7 @@ import {
 } from './llmPlaygroundPromptsLogic'
 import { llmPlaygroundRunLogic, type ComparisonItem, type UsageSummary } from './llmPlaygroundRunLogic'
 import { PlaygroundSaveMenu } from './PlaygroundSaveMenu'
+import { PlaygroundVariablesPanel } from './PlaygroundVariablesPanel'
 
 // Cap inline JSON previews at 20 lines so they don't dominate the layout
 const INLINE_JSON_MAX_LINES = 20
@@ -247,6 +248,7 @@ function PlaygroundLayout(): JSX.Element {
         <div className="flex flex-1 min-h-0 flex-col gap-4">
             <RateLimitBanner />
             <SubscriptionRequiredBanner />
+            <PlaygroundVariablesPanel />
 
             <section className="rounded overflow-hidden min-h-0 flex flex-1 flex-col bg-transparent">
                 {sourceSetupLoading ? (
@@ -964,15 +966,23 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
                 </div>
 
                 <AnimatedCollapsible collapsed={collapsed}>
-                    <LemonTextArea
-                        className="text-sm w-full"
-                        placeholder="System instructions for the AI assistant..."
-                        value={prompt.systemPrompt}
-                        onChange={(value) => setSystemPrompt(value, promptId)}
-                        minRows={2}
-                        maxRows={undefined}
-                        onPressCmdEnter={() => submitPrompt()}
-                    />
+                    <div>
+                        {prompt.sourceType === 'evaluation' && (
+                            <p className="text-xs text-muted">
+                                Playground runs test your prompt without applying evaluation output rules. Saved
+                                evaluations apply those rules when they run.
+                            </p>
+                        )}
+                        <LemonTextArea
+                            className="text-sm w-full"
+                            placeholder="System instructions for the AI assistant..."
+                            value={prompt.systemPrompt}
+                            onChange={(value) => setSystemPrompt(value, promptId)}
+                            minRows={2}
+                            maxRows={undefined}
+                            onPressCmdEnter={() => submitPrompt()}
+                        />
+                    </div>
                 </AnimatedCollapsible>
             </div>
 

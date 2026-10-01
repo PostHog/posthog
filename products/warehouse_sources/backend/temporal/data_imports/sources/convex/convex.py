@@ -96,9 +96,41 @@ def validate_deploy_url(deploy_url: str) -> str:
     return f"https://{host}"
 
 
+class InvalidDeployKeyError(Exception):
+    """Raised when the deploy key cannot be sent in an Authorization header."""
+
+    pass
+
+
+def validate_deploy_key(deploy_key: str) -> str:
+    """Validate and normalize a Convex deploy key.
+
+    Returns the key without surrounding whitespace.
+    """
+    deploy_key = deploy_key.strip()
+
+    if not deploy_key:
+        raise InvalidDeployKeyError("Enter your Convex deploy key.")
+
+    try:
+        # http.client encodes header values as latin-1, so a character outside that range
+        # aborts the request with a UnicodeEncodeError raised from inside urllib3. That error
+        # names a codec and a string offset, so neither the user nor error tracking can tell
+        # which field is at fault. Copying a key out of a browser can pick up such a character,
+        # so reject it here with a message the user can act on.
+        deploy_key.encode("latin-1")
+    except UnicodeEncodeError:
+        raise InvalidDeployKeyError(
+            "Your deploy key contains characters PostHog can't send to Convex. "
+            "Copy the key again from your Convex dashboard, then try again."
+        ) from None
+
+    return deploy_key
+
+
 def _headers(deploy_key: str) -> dict[str, str]:
     return {
-        "Authorization": f"Convex {deploy_key}",
+        "Authorization": f"Convex {validate_deploy_key(deploy_key)}",
         "Content-Type": "application/json",
     }
 
@@ -252,6 +284,7 @@ def list_snapshot(
 
         if cursor is not None:
             resumable_source_manager.save_state(ConvexResumeConfig(cursor=cursor, snapshot=snapshot))
+            resumable_source_manager.safe_point()
 
 
 class InvalidWindowError(Exception):
@@ -323,12 +356,16 @@ def document_deltas(
             return current_cursor
 
         resumable_source_manager.save_state(ConvexResumeConfig(cursor=current_cursor))
+        # Most delta pages carry no change for this table, so a catch-up can walk for hours without
+        # yielding a row. The page's rows (if any) are yielded above, so the cursor loses nothing here.
+        resumable_source_manager.safe_point()
 
 
 def validate_credentials(deploy_url: str, deploy_key: str) -> tuple[bool, str | None]:
     try:
         clean_url = validate_deploy_url(deploy_url)
-    except InvalidDeployUrlError as e:
+        deploy_key = validate_deploy_key(deploy_key)
+    except (InvalidDeployUrlError, InvalidDeployKeyError) as e:
         return False, str(e)
     try:
         get_json_schemas(clean_url, deploy_key)

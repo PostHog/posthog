@@ -327,6 +327,11 @@ TASK_RUN_STREAM_WRITE_SKIPPED_TOTAL = Counter(
     labelnames=["path", "origin_product"],
 )
 
+TASK_RUN_SANDBOX_PROCESS_KILLED_TOTAL = Counter(
+    "posthog_tasks_sandbox_process_killed_notifications_total",
+    "Sandbox memory watchdog kills captured from the sequenced event ingest",
+)
+
 TASK_RUN_AGENT_FAILURE_TOTAL = Counter(
     "posthog_tasks_agent_turn_failed_total",
     "TaskRun transitions to FAILED via the API facade (agent-server turn failures)",
@@ -673,6 +678,10 @@ def observe_stream_token_routed(origin_product: str, route: StreamTokenRoute, re
 
 def observe_stream_write_skipped(path: StreamWriteSkippedPath, origin_product: str | None = None) -> None:
     TASK_RUN_STREAM_WRITE_SKIPPED_TOTAL.labels(path=path, origin_product=_metric_label(origin_product)).inc()
+
+
+def observe_sandbox_process_killed() -> None:
+    TASK_RUN_SANDBOX_PROCESS_KILLED_TOTAL.inc()
 
 
 def observe_task_run_failed(properties: dict[str, object]) -> None:

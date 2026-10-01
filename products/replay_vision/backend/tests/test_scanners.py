@@ -20,7 +20,12 @@ from products.replay_vision.backend.temporal.scanners import (
     SummarizerSummaryResponse,
     scanner_from_db,
 )
-from products.replay_vision.backend.temporal.scanners.base import BaseScanner, SignalFinding, SignalsResponse
+from products.replay_vision.backend.temporal.scanners.base import (
+    SIGNAL_HEADLINE_MAX_LENGTH,
+    BaseScanner,
+    SignalFinding,
+    SignalsResponse,
+)
 from products.replay_vision.backend.temporal.scanners.summarizer import summary_embedding_text
 from products.replay_vision.backend.temporal.types import EventTable, ScannerCallOutput
 
@@ -803,13 +808,14 @@ class TestSummaryEmbeddingText:
 
 class TestToEventProperties:
     def test_flattens_with_scanner_output_prefix(self) -> None:
-        # Notability rides onto the event too, so it is queryable in insights alongside the verdict.
+        # Notability and the key moment ride onto the event too, so they are queryable in insights alongside the verdict.
         out = MonitorOutput(
             verdict="yes",
             reasoning="found it",
             confidence=0.9,
             notability=0.8,
             notability_reason="the export failed twice",
+            key_moment_ms=42_000,
         )
         props = out.to_event_properties()
         assert props == {
@@ -819,6 +825,7 @@ class TestToEventProperties:
             "scanner_output_confidence": 0.9,
             "scanner_output_notability": 0.8,
             "scanner_output_notability_reason": "the export failed twice",
+            "scanner_output_key_moment_ms": 42_000,
         }
 
     def test_unjudged_notability_flattens_as_null_not_zero(self) -> None:
@@ -840,6 +847,7 @@ class TestSignalSideMission:
     # A complete, valid `signal` payload for round-trip tests.
     _VALID_SIGNAL = {
         "problem_type": "bug",
+        "headline": "Checkout CTA does nothing",
         "start_time": 72,
         "end_time": 78,
         "url": "https://app.example.com/cart",
@@ -960,3 +968,13 @@ class TestSignalSideMission:
         # The description is embedded for free-text search, so leaked `(t …)` markers must never reach it.
         signal = SignalFinding.model_validate({**self._VALID_SIGNAL, "description": raw})
         assert signal.description == clean
+
+    def test_signal_headline_strips_markers_and_holds_its_length(self) -> None:
+        # The headline shares the description's marker leak, and a watch feed card lists three of them on one
+        # line, so a model that answers with a sentence instead of a phrase must not reflow the card.
+        marked = SignalFinding.model_validate({**self._VALID_SIGNAL, "headline": "Checkout CTA (t 844) does nothing"})
+        assert marked.headline == "Checkout CTA does nothing"
+
+        long = SignalFinding.model_validate({**self._VALID_SIGNAL, "headline": "word " * 40})
+        assert len(long.headline) <= SIGNAL_HEADLINE_MAX_LENGTH
+        assert not long.headline.endswith(" ")

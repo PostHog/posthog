@@ -6,8 +6,18 @@ import structlog
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.xmin_cursor import (
+    XMIN_LEGACY_KEYS,
+    XminCursor,
+)
 
 logger = structlog.get_logger(__name__)
+
+
+def _stored_xmin_cursor(schema: ExternalDataSchema) -> XminCursor | None:
+    return SourceCursorManager.from_sync_type_config(PostgresSource(), schema.sync_type_config, logger).load()
 
 
 class Command(BaseCommand):
@@ -59,7 +69,11 @@ class Command(BaseCommand):
             # Epoch 0 clusters never wrapped, so their [0, ceiling) window covered the whole xid
             # space and the backfill read everything. Past a wraparound the window is a candidate
             # rather than proof, since a large remainder can still have caught every tuple.
-            candidates = [schema for schema in schemas if (schema.xmin_num_wraparound or 0) > 0]
+            candidates = [
+                schema
+                for schema in schemas
+                if (cursor := _stored_xmin_cursor(schema)) is not None and cursor.num_wraparound > 0
+            ]
 
         if not candidates:
             self.stdout.write(self.style.WARNING("No xmin schemas found with a cursor captured past a wraparound."))
@@ -79,10 +93,12 @@ class Command(BaseCommand):
         for schema in candidates:
             # Share of the 32-bit xid space the backfill window covered. The lower it is, the more
             # of the table the backfill could have skipped.
-            window_covered = (schema.xmin_last_value or 0) / 0x100000000
+            cursor = _stored_xmin_cursor(schema)
+            window_covered = (cursor.ceiling_xid if cursor else 0) / 0x100000000
             self.stdout.write(
                 f"  schema={schema.id} team={schema.team_id} source={schema.source_id} "
-                f"name={schema.name} epoch={schema.xmin_num_wraparound} cursor={schema.xmin_ceiling} "
+                f"name={schema.name} epoch={cursor.num_wraparound if cursor else None} "
+                f"cursor={cursor.ceiling_xid8 if cursor else None} "
                 f"window_covered={window_covered:.1%}"
                 + (" [sync running, will be skipped]" if schema.id in running else "")
             )
@@ -107,7 +123,7 @@ class Command(BaseCommand):
                 )
                 continue
             try:
-                schema.clear_xmin_state()
+                schema.clear_source_cursor(legacy_keys=XMIN_LEGACY_KEYS)
                 succeeded += 1
                 logger.info(
                     "Cleared xmin cursor for re-backfill",

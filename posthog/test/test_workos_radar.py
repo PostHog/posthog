@@ -237,11 +237,13 @@ class TestRadarEventLogging(TestCase):
             duration_ms=75.0,
             was_blocked=was_blocked,
             was_bypassed=was_bypassed,
+            bypass_source="rule" if was_bypassed else None,
         )
 
         props = mock_capture.call_args[1]["properties"]
         assert props["was_blocked"] == was_blocked
         assert props["was_bypassed"] == was_bypassed
+        assert props["bypass_source"] == ("rule" if was_bypassed else None)
 
 
 class TestEvaluateAuthAttempt(TestCase):
@@ -384,6 +386,7 @@ class TestEvaluateAuthAttempt(TestCase):
         log_kwargs = mock_log_event.call_args[1]
         assert log_kwargs["was_blocked"] is False
         assert log_kwargs["was_bypassed"] is True
+        assert log_kwargs["bypass_source"] == "legacy"
 
 
 class TestRadarBypassEmailRedis(TestCase):
@@ -663,4 +666,5 @@ class TestChallengeFlow(TestCase):
         assert result == RadarVerdict.CHALLENGE
         log_kwargs = mock_log_event.call_args[1]
         assert log_kwargs["was_bypassed"] is True
+        assert log_kwargs["bypass_source"] == "legacy"
         assert log_kwargs["was_challenged"] is False

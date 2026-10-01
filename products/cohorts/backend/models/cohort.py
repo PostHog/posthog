@@ -698,6 +698,15 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             "filters": self.properties.to_dict(),
             "name_length": len(self.name) if self.name else 0,
             "deleted": self.deleted,
+            "is_static": self.is_static,
+            # `cohort_type` is what the cohort was classified as at this moment: a later
+            # calculation clears it when the cohort grows past the realtime member ceiling.
+            "cohort_type": self.cohort_type,
+            "condition_type": self.condition_type,
+            # `cohort_type` reads `realtime` whenever the filters are realtime-eligible, on every
+            # team. This reports whether the team runs the realtime pipeline at all, so a consumer
+            # can tell an eligible cohort from one that realtime membership is maintained for.
+            "realtime_enabled": bool(self.team_id) and is_realtime_cohort_team(self.team_id),
         }
 
     def _safe_reset_calculating_state(self, completed_version: int) -> None:

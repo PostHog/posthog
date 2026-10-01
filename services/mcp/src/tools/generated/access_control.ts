@@ -3,6 +3,12 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/access_control/api'
+import { getConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
+import {
+    executeConfirmedAction,
+    prepareConfirmedAction,
+    type PrepareConfirmedActionResult,
+} from '@/tools/confirmed-action-runtime'
 import {
     withPostHogUrl,
     withAgentNote,
@@ -69,6 +75,116 @@ const accessControlDefaultPropertiesList = (): ToolBase<
             path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/${encodeURIComponent(String(id))}/access_control_default_properties/`,
         })
         return await withPostHogUrl(context, result, '/settings/environment-access-control')
+    },
+})
+
+const AccessControlDefaultRuleSetSchema = () => {
+    const OrganizationsProjectsAccessControlDefaultRulesUpdateBody =
+        orvalSchemas.OrganizationsProjectsAccessControlDefaultRulesUpdateBody()
+    const OrganizationsProjectsAccessControlDefaultRulesUpdateParams =
+        orvalSchemas.OrganizationsProjectsAccessControlDefaultRulesUpdateParams()
+    return OrganizationsProjectsAccessControlDefaultRulesUpdateParams.omit({ organization_id: true })
+        .extend(OrganizationsProjectsAccessControlDefaultRulesUpdateBody.shape)
+        .extend({
+            id: OrganizationsProjectsAccessControlDefaultRulesUpdateParams.shape['id']
+                .describe('Project id. If omitted, uses the active project.')
+                .optional(),
+            resource: OrganizationsProjectsAccessControlDefaultRulesUpdateBody.shape['resource'].describe(
+                'The scope: `project`, a tool name such as `dashboard` or `feature_flag`, or `property_definition`. The tool names are the keys of `resource_access_levels` on access-control-defaults-get.'
+            ),
+            resource_id: OrganizationsProjectsAccessControlDefaultRulesUpdateBody.shape['resource_id']
+                .default(null)
+                .optional()
+                .describe(
+                    "The project id for a project rule, the object's id for a rule on one object (a pk, as returned by the object's own get tool), or the property definition id for a property rule. Null only for a rule on a whole tool."
+                ),
+            access_level: OrganizationsProjectsAccessControlDefaultRulesUpdateBody.shape['access_level'].describe(
+                "The level to set, within the scope's `minimum` and `maximum` on access-control-defaults-get, or null to remove the rule."
+            ),
+        })
+}
+
+const AccessControlDefaultRuleSetSchemaExecute = z.strictObject({
+    confirmation_hash: z
+        .string()
+        .describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
+    confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
+})
+
+const accessControlDefaultRuleSetPrepare = (): ToolBase<
+    ReturnType<typeof AccessControlDefaultRuleSetSchema>,
+    PrepareConfirmedActionResult
+> => ({
+    name: 'access-control-default-rule-set-prepare',
+    schema: AccessControlDefaultRuleSetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AccessControlDefaultRuleSetSchema>>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeOrgId = await context.stateManager.getOrgID()
+        const id = params.id ?? (await context.stateManager.getProjectId())
+        if (!id) {
+            throw new Error('id is required. Provide it explicitly or set an active project first.')
+        }
+        return await prepareConfirmedAction(context, {
+            args: { ...params, id },
+            purpose: 'access-control-default-rule-set',
+            actionLabel: 'change the default access rule',
+            messageTemplate:
+                "About to set the default {resource} access rule in project {id} to {access_level}, for object {resource_id} (null means the whole tool; a null level clears the rule). This changes what every member without a rule of their own gets. Reply 'confirm' to proceed.\n",
+            codec: __runtime.codec,
+            stash: __runtime.stash,
+            boundScope: { orgId: String(__scopeOrgId) },
+        })
+    },
+})
+
+const accessControlDefaultRuleSetExecute = (): ToolBase<
+    typeof AccessControlDefaultRuleSetSchemaExecute,
+    WithAgentNote<Schemas.AccessControlStoredRule>
+> => ({
+    name: 'access-control-default-rule-set-execute',
+    schema: AccessControlDefaultRuleSetSchemaExecute,
+    handler: async (context: Context, confirmationParams: z.infer<typeof AccessControlDefaultRuleSetSchemaExecute>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeOrgId = await context.stateManager.getOrgID()
+        const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof AccessControlDefaultRuleSetSchema>>>(
+            context,
+            {
+                incomingArgs: confirmationParams,
+                purpose: 'access-control-default-rule-set',
+                codec: __runtime.codec,
+                ledger: __runtime.ledger,
+                stash: __runtime.stash,
+                expectedScope: { orgId: String(__scopeOrgId) },
+            }
+        )
+        if (!__guard.ok) {
+            return __guard.result as never
+        }
+        const params = __guard.verifiedArgs
+        const orgId = __scopeOrgId
+        const id = params.id ?? (await context.stateManager.getProjectId())
+        if (!id) {
+            throw new Error('id is required. Provide it explicitly or set an active project first.')
+        }
+        const body: Record<string, unknown> = {}
+        if (params.resource !== undefined) {
+            body['resource'] = params.resource
+        }
+        if (params.resource_id !== undefined) {
+            body['resource_id'] = params.resource_id
+        }
+        if (params.access_level !== undefined) {
+            body['access_level'] = params.access_level
+        }
+        const result = await context.api.request<Schemas.AccessControlStoredRule>({
+            method: 'PUT',
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/${encodeURIComponent(String(id))}/access_control_default_rules/`,
+            body,
+        })
+        return withAgentNote(
+            result,
+            'A member rule or a role rule on the same scope still wins over this default. Verify the result with access-control-defaults-get or access-control-members-list.\n'
+        )
     },
 })
 
@@ -190,6 +306,122 @@ const accessControlMemberPropertiesList = (): ToolBase<
         return withAgentNote(
             await withPostHogUrl(context, result, '/settings/environment-access-control'),
             "Property rules from the member's roles are on access-control-role-properties-list, one call per id in the member's `role_ids` from access-control-members-list. Rules for everyone in the project are on access-control-default-properties-list.\n"
+        )
+    },
+})
+
+const AccessControlMemberRuleSetSchema = () => {
+    const OrganizationsProjectsAccessControlMemberRulesUpdateBody =
+        orvalSchemas.OrganizationsProjectsAccessControlMemberRulesUpdateBody()
+    const OrganizationsProjectsAccessControlMemberRulesUpdateParams =
+        orvalSchemas.OrganizationsProjectsAccessControlMemberRulesUpdateParams()
+    return OrganizationsProjectsAccessControlMemberRulesUpdateParams.omit({ organization_id: true })
+        .extend(OrganizationsProjectsAccessControlMemberRulesUpdateBody.shape)
+        .extend({
+            id: OrganizationsProjectsAccessControlMemberRulesUpdateParams.shape['id']
+                .describe('Project id. If omitted, uses the active project.')
+                .optional(),
+            member_id: OrganizationsProjectsAccessControlMemberRulesUpdateBody.shape['member_id'].describe(
+                'The organization membership id, as `organization_membership_id` in access-control-members-list.'
+            ),
+            resource: OrganizationsProjectsAccessControlMemberRulesUpdateBody.shape['resource'].describe(
+                'The scope: `project`, a tool name such as `dashboard` or `feature_flag`, or `property_definition`. The tool names are the keys of `resources` in access-control-members-list.'
+            ),
+            resource_id: OrganizationsProjectsAccessControlMemberRulesUpdateBody.shape['resource_id']
+                .default(null)
+                .optional()
+                .describe(
+                    "The project id for a project rule, the object's id for a rule on one object (a pk, as returned by the object's own get tool), or the property definition id for a property rule. Null only for a rule on a whole tool."
+                ),
+            access_level: OrganizationsProjectsAccessControlMemberRulesUpdateBody.shape['access_level'].describe(
+                "The level to set, within the scope's `minimum` and `maximum` on access-control-defaults-get, or null to remove the rule."
+            ),
+        })
+}
+
+const AccessControlMemberRuleSetSchemaExecute = z.strictObject({
+    confirmation_hash: z
+        .string()
+        .describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
+    confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
+})
+
+const accessControlMemberRuleSetPrepare = (): ToolBase<
+    ReturnType<typeof AccessControlMemberRuleSetSchema>,
+    PrepareConfirmedActionResult
+> => ({
+    name: 'access-control-member-rule-set-prepare',
+    schema: AccessControlMemberRuleSetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AccessControlMemberRuleSetSchema>>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeOrgId = await context.stateManager.getOrgID()
+        const id = params.id ?? (await context.stateManager.getProjectId())
+        if (!id) {
+            throw new Error('id is required. Provide it explicitly or set an active project first.')
+        }
+        return await prepareConfirmedAction(context, {
+            args: { ...params, id },
+            purpose: 'access-control-member-rule-set',
+            actionLabel: "change a member's access rule",
+            messageTemplate:
+                "About to set the {resource} access rule for member {member_id} in project {id} to {access_level}, for object {resource_id} (null means the whole tool; a null level clears the rule). Reply 'confirm' to proceed.\n",
+            codec: __runtime.codec,
+            stash: __runtime.stash,
+            boundScope: { orgId: String(__scopeOrgId) },
+        })
+    },
+})
+
+const accessControlMemberRuleSetExecute = (): ToolBase<
+    typeof AccessControlMemberRuleSetSchemaExecute,
+    WithAgentNote<Schemas.AccessControlStoredRule>
+> => ({
+    name: 'access-control-member-rule-set-execute',
+    schema: AccessControlMemberRuleSetSchemaExecute,
+    handler: async (context: Context, confirmationParams: z.infer<typeof AccessControlMemberRuleSetSchemaExecute>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeOrgId = await context.stateManager.getOrgID()
+        const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof AccessControlMemberRuleSetSchema>>>(
+            context,
+            {
+                incomingArgs: confirmationParams,
+                purpose: 'access-control-member-rule-set',
+                codec: __runtime.codec,
+                ledger: __runtime.ledger,
+                stash: __runtime.stash,
+                expectedScope: { orgId: String(__scopeOrgId) },
+            }
+        )
+        if (!__guard.ok) {
+            return __guard.result as never
+        }
+        const params = __guard.verifiedArgs
+        const orgId = __scopeOrgId
+        const id = params.id ?? (await context.stateManager.getProjectId())
+        if (!id) {
+            throw new Error('id is required. Provide it explicitly or set an active project first.')
+        }
+        const body: Record<string, unknown> = {}
+        if (params.resource !== undefined) {
+            body['resource'] = params.resource
+        }
+        if (params.resource_id !== undefined) {
+            body['resource_id'] = params.resource_id
+        }
+        if (params.access_level !== undefined) {
+            body['access_level'] = params.access_level
+        }
+        if (params.member_id !== undefined) {
+            body['member_id'] = params.member_id
+        }
+        const result = await context.api.request<Schemas.AccessControlStoredRule>({
+            method: 'PUT',
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/${encodeURIComponent(String(id))}/access_control_member_rules/`,
+            body,
+        })
+        return withAgentNote(
+            result,
+            'Organization admins and owners have full access regardless of rules. Verify the result with access-control-members-list and `member_id`.\n'
         )
     },
 })
@@ -328,6 +560,122 @@ const accessControlRolePropertiesList = (): ToolBase<
     },
 })
 
+const AccessControlRoleRuleSetSchema = () => {
+    const OrganizationsProjectsAccessControlRoleRulesUpdateBody =
+        orvalSchemas.OrganizationsProjectsAccessControlRoleRulesUpdateBody()
+    const OrganizationsProjectsAccessControlRoleRulesUpdateParams =
+        orvalSchemas.OrganizationsProjectsAccessControlRoleRulesUpdateParams()
+    return OrganizationsProjectsAccessControlRoleRulesUpdateParams.omit({ organization_id: true })
+        .extend(OrganizationsProjectsAccessControlRoleRulesUpdateBody.shape)
+        .extend({
+            id: OrganizationsProjectsAccessControlRoleRulesUpdateParams.shape['id']
+                .describe('Project id. If omitted, uses the active project.')
+                .optional(),
+            role_id: OrganizationsProjectsAccessControlRoleRulesUpdateBody.shape['role_id'].describe(
+                'The role id, as `role_id` in access-control-roles-list or `id` in roles-list.'
+            ),
+            resource: OrganizationsProjectsAccessControlRoleRulesUpdateBody.shape['resource'].describe(
+                'The scope: `project`, a tool name such as `dashboard` or `feature_flag`, or `property_definition`. The tool names are the keys of `resources` in access-control-roles-list.'
+            ),
+            resource_id: OrganizationsProjectsAccessControlRoleRulesUpdateBody.shape['resource_id']
+                .default(null)
+                .optional()
+                .describe(
+                    "The project id for a project rule, the object's id for a rule on one object (a pk, as returned by the object's own get tool), or the property definition id for a property rule. Null only for a rule on a whole tool."
+                ),
+            access_level: OrganizationsProjectsAccessControlRoleRulesUpdateBody.shape['access_level'].describe(
+                "The level to set, within the scope's `minimum` and `maximum` on access-control-defaults-get, or null to remove the rule."
+            ),
+        })
+}
+
+const AccessControlRoleRuleSetSchemaExecute = z.strictObject({
+    confirmation_hash: z
+        .string()
+        .describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
+    confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
+})
+
+const accessControlRoleRuleSetPrepare = (): ToolBase<
+    ReturnType<typeof AccessControlRoleRuleSetSchema>,
+    PrepareConfirmedActionResult
+> => ({
+    name: 'access-control-role-rule-set-prepare',
+    schema: AccessControlRoleRuleSetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AccessControlRoleRuleSetSchema>>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeOrgId = await context.stateManager.getOrgID()
+        const id = params.id ?? (await context.stateManager.getProjectId())
+        if (!id) {
+            throw new Error('id is required. Provide it explicitly or set an active project first.')
+        }
+        return await prepareConfirmedAction(context, {
+            args: { ...params, id },
+            purpose: 'access-control-role-rule-set',
+            actionLabel: "change a role's access rule",
+            messageTemplate:
+                "About to set the {resource} access rule for role {role_id} in project {id} to {access_level}, for object {resource_id} (null means the whole tool; a null level clears the rule). This affects every member of the role. Reply 'confirm' to proceed.\n",
+            codec: __runtime.codec,
+            stash: __runtime.stash,
+            boundScope: { orgId: String(__scopeOrgId) },
+        })
+    },
+})
+
+const accessControlRoleRuleSetExecute = (): ToolBase<
+    typeof AccessControlRoleRuleSetSchemaExecute,
+    WithAgentNote<Schemas.AccessControlStoredRule>
+> => ({
+    name: 'access-control-role-rule-set-execute',
+    schema: AccessControlRoleRuleSetSchemaExecute,
+    handler: async (context: Context, confirmationParams: z.infer<typeof AccessControlRoleRuleSetSchemaExecute>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeOrgId = await context.stateManager.getOrgID()
+        const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof AccessControlRoleRuleSetSchema>>>(
+            context,
+            {
+                incomingArgs: confirmationParams,
+                purpose: 'access-control-role-rule-set',
+                codec: __runtime.codec,
+                ledger: __runtime.ledger,
+                stash: __runtime.stash,
+                expectedScope: { orgId: String(__scopeOrgId) },
+            }
+        )
+        if (!__guard.ok) {
+            return __guard.result as never
+        }
+        const params = __guard.verifiedArgs
+        const orgId = __scopeOrgId
+        const id = params.id ?? (await context.stateManager.getProjectId())
+        if (!id) {
+            throw new Error('id is required. Provide it explicitly or set an active project first.')
+        }
+        const body: Record<string, unknown> = {}
+        if (params.resource !== undefined) {
+            body['resource'] = params.resource
+        }
+        if (params.resource_id !== undefined) {
+            body['resource_id'] = params.resource_id
+        }
+        if (params.access_level !== undefined) {
+            body['access_level'] = params.access_level
+        }
+        if (params.role_id !== undefined) {
+            body['role_id'] = params.role_id
+        }
+        const result = await context.api.request<Schemas.AccessControlStoredRule>({
+            method: 'PUT',
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/${encodeURIComponent(String(id))}/access_control_role_rules/`,
+            body,
+        })
+        return withAgentNote(
+            result,
+            'Who is in the role is on role-members-list. Verify the result with access-control-roles-list and `role_id`.\n'
+        )
+    },
+})
+
 const AccessControlRolesListSchema = () => {
     const OrganizationsProjectsAccessControlRolesRetrieveParams =
         orvalSchemas.OrganizationsProjectsAccessControlRolesRetrieveParams()
@@ -385,11 +733,17 @@ const accessControlRolesList = (): ToolBase<
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'access-control-default-objects-list': accessControlDefaultObjectsList,
     'access-control-default-properties-list': accessControlDefaultPropertiesList,
+    'access-control-default-rule-set-prepare': accessControlDefaultRuleSetPrepare,
+    'access-control-default-rule-set-execute': accessControlDefaultRuleSetExecute,
     'access-control-defaults-get': accessControlDefaultsGet,
     'access-control-member-objects-list': accessControlMemberObjectsList,
     'access-control-member-properties-list': accessControlMemberPropertiesList,
+    'access-control-member-rule-set-prepare': accessControlMemberRuleSetPrepare,
+    'access-control-member-rule-set-execute': accessControlMemberRuleSetExecute,
     'access-control-members-list': accessControlMembersList,
     'access-control-role-objects-list': accessControlRoleObjectsList,
     'access-control-role-properties-list': accessControlRolePropertiesList,
+    'access-control-role-rule-set-prepare': accessControlRoleRuleSetPrepare,
+    'access-control-role-rule-set-execute': accessControlRoleRuleSetExecute,
     'access-control-roles-list': accessControlRolesList,
 }

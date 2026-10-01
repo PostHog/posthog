@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.facade import api as warehouse_facade
 
 from ..facade.enums import SubjectType
 from ..models import DataQualityCheck
+from . import posthog_tables
 
 
 @frozen
@@ -55,4 +56,11 @@ def subject_locations(team_id: int, checks: Iterable[DataQualityCheck]) -> dict[
         locations[SubjectKey(subject_type=SubjectType.METRIC, subject_uuid=str(metric_id))] = SubjectLocation(
             metric_name=metric_name
         )
+    posthog_table_names = {check.posthog_table for check in checks if check.posthog_table}
+    for name, node_id in data_modeling_facade.get_node_ids_for_posthog_tables(team_id, posthog_table_names).items():
+        entry = posthog_tables.by_name(name)
+        if entry is not None:
+            locations[SubjectKey(subject_type=SubjectType.POSTHOG_TABLE, subject_uuid=str(entry.id))] = SubjectLocation(
+                node_id=node_id
+            )
     return locations

@@ -204,7 +204,7 @@ export const llmPlaygroundModelLogic = kea<llmPlaygroundModelLogicType>([
             ],
             modelPickerLogic,
             [
-                'byokModels',
+                'generativeByokModels as byokModels',
                 'byokModelsLoading',
                 'playgroundModels',
                 'playgroundModelsLoading',
@@ -288,7 +288,7 @@ export const llmPlaygroundModelLogic = kea<llmPlaygroundModelLogicType>([
                     return null
                 }
                 try {
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use llmAnalyticsEvaluationConfigRetrieve() from 'products/ai_observability/frontend/generated/api' instead.
                     return (await api.get(`/api/environments/${teamId}/llm_analytics/evaluation_config/`)) as {
                         active_provider_key: { id: string } | null
                     }
@@ -422,7 +422,8 @@ export const llmPlaygroundModelLogic = kea<llmPlaygroundModelLogicType>([
             loadProviderKeysFailure: () => resolvePendingTarget(),
             loadPlaygroundModelsFailure: () => resolvePendingTarget(),
             loadByokModelsFailure: () => resolvePendingTarget(),
-            loadByokModelsSuccess: ({ byokModels }: { byokModels: ModelOption[] }) => {
+            loadByokModelsSuccess: () => {
+                const byokModels = values.byokModels
                 if (byokModels.length === 0) {
                     return
                 }

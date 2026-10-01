@@ -70,8 +70,34 @@ Reach for these first, in roughly this order:
 
 Call `posthog:data-quality-check-types` for each type's exact config schema rather than guessing.
 
-Checks live on the subject they audit: create them with `data-quality-check-create-on-view`
-(`saved_query_id` path parameter) or `data-quality-check-create-on-table` (`table_id`).
+One tool set covers every kind of subject. Call `posthog:data-quality-subjects` for the tables,
+views and metrics you can read, then pass the `subject_type` and `id` it gives you as
+`subject_type` and `subject_uuid` in `posthog:data-quality-check-create`. Only a subject marked
+`editable` can carry a check; the others can still be the target of a relationships check. After that a check is
+addressed by its own id: `-update`, `-delete`, `-run` and `-results` take no subject.
+
+## Checks on PostHog tables
+
+`events`, `persons` and `groups` take checks like any other subject: pass
+`subject_type: "posthog_table"` with the id `posthog:data-quality-subjects` gives you. Every check
+type works on them, and `relationships` can point at one as its target too.
+
+These tables are large, so consider `lookback_hours` before you author a check on one. It bounds
+the rows the check reads by the table's own time column: `timestamp` on `events`, and `created_at`
+on `persons` and `groups`, which is when each was first seen rather than when it last changed.
+Without it the check reads the whole table, which is allowed and sometimes what you want -- an
+unbounded `unique` on `events.uuid` says something a windowed one cannot. A check that runs out of
+ClickHouse's execution budget reports `errored` with the message; adding a window is usually the fix.
+
+On a `relationships` check, `lookback_hours` bounds the rows it checks and `to_lookback_hours`
+bounds the rows it looks for a match among. Set the second one carefully: a narrow target window
+makes rows fail for being old rather than for being wrong.
+
+`custom_sql` takes no `lookback_hours`. Put the time filter in the query yourself, or it reads the
+whole table.
+
+Nothing triggers these tables the way a sync triggers a source table, so their checks run on a
+schedule, daily by default. Change it with `posthog:data-quality-check-schedule`.
 
 ## Checks on catalog metrics
 
@@ -92,10 +118,9 @@ through a subquery. Metric check SQL cannot define CTEs, including nested CTEs a
 bindings. CTEs and saved parameters inside the metric definition remain supported. Other placeholders
 are not accepted in the check.
 
-Use the metric's Tests tab or the nested REST endpoints under
-`/api/projects/{project_id}/data_catalog/metrics/{metric_id}/checks/`. The catalog metric detail
-endpoint uses the metric name, but nested check endpoints use its UUID. The metric check-type
-endpoint offers only Custom SQL. Do not assume the table/view MCP tools accept metric subjects.
+Use the metric's Tests tab, or `posthog:data-quality-check-create` with `subject_type: "metric"`.
+The catalog addresses a metric by name, but a check names it by UUID. Pass `subject_type=metric` to
+`posthog:data-quality-check-types` and it offers only Custom SQL.
 
 Saving validates SQL composition without executing it. Run the check to verify column names and
 results. Every run reloads the saved metric: if an edit removes a column used by the check, the next
@@ -114,8 +139,9 @@ refresh whose error-severity checks fail is not published), a source table's che
 completed sync, and a plain view's checks run when its DAG runs. Checks on a view outside any DAG
 only run on demand.
 
-**Metric schedules:** The first saved check creates an enabled daily schedule for all checks on the
-metric. The Tests tab lets you change the interval or turn automatic runs off. Manual runs remain
+**Subject schedules:** A metric and a PostHog table have no data-change event to run on, so their
+checks run on a schedule instead. The first saved check creates an enabled daily schedule for all
+checks on that subject. The Tests tab lets you change the interval or turn automatic runs off. Manual runs remain
 available. Scheduled checks use the latest definition author's access, falling back to the creator;
 manual runs use the initiating user's access. Underlying and additional tables must be readable.
 
@@ -128,16 +154,15 @@ Disabling or deleting every check preserves the schedule preferences. Deleting t
 
 Author, run once, read the result. A check nobody has run is a guess.
 
-1. `posthog:data-quality-check-create-on-view` (or `-on-table`)
-2. `posthog:data-quality-check-run-on-view` (or `-on-table`) — returns a suite run
+1. `posthog:data-quality-check-create`
+2. `posthog:data-quality-check-run` — returns a suite run
 3. Poll `system.information_schema.data_quality_check_runs` (or
-   `posthog:data-quality-check-results-on-view`/`-on-table`) for the outcome
+   `posthog:data-quality-check-results`) for the outcome
 
 A `failed` result on the first run is the interesting case: either you found real bad data, or the
 assertion is wrong. Take the `compiled_query` off the run, execute it with `posthog:execute-sql`, and
 look at what it actually matched before reporting anything. That `compiled_query` comes from
-`posthog:data-quality-check-results-on-view`/`-on-table`; the information_schema poll in step 3 does
-not return it. An `errored` result is never a data
+`posthog:data-quality-check-results`; the information_schema poll in step 3 does not return it. An `errored` result is never a data
 problem — the query could not run at all, usually a column name typo or a subject that no longer
 exists.
 
