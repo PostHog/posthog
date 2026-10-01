@@ -393,6 +393,11 @@ class MemoryGovernor:
         usable = limit_mb * self.config.safety - self.config.reserve_mb
         return max(0.0, usable) / self.config.max_concurrent
 
+    def slot_budget_mb(self) -> float | None:
+        """The memory slice one load slot may use, or None when the pod's limit is unreadable."""
+        limit_mb = self.pod.limit_mb()
+        return None if limit_mb is None else self._per_upsert_budget_mb(limit_mb)
+
     @contextlib.asynccontextmanager
     async def admit(self, *, source_bytes: int, n_partitions: int | None = None) -> AsyncIterator[Admission]:
         """Size one upsert to its memory slice and yield the knobs to run it with.
