@@ -84,7 +84,7 @@ export function BuiltCanvas({
             portRef.current = bridge.port1
             bridge.port1.addEventListener('message', onPortMessage)
             bridge.port1.start()
-            // The sandboxed artifact has an opaque origin, so no narrower target origin matches it.
+            // nosemgrep: wildcard-postmessage-configuration -- Opaque sandbox origin; only the first load gets a port, which closes on navigation.
             iframe?.contentWindow?.postMessage({ channel: CANVAS_CHANNEL, type: 'connect' }, '*', [bridge.port2])
             post({ channel: CANVAS_CHANNEL, type: 'set-theme', theme: latest.current.theme })
         }
