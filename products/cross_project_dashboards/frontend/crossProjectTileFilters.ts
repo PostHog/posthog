@@ -2,12 +2,7 @@ import type { CrossProjectDashboardFilters } from './crossProjectDashboardLogic'
 
 const KEYS: (keyof CrossProjectDashboardFilters)[] = ['date_from', 'date_to', 'interval']
 
-/**
- * Resolve what one tile asks its project for.
- *
- * The dashboard's filters apply first and the tile's own keys win over them, so a tile that
- * overrides only its date range still follows the dashboard's interval.
- */
+/** The tile's own keys win over the dashboard's, so a tile that overrides only its dates keeps the dashboard's interval. */
 export function mergeTileFilters(
     dashboardFilters?: CrossProjectDashboardFilters,
     tileFilters?: CrossProjectDashboardFilters

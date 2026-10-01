@@ -23,12 +23,7 @@ const storedLayout = (tile: CrossProjectDashboardTileApi, size: DashboardLayoutS
     return layout && typeof layout.w === 'number' && typeof layout.h === 'number' ? layout : null
 }
 
-/**
- * Position a tile that has never been arranged: two per row at `sm`, one at `xs`.
- *
- * The default is computed on every read and never written back, so a dashboard nobody has
- * arranged stays distinguishable from one arranged to look like the default.
- */
+/** Never written back, so a dashboard nobody arranged stays distinct from one arranged to look like the default. */
 const defaultLayout = (index: number, size: DashboardLayoutSize): TileLayout => {
     const width = DEFAULT_WIDTH[size]
     const perRow = Math.max(1, Math.floor(GRID_COLUMN_COUNTS[size] / width))
@@ -57,13 +52,7 @@ export interface TileLayoutUpdate {
     layouts: Record<string, TileLayout>
 }
 
-/**
- * Tiles whose arrangement actually moved.
- *
- * react-grid-layout reports a layout change on mount, on width change and on every breakpoint
- * cross, so writing whatever it hands back would turn opening a dashboard into one request per
- * tile. Only a tile that differs from what is stored is written.
- */
+/** The grid reports a change on mount and on every resize, so only a tile that differs from what is stored counts. */
 export function changedTileLayouts(
     tiles: readonly CrossProjectDashboardTileApi[],
     next: Partial<ResponsiveTileLayouts>
