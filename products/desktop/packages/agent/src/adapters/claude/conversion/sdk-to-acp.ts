@@ -21,7 +21,7 @@ import type {
   BetaContentBlock,
   BetaRawContentBlockDelta,
 } from "@anthropic-ai/sdk/resources/beta.mjs";
-import { IMPORTED_USER_PROMPT_META_KEY } from "@posthog/shared";
+import { IMPORTED_USER_PROMPT_META_KEY } from "@posthog/agent-contracts";
 import { POSTHOG_NOTIFICATIONS } from "@/acp-extensions";
 import { image, text } from "../../../utils/acp-content";
 import { unreachable } from "../../../utils/common";
