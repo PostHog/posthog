@@ -5,6 +5,8 @@ from collections.abc import Collection
 from datetime import UTC, datetime
 from typing import Optional, Union
 
+from django.conf import settings
+
 from posthog.schema import (
     ActionsNode,
     ExperimentEventExposureConfig,
@@ -31,10 +33,10 @@ DEFAULT_EXPOSURE_EVENT = "$feature_flag_called"
 # The dedicated exposure event that replaces $feature_flag_called as the default.
 EXPERIMENT_EXPOSURE_EVENT = "$experiment_exposure"
 
-# The start of $experiment_exposure ingestion. Experiments started before this timestamp ran
-# (at least partly) without $experiment_exposure, so they must keep counting exposures via
-# $feature_flag_called even where the two overlap. Only experiments whose start_date is at or
-# after the cutoff can rely on $experiment_exposure covering their whole exposure window.
+# The start of $experiment_exposure ingestion on PostHog Cloud. Experiments started before this
+# timestamp ran (at least partly) without $experiment_exposure, so they must keep counting
+# exposures via $feature_flag_called even where the two overlap. Only experiments whose start_date
+# is at or after the cutoff can rely on $experiment_exposure covering their whole exposure window.
 EXPERIMENT_EXPOSURE_EVENT_CUTOFF = datetime(2026, 9, 1, tzinfo=UTC)
 
 
@@ -46,8 +48,12 @@ def resolve_default_exposure_event(start_date: Optional[datetime]) -> str:
     Everything else stays on $feature_flag_called: older experiments predate the new event, and
     because ingestion duplicates flag events into $experiment_exposure, counting exactly one of
     the two is what avoids double counting.
+
+    A deployment that does not ingest $experiment_exposure (settings.EXPERIMENT_EXPOSURE_EVENT_INGESTED,
+    false on self-hosted installs by default) also stays on $feature_flag_called, because no SDK sends
+    the new event and counting it would find no exposures.
     """
-    if start_date is None:
+    if start_date is None or not settings.EXPERIMENT_EXPOSURE_EVENT_INGESTED:
         return DEFAULT_EXPOSURE_EVENT
     if start_date.tzinfo is None:
         # Query-supplied start dates can be naive ISO strings; the stored values are UTC.

@@ -6,6 +6,7 @@ import { LemonButton, LemonCollapse, LemonSelect, LemonTag, Tooltip } from '@pos
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 import { teamLogic } from 'scenes/teamLogic'
@@ -248,9 +249,15 @@ export function ExposureCriteriaPanel({ experiment, onChange, compact }: Exposur
     const activationEventEnabled = useFeatureFlag('EXPERIMENT_ACTIVATION_EVENT')
     // Keep an existing activation config editable even if the team is no longer flagged in
     const showActivationOption = activationEventEnabled || isActivation
+    const { isHobby } = useValues(preflightLogic)
     // A draft built in this form has no server-resolved event yet and would start after the
     // cutoff, so it names what the backend would resolve rather than the legacy fallback.
-    const defaultExposureEvent = resolvedExposureEvent(experiment, EXPERIMENT_EXPOSURE_EVENT)
+    // Self-hosted installs default to the legacy event (EXPERIMENT_EXPOSURE_EVENT_INGESTED), because their
+    // ingestion does not make $experiment_exposure.
+    const defaultExposureEvent = resolvedExposureEvent(
+        experiment,
+        isHobby ? EXPOSURE_DEFAULT_EVENT : EXPERIMENT_EXPOSURE_EVENT
+    )
     const defaultExposureLabel = exposureEventLabel(defaultExposureEvent)
 
     const { currentTeam } = useValues(teamLogic)

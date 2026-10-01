@@ -1,5 +1,7 @@
 import pytest
 
+from django.test import override_settings
+
 from parameterized import parameterized
 
 from posthog.schema import ExperimentEventExposureConfig, ExperimentExposureCriteria, MultipleVariantHandling
@@ -9,15 +11,31 @@ from posthog.models.team import Team
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT,
+    EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
     get_exposure_event_and_property,
     get_multiple_variant_handling_from_experiment,
     get_test_accounts_filter,
     normalize_to_exposure_criteria,
+    resolve_default_exposure_event,
 )
 
 
 def _event_config(event):
     return {"exposure_config": {"kind": "ExperimentEventExposureConfig", "event": event, "properties": []}}
+
+
+class TestResolveDefaultExposureEvent:
+    @parameterized.expand(
+        [
+            ("ingested", True, EXPERIMENT_EXPOSURE_EVENT),
+            ("not_ingested", False, DEFAULT_EXPOSURE_EVENT),
+        ]
+    )
+    def test_post_cutoff_event_follows_whether_the_deployment_ingests_it(
+        self, _name: str, ingested: bool, expected: str
+    ) -> None:
+        with override_settings(EXPERIMENT_EXPOSURE_EVENT_INGESTED=ingested):
+            assert resolve_default_exposure_event(EXPERIMENT_EXPOSURE_EVENT_CUTOFF) == expected
 
 
 class TestGetExposureEventAndProperty:

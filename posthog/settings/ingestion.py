@@ -2,7 +2,8 @@ import os
 from typing import Literal
 from uuid import UUID
 
-from posthog.settings.base_variables import DEBUG, TEST
+from posthog.run_mode import derive_run_mode
+from posthog.settings.base_variables import CLOUD_DEPLOYMENT, DEBUG, TEST
 from posthog.settings.utils import get_from_env, get_list, get_set
 from posthog.utils import str_to_bool
 
@@ -161,3 +162,14 @@ AI_RESEARCH_REPLAY_KEY_TABLE = os.getenv("AI_RESEARCH_REPLAY_KEY_TABLE", "")
 AI_RESEARCH_REPLAY_AWS_REGION = os.getenv("AI_RESEARCH_REPLAY_AWS_REGION", "us-east-1")
 AI_RESEARCH_REPLAY_DYNAMODB_ENDPOINT = os.getenv("AI_RESEARCH_REPLAY_DYNAMODB_ENDPOINT", "")
 AI_RESEARCH_REPLAY_KMS_KEY_ARN = os.getenv("AI_RESEARCH_REPLAY_KMS_KEY_ARN", "")
+
+# Whether this deployment ingests $experiment_exposure, which experiments started after the cutoff
+# count exposures on. Ingestion makes the event only by copying $feature_flag_called for the teams in
+# the plugin server's EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS, which defaults to none outside local dev.
+# Self-hosted installs therefore default to false and keep counting $feature_flag_called. A
+# self-hosted install that sets EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS="*" can set this to true.
+EXPERIMENT_EXPOSURE_EVENT_INGESTED: bool = get_from_env(
+    "EXPERIMENT_EXPOSURE_EVENT_INGESTED",
+    not derive_run_mode(CLOUD_DEPLOYMENT, DEBUG).is_hobby or TEST,
+    type_cast=str_to_bool,
+)
