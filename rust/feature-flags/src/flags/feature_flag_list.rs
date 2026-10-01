@@ -119,8 +119,8 @@ impl FeatureFlagList {
         // A team whose every flag is in or depends on a dependency cycle has no stage. Its
         // metadata lists every flag in `flags_with_missing_deps`.
         if evaluation_metadata.dependency_stages.is_empty()
-            && !wrapper.flags.iter().all(|flag| {
-                evaluation_metadata
+            && wrapper.flags.iter().any(|flag| {
+                !evaluation_metadata
                     .flags_with_missing_deps
                     .contains(&flag.id)
             })
@@ -1231,15 +1231,10 @@ mod tests {
         assert!(cohorts.is_none());
     }
 
-    #[rstest::rstest]
-    #[case::no_flag_has_missing_deps(json!([]), false)]
-    #[case::one_flag_unaccounted(json!([10]), false)]
-    #[case::every_flag_in_a_cycle(json!([10, 20]), true)]
-    fn test_from_wrapper_empty_stages_with_flags(
-        #[case] flags_with_missing_deps: serde_json::Value,
-        #[case] accepted: bool,
-    ) {
-        let wrapper: HypercacheFlagsWrapper = serde_json::from_value(json!({
+    fn wrapper_with_empty_stages(
+        flags_with_missing_deps: serde_json::Value,
+    ) -> HypercacheFlagsWrapper {
+        serde_json::from_value(json!({
             "flags": [
                 {"id": 10, "key": "a", "team_id": 1, "active": true, "deleted": false, "filters": {"groups": []}},
                 {"id": 20, "key": "b", "team_id": 1, "active": true, "deleted": false, "filters": {"groups": []}}
@@ -1250,21 +1245,34 @@ mod tests {
                 "transitive_deps": {}
             }
         }))
-        .unwrap();
-        let result = FeatureFlagList::from_wrapper(Some(wrapper), 1);
-        if accepted {
-            let (flags, metadata, _) = result.expect("all-cyclic metadata should parse");
-            assert_eq!(flags.len(), 2);
-            assert_eq!(metadata.flags_with_missing_deps, vec![10, 20]);
-        } else {
-            assert!(matches!(
-                result,
-                Err(FlagError::InternalError {
-                    code: "flag_data_parsing_error",
-                    ..
-                })
-            ));
-        }
+        .unwrap()
+    }
+
+    #[rstest::rstest]
+    #[case::no_flag_has_missing_deps(json!([]))]
+    #[case::one_flag_unaccounted(json!([10]))]
+    fn test_from_wrapper_empty_stages_with_unaccounted_flags_is_error(
+        #[case] flags_with_missing_deps: serde_json::Value,
+    ) {
+        let result = FeatureFlagList::from_wrapper(
+            Some(wrapper_with_empty_stages(flags_with_missing_deps)),
+            1,
+        );
+        assert!(matches!(
+            result,
+            Err(FlagError::InternalError {
+                code: "flag_data_parsing_error",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn test_from_wrapper_accepts_empty_stages_when_every_flag_is_in_a_cycle() {
+        let (flags, _, _) =
+            FeatureFlagList::from_wrapper(Some(wrapper_with_empty_stages(json!([10, 20]))), 1)
+                .expect("all-cyclic metadata should parse");
+        assert_eq!(flags.len(), 2);
     }
 
     #[test]

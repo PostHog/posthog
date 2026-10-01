@@ -767,12 +767,9 @@ mod tests {
         let dependent = context
             .insert_flag(
                 team.id,
-                Some(FeatureFlagRow {
+                Some(crate::mock!(FeatureFlagRow,
                     team_id: team.id,
                     key: "dependent_flag".to_string(),
-                    name: Some(String::new()),
-                    active: true,
-                    evaluation_runtime: Some("all".to_string()),
                     filters: json!({
                         "groups": [{
                             "properties": [{
@@ -784,8 +781,7 @@ mod tests {
                             "rollout_percentage": 100,
                         }],
                     }),
-                    ..Default::default()
-                }),
+                )),
             )
             .await
             .expect("Failed to insert dependent flag");

@@ -447,14 +447,6 @@ On a hypercache miss, the service loads flags from Postgres and computes the sam
 
 If `compute_flag_dependencies()` returns an error, every flag goes in one stage.
 
-#### Backwards compatibility
-
-The two paths are fully compatible via `#[serde(default)]` on `evaluation_metadata`:
-
-- **Old Rust + new cache**: `evaluation_metadata` is an unknown field, ignored. Falls back to petgraph.
-- **New Rust + old cache**: `evaluation_metadata` absent → `None` → falls back to petgraph.
-- **New Rust + new cache**: `evaluation_metadata` present → fast pre-computed path.
-
 ### Evaluation stages
 
 Flags are evaluated in batched stages. Each stage contains flags whose dependencies are all resolved:
