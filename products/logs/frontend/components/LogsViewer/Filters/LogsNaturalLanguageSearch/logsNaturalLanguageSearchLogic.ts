@@ -90,12 +90,14 @@ export const logsNaturalLanguageSearchLogic = kea<logsNaturalLanguageSearchLogic
         response: [
             null as LogsNaturalLanguageQueryResponseApi | null,
             {
-                askAi: async ({ query }) => {
+                askAi: async ({ query }, breakpoint) => {
                     const { date_from, date_to } = values.filters.dateRange
-                    return await logsNaturalLanguageQueryCreate(String(values.currentProjectId), {
+                    const response = await logsNaturalLanguageQueryCreate(String(values.currentProjectId), {
                         query,
                         dateRange: { date_from: date_from ?? null, date_to: date_to ?? null },
                     })
+                    breakpoint()
+                    return response
                 },
             },
         ],
