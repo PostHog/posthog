@@ -1,7 +1,22 @@
 import { ReactNode } from 'react'
 
 import { IconChevronRight } from '@posthog/icons'
-import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@posthog/quill'
+import {
+    Button,
+    ContextMenuItem,
+    ContextMenuSeparator,
+    ContextMenuSub,
+    ContextMenuSubContent,
+    ContextMenuSubTrigger,
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    DropdownMenuSub,
+    DropdownMenuSubContent,
+    DropdownMenuSubTrigger,
+    DropdownMenuTrigger,
+} from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
@@ -11,6 +26,7 @@ export interface TodayMenuItemProps {
     onClick?: () => void
     /** Navigates instead of acting. */
     to?: string
+    disabled?: boolean
 }
 
 export interface TodayMenuSubProps {
@@ -31,6 +47,47 @@ export interface TodayMenuParts {
 
 const SUB_CONTENT_CLASS = 'max-h-80 w-64'
 
+export const DROPDOWN_PARTS: TodayMenuParts = {
+    Item: ({ children, dataAttr, onClick, to, disabled }) => (
+        <DropdownMenuItem
+            onClick={onClick}
+            disabled={disabled}
+            // quill draws the item as a row button by default, so a link keeps that look by rendering through one.
+            {...(to ? { render: <Button size="row" left render={<LinkPrimitive to={to} />} /> } : {})}
+            data-attr={dataAttr}
+        >
+            {children}
+        </DropdownMenuItem>
+    ),
+    Separator: () => <DropdownMenuSeparator />,
+    Sub: ({ label, dataAttr, children }) => (
+        <DropdownMenuSub>
+            <DropdownMenuSubTrigger data-attr={dataAttr}>{label}</DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className={SUB_CONTENT_CLASS}>{children}</DropdownMenuSubContent>
+        </DropdownMenuSub>
+    ),
+}
+
+export const CONTEXT_PARTS: TodayMenuParts = {
+    Item: ({ children, dataAttr, onClick, to, disabled }) => (
+        <ContextMenuItem
+            onClick={onClick}
+            disabled={disabled}
+            {...(to ? { render: <Button size="row" left render={<LinkPrimitive to={to} />} /> } : {})}
+            data-attr={dataAttr}
+        >
+            {children}
+        </ContextMenuItem>
+    ),
+    Separator: () => <ContextMenuSeparator />,
+    Sub: ({ label, dataAttr, children }) => (
+        <ContextMenuSub>
+            <ContextMenuSubTrigger data-attr={dataAttr}>{label}</ContextMenuSubTrigger>
+            <ContextMenuSubContent className={SUB_CONTENT_CLASS}>{children}</ContextMenuSubContent>
+        </ContextMenuSub>
+    ),
+}
+
 /**
  * The parts for a hover card's action list. The card is not a menu, so its rows are plain buttons.
  * `onAction` closes the card after a choice. `onSubmenuOpenChange` reports "File to…", whose menu opens
@@ -38,10 +95,11 @@ const SUB_CONTENT_CLASS = 'max-h-80 w-64'
  */
 export function cardMenuParts(onAction: () => void, onSubmenuOpenChange: (open: boolean) => void): TodayMenuParts {
     return {
-        Item: ({ children, dataAttr, onClick, to }) => (
+        Item: ({ children, dataAttr, onClick, to, disabled }) => (
             <Button
                 left
                 className="w-full"
+                disabled={disabled}
                 onClick={() => {
                     onClick?.()
                     onAction()
