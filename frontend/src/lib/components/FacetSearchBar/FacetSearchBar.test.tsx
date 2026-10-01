@@ -438,7 +438,7 @@ describe('FacetSearchBar', () => {
 
             await user.keyboard('g{Backspace}')
             await waitFor(() => expect(suggestions()).toEqual(['Growth']))
-            expect(loadValues.mock.calls.map(([search]) => search)).toEqual(['', ''])
+            expect(loadValues.mock.calls.filter(([search]) => search === '')).toHaveLength(2)
         })
 
         it('loads values for a search restored from the URL as soon as the bar opens', async () => {

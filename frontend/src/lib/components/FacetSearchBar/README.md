@@ -2,7 +2,7 @@
 
 A search input for lists that turns `facet:value` into removable pills.
 People type `status:open`, pick from suggestions, or paste a whole query.
-`-status:closed` excludes a value, and `owner:"Jo Doe"` quotes one with spaces.
+A space ends a value, so `owner:"Jo Doe"` quotes one with spaces. `-status:closed` excludes a value.
 Pills on one facet are OR, pills on different facets are AND, and the free text is AND with the pills.
 
 You give it three things: the facets, the search state, and the data.
@@ -41,7 +41,8 @@ const facets: ServerFacet[] = [
 ```
 
 Loads are debounced and cached per facet and search text. A failed load says so and runs again on the next keystroke.
-A pill shows the label of a value once a load has returned it. Until then it shows `formatValue(value)`, so give `formatValue` when a raw value is not readable.
+Keep `loadValues` stable between renders: a new function drops the values the old one loaded.
+A pill restored from a URL takes its label from `loadValues('')`. If that list can miss the value, give `formatValue` too.
 
 ## Keeping the search in the URL
 
@@ -51,5 +52,5 @@ A pill shows the label of a value once a load has returned it. Until then it sho
 ## Keyboard
 
 - ↑ and ↓ move through the suggestions. Enter picks the highlighted one.
-- Tab and → pick the first facet or value, never the plain search. On an empty input, Tab moves focus as usual.
+- Tab and → pick the first facet or value, never the plain search. Until the person types, Tab moves focus as usual.
 - Backspace on an empty input removes the last pill. Esc closes the suggestions.
