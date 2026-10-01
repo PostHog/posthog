@@ -79,7 +79,7 @@ class QueryPlan(BaseModel):
         max_length=500,
         description="Plain-English summary of what the report will tell the user.",
     )
-    steps: list[QueryPlanStep] = Field(..., min_length=1, max_length=MAX_QUERY_PLAN_STEPS)
+    steps: list[QueryPlanStep] = Field(..., max_length=MAX_QUERY_PLAN_STEPS)
 
 
 class EnrichedPromptSpec(BaseModel):

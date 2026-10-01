@@ -1,4 +1,5 @@
 import uuid
+import asyncio
 import datetime as dt
 import dataclasses
 from datetime import datetime
@@ -17,7 +18,12 @@ from posthog.ph_client import ph_scoped_capture
 from posthog.sync import database_sync_to_async
 
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
+from products.exports.backend.temporal.subscriptions.ai_subscription.context_tools import (
+    creator_can_access_report_context,
+    parse_context_refs,
+)
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
+    QueryAccessRevokedError,
     build_ai_subscription_report,
     build_ai_teams_card,
     build_chart_image_urls,
@@ -37,6 +43,7 @@ from products.exports.backend.temporal.subscriptions.delivery_webhook import del
 from products.exports.backend.temporal.subscriptions.types import (
     AI_REPORT_CHARTS_KEY,
     AI_REPORT_DIAGNOSTICS_KEY,
+    AI_REPORT_HAS_USABLE_CONTEXT_KEY,
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
     AI_REPORT_QUERY_PLAN_STATUS_KEY,
     AI_REPORT_SNAPSHOT_KEY,
@@ -51,13 +58,19 @@ from products.exports.backend.temporal.subscriptions.types import (
 
 from ee.billing.quota_limiting import is_team_over_ai_credit_budget
 from ee.tasks.subscriptions import _capture_delivery_failed_event
-from ee.tasks.subscriptions.auto_disable import AI_CONSENT_REVOKED_DISABLE_REASON, AI_PROMPT_INVALID_DISABLE_REASON
+from ee.tasks.subscriptions.auto_disable import (
+    AI_CONSENT_REVOKED_DISABLE_REASON,
+    AI_PROMPT_INVALID_DISABLE_REASON,
+    AI_QUERY_ACCESS_REVOKED_DISABLE_REASON,
+)
 
 LOGGER = get_logger(__name__)
 
 # If the org's AI-credit balance isn't synced yet, reschedule roughly a billing cycle out so a
 # skipped sub still moves forward instead of re-firing every tick.
 _CREDIT_RESET_FALLBACK_DAYS = 31
+AI_REPORT_CONTEXT_KEY = "ai_report_context"
+AI_REPORT_GENERATION_TIMEOUT_SECONDS = 8 * 60
 
 
 async def _load_snapshot(delivery_id: uuid.UUID) -> dict | None:
@@ -74,9 +87,28 @@ async def _load_snapshot(delivery_id: uuid.UUID) -> dict | None:
     return await _read()
 
 
+def _creator_can_access_delivery_context(subscription: Subscription, delivery_id: uuid.UUID) -> bool:
+    try:
+        context_refs = SubscriptionDelivery.objects.values_list("context_refs", flat=True).get(pk=delivery_id)
+    except SubscriptionDelivery.DoesNotExist:
+        return False
+    parsed_refs = parse_context_refs(context_refs)
+    if parsed_refs is None:
+        return False
+    return creator_can_access_report_context(
+        subscription,
+        dashboard_ids=parsed_refs.dashboard_ids,
+        insight_ids=parsed_refs.insight_ids,
+    )
+
+
 def _snapshot_report(snapshot: dict | None) -> str | None:
     report = snapshot.get(AI_REPORT_SNAPSHOT_KEY) if snapshot else None
     return report if isinstance(report, str) and report else None
+
+
+def _snapshot_has_usable_context(snapshot: dict | None) -> bool:
+    return snapshot is not None and snapshot.get(AI_REPORT_HAS_USABLE_CONTEXT_KEY) is True
 
 
 @frozen
@@ -160,11 +192,14 @@ async def _persist_ai_report(delivery_id: uuid.UUID, result: AiReportResult, pro
             AI_REPORT_DIAGNOSTICS_KEY: strip_null_bytes([dataclasses.asdict(d) for d in result.diagnostics]),
             AI_REPORT_WINDOW_END_KEY: result.window_end_utc,
             AI_REPORT_CHARTS_KEY: strip_null_bytes([dataclasses.asdict(chart) for chart in result.charts]),
+            AI_REPORT_CONTEXT_KEY: strip_null_bytes(dataclasses.asdict(result.context)),
+            AI_REPORT_HAS_USABLE_CONTEXT_KEY: result.has_usable_context,
             AI_REPORT_QUERY_PLAN_STATUS_KEY: result.query_plan_status.value,
             # prompt is None for non-AI subs; "" if cleared — omit either.
             **({AI_REPORT_PROMPT_SNAPSHOT_KEY: strip_null_bytes(prompt)} if prompt else {}),
         }
-        delivery.save(update_fields=["content_snapshot", "last_updated_at"])
+        delivery.context_refs = list(dict.fromkeys(result.authorized_context_refs))
+        delivery.save(update_fields=["content_snapshot", "context_refs", "last_updated_at"])
 
     await _write()
 
@@ -270,6 +305,7 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
             aborted=False,
             failed_step_count=counts.failed_step_count,
             total_step_count=counts.total_step_count,
+            has_usable_context=_snapshot_has_usable_context(snapshot),
             query_errors=counts.query_errors,
             target_type=subscription.target_type,
         )
@@ -325,10 +361,12 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
         return GenerateAIReportResult(skipped=True, target_type=subscription.target_type)
 
     try:
-        report_result = await build_ai_subscription_report(subscription)
+        report_result = await asyncio.wait_for(
+            build_ai_subscription_report(subscription),
+            timeout=AI_REPORT_GENERATION_TIMEOUT_SECONDS,
+        )
     except PromptRejectedError as exc:
-        # Structurally permanent: no creator, prompt now fails sanitization, or the
-        # planner returned a malformed plan. Re-firing wastes LLM tokens every cycle.
+        # Structurally permanent: no creator, no query access, or the prompt now fails sanitization.
         LOGGER.warning(
             "generate_ai_subscription_report.prompt_rejected",
             subscription_id=subscription.id,
@@ -349,19 +387,33 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
         ]
         aborted = await auto_disable_and_return(
             subscription,
-            AI_PROMPT_INVALID_DISABLE_REASON,
+            AI_QUERY_ACCESS_REVOKED_DISABLE_REASON
+            if isinstance(exc, QueryAccessRevokedError)
+            else AI_PROMPT_INVALID_DISABLE_REASON,
             recipient_results,
         )
         return GenerateAIReportResult(
             aborted=True, recipient_results=aborted.recipient_results, target_type=subscription.target_type
         )
+    except TimeoutError as exc:
+        LOGGER.warning(
+            "generate_ai_subscription_report.timed_out",
+            subscription_id=subscription.id,
+            timeout_seconds=AI_REPORT_GENERATION_TIMEOUT_SECONDS,
+        )
+        raise ApplicationError(
+            f"AI report generation timed out for subscription {subscription.id}",
+            type="AIReportGenerationTimeout",
+            non_retryable=False,
+        ) from exc
 
-    await _persist_ai_report(inputs.delivery_id, report_result, subscription.prompt)
+    await _persist_ai_report(inputs.delivery_id, report_result, report_result.prompt)
     counts = _report_diagnostic_counts(report_result)
     return GenerateAIReportResult(
         aborted=False,
         failed_step_count=counts.failed_step_count,
         total_step_count=counts.total_step_count,
+        has_usable_context=report_result.has_usable_context,
         query_errors=counts.query_errors,
         target_type=subscription.target_type,
     )
@@ -388,6 +440,13 @@ async def _deliver_ai_subscription(
         # report, so retrying just burns attempts — fail loud rather than ship an empty report.
         raise ApplicationError(
             f"AI report missing for subscription {subscription.id} (delivery {inputs.delivery_id})",
+            non_retryable=True,
+        )
+    if not await database_sync_to_async(_creator_can_access_delivery_context, thread_sensitive=False)(
+        subscription, delivery_id
+    ):
+        raise ApplicationError(
+            f"AI report context is no longer accessible for subscription {subscription.id}",
             non_retryable=True,
         )
 

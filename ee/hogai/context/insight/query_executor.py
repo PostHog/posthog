@@ -1,6 +1,7 @@
 import json
 import time
 import asyncio
+from collections.abc import Callable
 from dataclasses import field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Optional
@@ -104,6 +105,12 @@ class FormattedQueryResult:
     response: dict = field(repr=False)
 
 
+@frozen
+class QueryExecutionHandle:
+    id: str
+    cancellable: bool
+
+
 def is_supported_query(query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery) -> bool:
     return isinstance(
         query,
@@ -165,6 +172,8 @@ class AssistantQueryExecutor:
         insight_id=None,
         debug_timing=False,
         truncate_results: bool = True,
+        query_id: str | None = None,
+        on_query_handle: Callable[[QueryExecutionHandle], None] | None = None,
     ) -> FormattedQueryResult:
         """
         Run a query and format the results with detailed fallback information.
@@ -199,7 +208,13 @@ class AssistantQueryExecutor:
                     # Including insight ID for insight search
                     tag_queries(insight_id=insight_id)
                 execute_start = time.time()
-                response_dict = await self.aexecute_query(query, execution_mode, debug_timing=debug_timing)
+                response_dict = await self.aexecute_query(
+                    query,
+                    execution_mode,
+                    debug_timing=debug_timing,
+                    query_id=query_id,
+                    on_query_handle=on_query_handle,
+                )
                 execute_elapsed = time.time() - execute_start
                 if debug_timing:
                     logger.warning(f"{TIMING_LOG_PREFIX} aexecute_query completed in {execute_elapsed:.3f}s")
@@ -245,6 +260,8 @@ class AssistantQueryExecutor:
         insight_id=None,
         debug_timing=False,
         truncate_results: bool = True,
+        query_id: str | None = None,
+        on_query_handle: Callable[[QueryExecutionHandle], None] | None = None,
     ) -> tuple[str, bool]:
         result = await self.arun_format_and_capture(
             query,
@@ -252,6 +269,8 @@ class AssistantQueryExecutor:
             insight_id=insight_id,
             debug_timing=debug_timing,
             truncate_results=truncate_results,
+            query_id=query_id,
+            on_query_handle=on_query_handle,
         )
         return result.formatted, result.fallback_used
 
@@ -308,6 +327,8 @@ class AssistantQueryExecutor:
         query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery,
         execution_mode: Optional[ExecutionMode] = None,
         debug_timing=False,
+        query_id: str | None = None,
+        on_query_handle: Callable[[QueryExecutionHandle], None] | None = None,
     ) -> dict:
         """
         Execute a query and return the response dict.
@@ -339,6 +360,9 @@ class AssistantQueryExecutor:
             )
 
         try:
+            if on_query_handle and query_id and execution_mode in BLOCKING_EXECUTION_MODES:
+                on_query_handle(QueryExecutionHandle(id=query_id, cancellable=True))
+
             # Execute the query using PostHog's query processing system
             process_start = time.time()
             if debug_timing:
@@ -362,6 +386,7 @@ class AssistantQueryExecutor:
                         execution_mode=execution_mode,
                         limit_context=LimitContext.POSTHOG_AI,
                         user=user,
+                        query_id=query_id,
                         analytics_props={"source": event_source},
                     )
 
@@ -383,6 +408,8 @@ class AssistantQueryExecutor:
 
             # Handle async queries that may need polling
             if query_status := response_dict.get("query_status"):
+                if on_query_handle:
+                    on_query_handle(QueryExecutionHandle(id=query_status["id"], cancellable=False))
                 if not query_status["complete"]:
                     polling_start = time.time()
                     poll_count = 0
@@ -626,6 +653,8 @@ async def execute_and_format_query(
     truncate_results: bool = True,
     include_prompt_framing: bool = True,
     event_source: EventSource = EventSource.POSTHOG_AI,
+    query_id: str | None = None,
+    on_query_handle: Callable[[QueryExecutionHandle], None] | None = None,
 ) -> str:
     """
     Executes a supported query and formats the results for the AI assistant:
@@ -652,7 +681,12 @@ async def execute_and_format_query(
     query_runner = AssistantQueryExecutor(team, utc_now_datetime, user=user, event_source=event_source)
 
     results, used_fallback = await query_runner.arun_and_format_query(
-        query, execution_mode, insight_id, truncate_results=truncate_results
+        query,
+        execution_mode,
+        insight_id,
+        truncate_results=truncate_results,
+        query_id=query_id,
+        on_query_handle=on_query_handle,
     )
     if not include_prompt_framing:
         return results

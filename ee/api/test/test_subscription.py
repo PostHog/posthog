@@ -26,6 +26,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.slo.context import slo_operation
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -49,6 +50,7 @@ from products.exports.backend.temporal.subscriptions.types import (
 )
 from products.product_analytics.backend.facade.models import Insight
 
+from ee.api.subscription import MAX_AI_SUBSCRIPTION_CONTEXTS
 from ee.api.test.base import APILicensedTest
 from ee.tasks.subscriptions.slack_subscriptions import get_slack_integration_for_team
 from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
@@ -3475,9 +3477,10 @@ class TestAISubscriptionAPI(APILicensedTest):
     @parameterized.expand(
         [
             (
-                "more_than_three",
+                "more_than_the_selection_cap",
                 lambda self: [
-                    {"dashboard_id": Dashboard.objects.create(team=self.team, name=str(index)).id} for index in range(4)
+                    {"dashboard_id": Dashboard.objects.create(team=self.team, name=str(index)).id}
+                    for index in range(MAX_AI_SUBSCRIPTION_CONTEXTS + 1)
                 ],
             ),
             ("duplicate", lambda self: [{"dashboard_id": self._context_dashboard().id}] * 2),
@@ -3507,6 +3510,22 @@ class TestAISubscriptionAPI(APILicensedTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"].split("__", 1)[0] == "contexts"
+
+    def test_accepts_contexts_at_the_selection_cap(self, mock_is_cloud, mock_flag, mock_sync):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        contexts = [
+            {"dashboard_id": Dashboard.objects.create(team=self.team, name=str(index)).id}
+            for index in range(MAX_AI_SUBSCRIPTION_CONTEXTS)
+        ]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(contexts=contexts),
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert len(response.json()["contexts"]) == MAX_AI_SUBSCRIPTION_CONTEXTS
 
     def _context_dashboard(self, **kwargs) -> Dashboard:
         return Dashboard.objects.create(team=self.team, name="Context dashboard", created_by=self.user, **kwargs)
@@ -3903,6 +3922,94 @@ class TestAISubscriptionAPI(APILicensedTest):
         )
         assert patch_resp.status_code == status.HTTP_400_BAD_REQUEST, patch_resp.json()
         assert "prompt" in str(patch_resp.json()).lower(), patch_resp.json()
+
+    def test_re_enabling_ai_sub_without_original_creator_query_access_is_rejected(
+        self, mock_is_cloud, mock_flag, mock_sync
+    ) -> None:
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        original_creator = self._create_user("original-creator@posthog.com")
+        create_resp = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(),
+        )
+        sub_id = create_resp.json()["id"]
+        Subscription.objects.filter(pk=sub_id).update(enabled=False, created_by=original_creator)
+
+        def has_query_access(access_control: UserAccessControl, resource: object, required_level: object) -> bool:
+            return not (access_control._user == original_creator and resource == "query" and required_level == "viewer")
+
+        with patch(
+            "products.exports.backend.facade.auth.UserAccessControl.check_access_level_for_resource",
+            autospec=True,
+            side_effect=has_query_access,
+        ):
+            patch_resp = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
+                {"enabled": True},
+            )
+
+        assert patch_resp.status_code == status.HTTP_400_BAD_REQUEST, patch_resp.json()
+        assert "query access" in str(patch_resp.json()).lower(), patch_resp.json()
+
+    def test_re_enabling_ai_sub_without_original_creator_project_access_is_rejected(
+        self, mock_is_cloud: MagicMock, mock_flag: MagicMock, mock_sync: MagicMock
+    ) -> None:
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        original_creator = self._create_user("project-revoked-creator@posthog.com")
+        create_resp = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(),
+        )
+        sub_id = create_resp.json()["id"]
+        Subscription.objects.filter(pk=sub_id).update(enabled=False, created_by=original_creator)
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        membership = original_creator.organization_memberships.get(organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save(update_fields=["level"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=membership,
+            access_level="none",
+        )
+        cache.clear()
+
+        patch_resp = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
+            {"enabled": True},
+        )
+
+        assert patch_resp.status_code == status.HTTP_400_BAD_REQUEST, patch_resp.json()
+        assert "project access" in str(patch_resp.json()).lower(), patch_resp.json()
+
+    def test_re_enabling_ai_sub_without_ai_processing_approval_is_rejected(
+        self, mock_is_cloud: MagicMock, mock_flag: MagicMock, mock_sync: MagicMock
+    ) -> None:
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        create_resp = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(),
+        )
+        sub_id = create_resp.json()["id"]
+        Subscription.objects.filter(pk=sub_id).update(enabled=False)
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+
+        patch_resp = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
+            {"enabled": True},
+        )
+
+        assert patch_resp.status_code == status.HTTP_400_BAD_REQUEST, patch_resp.json()
+        assert "has not approved AI data processing" in str(patch_resp.json())
 
     @parameterized.expand(
         [

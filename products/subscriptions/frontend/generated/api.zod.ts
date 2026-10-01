@@ -15,7 +15,7 @@ export const subscriptionsCreateBodyAiPromptConfigOneWindowOneStartDaysAgoMax = 
 export const subscriptionsCreateBodyAiPromptConfigOneWindowOneEndDaysAgoMin = 0
 export const subscriptionsCreateBodyAiPromptConfigOneWindowOneEndDaysAgoMax = 365
 
-export const subscriptionsCreateBodyContextsMax = 3
+export const subscriptionsCreateBodyContextsMax = 10
 
 export const subscriptionsCreateBodyIntervalMax = 2147483647
 
@@ -106,7 +106,7 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .max(subscriptionsCreateBodyContextsMax)
             .optional()
             .describe(
-                'Complete dashboard and insight context for an AI report. Omit on PATCH to preserve, pass an empty list to clear, or pass up to 3 items to replace all contexts.'
+                'Complete dashboard and insight context for an AI report. Omit on PATCH to preserve, pass an empty list to clear, or pass up to 10 items to replace all contexts.'
             ),
         target_type: zod
             .enum(['email', 'slack', 'teams'])
@@ -251,7 +251,7 @@ export const subscriptionsUpdateBodyAiPromptConfigOneWindowOneStartDaysAgoMax = 
 export const subscriptionsUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMin = 0
 export const subscriptionsUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMax = 365
 
-export const subscriptionsUpdateBodyContextsMax = 3
+export const subscriptionsUpdateBodyContextsMax = 10
 
 export const subscriptionsUpdateBodyIntervalMax = 2147483647
 
@@ -342,7 +342,7 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
             .max(subscriptionsUpdateBodyContextsMax)
             .optional()
             .describe(
-                'Complete dashboard and insight context for an AI report. Omit on PATCH to preserve, pass an empty list to clear, or pass up to 3 items to replace all contexts.'
+                'Complete dashboard and insight context for an AI report. Omit on PATCH to preserve, pass an empty list to clear, or pass up to 10 items to replace all contexts.'
             ),
         target_type: zod
             .enum(['email', 'slack', 'teams'])
@@ -487,7 +487,7 @@ export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneStartDaysAg
 export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMin = 0
 export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMax = 365
 
-export const subscriptionsPartialUpdateBodyContextsMax = 3
+export const subscriptionsPartialUpdateBodyContextsMax = 10
 
 export const subscriptionsPartialUpdateBodyIntervalMax = 2147483647
 
@@ -578,7 +578,7 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .max(subscriptionsPartialUpdateBodyContextsMax)
             .optional()
             .describe(
-                'Complete dashboard and insight context for an AI report. Omit on PATCH to preserve, pass an empty list to clear, or pass up to 3 items to replace all contexts.'
+                'Complete dashboard and insight context for an AI report. Omit on PATCH to preserve, pass an empty list to clear, or pass up to 10 items to replace all contexts.'
             ),
         target_type: zod
             .enum(['email', 'slack', 'teams'])

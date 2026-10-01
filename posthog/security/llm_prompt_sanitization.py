@@ -24,9 +24,9 @@ _LLM_MARKER_RE = re.compile(
     r"</?\s*(?:"
     r"system|user|assistant|human|insight_data|user_context|subscription_title|core_memory"
     # AI subscription synthesis prompt framing tags — sanitize so a crafted event name
-    # or prompt can't escape the `<user_prompt>` / `<project_context>` / `<plan_intent>` /
-    # `<query_results>` envelope and inject instruction-shaped content into the LLM context.
-    r"|user_prompt|project_context|plan_intent|query_results"
+    # or prompt can't escape the report's structural envelope and inject instruction-shaped content
+    # into the LLM context.
+    r"|user_prompt|project_context|plan_intent|query_results|computed_context"
     r")\b[^>]*>?",
     re.IGNORECASE,
 )

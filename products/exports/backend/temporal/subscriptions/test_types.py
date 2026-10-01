@@ -41,6 +41,12 @@ class TestGenerateAIReportResult:
         result = GenerateAIReportResult(failed_step_count=failed, total_step_count=total)
         assert result.all_queries_failed is expected
 
+    def test_usable_context_prevents_all_queries_failed_status(self) -> None:
+        result = GenerateAIReportResult(failed_step_count=2, total_step_count=2, has_usable_context=True)
+
+        assert result.all_queries_failed is False
+        assert result.delivered_status() == (DeliveryStatus.COMPLETED, None)
+
     # failure_error builds the access-safe reason recorded on a fully-degraded delivery's error column.
     # A regression that dropped the singular/plural subject or the error-type detail — or interpolated
     # raw query content instead of the class-name strings — would surface as a message mismatch here.
