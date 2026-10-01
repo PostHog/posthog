@@ -3772,10 +3772,10 @@ Today (9): `customers`, `macros`, `messages`, `satisfaction_surveys`, `tags`, `t
 Diffed against: <https://developers.gorgias.com/llms.txt>
 
 - [ ] `events (/api/events)` — the account-wide event stream, including ticket state transitions and assignment changes - the only way to do time-in-status or SLA analysis (high)
-- [ ] `ticket_tags (/api/tickets/{id}/tags)` — the ticket-to-tag join; we sync tags and tickets but not the mapping between them (high)
-- [ ] `voice_calls` — phone channel fact table, entirely absent today (high)
-- [ ] `custom_fields` — lookup resolving the custom field IDs used on tickets and customers (high)
-- [ ] `ticket_field_values (/api/tickets/{id}/custom-fields)` — per-ticket custom field values, including system fields like AI Intent and AI Agent Outcome (high)
+- [x] `ticket_tags (/api/tickets/{id}/tags)` — the ticket-to-tag join; we sync tags and tickets but not the mapping between them (high)
+- [x] `voice_calls` — phone channel fact table, entirely absent today (high)
+- [x] `custom_fields` — lookup resolving the custom field IDs used on tickets and customers (high)
+- [x] `ticket_field_values (/api/tickets/{id}/custom-fields)` — per-ticket custom field values, including system fields like AI Intent and AI Agent Outcome (high)
 - [ ] `customer_field_values (/api/customers/{id}/custom-fields)` — per-customer custom field values (medium)
 - [ ] `voice_call_events` — per-call state transitions (ringing, answered, transferred) for phone queue analysis (medium)
 - [ ] `voice_call_recordings` — recording metadata joined to voice calls (medium)
