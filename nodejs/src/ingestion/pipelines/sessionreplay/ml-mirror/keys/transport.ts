@@ -44,11 +44,15 @@ export function mlWireVersion(key: MlDataKey | undefined): MlWireVersion {
 }
 
 /** Kafka carries the record in cleartext; the header tells consumers which identifier scheme and datasets it belongs to. */
+export function mlKafkaHeaders(version: MlWireVersion): Record<string, string> {
+    return { [INGESTION_VERSION_HEADER]: version }
+}
+
 export function mlKafkaRecord(
     version: MlWireVersion,
     value: Buffer
 ): { value: Buffer; headers: Record<string, string> } {
-    return { value, headers: { [INGESTION_VERSION_HEADER]: version } }
+    return { value, headers: mlKafkaHeaders(version) }
 }
 
 export function validateImageOwner(ref: string, key: MlDataKey | undefined): void {

@@ -1,4 +1,7 @@
+import type { CollectedUrlBatch, UrlRecords } from '@posthog/replay-anonymizer'
+
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { IngestionOutputMessage } from '~/common/outputs/types'
 import { logger } from '~/common/utils/logger'
 import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
 import { ok } from '~/ingestion/framework/results'
@@ -9,9 +12,8 @@ import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/sh
 import { ML_IMAGE_FETCH_OUTPUT, MlImageFetchOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 
 import { MlSessionKeys } from './keys/key-store'
-import { mlKafkaRecord, mlWireVersion, validateImageOwner } from './keys/transport'
+import { mlKafkaHeaders, mlWireVersion, validateImageOwner } from './keys/transport'
 import { MlMirrorMetrics } from './metrics'
-import { CollectedUrl } from './parse-and-anonymize-step'
 import { ProducedTransportUrls } from './produced-refs'
 import { usesRawSessionIdentifiers } from './session-identifier-format'
 
@@ -23,11 +25,12 @@ const CRAWL_HISTORY_WARNING_INTERVAL_MS = 60_000
 /**
  * The URL count one record may carry. Without it the collector's cap in another crate decides the
  * count, and an increase there makes records the fetcher refuses whole. Keep it below
- * `MAX_URLS_PER_RECORD` in `ml-mirror-image-fetch/collected-urls-record.ts`.
+ * `MAX_JOBS_PER_RECORD` in `ml-mirror-image-fetch/collected-urls-record.ts`.
  */
 const MAX_RECORD_URLS = 1_000
 
 export interface FrontierJob {
+    sessionId?: string
     originalRef: string
     currentUrl: string
     remainingHops: number
@@ -54,33 +57,33 @@ export interface ProduceCollectedUrlsOptions {
     crawlHistory?: Pick<CrawlHistoryStore, 'read'>
 }
 
-async function excludeFreshCrawlHistory(
-    candidates: CollectedUrl[],
-    crawlHistory: Pick<CrawlHistoryStore, 'read'> | undefined,
+interface CrawlHistoryPrecheck {
+    excludedRefs: string[]
+    succeeded: boolean
+}
+
+async function readCrawlHistory(
+    batch: CollectedUrlBatch,
+    claimedCount: number,
+    crawlHistory: Pick<CrawlHistoryStore, 'read'>,
     nowMs: number,
     onError: (error: unknown, count: number) => void
-): Promise<CollectedUrl[]> {
-    if (!crawlHistory) {
-        return candidates
-    }
-
+): Promise<CrawlHistoryPrecheck> {
     const startedAt = performance.now()
     try {
-        const refs = [...new Set(candidates.map((entry) => entry.ref))]
+        const refs = batch.uniqueRefs()
         const stored = await crawlHistory.read(refs)
-        const publishable = candidates.filter((entry) => {
-            const history = stored.get(entry.ref)
-            return history?.kind !== 'url' || history.nextFetchAtMs <= nowMs
+        const excludedRefs = refs.filter((ref) => {
+            const history = stored.get(ref)
+            return history?.kind === 'url' && history.nextFetchAtMs > nowMs
         })
-        MlMirrorMetrics.incrementMlUrlCrawlHistory('fresh', candidates.length - publishable.length)
-        MlMirrorMetrics.incrementMlUrlCrawlHistory('miss', publishable.length)
         MlMirrorMetrics.observeMlUrlCrawlHistoryDuration('success', (performance.now() - startedAt) / 1000)
-        return publishable
+        return { excludedRefs, succeeded: true }
     } catch (error) {
-        MlMirrorMetrics.incrementMlUrlCrawlHistory('error', candidates.length)
+        MlMirrorMetrics.incrementMlUrlCrawlHistory('error', claimedCount)
         MlMirrorMetrics.observeMlUrlCrawlHistoryDuration('error', (performance.now() - startedAt) / 1000)
-        onError(error, candidates.length)
-        return candidates
+        onError(error, claimedCount)
+        return { excludedRefs: [], succeeded: false }
     }
 }
 
@@ -107,14 +110,14 @@ async function excludeFreshCrawlHistory(
  * Delivery is not awaited and never fails the message. The mirrored lines already carry the refs
  * in namespaced sibling attributes, while media sources keep their placeholders.
  *
- * The `url` field is the original, unscrubbed URL. It is as sensitive as the raw replay payload, so
+ * The `currentUrl` of a job is the original, unscrubbed URL. It is as sensitive as the raw replay payload, so
  * it goes only into the Kafka value. Log lines and metrics carry hosts and counts only.
  */
 export function createProduceCollectedUrlsStep<
     T extends {
         team?: { teamId: number }
         headers?: { session_id: string }
-        collectedUrls?: CollectedUrl[]
+        collectedUrls?: CollectedUrlBatch
         message: { timestamp?: number }
         mlKeys?: MlSessionKeys
     },
@@ -135,136 +138,99 @@ export function createProduceCollectedUrlsStep<
     return async function produceCollectedUrlsStep(input) {
         const sessionId = input.headers?.session_id
         const key = sessionId && usesRawSessionIdentifiers(sessionId) ? input.mlKeys?.session : undefined
-        const collected = input.collectedUrls
-        if (!collected?.length) {
+        const batch = input.collectedUrls
+        if (!batch) {
             return ok(input)
         }
 
-        // Each entry is checked, not just the first. A `bytes` ref names an image the page
-        // inlined, and its hash can never be reproduced from a URL, so a record carrying one
-        // reaches the fetcher under a hash nothing will ever match. Both kinds parse, so only
-        // `source` separates them, and checking one entry would let every later one through.
-        //
-        // Every entry must use the global URL-ref shape and carry the same team ID. One
-        // replay message belongs to one team, and a record stamped with another team's ID is
-        // a tenant-attribution error that nothing downstream can detect.
-        const usable: CollectedUrl[] = []
-        let teamId: string | undefined
-        for (const entry of collected) {
-            validateImageOwner(entry.ref, key)
-            const parsed = parseImageRef(entry.ref)
-            if (
-                !parsed ||
-                parsed.source !== 'url' ||
-                parsed.pseudoTeam !== undefined ||
-                (teamId && entry.teamId !== teamId)
-            ) {
-                continue
-            }
-            teamId ??= entry.teamId
-            usable.push(entry)
-        }
-        const unusable = collected.length - usable.length
-        if (unusable > 0) {
-            MlMirrorMetrics.incrementMlUrlsCollected('ref_unusable', unusable)
+        // A ref of another shape, such as a `bytes` ref, reaches the fetcher under a hash that nothing
+        // will ever match.
+        validateImageOwner(batch.firstRef, key)
+        const parsed = parseImageRef(batch.firstRef)
+        if (!parsed || parsed.source !== 'url' || parsed.pseudoTeam !== undefined) {
+            MlMirrorMetrics.incrementMlUrlsCollected('ref_unusable', batch.count)
             // Warn, not error: this is per replay message, so an addon-side format drift would
             // otherwise write an error line at full ingest rate for as long as it lasted.
-            logger.warn('🌐', 'ml_image_fetch_ref_unusable', { count: unusable })
-        }
-        if (!teamId || usable.length === 0) {
+            logger.warn('🌐', 'ml_image_fetch_ref_unusable', { count: batch.count })
             return ok({ ...input, collectedUrls: undefined })
         }
 
         const nowMs = Date.now()
-        const claimed = producedUrls.claim(usable, nowMs)
-        const fresh = usable.filter((_entry, index) => claimed[index])
-        MlMirrorMetrics.incrementMlUrlsCollected('deduped', usable.length - fresh.length)
-        if (fresh.length === 0) {
+        const claimedCount = batch.claim(producedUrls.cache, producedUrls.timeBucket(nowMs))
+        MlMirrorMetrics.incrementMlUrlsCollected('deduped', batch.count - claimedCount)
+        if (claimedCount === 0) {
             return ok({ ...input, collectedUrls: undefined })
         }
 
-        const publishable = await excludeFreshCrawlHistory(fresh, crawlHistory, nowMs, (error, count) => {
-            if (nowMs < nextCrawlHistoryWarningAtMs) {
-                return
-            }
-            nextCrawlHistoryWarningAtMs = nowMs + CRAWL_HISTORY_WARNING_INTERVAL_MS
-            logger.warn('🌐', 'ml_image_fetch_crawl_history_precheck_failed', { count, error: String(error) })
-        })
-        if (publishable.length === 0) {
-            return ok({ ...input, collectedUrls: undefined })
-        }
+        const precheck = crawlHistory
+            ? await readCrawlHistory(batch, claimedCount, crawlHistory, nowMs, (error, count) => {
+                  if (nowMs < nextCrawlHistoryWarningAtMs) {
+                      return
+                  }
+                  nextCrawlHistoryWarningAtMs = nowMs + CRAWL_HISTORY_WARNING_INTERVAL_MS
+                  logger.warn('🌐', 'ml_image_fetch_crawl_history_precheck_failed', { count, error: String(error) })
+              })
+            : undefined
 
         const messageTimestamp = input.message.timestamp
-        const firstSeenAtMs = messageTimestamp !== undefined && messageTimestamp > 0 ? messageTimestamp : nowMs
-        const byDomain = new Map<string, FrontierJob[]>()
-        for (const entry of publishable) {
-            const group = byDomain.get(entry.domain)
-            const record: FrontierJob = {
-                ...(key ? { sessionId } : {}),
-                originalRef: entry.ref,
-                currentUrl: entry.url,
-                remainingHops: 10,
-                notBeforeMs: 0,
-                firstSeenAtMs,
-                fetchCount: 0,
-                republishCount: 0,
-                lastRepublishReason: null,
-            }
-            MlMirrorMetrics.observeMlUrlBytes(Buffer.byteLength(entry.url))
-            if (group) {
-                group.push(record)
-            } else {
-                byDomain.set(entry.domain, [record])
-            }
+        const firstSeenAtMs =
+            messageTimestamp !== undefined && Number.isSafeInteger(messageTimestamp) && messageTimestamp > 0
+                ? messageTimestamp
+                : nowMs
+        const records = batch.buildRecords({
+            excludedRefs: precheck?.excludedRefs ?? [],
+            sessionId: key && sessionId ? sessionId : null,
+            firstSeenAtMs,
+            maxRecordBytes: MAX_RECORD_BYTES,
+            maxRecordUrls: MAX_RECORD_URLS,
+        })
+        const publishedCount = records.urlByteLengths.length
+        if (precheck?.succeeded) {
+            MlMirrorMetrics.incrementMlUrlCrawlHistory('fresh', claimedCount - publishedCount)
+            MlMirrorMetrics.incrementMlUrlCrawlHistory('miss', publishedCount)
         }
-        MlMirrorMetrics.incrementMlUrlsCollected('queued', publishable.length)
+        if (publishedCount === 0) {
+            return ok({ ...input, collectedUrls: undefined })
+        }
 
-        const messages = [...byDomain].flatMap(([domain, jobs]) =>
-            packByBytes(jobs, MAX_RECORD_BYTES).map((slice) => {
-                const value = Buffer.from(
-                    JSON.stringify({
-                        v: 2,
-                        jobs: slice,
-                    } satisfies CollectedUrlsMessage)
-                )
-                MlMirrorMetrics.observeMlUrlRecord(slice.length, value.length)
-                const record = mlKafkaRecord(mlWireVersion(key), value)
-                return {
-                    key: domain,
-                    value: record.value,
-                    headers: { [CAPTURE_TIMESTAMP_HEADER]: String(firstSeenAtMs), ...record.headers },
-                }
-            })
-        )
+        MlMirrorMetrics.observeMlUrlBytes(records.urlByteLengths)
+        MlMirrorMetrics.incrementMlUrlsCollected('queued', publishedCount)
+        const messages = fetchTopicMessages(records, {
+            [CAPTURE_TIMESTAMP_HEADER]: String(firstSeenAtMs),
+            ...mlKafkaHeaders(mlWireVersion(key)),
+        })
 
         // The fetch consumer counts records, so the producer counts records too and the two rates compare.
         const recordCount = messages.length
-        // The ack handlers hold counts per domain rather than the jobs, so a produce that is not yet
-        // delivered keeps only the URLs its failure path must release.
-        const producedByDomain = [...byDomain].map(([domain, jobs]) => [domain, jobs.length] as const)
+        const { keys: recordDomains, urlCounts: recordUrlCounts, domainCount } = records
         const produce = outputs
             .queueMessages(ML_IMAGE_FETCH_OUTPUT, messages)
             .then(() => {
                 // queueMessages resolves on the delivery acks, so `produced` counts what landed.
-                MlMirrorMetrics.incrementMlUrlsCollected('produced', publishable.length)
+                MlMirrorMetrics.incrementMlUrlsCollected('produced', publishedCount)
                 MlMirrorMetrics.incrementMlProducedVersion('url', mlWireVersion(key), recordCount)
-                for (const [registrableDomain, count] of producedByDomain) {
-                    producedUrlsByRegistrableDomain.record({ registrable_domain: registrableDomain }, count)
+                // A domain whose URLs fill several records reports once for each record. TopHog
+                // sums the reports, so the total for the domain is its URL count.
+                for (let index = 0; index < recordDomains.length; index++) {
+                    producedUrlsByRegistrableDomain.record(
+                        { registrable_domain: recordDomains[index] },
+                        recordUrlCounts[index]
+                    )
                 }
-                producedUrlsTotal.record({}, publishable.length)
+                producedUrlsTotal.record({}, publishedCount)
             })
             .catch((error) => {
                 // A dangling ref renders as a placeholder, so a failed produce is logged and never
                 // thrown back into the pipeline. Un-mark the cache entries: the same image in a later
                 // snapshot then produces again, one attempt for each recurrence and no retry loop.
                 // A duplicate costs the fetcher one ledger read, because the ledger is keyed by ref.
-                producedUrls.release(publishable, nowMs)
+                batch.release(producedUrls.cache)
                 logger.warn('🌐', 'ml_image_fetch_produce_failed', {
-                    count: publishable.length,
-                    domains: producedByDomain.length,
+                    count: publishedCount,
+                    domains: domainCount,
                     error: String(error),
                 })
-                MlMirrorMetrics.incrementMlUrlsCollected('produce_failed', publishable.length)
+                MlMirrorMetrics.incrementMlUrlsCollected('produce_failed', publishedCount)
                 if (key) {
                     throw error
                 }
@@ -273,27 +239,11 @@ export function createProduceCollectedUrlsStep<
     }
 }
 
-/**
- * An entry always goes into a record, even alone in one above the budget, because a drop here loses
- * an image that every earlier check accepted. `MAX_URL_LEN` keeps that record under the broker
- * limit.
- */
-function packByBytes(entries: FrontierJob[], maxBytes: number): FrontierJob[][] {
-    const out: FrontierJob[][] = []
-    let current: FrontierJob[] = []
-    let bytes = Buffer.byteLength('{"v":2,"jobs":[]}')
-    for (const entry of entries) {
-        const size = Buffer.byteLength(JSON.stringify(entry)) + (current.length > 0 ? 1 : 0)
-        if (current.length > 0 && (bytes + size > maxBytes || current.length >= MAX_RECORD_URLS)) {
-            out.push(current)
-            current = []
-            bytes = Buffer.byteLength('{"v":2,"jobs":[]}')
-        }
-        current.push(entry)
-        bytes += size
-    }
-    if (current.length > 0) {
-        out.push(current)
-    }
-    return out
+/** Outside the step's scope, so that the ack handlers share no closure context that holds the records. */
+function fetchTopicMessages(records: UrlRecords, headers: Record<string, string>): IngestionOutputMessage[] {
+    return records.keys.map((registrableDomain, index) => {
+        const value = records.values[index]
+        MlMirrorMetrics.observeMlUrlRecord(records.urlCounts[index], value.length)
+        return { key: registrableDomain, value, headers }
+    })
 }

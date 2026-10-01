@@ -1,6 +1,11 @@
 import { DateTime } from 'luxon'
 
-import type { AnonymizeKafkaPayloadResult, AnonymizeMeta } from '@posthog/replay-anonymizer'
+import type {
+    AnonymizeKafkaPayloadResult,
+    AnonymizeMeta,
+    CollectedImageBatch,
+    CollectedUrlBatch,
+} from '@posthog/replay-anonymizer'
 
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
@@ -14,7 +19,6 @@ import {
     hashImageBytes,
     imageRef,
     isImageRef,
-    urlRef,
 } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/content-ref'
 import {
     ParseMessageStepInput,
@@ -47,35 +51,9 @@ const DLQ_REASONS = new Set([
     'received_non_snapshot_message',
 ])
 
-/** An original image the addon collected for the out-of-band scrub lane, ready to produce. */
-export interface CollectedImage {
-    /** `image:<teamId>:<hash>`, the Kafka key the scrub consumer indexes the bytes under. */
-    ref: string
-    bytes: Buffer
-}
-
-/**
- * A remote image URL the addon collected for the fetch lane.
- *
- * `url` is the original, unscrubbed URL. It carries whatever the page put in its path and query.
- * It is therefore as sensitive as the raw replay payload. It must not reach a log line, a metric
- * label, or any destination outside the fetch topic.
- */
-export interface CollectedUrl {
-    /** `imageurl:<hash>` stored in the mirrored line's namespaced ref attribute. */
-    ref: string
-    teamId: string
-    url: string
-    /** The host the request goes to. robots.txt and the connection limit are scoped to this. */
-    host: string
-    /** The registrable domain of `host` — the fetch topic's Kafka key, so every URL of one operator
-     *  lands on one partition. */
-    domain: string
-}
-
 export interface ParseAndAnonymizeStepOutput extends ParseMessageStepOutput {
-    collectedImages?: CollectedImage[]
-    collectedUrls?: CollectedUrl[]
+    collectedImages?: CollectedImageBatch
+    collectedUrls?: CollectedUrlBatch
 }
 
 export interface ImageCollectionConfig {
@@ -167,17 +145,15 @@ export function createParseAndAnonymizeMessageStep<
 
         const teamKeys = teamKeysFor(input.team.teamId, headers.session_id)
         const sessionKeys = input.mlKeys
-        let referenceNamespace: string | undefined
-        let imageTeamId: string | undefined
         const t0 = performance.now()
         const callStartEpochMs = performance.timeOrigin + t0
         let result
         try {
-            referenceNamespace =
+            const referenceNamespace =
                 sessionKeys && usesRawSessionIdentifiers(headers.session_id)
                     ? `v${mlDatasetVersion(headers.session_id)}:${input.team.teamId}:${sessionStartMonth(headers.session_id)}`
                     : undefined
-            imageTeamId = referenceNamespace ?? teamKeys?.teamId
+            const imageTeamId = referenceNamespace ?? teamKeys?.teamId
             result = await getRustAnonymizer().anonymizeKafkaPayload(
                 message.value,
                 contentEncoding,
@@ -295,11 +271,8 @@ export function createParseAndAnonymizeMessageStep<
             snapshot_library: meta.snapshotLibrary,
         }
 
-        const collectedImages = teamKeys?.contentKey ? unpackCollectedImages(imageTeamId!, meta, result) : undefined
-        const collectedUrls =
-            globalUrlKey && teamKeys
-                ? unpackCollectedUrls(teamKeys.teamId, meta, result, referenceNamespace)
-                : undefined
+        const collectedImages = teamKeys?.contentKey ? countCollectedImages(result) : undefined
+        const collectedUrls = globalUrlKey && teamKeys ? countCollectedUrls(meta, result) : undefined
 
         return ok({ ...input, parsedMessage, collectedImages, collectedUrls })
     }
@@ -316,43 +289,17 @@ function recordImageSources(meta: AnonymizeMeta): void {
     }
 }
 
-/**
- * Slice the addon's packed image buffer into per-image produce records. The lines already carry the
- * refs, so a skipped slice only means that ref stays dangling (same outcome as a failed produce) —
- * never a blocked message.
- *
- * The addon left out the images an earlier message produced. They still count as collected.
- */
-function unpackCollectedImages(
-    teamId: string,
-    meta: AnonymizeMeta,
-    result: Pick<AnonymizeKafkaPayloadResult, 'images' | 'dedupedImageCount'>
-): CollectedImage[] | undefined {
+/** The addon left out the images an earlier message produced. They still count as collected. */
+function countCollectedImages(
+    result: Pick<AnonymizeKafkaPayloadResult, 'collectedImages' | 'dedupedImageCount'>
+): CollectedImageBatch | undefined {
     const deduped = result.dedupedImageCount ?? 0
     MlMirrorMetrics.incrementMlImagesCollected('deduped', deduped)
-    const packed = result.images
-    if (!meta.images?.length || !packed) {
-        MlMirrorMetrics.incrementMlImagesCollected('collected', deduped)
-        return undefined
-    }
-    const images: CollectedImage[] = []
-    for (const entry of meta.images) {
-        if (entry.offset < 0 || entry.len < 0 || entry.offset + entry.len > packed.length) {
-            logger.warn('🙈', 'collected_image_entry_out_of_bounds', { ...entry, packedLength: packed.length })
-            continue
-        }
-        images.push({
-            ref: imageRef(teamId, entry.hash),
-            bytes: packed.subarray(entry.offset, entry.offset + entry.len),
-        })
-    }
-    MlMirrorMetrics.incrementMlImagesCollected('collected', images.length + deduped)
-    return images.length > 0 ? images : undefined
+    MlMirrorMetrics.incrementMlImagesCollected('collected', (result.collectedImages?.count ?? 0) + deduped)
+    return result.collectedImages ?? undefined
 }
 
 /**
- * Turn the addon's `meta.urls` into produce-ready records.
- *
  * The domain count is observed for a message with no URL too. A count taken only from messages
  * that carry one describes an image-heavy page, and this number exists to size a topic that
  * carries all the traffic.
@@ -360,32 +307,21 @@ function unpackCollectedImages(
  * The addon left out the URLs an earlier message produced. They still count as collected, and the
  * addon counted the domains before it left them out.
  */
-function unpackCollectedUrls(
-    teamId: string,
+function countCollectedUrls(
     meta: AnonymizeMeta,
-    result: Pick<AnonymizeKafkaPayloadResult, 'dedupedUrlCount' | 'collectedUrlDomainCount'>,
-    referenceNamespace?: string
-): CollectedUrl[] | undefined {
-    const urls: CollectedUrl[] = (meta.urls ?? []).map((entry) => ({
-        ref: referenceNamespace ? `imageurl:${referenceNamespace}:${entry.hash}` : urlRef(entry.hash),
-        teamId,
-        url: entry.url,
-        host: entry.host,
-        domain: entry.domain,
-    }))
+    result: Pick<AnonymizeKafkaPayloadResult, 'collectedUrls' | 'dedupedUrlCount' | 'collectedUrlDomainCount'>
+): CollectedUrlBatch | undefined {
     for (const decline of meta.urlDeclines ?? []) {
         MlMirrorMetrics.incrementMlUrlsDeclined(decline.reason, decline.count)
     }
     const deduped = result.dedupedUrlCount ?? 0
-    const collected = urls.length + deduped
-    MlMirrorMetrics.observeMlUrlDomainsPerMessage(
-        result.collectedUrlDomainCount ?? new Set(urls.map(({ domain }) => domain)).size
-    )
+    const collected = (result.collectedUrls?.count ?? 0) + deduped
+    MlMirrorMetrics.observeMlUrlDomainsPerMessage(result.collectedUrlDomainCount ?? 0)
     if (collected === 0) {
         return undefined
     }
     MlMirrorMetrics.incrementMlUrlsCollected('collected', collected)
     MlMirrorMetrics.incrementMlUrlsCollected('deduped', deduped)
     MlMirrorMetrics.observeMlUrlsPerMessage(collected)
-    return urls.length > 0 ? urls : undefined
+    return result.collectedUrls ?? undefined
 }

@@ -20,29 +20,6 @@ export interface AnonymizeEventMeta {
     jsonLd?: { rootTypes: string[]; fullSnapshotTimestamp?: number }
 }
 
-/** One collected original image: `offset..offset+len` in {@link AnonymizeKafkaPayloadResult.images}. */
-export interface AnonymizeImageEntry {
-    /** First 22 base64url chars of `HMAC-SHA256(contentKey, bytes)` (`hashImageBytes` in content-ref.ts). */
-    hash: string
-    offset: number
-    len: number
-}
-
-/** One collected remote image URL, ready for the fetch lane. */
-export interface AnonymizeUrlEntry {
-    /** First 22 base64url chars of `HMAC-SHA256(urlKey, dedupUrl)`, where the dedup URL is the
-     *  canonical URL minus its volatile parameters. The namespaced ref attribute ends with this. */
-    hash: string
-    /** The canonical URL with every parameter intact — what the fetcher requests. A signed URL only
-     *  works in this form, which is why it is not the value the hash was taken over. */
-    url: string
-    /** The host the request goes to. robots.txt and the connection limit are scoped to this. */
-    host: string
-    /** The registrable domain of `host`. The fetch topic keys on this, so every URL of one operator
-     *  lands on one partition and one pod holds its rate budget without a distributed lock. */
-    domain: string
-}
-
 export interface AnonymizeImageSourceCount {
     source: 'css' | 'html'
     property: string
@@ -68,10 +45,6 @@ export interface AnonymizeMeta {
     consoleErrorCount: number
     jsonLdEventCount: number
     events: AnonymizeEventMeta[]
-    /** Collected original images (hash-sorted); present only when the collection lane was enabled and images were collected. */
-    images?: AnonymizeImageEntry[]
-    /** Collected remote image URLs (hash-sorted); present only when the URL lane was enabled and URLs were collected. */
-    urls?: AnonymizeUrlEntry[]
     /** Collected ref occurrences by bounded replay location, property, and inline or URL lane. */
     imageSources?: AnonymizeImageSourceCount[]
     /** Counts by reason for the URLs the collector refused. Absent when it refused none. */
@@ -125,8 +98,8 @@ export interface AnonymizeKafkaPayloadResult {
     route: 'stream' | 'tree' | null
     /** Phase timings; present on success and failure alike. `null` only if serialization failed. */
     timings: AnonymizeTimings | null
-    /** Original bytes of the collected images, concatenated in `meta.images` order; null when none. */
-    images: Buffer | null
+    collectedImages: CollectedImageBatch | null
+    collectedUrls: CollectedUrlBatch | null
     dedupedImageCount?: number
     dedupedUrlCount?: number
     /** Distinct registrable domains among the collected URLs, counted before the dedup drop. */
@@ -150,24 +123,119 @@ export class RefDedupCache {
         this.nativeHandle = native.refDedupCacheNew(capacity)
     }
 
-    claimRefs(refs: string[]): boolean[] {
-        return native.refDedupCacheClaimRefs(this.nativeHandle, refs)
-    }
-
-    releaseRefs(refs: string[]): void {
-        native.refDedupCacheReleaseRefs(this.nativeHandle, refs)
-    }
-
-    claimTransportUrls(refs: string[], urls: string[], timeBucket: number): boolean[] {
-        return native.refDedupCacheClaimTransportUrls(this.nativeHandle, refs, urls, timeBucket)
-    }
-
-    releaseTransportUrls(refs: string[], urls: string[], timeBucket: number): void {
-        native.refDedupCacheReleaseTransportUrls(this.nativeHandle, refs, urls, timeBucket)
-    }
-
     stats(): RefDedupCacheStats {
         return native.refDedupCacheStats(this.nativeHandle)
+    }
+}
+
+interface NativeBatch {
+    handle: unknown
+    count: number
+    firstRef: string
+}
+
+export interface ClaimedImages {
+    refs: string[]
+    images: Buffer[]
+    bytes: number
+}
+
+/** Every ref in the batch has the namespace of `firstRef`, so one check of `firstRef` covers them all. */
+export class CollectedImageBatch {
+    private readonly nativeHandle: unknown
+    readonly count: number
+    readonly firstRef: string
+
+    constructor(batch: NativeBatch) {
+        this.nativeHandle = batch.handle
+        this.count = batch.count
+        this.firstRef = batch.firstRef
+    }
+
+    static fromImages(namespace: string, images: { hash: string; bytes: Buffer }[]): CollectedImageBatch | null {
+        const batch: NativeBatch | null = native.imageBatchNew(
+            namespace,
+            images.map(({ hash }) => hash),
+            images.map(({ bytes }) => bytes)
+        )
+        return batch ? new CollectedImageBatch(batch) : null
+    }
+
+    /** Moves out the images whose refs no earlier claim marked. A second claim throws. */
+    claim(cache: RefDedupCache): ClaimedImages {
+        return native.imageBatchClaim(this.nativeHandle, cache.nativeHandle)
+    }
+
+    release(cache: RefDedupCache): void {
+        native.imageBatchRelease(this.nativeHandle, cache.nativeHandle)
+    }
+}
+
+export interface UrlRecordOptions {
+    /** The entries with these refs stay out of the records but stay marked in the cache. */
+    excludedRefs: string[]
+    sessionId: string | null
+    firstSeenAtMs: number
+    /** A single job above this still gets a record of its own. */
+    maxRecordBytes: number
+    maxRecordUrls: number
+}
+
+export interface UrlRecords {
+    keys: string[]
+    values: Buffer[]
+    urlCounts: Uint32Array
+    urlByteLengths: Uint32Array
+    domainCount: number
+}
+
+/** Every ref in the batch has the namespace of `firstRef`, so one check of `firstRef` covers them all. */
+export class CollectedUrlBatch {
+    private readonly nativeHandle: unknown
+    readonly count: number
+    readonly firstRef: string
+
+    constructor(batch: NativeBatch) {
+        this.nativeHandle = batch.handle
+        this.count = batch.count
+        this.firstRef = batch.firstRef
+    }
+
+    static fromUrls(
+        referenceNamespace: string | null,
+        urls: { hash: string; url: string; domain: string }[]
+    ): CollectedUrlBatch | null {
+        const batch: NativeBatch | null = native.urlBatchNew(
+            referenceNamespace ?? undefined,
+            urls.map(({ hash }) => hash),
+            urls.map(({ url }) => url),
+            urls.map(({ domain }) => domain)
+        )
+        return batch ? new CollectedUrlBatch(batch) : null
+    }
+
+    /** Keeps the transport URLs that no earlier claim marked in this time bucket. A second claim throws. */
+    claim(cache: RefDedupCache, timeBucket: number): number {
+        return native.urlBatchClaim(this.nativeHandle, cache.nativeHandle, timeBucket)
+    }
+
+    uniqueRefs(): string[] {
+        return native.urlBatchUniqueRefs(this.nativeHandle)
+    }
+
+    buildRecords(options: UrlRecordOptions): UrlRecords {
+        return native.urlBatchBuildRecords(
+            this.nativeHandle,
+            options.excludedRefs,
+            options.sessionId ?? undefined,
+            options.firstSeenAtMs,
+            options.maxRecordBytes,
+            options.maxRecordUrls
+        )
+    }
+
+    release(cache: RefDedupCache): void {
+        native.urlBatchRelease(this.nativeHandle, cache.nativeHandle)
     }
 }
 
@@ -198,12 +266,12 @@ export function initAnonymizer(allow: AllowListsInput): void {
  * Non-empty `teamId` + `contentKey` enable image collection using the raw team ID and per-team
  * content HMAC key. The master secret stays with the caller. Inlined images are replaced
  * with `image:<teamId>:<hash>` refs (hash = keyed HMAC of the bytes) instead of the inline
- * blur, and the original bytes come back in `images`/`meta.images` for the caller to produce to
- * the scrub topic.
+ * blur, and the original bytes come back in `collectedImages` for the caller to produce to the
+ * scrub topic.
  *
  * `urlKey` enables the URL-collection lane independently. It is the global URL HMAC key. A remote
  * image's `src` keeps the media placeholder, a namespaced sibling attribute carries its ref, and
- * its original URL comes back in `meta.urls` for the caller to hand to the fetch lane.
+ * its original URL comes back in `collectedUrls` for the caller to hand to the fetch lane.
  * `referenceNamespace` scopes URL refs as `imageurl:<namespace>:<hash>`; omitting it produces
  * `imageurl:<hash>`. For v2, pass `v2:<raw team id>:<YYYY-MM>` as both `teamId` and `referenceNamespace`.
  *
@@ -220,7 +288,7 @@ export async function anonymizeKafkaPayload(
     referenceNamespace?: string | null,
     producedRefDedup?: ProducedRefDedup
 ): Promise<AnonymizeKafkaPayloadResult> {
-    const result = await native.anonymizeKafkaPayload(
+    const { imageBatch, urlBatch, ...result } = await native.anonymizeKafkaPayload(
         payload,
         contentEncoding ?? undefined,
         teamId ?? undefined,
@@ -240,7 +308,12 @@ export async function anonymizeKafkaPayload(
             timings = null
         }
     }
-    return { ...result, timings }
+    return {
+        ...result,
+        timings,
+        collectedImages: imageBatch ? new CollectedImageBatch(imageBatch) : null,
+        collectedUrls: urlBatch ? new CollectedUrlBatch(urlBatch) : null,
+    }
 }
 
 /**

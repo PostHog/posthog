@@ -248,9 +248,11 @@ export class MlMirrorMetrics {
         }
     }
 
-    public static observeMlUrlBytes(bytes: number): void {
-        if (this.urlBytesSeen++ % URL_BYTES_SAMPLE_RATE === 0) {
-            this.mlUrlBytes.observe(bytes)
+    public static observeMlUrlBytes(byteLengths: Uint32Array): void {
+        for (const bytes of byteLengths) {
+            if (this.urlBytesSeen++ % URL_BYTES_SAMPLE_RATE === 0) {
+                this.mlUrlBytes.observe(bytes)
+            }
         }
     }
 

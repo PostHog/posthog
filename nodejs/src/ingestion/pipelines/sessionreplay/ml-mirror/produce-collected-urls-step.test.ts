@@ -1,3 +1,5 @@
+import { CollectedUrlBatch, RefDedupCache } from '@posthog/replay-anonymizer'
+
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { parseJSON } from '~/common/utils/json-parse'
 import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
@@ -7,12 +9,18 @@ import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/sh
 import { MlImageFetchOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 import { RecordedTopHogMetric, createRecordingTopHog } from '~/tests/helpers/tophog'
 
-import { CollectedUrl } from './parse-and-anonymize-step'
-import { CollectedUrlsMessage, createProduceCollectedUrlsStep } from './produce-collected-urls-step'
+import { CollectedUrlsMessage, FrontierJob, createProduceCollectedUrlsStep } from './produce-collected-urls-step'
 import { ProducedTransportUrls } from './produced-refs'
+
+interface UrlEntry {
+    hash: string
+    url: string
+    domain: string
+}
 
 describe('produceCollectedUrlsStep', () => {
     const TEAM_ID = '42'
+    const V3_NAMESPACE = `v3:${TEAM_ID}:2026-09`
     const CAPTURED_AT = 1_700_000_000_000
     let queued: { key: string; value: Buffer; headers?: Record<string, string> }[][]
     let outputs: IngestionOutputs<MlImageFetchOutput>
@@ -49,22 +57,19 @@ describe('produceCollectedUrlsStep', () => {
         )
     }
 
-    function collected(hash: string, host: string, url: string, domain = host): CollectedUrl {
-        return { ref: `imageurl:${hash.padEnd(22, 'x')}`, teamId: TEAM_ID, url, host, domain }
+    function collected(hash: string, url: string, domain = new URL(url).host): UrlEntry {
+        return { hash: hash.padEnd(22, 'x'), url, domain }
     }
 
-    function collectedV3(hash: string, url: string): CollectedUrl {
-        const host = new URL(url).host
-        return {
-            ref: `imageurl:v3:${TEAM_ID}:2026-09:${hash.padEnd(22, 'x')}`,
-            teamId: TEAM_ID,
-            url,
-            host,
-            domain: host,
-        }
+    function ref(entry: UrlEntry, namespace: string | null = null): string {
+        return namespace ? `imageurl:${namespace}:${entry.hash}` : `imageurl:${entry.hash}`
     }
 
-    function v3SessionInput(sessionId: string, collectedUrls: CollectedUrl[]) {
+    function urls(entries: UrlEntry[], namespace: string | null = null): CollectedUrlBatch {
+        return CollectedUrlBatch.fromUrls(namespace, entries)!
+    }
+
+    function v3SessionInput(sessionId: string, entries: UrlEntry[], namespace = V3_NAMESPACE) {
         const key = {
             identity: { teamId: Number(TEAM_ID), sessionId, sessionMonth: '2026-09' },
             plaintext: Buffer.alloc(32),
@@ -74,7 +79,7 @@ describe('produceCollectedUrlsStep', () => {
             message: { timestamp: CAPTURED_AT },
             headers: { session_id: sessionId },
             mlKeys: { session: key, image: key },
-            collectedUrls,
+            collectedUrls: urls(entries, namespace),
         }
     }
 
@@ -98,7 +103,7 @@ describe('produceCollectedUrlsStep', () => {
         }
     }
 
-    async function run<T extends { collectedUrls?: CollectedUrl[]; message: { timestamp?: number } }>(
+    async function run<T extends { collectedUrls?: CollectedUrlBatch; message: { timestamp?: number } }>(
         step: ReturnType<typeof createProduceCollectedUrlsStep<T>>,
         input: T
     ) {
@@ -118,11 +123,11 @@ describe('produceCollectedUrlsStep', () => {
             const step = createStep()
             const result = await run(step, {
                 message: { timestamp: CAPTURED_AT },
-                collectedUrls: [
-                    collected('h1', 'cdn.example.com', 'https://cdn.example.com/a.jpg?sig=1'),
-                    collected('h2', 'img.other.com', 'https://img.other.com/b.png'),
-                    collected('h3', 'cdn.example.com', 'https://cdn.example.com/c.jpg'),
-                ],
+                collectedUrls: urls([
+                    collected('h1', 'https://cdn.example.com/a.jpg?sig=1'),
+                    collected('h2', 'https://img.other.com/b.png'),
+                    collected('h3', 'https://cdn.example.com/c.jpg'),
+                ]),
             })
 
             expect(result.value.collectedUrls).toBeUndefined()
@@ -163,16 +168,15 @@ describe('produceCollectedUrlsStep', () => {
     it('passes through elements with no collected URLs without producing', async () => {
         const step = createStep()
         await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: undefined })
-        await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: [] })
         expect(queueMessages).not.toHaveBeenCalled()
     })
 
     it('dedups an identical transport URL but produces a new URL for the same ref', async () => {
         const step = createStep()
-        const first = collected('h1', 'cdn.example.com', 'https://cdn.example.com/a.jpg?cb=old')
-        const replacement = collected('h1', 'cdn.example.com', 'https://cdn.example.com/a.jpg?cb=new')
-        await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: [first] })
-        await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: [first, replacement] })
+        const first = collected('h1', 'https://cdn.example.com/a.jpg?cb=old')
+        const replacement = collected('h1', 'https://cdn.example.com/a.jpg?cb=new')
+        await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: urls([first]) })
+        await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: urls([first, replacement]) })
         expect(
             queued.map((batch) => decode(batch).map((message) => message.value.jobs.map((job) => job.currentUrl)))
         ).toEqual([[[first.url]], [[replacement.url]]])
@@ -180,7 +184,7 @@ describe('produceCollectedUrlsStep', () => {
 
     it('dedups an identical transport URL that another session of the team collected', async () => {
         const step = createStep()
-        const url = collectedV3('h1', 'https://cdn.example.com/a.jpg')
+        const url = collected('h1', 'https://cdn.example.com/a.jpg')
 
         await run(step, v3SessionInput('01a0c669-8800-7000-8000-000000000001', [url]))
         await run(step, v3SessionInput('01a0c669-8800-7000-8000-000000000002', [url]))
@@ -189,8 +193,8 @@ describe('produceCollectedUrlsStep', () => {
     })
 
     it('skips a v3 ref whose crawl history is fresh', async () => {
-        const fresh = collectedV3('h1', 'https://cdn.example.com/fresh.jpg')
-        const missing = collectedV3('h2', 'https://cdn.example.com/missing.jpg')
+        const fresh = collected('h1', 'https://cdn.example.com/fresh.jpg')
+        const missing = collected('h2', 'https://cdn.example.com/missing.jpg')
         const read = jest.fn<
             ReturnType<Pick<CrawlHistoryStore, 'read'>['read']>,
             Parameters<Pick<CrawlHistoryStore, 'read'>['read']>
@@ -198,10 +202,10 @@ describe('produceCollectedUrlsStep', () => {
         read.mockResolvedValue(
             new Map([
                 [
-                    fresh.ref,
+                    ref(fresh, V3_NAMESPACE),
                     {
                         kind: 'url' as const,
-                        key: fresh.ref,
+                        key: ref(fresh, V3_NAMESPACE),
                         nextFetchAtMs: Number.MAX_SAFE_INTEGER,
                         storageExpiresAtMs: Number.MAX_SAFE_INTEGER,
                         outcome: 'ok',
@@ -213,7 +217,7 @@ describe('produceCollectedUrlsStep', () => {
 
         await run(step, v3SessionInput('01a0c669-8800-7000-8000-000000000001', [fresh, missing]))
 
-        expect(decode(queued[0])[0].value.jobs.map((job) => job.originalRef)).toEqual([missing.ref])
+        expect(decode(queued[0])[0].value.jobs.map((job) => job.originalRef)).toEqual([ref(missing, V3_NAMESPACE)])
     })
 
     it('produces an identical transport URL again after the dedup window', async () => {
@@ -223,12 +227,12 @@ describe('produceCollectedUrlsStep', () => {
                 producedRefCacheMax: 100,
                 producedRefCacheWindowMs: 1_000,
             })
-            const entry = collected('h1', 'cdn.example.com', 'https://cdn.example.com/a.jpg')
+            const entry = collected('h1', 'https://cdn.example.com/a.jpg')
 
-            await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: [entry] })
-            await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: [entry] })
+            await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: urls([entry]) })
+            await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: urls([entry]) })
             jest.setSystemTime(11_000)
-            await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: [entry] })
+            await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: urls([entry]) })
 
             expect(queueMessages).toHaveBeenCalledTimes(2)
         } finally {
@@ -239,17 +243,17 @@ describe('produceCollectedUrlsStep', () => {
     it('swallows a failed produce and un-marks its refs so a later sighting produces again', async () => {
         queueMessages.mockRejectedValueOnce(new Error('broker down'))
         const step = createStep()
-        const entry = collected('h1', 'cdn.example.com', 'https://cdn.example.com/a.jpg')
+        const entry = collected('h1', 'https://cdn.example.com/a.jpg')
 
-        const result = await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: [entry] })
+        const result = await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: urls([entry]) })
         expect(result.type).toBe(PipelineResultType.OK)
         expect(topHogRecords.get('ml_image_fetch_produced_urls_by_registrable_domain')).toBeUndefined()
         expect(topHogRecords.get('ml_image_fetch_produced_urls_total')).toBeUndefined()
 
-        await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: [entry] })
+        await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: urls([entry]) })
         expect(queueMessages).toHaveBeenCalledTimes(2)
         // The second produce succeeded, so the ref dedups from then on.
-        await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: [entry] })
+        await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: urls([entry]) })
         expect(queueMessages).toHaveBeenCalledTimes(2)
     })
 
@@ -257,10 +261,10 @@ describe('produceCollectedUrlsStep', () => {
         const nowMs = 1_800_000_000_000
         jest.useFakeTimers().setSystemTime(nowMs)
         try {
-            const fresh = collected('h1', 'img.example.com', 'https://img.example.com/fresh.png')
-            const freshReplacement = collected('h1', 'img.example.com', 'https://img.example.com/fresh-v2.png')
-            const expired = collected('h2', 'img.example.com', 'https://img.example.com/expired.png')
-            const missing = collected('h3', 'img.example.com', 'https://img.example.com/missing.png')
+            const fresh = collected('h1', 'https://img.example.com/fresh.png')
+            const freshReplacement = collected('h1', 'https://img.example.com/fresh-v2.png')
+            const expired = collected('h2', 'https://img.example.com/expired.png')
+            const missing = collected('h3', 'https://img.example.com/missing.png')
             const read = jest.fn<
                 ReturnType<Pick<CrawlHistoryStore, 'read'>['read']>,
                 Parameters<Pick<CrawlHistoryStore, 'read'>['read']>
@@ -268,20 +272,20 @@ describe('produceCollectedUrlsStep', () => {
             read.mockResolvedValue(
                 new Map([
                     [
-                        fresh.ref,
+                        ref(fresh),
                         {
                             kind: 'url' as const,
-                            key: fresh.ref,
+                            key: ref(fresh),
                             nextFetchAtMs: nowMs + 1,
                             storageExpiresAtMs: nowMs + 1,
                             outcome: 'ok',
                         },
                     ],
                     [
-                        expired.ref,
+                        ref(expired),
                         {
                             kind: 'url' as const,
-                            key: expired.ref,
+                            key: ref(expired),
                             nextFetchAtMs: nowMs,
                             storageExpiresAtMs: nowMs,
                             outcome: 'ok',
@@ -293,13 +297,13 @@ describe('produceCollectedUrlsStep', () => {
 
             await run(step, {
                 message: { timestamp: CAPTURED_AT },
-                collectedUrls: [fresh, freshReplacement, expired, missing],
+                collectedUrls: urls([fresh, freshReplacement, expired, missing]),
             })
 
-            expect(read).toHaveBeenCalledWith([fresh.ref, expired.ref, missing.ref])
-            expect(decode(queued[0])[0].value.jobs.map((job) => job.originalRef)).toEqual([expired.ref, missing.ref])
+            expect(read).toHaveBeenCalledWith([ref(fresh), ref(expired), ref(missing)])
+            expect(decode(queued[0])[0].value.jobs.map((job) => job.originalRef)).toEqual([ref(expired), ref(missing)])
 
-            await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: [fresh] })
+            await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: urls([fresh]) })
             expect(read).toHaveBeenCalledTimes(1)
         } finally {
             jest.useRealTimers()
@@ -307,64 +311,38 @@ describe('produceCollectedUrlsStep', () => {
     })
 
     it('produces every URL when the crawl-history read fails', async () => {
-        const entry = collected('h1', 'img.example.com', 'https://img.example.com/a.png')
+        const entry = collected('h1', 'https://img.example.com/a.png')
         const read = jest.fn().mockRejectedValue(new Error('store unavailable'))
         const step = createStep({ crawlHistory: { read } })
 
-        const result = await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: [entry] })
+        const result = await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: urls([entry]) })
 
         expect(result.type).toBe(PipelineResultType.OK)
         expect(queueMessages).toHaveBeenCalledTimes(1)
-        expect(decode(queued[0])[0].value.jobs.map((job) => job.originalRef)).toEqual([entry.ref])
+        expect(decode(queued[0])[0].value.jobs.map((job) => job.originalRef)).toEqual([ref(entry)])
     })
 
-    test.each([
-        ['inline image', `image:${TEAM_ID}:h1xxxxxxxxxxxxxxxxxxxx`],
-        ['legacy team-scoped URL', `imageurl:${'a'.repeat(32)}:h1xxxxxxxxxxxxxxxxxxxx`],
-    ])('refuses to produce a %s ref', async (_name, ref) => {
+    it('refuses to produce a legacy team-scoped URL ref', async () => {
         const step = createStep({ producedRefCacheMax: 100 })
 
         await run(step, {
             message: { timestamp: CAPTURED_AT },
-            collectedUrls: [
-                {
-                    ref,
-                    teamId: TEAM_ID,
-                    url: 'https://img.example.com/a.png',
-                    host: 'img.example.com',
-                    domain: 'example.com',
-                },
-            ],
+            collectedUrls: urls([collected('h1', 'https://img.example.com/a.png')], 'a'.repeat(32)),
         })
 
         expect(queueMessages).not.toHaveBeenCalled()
     })
 
-    it('drops a bytes ref that follows a usable one, and keeps the rest', async () => {
-        // A guard that reads only the first entry passes this array and produces the bytes ref.
+    it('refuses to produce URLs whose refs name another team', async () => {
         const step = createStep({ producedRefCacheMax: 100 })
+        const input = v3SessionInput(
+            '01a0c669-8800-7000-8000-000000000001',
+            [collected('h1', 'https://img.example.com/a.png')],
+            'v3:43:2026-09'
+        )
 
-        await run(step, {
-            message: { timestamp: CAPTURED_AT },
-            collectedUrls: [
-                collected('h1', 'img.example.com', 'https://img.example.com/a.png'),
-                {
-                    ref: `image:${TEAM_ID}:h2xxxxxxxxxxxxxxxxxxxx`,
-                    teamId: TEAM_ID,
-                    url: 'https://img.example.com/inlined.png',
-                    host: 'img.example.com',
-                    domain: 'example.com',
-                },
-                collected('h3', 'img.example.com', 'https://img.example.com/c.png'),
-            ],
-        })
-
-        const sent = decode(queued[0])
-        expect(sent).toHaveLength(1)
-        expect(sent[0].value.jobs.map((job) => job.originalRef)).toEqual([
-            `imageurl:h1xxxxxxxxxxxxxxxxxxxx`,
-            `imageurl:h3xxxxxxxxxxxxxxxxxxxx`,
-        ])
+        await expect(step(input)).rejects.toThrow('ownership mismatch')
+        expect(queueMessages).not.toHaveBeenCalled()
     })
 
     it('packs many short urls into one record', async () => {
@@ -372,10 +350,10 @@ describe('produceCollectedUrlsStep', () => {
         // budget is bytes, so ordinary URLs pack until the bytes run out.
         const step = createStep({ producedRefCacheMax: 100_000 })
         const many = Array.from({ length: 400 }, (_v, i) =>
-            collected(`h${i}`.padEnd(22, 'x'), 'img.example.com', `https://img.example.com/${i}.png`)
+            collected(`h${i}`.padEnd(22, 'x'), `https://img.example.com/${i}.png`)
         )
 
-        await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: many })
+        await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: urls(many) })
 
         expect(decode(queued[0])).toHaveLength(1)
     })
@@ -385,10 +363,10 @@ describe('produceCollectedUrlsStep', () => {
         // the collector's per-message cap in another crate decide how many entries a record holds.
         const step = createStep({ producedRefCacheMax: 100_000 })
         const many = Array.from({ length: 1200 }, (_v, i) =>
-            collected(`h${i}`.padEnd(22, 'x'), 'img.example.com', `https://img.example.com/${i}.png`)
+            collected(`h${i}`.padEnd(22, 'x'), `https://img.example.com/${i}.png`)
         )
 
-        await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: many })
+        await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: urls(many) })
 
         const sent = decode(queued[0])
         expect(sent.length).toBeGreaterThan(1)
@@ -401,10 +379,10 @@ describe('produceCollectedUrlsStep', () => {
         const step = createStep({ producedRefCacheMax: 100_000 })
         const long = 'x'.repeat(2000)
         const many = Array.from({ length: 400 }, (_v, i) =>
-            collected(`h${i}`.padEnd(22, 'x'), 'img.example.com', `https://img.example.com/${long}${i}.png`)
+            collected(`h${i}`.padEnd(22, 'x'), `https://img.example.com/${long}${i}.png`)
         )
 
-        await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: many })
+        await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: urls(many) })
 
         expect(queued[0].length).toBeGreaterThan(1)
         const [first] = queued[0]
@@ -412,29 +390,6 @@ describe('produceCollectedUrlsStep', () => {
         for (const record of queued[0]) {
             expect(record.value.length).toBeLessThan(1_000_000)
         }
-    })
-
-    it('drops an entry whose ref names another team', async () => {
-        const step = createStep({ producedRefCacheMax: 100 })
-        const otherTeam = 'b'.repeat(32)
-
-        await run(step, {
-            message: { timestamp: CAPTURED_AT },
-            collectedUrls: [
-                collected('h1', 'img.example.com', 'https://img.example.com/a.png'),
-                {
-                    ref: `imageurl:h2xxxxxxxxxxxxxxxxxxxx`,
-                    teamId: otherTeam,
-                    url: 'https://img.example.com/b.png',
-                    host: 'img.example.com',
-                    domain: 'img.example.com',
-                },
-            ],
-        })
-
-        const sent = decode(queued[0])
-        expect(sent[0].value.jobs).toHaveLength(1)
-        expect(sent[0].value.jobs[0].currentUrl).toBe('https://img.example.com/a.png')
     })
 
     it('puts a sharded CDN on one key, and keeps each host on its record', async () => {
@@ -445,11 +400,11 @@ describe('produceCollectedUrlsStep', () => {
 
         await run(step, {
             message: { timestamp: CAPTURED_AT },
-            collectedUrls: [
-                collected('h1', 'img1.cdn.example.com', 'https://img1.cdn.example.com/a.png', 'example.com'),
-                collected('h2', 'img8.cdn.example.com', 'https://img8.cdn.example.com/b.png', 'example.com'),
-                collected('h3', 'assets.other.org', 'https://assets.other.org/c.png', 'other.org'),
-            ],
+            collectedUrls: urls([
+                collected('h1', 'https://img1.cdn.example.com/a.png', 'example.com'),
+                collected('h2', 'https://img8.cdn.example.com/b.png', 'example.com'),
+                collected('h3', 'https://assets.other.org/c.png', 'other.org'),
+            ]),
         })
 
         const sent = decode(queued[0])
@@ -459,5 +414,126 @@ describe('produceCollectedUrlsStep', () => {
             'https://img1.cdn.example.com/a.png',
             'https://img8.cdn.example.com/b.png',
         ])
+    })
+
+    describe('record bytes', () => {
+        // The addon writes the records the fetcher parses. This TypeScript writer is the reference
+        // for their bytes and split points, so a drift in escaping, key order or packing fails here.
+        function jsonStringifyRecords(
+            entries: UrlEntry[],
+            namespace: string | null,
+            sessionId: string | null,
+            firstSeenAtMs: number,
+            maxBytes: number,
+            maxUrls: number
+        ): { key: string; value: Buffer }[] {
+            const byDomain = new Map<string, FrontierJob[]>()
+            for (const entry of entries) {
+                const job: FrontierJob = {
+                    ...(sessionId ? { sessionId } : {}),
+                    originalRef: namespace ? `imageurl:${namespace}:${entry.hash}` : `imageurl:${entry.hash}`,
+                    currentUrl: entry.url,
+                    remainingHops: 10,
+                    notBeforeMs: 0,
+                    firstSeenAtMs,
+                    fetchCount: 0,
+                    republishCount: 0,
+                    lastRepublishReason: null,
+                }
+                const group = byDomain.get(entry.domain)
+                if (group) {
+                    group.push(job)
+                } else {
+                    byDomain.set(entry.domain, [job])
+                }
+            }
+            return [...byDomain].flatMap(([domain, jobs]) =>
+                packByBytes(jobs, maxBytes, maxUrls).map((slice) => ({
+                    key: domain,
+                    value: Buffer.from(JSON.stringify({ v: 2, jobs: slice } satisfies CollectedUrlsMessage)),
+                }))
+            )
+        }
+
+        function packByBytes(entries: FrontierJob[], maxBytes: number, maxUrls: number): FrontierJob[][] {
+            const out: FrontierJob[][] = []
+            let current: FrontierJob[] = []
+            let bytes = Buffer.byteLength('{"v":2,"jobs":[]}')
+            for (const entry of entries) {
+                const size = Buffer.byteLength(JSON.stringify(entry)) + (current.length > 0 ? 1 : 0)
+                if (current.length > 0 && (bytes + size > maxBytes || current.length >= maxUrls)) {
+                    out.push(current)
+                    current = []
+                    bytes = Buffer.byteLength('{"v":2,"jobs":[]}')
+                }
+                current.push(entry)
+                bytes += size
+            }
+            if (current.length > 0) {
+                out.push(current)
+            }
+            return out
+        }
+
+        const entries: UrlEntry[] = [
+            {
+                hash: 'a'.repeat(22),
+                url: 'https://cdn.example.com/a.png?q="quoted"&b=back\\slash',
+                domain: 'example.com',
+            },
+            {
+                hash: 'b'.repeat(22),
+                url: 'https://cdn.example.com/\n\t\r\b\f\u0001\u001f\u007f',
+                domain: 'example.com',
+            },
+            { hash: 'c'.repeat(22), url: 'https://bücher.example/é/中文/🎉', domain: 'bücher.example' },
+            { hash: 'd'.repeat(22), url: 'https://cdn.example.com/  </script>', domain: 'example.com' },
+            { hash: 'e'.repeat(22), url: `https://cdn.example.com/${'x'.repeat(300)}`, domain: 'example.com' },
+            { hash: 'f'.repeat(22), url: 'https://bücher.example/second', domain: 'bücher.example' },
+            { hash: 'g'.repeat(22), url: 'https://cdn.example.com/g', domain: 'example.com' },
+        ]
+
+        test.each([
+            ['an unkeyed session', null, null],
+            ['a keyed session', V3_NAMESPACE, '01a0c669-8800-7000-8000-000000000001'],
+        ])('match JSON.stringify of the jobs at every budget for %s', (_name, namespace, sessionId) => {
+            const firstSeenAtMs = 1_700_000_000_123
+            const cache = new RefDedupCache(0)
+            const differing: string[] = []
+            let urlByteLengths: number[] = []
+            for (const maxUrls of [2, 1000]) {
+                for (let maxBytes = 1; maxBytes <= 2_500; maxBytes++) {
+                    const batch = CollectedUrlBatch.fromUrls(namespace, entries)!
+                    batch.claim(cache, 0)
+                    const records = batch.buildRecords({
+                        excludedRefs: [],
+                        sessionId,
+                        firstSeenAtMs,
+                        maxRecordBytes: maxBytes,
+                        maxRecordUrls: maxUrls,
+                    })
+                    const expected = jsonStringifyRecords(
+                        entries,
+                        namespace,
+                        sessionId,
+                        firstSeenAtMs,
+                        maxBytes,
+                        maxUrls
+                    )
+                    const identical =
+                        expected.length === records.keys.length &&
+                        expected.every(
+                            (record, index) =>
+                                record.key === records.keys[index] && record.value.equals(records.values[index])
+                        )
+                    if (!identical) {
+                        differing.push(`maxRecordUrls=${maxUrls} maxRecordBytes=${maxBytes}`)
+                    }
+                    urlByteLengths = Array.from(records.urlByteLengths)
+                }
+            }
+            expect(differing).toEqual([])
+            expect(urlByteLengths).toEqual(entries.map(({ url }) => Buffer.byteLength(url)))
+        })
     })
 })

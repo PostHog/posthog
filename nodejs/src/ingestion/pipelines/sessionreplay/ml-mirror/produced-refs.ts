@@ -24,19 +24,6 @@ export class ProducedImageRefs {
     constructor(max: number) {
         this.cache = nativeRefDedupCache('image_scrub_producer', max)
     }
-
-    claim(refs: string[]): boolean[] {
-        return this.cache.claimRefs(refs)
-    }
-
-    release(refs: string[]): void {
-        this.cache.releaseRefs(refs)
-    }
-}
-
-export interface TransportUrl {
-    ref: string
-    url: string
 }
 
 /**
@@ -60,23 +47,6 @@ export class ProducedTransportUrls {
 
     timeBucket(nowMs: number): number {
         return Math.floor(nowMs / this.windowMs)
-    }
-
-    claim(urls: TransportUrl[], nowMs: number): boolean[] {
-        return this.cache.claimTransportUrls(
-            urls.map(({ ref }) => ref),
-            urls.map(({ url }) => url),
-            this.timeBucket(nowMs)
-        )
-    }
-
-    /** `nowMs` must be the value the claim used, so the release finds the same time bucket. */
-    release(urls: TransportUrl[], nowMs: number): void {
-        this.cache.releaseTransportUrls(
-            urls.map(({ ref }) => ref),
-            urls.map(({ url }) => url),
-            this.timeBucket(nowMs)
-        )
     }
 }
 
