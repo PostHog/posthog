@@ -28,6 +28,8 @@ from products.logs.backend.temporal.activities import (
     EvaluateCohortBatchInput,
     EvaluateCohortBatchOutput,
 )
+from products.logs.backend.temporal.constants import WORKFLOW_NAME
+from products.logs.backend.temporal.workflow import LogsAlertCheckWorkflow
 
 MANIFESTS = [
     CohortManifest(
@@ -75,7 +77,7 @@ async def _record(name: str, workflow_cls: type, discovery: object) -> None:
             identity="replay-test-worker",
         ):
             handle = await env.client.start_workflow(
-                workflow_cls.run,
+                WORKFLOW_NAME,
                 CheckAlertsInput(),
                 id=f"logs-alert-check-replay-{uuid.uuid4()}",
                 task_queue="logs-alerting-replay",
@@ -111,8 +113,6 @@ def main(name: str, old_workflow_path: str | None = None) -> None:
         spec.loader.exec_module(old)
         asyncio.run(_record(name, old.LogsAlertCheckWorkflow, _DiscoveryBeforeCap(MANIFESTS, 3)))
     elif name == "bounded_cap_2":
-        from products.logs.backend.temporal.workflow import LogsAlertCheckWorkflow
-
         asyncio.run(_record(name, LogsAlertCheckWorkflow, _DiscoveryWithCap(MANIFESTS, 3, 2)))
     else:
         raise SystemExit(f"unknown history {name}")
