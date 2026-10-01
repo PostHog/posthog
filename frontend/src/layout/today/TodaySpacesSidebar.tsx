@@ -16,6 +16,8 @@ import { TodayPreviewTrigger } from './TodayPreviewTrigger'
 import { TodayRecentFilterMenu } from './TodayRecentFilterMenu'
 import { TodayRecentSearchField } from './TodayRecentSearchField'
 import { TodaySessionRow } from './TodaySessionRow'
+import { selectionClick } from './todaySessionSelection'
+import { todaySessionSelectionLogic } from './todaySessionSelectionLogic'
 import { TodaySpaceActions } from './TodaySpaceActions'
 import { TodaySpaceGlyph } from './TodaySpaceGlyph'
 import { TodayWorkSectionId, isLockedSpace, spaceLabel, todaySpacesLogic } from './todaySpacesLogic'
@@ -44,9 +46,28 @@ export function TodaySpacesSidebar(): JSX.Element {
     const { loadSpaces, loadRecentTasks, toggleSection, setRecentSearchOpen, clearRecentSearchAndFilters } =
         useActions(todaySpacesLogic)
     const { openNewSpace } = useActions(newSpaceLogic)
+    const { selectedSessionIds } = useValues(todaySessionSelectionLogic)
+    const { toggleSessionSelection, selectSessionRange, clearSelection } = useActions(todaySessionSelectionLogic)
     const { location, searchParams } = useValues(router)
     const pinnedIds = new Set(pinnedItems.map((item) => item.id))
     const browsingSpaces = location.pathname.endsWith(urls.taskSpaces())
+    const selectedIds = new Set(selectedSessionIds)
+
+    // Like Desktop, Cmd/Ctrl-click and Shift-click pick rows instead of opening them, and a plain click clears the pick.
+    const onSelectClick = (sessionId: string, event: React.MouseEvent<HTMLElement>): void => {
+        const click = selectionClick(event)
+        if (click === 'open') {
+            clearSelection()
+            return
+        }
+        event.preventDefault()
+        event.stopPropagation()
+        if (click === 'toggle') {
+            toggleSessionSelection(sessionId)
+        } else {
+            selectSessionRange(sessionId)
+        }
+    }
 
     const renderItem = (item: TodayWorkItem, dataAttr: string, inPinnedSection = false): JSX.Element =>
         item.kind === 'session' ? (
@@ -58,6 +79,8 @@ export function TodaySpacesSidebar(): JSX.Element {
                 dataAttr={dataAttr}
                 surface="sidebar"
                 unread={unreadSessionIds.has(item.id)}
+                selected={selectedIds.has(item.id)}
+                onSelectClick={(event) => onSelectClick(item.id, event)}
             />
         ) : (
             <TodaySpacesRow
