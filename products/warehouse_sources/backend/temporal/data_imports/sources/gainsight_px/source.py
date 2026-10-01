@@ -68,8 +68,8 @@ class GainsightPxSource(ResumableSource[GainsightPxSourceConfig, GainsightPxResu
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Only the `/events/*` streams expose a server-side date filter; the entity endpoints have
-        # no "updated since" filter and stay full refresh.
+        # Only the `/events/*` streams and survey responses expose a server-side date filter; the entity
+        # endpoints have no "updated since" filter and stay full refresh.
         schemas = [
             SourceSchema(
                 name=endpoint,

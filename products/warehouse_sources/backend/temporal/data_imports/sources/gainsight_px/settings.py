@@ -73,8 +73,8 @@ class GainsightPxEndpointConfig:
     # don't rewrite every sync. `None` for resources the API returns without a creation timestamp.
     partition_key: str | None = None
     page_size: int = SCROLL_PAGE_SIZE
-    # Only the `/events/*` streams expose a server-side date filter; the entity endpoints have no
-    # "updated since" filter and stay full refresh.
+    # Only the `/events/*` streams and survey responses expose a server-side date filter; the entity
+    # endpoints have no "updated since" filter and stay full refresh.
     incremental_fields: list[IncrementalField] = field(default_factory=list)
 
 
