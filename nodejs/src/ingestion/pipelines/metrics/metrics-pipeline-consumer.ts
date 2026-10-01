@@ -89,8 +89,9 @@ export class MetricsPipelineConsumer {
                 error: error instanceof Error ? error.message : String(error),
                 size: messages.length,
             })
-            // Flush scheduled work before the error propagates and crashes the loop
-            await this.promiseScheduler.waitForAll()
+            // Settle scheduled work before the error propagates and crashes the loop; a rejected
+            // side effect must not replace the batch error or cut the drain short.
+            await this.promiseScheduler.waitForAllSettled()
             throw error
         }
 
@@ -106,7 +107,8 @@ export class MetricsPipelineConsumer {
 
     public async stop(): Promise<void> {
         logger.info('💤', 'Stopping metrics consumer...')
-        await this.promiseScheduler.waitForAll()
+        // Settled, not all: a rejected side effect must not skip the disconnect.
+        await this.promiseScheduler.waitForAllSettled()
         await this.kafkaConsumer.disconnect()
         logger.info('💤', 'Metrics consumer stopped!')
     }
