@@ -291,6 +291,14 @@ class DashboardPatchTileOpenApiSerializer(serializers.Serializer):
             "that do not overlap, and include every tile you move in the same request."
         ),
     )
+    show_description = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether to show the tile's description underneath its title on the dashboard. Works for every "
+            "tile type. The description itself is unaffected and still comes from the tile's insight, text, "
+            "or widget content — this only toggles whether it renders on the dashboard."
+        ),
+    )
     widget = DashboardPatchWidgetOpenApiSerializer(required=False, help_text="Nested widget row updates.")
 
 
