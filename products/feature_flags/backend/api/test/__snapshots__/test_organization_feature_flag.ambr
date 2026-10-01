@@ -797,6 +797,7 @@
          "posthog_dashboard"."created_at",
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
+         "posthog_dashboard"."archived",
          "posthog_dashboard"."last_accessed_at",
          "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
