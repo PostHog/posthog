@@ -50,41 +50,13 @@ fi
 #
 # `flox activate` can block forever: an activation that was started elsewhere and
 # never finished (e.g. one left blocked on a terminal's stdin) pins the shared env
-# state at "Starting", and every later activation waits on it. This hook runs at
-# SessionStart, so a hang there means Claude Code never finishes starting up.
-# Cap it and fall through to the no-op path instead of blocking the session.
-FLOX_ACTIVATE_TIMEOUT="${FLOX_ACTIVATE_TIMEOUT:-60}"
+# state at "Starting", and every later activation waits on it. The hook's own
+# `timeout` in .claude/settings.json caps that, so a wedged activation costs the
+# session a warning instead of a startup that never completes.
+FLOX_ENV_SNAPSHOT=$(flox activate --dir "$PROJECT_DIR" -- bash -c 'printenv' 2>/dev/null)
 
-SNAPSHOT_FILE=$(mktemp)
-trap 'rm -f "$SNAPSHOT_FILE"' EXIT
-
-flox activate --dir "$PROJECT_DIR" -- bash -c 'printenv' >"$SNAPSHOT_FILE" 2>/dev/null &
-FLOX_PID=$!
-
-# Watchdog: kill the activation (and its children, which outlive it otherwise)
-# if it is still running when the budget runs out.
-(
-  sleep "$FLOX_ACTIVATE_TIMEOUT"
-  if kill -0 "$FLOX_PID" 2>/dev/null; then
-    pkill -P "$FLOX_PID" 2>/dev/null
-    kill -TERM "$FLOX_PID" 2>/dev/null
-    sleep 2
-    pkill -9 -P "$FLOX_PID" 2>/dev/null
-    kill -9 "$FLOX_PID" 2>/dev/null
-  fi
-) &
-WATCHDOG_PID=$!
-
-wait "$FLOX_PID" 2>/dev/null
-FLOX_RC=$?
-
-kill -TERM "$WATCHDOG_PID" 2>/dev/null
-wait "$WATCHDOG_PID" 2>/dev/null
-
-FLOX_ENV_SNAPSHOT=$(cat "$SNAPSHOT_FILE")
-
-if [ "$FLOX_RC" -ne 0 ] || [ -z "$FLOX_ENV_SNAPSHOT" ]; then
-  echo "Warning: flox activate failed or timed out after ${FLOX_ACTIVATE_TIMEOUT}s, skipping env setup" >&2
+if [ $? -ne 0 ] || [ -z "$FLOX_ENV_SNAPSHOT" ]; then
+  echo "Warning: flox activate failed, skipping env setup" >&2
   exit 0
 fi
 
