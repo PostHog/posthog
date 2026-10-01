@@ -453,7 +453,7 @@ def test_backfill_stops_before_copying_when_another_backfill_run_is_executing(
     yesterday = datetime.now(UTC).date() - timedelta(days=1)
 
     with (
-        patch.object(ShardBackfill, "wait_for_disk_headroom"),
+        patch.object(ShardBackfill, "_hosts_moving_parts", return_value=[]),
         patch.object(ShardBackfill, "check_consumer_lag"),
         patch.object(ShardBackfill, "copy_day", return_value=0) as copy_day,
     ):
@@ -466,14 +466,28 @@ def test_backfill_stops_before_copying_when_another_backfill_run_is_executing(
     assert copy_day.called is not stops
 
 
-def test_backfill_ignores_a_blocking_run_that_finished_while_it_waited_for_disk() -> None:
+@pytest.mark.parametrize(
+    "rereads, finished_during_disk_wait",
+    [
+        pytest.param([[]], 1, id="first_disk_wait"),
+        pytest.param([["replica-1"], []], 2, id="disk_wait_after_the_reread"),
+    ],
+)
+def test_backfill_ignores_a_blocking_run_that_finished_while_it_waited_for_disk(
+    rereads: list[list[str]], finished_during_disk_wait: int
+) -> None:
     instance = dagster.DagsterInstance.ephemeral()
+    disk_waits = 0
 
     def finish_a_deletes_run() -> None:
-        instance.create_run_for_job(job_def=deletes_job, status=dagster.DagsterRunStatus.SUCCESS)
+        nonlocal disk_waits
+        disk_waits += 1
+        if disk_waits == finished_during_disk_wait:
+            instance.create_run_for_job(job_def=deletes_job, status=dagster.DagsterRunStatus.SUCCESS)
 
     with (
         patch.object(ShardBackfill, "wait_for_disk_headroom", side_effect=finish_a_deletes_run),
+        patch.object(ShardBackfill, "_hosts_moving_parts", side_effect=rereads),
         patch.object(ShardBackfill, "check_consumer_lag"),
         patch.object(ShardBackfill, "copy_day", return_value=5),
     ):
@@ -526,7 +540,7 @@ def test_backfill_stops_at_the_first_expired_day(start: datetime, step: str, ste
 
         with (
             patch.object(ShardBackfill, "wait_for_parts_to_merge", side_effect=patched("wait_for_parts_to_merge")),
-            patch.object(ShardBackfill, "wait_for_disk_headroom"),
+            patch.object(ShardBackfill, "_hosts_moving_parts", return_value=[]),
             patch.object(ShardBackfill, "check_consumer_lag"),
             patch.object(ShardBackfill, "copy_day", side_effect=patched("copy_day")) as copy_day,
         ):
@@ -626,6 +640,13 @@ def test_disk_headroom_leaves_out_the_share_the_mover_keeps_free(
             id="disk_still_full_after_the_blocking_wait",
         ),
         pytest.param(
+            [ABOVE_MOVE_LINE, BELOW_MOVE_LINE, BELOW_MOVE_LINE, BELOW_MOVE_LINE, BELOW_MOVE_LINE],
+            {"disk_check_max_wait_seconds": 120},
+            2,
+            "still moving parts",
+            id="disk_wait_runs_out_after_polling",
+        ),
+        pytest.param(
             [ABOVE_MOVE_LINE, UNDER_THE_FLOOR],
             {},
             0,
@@ -644,9 +665,14 @@ def test_backfill_waits_while_clickhouse_moves_parts_off_a_full_disk(
     host.connection_info.host = "replica-1"
     backfill.cluster.map_hosts_in_shard_by_role.return_value.result.side_effect = [{host: disks} for disks in readings]
     yesterday = datetime.now(UTC).date() - timedelta(days=1)
+    clock = [0.0]
+
+    def advance_clock(seconds: float) -> None:
+        clock[0] += seconds
 
     with (
-        patch("posthog.dags.flag_evaluations_backfill.time.sleep") as sleep,
+        patch("posthog.dags.flag_evaluations_backfill.time.monotonic", side_effect=lambda: clock[0]),
+        patch("posthog.dags.flag_evaluations_backfill.time.sleep", side_effect=advance_clock) as sleep,
         patch.object(ShardBackfill, "check_consumer_lag"),
         patch.object(ShardBackfill, "copy_day", return_value=5) as copy_day,
     ):

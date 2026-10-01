@@ -150,7 +150,11 @@ class FlagEvaluationsBackfillConfig(dagster.Config):
             "limit starts again after each wait for a squash, deletes or data deletion run."
         ),
     )
-    disk_check_poll_frequency_seconds: int = 60
+    disk_check_poll_frequency_seconds: int = pydantic.Field(
+        default=60,
+        ge=1,
+        description="How often to read the disks again while a replica is below its move_factor reserve.",
+    )
 
 
 @frozen
