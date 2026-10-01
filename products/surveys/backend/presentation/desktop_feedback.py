@@ -22,6 +22,7 @@ from rest_framework.throttling import UserRateThrottle
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.uploaded_media import sniff_image_content_type
+from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 
 from products.surveys.backend.facade.api import (
@@ -135,7 +136,7 @@ class DesktopFeedbackRequestSerializer(serializers.Serializer):
 
 class DesktopFeedbackResponseSerializer(serializers.Serializer):
     accepted = serializers.BooleanField(help_text="Whether the feedback response was accepted.")
-    response_id = serializers.UUIDField(help_text="Identifier of the survey response event.")
+    response_id = serializers.UUIDField(help_text="Identifier of the feedback ticket or legacy survey response event.")
 
 
 class DesktopFeedbackErrorSerializer(serializers.Serializer):
@@ -219,7 +220,7 @@ class DesktopFeedbackViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ),
         },
         summary="Submit Desktop feedback",
-        description="Stores selected attachments and submits one response to the PostHog Desktop feedback survey.",
+        description="Stores selected attachments and submits Desktop feedback. Ticket routing is controlled by the rollout flag.",
     )
     def create(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         data = request.validated_data
@@ -233,6 +234,7 @@ class DesktopFeedbackViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except DesktopFeedbackUnavailable as error:
             raise DesktopFeedbackServiceUnavailable from error
         except Exception as error:
+            capture_exception(error)
             raise DesktopFeedbackServiceUnavailable from error
 
         return Response(

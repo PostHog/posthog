@@ -139,6 +139,20 @@ Redriving an image does not clear the parent's body acceptance.
 Do not rename or replace it.
 Uncertain Mailgun sends and delivery-event correlation are additive columns on that table, not a new store.
 
+## Desktop feedback assignment
+
+Set `desktop_feedback_role_id` in the feedback project's `conversations_settings` to assign new Desktop feedback tickets to an organization role.
+Configure the role separately in each region.
+The role must belong to the feedback project's organization.
+If the setting is absent, tickets remain unassigned.
+An invalid or deleted role rejects the submission without saving a ticket or its attachments.
+The ticket, assignment, and messages commit together.
+Assignment events run after the transaction commits.
+Desktop feedback tickets show the Exceptions panel only when they have a session ID.
+Tickets and customer comments use the same analytics identity as Desktop: the user's distinct ID, with their email as the fallback.
+Feedback text renders as separate paragraphs for each non-empty line, followed by any attached images.
+Each paragraph preserves the line's leading and trailing whitespace.
+
 ## What must not happen
 
 - Acknowledging Slack before the owning-region Postgres commit.
