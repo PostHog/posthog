@@ -15,7 +15,6 @@ tools:
         scopes:
             - today:read
         annotations:
-            # The first call of an edition starts a run, so the tool is not read-only.
             readOnly: false
             destructive: false
             idempotent: true
