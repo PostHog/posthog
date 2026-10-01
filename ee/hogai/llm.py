@@ -104,11 +104,16 @@ def _is_provider_billing_block(error: anthropic.APIStatusError) -> bool:
     return detail.get("type") == "billing_error" or any(sig in message for sig in _PROVIDER_BILLING_SIGNATURES)
 
 
+# The gateway sends 402 billing_error for every admission refusal, so only the denial code tells a top-up apart
+# from a product budget or a spend cap, which a top-up does not lift.
+_AI_CREDITS_DENIALS = frozenset({"insufficient_credits", "credit_bucket_exhausted:ai_credits"})
+
+
 def is_ai_credits_exhausted(error: Exception) -> bool:
     """The gateway's own denial for a team that has used its monthly AI credits."""
     if not isinstance(error, anthropic.APIStatusError) or error.status_code != 402:
         return False
-    if not error.response.headers.get("X-PostHog-Denial"):
+    if error.response.headers.get("X-PostHog-Denial", "").strip() not in _AI_CREDITS_DENIALS:
         return False
     detail = error.body.get("error") if isinstance(error.body, dict) else None
     return isinstance(detail, dict) and detail.get("type") == "billing_error"

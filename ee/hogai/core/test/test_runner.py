@@ -328,6 +328,19 @@ class TestRunnerLLMProviderErrorHandling(BaseTest):
                 ),
                 "anthropic",
             ),
+            (
+                "anthropic_gateway_budget_denial",
+                anthropic.APIStatusError(
+                    message="Budget exceeded",
+                    response=httpx.Response(
+                        status_code=402,
+                        headers={"X-PostHog-Denial": "budget_exceeded:product"},
+                        request=httpx.Request("POST", "https://ai-gateway.test/v1/messages"),
+                    ),
+                    body={"type": "error", "error": {"type": "billing_error"}},
+                ),
+                "anthropic",
+            ),
         ]
     )
     async def test_llm_generic_api_errors_handled_gracefully(self, _name, exception, expected_provider):
@@ -376,12 +389,13 @@ class TestRunnerLLMProviderErrorHandling(BaseTest):
             self.assertEqual(capture_call_args[1]["properties"]["error_type"], "llm_api_error")
             self.assertEqual(capture_call_args[1]["properties"]["provider"], expected_provider)
 
-    async def test_ai_credits_exhausted_shows_top_up_message_without_error_tracking(self):
+    @parameterized.expand([("insufficient_credits",), ("credit_bucket_exhausted:ai_credits",)])
+    async def test_ai_credits_exhausted_shows_top_up_message_without_error_tracking(self, denial):
         exception = anthropic.APIStatusError(
             message="Insufficient AI credits",
             response=httpx.Response(
                 status_code=402,
-                headers={"X-PostHog-Denial": "insufficient_credits"},
+                headers={"X-PostHog-Denial": denial},
                 request=httpx.Request("POST", "https://ai-gateway.test/v1/messages"),
             ),
             body={"type": "error", "error": {"type": "billing_error"}},
