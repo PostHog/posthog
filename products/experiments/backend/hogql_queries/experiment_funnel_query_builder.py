@@ -1,7 +1,5 @@
 from typing import TYPE_CHECKING, Optional, cast
 
-from django.utils import timezone
-
 from posthog.schema import ExperimentDataWarehouseNode, ExperimentFunnelMetric, MultipleVariantHandling, StepOrderValue
 
 from posthog.hogql import ast
@@ -15,6 +13,7 @@ from products.experiments.backend.hogql_queries.base_query_utils import (
     funnel_evaluation_expr,
     funnel_steps_to_filter,
 )
+from products.experiments.backend.hogql_queries.experiment_query_context import MaturityGate
 from products.experiments.backend.hogql_queries.funnel_step_builder import FunnelStepBuilder
 from products.experiments.backend.hogql_queries.funnel_validation import FunnelDWValidator
 from products.experiments.backend.hogql_queries.metric_source import MetricSourceInfo
@@ -42,8 +41,9 @@ class FunnelQueryBuilder:
     reads that shared state and those helpers through it.
     """
 
-    def __init__(self, builder: "ExperimentQueryBuilder"):
+    def __init__(self, builder: "ExperimentQueryBuilder", maturity: MaturityGate | None = None):
         self._b = builder
+        self._maturity = maturity
 
     def build_funnel_query(self) -> ast.SelectQuery:
         if self.should_use_optimized_funnel_query():
@@ -184,7 +184,7 @@ class FunnelQueryBuilder:
             )
         """
 
-        exposure_query = self._b._get_exposure_query()
+        exposure_query = self._b._get_exposure_query(self._maturity)
         if has_dw_steps:
             # FunnelDWValidator guarantees that all DW steps use the same events_join_key
             first_dw_step = next(s for s in self._b.metric.series if isinstance(s, ExperimentDataWarehouseNode))
@@ -840,20 +840,8 @@ class FunnelQueryBuilder:
         on the last exposure would keep resetting the window for flags re-evaluated
         repeatedly (e.g. backend flags), so active users would never mature.
         """
-        if self._b.metric is None:
+        if self._maturity is None:
             return None
-        if not self._b.only_count_matured_users:
-            return None
-
-        maturity_seconds = self._b._get_maturity_window_seconds()
-        if maturity_seconds == 0:
-            return None
-
-        now = timezone.now().strftime("%Y-%m-%d %H:%M:%S")
-        return parse_expr(
-            "minIf(timestamp, step_0 = 1) + toIntervalSecond({maturity_seconds}) <= toDateTime({now}, 'UTC')",
-            placeholders={
-                "maturity_seconds": ast.Constant(value=maturity_seconds),
-                "now": ast.Constant(value=now),
-            },
+        return self._maturity.condition(
+            parse_expr("minIf(timestamp, step_0 = 1)"), self._b._get_maturity_window_seconds()
         )
