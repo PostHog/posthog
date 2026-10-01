@@ -109,8 +109,9 @@ def create_worker_bag_collector() -> WorkerBagCollector:
     return WorkerBagCollector(
         sources=(
             WorkerBagSource(
-                modules=("products.batch_exports.backend.temporal.workflows",),
+                modules=("products.batch_exports.backend.facade.temporal",),
                 task_queues=(settings.SYNC_BATCH_EXPORTS_TASK_QUEUE, settings.BATCH_EXPORTS_TASK_QUEUE),
+                names=("WORKFLOWS", "ACTIVITIES"),
             ),
             WorkerBagSource(
                 modules=("products.warehouse_sources.backend.temporal.data_imports.settings",),

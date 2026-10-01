@@ -17,12 +17,11 @@ import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { cn } from 'lib/utils/css-classes'
 
-import type { TaskRunArtifactResponseApi } from 'products/tasks/frontend/generated/api.schemas'
-
 import { withStrictCsp } from '../artifactHtml'
 import {
     ARTIFACT_KIND_LABEL,
     ArtifactPreviewKind,
+    RunArtifact,
     TaskRunTab,
     artifactPreviewKind,
     formatArtifactSize,
@@ -96,7 +95,7 @@ function ArtifactPreview({ taskId }: { taskId: string }): JSX.Element | null {
         return null
     }
     if (selectedKind === 'image') {
-        const src = artifactDownloadUrl(currentProjectId, selectedRun, selectedArtifact)
+        const src = artifactDownloadUrl(currentProjectId, taskId, selectedArtifact)
         return (
             <div className="flex min-h-full items-center justify-center p-8">
                 {src && (
@@ -191,11 +190,11 @@ function ArtifactNav({ taskId }: { taskId: string }): JSX.Element {
     )
 }
 
-function ArtifactToolbar({ taskId, artifact }: { taskId: string; artifact: TaskRunArtifactResponseApi }): JSX.Element {
-    const { artifacts, selectedIndex, selectedRun, currentProjectId } = useValues(taskRunArtifactsLogic({ taskId }))
+function ArtifactToolbar({ taskId, artifact }: { taskId: string; artifact: RunArtifact }): JSX.Element {
+    const { artifacts, selectedIndex, currentProjectId } = useValues(taskRunArtifactsLogic({ taskId }))
     const { stepArtifact, downloadArtifact } = useActions(taskRunArtifactsLogic({ taskId }))
     const kind = artifactPreviewKind(artifact)
-    const downloadUrl = artifactDownloadUrl(currentProjectId, selectedRun, artifact)
+    const downloadUrl = artifactDownloadUrl(currentProjectId, taskId, artifact)
     const single = artifacts.length < 2
     return (
         <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-primary px-3 py-1.5">

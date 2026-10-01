@@ -113,6 +113,9 @@ class SourceResponse:
     incremental watermark). Gated by the pipeline together with a non-None resumable-source manager,
     so a resumable-source class whose current table isn't actually resumable (e.g. a SQL full load
     with no orderable primary key) sets this False and is treated as non-resumable for shutdown."""
+    on_complete: Optional[Callable[[], None]] = None
+    """Called after every yielded row has been durably written or staged. Sources use this to remove
+    a final checkpoint without opening a crash window before the pipeline flushes its last batch."""
     destination_reset_required: bool = False
     """Whether source metadata discovered during setup requires rebuilding the destination table."""
     lanes: Optional[list[OutputLane]] = None
