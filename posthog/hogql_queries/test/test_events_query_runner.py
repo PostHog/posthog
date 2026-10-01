@@ -1286,6 +1286,8 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "properties.$lib",
                     "timestamp",
                     "properties.$feature_flag_response",
+                    "elements_chain",
+                    "person_mode",
                 ],
                 event="$feature_flag_called",
                 properties=[
@@ -1325,6 +1327,8 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "web",
             FLAG_CALL_TIMESTAMP,
             "variant-a",
+            "",
+            "",
         ]
 
     @parameterized.expand(

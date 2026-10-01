@@ -21,7 +21,7 @@ from posthog.hogql import ast
 from posthog.hogql.ast import Alias
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.lazy_join_tags import PERSONS
-from posthog.hogql.database.models import LazyJoin
+from posthog.hogql.database.models import ExpressionField, LazyJoin
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import (
     action_to_expr,
@@ -75,21 +75,15 @@ WIDE_COLUMNS = {"elements_chain", "properties"}
 class EventsListTable:
     chain: tuple[str, ...]
     alias: str | None
-    select_star: str
     person_id: str
 
     def join_expr(self) -> ast.JoinExpr:
         return ast.JoinExpr(table=ast.Field(chain=[*self.chain]), alias=self.alias)
 
 
-def _select_star(fields: list[str]) -> str:
-    return f"tuple({', '.join(fields)})"
-
-
 EVENTS_LIST_TABLE = EventsListTable(
     chain=("events",),
     alias=None,
-    select_star=_select_star(SELECT_STAR_FROM_EVENTS_FIELDS),
     person_id="person.id",
 )
 FLAG_EVALUATIONS_LIST_TABLE = EventsListTable(
@@ -98,11 +92,6 @@ FLAG_EVALUATIONS_LIST_TABLE = EventsListTable(
     # It looks for a join's source table by chain[0], which is "posthog". Without the alias that lookup misses.
     # The resolver then prints the persons join before the override join that its condition reads.
     alias="flag_evaluations",
-    # flag_evaluations has no elements_chain or person_mode column. Empty strings keep the tuple in the
-    # order that _expand_star_column zips with SELECT_STAR_FROM_EVENTS_FIELDS.
-    select_star=_select_star(
-        ["''" if field in ("elements_chain", "person_mode") else field for field in SELECT_STAR_FROM_EVENTS_FIELDS]
-    ),
     # The persons join reads a zero UUID from person.id for a distinct_id with no person row.
     # person_id holds the id that flag_evaluations resolved through person merges.
     person_id="person_id",
@@ -181,7 +170,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             # Selecting a "*" expands the list of columns, resulting in a table that's not what we asked for.
             # Instead, ask for a tuple with all the columns we want. Later transform this back into a dict.
             if col == "*":
-                select_input.append(table.select_star)
+                select_input.append(f"tuple({', '.join(SELECT_STAR_FROM_EVENTS_FIELDS)})")
             elif col.split("--")[0].strip() == "person":
                 # This will be expanded into a followup query
                 select_input.append("distinct_id")
@@ -394,6 +383,10 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                 join_table=context.database.get_table("persons"),
                 resolver=PERSONS,
             )
+            # flag_evaluations has no elements_chain or person_mode column. Empty strings let "*" and explicit
+            # selects of these columns resolve as they do on events.
+            for name in ("elements_chain", "person_mode"):
+                flag_evaluations.fields[name] = ExpressionField(name=name, expr=ast.Constant(value=""))
         return context
 
     def _filter_where_exprs(self) -> list[ast.Expr]:
