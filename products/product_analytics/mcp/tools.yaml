@@ -128,7 +128,7 @@ tools:
 
             In a TrendsQuery, `ActionsBar` is a time series with one bar per interval and the breakdown values stacked
             in each bar. It is not one bar per category. In a SQL `DataVisualizationNode`, `ActionsBar` is one bar per
-            row.
+            X-axis value.
         agent_note: >
             When you tell the user about this insight, name the display you chose and one or two other displays that
             also fit this query, in one short sentence, and offer to change it. If the user agrees, change it with
