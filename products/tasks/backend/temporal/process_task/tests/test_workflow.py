@@ -2252,7 +2252,31 @@ class TestProcessTaskWorkflowUnit:
         relay_sandbox_events_mock.assert_not_called()
         relay_agent_design_signals_mock.assert_called_once()
         # The plan shows while the sandbox provisions, so the relay starts before the first turn.
-        start_slack_relay_mock.assert_awaited_once_with({"channel": "C1"}, setup_title="Getting ready")
+        start_slack_relay_mock.assert_awaited_once_with({"channel": "C1"}, setup_title="Setting up sandbox")
+
+    @pytest.mark.parametrize(
+        "relay_open, step, forwarded",
+        [
+            (True, "clone", True),
+            # Pull request and CI steps come after the agent starts, and its own lines cover them.
+            (True, "pr", False),
+            # A follow-up turn reuses the running sandbox, so no setup shows in its plan.
+            (False, "clone", False),
+        ],
+    )
+    async def test_emit_progress_shows_sandbox_setup_in_the_early_slack_plan(
+        self, monkeypatch, relay_open, step, forwarded
+    ):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+        workflow._early_slack_relay_open = relay_open
+        monkeypatch.setattr(workflow, "_run_progress_activity", AsyncMock(return_value=True))
+        forward_mock = Mock()
+        monkeypatch.setattr(workflow, "_forward_slack_setup_step", forward_mock)
+
+        await workflow._emit_progress(step, "in_progress", "Cloning repository", "setup")
+
+        assert forward_mock.called is forwarded
 
     @pytest.mark.parametrize(
         "origin_product, pr_progress_emitted, ci_repetitions, end_of_turn_received, expected_status",

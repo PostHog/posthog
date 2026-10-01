@@ -152,32 +152,47 @@ class TestSlackAgentDesignRelay:
         assert calls.answer() == "Answer."
 
     @pytest.mark.parametrize(
-        "signals, expected_line",
+        "work, work_lines",
         [
-            ([("agent_status_update", {"phase": "posthog:Execute SQL query"})], "Execute SQL query"),
-            ([("agent_text_delta", "Hi! What should I look at?")], "Writing the answer"),
+            (
+                [("agent_status_update", {"phase": "posthog:Execute SQL query"})],
+                [("Execute SQL query", None, "complete")],
+            ),
+            ([("agent_text_delta", "Hi! What should I look at?")], []),
         ],
-        ids=["first_work_line", "answer_without_tools"],
+        ids=["tool_call", "answer_without_tools"],
     )
     @pytest.mark.timeout(60, func_only=True)
-    async def test_early_relay_setup_line_does_not_outlive_setup(
-        self, signals: list[tuple[str, Any]], expected_line: str
+    async def test_setup_steps_change_in_place_and_complete(
+        self, work: list[tuple[str, Any]], work_lines: list[tuple[str, None, str]]
     ) -> None:
-        # Slack cannot remove a line, so the setup line must turn into real work, not stay behind.
-        calls = await _run_relay(signals, setup_title="Getting ready")
+        # A later update of a setup step must not add a second line, and a step still open when
+        # the agent works must not keep spinning, or end as a failure.
+        calls = await _run_relay(
+            [
+                ("setup_step", {"step": "sandbox", "status": "completed", "title": "Sandbox ready"}),
+                ("setup_step", {"step": "clone", "status": "in_progress", "title": "Cloning repository"}),
+                *work,
+            ],
+            setup_title="Setting up sandbox",
+        )
 
         assert [[(c.title, c.status) for c in s.task_updates] for s in calls.starts] == [
-            [("Getting ready", "in_progress")]
+            [("Setting up sandbox", "in_progress")]
         ]
-        assert list(calls.final_lines().values()) == [(expected_line, None, "complete")]
+        assert list(calls.final_lines().values()) == [
+            ("Sandbox ready", None, "complete"),
+            ("Cloning repository", None, "complete"),
+            *work_lines,
+        ]
         assert [(s.plan_title or "").startswith("Done in ") for s in calls.stops] == [True]
 
     @pytest.mark.timeout(60, func_only=True)
     async def test_stopped_run_marks_the_open_step_failed(self) -> None:
         # A run that fails during provisioning must not leave the setup step spinning, or read as done.
-        calls = await _run_relay([], setup_title="Getting ready", cancel=True)
+        calls = await _run_relay([], setup_title="Setting up sandbox", cancel=True)
 
-        assert list(calls.final_lines().values()) == [("Getting ready", None, "error")]
+        assert list(calls.final_lines().values()) == [("Setting up sandbox", None, "error")]
         assert [s.plan_title for s in calls.stops] == ["Stopped"]
 
     @pytest.mark.timeout(60, func_only=True)
@@ -209,7 +224,6 @@ class TestSlackAgentDesignRelay:
                 ("agent_status_update", {"plan": plan}),
                 ("agent_status_update", {"phase": "reading_code"}),
             ],
-            setup_title="Getting ready",
             cancel=cancel,
         )
 

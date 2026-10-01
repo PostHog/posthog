@@ -148,7 +148,6 @@ from .activities.update_task_run_status import (
 )
 from .credential_refresh import CredentialRefreshExitReason, run_credential_refresh_loop, sandbox_gone_error_message
 from .slack_agent_design_relay import SlackAgentDesignRelayInput, SlackAgentDesignRelayWorkflow
-from .slack_progress_phases import SETUP_LINE_TITLE
 
 DEAD_SANDBOX_ERROR_TYPES = ("SandboxNotRunningError", "SandboxNotFoundError")
 MAX_ACCEPTED_MESSAGE_IDS = 500
@@ -409,6 +408,13 @@ _PATCH_ID_SLACK_AGENT_DESIGN_STATUS = "tasks-slack-agent-design-status"
 # record the marker.
 _PATCH_ID_SLACK_AGENT_DESIGN_EARLY_PLAN = "tasks-slack-agent-design-early-plan-2026-09"
 
+# Gates the signals that show each sandbox setup step in the early Slack plan. Only runs
+# with the early relay open reach it.
+_PATCH_ID_SLACK_AGENT_DESIGN_SETUP_STEPS = "tasks-slack-agent-design-setup-steps-2026-09"
+
+# Progress steps of sandbox setup. The Slack plan shows them until the first turn starts.
+_SLACK_SETUP_PROGRESS_STEPS = frozenset({"sandbox", "clone", "checkout", "wizard", "agent"})
+
 # Gates the refusal to execute local-environment (desktop-driven) runs. Pre-guard
 # histories of such runs proceeded into provisioning; the marker keeps their replays
 # deterministic. Same two-step cleanup lifecycle as above.
@@ -580,6 +586,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._agent_ready_at: datetime | None = None
         self._boot_telemetry_tasks: list[asyncio.Task[None]] = []
         self._progress_chain: asyncio.Task[None] | None = None
+        self._slack_setup_chain: asyncio.Task[None] | None = None
         self._pending_progress_activities: dict[asyncio.Task[None], str] = {}
         self._agent_boot_interaction_telemetry_enabled = False
 
@@ -1837,10 +1844,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             await self._post_slack_update()
         elif self._slack_thread_context and workflow.patched(_PATCH_ID_SLACK_AGENT_DESIGN_EARLY_PLAN):
             # The first turn's relay starts now, so the plan shows while the sandbox provisions.
-            await self._start_slack_agent_design_relay(
-                self._slack_thread_context,
-                setup_title=SETUP_LINE_TITLE,
-            )
+            await self._start_slack_agent_design_relay(self._slack_thread_context, setup_title=sandbox_label)
             self._early_slack_relay_open = True
 
         sandbox_output = await self._get_sandbox_for_repository()
@@ -2796,6 +2800,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         scoped id is what actually goes on the wire — callers don't need to
         think about uniqueness.
         """
+        if self._early_slack_relay_open and group == "setup" and step in _SLACK_SETUP_PROGRESS_STEPS:
+            self._forward_slack_setup_step(step, status, label)
         activity_input = EmitProgressInput(
             run_id=self.context.run_id,
             step=step,
@@ -2815,6 +2821,31 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         emission.add_done_callback(lambda finished: self._pending_progress_activities.pop(finished, None))
         if wait:
             await emission
+
+    def _forward_slack_setup_step(self, step: str, status: str, label: str) -> None:
+        """Show a sandbox setup step in the Slack plan, in the order the steps happen."""
+        if not workflow.patched(_PATCH_ID_SLACK_AGENT_DESIGN_SETUP_STEPS):
+            return
+        payload = {"step": step, "status": status, "title": label}
+        self._slack_setup_chain = asyncio.create_task(
+            self._signal_slack_setup_step_in_order(self._slack_setup_chain, payload)
+        )
+
+    async def _signal_slack_setup_step_in_order(
+        self, previous: "asyncio.Task[None] | None", payload: dict[str, str]
+    ) -> None:
+        if previous is not None:
+            await asyncio.wait([previous])
+        if not self._current_slack_relay_workflow_id:
+            return
+        try:
+            handle = workflow.get_external_workflow_handle(self._current_slack_relay_workflow_id)
+            await handle.signal(SlackAgentDesignRelayWorkflow.setup_step, payload)
+        except Exception as e:
+            workflow.logger.debug(
+                "slack_setup_step_forward_failed",
+                extra={"run_id": self.context.run_id, "error": str(e)},
+            )
 
     async def _emit_progress_in_order(
         self,
