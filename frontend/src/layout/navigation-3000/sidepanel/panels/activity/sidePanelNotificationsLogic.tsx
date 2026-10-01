@@ -862,7 +862,6 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                         const abortController = new AbortController()
                         cache.sseConnection = abortController
                         cache.firstMessageLogged = false
-                        let serverRequestedReconnect = false
 
                         posthog.capture('livestream_sse_connecting', { url, reason, transport })
 
@@ -904,8 +903,11 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                                                 error_message: (error as Error | undefined)?.message,
                                             })
                                         },
+                                        // The Django stream sends `end` before it closes itself to rotate. Only this
+                                        // event reconnects, so a stream that closes without it (a 204) cannot loop.
                                         onEnd: () => {
-                                            serverRequestedReconnect = true
+                                            cache.nextStartReason = 'server_rotation'
+                                            actions.startSSE()
                                         },
                                     }
                                 ),
@@ -915,45 +917,35 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                                 backoffMultiplier: SSE_RETRY_BACKOFF_MULTIPLIER,
                                 signal: abortController.signal,
                             }
-                        )
-                            .then(() => {
-                                // The Django stream ends itself with an `end` event to rotate connections.
-                                // Reconnect only on that event: a stream that closes without it (for
-                                // example a 204 because the flag is off server side) must not loop.
-                                if (serverRequestedReconnect && !abortController.signal.aborted) {
-                                    cache.nextStartReason = 'server_rotation'
-                                    actions.startSSE()
-                                }
+                        ).catch((error) => {
+                            // retryWithBackoff rejects with AbortError on clean shutdown
+                            // (including when the disposable is paused for visibilitychange);
+                            // only re-arm when it actually gave up.
+                            if (error instanceof DOMException && error.name === 'AbortError') {
+                                return
+                            }
+                            // TEMPORARY: livestream SSE lifecycle tracking.
+                            posthog.capture('livestream_sse_max_errors', {
+                                url,
+                                transport,
+                                max_attempts: SSE_RETRY_ATTEMPTS,
                             })
-                            .catch((error) => {
-                                // retryWithBackoff rejects with AbortError on clean shutdown
-                                // (including when the disposable is paused for visibilitychange);
-                                // only re-arm when it actually gave up.
-                                if (error instanceof DOMException && error.name === 'AbortError') {
-                                    return
-                                }
-                                // TEMPORARY: livestream SSE lifecycle tracking.
-                                posthog.capture('livestream_sse_max_errors', {
-                                    url,
-                                    transport,
-                                    max_attempts: SSE_RETRY_ATTEMPTS,
-                                })
-                                // Re-arm SSE the next time the user focuses the window. pauseOnPageHidden must be false
-                                // so the listener stays attached while the tab is backgrounded — that's exactly when we want it.
-                                cache.disposables.add(
-                                    () => {
-                                        const onFocus = (): void => {
-                                            posthog.capture('livestream_sse_refocus_reconnect', { url, transport })
-                                            cache.nextStartReason = 'focus_reconnect'
-                                            actions.startSSE()
-                                        }
-                                        window.addEventListener('focus', onFocus, { once: true })
-                                        return () => window.removeEventListener('focus', onFocus)
-                                    },
-                                    'sseFocusReconnect',
-                                    { pauseOnPageHidden: false }
-                                )
-                            })
+                            // Re-arm SSE the next time the user focuses the window. pauseOnPageHidden must be false
+                            // so the listener stays attached while the tab is backgrounded — that's exactly when we want it.
+                            cache.disposables.add(
+                                () => {
+                                    const onFocus = (): void => {
+                                        posthog.capture('livestream_sse_refocus_reconnect', { url, transport })
+                                        cache.nextStartReason = 'focus_reconnect'
+                                        actions.startSSE()
+                                    }
+                                    window.addEventListener('focus', onFocus, { once: true })
+                                    return () => window.removeEventListener('focus', onFocus)
+                                },
+                                'sseFocusReconnect',
+                                { pauseOnPageHidden: false }
+                            )
+                        })
 
                         return () => {
                             // TEMPORARY: livestream SSE lifecycle tracking. `reason` tags
@@ -1382,7 +1374,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 actions.initialLoadDone()
             })()
 
-            if (values.currentTeam?.live_events_token) {
+            if (values.notificationsSSETransport === 'django' || values.currentTeam?.live_events_token) {
                 actions.startSSE()
             }
         } else {
