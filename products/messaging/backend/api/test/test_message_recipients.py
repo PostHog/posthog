@@ -1,6 +1,6 @@
 from typing import Any
 
-from posthog.test.base import ClickhouseTestMixin, NonAtomicAPIBaseTest, _create_person
+from posthog.test.base import ClickhouseTestMixin, NonAtomicAPIBaseTest, _create_person, flush_persons_and_events
 
 from rest_framework import status
 
@@ -27,6 +27,7 @@ class TestMessageRecipients(ClickhouseTestMixin, NonAtomicAPIBaseTest):
 
     def _person(self, email: str, distinct_id: str | None = None) -> None:
         _create_person(team=self.team, distinct_ids=[distinct_id or email], properties={"email": email})
+        flush_persons_and_events()
 
     def test_lists_every_known_address_once_ordered_by_address(self) -> None:
         self._prefer("carol@example.com", {"$all": "OPTED_OUT"})
