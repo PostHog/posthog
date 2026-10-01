@@ -459,7 +459,20 @@ tools:
         enabled: false
     tasks-config-agent-instructions-create:
         operation: tasks_config_agent_instructions_create
-        enabled: false
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Set project agent instructions
+        description: >
+            Set the project's agent instructions: markdown every eligible cloud task run on the project loads as its
+            user-level AGENTS.md, including autonomous runs such as loops and scouts. Requires project admin. Replaces
+            the stored text; send an empty string to clear. Read the current text with tasks-config-list first, and
+            send the full new text, not a diff.
+        feature_flag: tasks
     tasks-config-create:
         operation: tasks_config_create
         enabled: true
@@ -489,6 +502,7 @@ tools:
         description: >
             Get the project-wide default AI run preferences (runtime adapter, model, reasoning effort) applied to task
             runs created without an explicit runtime selection. All fields are null when no project default is stored.
+            Also returns the project's agent instructions (`agent_instructions`), empty when unset.
         feature_flag: tasks
     tasks-create:
         operation: tasks_create
@@ -615,7 +629,19 @@ tools:
                 - updated_at
     tasks-me-config-agent-instructions-create:
         operation: tasks_me_config_agent_instructions_create
-        enabled: false
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Set my agent instructions
+        description: >
+            Set the caller's personal agent instructions: markdown added after the project instructions on cloud task
+            runs the caller starts. Autonomous runs never load them. Replaces the stored text; send an empty string to
+            clear. Read the current text with tasks-me-config-list first, and send the full new text, not a diff.
+        feature_flag: tasks
     tasks-me-config-create:
         operation: tasks_me_config_create
         enabled: true
@@ -645,7 +671,8 @@ tools:
         description: >
             Get the caller's per-project default AI run preferences, plus the resolved defaults a new run will use when
             no explicit runtime selection is sent (the caller's preference wins over the project default; `source` says
-            which level supplied it).
+            which level supplied it). Also returns the caller's personal agent instructions (`agent_instructions`), empty
+            when unset.
         feature_flag: tasks
     tasks-models-retrieve:
         operation: tasks_models_retrieve
