@@ -9,6 +9,8 @@ from parameterized import parameterized
 from products.alerts_platform.backend.facade.scheduling import (
     BlockedWindow,
     CalendarInterval,
+    advance_next_check_at,
+    advance_schedule,
     alert_check_offset,
     is_weekend,
     next_calendar_check_time,
@@ -519,3 +521,62 @@ class TestScanNextUnblockedUtc:
         self, _name: str, window: tuple[str, str], candidate: datetime, expected: datetime
     ) -> None:
         assert scan_next_unblocked_utc(candidate, "America/New_York", self._windows(window)) == expected
+
+
+class TestRecurrenceDispatch:
+    """`advance_schedule` picks the minute arithmetic or the calendar anchor by recurrence unit."""
+
+    DISPATCH_NOW = datetime(2026, 9, 30, 21, 0, tzinfo=UTC)
+
+    def test_no_unit_keeps_the_minute_arithmetic(self) -> None:
+        current = datetime(2026, 9, 30, 20, 55, tzinfo=UTC)
+        assert advance_schedule(
+            current_next_check_at=current,
+            check_interval_minutes=10,
+            recurrence_unit=None,
+            anchor_time=None,
+            tz_name="America/New_York",
+            now=self.DISPATCH_NOW,
+        ) == advance_next_check_at(current, 10, self.DISPATCH_NOW)
+
+    @parameterized.expand(
+        [
+            ("day", datetime(2026, 10, 1, 8, 0, tzinfo=UTC)),
+            ("week", datetime(2026, 10, 5, 8, 0, tzinfo=UTC)),
+            ("month", datetime(2026, 10, 1, 8, 0, tzinfo=UTC)),
+        ]
+    )
+    def test_a_calendar_unit_lands_on_the_local_anchor(self, unit: str, expected: datetime) -> None:
+        assert (
+            advance_schedule(
+                current_next_check_at=None,
+                check_interval_minutes=10,
+                recurrence_unit=unit,
+                anchor_time="04:00",
+                tz_name="America/New_York",
+                now=self.DISPATCH_NOW,
+            )
+            == expected
+        )
+
+    def test_a_monthly_recurrence_lands_on_the_next_month_not_the_interval(self) -> None:
+        # The 1st of the next month at the anchor, which the weekly and minute paths both miss.
+        assert advance_schedule(
+            current_next_check_at=self.DISPATCH_NOW,
+            check_interval_minutes=10,
+            recurrence_unit="month",
+            anchor_time="04:00",
+            tz_name="UTC",
+            now=self.DISPATCH_NOW,
+        ) == datetime(2026, 11, 1, 4, 0, tzinfo=UTC)
+
+    def test_an_unknown_unit_is_named_in_the_error(self) -> None:
+        with pytest.raises(ValueError, match="Unhandled recurrence unit: 'fortnight'"):
+            advance_schedule(
+                current_next_check_at=None,
+                check_interval_minutes=10,
+                recurrence_unit="fortnight",
+                anchor_time=None,
+                tz_name="UTC",
+                now=self.DISPATCH_NOW,
+            )

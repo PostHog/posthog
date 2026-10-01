@@ -40,6 +40,8 @@ def _configuration_view(configuration: PlatformAlertConfiguration) -> PlatformAl
         threshold_operator=configuration.threshold_operator,
         window_minutes=configuration.window_minutes,
         check_interval_minutes=configuration.check_interval_minutes,
+        recurrence_unit=configuration.recurrence_unit,
+        anchor_time=configuration.anchor_time,
         evaluation_periods=configuration.evaluation_periods,
         datapoints_to_alarm=configuration.datapoints_to_alarm,
         cooldown_minutes=configuration.cooldown_minutes,

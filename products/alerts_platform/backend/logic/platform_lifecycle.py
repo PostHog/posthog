@@ -4,7 +4,7 @@ A source decides whether its data breached; everything about what that means for
 and every write to these rows, stays here. A source never holds one of these models.
 """
 
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from datetime import datetime
 
 from django.db import transaction
@@ -18,7 +18,12 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertUpsert,
 )
 from products.alerts_platform.backend.facade.platform_metrics import increment_history_rows_dropped, safe_record
-from products.alerts_platform.backend.facade.scheduling import advance_schedule, compute_shard_offset_seconds
+from products.alerts_platform.backend.facade.scheduling import (
+    advance_schedule,
+    compute_shard_offset_seconds,
+    to_recurrence_interval,
+    validate_and_normalize_schedule_start_time,
+)
 from products.alerts_platform.backend.logic.platform_alert_events import PlatformAlertEventRow, insert_events
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
 
@@ -195,18 +200,6 @@ def _record_history(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> None
         safe_record(increment_history_rows_dropped, len(rows) - recorded)
 
 
-def _team_timezone_reader(team_id: int) -> Callable[[], str]:
-    """Reads the team's timezone at most once, and only if a calendar recurrence asks for it."""
-    cached: list[str] = []
-
-    def read() -> str:
-        if not cached:
-            cached.append(Team.objects.filter(id=team_id).values_list("timezone", flat=True).first() or "UTC")
-        return cached[0]
-
-    return read
-
-
 def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now: datetime) -> int:
     """Persists a batch's decisions and advances each configuration's schedule.
 
@@ -237,7 +230,9 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
         if not configurations:
             return 0
         alerts = _alerts_for_write(team_id, configurations)
-        team_timezone = _team_timezone_reader(team_id)
+        # One read for the batch. Every configuration in it belongs to this team, and a
+        # calendar recurrence resolves its anchor against the team's zone.
+        team_timezone = Team.objects.filter(id=team_id).values_list("timezone", flat=True).first() or "UTC"
 
         rows: list[PlatformAlertEventRow] = []
         for configuration in configurations:
@@ -261,7 +256,7 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
                 check_interval_minutes=configuration.check_interval_minutes,
                 recurrence_unit=configuration.recurrence_unit,
                 anchor_time=configuration.anchor_time,
-                tz_name=team_timezone(),
+                tz_name=team_timezone,
                 now=now,
                 shard_offset_seconds=compute_shard_offset_seconds(
                     configuration.id, configuration.check_interval_minutes
@@ -284,7 +279,14 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
     """Copies one source configuration in. Returns True when it created a row.
 
     Keyed on the row it came from, so a second run updates rather than duplicates.
+
+    The recurrence is checked here rather than where the schedule advances, because an
+    unparseable unit or anchor raised there would fail a whole batch of unrelated checks.
     """
+    if upsert.recurrence_unit is not None:
+        to_recurrence_interval(upsert.recurrence_unit)
+    anchor_time = validate_and_normalize_schedule_start_time(upsert.anchor_time)
+
     with transaction.atomic():
         configuration, created = PlatformAlertConfiguration.objects.unscoped().update_or_create(
             legacy_configuration_id=upsert.legacy_configuration_id,
@@ -299,7 +301,7 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
                 "window_minutes": upsert.window_minutes,
                 "check_interval_minutes": upsert.check_interval_minutes,
                 "recurrence_unit": upsert.recurrence_unit,
-                "anchor_time": upsert.anchor_time,
+                "anchor_time": anchor_time,
                 "evaluation_periods": upsert.evaluation_periods,
                 "datapoints_to_alarm": upsert.datapoints_to_alarm,
                 "cooldown_minutes": upsert.cooldown_minutes,

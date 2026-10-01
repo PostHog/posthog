@@ -22,3 +22,11 @@ class PlatformAlertState(LabeledStrEnum):
     ERRORED = "errored", "Errored"
     SNOOZED = "snoozed", "Snoozed"
     BROKEN = "broken", "Broken"
+
+
+class PlatformAlertConfigurationRecurrenceUnit(LabeledStrEnum):
+    """The calendar unit a configuration recurs on, when it does not recur on a minute interval."""
+
+    DAY = "day", "Day"
+    WEEK = "week", "Week"
+    MONTH = "month", "Month"
