@@ -225,6 +225,7 @@ export const InsightCard: Story = {
 }
 
 export const WaitingForCapacity: Story = {
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
     args: { loading: true, loadingQueued: true, waitingForCapacity: true },
     render: (args) => (
         <div className="flex flex-wrap items-start gap-4">
