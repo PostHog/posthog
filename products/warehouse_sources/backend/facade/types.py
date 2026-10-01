@@ -1425,6 +1425,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     AUDIOGO = "AudioGO", "AudioGO"
     EXACTONLINE = "ExactOnline", "ExactOnline"
     LETTRLABS = "LettrLabs", "LettrLabs"
+    GRAFANAIRM = "GrafanaIRM", "GrafanaIRM"
 
 
 def external_data_source_type_choices() -> list[tuple[typing.Any, str]]:
