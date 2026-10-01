@@ -341,7 +341,8 @@ When the user is doing housekeeping rather than asking about a specific PR:
    Before a lift, check that the default branch renders the story as its entry now.
    Use the latest completed default-branch run of the quarantine's run type whose commit contains the fix, and list its
    changed snapshots with `include_quarantined: true, exclude_unchanged: true`, following `next`.
-   Lift only when the story is not in that list. A pending run, or one of another run type, proves nothing.
+   Lift only when the story is not in that list on several such runs. A rare flake renders clean most of the time,
+   so one clean run is not enough, and a pending run or one of another run type proves nothing.
    The `broken` state alone does not decide it. The state covers 7 days, so it stays `broken` for days after a fix lands.
    When the story is still in that list, check that recent default-branch runs render the same changed picture before you re-baseline it.
    One changed render of a flaky story is a flake, and re-baselining it only swaps which variant fails. Keep the quarantine then.
