@@ -275,9 +275,11 @@ async def create_task_and_trigger(
     posthog_mcp_scopes: PosthogMcpScopes = (
         context.posthog_mcp_scopes if context.posthog_mcp_scopes is not None else "full"
     )
-    extra_run_state: dict[str, Any] | None = None
+    extra_run_state: dict[str, Any] = {}
     if context.mcp_exclude_tools:
-        extra_run_state = {"mcp_exclude_tools": list(context.mcp_exclude_tools)}
+        extra_run_state["mcp_exclude_tools"] = list(context.mcp_exclude_tools)
+    if output_schema:
+        extra_run_state["caller_ends_run"] = True
     task = await sync_to_async(Task.create_and_run)(
         team=team,
         title=title,

@@ -1467,6 +1467,18 @@ class TestCreateTaskAndTriggerForwardsContext:
         assert persisted.state.get("pending_user_message") == expected_pending_message
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(("output_schema", "expected_flag"), [({"type": "object"}, True), (None, None)])
+    async def test_marks_a_schema_run_as_ended_by_the_caller(self, output_schema, expected_flag):
+        team, user = await sync_to_async(self._setup_team_and_user)()
+        context = CustomPromptSandboxContext(team_id=team.id, user_id=user.id)
+
+        with patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"):
+            _, task_run = await create_task_and_trigger("prompt", context, output_schema=output_schema)
+
+        persisted = await sync_to_async(TaskRun.objects.get)(id=task_run.id)
+        assert persisted.state.get("caller_ends_run") is expected_flag
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "model, runtime_adapter, reasoning_effort, initial_permission_mode",
         [
