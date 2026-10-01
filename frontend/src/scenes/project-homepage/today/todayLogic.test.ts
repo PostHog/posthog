@@ -116,15 +116,21 @@ describe('todayLogic', () => {
         expect(briefingCalls).toBe(2)
     })
 
-    it('loads the midday edition when an open tab crosses noon', async () => {
+    it.each([
+        ['crosses noon', new Date(2026, 8, 30, 11, 59, 45), null],
+        ['sleeps from one afternoon to the next', new Date(2026, 8, 30, 14, 0, 0), new Date(2026, 9, 1, 14, 0, 0)],
+    ])('reloads the briefing when an open tab %s', async (_name, start, wakeAt) => {
         jest.useFakeTimers()
-        jest.setSystemTime(new Date(2026, 8, 30, 11, 59, 45))
+        jest.setSystemTime(start)
         briefingResponses = [[200, makeBriefing()]]
         const logic = todayLogic()
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadPersonalBriefingSuccess'])
 
         await expectLogic(logic, () => {
+            if (wakeAt) {
+                jest.setSystemTime(wakeAt)
+            }
             jest.advanceTimersByTime(30_000)
         }).toDispatchActions(['tick', 'loadPersonalBriefing', 'loadPersonalBriefingSuccess'])
         expect(briefingCalls).toBe(2)

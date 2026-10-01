@@ -377,10 +377,14 @@ export const todayLogic = kea<todayLogicType>([
                 refreshBriefingSuccess: () => null,
             },
         ],
+        // Polls spent on the briefing in progress. A settled briefing closes the count, so the next
+        // edition starts with the whole budget.
         briefingPolls: [
             0,
             {
                 pollBriefing: (count) => count + 1,
+                loadPersonalBriefingSuccess: (count, { personalBriefing }) =>
+                    personalBriefing && isBriefingSettled(personalBriefing) ? 0 : count,
                 refreshBriefingSuccess: () => 0,
                 stopWaitingForBriefing: () => 0,
             },
@@ -458,13 +462,14 @@ export const todayLogic = kea<todayLogicType>([
             router.actions.push(urls.ai(undefined, prompt))
         },
         tick: () => {
-            // An open tab moves to the next edition at 8:00 and at noon without a reload.
-            // The first tick, at mount, only records the edition.
-            const edition = editionForHour(values.hour)
-            if (cache.edition !== undefined && edition !== cache.edition && !values.useSampleData) {
+            // An open tab moves to the next edition at 8:00 and at noon without a reload. The day is part
+            // of the key, so a laptop that sleeps from one afternoon to the next reloads too.
+            // The first tick, at mount, only records the slot.
+            const slot = `${new Date(values.now).toDateString()} ${editionForHour(values.hour)}`
+            if (cache.slot !== undefined && slot !== cache.slot && !values.useSampleData) {
                 actions.loadPersonalBriefing()
             }
-            cache.edition = edition
+            cache.slot = slot
         },
         openReport: ({ report, source }) => {
             router.actions.push(urls.todayReport(report.id))
