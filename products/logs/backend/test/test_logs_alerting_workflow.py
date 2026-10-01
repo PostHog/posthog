@@ -6,11 +6,11 @@ the sandbox doesn't trip on Django imports inside `activities.py`.
 """
 
 import uuid
-import asyncio
 
 import pytest
 
 from temporalio import activity
+from temporalio.api.enums.v1 import EventType
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -51,15 +51,8 @@ async def test_workflow_chunks_manifests_and_aggregates_results(
     async def fake_discover(_input: DiscoverCohortsInput) -> DiscoverCohortsOutput:
         return DiscoverCohortsOutput(manifests=manifests, batch_size=3, max_concurrent_batches=max_concurrent_batches)
 
-    running = {"now": 0, "peak": 0}
-
     @activity.defn(name="evaluate_cohort_batch_activity")
     async def fake_evaluate(input: EvaluateCohortBatchInput) -> EvaluateCohortBatchOutput:
-        running["now"] += 1
-        running["peak"] = max(running["peak"], running["now"])
-        # Hold the slot long enough for every batch the workflow allows to start.
-        await asyncio.sleep(0.2)
-        running["now"] -= 1
         return EvaluateCohortBatchOutput(
             alerts_checked=len(input.manifests),
             alerts_fired=0,
@@ -75,16 +68,33 @@ async def test_workflow_chunks_manifests_and_aggregates_results(
             activities=[fake_discover, fake_evaluate],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            result: CheckAlertsOutput = await env.client.execute_workflow(
+            handle = await env.client.start_workflow(
                 LogsAlertCheckWorkflow.run,
                 CheckAlertsInput(),
                 id=f"test-workflow-aggregate-{uuid.uuid4()}",
                 task_queue=TASK_QUEUE,
             )
+            result: CheckAlertsOutput = await handle.result()
+            history = await handle.fetch_history()
+
+    # The semaphore decides when the workflow schedules each batch, so the peak count of
+    # scheduled-but-unfinished evaluate activities in history is the enforced limit.
+    open_batches = 0
+    peak = 0
+    for event in history.events:
+        if event.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED:
+            if event.activity_task_scheduled_event_attributes.activity_type.name == "evaluate_cohort_batch_activity":
+                open_batches += 1
+                peak = max(peak, open_batches)
+        elif event.event_type in (
+            EventType.EVENT_TYPE_ACTIVITY_TASK_COMPLETED,
+            EventType.EVENT_TYPE_ACTIVITY_TASK_FAILED,
+        ):
+            open_batches = max(0, open_batches - 1)
 
     assert result.alerts_checked == 7
     assert result.alerts_errored == 0
-    assert running["peak"] == expected_peak
+    assert peak == expected_peak
 
 
 @pytest.mark.asyncio
