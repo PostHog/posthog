@@ -35,6 +35,18 @@ describe('hogFunctionActivityDescriber', () => {
             notification: 'A user updated the input region for the hog function: Example destination',
         },
         {
+            name: 'names the changed keys of masked inputs',
+            changes: [
+                {
+                    field: 'inputs',
+                    before: { region: 'masked', format: 'masked' },
+                    after: { region: 'changed', format: 'masked' },
+                },
+            ],
+            summary: 'updated input: region',
+            notification: 'A user updated the input region for the hog function: Example destination',
+        },
+        {
             name: 'describes masked inputs and mappings without values',
             changes: [
                 { field: 'inputs', before: 'masked', after: 'masked' },

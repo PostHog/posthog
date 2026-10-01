@@ -304,7 +304,7 @@ class TestActivityLogContext(ActivityLogTestBase):
                         "after": {"api_key": {"value": "new-value"}},
                     }
                 ],
-                "inputs: masked -> masked",
+                'inputs: {"api_key": "masked"} -> {"api_key": "changed"}',
             ),
         ]
     )

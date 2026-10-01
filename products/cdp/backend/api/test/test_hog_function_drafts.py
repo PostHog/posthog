@@ -353,7 +353,11 @@ class TestHogFunctionDrafts(DraftTestCase):
             if change["field"] == field
         ]
         assert changes
-        assert all(change["after"] == "masked" for change in changes)
+        if field == "inputs":
+            assert all(change["after"]["url"] == "changed" for change in changes)
+            assert all(set(change["after"].values()) <= {"masked", "changed"} for change in changes)
+        else:
+            assert all(change["after"] == "masked" for change in changes)
         assert all("private-input" not in str(log.detail) for log in logs)
 
     @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)

@@ -245,10 +245,31 @@ class TestActivityLogAuditLogsGate(APIBaseTest):
             item_id="example-function",
             detail=detail,
         )
+        flow_entry = ActivityLog.objects.create(
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            user=self.user,
+            scope="HogFlow",
+            activity="updated",
+            item_id="example-flow",
+            detail={
+                "name": "Example workflow",
+                "changes": [
+                    {
+                        "type": "HogFlow",
+                        "field": "actions",
+                        "action": "changed",
+                        "before": [{"config": {"inputs": {"token": {"value": "example-private-flow"}}}}],
+                        "after": [],
+                    }
+                ],
+            },
+        )
         response = self.client.get(f"/api/projects/{self.team.id}/{endpoint}")
         assert response.status_code == status.HTTP_200_OK, response.content
         body = response.content.decode()
         assert str(entry.id) in body
+        assert str(flow_entry.id) in body
         assert "example-private" not in body
         assert "masked" in body
         assert "New name" in body
