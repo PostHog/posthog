@@ -54,6 +54,7 @@ from posthog.ph_client import feature_enabled_or_false, get_client, ph_scoped_ca
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.user_permissions import UserPermissions
 
+from products.access_control.backend.facade.api import valid_role_member_user_ids
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.batch_exports.backend.facade import api as batch_exports_api
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -75,6 +76,7 @@ class NotificationSetting(Enum):
     PLUGIN_DISABLED = "plugin_disabled"
     ERROR_TRACKING_ISSUE_ASSIGNED = "error_tracking_issue_assigned"
     ERROR_TRACKING_WEEKLY_DIGEST = "error_tracking_weekly_digest"
+    CONVERSATIONS_TICKET_ASSIGNED = "conversations_ticket_assigned"
     DISCUSSIONS_MENTIONED = "discussions_mentioned"
     PROJECT_API_KEY_EXPOSED = "project_api_key_exposed"
     AI_EVALUATION_DISABLED = "ai_evaluation_disabled"
@@ -90,6 +92,7 @@ NotificationSettingType = Literal[
     "plugin_disabled",
     "error_tracking_issue_assigned",
     "error_tracking_weekly_digest",
+    "conversations_ticket_assigned",
     "discussions_mentioned",
     "project_api_key_exposed",
     "ai_evaluation_disabled",
@@ -341,6 +344,10 @@ def should_send_notification(
                 return digest_project_settings.get(str(team_id), False)
 
         return True
+
+    # Default to True (enabled) if not set
+    elif notification_type == NotificationSetting.CONVERSATIONS_TICKET_ASSIGNED.value:
+        return settings.get(notification_type, True)
 
     # Default to True (enabled) if not set
     elif notification_type == NotificationSetting.DISCUSSIONS_MENTIONED.value:
@@ -2467,6 +2474,76 @@ def send_new_ticket_notification(ticket_id: str, team_id: int, first_message_con
 
     message.send()
     logger.info(f"Sent new ticket notification for ticket {ticket.id} to {len(memberships_to_email)} recipients")
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
+def send_ticket_assigned_notification(
+    ticket_id: str,
+    team_id: int,
+    assignee_type: str,
+    assignee_id: str,
+    assigned_at: str,
+    assigner_id: int | None = None,
+) -> None:
+    if not is_email_available(with_absolute_urls=True):
+        logger.warning("Skipping ticket assigned notification: email service not available")
+        return
+
+    try:
+        team = Team.objects.get(pk=team_id)
+        ticket = Ticket.objects.get(id=ticket_id, team=team)
+    except (Team.DoesNotExist, Ticket.DoesNotExist):
+        logger.warning(f"Skipping ticket assigned notification: ticket or team not found (ticket_id={ticket_id})")
+        return
+
+    if assignee_type == "user":
+        assigned_user_ids = {int(assignee_id)}
+    elif assignee_type == "role":
+        assigned_user_ids = set(valid_role_member_user_ids(role_id=assignee_id))
+    else:
+        return
+
+    # Assigning a ticket to yourself is already its own confirmation.
+    assigned_user_ids.discard(assigner_id)
+    if not assigned_user_ids:
+        return
+
+    memberships_to_email = [
+        membership
+        for membership in get_members_to_notify(team, NotificationSetting.CONVERSATIONS_TICKET_ASSIGNED.value)
+        if membership.user_id in assigned_user_ids
+    ]
+    if not memberships_to_email:
+        return
+
+    assigner = User.objects.filter(pk=assigner_id).first() if assigner_id else None
+    traits = ticket.anonymous_traits or {}
+
+    message = EmailMessage(
+        use_http=True,
+        # Reassigning to the same person has to email again, so the key carries the moment of
+        # assignment rather than the ticket alone.
+        campaign_key=f"conversation_ticket_assigned_{ticket.id}_{assignee_type}_{assignee_id}_{assigned_at}",
+        subject=f"[Ticket #{ticket.ticket_number}] Assigned to you in {team.name}",
+        template_name="conversation_ticket_assigned",
+        template_context={
+            "ticket_number": ticket.ticket_number,
+            "assigner_name": (assigner.first_name or assigner.email) if assigner else None,
+            "assigned_to_role": assignee_type == "role",
+            "customer_name": traits.get("name"),
+            "customer_email": traits.get("email"),
+            "last_message": ticket.last_message_text or "",
+            "ticket_url": f"{settings.SITE_URL}/project/{team.pk}/support/tickets/{ticket.ticket_number}",
+            **get_email_team_and_org_context(team=team),
+        },
+    )
+
+    for membership in memberships_to_email:
+        message.add_user_recipient(membership.user)
+
+    message.send()
+    logger.info(f"Sent ticket assigned notification for ticket {ticket.id} to {len(memberships_to_email)} recipients")
 
 
 @shared_task(**EMAIL_TASK_KWARGS)

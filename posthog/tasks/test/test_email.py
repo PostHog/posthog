@@ -50,6 +50,7 @@ from posthog.tasks.email import (
     send_project_secret_api_key_exposed,
     send_provisioning_welcome,
     send_team_matview_failure_digest,
+    send_ticket_assigned_notification,
     send_wizard_pr_ready_email,
     send_workflow_email_sending_paused,
     send_workflow_email_sending_warning,
@@ -2179,6 +2180,84 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         )
 
         # No email should be sent since recipient doesn't have access
+        assert len(mocked_email_messages) == 0
+
+    @parameterized.expand([("assigned_by_someone_else", False), ("assigned_to_self", True)])
+    def test_send_ticket_assigned_notification(
+        self, MockEmailMessage: MagicMock, _name: str, assigns_to_self: bool
+    ) -> None:
+        from products.conversations.backend.models import Ticket
+
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        assignee = User.objects.create_and_join(
+            organization=self.organization,
+            email="assignee@posthog.com",
+            password=None,
+            level=OrganizationMembership.Level.MEMBER,
+        )
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id="test-session-id",
+            distinct_id="test-distinct-id",
+            channel_source="widget",
+            status="new",
+            anonymous_traits={"name": "Test Customer", "email": "customer@example.com"},
+        )
+
+        send_ticket_assigned_notification(
+            ticket_id=str(ticket.id),
+            team_id=self.team.id,
+            assignee_type="user",
+            assignee_id=str(assignee.id),
+            assigned_at="2026-01-01T00:00:00+00:00",
+            assigner_id=assignee.id if assigns_to_self else self.user.id,
+        )
+
+        if assigns_to_self:
+            assert len(mocked_email_messages) == 0
+            return
+
+        assert len(mocked_email_messages) == 1
+        message = mocked_email_messages[0]
+        assert message.send.call_count == 1
+        # Only the assignee hears about it. Everyone else in the organization is a regression.
+        assert {dest["raw_email"] for dest in message.to} == {"assignee@posthog.com"}
+        assert f"Ticket #{ticket.ticket_number}" in message.subject
+        assert message.html_body
+        assert "Test Customer" in message.html_body
+
+    def test_send_ticket_assigned_notification_opted_out(self, MockEmailMessage: MagicMock) -> None:
+        from products.conversations.backend.models import Ticket
+
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        assignee = User.objects.create_and_join(
+            organization=self.organization,
+            email="assignee@posthog.com",
+            password=None,
+            level=OrganizationMembership.Level.MEMBER,
+        )
+        assignee.partial_notification_settings = {"conversations_ticket_assigned": False}
+        assignee.save()
+
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id="test-session-id",
+            distinct_id="test-distinct-id",
+            channel_source="widget",
+            status="new",
+        )
+
+        send_ticket_assigned_notification(
+            ticket_id=str(ticket.id),
+            team_id=self.team.id,
+            assignee_type="user",
+            assignee_id=str(assignee.id),
+            assigned_at="2026-01-01T00:00:00+00:00",
+            assigner_id=self.user.id,
+        )
+
         assert len(mocked_email_messages) == 0
 
     def test_send_discussions_mentioned_with_slug_generates_correct_href(self, MockEmailMessage: MagicMock) -> None:
