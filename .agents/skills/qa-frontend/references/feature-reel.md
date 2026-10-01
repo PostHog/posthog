@@ -77,7 +77,7 @@ Read the stills in `capture/` before you render. They are the whole content of t
 
 Before you share the reel, read some frames from `frames/`: the first frame, one frame at each click, and the last frame.
 Each step must show its cause: the cursor reaches the control before the next state fades in.
-A three-step reel is about 3 MB. The upload limit is 10 MB.
+A two-step reel is about 3 MB and a three-step reel about 5 MB. The upload limit is 10 MB.
 
 ## 4. Add it to the PR
 
