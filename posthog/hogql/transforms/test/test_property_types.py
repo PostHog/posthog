@@ -1668,7 +1668,8 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, BaseTest):
             context=restricted_context,
         )
         assert restricted.results is not None
-        stored_document = json.loads(restricted.results[0][3])
+        # The masked document is a String, so toJSONString quotes it, as it quotes the legacy String column.
+        stored_document = json.loads(json.loads(restricted.results[0][3]))
         assert "$feature/secret" not in stored_document
         assert "secret" not in stored_document["$feature_flags"]
         assert stored_document["$feature_flags"]["variant"] == "control"
