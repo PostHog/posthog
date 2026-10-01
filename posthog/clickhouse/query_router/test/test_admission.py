@@ -1,0 +1,280 @@
+import queue
+import threading
+import dataclasses
+from contextlib import AbstractContextManager, ExitStack
+
+from unittest.mock import MagicMock, patch
+
+from django.test import SimpleTestCase
+
+import fakeredis
+from parameterized import parameterized
+
+from posthog.clickhouse.query_router.admission import Admission, AdmissionOutcome, QueryRouter
+from posthog.clickhouse.query_router.config import (
+    CLASS_POLICIES,
+    STALE_WAITER_MS,
+    Pool,
+    PoolBounds,
+    QueryClass,
+    RouterMode,
+    limit_key,
+    running_key,
+    waiting_key,
+    waiting_seen_key,
+)
+from posthog.exceptions import ClickHouseAtCapacity
+from posthog.redis import get_client
+
+# With a limit of 2, INTERACTIVE may run 2 queries and every other class 1, so one held slot is a
+# full pool for API and BACKGROUND.
+SMALL_LIMIT = 2
+
+
+class _FakeClock:
+    def __init__(self) -> None:
+        self.now = 1_700_000_000.0
+
+    def time(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.now += seconds
+
+
+class _ParkedWaiter:
+    # Runs admit() on its own thread and stops it at every poll sleep until the test steps it, so a
+    # test chooses which of several queued queries polls next.
+    def __init__(self, clock: _FakeClock, query_class: QueryClass) -> None:
+        self._query_class = query_class
+        self.sleeps: list[float] = []
+        self._events: queue.Queue[str] = queue.Queue()
+        self._steps: queue.Queue[None] = queue.Queue()
+        self._router = QueryRouter(redis_client=get_client(), get_time=clock.time, sleep=self._park)
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def start(self) -> str:
+        self._thread.start()
+        return self._events.get(timeout=5)
+
+    def step(self) -> str:
+        self._steps.put(None)
+        return self._events.get(timeout=5)
+
+    def finish(self) -> None:
+        while self.step() not in ("released", "dropped"):
+            pass
+        self._thread.join(timeout=5)
+
+    def _park(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self._events.put("waiting")
+        self._steps.get(timeout=5)
+
+    def _run(self) -> None:
+        try:
+            with self._router.admit(pool=Pool.OFFLINE, query_class=self._query_class, max_execution_seconds=None):
+                self._events.put("admitted")
+                self._steps.get(timeout=5)
+        except ClickHouseAtCapacity:
+            self._events.put("dropped")
+            return
+        self._events.put("released")
+
+
+class TestQueryRouterAdmission(SimpleTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.clock = _FakeClock()
+        self.redis = get_client()
+        self.router = QueryRouter(redis_client=self.redis, get_time=self.clock.time, sleep=self.clock.sleep)
+        self.get_mode = self._start_patch("posthog.clickhouse.query_router.config.get_mode", RouterMode.ENFORCE)
+        self.get_pool_bounds = self._start_patch(
+            "posthog.clickhouse.query_router.config.get_pool_bounds", PoolBounds(floor=1, ceiling=SMALL_LIMIT)
+        )
+        self.addCleanup(self._delete_router_keys)
+
+    def _start_patch(self, target: str, return_value: object) -> MagicMock:
+        patcher = patch(target, return_value=return_value)
+        self.addCleanup(patcher.stop)
+        return patcher.start()
+
+    def _delete_router_keys(self) -> None:
+        for pool in Pool:
+            self.redis.delete(
+                *(running_key(pool, query_class) for query_class in QueryClass),
+                waiting_key(pool),
+                waiting_seen_key(pool),
+                limit_key(pool),
+            )
+
+    def _admit(
+        self, query_class: QueryClass, max_execution_seconds: float | None = None
+    ) -> AbstractContextManager[Admission]:
+        return self.router.admit(
+            pool=Pool.OFFLINE, query_class=query_class, max_execution_seconds=max_execution_seconds
+        )
+
+    def _hold(self, stack: ExitStack, count: int) -> None:
+        for _ in range(count):
+            stack.enter_context(self._admit(QueryClass.INTERACTIVE))
+
+    def _running(self, query_class: QueryClass) -> int:
+        return self.redis.zcard(running_key(Pool.OFFLINE, query_class))
+
+    def test_class_waits_above_its_share_while_a_higher_class_is_admitted(self) -> None:
+        self.get_pool_bounds.return_value = PoolBounds(floor=1, ceiling=1000)
+        self.redis.set(limit_key(Pool.OFFLINE), 10)
+        background = _ParkedWaiter(self.clock, QueryClass.BACKGROUND)
+
+        with ExitStack() as held:
+            self._hold(held, 5)
+            assert background.start() == "waiting"
+            with self._admit(QueryClass.API) as admission:
+                assert admission.outcome == AdmissionOutcome.ADMITTED
+                assert admission.limit == 10
+
+        background.finish()
+
+    @parameterized.expand(
+        [
+            ("higher_class_before_earlier_arrival", QueryClass.BACKGROUND, QueryClass.API, False),
+            ("same_class_in_arrival_order", QueryClass.BACKGROUND, QueryClass.BACKGROUND, True),
+        ]
+    )
+    def test_freed_slot_goes_to_the_waiter_ranked_first(
+        self, _name: str, early_class: QueryClass, late_class: QueryClass, early_wins: bool
+    ) -> None:
+        early = _ParkedWaiter(self.clock, early_class)
+        late = _ParkedWaiter(self.clock, late_class)
+        with ExitStack() as held:
+            self._hold(held, 1)
+            assert early.start() == "waiting"
+            self.clock.now += 0.1
+            assert late.start() == "waiting"
+
+        winner, loser = (early, late) if early_wins else (late, early)
+        self.clock.now += 0.1
+        assert loser.step() == "waiting"
+        self.clock.now += 0.1
+        assert winner.step() == "admitted"
+
+        winner.finish()
+        loser.finish()
+
+    def test_waiter_polls_less_often_the_further_it_is_from_the_head(self) -> None:
+        self.enterContext(patch("posthog.clickhouse.query_router.admission.random.uniform", return_value=1.0))
+        waiters = [_ParkedWaiter(self.clock, QueryClass.BACKGROUND) for _ in range(4)]
+        with ExitStack() as held:
+            self._hold(held, 1)
+            for waiter in waiters:
+                assert waiter.start() == "waiting"
+                self.clock.now += 0.01
+
+        head, deep = waiters[0], waiters[-1]
+        assert head.sleeps[0] <= 0.05
+        assert deep.sleeps[0] > head.sleeps[0]
+
+        for waiter in waiters:
+            waiter.finish()
+
+    def test_waiter_is_dropped_after_its_max_wait_and_leaves_the_queue(self) -> None:
+        started_at = self.clock.now
+        with ExitStack() as held:
+            self._hold(held, 1)
+            with self.assertRaises(ClickHouseAtCapacity):
+                with self._admit(QueryClass.BACKGROUND):
+                    pass
+
+        self.assertAlmostEqual(
+            self.clock.now - started_at, CLASS_POLICIES[QueryClass.BACKGROUND].max_wait_seconds, places=3
+        )
+        assert self.redis.zcard(waiting_key(Pool.OFFLINE)) == 0
+        assert self.redis.zcard(waiting_seen_key(Pool.OFFLINE)) == 0
+
+    def test_query_is_dropped_at_once_when_its_class_queue_is_full(self) -> None:
+        one_deep = dataclasses.replace(CLASS_POLICIES[QueryClass.BACKGROUND], max_queue_depth=1)
+        self.enterContext(patch.dict(CLASS_POLICIES, {QueryClass.BACKGROUND: one_deep}))
+        queued = _ParkedWaiter(self.clock, QueryClass.BACKGROUND)
+
+        with ExitStack() as held:
+            self._hold(held, 1)
+            assert queued.start() == "waiting"
+            started_at = self.clock.now
+            with self.assertRaises(ClickHouseAtCapacity):
+                with self._admit(QueryClass.BACKGROUND):
+                    pass
+            assert self.clock.now == started_at
+            assert self.redis.zcard(waiting_key(Pool.OFFLINE)) == 1
+
+        queued.finish()
+
+    @parameterized.expand(
+        [
+            ("no_time_limit", None, 900),
+            ("zero_is_no_time_limit", 0, 900),
+            ("time_limit_plus_margin", 120, 150),
+            ("short_time_limit_raised_to_minimum", 10, 60),
+            ("long_time_limit_capped", 7200, 3600),
+        ]
+    )
+    def test_unreleased_slot_stops_counting_after_its_ttl(
+        self, _name: str, max_execution_seconds: float | None, ttl_seconds: int
+    ) -> None:
+        with ExitStack() as held:
+            held.enter_context(self._admit(QueryClass.BACKGROUND, max_execution_seconds))
+            self.clock.now += ttl_seconds - 5
+            with self._admit(QueryClass.BACKGROUND) as admission:
+                assert admission.outcome == AdmissionOutcome.ADMITTED_AFTER_WAIT
+                assert 4_990 <= admission.waited_ms <= 5_510
+
+    def test_waiter_that_stopped_polling_stops_blocking_after_stale_ms(self) -> None:
+        stuck = _ParkedWaiter(self.clock, QueryClass.BACKGROUND)
+        with ExitStack() as held:
+            self._hold(held, 1)
+            assert stuck.start() == "waiting"
+        stuck_polled_at = self.clock.now
+
+        self.clock.now += 0.1
+        with self._admit(QueryClass.BACKGROUND) as admission:
+            assert admission.outcome == AdmissionOutcome.ADMITTED_AFTER_WAIT
+            assert STALE_WAITER_MS - 10 <= (self.clock.now - stuck_polled_at) * 1000 <= STALE_WAITER_MS + 510
+
+        stuck.finish()
+
+    def test_observe_mode_admits_over_the_limit_and_holds_a_slot(self) -> None:
+        self.get_mode.return_value = RouterMode.OBSERVE
+        with ExitStack() as held:
+            self._hold(held, SMALL_LIMIT)
+            started_at = self.clock.now
+            with self._admit(QueryClass.BACKGROUND) as admission:
+                assert admission.outcome == AdmissionOutcome.WOULD_WAIT
+                assert self.clock.now == started_at
+                assert self._running(QueryClass.BACKGROUND) == 1
+            assert self._running(QueryClass.BACKGROUND) == 0
+
+    def test_router_failure_lets_the_query_through(self) -> None:
+        server = fakeredis.FakeServer()
+        router = QueryRouter(
+            redis_client=fakeredis.FakeRedis(server=server), get_time=self.clock.time, sleep=self.clock.sleep
+        )
+
+        with router.admit(pool=Pool.OFFLINE, query_class=QueryClass.API, max_execution_seconds=None) as admission:
+            assert admission.outcome == AdmissionOutcome.ADMITTED
+            server.connected = False
+
+        with router.admit(pool=Pool.OFFLINE, query_class=QueryClass.API, max_execution_seconds=None) as admission:
+            assert admission.outcome == AdmissionOutcome.ERROR
+
+        server.connected = True
+        self.get_pool_bounds.side_effect = ValueError("invalid literal for int()")
+        with router.admit(pool=Pool.OFFLINE, query_class=QueryClass.API, max_execution_seconds=None) as admission:
+            assert admission.outcome == AdmissionOutcome.ERROR
+
+    def test_slot_is_released_when_the_query_raises(self) -> None:
+        with self.assertRaises(ValueError):
+            with self._admit(QueryClass.API):
+                assert self._running(QueryClass.API) == 1
+                raise ValueError("query failed")
+
+        assert self._running(QueryClass.API) == 0

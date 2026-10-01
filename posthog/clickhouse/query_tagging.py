@@ -143,6 +143,8 @@ class Feature(StrEnum):
     MCP = "mcp"
     # The offline analysis of a slow query: a handful of EXPLAINs per scan slot, not per request.
     QUERY_SCAN = "query_scan"
+    # The load poll of the query router controller, which the router must never queue or drop.
+    QUERY_ROUTER = "query_router"
     SEMANTIC_SEARCH = "semantic_search"
     # A 30 day aggregate that runs on every AI observability dashboard mount and trace view, so its
     # load is worth attributing separately from the tab queries it sits alongside.
@@ -416,6 +418,8 @@ class QueryTags(BaseModel):
 
     rate_limit_bypass: Optional[int] = None
     rate_limit_wait_ms: Optional[int] = None
+    query_router_class: Optional[str] = None
+    query_router_wait_ms: Optional[int] = None
     kill_switch: Optional[str] = None
 
     route_id: Optional[str] = None

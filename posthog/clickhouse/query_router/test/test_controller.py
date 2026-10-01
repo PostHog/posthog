@@ -1,0 +1,202 @@
+import itertools
+
+from unittest.mock import patch
+
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
+from prometheus_client import REGISTRY
+
+from posthog import redis
+from posthog.clickhouse.query_router import config
+from posthog.clickhouse.query_router.config import Pool, PoolBounds, QueryClass, RouterMode
+from posthog.clickhouse.query_router.controller import (
+    ControllerLoop,
+    LimitController,
+    LoadReader,
+    NodeCounters,
+    next_limit,
+)
+
+BOUNDS = PoolBounds(floor=80, ceiling=400)
+
+
+def _node(host: str, cluster_type: str, *, wait: float = 0.0, busy: float = 0.0, overload: float = 0.0) -> NodeCounters:
+    return NodeCounters(host=host, cluster_type=cluster_type, cpu_wait_us=wait, cpu_busy_us=busy, overload=overload)
+
+
+class _FakeClock:
+    def __init__(self) -> None:
+        self.now = 1_000_000.0
+        self.slept: list[float] = []
+
+    def __call__(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.slept.append(seconds)
+        self.now += seconds
+
+
+class _FakeFetch:
+    def __init__(self, nodes: list[NodeCounters]) -> None:
+        self.nodes = nodes
+        self.error: Exception | None = None
+
+    def __call__(self) -> list[NodeCounters]:
+        if self.error is not None:
+            raise self.error
+        return self.nodes
+
+
+class TestNextLimit(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("decrease_at_high_load", 400, 0.5, BOUNDS, 340),
+            ("decrease_rounds_down", 101, 1.2, BOUNDS, 85),
+            ("decrease_stops_at_floor", 90, 0.9, BOUNDS, 80),
+            ("increase_at_low_load", 200, 0.25, BOUNDS, 212),
+            ("increase_stops_at_ceiling", 395, 0.0, BOUNDS, 400),
+            ("increase_step_is_at_least_one", 5, 0.0, PoolBounds(floor=1, ceiling=10), 6),
+            ("hold_between_thresholds", 200, 0.3, BOUNDS, 200),
+            ("hold_clamps_to_a_lowered_ceiling", 400, 0.3, PoolBounds(floor=80, ceiling=300), 300),
+        ]
+    )
+    def test_next_limit(self, _name: str, current: int, load: float, bounds: PoolBounds, expected: int) -> None:
+        assert next_limit(current=current, load=load, bounds=bounds) == expected
+
+
+class TestLoadReader(SimpleTestCase):
+    def test_node_load_is_wait_over_busy_delta_with_overload_when_there_is_no_usable_delta(self) -> None:
+        polls = iter(
+            [
+                [_node("ch1", "offline", wait=1_000, busy=10_000, overload=0.7)],
+                [_node("ch1", "offline", wait=3_000, busy=14_000, overload=0.9)],
+                [_node("ch1", "offline", wait=100, busy=500, overload=0.2)],
+                [_node("ch1", "offline", wait=200, busy=500, overload=0.3)],
+            ]
+        )
+        reader = LoadReader(fetch=lambda: next(polls))
+
+        loads = [reader.read()[Pool.OFFLINE] for _ in range(4)]
+
+        assert loads == [0.7, 0.5, 0.2, 0.3]
+
+    def test_hottest_node_sets_the_pool_load_and_other_clusters_are_ignored(self) -> None:
+        reader = LoadReader(
+            fetch=lambda: [
+                _node("off1", "offline", overload=0.1),
+                _node("off2", "offline", overload=0.9),
+                _node("on1", "online", overload=0.2),
+                _node("on2", "online", overload=0.05),
+                _node("logs1", "logs", overload=5.0),
+            ]
+        )
+
+        assert reader.read() == {Pool.OFFLINE: 0.9, Pool.ONLINE: 0.2}
+
+
+class TestLimitController(SimpleTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.enterContext(patch.object(config, "get_global_mode", return_value=RouterMode.OBSERVE))
+        self.enterContext(patch.object(config, "get_pool_bounds", return_value=BOUNDS))
+        self.redis = redis.get_client()
+        self.clock = _FakeClock()
+        self._delete_controller_keys()
+        self.addCleanup(self._delete_controller_keys)
+
+    def _delete_controller_keys(self) -> None:
+        self.redis.delete(
+            config.CONTROLLER_LEADER_KEY,
+            *(config.limit_key(pool) for pool in Pool),
+            *(config.running_key(pool, query_class) for pool in Pool for query_class in QueryClass),
+        )
+
+    def _written_limits(self) -> dict[Pool, int]:
+        limits: dict[Pool, int] = {}
+        for pool in Pool:
+            value = self.redis.get(config.limit_key(pool))
+            if value is not None:
+                limits[pool] = int(value)
+        return limits
+
+    def _controller(self, fetch: _FakeFetch) -> LimitController:
+        return LimitController(load_reader=LoadReader(fetch=fetch), get_time=self.clock)
+
+    def test_controller_without_the_lease_writes_nothing(self) -> None:
+        fetch = _FakeFetch([_node("off1", "offline", overload=0.9), _node("on1", "online", overload=0.9)])
+        leader = self._controller(fetch)
+        follower = self._controller(fetch)
+
+        leader.tick()
+        assert self._written_limits() == {Pool.OFFLINE: 340, Pool.ONLINE: 340}
+        self.redis.delete(*(config.limit_key(pool) for pool in Pool))
+        follower.tick()
+
+        assert self._written_limits() == {}
+
+    def test_new_leader_continues_from_the_limit_the_previous_leader_wrote(self) -> None:
+        self._controller(
+            _FakeFetch([_node("off1", "offline", overload=0.9), _node("on1", "online", overload=0.9)])
+        ).tick()
+        self.redis.delete(config.CONTROLLER_LEADER_KEY)
+
+        self._controller(_FakeFetch([_node("off1", "offline"), _node("on1", "online")])).tick()
+
+        assert self._written_limits() == {Pool.OFFLINE: 352, Pool.ONLINE: 352}
+
+    def test_running_gauge_counts_only_slots_that_have_not_expired(self) -> None:
+        now_ms = int(self.clock.now * 1000)
+        self.redis.zadd(
+            config.running_key(Pool.OFFLINE, QueryClass.BACKGROUND),
+            {"live": now_ms + 5_000, "expired": now_ms - 5_000},
+        )
+
+        self._controller(_FakeFetch([])).tick()
+
+        running = REGISTRY.get_sample_value(
+            "posthog_query_router_running", {"pool": "offline", "query_class": "background"}
+        )
+        assert running == 1
+
+    @parameterized.expand(
+        [
+            ("off_when_the_run_starts", [], 0),
+            ("turned_off_while_leading", [RouterMode.OBSERVE], 1),
+        ]
+    )
+    def test_run_ends_and_leaves_no_lease_once_the_router_is_off(
+        self, _name: str, modes_before_off: list[RouterMode], expected_sleeps: int
+    ) -> None:
+        off_ticks_before = REGISTRY.get_sample_value("posthog_query_router_controller_ticks_total", {"result": "off"})
+        loop = ControllerLoop(
+            self._controller(_FakeFetch([_node("off1", "offline"), _node("on1", "online")])),
+            get_time=self.clock,
+            sleep=self.clock.sleep,
+        )
+
+        with patch.object(
+            config, "get_global_mode", side_effect=itertools.chain(modes_before_off, itertools.repeat(RouterMode.OFF))
+        ):
+            loop.run(max_seconds=120)
+
+        off_ticks_after = REGISTRY.get_sample_value("posthog_query_router_controller_ticks_total", {"result": "off"})
+        assert len(self.clock.slept) == expected_sleeps
+        assert self.redis.get(config.CONTROLLER_LEADER_KEY) is None
+        assert (off_ticks_after or 0) - (off_ticks_before or 0) == 1
+
+    def test_stops_rewriting_the_limit_ten_seconds_after_the_last_good_read(self) -> None:
+        fetch = _FakeFetch([_node("off1", "offline", overload=0.9), _node("on1", "online", overload=0.0)])
+        controller = self._controller(fetch)
+        controller.tick()
+        fetch.error = RuntimeError("clickhouse unavailable")
+
+        written = []
+        for _ in range(12):
+            self.clock.now += 1.0
+            self.redis.delete(*(config.limit_key(pool) for pool in Pool))
+            controller.tick()
+            written.append(self._written_limits())
+
+        assert written == [{Pool.OFFLINE: 340, Pool.ONLINE: 400}] * 10 + [{}] * 2
