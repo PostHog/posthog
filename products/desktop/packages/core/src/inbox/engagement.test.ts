@@ -249,15 +249,14 @@ describe("inboxDetailTabReports", () => {
 
   it("treats a ready non-run report as a finished run on the runs tab", () => {
     // `ready` is shared by isReportTabReport and isFinishedRunReport, so a ready
-    // report renders in both the Reports tab and the Runs tab's "Recently
-    // finished" section. The runs list reflects that overlap.
+    // report renders in both the Reports tab and the Runs tab.
     expect(inboxDetailTabReports("runs", [queuedRun, reportRow])).toEqual([
       queuedRun,
       reportRow,
     ]);
   });
 
-  it("orders runs Queued → Live → Finished, newest-first within a section", () => {
+  it("orders runs newest-first across queued, live, and finished states", () => {
     const olderFinished = fakeReport({
       id: "fin-old",
       status: "ready",
@@ -276,16 +275,16 @@ describe("inboxDetailTabReports", () => {
       queuedRun,
     ]);
     expect(visible.map((r) => r.id)).toEqual([
-      "queued",
-      "live",
       "fin-new",
+      "live",
+      "queued",
       "fin-old",
     ]);
   });
 
   it("ranks a recently-finished run against the runs list (not rank -1)", () => {
-    // The regression: `failed`/`ready` runs render in the Runs tab's "Recently
-    // finished" section but aren't `isAgentRunReport`, so they used to fall out
+    // The regression: `failed`/`ready` runs render in the Runs tab
+    // but aren't `isAgentRunReport`, so they used to fall out
     // of the tracked list and report rank -1.
     const visible = inboxDetailTabReports("runs", [
       queuedRun,
