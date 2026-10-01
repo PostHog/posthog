@@ -195,6 +195,10 @@ const meta: Meta<typeof PipelineOverviewScene> = {
         viewMode: 'story',
         // The scene refuses to render without this, so every story has to carry it.
         featureFlags: [FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION],
+        testOptions: {
+            waitForLoadersToDisappear: false,
+            waitForSelector: '[data-attr="etl-run-view-source"]',
+        },
     },
 }
 export default meta
