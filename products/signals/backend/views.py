@@ -143,7 +143,12 @@ from products.signals.backend.pull_requests import import_report_pull_requests
 from products.signals.backend.quota import self_driving_quota_enforcement_enabled, self_driving_quota_gate
 from products.signals.backend.repo_corrections import sanitized_repository
 from products.signals.backend.report_assignments import InvalidPullRequestUrl, ReportClaimConflict, claim_report
-from products.signals.backend.report_check_authoring import cancel_check
+from products.signals.backend.report_check_authoring import (
+    CheckCreationError,
+    CheckQueryAccessError,
+    cancel_check,
+    replace_metric_check,
+)
 from products.signals.backend.report_claims import (
     actor_owns_claim,
     get_active_claim,
@@ -197,6 +202,7 @@ from products.signals.backend.serializers import (
     SignalReportArtefactSerializer,
     SignalReportArtefactWriteResponseSerializer,
     SignalReportArtefactWriteSerializer,
+    SignalReportCheckReplacementSerializer,
     SignalReportCheckSerializer,
     SignalReportClaimSerializer,
     SignalReportListQuerySerializer,
@@ -4796,7 +4802,7 @@ class SignalReportCheckViewSet(
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
-    """Checks attached to a signal report: read and cancel.
+    """Checks attached to a signal report: read, approve, replace metrics, and cancel.
 
     There is no create here. A check is authored by a scout run or by the research pipeline, both
     through `report_check_authoring.create_check`. An `agent` check puts its author's prose in front
@@ -4804,16 +4810,24 @@ class SignalReportCheckViewSet(
     endpoint accepts one. Anyone who can read the report can read its checks, and a person can
     still stop one.
 
-    There is no update: a check is a claim about the future, and editing its threshold after a
-    result would make the recorded verdict unreadable. Cancel it and let its author write a new one.
+    There is no in-place update: a check is a claim about the future, and editing its threshold
+    after a result would make the recorded verdict unreadable. Replacing an open metric check
+    cancels the old row and creates a new one in one transaction.
     """
 
     serializer_class = SignalReportCheckSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
-    queryset = SignalReportCheck.objects.unscoped().order_by("-created_at")
-    http_method_names = ["get", "delete", "head", "options"]
+    queryset = SignalReportCheck.objects.unscoped().order_by(
+        Case(
+            When(status__in=SignalReportCheck.OPEN_STATUSES, then=Value(0)),
+            default=Value(1),
+            output_field=IntegerField(),
+        ),
+        "-created_at",
+    )
+    http_method_names = ["get", "post", "delete", "head", "options"]
 
     def _validated_report(self) -> SignalReport:
         report_id = self.parents_query_dict["report_id"]
@@ -4844,6 +4858,60 @@ class SignalReportCheckViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
         return Response(self.get_serializer(check).data)
+
+    @extend_schema(
+        request=None,
+        responses={200: SignalReportCheckSerializer},
+        summary="Approve a follow-up check",
+        description="Record a person's quality signal. Approval does not affect scheduling or execution.",
+        operation_id="signals_report_checks_approve_create",
+    )
+    @action(detail=True, methods=["post"], url_path="approve", required_scopes=["task:write"])
+    def approve(self, request: Request, *args, **kwargs) -> Response:
+        attribution = resolve_request_attribution(request, self.team.id)
+        if attribution.kind != "user" or not isinstance(request.successful_authenticator, SessionAuthentication):
+            return Response({"error": "A person must approve this check."}, status=status.HTTP_403_FORBIDDEN)
+        check = cast(SignalReportCheck, self.get_object())
+        if check.kind == SignalReportCheck.Kind.METRIC_THRESHOLD and not ReportMetricAccessPolicy(
+            request=request, team=self.team
+        ).may_read_query(check.config):
+            return Response(
+                {"error": "The measurement query is not available to you."}, status=status.HTTP_403_FORBIDDEN
+            )
+        SignalReportCheck.objects.for_team(self.team.id).filter(
+            id=check.id, status__in=SignalReportCheck.OPEN_STATUSES, approved_at__isnull=True
+        ).update(approved_at=timezone.now(), approved_by_id=attribution.user_id)
+        check.refresh_from_db()
+        if check.status not in SignalReportCheck.OPEN_STATUSES:
+            return Response({"error": "Only open checks can be approved."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(self.get_serializer(check).data)
+
+    @validated_request(
+        request_serializer=SignalReportCheckReplacementSerializer,
+        responses={200: SignalReportCheckSerializer},
+        summary="Replace a metric follow-up check",
+        description="Atomically replace an open metric check. The old check stays live if the new one is invalid.",
+        operation_id="signals_report_checks_replace_create",
+    )
+    @action(detail=True, methods=["post"], url_path="replace", required_scopes=["task:write"])
+    def replace(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        check = cast(SignalReportCheck, self.get_object())
+        data = request.validated_data
+        try:
+            replacement = replace_metric_check(
+                check=check,
+                title=data["title"],
+                rationale=data.get("rationale", ""),
+                config=data["config"],
+                soak_hours=data.get("soak_hours"),
+                attribution=resolve_request_attribution(request, self.team.id),
+                access_policy=ReportMetricAccessPolicy(request=request, team=self.team),
+            )
+        except CheckQueryAccessError as error:
+            return Response({"error": str(error)}, status=status.HTTP_403_FORBIDDEN)
+        except CheckCreationError as error:
+            return Response({"error": str(error)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(self.get_serializer(replacement).data)
 
 
 @extend_schema_view(

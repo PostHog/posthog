@@ -6714,7 +6714,7 @@
         }
     },
     "inbox-report-checks-list": {
-        "description": "List the follow-up checks on one report, newest first. Each row carries the expectation and why it was written, its schedule (`next_run_at`, `run_interval_minutes`, `runs_remaining`, `expires_at`), its `status` (`pending`, `active`, `passed`, `failed`, `errored`, `expired`, or `cancelled`) and its `last_outcome`. A `pending` check waits for its report to resolve before its clock starts. Checks are written by scout runs and by the research pipeline, so this surface reads them and does not create them. `query` and `baseline_value` read as null when you cannot read the data they describe.",
+        "description": "List the follow-up checks on one report, open checks first and newest first within each group. Each row carries the expectation and why it was written, its schedule (`next_run_at`, `run_interval_minutes`, `runs_remaining`, `expires_at`), its `status` (`pending`, `active`, `passed`, `failed`, `errored`, `expired`, or `cancelled`) and its `last_outcome`. A `pending` check waits for its report to resolve before its clock starts. Checks are written by scout runs and by the research pipeline, so this surface reads them and does not create them. `query` and `baseline_value` read as null when you cannot read the data they describe.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List a report's checks",
@@ -6725,6 +6725,20 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "inbox-report-checks-replace": {
+        "description": "Replace one open metric check after investigating a better measure or threshold. Read the current check and report first. Supply a bounded live Trends query or a report metric ID, an explicit comparison, and a measured baseline. The old check stays live if the replacement fails validation. A successful replacement starts unapproved and is scheduled independently of human approval. Do not use this to change an agent check.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Replace a metric follow-up check",
+        "title": "Replace a metric follow-up check",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "inbox-report-checks-retrieve": {

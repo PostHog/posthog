@@ -32,6 +32,7 @@ from products.signals.backend.report_check_execution import resolve_check_query
 from products.signals.backend.report_check_telemetry import capture_report_check_created
 from products.signals.backend.report_check_timing import metric_check_ready_at
 from products.signals.backend.report_checks import (
+    DEFAULT_CHECK_SOAK_HOURS,
     MAX_ACTIVE_CHECKS_PER_REPORT,
     MAX_CHECK_HORIZON,
     CheckConfigValidationError,
@@ -42,6 +43,7 @@ from products.signals.backend.report_checks import (
     soak_minutes_from_gap,
     validate_metric_check_for_write,
 )
+from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
 
 logger = structlog.get_logger(__name__)
 
@@ -50,6 +52,10 @@ _METRIC_DISPLAY_FIELDS = frozenset({"metric_kind", "value_format", "unit"})
 
 class CheckCreationError(ValueError):
     """A check that cannot be written: a bad config, an unresolvable metric, or a full report."""
+
+
+class CheckQueryAccessError(PermissionError):
+    """The requester cannot read the measurement they would schedule."""
 
 
 def create_check(
@@ -201,8 +207,7 @@ def _stored_config(report: SignalReport, kind: str, config: dict) -> dict:
             validate_metric_check_for_write(normalized)
         except CheckConfigValidationError as error:
             raise CheckCreationError(str(error)) from None
-    # Accept metadata before writers persist it, so old workers can read checks during rollout.
-    return {key: value for key, value in stored_config.items() if key not in _METRIC_DISPLAY_FIELDS}
+    return stored_config
 
 
 def _with_metric_display(report: SignalReport, config: dict, metric_id: str | None) -> dict:
@@ -277,10 +282,46 @@ def create_checks_from_specs(
     return written
 
 
+def replace_metric_check(
+    *,
+    check: SignalReportCheck,
+    title: str,
+    rationale: str,
+    config: dict,
+    soak_hours: int | None,
+    attribution: ArtefactAttribution,
+    access_policy: ReportMetricAccessPolicy,
+) -> SignalReportCheck:
+    """Replace one open metric check atomically, keeping it live if the new check is invalid."""
+    if check.kind != SignalReportCheck.Kind.METRIC_THRESHOLD:
+        raise CheckCreationError("Only metric checks can be replaced this way.")
+    with transaction.atomic():
+        report = SignalReport.objects.select_for_update().get(id=check.report_id, team_id=check.team_id)
+        locked = SignalReportCheck.objects.for_team(check.team_id).select_for_update().get(id=check.id)
+        stored_config = _stored_config(report, SignalReportCheck.Kind.METRIC_THRESHOLD, config)
+        if not access_policy.may_read_query(stored_config):
+            raise CheckQueryAccessError("The measurement query is not available to you.")
+        if not cancel_check(locked, reason="replaced_by_request", attribution=attribution):
+            raise CheckCreationError("This check has already finished. Review its result before adding another.")
+        return create_check(
+            report=report,
+            title=title,
+            rationale=rationale,
+            kind=SignalReportCheck.Kind.METRIC_THRESHOLD,
+            config=config,
+            attribution=attribution,
+            soak_minutes=(
+                soak_hours * 60 if soak_hours is not None else locked.soak_minutes or DEFAULT_CHECK_SOAK_HOURS * 60
+            ),
+            run_interval_minutes=locked.run_interval_minutes,
+            runs_remaining=locked.runs_remaining,
+        )
+
+
 def cancel_check(
     check: SignalReportCheck,
     *,
-    reason: Literal["stopped_by_person", "stopped_by_scout", "replaced_by_research"],
+    reason: Literal["stopped_by_person", "stopped_by_scout", "replaced_by_research", "replaced_by_request"],
     attribution: ArtefactAttribution,
     from_statuses: Sequence[str] = SignalReportCheck.OPEN_STATUSES,
 ) -> bool:

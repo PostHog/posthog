@@ -226,6 +226,44 @@ const inboxReportChecksList = (): ToolBase<
     },
 })
 
+const InboxReportChecksReplaceSchema = () => {
+    const SignalsReportChecksReplaceCreateBody = orvalSchemas.SignalsReportChecksReplaceCreateBody()
+    const SignalsReportChecksReplaceCreateParams = orvalSchemas.SignalsReportChecksReplaceCreateParams()
+    return SignalsReportChecksReplaceCreateParams.omit({ project_id: true }).extend(
+        SignalsReportChecksReplaceCreateBody.shape
+    )
+}
+
+const inboxReportChecksReplace = (): ToolBase<
+    ReturnType<typeof InboxReportChecksReplaceSchema>,
+    Schemas.SignalReportCheck
+> => ({
+    name: 'inbox-report-checks-replace',
+    schema: InboxReportChecksReplaceSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportChecksReplaceSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.title !== undefined) {
+            body['title'] = params.title
+        }
+        if (params.rationale !== undefined) {
+            body['rationale'] = params.rationale
+        }
+        if (params.config !== undefined) {
+            body['config'] = params.config
+        }
+        if (params.soak_hours !== undefined) {
+            body['soak_hours'] = params.soak_hours
+        }
+        const result = await context.api.request<Schemas.SignalReportCheck>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.report_id))}/checks/${encodeURIComponent(String(params.id))}/replace/`,
+            body,
+        })
+        return result
+    },
+})
+
 const InboxReportChecksRetrieveSchema = () => {
     const SignalsReportChecksRetrieveParams = orvalSchemas.SignalsReportChecksRetrieveParams()
     return SignalsReportChecksRetrieveParams.omit({ project_id: true })
@@ -2429,6 +2467,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-report-artefacts-update': inboxReportArtefactsUpdate,
     'inbox-report-checks-create': inboxReportChecksCreate,
     'inbox-report-checks-list': inboxReportChecksList,
+    'inbox-report-checks-replace': inboxReportChecksReplace,
     'inbox-report-checks-retrieve': inboxReportChecksRetrieve,
     'inbox-reports-bulk-set-state': inboxReportsBulkSetState,
     'inbox-reports-claim': inboxReportsClaim,

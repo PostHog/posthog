@@ -16,6 +16,8 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.constants import AvailableFeature
 from posthog.models import PropertyDefinition, Team
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
@@ -945,6 +947,146 @@ class TestReportCheckAPI(APIBaseTest):
         already_cancelled = self.client.delete(f"{self.url}{check_id}/")
         assert already_cancelled.status_code == status.HTTP_400_BAD_REQUEST
 
+    def test_approval_is_idempotent_and_does_not_change_the_schedule(self) -> None:
+        check = self._create()
+        first = self.client.post(f"{self.url}{check.id}/approve/")
+        second = self.client.post(f"{self.url}{check.id}/approve/")
+
+        assert first.status_code == status.HTTP_200_OK
+        assert second.status_code == status.HTTP_200_OK
+        check.refresh_from_db()
+        assert check.approved_by_id == self.user.id
+        assert check.approved_at is not None
+        assert first.json()["next_run_at"] == second.json()["next_run_at"]
+        assert check.status == SignalReportCheck.Status.ACTIVE
+
+    def test_finished_check_cannot_be_approved(self) -> None:
+        check = self._create()
+        self.client.delete(f"{self.url}{check.id}/")
+
+        response = self.client.post(f"{self.url}{check.id}/approve/")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        check.refresh_from_db()
+        assert check.approved_at is None
+
+    @parameterized.expand(
+        [
+            ("missing_config", {}),
+            ("fractional_count", _threshold_config(value_format="count", comparison={"operator": "lte", "value": 1.5})),
+        ]
+    )
+    def test_metric_replacement_keeps_the_old_check_if_invalid_and_resets_approval(
+        self, _name: str, config: dict
+    ) -> None:
+        check = self._create()
+        SignalReportCheck.objects.for_team(self.team.id).filter(id=check.id).update(approved_at=timezone.now())
+        url = f"{self.url}{check.id}/replace/"
+
+        rejected = self.client.post(url, {"title": "Better metric", "config": config}, format="json")
+        assert rejected.status_code == status.HTTP_400_BAD_REQUEST
+        check.refresh_from_db()
+        assert check.status == SignalReportCheck.Status.ACTIVE
+
+        replaced = self.client.post(
+            url,
+            {
+                "title": "Checkout errors stay below 5",
+                "config": {"query": _PAGEVIEWS, "comparison": {"operator": "lte", "value": 5}},
+                "soak_hours": 72,
+            },
+            format="json",
+        )
+        assert replaced.status_code == status.HTTP_200_OK, replaced.json()
+        check.refresh_from_db()
+        replacement = SignalReportCheck.objects.for_team(self.team.id).get(id=replaced.json()["id"])
+        assert check.status == SignalReportCheck.Status.CANCELLED
+        assert replacement.status == SignalReportCheck.Status.ACTIVE
+        assert replacement.approved_at is None
+        assert replacement.soak_minutes == 72 * 60
+
+    def test_replacement_preserves_recurring_runs_and_minute_precision_soak(self) -> None:
+        check = self._create(run_interval_minutes=MIN_CHECK_INTERVAL_MINUTES, runs_remaining=3)
+        SignalReportCheck.objects.for_team(self.team.id).filter(id=check.id).update(soak_minutes=1450)
+        response = self.client.post(
+            f"{self.url}{check.id}/replace/",
+            {"title": "Revised goal", "config": _threshold_config(comparison={"operator": "lte", "value": 5})},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        replacement = SignalReportCheck.objects.for_team(self.team.id).get(id=response.json()["id"])
+        assert replacement.soak_minutes == 1450
+        assert replacement.run_interval_minutes == MIN_CHECK_INTERVAL_MINUTES
+        assert replacement.runs_remaining == 3
+
+    @parameterized.expand([("direct_query", False), ("metric_reference", True)])
+    def test_replacement_cannot_schedule_queries_hidden_from_the_requester(self, _name: str, reference: bool) -> None:
+        check = self._create()
+        self.report.metrics = [{"metric_id": "pageviews", "query": _PAGEVIEWS}]
+        self.report.save(update_fields=["metrics"])
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=PropertyDefinition.objects.create(
+                team=self.team, name="secret_plan", property_type="String", type=PropertyDefinition.Type.EVENT
+            ),
+            organization_member=self.organization_membership,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        config: dict[str, object] = {"comparison": {"operator": "lte", "value": 5}}
+        config.update({"metric_id": "pageviews"} if reference else {"query": _PAGEVIEWS})
+        response = self.client.post(
+            f"{self.url}{check.id}/replace/", {"title": "Revised goal", "config": config}, format="json"
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        check.refresh_from_db()
+        assert check.status == SignalReportCheck.Status.ACTIVE
+        assert SignalReportCheck.objects.for_team(self.team.id).filter(report=self.report).count() == 1
+
+    def test_open_checks_are_listed_before_terminal_history(self) -> None:
+        open_check = self._create()
+        SignalReportCheck.objects.for_team(self.team.id).bulk_create(
+            [
+                SignalReportCheck(
+                    team_id=self.team.id,
+                    report=self.report,
+                    title="Old result",
+                    kind="metric_threshold",
+                    config=_threshold_config(),
+                    status=SignalReportCheck.Status.PASSED,
+                    next_run_at=timezone.now(),
+                    expires_at=timezone.now() + timedelta(days=30),
+                )
+                for _ in range(101)
+            ]
+        )
+        response = self.client.get(self.url)
+        assert response.json()["results"][0]["id"] == str(open_check.id)
+
+    def test_task_write_key_without_query_access_cannot_replace_a_metric_check(self) -> None:
+        check = self._create()
+        raw_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Task-only test key",
+            user=self.user,
+            secure_value=hash_key_value(raw_key),
+            scopes=["task:write", "task:read"],
+            scoped_teams=[self.team.id],
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_key}")
+        response = self.client.post(
+            f"{self.url}{check.id}/replace/",
+            {"title": "Revised goal", "config": _threshold_config()},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        check.refresh_from_db()
+        assert check.status == SignalReportCheck.Status.ACTIVE
+
     def test_a_created_check_is_reported_for_adoption(self) -> None:
         with patch(_CAPTURE) as capture:
             with self.captureOnCommitCallbacks(execute=True):
@@ -995,9 +1137,12 @@ class TestReportCheckAPI(APIBaseTest):
         stored = self._create(config={**config, "value_format": "percentage", "unit": "failure"})
         assert stored.config["metric_id"] == "checkout-errors"
         assert stored.config["query"] == _PAGEVIEWS
-        assert not {"metric_kind", "value_format", "unit"}.intersection(stored.config)
+        assert stored.config["metric_kind"] == "occurrences"
+        assert stored.config["value_format"] == "count"
         overridden = self._create(config={**config, "metric_kind": "custom", "value_format": "number", "unit": "USD"})
-        assert not {"metric_kind", "value_format", "unit"}.intersection(overridden.config)
+        assert overridden.config["metric_kind"] == "occurrences"
+        assert overridden.config["value_format"] == "count"
+        assert overridden.config["unit"] is None
 
         # Rewriting the metric under the same id must not move the check's target.
         rewritten = trends_metric_query(series=[{"kind": "EventsNode", "event": "$autocapture"}])
