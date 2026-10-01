@@ -1,9 +1,14 @@
 import datetime
+from collections.abc import Callable
 from typing import Any
+from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 import pytest
 from unittest.mock import patch
+
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 
@@ -43,7 +48,7 @@ class TestDiscoveryFingerprints:
     ) -> tuple[Experiment, User]:
         org = Organization.objects.create(name="Test Org")
         team = Team.objects.create(organization=org, name="Test Team")
-        user = User.objects.create(email="fingerprint@test.com")
+        user = User.objects.create(email=f"fingerprint-{uuid4().hex[:8]}@test.com")
         flag = FeatureFlag.objects.create(team=team, key="fingerprint-test", created_by=user)
         experiment = Experiment.objects.create(
             name="Fingerprint test",
@@ -92,6 +97,28 @@ class TestDiscoveryFingerprints:
 
         fingerprints = [r.fingerprint for r in results if r.experiment_id == experiment.id]
         assert fingerprints == [self._recalculation_key(experiment, METRIC_UUID)]
+
+    @parameterized.expand([("regular", _raw_regular_sync, 4), ("saved", _raw_saved_sync, 6)])
+    def test_discovery_reads_a_fixed_number_of_queries(
+        self, _name: str, discover: Callable[..., list], expected_queries: int
+    ) -> None:
+        experiment_ids = set()
+        for index in range(3):
+            experiment, user = self._create_experiment(only_count_matured_users=index == 0)
+            saved_metric = ExperimentSavedMetric.objects.create(
+                team=experiment.team, name="Saved metric", query={**METRIC, "uuid": f"saved-{index}"}, created_by=user
+            )
+            ExperimentToSavedMetric.objects.create(experiment=experiment, saved_metric=saved_metric)
+            experiment_ids.add(experiment.id)
+
+        with (
+            patch("posthog.temporal.experiments.activities.close_old_connections"),
+            CaptureQueriesContext(connection) as queries,
+        ):
+            results = discover(hour=2)
+
+        assert {r.experiment_id for r in results} == experiment_ids
+        assert len(queries.captured_queries) == expected_queries
 
     @parameterized.expand(
         [
