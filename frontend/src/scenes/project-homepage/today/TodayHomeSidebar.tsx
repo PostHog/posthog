@@ -4,7 +4,7 @@ import { router } from 'kea-router'
 import { IconHome, IconPlus } from '@posthog/icons'
 import { Button, Skeleton } from '@posthog/quill'
 
-import { Link, LinkPrimitive } from 'lib/lemon-ui/Link'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
@@ -54,7 +54,6 @@ export function TodayHomeSidebar(): JSX.Element {
         reportsFailed,
         hoveredReportId,
         reportSummary,
-        inboxMore,
         showPersonalBriefing,
         personalBriefing,
     } = useValues(todayLogic)
@@ -119,13 +118,6 @@ export function TodayHomeSidebar(): JSX.Element {
                         ))
                     )}
                 </div>
-                {inboxMore && (
-                    <Link to={urls.inbox()} className="TodaySidebar__more" data-attr="today-nav-inbox">
-                        {inboxMore.scope === 'for_you'
-                            ? `${inboxMore.count} more for you in the Inbox`
-                            : `${inboxMore.count} more in the Inbox`}
-                    </Link>
-                )}
             </div>
         </div>
     )
