@@ -455,7 +455,7 @@ _SEQUENTIAL = dataclasses.replace(_FREQUENTIST, sequential_testing_enabled=True,
 _CUPED = CupedQueryConfig(enabled=True, lookback_days=14)
 _RETENTION = {**DEFINITIONS["retention"], "uuid": "m1"}
 _BROWSER_FILTER = {"key": "$browser", "type": "event", "value": ["Chrome"], "operator": "exact"}
-_DEFAULT_EVENT_WITH_PROPERTIES = {
+_DEFAULT_EVENT_WITH_PROPERTIES: dict[str, Any] = {
     "filterTestAccounts": True,
     "multiple_variant_handling": "exclude",
     "exposure_config": {
@@ -464,7 +464,7 @@ _DEFAULT_EVENT_WITH_PROPERTIES = {
         "properties": [_BROWSER_FILTER],
     },
 }
-_ACTION_ACTIVATION = {
+_ACTION_ACTIVATION: dict[str, Any] = {
     "filterTestAccounts": False,
     "multiple_variant_handling": "first_seen",
     "activation_config": {
@@ -474,11 +474,11 @@ _ACTION_ACTIVATION = {
         "properties": [{"key": "plan", "type": "person", "value": ["pro"], "operator": "exact"}],
     },
 }
-_CUSTOM_EVENT = {
+_CUSTOM_EVENT: dict[str, Any] = {
     "filterTestAccounts": True,
     "exposure_config": {"kind": "ExperimentEventExposureConfig", "event": "checkout_viewed", "properties": []},
 }
-_ACTION_EXPOSURE = {"filterTestAccounts": True, "exposure_config": {"kind": "ActionsNode", "id": 7}}
+_ACTION_EXPOSURE: dict[str, Any] = {"filterTestAccounts": True, "exposure_config": {"kind": "ActionsNode", "id": 7}}
 
 
 def _with_exposure(
@@ -553,26 +553,29 @@ _KEY_INPUT_CASES: list[tuple[str, ExperimentCalculationSettings, ExperimentCalcu
         (
             f"frequentist.{name}",
             dataclasses.replace(_SETTINGS, stats=_SEQUENTIAL),
-            dataclasses.replace(_SETTINGS, stats=dataclasses.replace(_SEQUENTIAL, **{name: value})),
+            dataclasses.replace(_SETTINGS, stats=changed),
             _MEAN,
             False,
         )
-        for name, value in (
-            ("alpha", 0.1),
-            ("difference_type", DifferenceType.ABSOLUTE),
-            ("sequential_testing_enabled", False),
-            ("sequential_tuning_parameter", 10000),
+        for name, changed in (
+            ("alpha", dataclasses.replace(_SEQUENTIAL, alpha=0.1)),
+            ("difference_type", dataclasses.replace(_SEQUENTIAL, difference_type=DifferenceType.ABSOLUTE)),
+            ("sequential_testing_enabled", dataclasses.replace(_SEQUENTIAL, sequential_testing_enabled=False)),
+            ("sequential_tuning_parameter", dataclasses.replace(_SEQUENTIAL, sequential_tuning_parameter=10000)),
         )
     ],
     *[
         (
             f"cuped.{name}",
             dataclasses.replace(_SETTINGS, cuped=_CUPED),
-            dataclasses.replace(_SETTINGS, cuped=dataclasses.replace(_CUPED, **{name: value})),
+            dataclasses.replace(_SETTINGS, cuped=changed),
             _MEAN,
             False,
         )
-        for name, value in (("enabled", False), ("lookback_days", 7))
+        for name, changed in (
+            ("enabled", dataclasses.replace(_CUPED, enabled=False)),
+            ("lookback_days", dataclasses.replace(_CUPED, lookback_days=7)),
+        )
     ],
     *[
         (

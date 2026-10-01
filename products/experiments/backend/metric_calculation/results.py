@@ -16,6 +16,13 @@ read, the chart and the current outcome) fall back to them only where no row und
 metric, window or day, and they mark such a result `legacy`. The run read does so only for a run that finished
 before the first write under the current keys. The daily significance check never reads them.
 
+Every write also stores the legacy key of its spec in `display_key`, salted like the fingerprint on a run row. The
+legacy key hashes only inputs that the experiment owns. So after a team setting changes the current key, the chart
+and the current outcome still find the rows written under the earlier key, and show them as `legacy` history. For
+rows from before key version 2, the fingerprint itself is the legacy key, so one rule covers both. The run read and
+the cold-start read do not use `display_key`: after such a change they must leave the metric uncovered, so that the
+results page computes it under the new settings.
+
 Several rows can share `(experiment, metric_uuid, query_to)` once the unique constraint on that key goes. Every
 query that can meet such rows returns the one with the newest `completed_at`, then the highest id. It never looks a
 row up with `.get()` on that key. While the constraint holds, no two rows tie, so this order changes no result.
@@ -42,7 +49,8 @@ import structlog
 
 from posthog.dataclasses import frozen
 
-from products.experiments.backend.metric_calculation.spec import CalculationSpec, plan
+from products.experiments.backend.metric_calculation.spec import CalculationSpec, ExperimentCalculationSettings, plan
+from products.experiments.backend.metric_resolution import resolve_experiment_metrics
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -94,8 +102,8 @@ class StoredResult:
     """A stored result row and the key family a reader found it under."""
 
     row: ExperimentMetricResult
-    # True when the row carries the legacy key of the spec. Its result may come from other settings than the spec's,
-    # so it is shown as history and never reused.
+    # True when the row does not carry the current key of the spec. Its result may come from other settings than the
+    # spec's, so it is shown as history and never reused.
     legacy: bool
 
 
@@ -104,7 +112,7 @@ class DailyTimeseries:
     """The stored results of one metric, one row per day."""
 
     by_day: dict[date, ExperimentMetricResult]
-    # The days whose row carries the legacy key, because no row under the current key covers them.
+    # The days whose row does not carry the current key, because no row under the current key covers them.
     legacy_days: frozenset[date]
     earliest: ExperimentMetricResult | None
     latest: ExperimentMetricResult | None
@@ -121,7 +129,7 @@ class ResultSummary:
     baseline_samples: str | None
     baseline_sum: str | None
     variant_results: tuple[dict[str, Any], ...]
-    # True when the result carries the legacy key, because no result under the current key exists.
+    # True when the result does not carry the current key, because no result under the current key exists.
     legacy: bool
 
 
@@ -227,16 +235,18 @@ class MetricResultStore:
         """The daily rows of one metric, whatever their status, one per day of `timezone`.
 
         Only daily rows carry the bare key, because a recalculation salts it. The latest query_to inside a day
-        stands for that day. A day without a row under the current key shows its row under the legacy key, if it
-        has one, so the history from before key version 2 still renders.
+        stands for that day. A day without a row under the current key shows a row whose fingerprint or display key
+        is the legacy key, if it has one. So the history from before key version 2, and the history from before a
+        team setting changed, still render.
         """
         current_key = spec.calculation_key()
+        legacy_key = spec.legacy_key()
         rows = list(
             _newest_write_first(
                 ExperimentMetricResult.objects.filter(
+                    Q(fingerprint__in=[current_key, legacy_key]) | Q(display_key=legacy_key),
                     experiment_id=self.experiment_id,
                     metric_uuid=spec.metric_id,
-                    fingerprint__in=[current_key, spec.legacy_key()],
                 ),
                 _current_key_first([current_key]),
                 "-query_to",
@@ -342,6 +352,7 @@ class MetricResultStore:
             metric_uuid,
             window,
             fingerprint=calculation_key,
+            display_key=self._daily_display_key(metric_uuid, calculation_key),
             query_from=query_from,
             status=_COMPLETED,
             result=result,
@@ -358,6 +369,7 @@ class MetricResultStore:
             metric_uuid,
             window,
             fingerprint=calculation_key,
+            display_key=self._daily_display_key(metric_uuid, calculation_key),
             query_from=query_from,
             status=_FAILED,
             result=None,
@@ -380,6 +392,7 @@ class MetricResultStore:
                 spec.metric_id,
                 window,
                 fingerprint=_recalc_fingerprint(spec.calculation_key()),
+                display_key=_recalc_fingerprint(spec.legacy_key()),
                 query_from=query_from,
                 status=_COMPLETED,
                 result=point.result,
@@ -429,6 +442,7 @@ class MetricResultStore:
                 spec.metric_id,
                 window,
                 fingerprint=_recalc_fingerprint(spec.calculation_key()),
+                display_key=_recalc_fingerprint(spec.legacy_key()),
                 query_from=query_from,
                 status=status,
                 result=result,
@@ -443,6 +457,7 @@ class MetricResultStore:
         window: datetime,
         *,
         fingerprint: str,
+        display_key: str | None,
         query_from: datetime,
         status: str,
         result: dict[str, Any] | None,
@@ -459,6 +474,7 @@ class MetricResultStore:
             query_to=window,
             defaults={
                 "fingerprint": fingerprint,
+                "display_key": display_key,
                 "query_from": query_from,
                 "status": status,
                 "result": result,
@@ -467,6 +483,21 @@ class MetricResultStore:
                 "error_message": error_message,
             },
         )
+
+    def _daily_display_key(self, metric_uuid: str, calculation_key: str) -> str | None:
+        """The legacy key of the experiment's metric whose current key is `calculation_key`. None when no metric has
+        that key, for example when a setting changed after the caller computed it. Inline and saved metrics can share
+        a uuid, so the uuid alone does not decide."""
+        experiment = Experiment.objects.select_related("team", "feature_flag").filter(id=self.experiment_id).first()
+        if experiment is None:
+            return None
+        settings = ExperimentCalculationSettings.of_experiment(experiment)
+        for metric in resolve_experiment_metrics(experiment):
+            if metric.uuid == metric_uuid:
+                spec = settings.spec_for(metric_id=metric.uuid, role=metric.role, definition=metric.definition)
+                if spec.calculation_key() == calculation_key:
+                    return spec.legacy_key()
+        return None
 
     @staticmethod
     def sync_copy_window(newest_point: datetime) -> datetime:
@@ -482,7 +513,8 @@ class MetricResultStore:
         another configuration, for example from the start date before a relaunch, so it does not count. The newest
         window counts, not the newest write, because a backfill writes past windows after the newer ones.
 
-        When no row carries the calculation key, the newest row under the legacy key stands in, marked legacy.
+        When no row carries the calculation key, the newest row whose fingerprint or display key is the legacy key stands
+        in, marked legacy.
         """
         if not spec_by_experiment:
             return {}
@@ -490,11 +522,10 @@ class MetricResultStore:
         current_keys: set[str] = set()
         for experiment_id, spec in spec_by_experiment.items():
             key, legacy_key = spec.calculation_key(), spec.legacy_key()
+            legacy_keys = [legacy_key, _recalc_fingerprint(legacy_key)]
             current_keys |= {key, _recalc_fingerprint(key)}
-            filed_under_spec |= Q(
-                experiment_id=experiment_id,
-                metric_uuid=spec.metric_id,
-                fingerprint__in=[key, _recalc_fingerprint(key), legacy_key, _recalc_fingerprint(legacy_key)],
+            filed_under_spec |= Q(experiment_id=experiment_id, metric_uuid=spec.metric_id) & (
+                Q(fingerprint__in=[key, _recalc_fingerprint(key), *legacy_keys]) | Q(display_key__in=legacy_keys)
             )
         rows = (
             ExperimentMetricResult.objects.filter(filed_under_spec, status=_COMPLETED)

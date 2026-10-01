@@ -9,6 +9,8 @@ from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
 
+from posthog.models.team.extensions import get_or_create_team_extension
+
 from products.experiments.backend.metric_calculation.results import (
     MetricResultStore,
     _recalc_fingerprint,
@@ -20,6 +22,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricResult,
     ExperimentMetricsRecalculation,
 )
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 _START = datetime(2026, 1, 1, tzinfo=UTC)
@@ -269,6 +272,74 @@ class TestMetricResultStore(BaseTest):
 
         assert [(_samples(item.row), item.legacy) for item in stored] == ([([1], True)] if shows_legacy else [])
 
+    @parameterized.expand(
+        [
+            ("team_test_account_filters", "team", True),
+            ("team_default_cuped", "team_config", True),
+            ("metric_definition", "metric", False),
+        ]
+    )
+    def test_a_settings_change_keeps_the_history_that_the_experiment_still_describes(
+        self, _name: str, change: str, history_shown: bool
+    ) -> None:
+        experiment = self._experiment()
+        spec = plan_metric(experiment, "m1")
+        assert spec is not None
+        store = MetricResultStore(experiment_id=experiment.id)
+        store.record_daily_point(
+            "m1", spec.calculation_key(), window=_WINDOW, query_from=_START, result=_stored_result(3)
+        )
+        run_window = _WINDOW + timedelta(hours=1)
+        run = ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=experiment,
+            metric_uuids=["m1"],
+            query_to=run_window,
+            status=ExperimentMetricsRecalculation.Status.IN_PROGRESS,
+        )
+        store.record_run_result(
+            str(run.id), spec, window=run_window, query_from=_START, result=_stored_result(4), query_id=None
+        )
+        ExperimentMetricsRecalculation.objects.filter(id=run.id).update(
+            status=ExperimentMetricsRecalculation.Status.COMPLETED, completed_at=django_timezone.now()
+        )
+
+        if change == "team":
+            self.team.test_account_filters = [{"key": "email", "type": "person", "value": "@example.com"}]
+            self.team.save()
+        elif change == "team_config":
+            config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+            config.default_cuped_enabled = True
+            config.save()
+        else:
+            experiment.metrics = [
+                {
+                    "uuid": "m1",
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "signup"},
+                }
+            ]
+            experiment.save()
+        experiment = Experiment.objects.get(pk=experiment.pk)
+        changed_spec = plan_metric(experiment, "m1")
+        assert changed_spec is not None and changed_spec.calculation_key() != spec.calculation_key()
+
+        series = store.timeseries(changed_spec, timezone=ZoneInfo("UTC"))
+        outcome = store.current_outcome(changed_spec)
+        shown = (
+            _samples(series.by_day.get(_WINDOW_DAY)),
+            _WINDOW_DAY in series.legacy_days,
+            outcome and (outcome.baseline_samples, outcome.legacy),
+        )
+        assert shown == (([3], True, ("4", True)) if history_shown else ([], False, None))
+        assert not store.has_completed(changed_spec, window=run_window)
+        assert store.for_run(ExperimentMetricsRecalculation.objects.get(id=run.id)) == []
+        cold_start = store.latest_daily_point(
+            changed_spec, since=_WINDOW - timedelta(days=1), until=_WINDOW, include_legacy=True
+        )
+        assert cold_start is None
+
     def _run(self, experiment: Experiment, status: str) -> ExperimentMetricsRecalculation:
         return ExperimentMetricsRecalculation.objects.create(
             team=self.team, experiment=experiment, metric_uuids=["m1"], status=status, query_to=_WINDOW
@@ -318,8 +389,8 @@ class TestMetricResultStore(BaseTest):
         self._write(writer, experiment, spec)
 
         row = ExperimentMetricResult.objects.get(experiment=experiment, metric_uuid="m1", query_to=_WINDOW)
-        key = spec.calculation_key()
-        assert row.fingerprint == (_recalc_fingerprint(key) if salted else key)
+        salt = _recalc_fingerprint if salted else (lambda key: key)
+        assert (row.fingerprint, row.display_key) == (salt(spec.calculation_key()), salt(spec.legacy_key()))
         assert row.status == status
         if status == ExperimentMetricResult.Status.COMPLETED:
             assert (row.result, row.error_message) == (_stored_result(9), None)
