@@ -197,7 +197,7 @@ class TestGetLowercaseIndexHintClickhouse(ClickhouseTestMixin, APIBaseTest):
         with open(logs_path) as f:
             log_item = json.loads(f.readline())
             log_item["team_id"] = cls.team.id
-            sync_execute(f"INSERT INTO logs34 FORMAT JSONEachRow\n{json.dumps(log_item)}")
+            sync_execute(f"INSERT INTO logs FORMAT JSONEachRow\n{json.dumps(log_item)}")
 
     def test_index_hint_uses_ngram_index(self):
         """The index hint on a message ICONTAINS filter should cause ClickHouse to use the idx_body_ngram3 index."""

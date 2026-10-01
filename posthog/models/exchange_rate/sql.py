@@ -3,6 +3,7 @@ import re
 import csv
 import datetime
 
+from posthog.exchange_rate_constants import EXCHANGE_RATE_DICTIONARY_NAME as EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 
 from .currencies import SUPPORTED_CURRENCY_CODES

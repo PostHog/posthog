@@ -206,3 +206,14 @@ KAFKA_BASE64_KEYS: bool = get_from_env("KAFKA_BASE64_KEYS", False, type_cast=str
 # "topic=profile" entries; merged over the code-level defaults at lookup time.
 # Example: "cohort_membership_changed=calculated_events"
 KAFKA_TOPIC_ROUTING_OVERRIDES: str = os.getenv("KAFKA_TOPIC_ROUTING_OVERRIDES", "") or ""
+
+# Kept as an alias to the DEFAULT profile's hosts. Only needed for code that
+# bakes the host list into ClickHouse Kafka-engine DDL at table creation time —
+# the six historical `posthog/clickhouse/migrations/*` files plus
+# `posthog/models/person_overrides/sql.py`. Those sites render `ENGINE = Kafka(...)`
+# and the produced DDL is stored in ClickHouse, so swapping them out now would
+# change migration output for already-applied migrations.
+#
+# Any *new* reader should go through `settings.KAFKA_PROFILES[profile.value].hosts`
+# directly — the routing layer already does.
+KAFKA_HOSTS: list[str] = KAFKA_PROFILES[KafkaClusterProfile.DEFAULT.value].hosts

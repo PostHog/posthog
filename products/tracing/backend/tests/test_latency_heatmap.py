@@ -26,7 +26,7 @@ class TestTraceSpansLatencyHeatmap(_TraceSpansTestBase):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls._truncate_trace_spans()
+        cls._recreate_trace_spans_tables()
 
         rows: list[str] = []
         for i, (timestamp, root_duration, child_duration, service) in enumerate(TRACES):

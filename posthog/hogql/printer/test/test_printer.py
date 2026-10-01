@@ -61,9 +61,9 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import json_dynamic_read_sql, json_dynamic_read_sql_from_parts
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.exchange_rate_constants import EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models import PropertyDefinition
 from posthog.models.event.sql import EVENTS_JSON_DATA_TABLE, EVENTS_PROPERTIES_JSON_TYPE
+from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.team.team import WeekStartDay
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE

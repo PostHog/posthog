@@ -20,11 +20,7 @@ posthog/clickhouse/schema/
   catalog/           # standard sharded and global family declarations
   lib/table_family/  # storage, routing, Kafka and MV conventions
   catalog/<group>/   # existing groups using families and low-level helpers
-    main.tf          # which components the group has
-    variables.tf     # database, deployment and group-specific inputs
-    columns.tf       # column lists that more than one object uses
-    families.tf      # storage and routing conventions
-    storage.tf  read.tf  write.tf  ingest.tf  test.tf   # custom objects
+    main.tf          # inputs, shared columns, families and custom objects
   lib/               # table, view, materialized_view, dictionary helpers
   local/             # root module: every group on one server
 ```
@@ -34,26 +30,26 @@ Copy `catalog/billing_usage_records.tf` for a sharded family or `catalog/propert
 Declare the stored columns, storage keys, Kafka input and MV select expressions. Every root consumes the catalogue; cloud placement defaults come from the infrastructure repository.
 Put indexes, projections, constraints and codecs on storage. The library supplies the appropriate reader and writer columns.
 Replication uses a complete default Keeper path containing the database name; deployment can override the full path.
-Preserve existing names, paths, consumer groups and settings during a conversion, and use `moved` blocks for state addresses. Require a plan with zero DDL before adopting a refactor.
+Preserve existing names, paths, consumer groups and settings during a conversion. No state exists yet, so do not add `moved` blocks. Bootstrap imports adopt objects already running in cloud. Require a plan with zero DDL before adoption.
 
 For custom schemas, each object is one `module` block that calls a low-level `lib` helper.
-`catalog/person/families.tf` is a global example. `catalog/events/families.tf` is the sharded equivalent.
+`catalog/person/main.tf` is a global example. `catalog/events/main.tf` is the sharded equivalent.
 
 ## Pick the group and the component
 
 A group is one table family.
 Add the object to the group of the table it stores, reads, or fills.
-Standard families go in the catalogue. Make a new catalogue group only when the schema needs custom objects, add its caller in `catalog/<group>.tf`, and select its local components in `local/modules.tf`.
+Standard families go in the catalogue. Make a new catalogue group only when the schema needs custom objects, add its caller in `catalog/main.tf`, and select its local components in `local/modules.tf`.
 
-The component decides which nodes get the object in PostHog Cloud, so choose it by what the object does:
+Keep every object in the group's `main.tf`. The component decides which nodes get the object in PostHog Cloud, so choose it by what the object does:
 
-| Object                                                          | Component | File         |
-| --------------------------------------------------------------- | --------- | ------------ |
-| MergeTree table, or a materialized view between storage tables  | `storage` | `storage.tf` |
-| Distributed table, view, or dictionary that queries read        | `read`    | `read.tf`    |
-| Distributed table that inserts go through (`writable_*`)        | `write`   | `write.tf`   |
-| Kafka table, or the materialized view that consumes it          | `ingest`  | `ingest.tf`  |
-| Object only the test suite uses, such as a view replacing Kafka | `test`    | `test.tf`    |
+| Object                                                          | Component |
+| --------------------------------------------------------------- | --------- |
+| MergeTree table, or a materialized view between storage tables  | `storage` |
+| Distributed table, view, or dictionary that queries read        | `read`    |
+| Distributed table that inserts go through (`writable_*`)        | `write`   |
+| Kafka table, or the materialized view that consumes it          | `ingest`  |
+| Object only the test suite uses, such as a view replacing Kafka | `test`    |
 
 Every object follows the same shape, for a custom writable table:
 
@@ -79,7 +75,7 @@ Everything declared here is created locally and in tests too.
 
 ## Add a column
 
-1. For a catalogue family, update its stored columns and Kafka input columns as needed. The library derives the Distributed schemas. For an explicit group, find its column list; `catalog/person/columns.tf` builds `person_columns` from `kafka_person_columns`.
+1. For a catalogue family, update its stored columns and Kafka input columns as needed. The library derives the Distributed schemas. For an explicit group, find its column list; `catalog/person/main.tf` builds `person_columns` from `kafka_person_columns`.
 2. If a table declares its columns inline, add the column to each table that needs it: the storage table, the Distributed tables in front of it, and the Kafka table when the value comes from the topic.
 3. Add the column to the `SELECT` of the materialized view that fills the table.
 4. For a materialized column, put `materialized_expression` on the storage table. The Distributed table in front of it declares the plain column, as `events` does for the `$group_0` column of `sharded_events`.

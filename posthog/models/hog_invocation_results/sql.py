@@ -1,3 +1,8 @@
+from django.conf import settings
+
+from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_HOG_INVOCATION_RESULTS, kafka_engine
+from posthog.kafka_client.topics import KAFKA_HOG_INVOCATION_RESULTS
+
 # Naming convention mirrors `property_values` — the AUX-resident, non-sharded
 # table family:
 #   * `hog_invocation_results_data` — local replicated table on AUX. Writes flow
@@ -66,3 +71,60 @@ SELECT
     0,
     0
 """
+
+KAFKA_HOG_INVOCATION_RESULTS_TABLE = f"kafka_{HOG_INVOCATION_RESULTS_TABLE}"
+
+# Kafka payload column list (no CODEC clauses — ZSTD applies on the storage
+# side only). Reused between the Kafka engine table, the MV projection, and
+# the distributed read alias.
+#
+# `first_scheduled_at` is set by the producer to the *original* cyclotron-
+# scheduled time and carried unchanged through retries. The ReplacingMergeTree
+# collapses rows per `invocation_id`, so we couldn't recover the original
+# scheduled time with `min(scheduled_at)` post-merge — every lifecycle row
+# for a given invocation carries this column verbatim so `argMax(..., version)`
+# returns it correctly regardless of merge state.
+HOG_INVOCATION_RESULTS_KAFKA_COLUMNS = """
+    team_id Int64,
+    function_kind LowCardinality(String),
+    function_id String,
+    invocation_id String,
+    parent_run_id String,
+    status LowCardinality(String),
+    attempts UInt8,
+    is_retry UInt8,
+    scheduled_at DateTime64(6, 'UTC'),
+    first_scheduled_at DateTime64(6, 'UTC'),
+    started_at Nullable(DateTime64(6, 'UTC')),
+    finished_at Nullable(DateTime64(6, 'UTC')),
+    duration_ms Nullable(UInt32),
+    error_kind LowCardinality(String),
+    error_message String,
+    event_uuid String,
+    distinct_id String,
+    person_id String,
+    invocation_globals String,
+    version UInt64,
+    is_deleted UInt8
+""".strip()
+
+# Single Kafka pair, backed by the warpstream-cyclotron named collection — the
+# CDP producer writes lifecycle rows to the cyclotron Warpstream cluster. We
+# previously also created an MSK-backed pair alongside this; that's gone — the
+# producer writes to one topic and one consumer drains it.
+KAFKA_HOG_INVOCATION_RESULTS_TABLE_SQL = lambda: (
+    f"""
+CREATE TABLE IF NOT EXISTS {KAFKA_HOG_INVOCATION_RESULTS_TABLE}
+(
+    {HOG_INVOCATION_RESULTS_KAFKA_COLUMNS}
+)
+ENGINE = {
+        kafka_engine(
+            topic=KAFKA_HOG_INVOCATION_RESULTS,
+            group=CONSUMER_GROUP_HOG_INVOCATION_RESULTS,
+            named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_CYCLOTRON_NAMED_COLLECTION,
+        )
+    }
+SETTINGS kafka_skip_broken_messages = 100
+"""
+)

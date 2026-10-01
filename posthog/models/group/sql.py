@@ -1,5 +1,7 @@
 from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
+from posthog.clickhouse.kafka_engine import kafka_engine
+from posthog.kafka_client.topics import KAFKA_GROUPS
 
 GROUPS_TABLE = "groups"
 
@@ -31,3 +33,24 @@ COPY_GROUPS_BETWEEN_TEAMS = COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.format(
 SELECT_GROUPS_OF_TEAM = """SELECT * FROM {table_name} WHERE team_id = %(source_team_id)s""".format(
     table_name=GROUPS_TABLE
 )
+
+GROUPS_TABLE_BASE_SQL = """
+CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
+(
+    group_type_index UInt8,
+    group_key VARCHAR,
+    created_at DateTime64,
+    team_id Int64,
+    group_properties VARCHAR
+    {extra_fields}
+) ENGINE = {engine}
+"""
+
+
+def KAFKA_GROUPS_TABLE_SQL(on_cluster=True):
+    return GROUPS_TABLE_BASE_SQL.format(
+        table_name="kafka_" + GROUPS_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        engine=kafka_engine(KAFKA_GROUPS),
+        extra_fields="",
+    )

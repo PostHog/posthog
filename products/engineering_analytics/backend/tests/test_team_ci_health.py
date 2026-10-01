@@ -5,6 +5,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
 from rest_framework import status
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.traces.spans import TRACE_SPANS_DISTRIBUTED_TABLE_SQL, TRACE_SPANS_TABLE_SQL
 
 from products.engineering_analytics.backend.logic.census import CENSUS_EVENT
 from products.engineering_analytics.backend.tests._github_fixtures import (
@@ -40,7 +41,10 @@ class TestTeamCIHealthAPI(ClickhouseTestMixin, APIBaseTest):
     def setUpTestData(cls) -> None:
         super().setUpTestData()
         connect_github_source_without_data(cls.team, prefix="teams", repository="PostHog/posthog")
-        sync_execute("TRUNCATE TABLE trace_spans")
+        sync_execute("DROP TABLE IF EXISTS trace_spans_distributed")
+        sync_execute("DROP TABLE IF EXISTS trace_spans")
+        sync_execute(TRACE_SPANS_TABLE_SQL())
+        sync_execute(TRACE_SPANS_DISTRIBUTED_TABLE_SQL())
 
         now = datetime.now(UTC).replace(microsecond=0)
         # Default window is -14d: current spans sit safely inside it, prior spans safely
@@ -162,7 +166,10 @@ class TestTeamCIHealthAPI(ClickhouseTestMixin, APIBaseTest):
 
     @classmethod
     def tearDownClass(cls) -> None:
-        sync_execute("TRUNCATE TABLE trace_spans")
+        sync_execute("DROP TABLE IF EXISTS trace_spans_distributed")
+        sync_execute("DROP TABLE IF EXISTS trace_spans")
+        sync_execute(TRACE_SPANS_TABLE_SQL())
+        sync_execute(TRACE_SPANS_DISTRIBUTED_TABLE_SQL())
         super().tearDownClass()
 
     @classmethod

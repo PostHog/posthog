@@ -63,7 +63,7 @@ module "sharded" {
   deployment = {
     components = ["storage", "read", "write", "ingest"]
     cluster    = "aux"
-    overrides = merge({ sharded_family = { force_destroy = true } }, var.bad_indexes ? {
+    overrides = merge({ sharded_family = { force_destroy = true }, sibling_storage = { indexes = [] } }, var.bad_indexes ? {
       family = { add_indexes = [{ name = "invalid", expression = "team_id", type = "minmax", granularity = 1 }] }
     } : {})
   }
@@ -101,10 +101,6 @@ module "plain" {
   layout   = "global"
   columns  = local.input_columns
   storage  = { replicated = false, order_by = "team_id" }
-  deployment = {
-    components = ["storage"]
-    cluster    = "posthog"
-  }
 }
 
 module "query" {

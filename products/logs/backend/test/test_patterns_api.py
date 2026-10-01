@@ -14,7 +14,7 @@ from posthog.clickhouse.client import sync_execute
 class TestPatternsAPI(ClickhouseTestMixin, APIBaseTest):
     def _insert(self, rows: list[dict]) -> None:
         sql = "".join(json.dumps({"team_id": self.team.id, **r}) + "\n" for r in rows)
-        sync_execute(f"INSERT INTO logs34 FORMAT JSONEachRow\n{sql}")
+        sync_execute(f"INSERT INTO logs FORMAT JSONEachRow\n{sql}")
 
     def _request(self, query: dict, expected_status: int = status.HTTP_200_OK):
         response = self.client.post(f"/api/projects/{self.team.id}/logs/patterns", data={"query": query})

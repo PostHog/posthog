@@ -17,7 +17,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
 
-from posthog.clickhouse.events_json import DISTRIBUTED_EVENTS_JSON_TABLE
+from posthog.models.event.sql import DISTRIBUTED_EVENTS_JSON_TABLE
 
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 

@@ -49,7 +49,7 @@ from posthog.hogql.test.utils import (
     pretty_print_response_in_tests,
 )
 
-from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
+from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE, ADHOC_EVENTS_DELETION_TABLE_SQL
 from posthog.clickhouse.client import sync_execute
 from posthog.errors import CHQueryErrorS3Error, InternalCHQueryError
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
@@ -458,6 +458,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         mock_sync_execute.assert_not_called()
 
     def test_compiled_hogql_select_can_be_embedded_in_insert(self) -> None:
+        sync_execute(ADHOC_EVENTS_DELETION_TABLE_SQL(on_cluster=False))
         sync_execute(f"TRUNCATE TABLE {ADHOC_EVENTS_DELETION_TABLE}")
         self.addCleanup(sync_execute, f"TRUNCATE TABLE {ADHOC_EVENTS_DELETION_TABLE}")
 

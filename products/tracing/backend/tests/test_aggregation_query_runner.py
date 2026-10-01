@@ -33,7 +33,7 @@ class TestTraceSpansTreeStartOffset(_TraceSpansTestBase):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls._truncate_trace_spans()
+        cls._recreate_trace_spans_tables()
 
         trace_id = _b64((1).to_bytes(16, "big"))
         parent_span_id = _b64((1).to_bytes(8, "big"))
@@ -81,7 +81,7 @@ class TestTraceSpansTreeCallRatio(_TraceSpansTestBase):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls._truncate_trace_spans()
+        cls._recreate_trace_spans_tables()
 
         # Two traces, each: one entry-op root fanning out to three child-op spans. The
         # (entry-op → child-op) edge counts 6 children over 2 parent invocations → ratio 3.
@@ -136,7 +136,7 @@ class TestTraceSpansAggregationPercentiles(_TraceSpansTestBase):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls._truncate_trace_spans()
+        cls._recreate_trace_spans_tables()
 
         trace_id = _b64((1).to_bytes(16, "big"))
         base_ts = dt.datetime(2026, 6, 2, 8, 0, 0)
@@ -186,7 +186,7 @@ class TestTraceSpansTreePercentiles(_TraceSpansTestBase):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls._truncate_trace_spans()
+        cls._recreate_trace_spans_tables()
 
         trace_id = _b64((1).to_bytes(16, "big"))
         parent_span_id = _b64((1).to_bytes(8, "big"))

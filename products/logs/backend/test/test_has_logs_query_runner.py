@@ -27,7 +27,7 @@ class TestHasLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             log_item = json.loads(line)
             log_item["team_id"] = self.team.id
             sync_execute(f"""
-                INSERT INTO logs34
+                INSERT INTO logs
                 FORMAT JSONEachRow
                 {json.dumps(log_item)}
             """)
@@ -42,7 +42,7 @@ class TestHasLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             log_item = json.loads(line)
             log_item["team_id"] = 99999  # Different team
             sync_execute(f"""
-                INSERT INTO logs34
+                INSERT INTO logs
                 FORMAT JSONEachRow
                 {json.dumps(log_item)}
             """)
@@ -75,7 +75,7 @@ class TestHasLogsAPI(ClickhouseTestMixin, APIBaseTest):
             log_item = json.loads(line)
             log_item["team_id"] = self.team.id
             sync_execute(f"""
-                INSERT INTO logs34
+                INSERT INTO logs
                 FORMAT JSONEachRow
                 {json.dumps(log_item)}
             """)
@@ -98,7 +98,7 @@ class TestHasLogsAPI(ClickhouseTestMixin, APIBaseTest):
             log_item = json.loads(line)
             log_item["team_id"] = self.team.id
             sync_execute(f"""
-                INSERT INTO logs34
+                INSERT INTO logs
                 FORMAT JSONEachRow
                 {json.dumps(log_item)}
             """)

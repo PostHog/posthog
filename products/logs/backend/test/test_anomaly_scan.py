@@ -334,7 +334,7 @@ class TestFetchBucketCountsClickhouse(ClickhouseTestMixin, APIBaseTest):
             )
             for timestamp, severity, service in rows
         )
-        sync_execute(f"INSERT INTO logs34 FORMAT JSONEachRow {payload}")
+        sync_execute(f"INSERT INTO logs FORMAT JSONEachRow {payload}")
 
         window = TimeRange(start=base.replace(minute=0), end=base.replace(minute=0) + dt.timedelta(hours=1))
         counts = fetch_bucket_counts(self.team, "checkout", [window])

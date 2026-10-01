@@ -12,10 +12,10 @@ import psycopg
 import pytest_asyncio
 import temporalio.worker
 from asgiref.sync import sync_to_async
+from infi.clickhouse_orm import Database
 from psycopg import sql
 from temporalio.testing import ActivityEnvironment
 
-from posthog.clickhouse.managed_schema import ClickHouseDatabase
 from posthog.conftest import create_clickhouse_tables
 from posthog.models import Organization, Team
 from posthog.models.integration import Integration
@@ -48,7 +48,19 @@ async def truncate_clickhouse_tables(clickhouse_client):
 
 @pytest.fixture(scope="package", autouse=True)
 def clickhouse_create_db_and_tables():
-    ClickHouseDatabase().create()  # Create database if it doesn't exist
+    database = Database(
+        settings.CLICKHOUSE_DATABASE,
+        db_url=settings.CLICKHOUSE_HTTP_URL,
+        username=settings.CLICKHOUSE_USER,
+        password=settings.CLICKHOUSE_PASSWORD,
+        cluster=settings.CLICKHOUSE_CLUSTER,
+        verify_ssl_cert=settings.CLICKHOUSE_VERIFY,
+        randomize_replica_paths=True,
+        # don't use the egress proxy, clickhouse is internal
+        trust_env=False,
+    )
+
+    database.create_database()  # Create database if it doesn't exist
     create_clickhouse_tables()  # Create all expected tables
 
     yield

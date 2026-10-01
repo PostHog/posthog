@@ -59,7 +59,7 @@ def _seed_log_rows(
                 )
             )
     if rows:
-        sync_execute("INSERT INTO logs34 FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
+        sync_execute("INSERT INTO logs FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
 
 
 def _log_row(
@@ -190,7 +190,7 @@ class TestAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
                 log_item = json.loads(line)
                 log_item["team_id"] = cls.team.id
                 rows += json.dumps(log_item) + "\n"
-            sync_execute("INSERT INTO logs34 FORMAT JSONEachRow\n" + rows)
+            sync_execute("INSERT INTO logs FORMAT JSONEachRow\n" + rows)
 
     def _make_alert(self, **kwargs) -> LogsAlertConfiguration:
         defaults = {
@@ -470,7 +470,7 @@ class TestAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
                 ]
             )
         ]
-        sync_execute("INSERT INTO logs34 FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
+        sync_execute("INSERT INTO logs FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
 
         alert = self._make_alert(filters={"serviceNames": ["bucket_placement_test"]})
         result = AlertCheckQuery(
@@ -538,7 +538,7 @@ class TestAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
                 }
                 for i, off in enumerate(offsets_seconds)
             )
-        sync_execute("INSERT INTO logs34 FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in all_rows))
+        sync_execute("INSERT INTO logs FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in all_rows))
 
         for service_name, offsets_seconds, bucket_minutes in trials:
             alert = self._make_alert(filters={"serviceNames": [service_name]})
@@ -593,7 +593,7 @@ class TestAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
                 ]
             )
         ]
-        sync_execute("INSERT INTO logs34 FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
+        sync_execute("INSERT INTO logs FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
 
         alert = self._make_alert(filters={"serviceNames": ["midnight_test"]})
         result = AlertCheckQuery(
@@ -636,7 +636,7 @@ class TestAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
                 ]
             )
         ]
-        sync_execute("INSERT INTO logs34 FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
+        sync_execute("INSERT INTO logs FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
 
         alert = self._make_alert(filters={"serviceNames": ["subsecond_test"]})
         result = AlertCheckQuery(
@@ -676,7 +676,7 @@ class TestAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
                 ]
             )
         ]
-        sync_execute("INSERT INTO logs34 FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
+        sync_execute("INSERT INTO logs FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
 
         alert = self._make_alert(filters={"serviceNames": ["boundary_test"]})
         result = AlertCheckQuery(
@@ -716,7 +716,7 @@ class TestAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
                 ]
             )
         ]
-        sync_execute("INSERT INTO logs34 FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
+        sync_execute("INSERT INTO logs FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
 
         alert = self._make_alert(filters={"serviceNames": ["sparse_test"]})
         result = AlertCheckQuery(
@@ -793,7 +793,7 @@ class TestEvaluatorWindowAccuracy(ClickhouseTestMixin, APIBaseTest):
                         "attributes_map_str": {},
                     }
                 )
-        sync_execute("INSERT INTO logs34 FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
+        sync_execute("INSERT INTO logs FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
 
     @parameterized.expand(
         [
@@ -1112,7 +1112,7 @@ class TestBatchedAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
                 log_item = json.loads(line)
                 log_item["team_id"] = cls.team.id
                 rows += json.dumps(log_item) + "\n"
-            sync_execute("INSERT INTO logs34 FORMAT JSONEachRow\n" + rows)
+            sync_execute("INSERT INTO logs FORMAT JSONEachRow\n" + rows)
 
     def _make_alert(self, **kwargs) -> LogsAlertConfiguration:
         defaults = {
@@ -1338,7 +1338,7 @@ class TestBatchedAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
                         "attributes_map_str": {},
                     }
                 )
-        sync_execute("INSERT INTO logs34 FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
+        sync_execute("INSERT INTO logs FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
 
         alert_a = self._make_alert(name="A", filters={"serviceNames": ["batched_window_a"]})
         alert_b = self._make_alert(name="B", filters={"serviceNames": ["batched_window_b"]})
@@ -1400,7 +1400,7 @@ class TestBatchedAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
                     )
                 )
         if all_rows:
-            sync_execute("INSERT INTO logs34 FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in all_rows))
+            sync_execute("INSERT INTO logs FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in all_rows))
 
         # Attribute alerts read the attributes_map_str map, the filter class
         # whose predicate placement caused the production incident.
@@ -1460,7 +1460,7 @@ class TestBatchedAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
                 ]
             )
         ]
-        sync_execute("INSERT INTO logs34 FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
+        sync_execute("INSERT INTO logs FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
 
         busy = self._make_alert(name="busy", filters={"serviceNames": ["batched_busy"]})
         sparse = self._make_alert(name="sparse", filters={"serviceNames": ["batched_sparse_no_data"]})
@@ -1504,7 +1504,7 @@ class TestBatchedAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
                 ]
             )
         ]
-        sync_execute("INSERT INTO logs34 FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
+        sync_execute("INSERT INTO logs FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
 
         alert = self._make_alert(filters={"serviceNames": ["batched_boundary"]})
         result = BatchedAlertCheckQuery(
@@ -1548,7 +1548,7 @@ class TestBatchedAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
                 ]
             )
         ]
-        sync_execute("INSERT INTO logs34 FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
+        sync_execute("INSERT INTO logs FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
 
         alert = self._make_alert(filters={"serviceNames": ["batched_midnight"]})
         result = BatchedAlertCheckQuery(
@@ -1595,7 +1595,7 @@ class TestBatchedAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
                 ]
             )
         ]
-        sync_execute("INSERT INTO logs34 FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
+        sync_execute("INSERT INTO logs FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
 
         alert = self._make_alert(filters={"serviceNames": ["batched_subsecond"]})
         result = BatchedAlertCheckQuery(
@@ -1643,7 +1643,7 @@ class TestBatchedAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
                 ]
             )
         ]
-        sync_execute("INSERT INTO logs34 FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
+        sync_execute("INSERT INTO logs FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
 
         all_alert = self._make_alert(name="all", filters={"serviceNames": ["batched_placement"]})
         info_alert = self._make_alert(
@@ -1811,7 +1811,7 @@ class TestBatchedQueryPredicateHoisting(ClickhouseTestMixin, APIBaseTest):
                 resource_attributes={"deployment.environment": "production"},
             ),
         ]
-        sync_execute("INSERT INTO logs34 FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
+        sync_execute("INSERT INTO logs FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
 
     def _make_alert(self, **kwargs) -> LogsAlertConfiguration:
         defaults = {
@@ -2025,7 +2025,7 @@ class TestBatchedQueryPredicateHoisting(ClickhouseTestMixin, APIBaseTest):
         ]
         # A row without the attribute keeps the attribute leg non-trivial.
         rows.append(_log_row(self.team.id, f"bnd-{name}-decoy", timestamps[0], service))
-        sync_execute("INSERT INTO logs34 FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
+        sync_execute("INSERT INTO logs FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
 
         alert = self._make_alert(filters=_attribute_filters(self.ATTR_KEY, self.ATTR_VALUE, services=[service]))
         batched = BatchedAlertCheckQuery(

@@ -1,3 +1,174 @@
+variable "name" {
+  description = "Logical family name. Standard object names are derived from it."
+  type        = string
+}
+
+variable "database" {
+  type    = string
+  default = "posthog"
+}
+
+variable "layout" {
+  description = "Sharded data with Distributed readers, or one global replication group."
+  type        = string
+  default     = "sharded"
+  validation {
+    condition     = contains(["sharded", "global"], var.layout)
+    error_message = "layout must be sharded or global."
+  }
+}
+
+variable "columns" {
+  description = "Stored columns. Physical attributes stay on the storage table."
+  type = list(object({
+    name                    = string
+    type                    = string
+    default_expression      = optional(string)
+    materialized_expression = optional(string)
+    alias_expression        = optional(string)
+    ephemeral_expression    = optional(string)
+    codec                   = optional(string)
+    ttl                     = optional(string)
+    comment                 = optional(string)
+  }))
+}
+
+variable "storage" {
+  type = object({
+    engine       = optional(string, "MergeTree")
+    replicated   = optional(bool, true)
+    engine_args  = optional(list(string), [])
+    order_by     = string
+    partition_by = optional(string)
+    primary_key  = optional(string)
+    sample_by    = optional(string)
+    ttl          = optional(string)
+    settings     = optional(string)
+    indexes = optional(list(object({
+      name = string, expression = string, type = string, granularity = optional(number)
+    })), [])
+    projections = optional(list(object({
+      name = string, query = string, settings = optional(string)
+    })), [])
+    constraints       = optional(list(object({ name = string, check = string })), [])
+    unmanaged_columns = optional(list(string))
+    unmanaged_indexes = optional(list(string))
+  })
+  validation {
+    condition     = contains(["MergeTree", "ReplacingMergeTree", "AggregatingMergeTree", "SummingMergeTree", "CollapsingMergeTree", "VersionedCollapsingMergeTree"], var.storage.engine)
+    error_message = "storage.engine must be an unreplicated MergeTree engine; replication is supplied by the library."
+  }
+}
+
+variable "sharding_key" {
+  description = "Routing expression. Null uses the layout's default; an empty string omits the sharding argument."
+  type        = string
+  default     = null
+}
+
+variable "routing" {
+  description = "Explicit routing objects and schemas for existing families that differ from the convention."
+  type = object({
+    read          = optional(bool)
+    write         = optional(bool)
+    read_columns  = optional(any)
+    write_columns = optional(any)
+  })
+  default = {}
+}
+
+variable "kafka" {
+  description = "Input schema and topic. Null leaves out Kafka and its materialized view. Settings, when supplied, replace the standard consumer settings."
+  type = object({
+    topic = string
+    columns = list(object({
+      name             = string
+      type             = string
+      alias_expression = optional(string)
+      comment          = optional(string)
+    }))
+    consumer_group = optional(string)
+    format         = optional(string, "JSONEachRow")
+    arguments      = optional(string, "engine")
+    settings       = optional(map(string))
+  })
+  default = null
+  validation {
+    condition     = var.kafka == null ? true : contains(["engine", "settings"], var.kafka.arguments)
+    error_message = "Kafka arguments must use engine or settings syntax."
+  }
+}
+
+variable "mv_target" {
+  description = "Existing ingestion target when it is not the conventional writable table."
+  type        = string
+  default     = null
+}
+
+variable "mv_select" {
+  description = "SELECT expressions for the Kafka materialized view; the library supplies FROM and TO."
+  type        = string
+  default     = null
+  validation {
+    condition     = var.kafka == null ? var.mv_select == null : var.mv_select != null
+    error_message = "A Kafka input requires mv_select, and mv_select requires a Kafka input."
+  }
+}
+
+variable "names" {
+  description = "Explicit names for existing objects that do not use the naming convention."
+  type = object({
+    storage = optional(string)
+    read    = optional(string)
+    write   = optional(string)
+    kafka   = optional(string)
+    mv      = optional(string)
+  })
+  default = {}
+}
+
+variable "deployment" {
+  description = "Placement and operational differences supplied by the calling root. Keeper paths are complete paths, never suffixes."
+  type = object({
+    components       = optional(set(string), ["storage", "read", "write", "ingest"])
+    cluster          = optional(string)
+    read_cluster     = optional(string)
+    write_cluster    = optional(string)
+    kafka_collection = optional(string, "warpstream_ingestion")
+    kafka_settings   = optional(map(string), {})
+    keeper_path      = optional(string)
+    replica_name     = optional(string)
+    exclude          = optional(set(string), [])
+    overrides        = optional(any, {})
+  })
+  default = {}
+  validation {
+    condition     = length(setsubtract(var.deployment.components, ["storage", "read", "write", "ingest", "test"])) == 0
+    error_message = "Unknown table-family component. Use storage, read, write, ingest or test."
+  }
+  validation {
+    condition = alltrue([for name, override in var.deployment.overrides :
+      name == coalesce(var.names.storage, var.layout == "sharded" ? "sharded_${var.name}" : var.name) ||
+      can(regex("^(Replicated)?[A-Za-z]*MergeTree", try(override.engine, ""))) ||
+      length(setintersection(keys(override), ["indexes", "add_indexes", "drop_indexes", "projections", "add_projections", "drop_projections", "constraints", "add_constraints", "drop_constraints"])) == 0
+      if contains(values(local.names), name)
+    ])
+    error_message = "Indexes, projections and constraints can only be overridden on a MergeTree storage table."
+  }
+  validation {
+    condition = alltrue([for name, override in var.deployment.overrides :
+      name == coalesce(var.names.storage, var.layout == "sharded" ? "sharded_${var.name}" : var.name) ||
+      can(regex("^(Replicated)?[A-Za-z]*MergeTree", try(override.engine, ""))) ||
+      alltrue([for column in concat(try(override.add_columns, []), try(values(override.modify_columns), [])) :
+        alltrue([for attribute in ["codec", "ttl"] : try(column[attribute], null) == null])
+      ])
+      if contains(values(local.names), name)
+    ])
+    error_message = "Column codecs and TTLs can only be overridden on a MergeTree storage table."
+  }
+
+}
+
 locals {
   names = {
     storage = coalesce(var.names.storage, var.layout == "sharded" ? "sharded_${var.name}" : var.name)
@@ -6,6 +177,8 @@ locals {
     kafka   = coalesce(var.names.kafka, "kafka_${var.name}")
     mv      = coalesce(var.names.mv, "${var.name}_mv")
   }
+  cluster   = coalesce(var.deployment.cluster, var.layout == "global" ? "posthog" : "aux")
+  overrides = { for name, override in var.deployment.overrides : name => override if contains(values(local.names), name) }
   enabled = {
     storage = contains(var.deployment.components, "storage") && !contains(var.deployment.exclude, local.names.storage)
     read    = coalesce(var.routing.read, var.layout == "sharded") && contains(var.deployment.components, "read") && !contains(var.deployment.exclude, local.names.read)
@@ -18,9 +191,9 @@ locals {
   )
   replica_name = coalesce(var.deployment.replica_name, var.layout == "sharded" ? "{replica}" : "{replica}-{shard}")
   engine_args  = length(var.storage.engine_args) == 0 ? "" : ", ${join(", ", var.storage.engine_args)}"
-  read_cluster = coalesce(var.deployment.read_cluster, var.deployment.cluster)
+  read_cluster = coalesce(var.deployment.read_cluster, local.cluster)
   write_cluster = coalesce(var.deployment.write_cluster,
-    var.layout == "global" ? "${var.deployment.cluster}_single_shard" : var.deployment.cluster
+    var.layout == "global" ? "${local.cluster}_single_shard" : local.cluster
   )
   sharding_key = var.sharding_key == null ? (var.layout == "global" ? "" : "cityHash64(team_id)") : var.sharding_key
   sharding_arg = local.sharding_key == "" ? "" : ", ${local.sharding_key}"
@@ -71,7 +244,7 @@ module "storage" {
   constraints       = var.storage.constraints
   unmanaged_columns = var.storage.unmanaged_columns
   unmanaged_indexes = var.storage.unmanaged_indexes
-  override          = try(var.deployment.overrides[local.names.storage], {})
+  override          = try(local.overrides[local.names.storage], {})
 }
 
 module "read" {
@@ -82,7 +255,7 @@ module "read" {
   name       = local.names.read
   engine     = "Distributed('${local.read_cluster}', '${var.database}', '${local.names.storage}'${local.sharding_arg})"
   columns    = var.routing.read_columns == null ? local.read_columns : var.routing.read_columns
-  override   = try(var.deployment.overrides[local.names.read], {})
+  override   = try(local.overrides[local.names.read], {})
   depends_on = [module.storage]
 }
 
@@ -94,7 +267,7 @@ module "write" {
   name       = local.names.write
   engine     = "Distributed('${local.write_cluster}', '${var.database}', '${local.names.storage}'${local.sharding_arg})"
   columns    = var.routing.write_columns == null ? local.write_columns : var.routing.write_columns
-  override   = try(var.deployment.overrides[local.names.write], {})
+  override   = try(local.overrides[local.names.write], {})
   depends_on = [module.storage]
 }
 
@@ -107,7 +280,7 @@ module "kafka" {
   engine     = local.kafka_engine
   columns    = var.kafka == null ? [] : var.kafka.columns
   settings   = length(local.resolved_kafka_settings) == 0 ? null : join(", ", [for key in sort(keys(local.resolved_kafka_settings)) : "${key} = ${local.resolved_kafka_settings[key]}"])
-  override   = try(var.deployment.overrides[local.names.kafka], {})
+  override   = try(local.overrides[local.names.kafka], {})
   depends_on = [module.write]
 }
 
@@ -119,7 +292,7 @@ module "mv" {
   name       = local.names.mv
   to_table   = coalesce(var.mv_target, "${var.database}.${local.names.write}")
   query      = var.kafka == null ? "SELECT 1" : "SELECT ${var.mv_select} FROM ${var.database}.${local.names.kafka}"
-  override   = try(var.deployment.overrides[local.names.mv], {})
+  override   = try(local.overrides[local.names.mv], {})
   depends_on = [module.kafka, module.write, module.storage, module.read]
 }
 
@@ -133,9 +306,5 @@ output "objects" {
   precondition {
     condition     = !local.enabled.mv || (local.enabled.kafka && (var.mv_target != null || local.enabled.write))
     error_message = "An ingestion materialized view requires its Kafka source and writable target on the same root."
-  }
-  precondition {
-    condition     = length(setsubtract(keys(var.deployment.overrides), values(local.names))) == 0
-    error_message = "An override names an object that is not in this family."
   }
 }

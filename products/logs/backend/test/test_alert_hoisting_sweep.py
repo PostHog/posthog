@@ -205,7 +205,7 @@ def _seed_sweep_rows(team_id: int) -> None:
             resource_attributes=prod,
         ),
     ]
-    sync_execute("INSERT INTO logs34 FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
+    sync_execute("INSERT INTO logs FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
 
 
 class TestHoistedOperatorSweepSeeded(_HoistingSweepBase):

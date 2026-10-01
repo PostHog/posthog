@@ -44,9 +44,7 @@ def clickhouse_database() -> None:
 def create_clickhouse_tables():
     # Kafka tables are left out: nothing consumes in tests, and some tests do not expect them.
     database = ClickHouseDatabase()
-    database.apply_schema(kafka=settings.IN_EVAL_TESTING)
-    database.seed()
-    database.snapshot()
+    database.create_test_tables(kafka=settings.IN_EVAL_TESTING)
 
 
 def reset_clickhouse_tables():

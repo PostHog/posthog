@@ -6,7 +6,7 @@ There are no migrations: you change the declaration, and OpenTofu works out the 
 ```text
 schema/
   catalog/           # simple table-family declarations, shared by local and cloud roots
-  catalog/<group>/   # existing groups: families, columns and custom objects
+  catalog/<group>/main.tf  # one file for columns, families and custom objects
   lib/               # one helper module per object kind; each group is built from these
   local/             # root module: every group on one server
   provider-version.txt
@@ -43,7 +43,7 @@ module "example_events" {
 
 `table_family` creates `sharded_<name>`, `<name>`, `writable_<name>`, `kafka_<name>` and `<name>_mv` on their selected components. Omit `kafka` and `mv_select` for a family without Kafka ingestion.
 `storage.engine` defaults to `MergeTree`; set `ReplacingMergeTree` and `engine_args = ["version"]` for versioned rows. The library supplies replication arguments.
-`sharding_key` defaults to `cityHash64(team_id)` and can be changed explicitly.
+`sharding_key` defaults to `cityHash64(team_id)` and can be changed explicitly. A standalone family defaults to all components and aux routing; a global family defaults to posthog routing. Catalogue declarations receive the root's placement policy.
 The materialized view's `mv_select` is the expression list after `SELECT`; the library supplies its Kafka `FROM` and writable `TO`. More complex queries can use an explicit MV `query` override or the low-level helper.
 
 Indexes, projections, constraints, codecs, column TTLs and computed expressions belong to storage. Readers expose computed values as plain columns; writers expose insertable columns. Kafka has its own input columns. The library rejects index, projection and constraint overrides unless the target uses a MergeTree engine. Existing routing schemas can explicitly retain computed expressions.
@@ -52,9 +52,9 @@ Kafka defaults use one consumer, a 100000-row maximum block, a 10000ms poll time
 For a global family, set `layout = "global"` and use `var.deployment.global`. Its storage table is `<name>` with one Keeper path across the participating nodes; it has no Distributed reader. A global family without Kafka creates only storage. Set `storage.replicated = false` for a plain MergeTree reference table. With Kafka, the library also creates its ingestion objects and a writable table routing to one shard of the storage cluster. Replica names must be unique across the participating nodes.
 
 New replication paths use the actual database name, so test databases are isolated without a suffix. Deployment can set a complete `keeper_path` and `replica_name`; `names` can preserve historical object names. Do not change existing Keeper paths as part of a refactor. Before adopting an existing custom database whose path previously used `posthog` plus a suffix, supply that exact complete path.
-Placement, exclusions and per-object overrides stay in the calling root. Cloud defaults are aux storage, small ingestion and reads on the app query cluster. Local development puts the components on one server. Existing families keep their recorded placement until an explicit migration changes it.
+Placement, exclusions and per-object overrides stay in the calling root. Pass a group's deployment directly to each family; the library selects only that family's overrides and ignores the test component. Unknown component names still fail validation. Cloud defaults are aux storage, small ingestion and reads on the app query cluster. Local development puts the components on one server. Existing families keep their recorded placement until an explicit migration changes it.
 
-All existing groups live in the catalogue. Their `families.tf` files share storage and routing conventions; their columns and custom objects remain beside them. Historical groups receive explicit deployment records, so a refactor does not move data or create missing objects. Three legacy Kafka pipelines keep their low-level declarations because their input schemas carry codecs.
+All existing groups live in the catalogue. Each group has one `main.tf` containing its inputs, columns, families and custom objects. `catalog/main.tf` contains their callers. Shared column lists are declared once and reused. Historical groups receive explicit deployment records, so a refactor does not move data or create missing objects. Three legacy Kafka pipelines keep their low-level declarations because their input schemas carry codecs.
 
 Keep unusual views, dictionaries and extra ingestion pipelines in explicit modules built from `lib/table`, `lib/materialized_view`, `lib/view` and `lib/dictionary`. A family does not have to fit the standard five-object pattern.
 
@@ -105,9 +105,9 @@ Objects that exist only in PostHog Cloud are declared in the infrastructure repo
 
 ## Changing the schema
 
-1. Edit the module of the group. Column lists that several objects use are in `columns.tf` of the module, so a new column usually goes in one place.
+1. Edit the module of the group. Column lists that several objects use are in its `main.tf`, so a new column usually goes in one place.
 2. Write expressions the way ClickHouse prints them in `SHOW CREATE TABLE`. The provider compares your text with what the server reports and ignores only whitespace, so `x::Date` instead of `CAST(x, 'Date')` shows up as a change on every plan. The exception is text inside a quoted string, such as the `QUERY` of a dictionary source: ClickHouse stores that as written.
-3. A standard family goes in `catalog/` and uses `lib/table_family`. An unusual object goes in its catalogue group and component. A new custom group is a directory under `catalog/` and a caller in `catalog/<group>.tf`; local deployment selects its components in `local/modules.tf`.
+3. A standard family goes in `catalog/` and uses `lib/table_family`. An unusual object goes in its catalogue group and component. A new custom group is a directory under `catalog/` and a caller in `catalog/main.tf`; local deployment selects its components in `local/modules.tf`.
 4. Run `bin/clickhouse-schema plan` to see the statements, then `bin/clickhouse-schema apply`.
 
 A pull request that changes this directory gets applied to a fresh ClickHouse in CI, and a second plan must come back empty.
@@ -157,6 +157,11 @@ bin/clickhouse-schema apply    # create or update every object
 
 `bin/migrate --scope=clickhouse` and `python manage.py apply_clickhouse_schema` create the database, call the script and load the reference data.
 The test suite builds its databases the same way, with `CLICKHOUSE_SCHEMA_KAFKA=false` and `CLICKHOUSE_SCHEMA_TEST=true`.
+It records that initial schema once per test process and restores it between packages and after destructive fixtures.
+The local `logs` and `logs_distributed` entry points both route to `logs32`, as existing callers expect. Test components include counter metrics and start without the AI columns that runtime materialization adds.
+Schema refactors must preserve product test inputs and assertions. SQL factories still called by isolated test fixtures remain available; they do not apply deployment migrations.
+
+No state has been deployed for this system, so it has no state-address migration blocks. Bootstrap imports in cloud roots adopt existing objects.
 
 No state is committed.
 The script keeps the OpenTofu state of each target under `~/.cache/posthog-clickhouse-schema`, and the provider adopts objects that already exist, so a lost state costs nothing.

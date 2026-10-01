@@ -7,6 +7,7 @@ from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.traces.spans import TRACE_SPANS_DISTRIBUTED_TABLE_SQL, TRACE_SPANS_TABLE_SQL
 
 DATE_FROM = "2026-06-02T07:00:00Z"
 DATE_TO = "2026-06-02T09:00:00Z"
@@ -28,7 +29,14 @@ class TestSpanAttributeFilter(ClickhouseTestMixin, APIBaseTest):
     def setUpTestData(cls):
         super().setUpTestData()
         tag_queries(product="tracing", feature="query")
-        sync_execute("TRUNCATE TABLE trace_spans")
+        sync_execute("DROP TABLE IF EXISTS trace_spans_distributed")
+        sync_execute("DROP TABLE IF EXISTS trace_spans")
+        sync_execute(TRACE_SPANS_TABLE_SQL())
+        sync_execute(
+            "ALTER TABLE trace_spans ADD COLUMN IF NOT EXISTS "
+            "is_root_span Bool MATERIALIZED (replaceAll(trimRight(parent_span_id, '='), 'A', '')) = ''"
+        )
+        sync_execute(TRACE_SPANS_DISTRIBUTED_TABLE_SQL())
 
         base = dt.datetime(2026, 6, 2, 8, 0, 0)
         ts_str = base.strftime("%Y-%m-%d %H:%M:%S.%f")
@@ -57,7 +65,10 @@ class TestSpanAttributeFilter(ClickhouseTestMixin, APIBaseTest):
 
     @classmethod
     def tearDownClass(cls):
-        sync_execute("TRUNCATE TABLE trace_spans")
+        sync_execute("DROP TABLE IF EXISTS trace_spans_distributed")
+        sync_execute("DROP TABLE IF EXISTS trace_spans")
+        sync_execute(TRACE_SPANS_TABLE_SQL())
+        sync_execute(TRACE_SPANS_DISTRIBUTED_TABLE_SQL())
         super().tearDownClass()
 
     def _query_services(self, prop: dict, root_spans: bool = False) -> list[str]:

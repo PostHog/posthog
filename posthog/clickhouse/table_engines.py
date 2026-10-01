@@ -84,3 +84,13 @@ class Distributed:
             return f"Distributed('{cluster}', '{database}', '{self.data_table}')"
 
         return f"Distributed('{cluster}', '{database}', '{self.data_table}', {self.sharding_key})"
+
+
+class AggregatingMergeTree(MergeTreeEngine):
+    ENGINE = "AggregatingMergeTree()"
+    REPLICATED_ENGINE = "ReplicatedAggregatingMergeTree('{zk_path}', '{replica_key}')"
+
+
+class ReplacingMergeTreeDeleted(MergeTreeEngine):
+    ENGINE = "ReplacingMergeTree({ver}, {is_deleted})"
+    REPLICATED_ENGINE = "ReplicatedReplacingMergeTree('{zk_path}', '{replica_key}', {ver}, {is_deleted})"

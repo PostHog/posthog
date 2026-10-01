@@ -702,3 +702,89 @@ def WEB_BOUNCES_INSERT_SQL(
         columns = get_web_bounces_insert_columns()
         column_list = ",\n    ".join(columns)
         return f"INSERT INTO {table_name}\n(\n    {column_list}\n)\n{formatted_query}"
+
+
+def HOURLY_TABLE_TEMPLATE(
+    table_name, columns, order_by, ttl=None, on_cluster=True, force_unique_zk_path=False, replace=False
+):
+    engine = MergeTreeEngine(table_name, replication_scheme=ReplicationScheme.REPLICATED)
+    if force_unique_zk_path:
+        engine.set_zookeeper_path_key(str(uuid.uuid4()))
+
+    ttl_clause = f"TTL period_bucket + INTERVAL {ttl} DELETE" if ttl else ""
+
+    create_clause = get_create_clause(table_name, replace)
+
+    return f"""
+    {create_clause} {ON_CLUSTER_CLAUSE(on_cluster=on_cluster)}
+    (
+        period_bucket DateTime,
+        team_id UInt64,
+        host String,
+        device_type String,
+        {columns}
+    ) ENGINE = {engine}
+    ORDER BY {order_by}
+    PARTITION BY formatDateTime(period_bucket, '%Y%m%d%H')
+    {ttl_clause}
+    """
+
+
+def get_dimension_columns(dimensions):
+    column_definitions = []
+    for d in dimensions:
+        if d in ["viewport_width", "viewport_height"]:
+            column_definitions.append(f"{d} Int64")
+        elif d in ["has_gclid", "has_gad_source_paid_search", "has_fbclid", "mat_metadata_loggedIn"]:
+            column_definitions.append(f"{d} Bool")
+        else:
+            column_definitions.append(f"{d} String")
+    return ",\n".join(column_definitions)
+
+
+def get_order_by_clause(dimensions, bucket_column="period_bucket"):
+    base_columns = ["team_id", bucket_column, "host", "device_type"]
+    all_columns = base_columns + dimensions
+    column_list = ",\n    ".join(all_columns)
+    return f"(\n    {column_list}\n)"
+
+
+WEB_STATS_COLUMNS = f"""
+    {get_dimension_columns(WEB_STATS_DIMENSIONS)},
+    persons_uniq_state AggregateFunction(uniq, UUID),
+    sessions_uniq_state AggregateFunction(uniq, String),
+    pageviews_count_state AggregateFunction(sum, UInt64),
+"""
+
+
+def WEB_STATS_ORDER_BY_FUNC(bucket_column="period_bucket"):
+    return get_order_by_clause(WEB_STATS_DIMENSIONS, bucket_column)
+
+
+def DROP_PARTITION_SQL(table_name, date_start, granularity="daily"):
+    """
+    Generate SQL to drop a partition for a specific date.
+    This enables idempotent operations by ensuring clean state before insertion.
+
+    Args:
+        table_name: Name of the table
+        date_start: Date string in YYYY-MM-DD format (for daily) or YYYY-MM-DD HH format (for hourly)
+        granularity: "daily" or "hourly" - determines partition format
+    """
+
+    if granularity == "hourly":
+        # For hourly: expect "YYYY-MM-DD HH" format, convert to "YYYYMMDDHH"
+        if " " in date_start:
+            date_part, hour_part = date_start.split(" ")
+            partition_id = date_part.replace("-", "") + hour_part.zfill(2)
+        else:
+            # If only date provided for hourly, format as "YYYYMMDD00"
+            partition_id = date_start.replace("-", "") + "00"
+    else:
+        # For daily: format date as YYYYMMDD
+        partition_id = date_start.replace("-", "")
+
+    return f"""
+    ALTER TABLE {table_name}
+    DROP PARTITION '{partition_id}'
+    """

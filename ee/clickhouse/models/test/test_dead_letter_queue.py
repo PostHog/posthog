@@ -9,45 +9,16 @@ from django.conf import settings
 from kafka import KafkaProducer
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.dead_letter_queue import DEAD_LETTER_QUEUE_TABLE, INSERT_DEAD_LETTER_QUEUE_EVENT_SQL
+from posthog.clickhouse.dead_letter_queue import (
+    DEAD_LETTER_QUEUE_TABLE,
+    DEAD_LETTER_QUEUE_TABLE_MV_SQL,
+    INSERT_DEAD_LETTER_QUEUE_EVENT_SQL,
+    KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL,
+    WRITABLE_DEAD_LETTER_QUEUE_TABLE_SQL,
+)
 from posthog.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
 
 from ee.clickhouse.models.test.utils.util import delay_until_clickhouse_consumes_from_kafka
-
-# The test database has no Kafka tables, so the test brings its own consumer for the dead letter queue topic.
-KAFKA_TABLE = f"kafka_{DEAD_LETTER_QUEUE_TABLE}"
-KAFKA_TABLE_MV = f"{DEAD_LETTER_QUEUE_TABLE}_mv"
-CREATE_KAFKA_TABLE_SQL = f"""
-CREATE TABLE IF NOT EXISTS {KAFKA_TABLE}
-(
-    id UUID,
-    event_uuid UUID,
-    event VARCHAR,
-    properties VARCHAR,
-    distinct_id VARCHAR,
-    team_id Int64,
-    elements_chain VARCHAR,
-    created_at DateTime64(6, 'UTC'),
-    ip VARCHAR,
-    site_url VARCHAR,
-    now DateTime64(6, 'UTC'),
-    raw_payload VARCHAR,
-    error_timestamp DateTime64(6, 'UTC'),
-    error_location VARCHAR,
-    error VARCHAR,
-    tags Array(VARCHAR)
-) ENGINE = Kafka(
-    {settings.CLICKHOUSE_KAFKA_NAMED_COLLECTION},
-    kafka_topic_list = '{KAFKA_DEAD_LETTER_QUEUE}',
-    kafka_group_name = 'group1',
-    kafka_format = 'JSONEachRow'
-)
-SETTINGS kafka_skip_broken_messages = 1000
-"""
-CREATE_KAFKA_TABLE_MV_SQL = f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS {KAFKA_TABLE_MV} TO writable_{DEAD_LETTER_QUEUE_TABLE}
-AS SELECT *, _timestamp, _offset FROM {KAFKA_TABLE}
-"""
 
 TEST_EVENT_RAW_PAYLOAD = json.dumps({"event": "some event", "properties": {"distinct_id": 2, "token": "invalid token"}})
 
@@ -104,13 +75,15 @@ def convert_query_result_to_dlq_event_dicts(query_result):
 
 class TestDeadLetterQueue(ClickhouseTestMixin, BaseTest):
     def setUp(self):
-        sync_execute(CREATE_KAFKA_TABLE_SQL)
-        sync_execute(CREATE_KAFKA_TABLE_MV_SQL)
+        sync_execute(KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL())
+        sync_execute(WRITABLE_DEAD_LETTER_QUEUE_TABLE_SQL())
+        sync_execute(DEAD_LETTER_QUEUE_TABLE_MV_SQL())
         super().setUp()
 
     def tearDown(self):
-        sync_execute(f"DROP TABLE IF EXISTS {KAFKA_TABLE_MV}")
-        sync_execute(f"DROP TABLE IF EXISTS {KAFKA_TABLE}")
+        sync_execute("DROP TABLE IF EXISTS events_dead_letter_queue_mv")
+        sync_execute("DROP TABLE IF EXISTS kafka_events_dead_letter_queue")
+        sync_execute("DROP TABLE IF EXISTS writable_events_dead_letter_queue")
         super().tearDown()
 
     def test_direct_table_insert(self):

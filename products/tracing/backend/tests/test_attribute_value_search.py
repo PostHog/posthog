@@ -5,6 +5,8 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.traces.spans import TRACE_ATTRIBUTES_DISTRIBUTED_TABLE_SQL
+from posthog.clickhouse.traces.trace_attributes import TRACE_ATTRIBUTES_TABLE_SQL
 
 DATE_FROM = "2026-06-02T07:00:00Z"
 DATE_TO = "2026-06-02T09:00:00Z"
@@ -19,7 +21,10 @@ class TestTracingAttributeValueSearch(ClickhouseTestMixin, APIBaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        sync_execute("TRUNCATE TABLE trace_attributes")
+        sync_execute("DROP TABLE IF EXISTS trace_attributes_distributed")
+        sync_execute("DROP TABLE IF EXISTS trace_attributes")
+        sync_execute(TRACE_ATTRIBUTES_TABLE_SQL())
+        sync_execute(TRACE_ATTRIBUTES_DISTRIBUTED_TABLE_SQL())
 
         bucket = dt.datetime(2026, 6, 2, 8, 0, 0).strftime("%Y-%m-%d %H:%M:%S")
         # trace_attributes has `TTL original_expiry_time_bucket`; a past value lets a background
@@ -49,7 +54,8 @@ class TestTracingAttributeValueSearch(ClickhouseTestMixin, APIBaseTest):
 
     @classmethod
     def tearDownClass(cls):
-        sync_execute("TRUNCATE TABLE trace_attributes")
+        sync_execute("DROP TABLE IF EXISTS trace_attributes_distributed")
+        sync_execute("DROP TABLE IF EXISTS trace_attributes")
         super().tearDownClass()
 
     def _attributes(self, params: dict) -> list[dict]:

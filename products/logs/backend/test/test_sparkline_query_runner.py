@@ -36,7 +36,7 @@ class TestSparklineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 log_item["team_id"] = cls.team.id
                 sql += json.dumps(log_item) + "\n"
             sync_execute(f"""
-                INSERT INTO logs34
+                INSERT INTO logs
                 FORMAT JSONEachRow
                 {sql}
             """)
@@ -148,7 +148,7 @@ class TestSparklineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 log_item["observed_timestamp"] = log_item["timestamp"]
                 rows += json.dumps(log_item) + "\n"
         sync_execute(f"""
-            INSERT INTO logs34
+            INSERT INTO logs
             FORMAT JSONEachRow
             {rows}
         """)

@@ -282,7 +282,7 @@ class TestBrokenTestsQueryOverClickHouse(ClickhouseTestMixin, BaseTest):
 
     def _insert_logs(self, rows: list[dict[str, Any]]) -> None:
         payload = "".join(json.dumps({"team_id": self.team.id, **row}) + "\n" for row in rows)
-        sync_execute(f"INSERT INTO logs34 FORMAT JSONEachRow\n{payload}")
+        sync_execute(f"INSERT INTO logs FORMAT JSONEachRow\n{payload}")
 
     def _failure_log(self, *, repo: str, test_id: str) -> dict[str, Any]:
         # attributes_map_str keys carry the "__str" suffix the logs table strips for the queryable map.

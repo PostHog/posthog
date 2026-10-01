@@ -1,3 +1,8 @@
+from django.conf import settings
+
+from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_MESSAGE_ASSETS, kafka_engine
+from posthog.kafka_client.topics import KAFKA_MESSAGE_ASSETS
+
 # AUX-resident table family modelled on `hog_invocation_results`. One row per
 # successfully sent email, keyed by (invocation_id, action_id) — a single
 # workflow invocation can fan out to multiple email steps. Rendered HTML lives
@@ -50,3 +55,45 @@ SELECT
     0,
     0
 """
+
+KAFKA_MESSAGE_ASSETS_TABLE = f"kafka_{MESSAGE_ASSETS_TABLE}"
+
+# `html` is last because it dominates row size; column-oriented reads mean
+# listing queries never touch it.
+MESSAGE_ASSETS_KAFKA_COLUMNS = """
+    team_id Int64,
+    function_kind LowCardinality(String),
+    function_id String,
+    parent_run_id String,
+    invocation_id String,
+    action_id String,
+    kind LowCardinality(String),
+    distinct_id String,
+    person_id String,
+    recipient String,
+    subject String,
+    status LowCardinality(String),
+    sent_at DateTime64(6, 'UTC'),
+    version UInt64,
+    is_deleted UInt8,
+    html String
+""".strip()
+
+# Backed by the warpstream-cyclotron named collection — same cluster the CDP
+# producer writes to and the same one hog_invocation_results consumes from.
+KAFKA_MESSAGE_ASSETS_TABLE_SQL = lambda: (
+    f"""
+CREATE TABLE IF NOT EXISTS {KAFKA_MESSAGE_ASSETS_TABLE}
+(
+    {MESSAGE_ASSETS_KAFKA_COLUMNS}
+)
+ENGINE = {
+        kafka_engine(
+            topic=KAFKA_MESSAGE_ASSETS,
+            group=CONSUMER_GROUP_MESSAGE_ASSETS,
+            named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_CYCLOTRON_NAMED_COLLECTION,
+        )
+    }
+SETTINGS kafka_skip_broken_messages = 100
+"""
+)

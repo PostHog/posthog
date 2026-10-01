@@ -28,7 +28,7 @@ class TestLogsCustomColumns(ClickhouseTestMixin, APIBaseTest):
         with open(os.path.join(os.path.dirname(__file__), "test_logs.jsonnd")) as f:
             log_item = json.loads(f.readline())
             log_item["team_id"] = cls.team.id
-            sync_execute(f"INSERT INTO logs34 FORMAT JSONEachRow {json.dumps(log_item)}")
+            sync_execute(f"INSERT INTO logs FORMAT JSONEachRow {json.dumps(log_item)}")
 
     @classmethod
     def tearDownClass(cls):

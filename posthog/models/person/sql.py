@@ -4,7 +4,7 @@ from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine
 from posthog.clickhouse.table_engines import CollapsingMergeTree
-from posthog.kafka_client.topics import KAFKA_PERSON_UNIQUE_ID
+from posthog.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID, KAFKA_PERSON_UNIQUE_ID
 
 TRUNCATE_PERSON_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS person {ON_CLUSTER_CLAUSE()}"
 
@@ -208,3 +208,73 @@ WHERE actor_id NOT IN (
 
 GET_PERSON_COUNT_FOR_TEAM = "SELECT count() AS count FROM person WHERE team_id = %(team_id)s"
 GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM = "SELECT count() AS count FROM person_distinct_id2 WHERE team_id = %(team_id)s"
+
+# Also rendered as a Distributed shim on NodeRole.AI_EVENTS — see
+# posthog/models/ai_events/person_shims.py. Column ALTERs on the main
+# cluster must be mirrored by a migration targeting NodeRole.AI_EVENTS.
+PERSONS_TABLE_BASE_SQL = """
+CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
+(
+    id UUID,
+    created_at DateTime64,
+    team_id Int64,
+    properties VARCHAR,
+    is_identified Int8,
+    is_deleted Int8,
+    version UInt64,
+    last_seen_at Nullable(DateTime64)
+    {extra_fields}
+) ENGINE = {engine}
+"""
+
+
+def KAFKA_PERSONS_TABLE_SQL(on_cluster=True):
+    # Kafka tables cannot have DEFAULT expressions
+    return PERSONS_TABLE_BASE_SQL.format(
+        table_name=KAFKA_PERSONS_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        engine=kafka_engine(KAFKA_PERSON),
+        extra_fields="",
+    )
+
+
+KAFKA_PERSON_DISTINCT_ID2_TABLE = f"kafka_{PERSON_DISTINCT_ID2_TABLE}"
+
+# NOTE: This table base SQL is also used for distinct ID overrides!
+# Also rendered as a Distributed shim on NodeRole.AI_EVENTS — see
+# posthog/models/ai_events/person_shims.py. Column ALTERs on the main
+# cluster must be mirrored by a migration targeting NodeRole.AI_EVENTS.
+PERSON_DISTINCT_ID2_TABLE_BASE_SQL = """
+CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
+(
+    team_id Int64,
+    distinct_id VARCHAR,
+    person_id UUID,
+    is_deleted Int8,
+    version Int64
+    {extra_fields}
+) ENGINE = {engine}
+"""
+
+
+def KAFKA_PERSON_DISTINCT_ID2_TABLE_SQL(on_cluster=True):
+    return PERSON_DISTINCT_ID2_TABLE_BASE_SQL.format(
+        table_name=KAFKA_PERSON_DISTINCT_ID2_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        engine=kafka_engine(KAFKA_PERSON_DISTINCT_ID),
+        extra_fields="",
+    )
+
+
+KAFKA_PERSON_DISTINCT_ID_OVERRIDES_TABLE = f"kafka_{PERSON_DISTINCT_ID_OVERRIDES_TABLE}"
+
+PERSON_DISTINCT_ID_OVERRIDES_TABLE_BASE_SQL = PERSON_DISTINCT_ID2_TABLE_BASE_SQL
+
+KAFKA_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL = lambda on_cluster=True: (
+    PERSON_DISTINCT_ID_OVERRIDES_TABLE_BASE_SQL.format(
+        table_name=KAFKA_PERSON_DISTINCT_ID_OVERRIDES_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        engine=kafka_engine(KAFKA_PERSON_DISTINCT_ID, group="clickhouse-person-distinct-id-overrides"),
+        extra_fields="",
+    )
+)

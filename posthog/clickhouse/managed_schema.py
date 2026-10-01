@@ -4,10 +4,12 @@ For tests and local setup only. Deployed environments apply the schema outside t
 """
 
 import os
+import re
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import ClassVar
+from uuid import uuid4
 
 from django.conf import settings
 
@@ -62,17 +64,25 @@ class ClickHouseDatabase:
         if result.returncode != 0:
             raise RuntimeError(f"bin/clickhouse-schema apply failed:\n{result.stdout[-4000:]}\n{result.stderr[-4000:]}")
 
+    def create_test_tables(self, *, kafka: bool) -> None:
+        # Fixtures can replace tables and their Keeper paths. Restore the initial schema rather
+        # than reconciling those temporary definitions through OpenTofu between test packages.
+        if self._snapshot:
+            self.restore()
+        else:
+            self.apply_schema(kafka=kafka)
+            self.seed()
+            self.snapshot()
+
     def snapshot(self) -> None:
         """Records the schema and the rows it declares, so that `restore` can rebuild both without running OpenTofu again."""
         rows = sync_execute(
-            "SELECT name, create_table_query FROM system.tables WHERE database = %(database)s AND name NOT LIKE '.inner%%'",
+            """SELECT name, create_table_query FROM system.tables
+               WHERE database = %(database)s AND name NOT LIKE '.inner%%'
+               SETTINGS format_display_secrets_in_show_and_select = 1""",
             {"database": self.name},
         )
-        # ClickHouse masks dictionary source passwords in the statements it reports.
-        password = settings.CLICKHOUSE_PASSWORD.replace("\\", "\\\\").replace("'", "\\'")
-        ClickHouseDatabase._snapshot = {
-            name: query.replace("PASSWORD '[HIDDEN]'", f"PASSWORD '{password}'") for name, query in rows
-        }
+        ClickHouseDatabase._snapshot = dict(rows)
         tables_with_rows = sync_execute(
             "SELECT name FROM system.tables WHERE database = %(database)s AND engine LIKE '%%MergeTree' AND total_rows > 0",
             {"database": self.name},
@@ -101,7 +111,15 @@ class ClickHouseDatabase:
             return None
 
         # Views and materialized views need the objects they read from, so retry what failed until all exist.
-        pending = list(self._snapshot.values())
+        # A fixture's asynchronous DROP can still own the original replica path.
+        pending = [
+            re.sub(
+                r"(ENGINE = Replicated\w*MergeTree\(')[^']*(')",
+                rf"\g<1>/clickhouse/test/{self.name}/{uuid4().hex}/{name}\g<2>",
+                query,
+            )
+            for name, query in self._snapshot.items()
+        ]
         with ThreadPoolExecutor(max_workers=8) as executor:
             while pending:
                 errors = list(executor.map(run, pending))

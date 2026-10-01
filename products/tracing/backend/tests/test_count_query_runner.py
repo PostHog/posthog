@@ -9,6 +9,7 @@ from posthog.schema import DateRange
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.traces.spans import TRACE_SPANS_DISTRIBUTED_TABLE_SQL, TRACE_SPANS_TABLE_SQL
 
 from products.tracing.backend.count_query_runner import run_count_query
 
@@ -29,7 +30,14 @@ class TestTraceSpansCount(ClickhouseTestMixin, APIBaseTest):
     def setUpTestData(cls):
         super().setUpTestData()
         tag_queries(product="tracing", feature="query")
-        sync_execute("TRUNCATE TABLE trace_spans")
+        sync_execute("DROP TABLE IF EXISTS trace_spans_distributed")
+        sync_execute("DROP TABLE IF EXISTS trace_spans")
+        sync_execute(TRACE_SPANS_TABLE_SQL())
+        sync_execute(
+            "ALTER TABLE trace_spans ADD COLUMN IF NOT EXISTS "
+            "is_root_span Bool MATERIALIZED (replaceAll(trimRight(parent_span_id, '='), 'A', '')) = ''"
+        )
+        sync_execute(TRACE_SPANS_DISTRIBUTED_TABLE_SQL())
 
         base = dt.datetime(2026, 6, 2, 8, 0, 0)
 
@@ -61,7 +69,10 @@ class TestTraceSpansCount(ClickhouseTestMixin, APIBaseTest):
 
     @classmethod
     def tearDownClass(cls):
-        sync_execute("TRUNCATE TABLE trace_spans")
+        sync_execute("DROP TABLE IF EXISTS trace_spans_distributed")
+        sync_execute("DROP TABLE IF EXISTS trace_spans")
+        sync_execute(TRACE_SPANS_TABLE_SQL())
+        sync_execute(TRACE_SPANS_DISTRIBUTED_TABLE_SQL())
         super().tearDownClass()
 
     @parameterized.expand(

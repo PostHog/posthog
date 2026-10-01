@@ -62,8 +62,8 @@ def _insert_ai_event(
 
     `bulk_create_ai_events` (posthog/models/ai_events/test_util.py) can't do this: it derives
     `_timestamp` from the same `timestamp` value it inserts, so tests that need to simulate
-    ingestion lag write directly against the columns of sharded_ai_events that have no
-    default.
+    ingestion lag write directly against the columns AI_EVENTS_TABLE_BASE_SQL leaves without
+    a default.
 
     `retention_days` is pinned the same way `bulk_create_ai_events` pins it. ai_events is
     `TTL drop_date` with `drop_date = toDate(timestamp) + retention_days`, and TTL runs on the

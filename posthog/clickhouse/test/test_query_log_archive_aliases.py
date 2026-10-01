@@ -1,7 +1,5 @@
 import json
-from uuid import uuid4
 
-import pytest
 from posthog.test.base import ClickhouseTestMixin
 
 from django.test import SimpleTestCase
@@ -9,12 +7,28 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_log_archive import QUERY_LOG_ARCHIVE_OPS_TABLE_SQL
 
-TABLE = "sharded_query_log_archive"
+TABLE = "test_query_log_archive_aliases"
 
 
-@pytest.mark.usefixtures("django_db_setup")
 class TestQueryLogArchiveCostPlannerAliases(ClickhouseTestMixin, SimpleTestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        super().setUpClass()
+        sync_execute(f"DROP TABLE IF EXISTS {TABLE} SYNC")
+        sync_execute(
+            QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(table_name=TABLE, engine="MergeTree", include_table_clauses=False)
+            + " ORDER BY (team_id, event_date)"
+        )
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        try:
+            sync_execute(f"DROP TABLE IF EXISTS {TABLE} SYNC")
+        finally:
+            super().tearDownClass()
+
     def _insert(self, query_id: str, log_comment: dict) -> None:
         sync_execute(
             f"INSERT INTO {TABLE} (query_id, type, event_date, event_time, team_id, log_comment) "
@@ -50,7 +64,6 @@ class TestQueryLogArchiveCostPlannerAliases(ClickhouseTestMixin, SimpleTestCase)
         ]
     )
     def test_aliases_read_the_tag_values_back(self, name, log_comment, expected):
-        query_id = f"{name}-{uuid4()}"
-        self._insert(query_id, log_comment)
+        self._insert(name, log_comment)
 
-        assert self._read(query_id) == expected
+        assert self._read(name) == expected

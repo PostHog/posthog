@@ -17,7 +17,7 @@ class TestTraceSpansAggregationEndpoint(_TraceSpansTestBase):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls._truncate_trace_spans()
+        cls._recreate_trace_spans_tables()
 
         base_ts = dt.datetime(2026, 6, 2, 8, 0, 0)
         start_str = base_ts.strftime("%Y-%m-%d %H:%M:%S.%f")
