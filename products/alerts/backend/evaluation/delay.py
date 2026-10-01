@@ -34,6 +34,13 @@ def validate_evaluation_delay(query: object, config: object, delay: int) -> None
             "Evaluation delay is not supported for breakdown insights that compare to a previous period. "
             "Turn off the comparison or set the delay to 0."
         )
+    # A daysOfWeek filter drops day buckets, so a calendar-day lookback returns too few intervals.
+    days_of_week = trends_query.dateRange.daysOfWeek if trends_query.dateRange else None
+    if (trends_query.interval or IntervalType.DAY) == IntervalType.DAY and days_of_week and len(set(days_of_week)) < 7:
+        raise ValueError(
+            "Evaluation delay is not supported for daily insights that filter days of the week. "
+            "Include every day or set the delay to 0."
+        )
     if config is not None and not isinstance(config, dict):
         raise ValueError("Alert config must be a JSON object.")
     if (config or {}).get("check_ongoing_interval"):

@@ -203,6 +203,11 @@ class TestEvaluationDelay(SimpleTestCase):
                 {},
                 "compare to a previous period",
             ),
+            (
+                {"kind": "TrendsQuery", "series": [], "dateRange": {"daysOfWeek": [1, 2, 3, 4, 5]}},
+                {},
+                "filter days of the week",
+            ),
             ({"kind": "TrendsQuery", "series": []}, {"check_ongoing_interval": True}, "Turn off"),
             ({"kind": "TrendsQuery", "series": []}, '{"type": "TrendsAlertConfig"}', "JSON object"),
             ({"kind": "TrendsQuery", "series": []}, [1], "JSON object"),
