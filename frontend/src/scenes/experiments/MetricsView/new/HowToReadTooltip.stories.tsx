@@ -24,6 +24,7 @@ import {
     formatDeltaPercent,
     formatMetricValue,
     getMetricSubtitleValues,
+    getVariantInterval,
     isDeltaPositive,
     isSignificant,
     isWinning,
@@ -110,10 +111,6 @@ const toBayesian = (result: ExperimentVariantResultFrequentist): ExperimentVaria
     chance_to_win: result.significant ? (result.confidence_interval![0] > 0 ? 0.98 : 0.02) : 0.72,
     credible_interval: result.confidence_interval,
 })
-
-// Mirrors MetricsTable's shared-axis computation for the example intervals
-const EXAMPLE_MAX_ABS = 0.1597
-const EXAMPLE_AXIS_RANGE = EXAMPLE_MAX_ABS + Math.max(EXAMPLE_MAX_ABS * 0.05, 0.1)
 
 function VariantLabel({ variantKey, index }: { variantKey: string; index: number }): JSX.Element {
     return (
@@ -218,6 +215,12 @@ function SignificanceExample(): JSX.Element {
 }
 
 function IntervalsExample({ results }: { results: ExperimentVariantResult[] }): JSX.Element {
+    // Mirrors MetricsTable's shared-axis computation over the displayed results
+    const maxAbsValue = Math.max(
+        ...results.flatMap((result) => (getVariantInterval(result) ?? []).map((bound) => Math.abs(bound)))
+    )
+    const axisRange = maxAbsValue + Math.max(maxAbsValue * 0.05, 0.1)
+
     return (
         <table className="w-[340px]">
             <tbody>
@@ -226,7 +229,7 @@ function IntervalsExample({ results }: { results: ExperimentVariantResult[] }): 
                         <ChartCell
                             variantResult={result}
                             metric={EXAMPLE_METRIC}
-                            axisRange={EXAMPLE_AXIS_RANGE}
+                            axisRange={axisRange}
                             metricUuid={`how-to-read-${index}`}
                         />
                     </tr>
@@ -256,7 +259,7 @@ function TooltipPreview({ statsMethod }: { statsMethod: ExperimentStatsMethod })
 
     return (
         <div className="flex justify-center p-8">
-            <HowToReadTooltip />
+            <HowToReadTooltip visible />
         </div>
     )
 }

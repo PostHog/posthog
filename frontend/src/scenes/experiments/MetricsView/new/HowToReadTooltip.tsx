@@ -25,7 +25,7 @@ const INTERVAL_IMAGES = {
     [ExperimentStatsMethod.Frequentist]: { light: intervalsFrequentistLight, dark: intervalsFrequentistDark },
 }
 
-export function HowToReadTooltip(): JSX.Element {
+export function HowToReadTooltip({ visible }: { visible?: boolean } = {}): JSX.Element {
     const { statsMethod } = useValues(experimentLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const theme = isDarkModeOn ? 'dark' : 'light'
@@ -35,7 +35,7 @@ export function HowToReadTooltip(): JSX.Element {
             <LemonDivider vertical className="mx-2" />
             {/* Local popup instead of Lemon Tooltip: the tooltip surface is inverse-themed, which
                 would pair a dark panel with light-theme screenshots (and vice versa) */}
-            <BaseTooltip.Root disableHoverablePopup={false}>
+            <BaseTooltip.Root open={visible} disableHoverablePopup={false}>
                 <BaseTooltip.Trigger
                     delay={300}
                     closeDelay={100}
