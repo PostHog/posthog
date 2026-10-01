@@ -1170,7 +1170,7 @@ async def test_run_agentic_report_activity_supplies_existing_checks_to_reresearc
     )
     research_kwargs: dict[str, object] = {}
 
-    await _run_activity_with_output(
+    result = await _run_activity_with_output(
         monkeypatch, ateam, report, _build_research_output(), research_kwargs=research_kwargs
     )
 
@@ -1179,6 +1179,7 @@ async def test_run_agentic_report_activity_supplies_existing_checks_to_reresearc
     assert isinstance(previous_checks[0], dict)
     assert previous_checks[0]["id"] == str(check.id)
     assert previous_checks[0]["approved"] is True
+    assert result.checks_snapshot == {str(check.id): check.updated_at.isoformat()}
 
 
 @pytest.mark.asyncio
@@ -1267,12 +1268,23 @@ async def test_mark_report_ready_activity_applies_metrics(ateam, name, metrics, 
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "reconcile_checks,checks,retired",
-    [(False, [], False), (True, None, False), (True, [], True)],
+    "reconcile_checks,checks,retired,approval",
+    [
+        (False, [], False, None),
+        (True, None, False, None),
+        (True, [], True, None),
+        (True, [], True, "before_research"),
+        (True, [], False, "during_research"),
+    ],
 )
 @pytest.mark.parametrize("pending_input", [False, True])
 async def test_ready_transition_only_reconciles_explicit_new_check_payloads(
-    ateam: Team, reconcile_checks: bool, checks: list[dict] | None, retired: bool, pending_input: bool
+    ateam: Team,
+    reconcile_checks: bool,
+    checks: list[dict] | None,
+    retired: bool,
+    approval: str | None,
+    pending_input: bool,
 ) -> None:
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
@@ -1291,6 +1303,13 @@ async def test_ready_transition_only_reconciles_explicit_new_check_payloads(
         expires_at=timezone.now() + timedelta(days=37),
         soak_minutes=7 * 24 * 60,
     )
+    if approval == "before_research":
+        check.approved_at = timezone.now()
+        await database_sync_to_async(check.save)(update_fields=["approved_at", "updated_at"])
+    snapshot = {str(check.id): check.updated_at.isoformat()}
+    if approval == "during_research":
+        check.approved_at = timezone.now()
+        await database_sync_to_async(check.save)(update_fields=["approved_at", "updated_at"])
 
     if pending_input:
         await mark_report_pending_input_activity(
@@ -1301,6 +1320,7 @@ async def test_ready_transition_only_reconciles_explicit_new_check_payloads(
                 summary="Summary",
                 reason="Needs input",
                 checks=checks,
+                checks_snapshot=snapshot,
                 reconcile_checks=reconcile_checks,
             )
         )
@@ -1313,6 +1333,7 @@ async def test_ready_transition_only_reconciles_explicit_new_check_payloads(
                 summary="Summary",
                 processed_signal_count=2,
                 checks=checks,
+                checks_snapshot=snapshot,
                 reconcile_checks=reconcile_checks,
             )
         )

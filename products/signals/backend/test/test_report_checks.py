@@ -2315,8 +2315,15 @@ class TestResearchAuthoredChecks(APIBaseTest):
         assert older[0].status == SignalReportCheck.Status.CANCELLED
         assert newer[0].status == SignalReportCheck.Status.CANCELLED
 
-    @parameterized.expand([("current_config", False), ("config_written_before_display_fields", True)])
-    def test_unchanged_research_check_keeps_approval_and_schedule(self, _name: str, legacy_config: bool) -> None:
+    @parameterized.expand(
+        [
+            ("current_config", False, "unchanged"),
+            ("config_written_before_display_fields", True, "unchanged"),
+            ("revise_approved", False, "revise"),
+            ("retire_approved", False, "retire"),
+        ]
+    )
+    def test_research_reviews_approved_checks(self, _name: str, legacy_config: bool, action: str) -> None:
         existing = create_checks_from_specs(
             report=self.report, specs=[self._spec()], attribution=ArtefactAttribution.system()
         )[0]
@@ -2329,16 +2336,33 @@ class TestResearchAuthoredChecks(APIBaseTest):
         SignalReportCheck.objects.for_team(self.team.id).filter(id=existing.id).update(
             approved_at=approved_at, config=stored_config
         )
+        existing.refresh_from_db()
+        original_schedule = (existing.next_run_at, existing.expires_at, existing.updated_at)
+        specs = (
+            [] if action == "retire" else [self._spec(title="Revised goal")] if action == "revise" else [self._spec()]
+        )
 
-        assert (
-            create_checks_from_specs(report=self.report, specs=[self._spec()], attribution=ArtefactAttribution.system())
-            == []
+        written = create_checks_from_specs(
+            report=self.report,
+            specs=specs,
+            attribution=ArtefactAttribution.system(),
+            checks_snapshot=check_versions([existing]),
         )
 
         existing.refresh_from_db()
-        assert existing.status == SignalReportCheck.Status.PENDING
+        assert existing.status == (
+            SignalReportCheck.Status.PENDING if action == "unchanged" else SignalReportCheck.Status.CANCELLED
+        )
         assert existing.approved_at == approved_at
-        assert SignalReportCheck.objects.for_team(self.team.id).filter(report=self.report).count() == 1
+        if action == "unchanged":
+            assert (existing.next_run_at, existing.expires_at, existing.updated_at) == original_schedule
+        assert len(written) == (1 if action == "revise" else 0)
+        if written:
+            assert written[0].title == "Revised goal"
+            assert written[0].approved_at is None
+        assert SignalReportCheck.objects.for_team(self.team.id).filter(report=self.report).count() == (
+            2 if action == "revise" else 1
+        )
 
     def test_terminal_check_during_reconciliation_does_not_drop_new_specs(self) -> None:
         older = create_checks_from_specs(
