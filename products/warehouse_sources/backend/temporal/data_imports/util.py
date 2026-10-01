@@ -110,6 +110,14 @@ class S3OperationError(Exception):
         self.__cause__ = cause
 
 
+# Set on a v3 job that a worker restart ended. The next job for the schema reads it to continue
+# the interrupted job's resumable cursor.
+WORKER_RESTART_ERROR_MESSAGE = (
+    "This sync run was interrupted too many times by restarts on PostHog's side, so it did not finish. "
+    "It will run again automatically. No action is needed."
+)
+
+
 class NonRetryableException(NonReportableError):
     """Raised only for errors already classified as a permanent customer/upstream condition
     (bad credentials, denied permissions, a deleted remote) via a source's

@@ -158,6 +158,51 @@ class TestGetModelsPrefetchesSource(BaseTest):
             models.job.folder_path()
 
 
+class TestInterruptedJobLookup(BaseTest):
+    @parameterized.expand(
+        [
+            ("worker_restart", {}, True),
+            ("other_failure", {"latest_error": "Rate limited"}, False),
+            ("completed", {"status": ExternalDataJob.Status.COMPLETED}, False),
+            ("previous_on_v2", {"previous_version": ExternalDataJob.PipelineVersion.V2}, False),
+            ("full_refresh_schema", {"sync_type": ExternalDataSchema.SyncType.FULL_REFRESH}, False),
+            ("scheduled_full_refresh", {"snapshot": {"scheduled_full_refresh": True}}, False),
+        ]
+    )
+    def test_only_a_restart_interrupted_v3_job_hands_over_its_cursor(
+        self, _name: str, overrides: dict[str, Any], expected: bool
+    ) -> None:
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=self.team, source_type="Stripe"
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="Charge",
+            team=self.team,
+            source=source,
+            sync_type=overrides.get("sync_type", ExternalDataSchema.SyncType.WEBHOOK),
+        )
+        previous = ExternalDataJob.objects.create(
+            team=self.team,
+            pipeline=source,
+            schema=schema,
+            status=overrides.get("status", ExternalDataJob.Status.FAILED),
+            latest_error=overrides.get("latest_error", module.WORKER_RESTART_ERROR_MESSAGE),
+            pipeline_version=overrides.get("previous_version", ExternalDataJob.PipelineVersion.V3),
+        )
+        job = ExternalDataJob.objects.create(
+            team=self.team,
+            pipeline=source,
+            schema=schema,
+            status=ExternalDataJob.Status.RUNNING,
+            pipeline_version=ExternalDataJob.PipelineVersion.V3,
+            schema_snapshot=overrides.get("snapshot", {}),
+        )
+
+        interrupted_job_id = cast(Any, module._get_interrupted_job_id).func(job, schema)
+
+        assert interrupted_job_id == (str(previous.id) if expected else None)
+
+
 class TestSchemaSyncHistory(BaseTest):
     @parameterized.expand(
         [
