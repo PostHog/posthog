@@ -1,46 +1,60 @@
-"""The calculation keys of an experiment's metrics, for callers outside the product."""
+"""The calculation keys of experiments' metrics, for callers outside the product."""
+
+from collections.abc import Mapping
+
+from django.db.models import Prefetch
 
 from products.experiments.backend.facade.contracts import MetricCalculationKeys
-from products.experiments.backend.metric_calculation.spec import ExperimentCalculationSettings
-from products.experiments.backend.metric_resolution import (
-    resolve_experiment_metrics,
-    resolve_saved_metric_definition,
-    saved_metric_links,
-    saved_metric_role,
+from products.experiments.backend.metric_calculation.spec import (
+    ExperimentCalculationSettings,
+    inline_metric_calculation_keys,
+    saved_metric_calculation_keys,
+    team_experiments_configs,
 )
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.experiment import Experiment, ExperimentToSavedMetric
+
+
+def metric_calculation_keys_for_experiments(
+    team_id_by_experiment_id: Mapping[int, int],
+) -> dict[int, MetricCalculationKeys]:
+    """The calculation key of every addressable metric of each experiment, by source.
+
+    The argument maps each experiment id to its team, so the experiments can belong to many teams. The
+    read takes three queries however many experiments and teams there are, because the daily discoveries
+    ask for every running experiment at once. Every requested id is in the result, with empty maps when
+    the team has no experiment with that id.
+
+    Unlike `plan`, this keeps metrics that cannot be scheduled, and it keys each saved metric by its own
+    definition even when an inline metric has the same uuid. The daily discoveries hash each metric from
+    its own source, so they need these keys.
+    """
+    keys = {experiment_id: MetricCalculationKeys(inline={}, saved={}) for experiment_id in team_id_by_experiment_id}
+    if not keys:
+        return keys
+    experiments = [
+        experiment
+        for experiment in Experiment.objects.filter(
+            id__in=team_id_by_experiment_id, team_id__in=set(team_id_by_experiment_id.values())
+        )
+        .select_related("team", "feature_flag")
+        .prefetch_related(
+            Prefetch(
+                "experimenttosavedmetric_set",
+                queryset=ExperimentToSavedMetric.objects.select_related("saved_metric"),
+            )
+        )
+        if experiment.team_id == team_id_by_experiment_id[experiment.id]
+    ]
+    team_configs = team_experiments_configs({experiment.team_id for experiment in experiments})
+    for experiment in experiments:
+        settings = ExperimentCalculationSettings.of_experiment(experiment, team_config=team_configs[experiment.team_id])
+        keys[experiment.id] = MetricCalculationKeys(
+            inline=inline_metric_calculation_keys(experiment, settings),
+            saved=saved_metric_calculation_keys(experiment, settings),
+        )
+    return keys
 
 
 def metric_calculation_keys(experiment_id: int, *, team_id: int) -> MetricCalculationKeys:
-    """The calculation key of every addressable metric of the experiment, by source.
-
-    Unlike `plan`, this keeps metrics that cannot be scheduled, and it keys each saved metric by its own
-    definition even when an inline metric has the same uuid. The daily discoveries and the saved-metric
-    `fingerprint` in the API response hash each metric from its own source, so they need these keys.
-    Both maps are empty when the experiment does not exist.
-    """
-    experiment = (
-        Experiment.objects.select_related("team", "feature_flag")
-        .prefetch_related("experimenttosavedmetric_set__saved_metric")
-        .filter(id=experiment_id, team_id=team_id)
-        .first()
-    )
-    if experiment is None:
-        return MetricCalculationKeys(inline={}, saved={})
-    settings = ExperimentCalculationSettings.of_experiment(experiment)
-    inline: dict[str, str] = {}
-    for metric in resolve_experiment_metrics(experiment):
-        if metric.source == "inline" and metric.uuid not in inline:
-            spec = settings.spec_for(metric_id=metric.uuid, role=metric.role, definition=metric.definition)
-            inline[metric.uuid] = spec.calculation_key()
-    saved: dict[int, str] = {}
-    for link in saved_metric_links(experiment):
-        query = link.saved_metric.query
-        if isinstance(query, dict):
-            spec = settings.spec_for(
-                metric_id=query.get("uuid") or "",
-                role=saved_metric_role(link.metadata),
-                definition=resolve_saved_metric_definition(query, link.metadata),
-            )
-            saved[link.id] = spec.calculation_key()
-    return MetricCalculationKeys(inline=inline, saved=saved)
+    """The keys of one experiment, as `metric_calculation_keys_for_experiments` returns them."""
+    return metric_calculation_keys_for_experiments({experiment_id: team_id})[experiment_id]
