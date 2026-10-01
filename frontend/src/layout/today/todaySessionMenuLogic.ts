@@ -77,6 +77,9 @@ export interface todaySessionMenuLogicActions {
         runId: string
         sessionId: string
     }
+    copyBranchName: (branch: string) => {
+        branch: string
+    }
     copySessionLink: (sessionId: string) => {
         sessionId: string
     }
@@ -186,6 +189,7 @@ export const todaySessionMenuLogic = kea<todaySessionMenuLogicType>([
         handOffSession: (sessionId: string, user: UserBasicType) => ({ sessionId, user }),
         analyzeSession: (sessionId: string, runId: string) => ({ sessionId, runId }),
         openSessionInNewTab: (sessionId: string) => ({ sessionId }),
+        copyBranchName: (branch: string) => ({ branch }),
         copySessionLink: (sessionId: string) => ({ sessionId }),
         stopSession: (sessionId: string, runId: string) => ({ sessionId, runId }),
         requestArchive: (sessionId: string, menuId: string, activeRunId: string | null) => ({
@@ -325,6 +329,14 @@ export const todaySessionMenuLogic = kea<todaySessionMenuLogicType>([
             },
             openSessionInNewTab: ({ sessionId }) => {
                 window.open(sessionUrl(sessionId), '_blank', 'noopener')
+            },
+            copyBranchName: async ({ branch }) => {
+                const outcome = await writeToClipboard(branch)
+                if (outcome === 'copied') {
+                    toast.success({ title: 'Branch name copied' })
+                } else {
+                    toast.error({ title: 'Couldn’t copy the branch name. Try again.' })
+                }
             },
             copySessionLink: async ({ sessionId }) => {
                 const outcome = await writeToClipboard(sessionUrl(sessionId))

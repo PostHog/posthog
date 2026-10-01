@@ -131,9 +131,14 @@ tools:
         description: >
             List the repositories accessible to a GitHub integration (by integration ID). Serves the cached repository
             list from the GitHub App installation. Supports `search` (case-insensitive name match), `limit` (default
-            100, max 500), and `offset` query parameters. Returns repository id, name, and full_name (owner/repo) plus a
-            has_more flag. Use this to validate that a repository is accessible to the integration before referencing it
-            (e.g. when creating a GitHub data warehouse source).
+            100, max 500), and `offset` query parameters. Returns repository id, name, and full_name (owner/repo), a
+            has_more flag, a total count, and next_offset. When has_more is true, call again with `offset` set to
+            next_offset to get the next page. Set `compact` to false only when you need the extra repository details.
+            Use this to validate that a repository is accessible to the integration before referencing it (e.g. when
+            creating a GitHub data warehouse source).
+        param_overrides:
+            compact:
+                default: true
     integrations-github-teams-retrieve:
         operation: integrations_github_teams_retrieve
         enabled: false
