@@ -148,6 +148,14 @@ export function StaffFlagEvaluationsModeModal(): JSX.Element {
                             columns={columns}
                             rowKey="organization_id"
                         />
+                        {summary.preCutoffExperimentsStopped > 0 && (
+                            <LemonBanner type="warning">
+                                {pluralize(summary.preCutoffExperimentsStopped, 'running experiment')} started before
+                                September 1, 2026. An experiment that started before then counts exposures on
+                                $feature_flag_called, so it stops gaining exposures once its organization moves to{' '}
+                                {FLAG_EVALUATIONS_MODE_LABELS[FlagEvaluationsModeEnumApi.Number2]}.
+                            </LemonBanner>
+                        )}
                         {summary.organizationsLoweredFromFlagEvaluationsOnly > 0 && (
                             <LemonBanner type="warning">
                                 Lowering{' '}

@@ -5,12 +5,15 @@ This module provides the public interface for creating and managing experiments
 using framework-free DTOs, wrapping the existing ExperimentService.
 """
 
+from uuid import UUID
+
 from rest_framework.exceptions import ValidationError
 
 from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.hogql_queries.exposure_query_logic import EXPERIMENT_EXPOSURE_EVENT_CUTOFF
 from products.experiments.backend.models.experiment import Experiment as ExperimentModel
 
 from .contracts import CreateExperimentInput, Experiment
@@ -87,6 +90,24 @@ def create_experiment(*, team: Team, user: User, input_dto: CreateExperimentInpu
 
     # Convert model to DTO
     return _experiment_model_to_dto(experiment_model)
+
+
+def count_running_experiments_started_before_exposure_cutoff(organization_id: UUID) -> int:
+    """Count the organization's running experiments that started before the exposure cutoff.
+
+    These experiments count exposures on $feature_flag_called in the events table, so they stop
+    gaining exposures when ingestion stops writing that event to events.
+    """
+    return (
+        ExperimentModel.objects.filter(
+            team__organization_id=organization_id,
+            start_date__lt=EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
+            end_date__isnull=True,
+            archived=False,
+        )
+        .exclude(deleted=True)
+        .count()
+    )
 
 
 def _experiment_model_to_dto(experiment: ExperimentModel) -> Experiment:

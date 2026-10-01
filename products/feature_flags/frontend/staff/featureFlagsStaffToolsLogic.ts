@@ -70,6 +70,7 @@ export interface FlagEvaluationsModePreviewSummary {
     organizationsChanged: number
     organizationsLeftAboveMode: number
     organizationsLoweredFromFlagEvaluationsOnly: number
+    preCutoffExperimentsStopped: number
 }
 
 const DEFAULT_FLAG_EVALUATIONS_MODE_REQUEST: FlagEvaluationsModeRequest = {
@@ -669,6 +670,15 @@ export const featureFlagsStaffToolsLogic = kea<featureFlagsStaffToolsLogicType>(
                         (organization) =>
                             organization.changed && organization.current_mode === FlagEvaluationsModeEnumApi.Number2
                     ).length,
+                    preCutoffExperimentsStopped:
+                        preview.response.flag_evaluations_mode === FlagEvaluationsModeEnumApi.Number2
+                            ? preview.response.organizations
+                                  .filter((organization) => organization.changed)
+                                  .reduce(
+                                      (total, organization) => total + organization.running_pre_cutoff_experiment_count,
+                                      0
+                                  )
+                            : 0,
                 },
         ],
     }),

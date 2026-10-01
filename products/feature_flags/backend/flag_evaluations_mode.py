@@ -10,6 +10,7 @@ from django.db.models import QuerySet
 from posthog.dataclasses import frozen
 from posthog.models import Organization, Team
 
+from products.experiments.backend.facade import count_running_experiments_started_before_exposure_cutoff
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.flags import get_organization_flag_evaluations_mode
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
@@ -22,6 +23,9 @@ class OrganizationModeChange:
     organization_created_at: datetime
     # Teams of the organization, for display only. The write never touches team rows.
     team_count: int
+    # These experiments count exposures on $feature_flag_called in events, so FLAG_EVALUATIONS_ONLY
+    # stops their exposures.
+    running_pre_cutoff_experiment_count: int
     current_mode: int
     target_mode: int
     # True when the write moved the organization to target_mode, or would on a dry run.
@@ -108,6 +112,7 @@ def set_organization_flag_evaluations_mode(
         organization_name=organization.name,
         organization_created_at=organization.created_at,
         team_count=Team.objects.filter(organization_id=organization.id).count(),
+        running_pre_cutoff_experiment_count=count_running_experiments_started_before_exposure_cutoff(organization.id),
         current_mode=current_mode,
         target_mode=mode,
         changed=changed,

@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from io import StringIO
 from typing import Any
 
@@ -15,12 +15,14 @@ from parameterized import parameterized
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import Organization
 
+from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.flags import get_organization_flag_evaluations_mode
 from products.feature_flags.backend.flag_evaluations_mode import (
     OrganizationModeChange,
     set_organization_flag_evaluations_mode,
 )
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
 
@@ -60,6 +62,18 @@ class TestSetFlagEvaluationsMode(BaseTest):
         self.assertIsNone(self._stored_mode(self.organization))
 
     @time_machine.travel("2026-09-01T12:00:00Z", tick=False)
+    def test_warns_that_mode_2_stops_running_experiments_started_before_the_cutoff(self) -> None:
+        Experiment.objects.create(
+            team=self.team,
+            name="Started before the cutoff",
+            feature_flag=FeatureFlag.objects.create(team=self.team, key="experiment-flag", created_by=self.user),
+            start_date=datetime(2026, 8, 1, tzinfo=UTC),
+        )
+
+        output = self._run("--mode", "2", "--organization-id", str(self.organization.id), "--dry-run")
+
+        self.assertIn("1 running experiment(s) started before the exposure cutoff", output)
+
     def test_created_after_selects_only_newer_organizations(self) -> None:
         cutoff = timezone.now() - timedelta(minutes=5)
         Organization.objects.filter(id=self.organization.id).update(created_at=cutoff - timedelta(days=1))

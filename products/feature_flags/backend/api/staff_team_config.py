@@ -212,6 +212,9 @@ class StaffOrganizationModeChangeSerializer(DataclassSerializer):
             "organization_id": {"help_text": "Organization id."},
             "organization_name": {"help_text": "Organization name."},
             "team_count": {"help_text": "Teams of the organization. They all read the organization's mode."},
+            "running_pre_cutoff_experiment_count": {
+                "help_text": "Running experiments of the organization that started before the experiment exposure cutoff. They count exposures on $feature_flag_called in events, so mode 2 stops their exposures."
+            },
             "changed": {
                 "help_text": "True when the write moved the organization to the target mode, or would on a dry run."
             },

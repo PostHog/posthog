@@ -482,20 +482,21 @@ describe('featureFlagsStaffToolsLogic', () => {
             const bodies: StaffFlagEvaluationsModeMutationApi[] = []
             // Four organizations move, one of them down from mode 2. One stays above the mode on mode 2,
             // and one is already on it. A summary that reads the wrong field, or counts every unchanged
-            // organization as left above or lowered, fails.
+            // organization as left above or lowered, or counts an unchanged organization's experiments, fails.
             const organizations: StaffOrganizationModeChangeApi[] = (
                 [
-                    [0, true, false],
-                    [0, true, false],
-                    [0, true, false],
-                    [2, true, false],
-                    [2, false, true],
-                    [1, false, false],
+                    [0, true, false, 2],
+                    [0, true, false, 0],
+                    [0, true, false, 0],
+                    [2, true, false, 0],
+                    [2, false, true, 3],
+                    [1, false, false, 0],
                 ] as const
-            ).map(([currentMode, changed, leftAboveMode], index) => ({
+            ).map(([currentMode, changed, leftAboveMode, preCutoffExperiments], index) => ({
                 organization_id: `org-${index}`,
                 organization_name: `Org ${index}`,
                 team_count: 2,
+                running_pre_cutoff_experiment_count: preCutoffExperiments,
                 current_mode: currentMode,
                 target_mode: 1,
                 changed,
@@ -506,7 +507,10 @@ describe('featureFlagsStaffToolsLogic', () => {
                     [MODE_URL]: async ({ request }: { request: Request }) => {
                         const body: StaffFlagEvaluationsModeMutationApi = await request.json()
                         bodies.push(body)
-                        return [200, { flag_evaluations_mode: 1, dry_run: body.dry_run, organizations }]
+                        return [
+                            200,
+                            { flag_evaluations_mode: body.flag_evaluations_mode, dry_run: body.dry_run, organizations },
+                        ]
                     },
                 },
             })
@@ -527,6 +531,7 @@ describe('featureFlagsStaffToolsLogic', () => {
                 organizationsChanged: 4,
                 organizationsLeftAboveMode: 1,
                 organizationsLoweredFromFlagEvaluationsOnly: 1,
+                preCutoffExperimentsStopped: 2,
             })
 
             // A selection change after the preview must not widen the write past what the preview showed.
