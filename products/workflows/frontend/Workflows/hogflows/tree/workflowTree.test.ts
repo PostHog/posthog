@@ -1,7 +1,7 @@
 import type { HogFlow, HogFlowAction, HogFlowEdge } from '../types'
 import {
     buildWorkflowTree,
-    computeEarlyExitEdges,
+    computeEarlyExit,
     computeMoveTreeBranchEdges,
     getWorkflowBranchLabel,
     isWorkflowTreeComplete,
@@ -131,9 +131,13 @@ describe('buildWorkflowTree', () => {
                 edge('email', 'exit'),
             ],
         ],
-        ['the only path into a step', [edge('trigger', 'condition')], null],
-        ['every path into a join', [edge('condition', 'email', 'branch', 0), edge('condition', 'email')], null],
-        ['a path that already ends at the exit', [edge('email', 'exit')], null],
+        ['the only path into a step', [edge('trigger', 'condition')], 'cuts-off-steps'],
+        [
+            'every path into a join',
+            [edge('condition', 'email', 'branch', 0), edge('condition', 'email')],
+            'cuts-off-steps',
+        ],
+        ['a path that already ends at the exit', [edge('email', 'exit')], 'already-exits'],
     ] as const)('points an early exit on %s at the exit', (_, edgesToReplace, expected) => {
         const splitWorkflow = workflow(
             [
@@ -150,7 +154,11 @@ describe('buildWorkflowTree', () => {
             ]
         )
 
-        expect(computeEarlyExitEdges(splitWorkflow, [...edgesToReplace])).toEqual(expected && [...expected])
+        expect(computeEarlyExit(splitWorkflow, [...edgesToReplace])).toEqual(
+            typeof expected === 'string'
+                ? { edges: null, blockedReason: expected }
+                : { edges: [...expected], blockedReason: null }
+        )
     })
 
     it('scopes a nested branch join to its own routes', () => {

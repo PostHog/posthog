@@ -34,7 +34,7 @@ import { BOTTOM_HANDLE_POSITION, NODE_HEIGHT, NODE_WIDTH, TOP_HANDLE_POSITION } 
 import { getSmartStepPath } from './react_flow_utils/SmartEdge'
 import { getHogFlowStep } from './steps/HogFlowSteps'
 import { CyclotronInputType, StepViewNodeHandle } from './steps/types'
-import { computeEarlyExitEdges, isWorkflowTreeComplete } from './tree/workflowTree'
+import { EARLY_EXIT_BLOCKED_REASONS, computeEarlyExit, isWorkflowTreeComplete } from './tree/workflowTree'
 import type { DropzoneNode, HogFlow, HogFlowAction, HogFlowActionEdge, HogFlowActionNode } from './types'
 import type { HogFlowEdge } from './types'
 
@@ -2642,9 +2642,6 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     if (skipEdgeIds.has(edge.id)) {
                         return
                     }
-                    if (isAddingEarlyExit && edge.data && !computeEarlyExitEdges(values.workflow, [edge.data.edge])) {
-                        return
-                    }
                     const sourceNode = nodes.find((n) => n.id === edge.source)
                     const targetNode = nodes.find((n) => n.id === edge.target)
 
@@ -2667,6 +2664,10 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                             position: { x: labelX - NODE_WIDTH / 2, y: labelY - NODE_HEIGHT / 2 },
                             data: {
                                 edge,
+                                earlyExitBlockedReason:
+                                    isAddingEarlyExit && edge.data
+                                        ? computeEarlyExit(values.workflow, [edge.data.edge]).blockedReason
+                                        : null,
                             },
                             draggable: false,
                             selectable: false,
@@ -2676,7 +2677,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         // to allow branch convergence (fan-in). This covers both branch edges directly
                         // from a conditional node and continue edges from downstream nodes in parallel paths.
                         const hasSiblingEdges = edges.filter((e) => e.data?.edge.to === edge.target).length > 1
-                        if (hasSiblingEdges && !isAddingEarlyExit) {
+                        if (hasSiblingEdges) {
                             // Use an ID that we can consistently look up for the branch join point to avoid duplicate dropzones
                             const branchJoinDropzoneTargetId = `dropzone_target_${edge.target}_branch_join`
                             // Avoid duplicating dropzones for multiple branch edges to the same target
@@ -2695,6 +2696,12 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                                 data: {
                                     edge,
                                     isBranchJoinDropzone: true,
+                                    earlyExitBlockedReason: isAddingEarlyExit
+                                        ? computeEarlyExit(
+                                              values.workflow,
+                                              values.workflow.edges.filter((e) => e.to === edge.target)
+                                          ).blockedReason
+                                        : null,
                                 },
                                 draggable: false,
                                 selectable: false,
@@ -2746,14 +2753,12 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
 
                     // An early exit adds no step. It points the path straight at the workflow exit.
                     if (!isHogFlowActionNode && partialNewAction.type === 'exit') {
-                        const earlyExitEdges = computeEarlyExitEdges(values.workflow, edgesToBeReplaced)
-                        if (earlyExitEdges) {
-                            actions.setWorkflowInfo({ actions: values.workflow.actions, edges: earlyExitEdges })
+                        const earlyExit = computeEarlyExit(values.workflow, edgesToBeReplaced)
+                        if (earlyExit.edges) {
+                            actions.setWorkflowInfo({ actions: values.workflow.actions, edges: earlyExit.edges })
                             actions.setSelectedNodeId(edgeToInsertNodeInto.source)
                         } else {
-                            lemonToast.error(
-                                'An early exit here would cut off the steps below it. Add it to a path that joins the rest of the workflow.'
-                            )
+                            lemonToast.error(EARLY_EXIT_BLOCKED_REASONS[earlyExit.blockedReason].message)
                         }
                         actions.setNodeToBeAdded(null)
                         actions.hideDropzones()

@@ -61,25 +61,41 @@ function getReachableActionIds(workflow: Pick<HogFlow, 'actions'>, edges: HogFlo
     return reachable
 }
 
+export type EarlyExitBlockedReason = 'already-exits' | 'cuts-off-steps'
+
+export const EARLY_EXIT_BLOCKED_REASONS: Record<EarlyExitBlockedReason, { label: string; message: string }> = {
+    'already-exits': {
+        label: 'Already goes to exit',
+        message: 'This path already goes to the exit.',
+    },
+    'cuts-off-steps': {
+        label: 'Cuts off later steps',
+        message:
+            'An early exit here would cut off the steps below it. Add it to a path that joins the rest of the workflow.',
+    },
+}
+
+type EarlyExitResult =
+    | { edges: HogFlowEdge[]; blockedReason: null }
+    | { edges: null; blockedReason: EarlyExitBlockedReason }
+
 /**
- * Points the given edges straight at the workflow exit. Returns null when the edges already end
+ * Points the given edges straight at the workflow exit. It is blocked when the edges already end
  * there, or when a step after them would no longer be reachable along another path.
  */
-export function computeEarlyExitEdges(
+export function computeEarlyExit(
     workflow: Pick<HogFlow, 'actions' | 'edges'>,
     edgesToReplace: HogFlowEdge[]
-): HogFlowEdge[] | null {
+): EarlyExitResult {
     const exitActionId = workflow.actions.findLast((action) => action.type === 'exit')?.id
     const replacedKeys = new Set(edgesToReplace.map(getEdgeKey))
     const matchingEdgeCount = workflow.edges.filter((edge) => replacedKeys.has(getEdgeKey(edge))).length
 
-    if (
-        !exitActionId ||
-        matchingEdgeCount === 0 ||
-        matchingEdgeCount !== edgesToReplace.length ||
-        edgesToReplace.some((edge) => edge.to === exitActionId)
-    ) {
-        return null
+    if (!exitActionId || edgesToReplace.some((edge) => edge.to === exitActionId)) {
+        return { edges: null, blockedReason: 'already-exits' }
+    }
+    if (matchingEdgeCount === 0 || matchingEdgeCount !== edgesToReplace.length) {
+        return { edges: null, blockedReason: 'cuts-off-steps' }
     }
 
     const newEdges = workflow.edges.map((edge) =>
@@ -88,8 +104,8 @@ export function computeEarlyExitEdges(
     const reachableAfter = getReachableActionIds(workflow, newEdges)
 
     return [...getReachableActionIds(workflow, workflow.edges)].every((actionId) => reachableAfter.has(actionId))
-        ? newEdges
-        : null
+        ? { edges: newEdges, blockedReason: null }
+        : { edges: null, blockedReason: 'cuts-off-steps' }
 }
 
 export function getWaitTimeoutLabel(maxWaitDuration: string | undefined): string | null {
