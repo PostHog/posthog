@@ -191,83 +191,35 @@
 
 .TodaySidebarFooter {
     display: grid;
+    flex: none;
     grid-template-columns: minmax(0, 1fr) auto;
-    gap: 7px;
-    padding: 12px 4px 14px;
-    margin: 0 4px;
+    gap: 4px;
+    align-items: center;
+    padding: 7px 0 16px;
+    margin: 0 12px;
     border-top: 1px solid var(--today-line);
 }
 
-.TodaySidebarFooter__project,
+.TodaySidebarFooter__account,
 .TodaySidebarFooter__settings {
-    min-height: 48px;
-    color: var(--today-body-text);
-    background: var(--today-soft-2);
-    border: 1px solid var(--today-line);
-    border-radius: 10px;
+    color: var(--today-secondary-text);
 
-    @media (hover: hover) and (pointer: fine) {
-        &:hover {
-            color: var(--today-ink);
-            background: var(--today-soft);
-        }
+    &:hover,
+    &[data-popup-open] {
+        color: var(--today-ink);
     }
 }
 
-.TodaySidebarFooter__project {
-    display: flex;
-    gap: 9px;
-    align-items: center;
+.TodaySidebarFooter__account {
     min-width: 0;
-    padding: 6px 9px;
-    text-align: left;
-
-    > svg {
-        flex: 0 0 14px;
-        width: 14px;
-        height: 14px;
-        margin-left: auto;
-        color: #969690;
-    }
+    padding-inline: 6px 8px;
 }
 
-.TodaySidebarFooter__projectText {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
+.TodaySidebarFooter__name {
     min-width: 0;
-
-    small {
-        font-family: var(--font-mono);
-        font-size: 8px;
-        color: var(--today-faint);
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
-    }
-
-    strong {
-        overflow: hidden;
-        font-size: 11.5px;
-        font-weight: 560;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-}
-
-.TodaySidebarFooter__settings {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    align-items: center;
-    justify-content: center;
-    width: 66px;
-    padding: 4px;
-    font-size: 9px;
-
-    svg {
-        width: 17px;
-        height: 17px;
-    }
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 // Home

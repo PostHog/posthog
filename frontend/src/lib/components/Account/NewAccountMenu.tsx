@@ -51,9 +51,17 @@ interface AccountMenuProps {
     isLayoutNavCollapsed?: boolean
     renderTrigger?: ComponentProps<typeof Menu.Trigger>['render']
     side?: ComponentProps<typeof Menu.Positioner>['side']
+    align?: ComponentProps<typeof Menu.Positioner>['align']
+    sideOffset?: number
 }
 
-export function NewAccountMenu({ isLayoutNavCollapsed = false, renderTrigger, side }: AccountMenuProps): JSX.Element {
+export function NewAccountMenu({
+    isLayoutNavCollapsed = false,
+    renderTrigger,
+    side,
+    align,
+    sideOffset = 4,
+}: AccountMenuProps): JSX.Element {
     const { user } = useValues(userLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
     const { showInviteModal } = useActions(inviteLogic)
@@ -137,7 +145,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed = false, renderTrigger, si
                 <Menu.Portal>
                     <Menu.Backdrop className="fixed inset-0 z-[var(--z-modal)]" />
 
-                    <Menu.Positioner className="z-[var(--z-popover)]" side={side} sideOffset={4}>
+                    <Menu.Positioner className="z-[var(--z-popover)]" side={side} align={align} sideOffset={sideOffset}>
                         <Menu.Popup className="primitive-menu-content max-h-[calc(var(--available-height)-4px)] min-w-[250px] w-full">
                             <ScrollableShadows
                                 direction="vertical"

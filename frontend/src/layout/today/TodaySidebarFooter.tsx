@@ -1,12 +1,13 @@
 import { useValues } from 'kea'
 import { ComponentProps } from 'react'
 
-import { IconChevronDown, IconGear } from '@posthog/icons'
+import { IconGear } from '@posthog/icons'
+import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
 import { pendingInvitesLogic } from 'lib/components/Account/pendingInvitesLogic'
 import { PendingInviteDot } from 'lib/components/Account/ProjectMenu'
-import { Link } from 'lib/lemon-ui/Link'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -19,36 +20,50 @@ export function TodaySidebarFooter(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
     const { pendingInvites } = useValues(pendingInvitesLogic)
     const { sidebarVisible } = useValues(todayShellLogic)
-    const projectName = currentTeam?.name ?? 'Project'
 
     const renderTrigger = (props: ComponentProps<'button'>): JSX.Element => (
-        <button {...props} type="button" className="TodaySidebarFooter__project" data-attr="today-project-menu">
+        <Button
+            {...props}
+            size="lg"
+            className="TodaySidebarFooter__account justify-start"
+            data-attr="today-project-menu"
+        >
             <UploadedLogo
                 name={currentOrganization?.name ?? '?'}
                 entityId={currentOrganization?.id ?? ''}
                 mediaId={currentOrganization?.logo_media_id ?? ''}
+                size="small"
             />
-            <span className="TodaySidebarFooter__projectText">
-                <small>{currentOrganization?.name ?? 'Organization'}</small>
-                <strong>{projectName}</strong>
-            </span>
-            {pendingInvites.length > 0 && <PendingInviteDot />}
-            <IconChevronDown />
-        </button>
+            <span className="TodaySidebarFooter__name">{currentTeam?.name ?? 'Project'}</span>
+            {pendingInvites.length > 0 && <PendingInviteDot className="ml-auto" />}
+        </Button>
     )
 
     return (
         <div className="TodaySidebarFooter">
-            {sidebarVisible ? <NewAccountMenu side="top" renderTrigger={renderTrigger} /> : renderTrigger({})}
-            <Link
-                to={urls.settings('project')}
-                className="TodaySidebarFooter__settings"
-                data-attr="today-settings"
-                subtle
-            >
-                <IconGear />
-                <span>Settings</span>
-            </Link>
+            {sidebarVisible ? (
+                <NewAccountMenu side="top" align="start" sideOffset={12} renderTrigger={renderTrigger} />
+            ) : (
+                renderTrigger({})
+            )}
+            <Tooltip>
+                <TooltipTrigger
+                    delay={0}
+                    render={
+                        <Button
+                            size="icon-lg"
+                            className="TodaySidebarFooter__settings"
+                            aria-label="Settings"
+                            nativeButton={false}
+                            render={<LinkPrimitive to={urls.settings('project')} />}
+                            data-attr="today-settings"
+                        />
+                    }
+                >
+                    <IconGear className="size-4.5" />
+                </TooltipTrigger>
+                <TooltipContent>Settings</TooltipContent>
+            </Tooltip>
         </div>
     )
 }
