@@ -158,9 +158,9 @@ bin/clickhouse-schema apply    # create or update every object
 ```
 
 `bin/migrate --scope=clickhouse` and `python manage.py apply_clickhouse_schema` create the database, call the script and load the reference data.
-The test suite builds its databases the same way, with `CLICKHOUSE_SCHEMA_KAFKA=false` and `CLICKHOUSE_SCHEMA_TEST=true`.
+The test suite builds its databases the same way, with `CLICKHOUSE_SCHEMA_KAFKA=false` and `CLICKHOUSE_SCHEMA_TEST=true`. Each regular test process recreates its database first and supplies a complete Keeper path with a unique run ID and the `{table}` macro. This avoids reconciling fixture definitions and reusing paths still owned by asynchronous table drops. AI evaluations retain their database between runs.
 It records that initial schema once per test process and restores it between packages and after destructive fixtures.
-The local `logs` and `logs_distributed` entry points both route to `logs32`, as existing callers expect. Test components include counter metrics and start without the AI columns that runtime materialization adds.
+In tests, the `logs` and `logs_distributed` entry points both route to `logs32`, as existing fixtures expect. Test components include counter metrics and start without the AI columns that runtime materialization adds.
 Schema refactors must preserve product test inputs and assertions. SQL factories still called by isolated test fixtures remain available; they do not apply deployment migrations.
 
 No state has been deployed for this system, so it has no state-address migration blocks. Bootstrap imports in cloud roots adopt existing objects.

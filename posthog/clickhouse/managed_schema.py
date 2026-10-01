@@ -56,6 +56,9 @@ class ClickHouseDatabase:
             "CLICKHOUSE_SCHEMA_KAFKA": "true" if kafka else "false",
             "CLICKHOUSE_SCHEMA_TEST": "true" if settings.TEST else "false",
         }
+        if settings.TEST and not settings.IN_EVAL_TESTING:
+            # Fixture DROP statements can still own paths after the next pytest process starts.
+            env["TF_VAR_keeper_path"] = f"/clickhouse/test/{self.name}/{uuid4().hex}/{{table}}"
         result = subprocess.run(
             [str(REPO_ROOT / "bin" / "clickhouse-schema"), "apply", "-no-color"],
             env=env,
@@ -71,6 +74,10 @@ class ClickHouseDatabase:
         if self._snapshot:
             self.restore()
         else:
+            # A previous pytest process can leave fixture-specific definitions and Keeper paths.
+            if not settings.IN_EVAL_TESTING:
+                self.drop()
+                self.create()
             self.apply_schema(kafka=kafka)
             self.seed()
             self.snapshot()

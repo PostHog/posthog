@@ -47,6 +47,12 @@ variable "test" {
   default     = false
 }
 
+variable "keeper_path" {
+  description = "Complete replication path override for this server, with {table} to isolate each table."
+  type        = string
+  default     = null
+}
+
 variable "dictionary_user" {
   description = "User the dictionaries connect to their source as."
   type        = string

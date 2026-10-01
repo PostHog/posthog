@@ -1,8 +1,8 @@
 locals {
-  kafka_topics = {
+  deployment_defaults = merge({
     kafka_topic_prefix = var.kafka_topic_prefix
     kafka_topic_suffix = var.test ? "_test" : ""
-  }
+  }, var.keeper_path == null ? {} : { keeper_path = var.keeper_path })
 }
 
 module "catalog" {
@@ -13,8 +13,8 @@ module "catalog" {
   dictionary_user     = var.dictionary_user
   dictionary_password = var.dictionary_password
   deployment = {
-    sharded = merge(local.kafka_topics, { components = setsubtract(local.components, ["test"]), cluster = "aux" })
-    global  = merge(local.kafka_topics, { components = setsubtract(local.components, ["read", "test"]), cluster = "posthog" })
+    sharded = merge(local.deployment_defaults, { components = setsubtract(local.components, ["test"]), cluster = "aux" })
+    global  = merge(local.deployment_defaults, { components = setsubtract(local.components, ["read", "test"]), cluster = "posthog" })
     families = { for name, deployment in {
       adhoc_events_deletion = { components = local.components }
       ai_events             = { components = local.components }
@@ -106,6 +106,6 @@ module "catalog" {
           }
         }
       }
-    } : name => merge(local.kafka_topics, deployment) }
+    } : name => merge(local.deployment_defaults, deployment) }
   }
 }
