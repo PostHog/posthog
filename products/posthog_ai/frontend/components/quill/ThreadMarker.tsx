@@ -18,7 +18,10 @@ const QUILL_THREAD_ROW_CLASS = cn(
 export interface ThreadMarkerProps {
     icon?: ReactNode
     running?: boolean
+    /** Swaps the icon for a spinner while running. */
     spinner?: boolean
+    /** Sweeps the text while running. A tool row turns this off and shows only its spinner. */
+    shimmer?: boolean
     failed?: boolean
     body?: ReactNode
     open?: boolean
@@ -31,6 +34,7 @@ export function ThreadMarker({
     icon,
     running = false,
     spinner = false,
+    shimmer = true,
     failed = false,
     body,
     open,
@@ -41,7 +45,7 @@ export function ThreadMarker({
     const opens = body != null && body !== false && body !== ''
     return (
         <ChatMarker
-            status={failed ? 'error' : running ? 'running' : undefined}
+            status={failed ? 'error' : running && shimmer ? 'running' : undefined}
             body={body}
             open={open}
             onOpenChange={onOpenChange}
@@ -51,7 +55,9 @@ export function ThreadMarker({
                 // The title, argument and status label each set their own color, so the row's color loses to them.
                 failed && 'opacity-100 text-(--destructive-foreground) [&_*]:text-(--destructive-foreground)',
                 // A fainter base under the full-foreground sweep, so a live row reads as moving at a glance.
-                running && '[--quill-shimmer-base:color-mix(in_oklab,var(--muted-foreground)_70%,transparent)]',
+                running &&
+                    shimmer &&
+                    '[--quill-shimmer-base:color-mix(in_oklab,var(--muted-foreground)_70%,transparent)]',
                 className
             )}
         >

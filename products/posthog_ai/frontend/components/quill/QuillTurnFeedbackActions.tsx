@@ -1,4 +1,4 @@
-import { useContext } from 'react'
+import { useContext, useId } from 'react'
 
 import { IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled, IconX } from '@posthog/icons'
 import { Button, ChatMessageFooter, Input, Text, cn } from '@posthog/quill-primitives'
@@ -22,6 +22,7 @@ export function QuillTurnFeedbackActions({
     const turnHovered = useContext(TurnRevealContext)
     const { rating, submitRating, feedback, setFeedback, feedbackInputStatus, closeFeedback, submitFeedback } =
         useTurnRating({ sessionId, turnIndex, run, traceId })
+    const feedbackPromptId = useId()
 
     return (
         <div className="flex flex-col gap-2">
@@ -63,7 +64,7 @@ export function QuillTurnFeedbackActions({
             {feedbackInputStatus !== 'hidden' && (
                 <div className="flex max-w-4/5 flex-col gap-2 rounded-lg border border-border p-3">
                     <div className="flex items-center gap-1">
-                        <Text size="sm" weight="medium" className="grow">
+                        <Text id={feedbackPromptId} size="sm" weight="medium" className="grow">
                             {feedbackInputStatus === 'pending'
                                 ? 'What disappointed you about the answer?'
                                 : 'Thank you for your feedback!'}
@@ -81,6 +82,7 @@ export function QuillTurnFeedbackActions({
                             }}
                         >
                             <Input
+                                aria-labelledby={feedbackPromptId}
                                 placeholder="Help us improve PostHog AI…"
                                 value={feedback}
                                 onChange={(event) => setFeedback(event.target.value)}

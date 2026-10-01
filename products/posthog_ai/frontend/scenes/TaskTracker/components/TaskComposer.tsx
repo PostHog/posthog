@@ -39,6 +39,7 @@ import { QuillAttachedContextPicker } from '../../../components/quill/QuillAttac
 import { QuillComposerAttachButton } from '../../../components/quill/QuillComposerAttachButton'
 import { QuillComposerLayout } from '../../../components/quill/QuillComposerLayout'
 import { QuillComposerSendButton } from '../../../components/quill/QuillComposerSendButton'
+import { QuillOnboardingReplayButton } from '../../../components/quill/QuillOnboardingReplayButton'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
 import { RepositorySelector } from './RepositorySelector'
 
@@ -92,6 +93,7 @@ export function TaskComposer({ variant = 'page', focusRequest = 0, autoFocus = t
     const frameRef = useRef<HTMLLabelElement>(null)
     const groupRef = useRef<HTMLDivElement>(null)
     const skin = useThreadSkin()
+    const showSuggestions = skin === 'lemon' && !composerOverride?.hideSuggestions
 
     useEffect(() => {
         if (focusRequest > 0) {
@@ -169,13 +171,13 @@ export function TaskComposer({ variant = 'page', focusRequest = 0, autoFocus = t
             className={
                 inline
                     ? 'flex flex-col'
-                    : 'flex flex-col h-full min-h-0 items-center justify-center overflow-y-auto p-4'
+                    : '@container/task-composer flex flex-col h-full min-h-0 items-center justify-center overflow-y-auto p-4'
             }
         >
             <div
                 className={inline ? 'w-full flex flex-col gap-4' : 'w-full max-w-2xl flex flex-col items-center gap-4'}
             >
-                {!inline && (
+                {!inline && skin === 'lemon' && (
                     <Welcome headline={displayHeadline} subheadline={composerOverride?.subheadline}>
                         {/* Temporary migration affordance — delete with the rest of the onboarding takeover
                             once everyone is on the new PostHog AI. */}
@@ -234,7 +236,15 @@ export function TaskComposer({ variant = 'page', focusRequest = 0, autoFocus = t
                                             {modePicker}
                                         </>
                                     }
-                                    meta={null}
+                                    meta={
+                                        !inline &&
+                                        !composerOverride?.hideOnboardingReplay && (
+                                            <QuillOnboardingReplayButton
+                                                panelId={panelId}
+                                                className="hidden @4xl/task-composer:inline-flex"
+                                            />
+                                        )
+                                    }
                                 />
                             ) : (
                                 <Composer.Frame ref={frameRef}>
@@ -250,12 +260,12 @@ export function TaskComposer({ variant = 'page', focusRequest = 0, autoFocus = t
                                 </Composer.Frame>
                             )}
                             {/* Open-group state is shared with the side panel; a group left open there would list generic prompts here. */}
-                            {!composerOverride?.hideSuggestions && <Suggestions.Dropdown />}
+                            {showSuggestions && <Suggestions.Dropdown />}
                             {skin === 'lemon' && withConsent(<Composer.Submit data-attr="task-composer-send" />)}
                         </Composer.Root>
                     </div>
 
-                    {!composerOverride?.hideSuggestions && <Suggestions.Buttons data={DEFAULT_SUGGESTIONS_DATA} />}
+                    {showSuggestions && <Suggestions.Buttons data={DEFAULT_SUGGESTIONS_DATA} />}
                 </Suggestions.Root>
             </div>
         </div>

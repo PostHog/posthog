@@ -83,7 +83,7 @@ export function TodaySpacesRow({
                 }
                 onBlur={ticker ? () => setKeyboardFocused(false) : undefined}
                 className={cn(
-                    'min-w-0 text-xs font-medium text-foreground',
+                    'min-w-0 font-medium text-foreground',
                     // Like Desktop, the open row takes a stronger tint than the other selected rows.
                     selected ? (active ? 'bg-primary/20' : 'bg-primary/10') : active && 'bg-fill-selected',
                     TRAILING_PADDING[restSlots],

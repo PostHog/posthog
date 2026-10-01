@@ -11,7 +11,19 @@ import {
     IconImage,
     IconLock,
 } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTabs, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
+import {
+    Button,
+    Empty,
+    EmptyContent,
+    EmptyDescription,
+    EmptyHeader,
+    EmptyMedia,
+    EmptyTitle,
+    Tabs,
+    TabsList,
+    TabsTrigger,
+} from '@posthog/quill-primitives'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -249,19 +261,23 @@ function ArtifactsWorkspace({ taskId }: { taskId: string }): JSX.Element {
     const { setActiveTab } = useActions(taskRunArtifactsLogic({ taskId }))
     if (artifacts.length === 0 || !selectedArtifact) {
         return (
-            <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 py-16 text-center">
-                <span className="flex size-10 items-center justify-center rounded-full bg-surface-secondary text-xl text-secondary">
-                    <IconDocument />
-                </span>
-                <h3 className="mb-0 text-base font-semibold">No artifacts yet</h3>
-                <p className="mb-2 max-w-sm text-sm text-secondary">
-                    Files that the agent writes in this task show here. Ask it for a report, a chart, a CSV or an HTML
-                    page.
-                </p>
-                <LemonButton type="secondary" size="small" onClick={() => setActiveTab('conversation')}>
-                    Go to the conversation
-                </LemonButton>
-            </div>
+            <Empty data-quill className="flex-1">
+                <EmptyHeader>
+                    <EmptyMedia variant="icon">
+                        <IconDocument />
+                    </EmptyMedia>
+                    <EmptyTitle>No artifacts yet</EmptyTitle>
+                    <EmptyDescription>
+                        Files that the agent writes in this task show here. Ask it for a report, a chart, a CSV or an
+                        HTML page.
+                    </EmptyDescription>
+                </EmptyHeader>
+                <EmptyContent>
+                    <Button variant="outline" size="sm" onClick={() => setActiveTab('conversation')}>
+                        Go to the conversation
+                    </Button>
+                </EmptyContent>
+            </Empty>
         )
     }
     return (
@@ -286,26 +302,25 @@ function ArtifactsWorkspace({ taskId }: { taskId: string }): JSX.Element {
 export function TaskRunTabs({ taskId, conversation }: { taskId: string; conversation: JSX.Element }): JSX.Element {
     const { activeTab, artifacts } = useValues(taskRunArtifactsLogic({ taskId }))
     const { setActiveTab } = useActions(taskRunArtifactsLogic({ taskId }))
+    // Quill only: this tab bar mounts behind `today-rail-nav`, which always selects the quill skin.
     return (
         <>
-            <LemonTabs<TaskRunTab>
-                activeKey={activeTab}
-                onChange={setActiveTab}
-                barClassName="mb-0 px-4"
-                tabs={[
-                    { key: 'conversation', label: 'Conversation', 'data-attr': 'task-run-tab-conversation' },
-                    {
-                        key: 'artifacts',
-                        label: (
-                            <span className="flex items-center gap-1.5">
-                                <span>Artifacts</span>
-                                {artifacts.length > 0 && <span className="text-secondary">{artifacts.length}</span>}
-                            </span>
-                        ),
-                        'data-attr': 'task-run-tab-artifacts',
-                    },
-                ]}
-            />
+            <Tabs
+                data-quill
+                value={activeTab}
+                onValueChange={(tab) => setActiveTab(tab as TaskRunTab)}
+                className="border-b border-[var(--border)] px-2"
+            >
+                <TabsList variant="line" className="p-0">
+                    <TabsTrigger value="conversation" data-attr="task-run-tab-conversation">
+                        Conversation
+                    </TabsTrigger>
+                    <TabsTrigger value="artifacts" data-attr="task-run-tab-artifacts">
+                        Artifacts
+                        {artifacts.length > 0 && <span className="text-muted-foreground">{artifacts.length}</span>}
+                    </TabsTrigger>
+                </TabsList>
+            </Tabs>
             {activeTab === 'conversation' ? conversation : <ArtifactsWorkspace taskId={taskId} />}
         </>
     )

@@ -20,7 +20,10 @@ import {
 import type { TaskRunDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { TaskSourceIcon } from '../../../components/TaskSourceIcon'
+import { useThreadSkin } from '../../../hooks/useThreadSkin'
 import type { Task } from '../../../types/taskTypes'
+import { QuillTaskMenu } from './QuillTaskMenu'
+import { QuillTaskTitle } from './QuillTaskTitle'
 import { TaskDebugLogsPanelToggle } from './TaskDebugLogsPanelToggle'
 import { TaskPanelSkeleton, TaskRunMetadataSkeleton } from './taskDetailSkeletons'
 import { TaskErrorBanner } from './TaskErrorBanner'
@@ -62,49 +65,56 @@ export function TaskRunSceneShell({
     isMobile,
     children,
 }: TaskRunSceneShellProps): JSX.Element {
+    const skin = useThreadSkin()
+    const icon = <TaskSourceIcon originProduct={task?.origin_product} environment={task?.latest_run?.environment} />
     return (
         <SceneContent className="h-full min-h-0 gap-y-0">
-            <ScenePanel>
-                {isHeaderLoading ? (
-                    <TaskPanelSkeleton />
-                ) : task ? (
-                    <>
-                        <ScenePanelInfoSection>
-                            <div className="flex flex-col gap-3">
-                                <div>
-                                    <div className="text-xs text-muted mb-1">Task ID</div>
-                                    <div className="font-mono text-sm">{task.slug}</div>
-                                </div>
-                                <div>
-                                    <div className="text-xs text-muted mb-1">Repository</div>
-                                    <div className="text-sm">{task.repository}</div>
-                                </div>
-                                <div>
-                                    <div className="text-xs text-muted mb-1">Created by</div>
-                                    <div className="text-sm">
-                                        {task.created_by?.first_name || task.created_by?.email || 'Unknown'}
+            {/* The quill skin moves the panel's facts and actions into the title's overflow menu (QuillTaskMenu). */}
+            {skin === 'lemon' && (
+                <ScenePanel>
+                    {isHeaderLoading ? (
+                        <TaskPanelSkeleton />
+                    ) : task ? (
+                        <>
+                            <ScenePanelInfoSection>
+                                <div className="flex flex-col gap-3">
+                                    <div>
+                                        <div className="text-xs text-muted mb-1">Task ID</div>
+                                        <div className="font-mono text-sm">{task.slug}</div>
+                                    </div>
+                                    <div>
+                                        <div className="text-xs text-muted mb-1">Repository</div>
+                                        <div className="text-sm">{task.repository}</div>
+                                    </div>
+                                    <div>
+                                        <div className="text-xs text-muted mb-1">Created by</div>
+                                        <div className="text-sm">
+                                            {task.created_by?.first_name || task.created_by?.email || 'Unknown'}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div className="text-xs text-muted mb-1">Created</div>
+                                        <div className="text-sm">
+                                            {dayjs(task.created_at).format('MMM D, YYYY HH:mm')}
+                                        </div>
                                     </div>
                                 </div>
-                                <div>
-                                    <div className="text-xs text-muted mb-1">Created</div>
-                                    <div className="text-sm">{dayjs(task.created_at).format('MMM D, YYYY HH:mm')}</div>
-                                </div>
-                            </div>
-                        </ScenePanelInfoSection>
+                            </ScenePanelInfoSection>
 
-                        <ScenePanelDivider />
+                            <ScenePanelDivider />
 
-                        <TaskDebugLogsPanelToggle />
+                            <TaskDebugLogsPanelToggle />
 
-                        <ScenePanelActionsSection>
-                            <ButtonPrimitive menuItem variant="danger" onClick={onArchive}>
-                                <IconArchive />
-                                Archive task
-                            </ButtonPrimitive>
-                        </ScenePanelActionsSection>
-                    </>
-                ) : null}
-            </ScenePanel>
+                            <ScenePanelActionsSection>
+                                <ButtonPrimitive menuItem variant="danger" onClick={onArchive}>
+                                    <IconArchive />
+                                    Archive task
+                                </ButtonPrimitive>
+                            </ScenePanelActionsSection>
+                        </>
+                    ) : null}
+                </ScenePanel>
+            )}
 
             {taskError && !task ? (
                 <TaskErrorBanner
@@ -126,46 +136,62 @@ export function TaskRunSceneShell({
                         />
                     )}
 
-                    <header className={cn('flex flex-col gap-y-2 px-4 pt-2', taskError && 'mt-4')}>
-                        <SceneTitleSection
-                            className="-mt-2"
-                            name={task?.title || 'Task'}
-                            description={null}
-                            resourceType={{
-                                type: 'task',
-                                forceIcon: (
-                                    <TaskSourceIcon
-                                        originProduct={task?.origin_product}
-                                        environment={task?.latest_run?.environment}
-                                    />
-                                ),
-                            }}
-                            isLoading={isHeaderLoading}
-                            canEdit={!!onRename}
-                            onNameChange={onRename}
-                            // One write when the field is left, rather than one per keystroke.
-                            saveOnBlur
-                            renameDebounceMs={0}
-                            forceBackTo={
-                                isMobile
-                                    ? {
-                                          key: 'posthog-ai',
-                                          name: 'PostHog AI',
-                                          path: urls.ai(),
-                                      }
-                                    : undefined
-                            }
-                            actions={titleActions}
-                        />
+                    {skin === 'quill' ? (
+                        <header className={cn('px-2', taskError && 'mt-4')}>
+                            <QuillTaskTitle
+                                name={task?.title || 'Task'}
+                                icon={icon}
+                                isLoading={isHeaderLoading}
+                                onRename={onRename}
+                                backTo={isMobile ? { label: 'PostHog AI', path: urls.ai() } : undefined}
+                                actions={
+                                    <div data-quill className="flex flex-wrap items-center gap-1">
+                                        {titleActions}
+                                        {task && (
+                                            <QuillTaskMenu
+                                                task={task}
+                                                selectedRun={selectedRun}
+                                                onArchive={onArchive}
+                                            />
+                                        )}
+                                    </div>
+                                }
+                            />
+                        </header>
+                    ) : (
+                        <header className={cn('flex flex-col gap-y-2 px-4 pt-2', taskError && 'mt-4')}>
+                            <SceneTitleSection
+                                className="-mt-2"
+                                name={task?.title || 'Task'}
+                                description={null}
+                                resourceType={{ type: 'task', forceIcon: icon }}
+                                isLoading={isHeaderLoading}
+                                canEdit={!!onRename}
+                                onNameChange={onRename}
+                                // One write when the field is left, rather than one per keystroke.
+                                saveOnBlur
+                                renameDebounceMs={0}
+                                forceBackTo={
+                                    isMobile
+                                        ? {
+                                              key: 'posthog-ai',
+                                              name: 'PostHog AI',
+                                              path: urls.ai(),
+                                          }
+                                        : undefined
+                                }
+                                actions={titleActions}
+                            />
 
-                        {isHeaderLoading ? (
-                            <TaskRunMetadataSkeleton />
-                        ) : (
-                            selectedRun && <TaskRunMetadata selectedRun={selectedRun} />
-                        )}
+                            {isHeaderLoading ? (
+                                <TaskRunMetadataSkeleton />
+                            ) : (
+                                selectedRun && <TaskRunMetadata selectedRun={selectedRun} />
+                            )}
 
-                        <LemonDivider className="hidden lg:block mb-0 mt-2" />
-                    </header>
+                            <LemonDivider className="hidden lg:block mb-0 mt-2" />
+                        </header>
+                    )}
 
                     {children}
                 </>
