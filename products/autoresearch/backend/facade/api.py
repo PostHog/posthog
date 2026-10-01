@@ -12,6 +12,7 @@ filters on it. Business rules live in the modules behind this facade, not in the
 import json
 import base64
 import hashlib
+from datetime import timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -704,15 +705,38 @@ def _require_resolvable_target(pipeline: AutoresearchPipeline) -> None:
         raise AutoresearchConflict("The pipeline's target action no longer exists or has no steps.")
 
 
+# A run still marked running after the inference workflow's own timeout lost its worker, so it
+# must not block a new run forever.
+_INFERENCE_RUN_STALE_AFTER = timedelta(hours=5)
+
+
+def _running_inference_run(team_id: int, pipeline: AutoresearchPipeline) -> AutoresearchRun | None:
+    return (
+        AutoresearchRun.objects.for_team(team_id)
+        .filter(
+            pipeline=pipeline,
+            run_type=AutoresearchRun.RunType.INFERENCE,
+            status=AutoresearchRun.Status.RUNNING,
+            started_at__gte=django_timezone.now() - _INFERENCE_RUN_STALE_AFTER,
+        )
+        .order_by("-started_at")
+        .first()
+    )
+
+
 def score_pipeline(team_id: int, pipeline_id: str | UUID, *, user: User, allow_action_target: bool = True) -> Run:
-    """Score the inference population with the champion model and emit prediction events.
+    """Start scoring the inference population with the champion model and return the running run.
+
+    Scoring runs in ``AutoresearchInferenceWorkflow``, so the caller polls the returned run for its
+    outcome. When an inference run for the pipeline is already running, this returns that run and
+    starts nothing.
 
     ``allow_action_target=False`` refuses an action target with ``InvalidTarget``: a recipe-only
     champion relabels on the action's steps, and a target-relative population selects on them.
     The target is frozen once a model exists, so this read needs no lock.
     """
-    # Scoring loads the inference sandbox, which imports pandas and pyarrow.
-    from ..inference.scoring import run_inference_for_pipeline  # noqa: PLC0415
+    # The scoring module imports pandas and pyarrow.
+    from ..inference.scoring import ScoringWindow, create_inference_run  # noqa: PLC0415
 
     pipeline = _pipeline_row(team_id, pipeline_id, live_only=True)
     if pipeline.status == AutoresearchPipeline.Status.PAUSED:
@@ -728,10 +752,84 @@ def score_pipeline(team_id: int, pipeline_id: str | UUID, *, user: User, allow_a
     )
     if not champion:
         raise AutoresearchConflict("No champion model found. Run training first.")
+
+    window = ScoringWindow.for_date()
+    with transaction.atomic():
+        # The row lock makes a second click wait for the first one's run row, then return it.
+        AutoresearchPipeline.objects.for_team(team_id).select_for_update().get(pk=pipeline.pk)
+        running = _running_inference_run(team_id, pipeline)
+        if running:
+            return _run_to_contract(running)
+        run = create_inference_run(pipeline=pipeline, model=champion, window=window)
+
     try:
-        return _run_to_contract(run_inference_for_pipeline(pipeline=pipeline, model=champion, user=user))
-    except Action.DoesNotExist:
-        raise AutoresearchConflict("The pipeline's target action no longer exists.")
+        _start_inference_workflow(
+            team_id=team_id,
+            pipeline_id=str(pipeline.pk),
+            prediction_date=window.prediction_date.isoformat(),
+            run_id=str(run.pk),
+            user_id=user.pk,
+        )
+    except _InferenceAlreadyStarted:
+        # The daily sweep scores this date now, but its activity has not created its row yet.
+        run.delete()
+        running = _running_inference_run(team_id, pipeline)
+        if running:
+            return _run_to_contract(running)
+        raise AutoresearchConflict("Scoring is already running for this model. Try again in a few minutes.")
+    except Exception as exc:
+        run.status = AutoresearchRun.Status.FAILED
+        run.error = f"Could not start scoring: {exc}"[:2000]
+        run.completed_at = django_timezone.now()
+        run.save(update_fields=["status", "error", "completed_at"])
+        raise
+    return _run_to_contract(run)
+
+
+class _InferenceAlreadyStarted(Exception):
+    pass
+
+
+def _start_inference_workflow(
+    *, team_id: int, pipeline_id: str, prediction_date: str, run_id: str, user_id: int
+) -> None:
+    # The Temporal client and the workflow module load only when a manual run starts.
+    import asyncio  # noqa: PLC0415
+
+    from django.conf import settings  # noqa: PLC0415
+
+    from temporalio.common import WorkflowIDReusePolicy  # noqa: PLC0415
+    from temporalio.exceptions import WorkflowAlreadyStartedError  # noqa: PLC0415
+
+    from posthog.temporal.common.client import sync_connect  # noqa: PLC0415
+
+    from ..temporal.workflows import (  # noqa: PLC0415
+        _INFERENCE_WORKFLOW_TIMEOUT,
+        AutoresearchInferenceWorkflow,
+        InferenceWorkflowInput,
+        inference_workflow_id,
+    )
+
+    client = sync_connect()
+    try:
+        asyncio.run(
+            client.start_workflow(
+                AutoresearchInferenceWorkflow.run,
+                InferenceWorkflowInput(
+                    pipeline_id=pipeline_id,
+                    team_id=team_id,
+                    prediction_date=prediction_date,
+                    run_id=run_id,
+                    user_id=user_id,
+                ),
+                id=inference_workflow_id(pipeline_id, prediction_date),
+                task_queue=settings.AUTORESEARCH_TASK_QUEUE,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                execution_timeout=_INFERENCE_WORKFLOW_TIMEOUT,
+            )
+        )
+    except WorkflowAlreadyStartedError as exc:
+        raise _InferenceAlreadyStarted() from exc
 
 
 def validate_pipeline_online(

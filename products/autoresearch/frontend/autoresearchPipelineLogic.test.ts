@@ -5,20 +5,48 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 
-import { autoresearchPipelineLogic, trainingRunProgress } from './autoresearchPipelineLogic'
-import { autoresearchModelsList, autoresearchRetrieve } from './generated/api'
-import { AutoresearchTrainingRunApi, IterationTrailApi } from './generated/api.schemas'
+import { SCORE_RUN_POLL_INTERVAL_MS, autoresearchPipelineLogic, trainingRunProgress } from './autoresearchPipelineLogic'
+import {
+    autoresearchModelsList,
+    autoresearchRetrieve,
+    autoresearchRunsList,
+    autoresearchRunsRetrieve,
+    autoresearchScoreCreate,
+} from './generated/api'
+import { AutoresearchRunApi, AutoresearchTrainingRunApi, IterationTrailApi } from './generated/api.schemas'
 
 jest.mock('./generated/api', () => ({
     autoresearchRetrieve: jest.fn(),
     autoresearchModelsList: jest.fn(),
     autoresearchTrainingRunsList: jest.fn(),
     autoresearchRunsList: jest.fn(),
+    autoresearchRunsRetrieve: jest.fn(),
+    autoresearchScoreCreate: jest.fn(),
     autoresearchSuggestionsList: jest.fn(),
 }))
 
 const mockRetrieve = autoresearchRetrieve as jest.Mock
 const mockModelsList = autoresearchModelsList as jest.Mock
+const mockRunsList = autoresearchRunsList as jest.Mock
+const mockRunsRetrieve = autoresearchRunsRetrieve as jest.Mock
+const mockScoreCreate = autoresearchScoreCreate as jest.Mock
+
+function makeScoreRun(overrides: Partial<AutoresearchRunApi>): AutoresearchRunApi {
+    return {
+        id: 'score-run-1',
+        pipeline: 'pipeline-1',
+        model: 'champion',
+        run_type: 'inference',
+        status: 'running',
+        rows_scored: null,
+        metrics: {},
+        error: '',
+        started_at: '2026-10-01T14:05:00Z',
+        completed_at: null,
+        created_at: '2026-10-01T14:05:00Z',
+        ...overrides,
+    } as AutoresearchRunApi
+}
 
 function makeRun(overrides: Partial<AutoresearchTrainingRunApi>): AutoresearchTrainingRunApi {
     return {
@@ -80,6 +108,59 @@ describe('autoresearchPipelineLogic', () => {
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.AUTORESEARCH], { [FEATURE_FLAGS.AUTORESEARCH]: true })
         await expectLogic(logic).toFinishAllListeners()
         expect(mockRetrieve).toHaveBeenCalledTimes(1)
+    })
+
+    it('follows a background scoring run until it finishes, then stops polling', async () => {
+        jest.clearAllMocks()
+        jest.useFakeTimers()
+        initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.AUTORESEARCH], { [FEATURE_FLAGS.AUTORESEARCH]: true })
+        mockRetrieve.mockResolvedValue({ id: 'pipeline-1', name: 'Model' })
+        mockModelsList.mockResolvedValue({ results: [], next: null })
+        mockRunsList.mockResolvedValue({ results: [], next: null })
+        mockScoreCreate.mockResolvedValue(makeScoreRun({}))
+        mockRunsRetrieve
+            .mockResolvedValueOnce(makeScoreRun({}))
+            .mockResolvedValueOnce(makeScoreRun({ status: 'completed', rows_scored: 8000 }))
+        const logic = autoresearchPipelineLogic({ id: 'pipeline-1' })
+        try {
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadRunsSuccess'])
+
+            await expectLogic(logic, () => logic.actions.scoreNow()).toDispatchActions(['scoreNowSuccess'])
+            expect(logic.values.activeScoreRun?.id).toEqual('score-run-1')
+
+            await expectLogic(logic, () => jest.advanceTimersByTime(SCORE_RUN_POLL_INTERVAL_MS)).toDispatchActions([
+                'pollScoreRun',
+            ])
+            expect(logic.values.activeScoreRun?.id).toEqual('score-run-1')
+
+            await expectLogic(logic, () => jest.advanceTimersByTime(SCORE_RUN_POLL_INTERVAL_MS)).toDispatchActions([
+                'scoreRunFinished',
+            ])
+            expect(logic.values.activeScoreRun).toBeNull()
+            expect(logic.cache.disposables.registry.has('scorePoll')).toBe(false)
+        } finally {
+            logic.unmount()
+            jest.useRealTimers()
+        }
+    })
+
+    it('resumes following a scoring run that was already running when the page loaded', async () => {
+        jest.clearAllMocks()
+        initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.AUTORESEARCH], { [FEATURE_FLAGS.AUTORESEARCH]: true })
+        mockRetrieve.mockResolvedValue({ id: 'pipeline-1', name: 'Model' })
+        mockModelsList.mockResolvedValue({ results: [], next: null })
+        mockRunsList.mockResolvedValue({ results: [makeScoreRun({})], next: null })
+        const logic = autoresearchPipelineLogic({ id: 'pipeline-1' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadRunsSuccess'])
+        expect(logic.values.activeScoreRun?.id).toEqual('score-run-1')
+        expect(logic.cache.disposables.registry.has('scorePoll')).toBe(true)
+        logic.unmount()
     })
 
     describe('trainingRunProgress', () => {
