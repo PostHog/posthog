@@ -9,6 +9,7 @@ from rest_framework.response import Response
 
 from products.engineering_analytics.backend.facade import api
 from products.engineering_analytics.backend.presentation.serializers.pull_requests import (
+    AttentionPullRequestListSerializer,
     BranchPRMatchSerializer,
     CICardSummarySerializer,
     CIFailureLogsSerializer,
@@ -34,6 +35,7 @@ class PullRequestActionsMixin(EngineeringAnalyticsViewSetBase):
     READ_ACTIONS = [
         "ci_cards",
         "pull_requests",
+        "attention_pull_requests",
         "pr_lifecycle",
         "resolve_branch",
         "pr_runs",
@@ -107,6 +109,32 @@ class PullRequestActionsMixin(EngineeringAnalyticsViewSetBase):
         except ValueError as exc:
             return _bad_request(exc, fallback="Invalid date_from or source_id")
         return Response(PullRequestListSerializer(instance=result).data)
+
+    @extend_schema(
+        operation_id="engineering_analytics_attention_pull_requests",
+        parameters=[_SOURCE_ID, _REPO],
+        responses={
+            200: AttentionPullRequestListSerializer,
+            400: OpenApiResponse(description="Invalid source_id."),
+        },
+        description=(
+            "Open pull requests that need attention: failing CI, or stuck (open, non-draft, non-bot, older than "
+            "7 days), by the same rules as the ci_cards counts. Failing first, then newest, capped; `total` counts "
+            "every match in the whole open backlog, however old."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def attention_pull_requests(self, request: Request, **kwargs) -> Response:
+        try:
+            result = api.list_attention_pull_requests(
+                team=self.team,
+                source_id=request.query_params.get("source_id") or None,
+                repo=request.query_params.get("repo") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid source_id")
+        return Response(AttentionPullRequestListSerializer(instance=result).data)
 
     @extend_schema(
         operation_id="engineering_analytics_pr_lifecycle",

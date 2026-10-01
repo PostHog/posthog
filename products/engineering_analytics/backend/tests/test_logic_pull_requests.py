@@ -16,6 +16,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     PRLifecycleEventKind,
     PRState,
 )
+from products.engineering_analytics.backend.logic.queries import pull_request_list
 from products.engineering_analytics.backend.logic.views.source_schema import (
     ISSUE_EVENTS_COLUMNS,
     PULL_REQUESTS_COLUMNS,
@@ -288,13 +289,23 @@ class TestResolveBranchMapping(BaseTest):
 class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
     """PR-scoped end-to-end aggregates over the shared seeded warehouse tables."""
 
-    def test_ci_cards_counts(self) -> None:
+    def test_ci_cards_and_attention_list_agree(self) -> None:
         self._seed()
         cards = api.get_ci_cards(team=self.team)
         assert cards.open_prs == 5  # 10, 11, 12, 13, 16
         assert cards.repos == 1  # all PostHog/posthog
         assert cards.stuck == 1  # only 11 (10 recent, 12 draft, 13 and 16 bots)
         assert cards.failing_ci == 1  # only 10 has a failing latest run
+
+        attention = api.list_attention_pull_requests(team=self.team)
+        assert [item.number for item in attention.items] == [10, 11]  # failing first, then stuck
+        assert attention.total == 2
+        assert attention.items[0].push_history  # enriched like the full list
+
+        with mock.patch.object(pull_request_list, "_ATTENTION_LIMIT", 1):
+            capped = api.list_attention_pull_requests(team=self.team)
+        assert [item.number for item in capped.items] == [10]
+        assert capped.total == 2  # counts past the cap
 
     def test_pull_request_list_window_and_rollup(self) -> None:
         self._seed()
