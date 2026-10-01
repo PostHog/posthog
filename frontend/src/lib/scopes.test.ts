@@ -8,10 +8,14 @@ import {
     getScopeDescription,
     scopeMatchesSearch,
 } from 'lib/scopes'
+import { OAUTH_HIDDEN_SCOPE_OBJECTS } from 'lib/scopes.generated'
 
 import { ScopeObjectEnumApi } from 'products/access_control/frontend/generated/api.schemas'
 
-const API_SCOPE_OBJECTS = Object.values(ScopeObjectEnumApi)
+// The pickers never show an OAuth-hidden object, so only the rest need a row and a group.
+const PICKER_SCOPE_OBJECTS = Object.values(ScopeObjectEnumApi).filter(
+    (obj) => !(OAUTH_HIDDEN_SCOPE_OBJECTS as readonly string[]).includes(obj)
+)
 
 const getRenderableKeyCreationScopes = (): Set<string> =>
     new Set(
@@ -54,7 +58,7 @@ describe('API_SCOPES modal coverage', () => {
     it('offers or explicitly omits every scope object', () => {
         // The enum is generated from posthog/scopes.py, so a new backend scope object fails here
         // until someone offers it in the key-creation modal or gives a reason to omit it.
-        const uncovered = API_SCOPE_OBJECTS.filter((obj) => !offered.has(obj) && !omitted.has(obj))
+        const uncovered = PICKER_SCOPE_OBJECTS.filter((obj) => !offered.has(obj) && !omitted.has(obj))
         expect(uncovered).toEqual([])
     })
 
@@ -65,12 +69,19 @@ describe('API_SCOPES modal coverage', () => {
 })
 
 describe('API_SCOPE_GROUPS', () => {
-    it('files every scope object in exactly one group', () => {
+    const filed = API_SCOPE_GROUPS.flatMap(({ objects }) => objects)
+
+    it('files every picker scope object in exactly one group', () => {
         // A new scope object fails here until someone picks the product area it belongs to.
-        const filed = API_SCOPE_GROUPS.flatMap(({ objects }) => objects)
         const duplicates = [...new Set(filed.filter((obj, index) => filed.indexOf(obj) !== index))]
-        const missing = API_SCOPE_OBJECTS.filter((obj) => !filed.includes(obj))
+        const missing = PICKER_SCOPE_OBJECTS.filter((obj) => !filed.includes(obj))
         expect({ duplicates, missing }).toEqual({ duplicates: [], missing: [] })
+    })
+
+    it('keeps OAuth-hidden scope objects out of every group', () => {
+        // A group that exists only for hidden objects carries a label that no person should ever see.
+        const hidden = filed.filter((obj) => (OAUTH_HIDDEN_SCOPE_OBJECTS as readonly string[]).includes(obj))
+        expect(hidden).toEqual([])
     })
 
     it('uses each group label once', () => {

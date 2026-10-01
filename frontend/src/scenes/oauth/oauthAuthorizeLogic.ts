@@ -16,6 +16,7 @@ import {
     getScopeGroupLabel,
     OTHER_SCOPE_GROUP_LABEL,
 } from 'lib/scopes'
+import { OAUTH_HIDDEN_SCOPE_OBJECTS, PRIVILEGED_SCOPE_OBJECTS } from 'lib/scopes.generated'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { userLogic } from 'scenes/userLogic'
 
@@ -143,10 +144,12 @@ const requiredLevelsFromScopes = (requiredScopes: string[]): Map<string, Require
     return levels
 }
 
-// Mirrors PRIVILEGED_SCOPES + OAUTH_HIDDEN_SCOPE_OBJECTS in posthog/scopes.py: objects
-// /authorize can never grant, so the wildcard expansion must skip them or the server
+// Objects /authorize can never grant, so the wildcard expansion must skip them or the server
 // would reject the whole submit with invalid_scope.
-const OAUTH_UNGRANTABLE_OBJECTS: ReadonlySet<string> = new Set(['llm_gateway', 'metrics', 'wizard_session'])
+const OAUTH_UNGRANTABLE_OBJECTS: ReadonlySet<string> = new Set([
+    ...PRIVILEGED_SCOPE_OBJECTS,
+    ...OAUTH_HIDDEN_SCOPE_OBJECTS,
+])
 
 // `*` grants read+write to everything; its read-only form is every grantable object's read
 // scope. The server-computed list is authoritative — the local API_SCOPES list both lags
