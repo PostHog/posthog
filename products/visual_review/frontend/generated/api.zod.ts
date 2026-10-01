@@ -153,6 +153,24 @@ export const VisualReviewRunsApproveCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Complete a run: detect removals, verify uploads, trigger diff processing.
+ */
+export const visualReviewRunsCompleteCreateBodyCheckRunIdMax = 32
+
+export const visualReviewRunsCompleteCreateBodyCheckRunIdRegExp = new RegExp('^\\d+$')
+
+export const VisualReviewRunsCompleteCreateBody = /* @__PURE__ */ zod.object({
+    check_run_id: zod
+        .string()
+        .max(visualReviewRunsCompleteCreateBodyCheckRunIdMax)
+        .regex(visualReviewRunsCompleteCreateBodyCheckRunIdRegExp)
+        .optional()
+        .describe(
+            'Numeric GitHub Actions job ID of the CI job that completes the run, from `${{ job.check_run_id }}`. Recompute re-runs this job, so it re-reads the verdict without capturing the snapshots again. Omit it outside GitHub Actions.'
+        ),
+})
+
+/**
  * Finalize a fully-reviewed run: commit the approved baseline and green the gate.
  *
  * Commits exactly the snapshots approved in the DB (tolerated ones keep their baseline)
