@@ -63,7 +63,7 @@ def _record_insight_views(
     if not last_viewed_at_by_insight_id:
         return
     rows = sorted(last_viewed_at_by_insight_id.items())
-    # Ignoring conflicts works with both uniqueness layouts; the update sees a concurrent winning insert.
+    # Skip existing rows, including concurrent inserts, then update their timestamps below.
     with transaction.atomic():
         InsightViewed.objects.bulk_create(
             [
