@@ -16,7 +16,7 @@ const meta: Meta<typeof CanvasHostPromptDialog> = {
             </BindLogic>
         ),
     ],
-    parameters: { testOptions: { viewport: { width: 900, height: 700 } } },
+    parameters: { layout: 'fullscreen', testOptions: { viewport: { width: 900, height: 700 } } },
 }
 export default meta
 
