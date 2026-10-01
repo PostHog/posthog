@@ -97,6 +97,12 @@ def request_lift_on_merge(
     expected_hash = _expected_hash(snapshot)
 
     with transaction.atomic(using=WRITER_DB):
+        # Lock the quarantine row before reading the pending request, in the same order as `_apply`.
+        # Two concurrent requests for one PR then run one after the other, and the second updates
+        # the row the first created instead of breaking the one-pending-request constraint.
+        QuarantinedIdentifier.objects.using(WRITER_DB).select_for_update().filter(
+            id=quarantine.id, team_id=team_id
+        ).first()
         request = (
             QuarantineLiftRequest.objects.using(WRITER_DB)
             .select_for_update()

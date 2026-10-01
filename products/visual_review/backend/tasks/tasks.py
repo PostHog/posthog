@@ -283,8 +283,9 @@ def reconcile_quarantine_lifts(self, team_id: int, run_id: str) -> None:
             retry=self.request.retries,
             max_retries=self.max_retries,
         )
-        try:
-            self.retry(countdown=min(e.retry_after or 60, 600), exc=e)
-        except self.MaxRetriesExceededError:
+        # `retry(exc=e)` re-raises `e` once the budget is spent, so check the budget first.
+        if self.max_retries is not None and self.request.retries >= self.max_retries:
             # The next default-branch run checks the same requests again.
             logger.warning("visual_review.quarantine_lift_giving_up", run_id=run_id)
+            return
+        raise self.retry(countdown=min(e.retry_after or 60, 600), exc=e)
