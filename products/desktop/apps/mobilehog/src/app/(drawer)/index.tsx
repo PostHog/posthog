@@ -68,6 +68,9 @@ export default function NewChatScreen() {
     } catch (err) {
       if (sessionIdentity() !== identity) return;
       failPending(tempId, err instanceof Error ? err.message : String(err));
+      // The placeholder chat cannot resend, so give the message back to the
+      // new-chat composer.
+      throw err;
     }
   };
 
