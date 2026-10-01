@@ -727,7 +727,9 @@ class TestAnchorsRecipeQueries(TeamScopedTestMixin, BaseTest):
         with (
             patch.object(scoring, "run_hogql", return_value=HogQLResult(columns=[], rows=[])) as features_run,
             patch.object(
-                sandbox_inference, "run_hogql", return_value=HogQLResult(columns=["eligible"], rows=[[0]])
+                sandbox_inference,
+                "run_hogql",
+                return_value=HogQLResult(columns=["eligible", "positives"], rows=[[0, 0]]),
             ) as count_run,
         ):
             _fetch_training_rows(team=self.team, pipeline=pipeline, feature_sql=_ANCHORS_FEATURE_SQL, user=self.user)
