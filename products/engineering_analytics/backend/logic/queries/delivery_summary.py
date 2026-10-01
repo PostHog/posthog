@@ -33,7 +33,7 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
     date_to_filter_clause,
     run_started_floor_constant,
 )
-from products.engineering_analytics.backend.logic.queries.dora import DeployedPR, query_deployed_prs
+from products.engineering_analytics.backend.logic.queries.dora import DeployedPR, DeployedPRs, query_deployed_prs
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_pr_costs
 from products.engineering_analytics.backend.logic.views.reviews import APPROVED_STATE
 
@@ -253,20 +253,8 @@ def scope_repo_figure(
 
 
 def _lead_time(
-    curated: CuratedGitHubSource,
-    *,
-    scope: SummaryScope,
-    date_from: datetime,
-    date_to: datetime | None,
-    scope_merged_count: int,
+    deployed: DeployedPRs | None, *, date_from: datetime, date_to: datetime | None, scope_merged_count: int
 ) -> DeliveryLeadTime:
-    deployed = query_deployed_prs(
-        curated=curated,
-        date_from=date_from,
-        date_to=date_to,
-        scope_predicate=scope.pr_predicate(curated, prefix=""),
-        scope_placeholders=scope.placeholders(),
-    )
     empty = duration_distribution([])
     if deployed is None:
         empty_pair = ScopeRepoDistribution(scope=empty, repo=empty)
@@ -397,42 +385,49 @@ def _query_merged_facts(
 
     run_from = date_from - CI_LOOKBACK
     numbers = ast.Constant(value=pr_numbers)
-    approvals = _query_approvals(curated, numbers)
-
     runs_source = curated.run_source(started_floor=True)
     push_rows = push_rows_select(
         runs_source=runs_source,
         run_filter="pr_number IN {pr_numbers} AND run_started_at >= {run_from}",
     )
-    pushes_response = curated.run(
-        _PUSHES_SELECT.replace("__PUSH_ROWS__", push_rows),
-        query_type="engineering_analytics.delivery_summary_pushes",
-        placeholders={
-            "pr_numbers": numbers,
-            "run_from": ast.Constant(value=run_from),
-            "run_started_floor": run_started_floor_constant(run_from),
-        },
-    )
-    pushes = {int(number): [at for at in times if at is not None] for number, times in pushes_response.results or []}
-
     gate_from = date_from - GATE_RUN_LOOKBACK
-    gates_response = curated.run(
-        gate_attempts_sql(
-            runs_source=runs_source,
-            pull_requests_source=curated.pr_source(),
-            pull_request_filter="pr.number IN {pr_numbers} AND pr.merged_at IS NOT NULL",
-            decisive_failure_conclusions_sql=DECISIVE_FAILURE_CONCLUSIONS_SQL,
+    with curated.concurrent_reads() as reads:
+        approvals_read = reads.submit(lambda: _query_approvals(curated, numbers))
+        pushes_read = reads.submit(
+            lambda: curated.run(
+                _PUSHES_SELECT.replace("__PUSH_ROWS__", push_rows),
+                query_type="engineering_analytics.delivery_summary_pushes",
+                placeholders={
+                    "pr_numbers": numbers,
+                    "run_from": ast.Constant(value=run_from),
+                    "run_started_floor": run_started_floor_constant(run_from),
+                },
+            )
         )
-        + f"\nLIMIT {UNPAGED_SCAN_LIMIT}",
-        query_type="engineering_analytics.delivery_summary_gate_attempts",
-        placeholders={
-            "pr_numbers": numbers,
-            "gate_from": ast.Constant(value=gate_from),
-            "run_started_floor": run_started_floor_constant(gate_from),
-        },
-    )
+        gates_read = reads.submit(
+            lambda: curated.run(
+                gate_attempts_sql(
+                    runs_source=runs_source,
+                    pull_requests_source=curated.pr_source(),
+                    pull_request_filter="pr.number IN {pr_numbers} AND pr.merged_at IS NOT NULL",
+                    decisive_failure_conclusions_sql=DECISIVE_FAILURE_CONCLUSIONS_SQL,
+                )
+                + f"\nLIMIT {UNPAGED_SCAN_LIMIT}",
+                query_type="engineering_analytics.delivery_summary_gate_attempts",
+                placeholders={
+                    "pr_numbers": numbers,
+                    "gate_from": ast.Constant(value=gate_from),
+                    "run_started_floor": run_started_floor_constant(gate_from),
+                },
+            )
+        )
+        costs_read = reads.submit(lambda: query_pr_costs(curated=curated, pr_numbers=pr_numbers, run_from=run_from))
+    approvals = approvals_read.result()
+    pushes = {
+        int(number): [at for at in times if at is not None] for number, times in pushes_read.result().results or []
+    }
     gates: dict[int, list[GateAttempt]] = defaultdict(list)
-    for number, attempt, started_at, completed_at, unfinished, failed, _merged_at in gates_response.results or []:
+    for number, attempt, started_at, completed_at, unfinished, failed, _merged_at in gates_read.result().results or []:
         if started_at is not None:
             gates[int(number)].append(
                 GateAttempt(
@@ -445,10 +440,7 @@ def _query_merged_facts(
 
     # A resolved source is one repository's tables, so dropping the owner and name cannot collide two
     # pull requests. The timelines read keeps the full key, because it shows the repository per row.
-    costs = {
-        number: cost
-        for (_, _, number), cost in query_pr_costs(curated=curated, pr_numbers=pr_numbers, run_from=run_from).items()
-    }
+    costs = {number: cost for (_, _, number), cost in costs_read.result().items()}
 
     return [
         _merged_facts(
@@ -465,17 +457,32 @@ def _query_merged_facts(
 def query_delivery_summary(
     *, curated: CuratedGitHubSource, scope: SummaryScope, date_from: datetime, date_to: datetime | None
 ) -> DeliverySummary:
-    facts = _query_merged_facts(curated, scope=scope, date_from=date_from, date_to=date_to)
-    scope_facts = [fact for fact in facts if fact.in_scope]
-
     placeholders: dict[str, ast.Expr] = {"date_from": ast.Constant(value=date_from), **scope.placeholders()}
-    counts = curated.run(
+    counts_sql = (
         _SCOPE_COUNTS_SELECT.replace("__SCOPE__", scope.pr_predicate(curated))
         .replace("__DATE_TO__", date_to_filter_clause(date_to, placeholders, column="pr.created_at"))
-        .replace("__PR_SOURCE__", curated.pr_source()),
-        query_type="engineering_analytics.delivery_summary_counts",
-        placeholders=placeholders,
+        .replace("__PR_SOURCE__", curated.pr_source())
     )
+    with curated.concurrent_reads() as reads:
+        facts_read = reads.submit(
+            lambda: _query_merged_facts(curated, scope=scope, date_from=date_from, date_to=date_to)
+        )
+        counts_read = reads.submit(
+            lambda: curated.run(
+                counts_sql, query_type="engineering_analytics.delivery_summary_counts", placeholders=placeholders
+            )
+        )
+        deployed_read = reads.submit(
+            lambda: query_deployed_prs(
+                curated=curated,
+                date_from=date_from,
+                date_to=date_to,
+                scope_predicate=scope.pr_predicate(curated, prefix=""),
+                scope_placeholders=scope.placeholders(),
+            )
+        )
+    facts, counts = facts_read.result(), counts_read.result()
+    scope_facts = [fact for fact in facts if fact.in_scope]
     opened, open_now, drafts = counts.results[0] if counts.results else (0, 0, 0)
 
     jobs_available = curated.jobs_source() is not None
@@ -510,6 +517,6 @@ def query_delivery_summary(
         merge_queue_attempts_per_merged_pr=scope_repo_figure(scope_facts, facts, _queue_attempts),
         failed_merge_queue_share=scope_repo_figure(scope_facts, facts, _failed_queue_share),
         lead_time=_lead_time(
-            curated, scope=scope, date_from=date_from, date_to=date_to, scope_merged_count=len(scope_facts)
+            deployed_read.result(), date_from=date_from, date_to=date_to, scope_merged_count=len(scope_facts)
         ),
     )
