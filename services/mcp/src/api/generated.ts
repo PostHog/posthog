@@ -21333,6 +21333,16 @@ export namespace Schemas {
     }
 
     /**
+     * The people who own at least one task or canvas in a channel.
+     */
+    export interface ChannelContributorsDTO {
+      /** The channel these people worked in. */
+      channel: string;
+      /** Everyone who owns at least one task or canvas in the channel, most recently active first. Deleted tasks and canvases do not count. */
+      people: TaskUserBasicInfo[];
+    }
+
+    /**
      * * `personal` - Personal
      * * `general` - General
      */
