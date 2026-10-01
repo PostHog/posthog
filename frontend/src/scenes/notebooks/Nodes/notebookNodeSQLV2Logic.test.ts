@@ -14,6 +14,7 @@ import { buildMarkdownNotebookContent, serializeMarkdownNotebookComponent } from
 import { notebookSettingsLogic } from '../Notebook/notebookSettingsLogic'
 import { NotebookNodeType } from '../types'
 import {
+    MAX_POLL_WAIT_MS,
     collectSqlV2Refs,
     notebookNodeSQLV2Logic,
     pollIntervalMs,
@@ -537,7 +538,7 @@ describe('notebookNodeSQLV2Logic', () => {
         expect(logic.values.isRunning).toBe(true)
     })
 
-    it('blocks a second node while another node has a run in flight', async () => {
+    it('queues a second node behind a run in flight and starts it when the first finishes', async () => {
         // Default resultSpy keeps r1 'running', so the notebook stays busy after n1 dispatches.
         mount()
         const other = notebookNodeSQLV2Logic({ nodeId: 'n2', notebookShortId: 'nb1', updateAttributes })
@@ -547,8 +548,30 @@ describe('notebookNodeSQLV2Logic', () => {
         other.actions.runQuery('select 2')
         await expectLogic(other).toFinishAllListeners()
         expect(runSpy).toHaveBeenCalledTimes(1)
-        expect(other.values.isRunning).toBe(false)
-        expect(other.values.operationBlockReason).toBeTruthy()
+        expect(other.values.isQueued).toBe(true)
+
+        logic.actions.finishOperation('n1:run')
+        await expectLogic(other).toFinishAllListeners()
+        expect(runSpy).toHaveBeenCalledTimes(2)
+        expect(runSpy.mock.calls[1][1]).toMatchObject({ node_id: 'n2', code: 'select 2' })
+        expect(other.values.isQueued).toBe(false)
+        other.unmount()
+    })
+
+    it('stopping a queued node removes it from the queue without running it', async () => {
+        mount()
+        const other = notebookNodeSQLV2Logic({ nodeId: 'n2', notebookShortId: 'nb1', updateAttributes })
+        other.mount()
+        logic.actions.runQuery('select 1')
+        await expectLogic(logic).toFinishAllListeners()
+        other.actions.runQuery('select 2')
+        other.actions.interruptRun()
+        await expectLogic(other).toFinishAllListeners()
+        expect(other.values.isQueued).toBe(false)
+
+        logic.actions.finishOperation('n1:run')
+        await expectLogic(other).toFinishAllListeners()
+        expect(runSpy).toHaveBeenCalledTimes(1)
         other.unmount()
     })
 
@@ -589,7 +612,7 @@ describe('notebookNodeSQLV2Logic', () => {
     })
 
     it('gives up the poller at the wait budget without leaving a stray timer', async () => {
-        // Reaching the 21-minute client budget stops polling synchronously, which disposes the
+        // Reaching the client budget stops polling synchronously, which disposes the
         // poll timer. The self-rescheduling callback must not arm a new one afterwards: an
         // untracked timer would survive unmount and re-fire the failure every interval, aborting
         // any run-all chain waiting on this cell until a reload.
@@ -601,7 +624,7 @@ describe('notebookNodeSQLV2Logic', () => {
             await jest.advanceTimersByTimeAsync(0)
 
             // Jump the accumulated wait to the budget edge; the next scheduled poll trips it.
-            logic.cache.pollWaitedMs = 21 * 60 * 1000
+            logic.cache.pollWaitedMs = MAX_POLL_WAIT_MS
             await jest.advanceTimersByTimeAsync(1000)
 
             expect(logic.values.runError).toContain('Stopped checking')

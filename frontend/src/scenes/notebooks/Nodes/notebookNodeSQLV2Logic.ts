@@ -100,10 +100,10 @@ export function pollIntervalMs(waitedMs: number): number {
 }
 
 // Must outlast every backend run budget, so the client reports the run's real outcome rather
-// than inventing one. The backend expires a stalled run itself: the direct lane at 600s, the
-// kernel lane at 1200s. Under those, a run the backend goes on to finish still reads here as
-// a client timeout, and the cell renders as errored while the server is still working on it.
-const MAX_POLL_WAIT_MS = 21 * 60 * 1000
+// than inventing one. The backend expires a stalled run itself, and a kernel cell may execute
+// for up to 6 hours. Under that, a run the backend goes on to finish still reads here as a
+// client timeout, and the cell renders as errored while the server is still working on it.
+export const MAX_POLL_WAIT_MS = 7 * 60 * 60 * 1000
 
 export const SQL_V2_DEFAULT_PAGE_SIZE = 50
 
@@ -171,8 +171,10 @@ export interface notebookNodeSQLV2LogicValues {
     staleNodeIds: Record<string, NotebookStaleReason> // notebookNodeStalenessLogic
     activeOperation: NotebookOperation | null // notebookOperationsLogic
     isBusy: boolean // notebookOperationsLogic
+    runQueue: string[] // notebookOperationsLogic
     directRows: NotebookNodeSQLV2DirectRows | null
     isInterrupting: boolean
+    isQueued: boolean
     isRestoringResult: boolean
     isRunning: boolean
     isSandboxComputeFree: boolean
@@ -224,11 +226,20 @@ export interface notebookNodeSQLV2LogicActions {
     unregisterChainNode: (nodeId: string) => {
         nodeId: string
     } // notebookNodeStalenessLogic
+    dequeueRun: (nodeId: string) => {
+        nodeId: string
+    } // notebookOperationsLogic
+    enqueueRun: (nodeId: string) => {
+        nodeId: string
+    } // notebookOperationsLogic
     finishNodeOperations: (nodeId: string) => {
         nodeId: string
     } // notebookOperationsLogic
     finishOperation: (id: string) => {
         id: string
+    } // notebookOperationsLogic
+    releaseQueuedRun: (nodeId: string) => {
+        nodeId: string
     } // notebookOperationsLogic
     startOperation: (operation: NotebookOperation) => {
         operation: NotebookOperation
@@ -310,6 +321,7 @@ export interface notebookNodeSQLV2LogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         isSandboxComputeFree: (featureFlags: FeatureFlagsSet) => boolean
+        isQueued: (runQueue: string[]) => boolean
         operationBlockReason: (activeOperation: NotebookOperation | null) => string | null
         isStale: (staleNodeIds: Record<string, NotebookStaleReason>) => boolean
         staleReason: (staleNodeIds: Record<string, NotebookStaleReason>) => NotebookStaleReason | null
@@ -333,13 +345,20 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
             featureFlagLogic,
             ['featureFlags'],
             notebookOperationsLogic({ shortId: props.notebookShortId }),
-            ['activeOperation', 'isBusy'],
+            ['activeOperation', 'isBusy', 'runQueue'],
             notebookNodeStalenessLogic({ shortId: props.notebookShortId }),
             ['staleNodeIds', 'chainQueue', 'isChainRunning', 'lastRunNodeId', 'lastRunStaleDownstreamNodeIds'],
         ],
         actions: [
             notebookOperationsLogic({ shortId: props.notebookShortId }),
-            ['startOperation', 'finishOperation', 'finishNodeOperations'],
+            [
+                'startOperation',
+                'finishOperation',
+                'finishNodeOperations',
+                'enqueueRun',
+                'dequeueRun',
+                'releaseQueuedRun',
+            ],
             notebookNodeStalenessLogic({ shortId: props.notebookShortId }),
             [
                 'nodeRunFinished',
@@ -587,14 +606,15 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     actions.nodeRunFinished(props.nodeId, 'failed', null)
                     return
                 }
-                // The run button is disabled while the notebook is busy; this guards Cmd+Enter
-                // and programmatic dispatch. Re-running our own node supersedes as before.
+                // Another cell holds the notebook, so wait for it the way Jupyter queues a cell
+                // behind a busy kernel. Re-running our own node supersedes as before.
                 if (values.isBusy && values.activeOperation?.nodeId !== props.nodeId) {
-                    lemonToast.info('Another operation is running in this notebook — wait for it to finish.')
+                    cache.queuedRun = { code, refs, opts }
                     actions.setIsRunning(false)
-                    actions.nodeRunFinished(props.nodeId, 'failed', null)
+                    actions.enqueueRun(props.nodeId)
                     return
                 }
+                cache.queuedRun = null
                 // Which lane will this run take? Mirrors the backend's routing: python always
                 // needs the kernel; SQL needs it only when it reads a local (python-made) frame,
                 // and never when it targets an external connection (the sandbox can't reach one).
@@ -887,7 +907,26 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     cache.pollInFlight = false
                 }
             },
+            releaseQueuedRun: ({ nodeId }) => {
+                if (nodeId === props.nodeId && cache.queuedRun) {
+                    const { code, refs, opts } = cache.queuedRun
+                    cache.queuedRun = null
+                    actions.runQuery(code, refs, opts)
+                }
+            },
             interruptRun: async () => {
+                if (values.isQueued) {
+                    // Never sent to the server, so stopping it only takes it out of the queue.
+                    cache.queuedRun = null
+                    actions.dequeueRun(props.nodeId)
+                    actions.setIsInterrupting(false)
+                    // Only a waiting chain needs to hear about it. Reporting it otherwise would give
+                    // a cell that never ran an execution count.
+                    if (values.chainQueue[0] === props.nodeId) {
+                        actions.nodeRunFinished(props.nodeId, 'interrupted', null)
+                    }
+                    return
+                }
                 const runId = cache.activeRunId ?? props.runId
                 if (!runId || !values.isRunning) {
                     actions.setIsInterrupting(false)
@@ -926,6 +965,7 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.NOTEBOOK_SANDBOX_FREE_COMPUTE],
         ],
+        isQueued: [(s) => [s.runQueue], (runQueue: string[]): boolean => runQueue.includes(props.nodeId)],
         // Set while another node's operation is in flight — wire into disabledReason props.
         operationBlockReason: [
             (s) => [s.activeOperation],

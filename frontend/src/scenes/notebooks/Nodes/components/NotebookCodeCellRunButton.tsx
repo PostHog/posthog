@@ -46,7 +46,9 @@ export function NotebookCodeCellRunButton({ node, updateProps }: NotebookCompone
         },
         updateAttributes
     )
-    const { isRunning, isInterrupting, operationBlockReason } = useValues(dataLogic)
+    const { isRunning: isRunningNow, isQueued, isInterrupting } = useValues(dataLogic)
+    // A queued cell shows as running, like Jupyter's In [*] for a cell waiting on the kernel.
+    const isRunning = isRunningNow || isQueued
     const { runNode, interruptRun } = useActions(dataLogic)
     const { executionCounts } = useValues(notebookJupyterLogic({ shortId }))
     const executionCount = executionCounts[nodeId] ?? null
@@ -81,7 +83,7 @@ export function NotebookCodeCellRunButton({ node, updateProps }: NotebookCompone
     // shortcut must never become a stop.
     const interrupt = useCallback((): void => {
         // Guard against double submission: one interrupt request at a time.
-        if (dataLogic.values.isRunning && !dataLogic.values.isInterrupting) {
+        if ((dataLogic.values.isRunning || dataLogic.values.isQueued) && !dataLogic.values.isInterrupting) {
             interruptRun()
         }
     }, [dataLogic, interruptRun])
@@ -90,8 +92,10 @@ export function NotebookCodeCellRunButton({ node, updateProps }: NotebookCompone
         canRun
             ? {
                   run,
-                  disabledReason: isRunning ? 'This cell is already running' : (operationBlockReason ?? null),
+                  // A busy notebook queues the run, so only this cell's own run blocks the shortcut.
+                  disabledReason: isRunning ? 'This cell is already running' : null,
                   isRunning,
+                  isQueued,
                   executionCount,
                   interrupt,
               }
@@ -116,8 +120,9 @@ export function NotebookCodeCellRunButton({ node, updateProps }: NotebookCompone
                 }
             }}
             loading={isInterrupting}
-            disabledReason={operationBlockReason ?? undefined}
-            tooltip={isRunning ? 'Stop the running cell' : 'Run cell (⌘⏎)'}
+            tooltip={
+                isQueued ? 'Remove the cell from the queue' : isRunning ? 'Stop the running cell' : 'Run cell (⌘⏎)'
+            }
         >
             {isRunning ? 'Cancel' : 'Run'}
         </LemonButton>
