@@ -9,6 +9,8 @@ import asyncio
 import contextlib
 from collections.abc import AsyncIterator, Callable
 
+from temporalio import activity
+
 from posthog.dataclasses import frozen
 from posthog.temporal.common.activity_context import (
     current_activity_attempt,
@@ -25,6 +27,8 @@ class RunControl:
     heartbeat: Callable[[], contextlib.AbstractAsyncContextManager[object]]
     # Entered by the run. The pipeline checks it between batches.
     shutdown_monitor: ShutdownMonitor
+    # Thread-safe wait used by source code that blocks between requests. Returns early on shutdown.
+    shutdown_wait: Callable[[float], bool]
     # 1-based. A value above 1 means an earlier attempt of the same job ran.
     attempt: int
     workflow_id: str | None
@@ -44,6 +48,7 @@ def temporal_run_control() -> RunControl:
     return RunControl(
         heartbeat=lambda: LivenessHeartbeater(factor=30),
         shutdown_monitor=ShutdownMonitor(),
+        shutdown_wait=lambda timeout: activity.wait_for_worker_shutdown_sync(timeout=timeout),
         attempt=current_activity_attempt(),
         workflow_id=current_workflow_id(),
         workflow_run_id=current_workflow_run_id(),
@@ -85,6 +90,7 @@ class EventShutdownMonitor(ShutdownMonitor):
         async def monitor() -> None:
             await self._shutdown_event.wait()
             self._is_shutdown_event.set()
+            self._is_shutdown_event_sync.set()
 
         self._monitor_shutdown_task = asyncio.create_task(monitor())
 

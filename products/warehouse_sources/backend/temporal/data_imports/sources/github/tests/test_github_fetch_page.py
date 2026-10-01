@@ -291,48 +291,41 @@ def test_fetch_page_waits_for_egress_budget_before_asking_for_it(installation_id
     session.request.return_value = _ok_response()
     identity = github.GithubEgressIdentity(installation_id=installation_id)
 
+    shutdown_wait = mock.Mock()
     with (
         mock.patch.object(github, "github_installation_pace_seconds", return_value=pace) as pace_for,
-        mock.patch.object(github, "activity") as temporal_activity,
         mock.patch.object(github, "make_tracked_session", return_value=session),
     ):
-        temporal_activity.in_activity.return_value = True
-        github._fetch_page("https://api.github.com/repos/o/r/issues", {}, mock.Mock(), identity)
+        github._fetch_page(
+            "https://api.github.com/repos/o/r/issues", {}, mock.Mock(), identity, shutdown_wait=shutdown_wait
+        )
 
-    expected_waits = [] if expected_wait is None else [mock.call(timeout=expected_wait)]
-    assert temporal_activity.wait_for_worker_shutdown_sync.call_args_list == expected_waits
+    expected_waits = [] if expected_wait is None else [mock.call(expected_wait)]
+    assert shutdown_wait.call_args_list == expected_waits
     assert pace_for.called is (installation_id is not None)
     assert session.request.call_count == 1
 
 
-@pytest.mark.parametrize(
-    "in_activity,expect_drain_wait,expect_sleep",
-    [
-        (True, True, False),
-        # Outside an activity there is no worker to drain, so a plain sleep is the whole behavior.
-        (False, False, True),
-    ],
-)
-def test_fetch_page_budget_wait_yields_to_a_draining_worker(in_activity, expect_drain_wait, expect_sleep):
+def test_fetch_page_budget_wait_yields_to_the_runtime_shutdown_control():
     # The pipeline tests for worker shutdown only between the chunks a source yields, so a wait that
     # slept would hold a draining pod for its full duration and delay the hand-off by that much.
-    # Waiting on the shutdown event returns the moment the pod starts draining. Nothing about the
-    # sync looks wrong when this regresses; drains just get slower.
+    # Waiting on the runtime's shutdown event returns the moment the pod starts draining.
     session = mock.Mock()
     session.request.return_value = _ok_response()
     identity = github.GithubEgressIdentity(installation_id="123")
+    shutdown_wait = mock.Mock()
 
     with (
         mock.patch.object(github, "github_installation_pace_seconds", return_value=30.0),
-        mock.patch.object(github, "activity") as temporal_activity,
         mock.patch.object(github.time, "sleep") as sleep,
         mock.patch.object(github, "make_tracked_session", return_value=session),
     ):
-        temporal_activity.in_activity.return_value = in_activity
-        github._fetch_page("https://api.github.com/repos/o/r/issues", {}, mock.Mock(), identity)
+        github._fetch_page(
+            "https://api.github.com/repos/o/r/issues", {}, mock.Mock(), identity, shutdown_wait=shutdown_wait
+        )
 
-    assert temporal_activity.wait_for_worker_shutdown_sync.called is expect_drain_wait
-    assert sleep.called is expect_sleep
+    shutdown_wait.assert_called_once_with(30.0)
+    sleep.assert_not_called()
 
 
 def _error_response(status_code: int, message: str, headers: dict[str, str] | None = None) -> mock.Mock:

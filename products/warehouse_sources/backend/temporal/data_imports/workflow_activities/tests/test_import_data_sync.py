@@ -72,17 +72,19 @@ from products.warehouse_sources.backend.types import IncrementalFieldType
 
 def _event_control(event: asyncio.Event | None = None, *, attempt: int = 1) -> RunControl:
     """The control a run outside a Temporal activity gets: no heartbeat, shutdown from an event."""
+    monitor = EventShutdownMonitor(
+        event if event is not None else asyncio.Event(),
+        activity_id="job-1",
+        activity_type="sync.extract",
+        task_queue="warehouse-extract",
+        attempt=attempt,
+        workflow_id="wf-1",
+        workflow_type="external-data-job",
+    )
     return RunControl(
         heartbeat=no_heartbeat,
-        shutdown_monitor=EventShutdownMonitor(
-            event if event is not None else asyncio.Event(),
-            activity_id="job-1",
-            activity_type="sync.extract",
-            task_queue="warehouse-extract",
-            attempt=attempt,
-            workflow_id="wf-1",
-            workflow_type="external-data-job",
-        ),
+        shutdown_monitor=monitor,
+        shutdown_wait=monitor.wait_for_worker_shutdown_sync,
         attempt=attempt,
         workflow_id="wf-1",
         workflow_run_id="job-1",

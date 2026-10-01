@@ -27,11 +27,13 @@ async def test_the_injected_event_trips_the_monitor_outside_an_activity(set_befo
         event.set()
 
     async with _monitor(event) as monitor:
+        sync_wait = asyncio.create_task(asyncio.to_thread(monitor.wait_for_worker_shutdown_sync, 5))
         if not set_before_start:
             monitor.raise_if_is_worker_shutdown()
             event.set()
 
         await asyncio.wait_for(monitor.wait_for_worker_shutdown(), timeout=5)
+        assert await asyncio.wait_for(sync_wait, timeout=5)
         assert monitor.is_worker_shutdown()
         with pytest.raises(WorkerShuttingDownError) as exc_info:
             monitor.raise_if_is_worker_shutdown()

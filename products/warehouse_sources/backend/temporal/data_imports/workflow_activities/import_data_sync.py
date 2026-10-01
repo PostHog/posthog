@@ -573,6 +573,7 @@ async def run_extraction(
                 keyset_full_load=inputs.keyset_full_load_enabled,
                 activity_attempt=control.attempt,
                 source_cursor=source_cursor_manager,
+                shutdown_wait=control.shutdown_wait,
             )
 
             try:
