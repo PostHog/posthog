@@ -152,8 +152,6 @@ locals {
     { name = "_record_count", type = "UInt64" },
     { name = "pattern", type = "String" },
     { name = "pattern_version", type = "UInt8" },
-    { name = "_source_topic", type = "String" },
-    { name = "_source_partition", type = "UInt32" },
   ]
 }
 
@@ -354,9 +352,7 @@ uuid,
     toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_uncompressed')]) / _record_count AS _bytes_uncompressed,
     toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_compressed')]) / _record_count AS _bytes_compressed,
     ifNull(pattern, '') AS pattern,
-    toUInt8(ifNull(pattern_version, 0)) AS pattern_version,
-    _headers.value[indexOf(_headers.name, 'source_topic')] AS _source_topic,
-    toUInt32OrZero(_headers.value[indexOf(_headers.name, 'source_partition')]) AS _source_partition
+    toUInt8(ifNull(pattern_version, 0)) AS pattern_version
   SQL
   deployment = merge({
     read_cluster     = "posthog_single_shard"
@@ -507,26 +503,17 @@ module "kafka_logs_avro_kafka_metrics_mv" {
   to_table = "${var.database}.logs_kafka_metrics"
   query    = <<-SQL
     SELECT
-        kafka_partition AS _partition,
-        kafka_topic AS _topic,
-        maxSimpleState(kafka_offset) AS max_offset,
+        _partition,
+        _topic,
+        maxSimpleState(_offset) AS max_offset,
         maxSimpleState(observed_timestamp) AS max_observed_timestamp,
         maxSimpleState(timestamp) AS max_timestamp,
         maxSimpleState(now()) AS max_created_at,
         maxSimpleState(now() - observed_timestamp) AS max_lag
-    FROM
-    (
-        SELECT
-            kafka_source.1 AS kafka_topic,
-            kafka_source.2 AS kafka_partition,
-            kafka_source.3 AS kafka_offset,
-            observed_timestamp,
-            timestamp
-        FROM ${var.database}.logs34
-        ARRAY JOIN [(_topic, _partition, _offset), (_source_topic, _source_partition, 0)] AS kafka_source
-        WHERE kafka_topic != ''
-    )
-    GROUP BY kafka_partition, kafka_topic
+    FROM ${var.database}.logs34
+    GROUP BY
+        _partition,
+        _topic
   SQL
   override = try(local.deployment.overrides["kafka_logs_avro_kafka_metrics_mv"], {})
 

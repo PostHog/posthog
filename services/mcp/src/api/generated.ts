@@ -8520,6 +8520,7 @@ export namespace Schemas {
       S3Compatible: 's3-compatible',
       Snowflake: 'snowflake',
       YoutubeAnalytics: 'youtube-analytics',
+      TwitterAds: 'twitter-ads',
     } as const;
 
     export interface ErrorTrackingExternalReferenceIntegration {
@@ -18102,6 +18103,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `github_actions` - GitHub Actions
+     * * `depot_ci` - Depot CI
+     */
+    export type CIEngineEnum = typeof CIEngineEnum[keyof typeof CIEngineEnum];
+
+
+    export const CIEngineEnum = {
+      GithubActions: 'github_actions',
+      DepotCi: 'depot_ci',
+    } as const;
+
+    /**
      * * `breaking_master` - BREAKING_MASTER
      * * `blocking_merge_queue` - BLOCKING_MERGE_QUEUE
      * * `novel_burst` - NOVEL_BURST
@@ -18122,6 +18135,11 @@ export namespace Schemas {
     } as const;
 
     export interface BrokenTestRow {
+      /** CI execution engine; null when unknown.
+       *
+       * * `github_actions` - GitHub Actions
+       * * `depot_ci` - Depot CI */
+      latest_ci_engine?: CIEngineEnum | null;
       /** Stable identity of this distinct failure: the failing test's node id plus a normalized error signature, so the same failure across runs groups into one row. */
       fingerprint: string;
       /** The pytest node id from the CI 'FAILED <id>' line: the failing test. */
@@ -18672,9 +18690,14 @@ export namespace Schemas {
     }
 
     export interface CIJobFailureLog {
+      /** CI execution engine; null when unknown.
+       *
+       * * `github_actions` - GitHub Actions
+       * * `depot_ci` - Depot CI */
+      ci_engine?: CIEngineEnum | null;
       /** The thinned failure-log lines in original order, with omission markers. */
       lines: CIFailureLogLine[];
-      /** GitHub Actions job id of the failed job. */
+      /** Integer job id of the failed job; unique only together with ci_engine. */
       job_id: number;
       /** Workflow run id the job belongs to. */
       run_id: number;
@@ -21307,6 +21330,16 @@ export namespace Schemas {
       hedgehog_config?: TaskUserBasicInfoHedgehogConfig;
       /** @nullable */
       role_at_organization?: string | null;
+    }
+
+    /**
+     * The people who own at least one task or canvas in a channel.
+     */
+    export interface ChannelContributorsDTO {
+      /** The channel these people worked in. */
+      channel: string;
+      /** Everyone who owns at least one task or canvas in the channel, most recently active first. Deleted tasks and canvases do not count. */
+      people: TaskUserBasicInfo[];
     }
 
     /**
@@ -42785,6 +42818,26 @@ export namespace Schemas {
     }
 
     /**
+     * * `manual` - Manual
+     * * `manual_retry` - Manual Retry
+     * * `cold_run` - Cold Run
+     * * `heal_latest_run` - Heal Latest Run
+     * * `experiment_config_change` - Experiment Config Change
+     * * `metric_config_change` - Metric Config Change
+     */
+    export type ExperimentMetricsRecalculationRequestTriggerEnum = typeof ExperimentMetricsRecalculationRequestTriggerEnum[keyof typeof ExperimentMetricsRecalculationRequestTriggerEnum];
+
+
+    export const ExperimentMetricsRecalculationRequestTriggerEnum = {
+      Manual: 'manual',
+      ManualRetry: 'manual_retry',
+      ColdRun: 'cold_run',
+      HealLatestRun: 'heal_latest_run',
+      ExperimentConfigChange: 'experiment_config_change',
+      MetricConfigChange: 'metric_config_change',
+    } as const;
+
+    /**
      * GET by id: one run with its per-metric results, retry state and live query progress.
      */
     export interface ExperimentMetricsRecalculationRun {
@@ -42839,38 +42892,6 @@ export namespace Schemas {
          */
       estimated_rows_total?: number | null;
     }
-
-    /**
-     * * `manual` - Manual
-     * * `agent_mcp` - Agent (MCP)
-     * * `cold_run` - Cold Run
-     * * `stale_refresh` - Stale Refresh
-     * * `auto_refresh` - Auto Refresh
-     * * `experiment_config_change` - Experiment Config Change
-     * * `metric_config_change` - Metric Config Change
-     * * `config_change` - Config Change
-     * * `experiment_launch` - Experiment Launch
-     * * `experiment_stop` - Experiment Stop
-     * * `experiment_update` - Experiment Update
-     * * `timeseries_sync` - Timeseries Sync
-     */
-    export type ExperimentMetricsRecalculationTriggerEnum = typeof ExperimentMetricsRecalculationTriggerEnum[keyof typeof ExperimentMetricsRecalculationTriggerEnum];
-
-
-    export const ExperimentMetricsRecalculationTriggerEnum = {
-      Manual: 'manual',
-      AgentMcp: 'agent_mcp',
-      ColdRun: 'cold_run',
-      StaleRefresh: 'stale_refresh',
-      AutoRefresh: 'auto_refresh',
-      ExperimentConfigChange: 'experiment_config_change',
-      MetricConfigChange: 'metric_config_change',
-      ConfigChange: 'config_change',
-      ExperimentLaunch: 'experiment_launch',
-      ExperimentStop: 'experiment_stop',
-      ExperimentUpdate: 'experiment_update',
-      TimeseriesSync: 'timeseries_sync',
-    } as const;
 
     /**
      * * `uploading` - Uploading
@@ -50763,6 +50784,11 @@ export namespace Schemas {
       repositories: GitHubRepo[];
       /** Whether more repositories are available beyond this page. */
       has_more: boolean;
+      /**
+         * The offset to pass to get the next page, or null when this page is the last one.
+         * @nullable
+         */
+      next_offset: number | null;
       /** Total number of repositories matching the search query, across all pages. */
       total: number;
     }
@@ -56644,6 +56670,7 @@ export namespace Schemas {
      * * `postgresql` - Postgresql
      * * `posthog` - Posthog
      * * `reddit-ads` - Reddit Ads
+     * * `twitter-ads` - Twitter Ads
      * * `resend` - Resend
      * * `s3-compatible` - S3 Compatible
      * * `salesforce` - Salesforce
@@ -56697,6 +56724,7 @@ export namespace Schemas {
       Postgresql: 'postgresql',
       Posthog: 'posthog',
       RedditAds: 'reddit-ads',
+      TwitterAds: 'twitter-ads',
       Resend: 'resend',
       S3Compatible: 's3-compatible',
       Salesforce: 'salesforce',
@@ -56750,6 +56778,7 @@ export namespace Schemas {
        * * `postgresql` - Postgresql
        * * `posthog` - Posthog
        * * `reddit-ads` - Reddit Ads
+       * * `twitter-ads` - Twitter Ads
        * * `resend` - Resend
        * * `s3-compatible` - S3 Compatible
        * * `salesforce` - Salesforce
@@ -62317,6 +62346,11 @@ export namespace Schemas {
     }
 
     export interface MasterFailureGroup {
+      /** CI execution engine; null when unknown.
+       *
+       * * `github_actions` - GitHub Actions
+       * * `depot_ci` - Depot CI */
+      latest_ci_engine?: CIEngineEnum | null;
       /** Repository the failures occurred in. */
       repo: RepoRef;
       /** GitHub Actions workflow name the failing runs belong to. */
@@ -65726,7 +65760,12 @@ export namespace Schemas {
     }
 
     export interface RunCost {
-      /** GitHub Actions run id this cost is for. */
+      /** CI execution engine; null when unknown.
+       *
+       * * `github_actions` - GitHub Actions
+       * * `depot_ci` - Depot CI */
+      ci_engine?: CIEngineEnum | null;
+      /** Integer run id this cost is for; unique only together with ci_engine. */
       run_id: number;
       /** Re-run attempt number; 1 for the first attempt. */
       run_attempt: number;
@@ -65830,6 +65869,11 @@ export namespace Schemas {
     } as const;
 
     export interface PRLifecycleEvent {
+      /** CI execution engine; null when unknown.
+       *
+       * * `github_actions` - GitHub Actions
+       * * `depot_ci` - Depot CI */
+      ci_engine?: CIEngineEnum | null;
       /** Event kind: opened, ready_for_review, converted_to_draft, ci_started, ci_finished, merged, or closed.
        *
        * * `opened` - OPENED
@@ -68282,6 +68326,12 @@ export namespace Schemas {
        * * `scorer` - Scorer
        * * `summarizer` - Summarizer */
       scanner_type: ScannerTypeEnum;
+      /**
+         * The goal an AI draft was built from, in the creator's own words, so the scanner keeps what it was meant to find. Set on create only and ignored on update.
+         * @maxLength 2000
+         * @nullable
+         */
+      goal?: string | null;
       /** How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Only the app can answer this, so a request from anywhere else reports the calling surface instead of whatever it sends here. Ignored on update.
        *
        * * `ai` - AI draft
@@ -79775,6 +79825,12 @@ export namespace Schemas {
        * * `scorer` - Scorer
        * * `summarizer` - Summarizer */
       scanner_type?: ScannerTypeEnum;
+      /**
+         * The goal an AI draft was built from, in the creator's own words, so the scanner keeps what it was meant to find. Set on create only and ignored on update.
+         * @maxLength 2000
+         * @nullable
+         */
+      goal?: string | null;
       /** How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Only the app can answer this, so a request from anywhere else reports the calling surface instead of whatever it sends here. Ignored on update.
        *
        * * `ai` - AI draft
@@ -85907,14 +85963,17 @@ export namespace Schemas {
          */
       reason: string;
       /**
+         * When the quarantine lifts itself, as an ISO 8601 datetime. Through MCP an omitted or later expiry becomes 30 days from now; anywhere else omitting it means no expiry.
+         * @nullable
+         */
+      expires_at?: string | null;
+      /**
          * Optional pointer to the run whose failing snapshot prompted this quarantine — used to surface a 'view the failing run' link later.
          * @nullable
          */
       source_run_id?: string | null;
       /** Post the quarantine to the Slack channel of the team that owns the story, naming the user who quarantined it. Only Storybook snapshots have an owning team. Best effort: skipped when the story has no owning team or the project has no Slack integration. */
       notify_owners?: boolean;
-      /** @nullable */
-      expires_at?: string | null;
     }
 
     /**
@@ -88949,21 +89008,15 @@ export namespace Schemas {
      * Request body for triggering a metrics recalculation.
      */
     export interface RecalculateMetricsRequest {
-      /** What triggered this recalculation (manual is the default for user-initiated runs)
+      /** What triggered this recalculation (manual is the default for user-initiated runs). Only client triggers are accepted; agent_mcp, timeseries_sync and scheduled are set by the server.
        *
        * * `manual` - Manual
-       * * `agent_mcp` - Agent (MCP)
+       * * `manual_retry` - Manual Retry
        * * `cold_run` - Cold Run
-       * * `stale_refresh` - Stale Refresh
-       * * `auto_refresh` - Auto Refresh
+       * * `heal_latest_run` - Heal Latest Run
        * * `experiment_config_change` - Experiment Config Change
-       * * `metric_config_change` - Metric Config Change
-       * * `config_change` - Config Change
-       * * `experiment_launch` - Experiment Launch
-       * * `experiment_stop` - Experiment Stop
-       * * `experiment_update` - Experiment Update
-       * * `timeseries_sync` - Timeseries Sync */
-      trigger?: ExperimentMetricsRecalculationTriggerEnum;
+       * * `metric_config_change` - Metric Config Change */
+      trigger?: ExperimentMetricsRecalculationRequestTriggerEnum;
     }
 
     export interface RecapHighlight {
@@ -90382,8 +90435,8 @@ export namespace Schemas {
 
     export interface RepositorySelection {
       /**
-         * owner/repo names to allow. At most 20. Replaces the current list.
-         * @maxItems 20
+         * owner/repo names to allow. At most 100. Replaces the current list.
+         * @maxItems 100
          */
       repos: string[];
     }
@@ -91579,6 +91632,11 @@ export namespace Schemas {
     }
 
     export interface RunFailureLogs {
+      /** CI execution engine; null when unknown.
+       *
+       * * `github_actions` - GitHub Actions
+       * * `depot_ci` - Depot CI */
+      ci_engine?: CIEngineEnum | null;
       /** Failed CI jobs of this run with their thinned failure logs, grouped by job. */
       jobs: CIJobFailureLog[];
       /** Workflow run id the failure logs are for. */
@@ -94488,6 +94546,13 @@ export namespace Schemas {
          * @nullable
          */
       readonly task_id: string | null;
+    }
+
+    export interface SignalReportsForYouResponse {
+      /** The open, actionable reports that matter most to the current user, best first: reports waiting for their input, reports they claimed, reports naming them as a reviewer, then P0 reports that nobody owns. The Today briefing ranks reports the same way. */
+      results: SignalReportList[];
+      /** How many open reports are for the current user: the reports in `results`, plus the other open, actionable reports that name them as a reviewer. */
+      count: number;
     }
 
     /**
@@ -101891,6 +101956,24 @@ export namespace Schemas {
       device_id: string;
     }
 
+    /**
+     * Pull request titles keyed by normalized GitHub URL. A pull request is missing when GitHub could not return its title.
+     */
+    export type TaskPullRequestTitlesTitles = {[key: string]: string};
+
+    export interface TaskPullRequestTitles {
+      /** Pull request titles keyed by normalized GitHub URL. A pull request is missing when GitHub could not return its title. */
+      titles: TaskPullRequestTitlesTitles;
+    }
+
+    export interface TaskPullRequestTitlesRequest {
+      /**
+         * Task IDs whose latest run's pull request titles to fetch (max 30).
+         * @maxItems 30
+         */
+      ids: string[];
+    }
+
     export interface TaskRepositoriesResponse {
       /** Distinct repositories in use by non-deleted, non-internal tasks for the current team. */
       repositories: string[];
@@ -106750,6 +106833,11 @@ export namespace Schemas {
     }
 
     export interface WorkflowHealthItem {
+      /** CI execution engine; null when unknown.
+       *
+       * * `github_actions` - GitHub Actions
+       * * `depot_ci` - Depot CI */
+      latest_ci_engine?: CIEngineEnum | null;
       /** Repository the workflow runs in. */
       repo: RepoRef;
       /** Run history across the whole window, oldest first, zero-filled, bucketed by granularity. */
@@ -106822,7 +106910,12 @@ export namespace Schemas {
     }
 
     export interface WorkflowJob {
-      /** GitHub Actions job id. */
+      /** CI execution engine; null when unknown.
+       *
+       * * `github_actions` - GitHub Actions
+       * * `depot_ci` - Depot CI */
+      ci_engine?: CIEngineEnum | null;
+      /** Integer job id; unique only together with ci_engine. */
       id: number;
       /** The workflow run id this job belongs to. */
       run_id: number;
@@ -106859,6 +106952,26 @@ export namespace Schemas {
          * @nullable
          */
       estimated_cost_usd: number | null;
+      /**
+         * Source-native run id; use with ci_engine for identity.
+         * @nullable
+         */
+      native_run_id?: string | null;
+      /**
+         * Source-native workflow run id; use with ci_engine for identity.
+         * @nullable
+         */
+      native_workflow_run_id?: string | null;
+      /**
+         * Source-native job id; use with ci_engine for identity.
+         * @nullable
+         */
+      native_job_id?: string | null;
+      /**
+         * Source-native attempt id; use with ci_engine for identity.
+         * @nullable
+         */
+      native_attempt_id?: string | null;
     }
 
     export interface WorkflowJobAggregate {
@@ -106994,7 +107107,12 @@ export namespace Schemas {
     }
 
     export interface WorkflowRunActivityPoint {
-      /** GitHub Actions run id. */
+      /** CI execution engine; null when unknown.
+       *
+       * * `github_actions` - GitHub Actions
+       * * `depot_ci` - Depot CI */
+      ci_engine?: CIEngineEnum | null;
+      /** Integer run id; unique only together with ci_engine. */
       run_id: number;
       /**
          * Run conclusion ('success', 'failure', 'timed_out', 'cancelled', 'skipped', ...), or null while still in progress.
@@ -107026,11 +107144,16 @@ export namespace Schemas {
     }
 
     export interface WorkflowRunDetail {
+      /** CI execution engine; null when unknown.
+       *
+       * * `github_actions` - GitHub Actions
+       * * `depot_ci` - Depot CI */
+      ci_engine?: CIEngineEnum | null;
       /** Repository the run belongs to. */
       repo: RepoRef;
-      /** GitHub Actions run id. */
+      /** Integer run id; unique only together with ci_engine. */
       id: number;
-      /** GitHub Actions workflow name. */
+      /** CI workflow name. */
       workflow_name: string;
       /** Commit SHA the run was triggered on. */
       head_sha: string;
@@ -107069,6 +107192,16 @@ export namespace Schemas {
       commit_pr_number: number | null;
       /** True when a merge queue pushed this run to gate pr_number, rather than the author pushing it. Count it when measuring CI; drop it when counting what the author did. */
       is_merge_queue: boolean;
+      /**
+         * Source-native run id; use with ci_engine for identity.
+         * @nullable
+         */
+      native_run_id?: string | null;
+      /**
+         * Source-native workflow run id; use with ci_engine for identity.
+         * @nullable
+         */
+      native_workflow_run_id?: string | null;
     }
 
     export interface WorkflowRunnerCost {
@@ -114810,6 +114943,10 @@ export namespace Schemas {
 
     export type EngineeringAnalyticsRunFailureLogsParams = {
     /**
+     * CI engine. Required when run_id exists in both engines.
+     */
+    ci_engine?: EngineeringAnalyticsRunFailureLogsCiEngine;
+    /**
      * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
      */
     repo?: string;
@@ -114822,6 +114959,14 @@ export namespace Schemas {
      */
     source_id?: string;
     };
+
+    export type EngineeringAnalyticsRunFailureLogsCiEngine = typeof EngineeringAnalyticsRunFailureLogsCiEngine[keyof typeof EngineeringAnalyticsRunFailureLogsCiEngine];
+
+
+    export const EngineeringAnalyticsRunFailureLogsCiEngine = {
+      DepotCi: 'depot_ci',
+      GithubActions: 'github_actions',
+    } as const;
 
     export type EngineeringAnalyticsTeamCiActivityParams = {
     /**
@@ -114946,6 +115091,10 @@ export namespace Schemas {
 
     export type EngineeringAnalyticsWorkflowJobsParams = {
     /**
+     * CI engine. Required when run_id exists in both engines.
+     */
+    ci_engine?: EngineeringAnalyticsWorkflowJobsCiEngine;
+    /**
      * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
      */
     repo?: string;
@@ -114963,13 +115112,25 @@ export namespace Schemas {
     source_id?: string;
     };
 
+    export type EngineeringAnalyticsWorkflowJobsCiEngine = typeof EngineeringAnalyticsWorkflowJobsCiEngine[keyof typeof EngineeringAnalyticsWorkflowJobsCiEngine];
+
+
+    export const EngineeringAnalyticsWorkflowJobsCiEngine = {
+      DepotCi: 'depot_ci',
+      GithubActions: 'github_actions',
+    } as const;
+
     export type EngineeringAnalyticsWorkflowRunParams = {
+    /**
+     * CI engine. Required when run_id exists in both engines.
+     */
+    ci_engine?: EngineeringAnalyticsWorkflowRunCiEngine;
     /**
      * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
      */
     repo?: string;
     /**
-     * GitHub Actions run id to inspect.
+     * Integer run id to inspect; unique only together with ci_engine.
      */
     run_id: number;
     /**
@@ -114977,6 +115138,14 @@ export namespace Schemas {
      */
     source_id?: string;
     };
+
+    export type EngineeringAnalyticsWorkflowRunCiEngine = typeof EngineeringAnalyticsWorkflowRunCiEngine[keyof typeof EngineeringAnalyticsWorkflowRunCiEngine];
+
+
+    export const EngineeringAnalyticsWorkflowRunCiEngine = {
+      DepotCi: 'depot_ci',
+      GithubActions: 'github_actions',
+    } as const;
 
     export type EngineeringAnalyticsWorkflowRunActivityParams = {
     /**
@@ -117977,6 +118146,7 @@ export namespace Schemas {
      * * `postgresql` - Postgresql
      * * `posthog` - Posthog
      * * `reddit-ads` - Reddit Ads
+     * * `twitter-ads` - Twitter Ads
      * * `resend` - Resend
      * * `s3-compatible` - S3 Compatible
      * * `salesforce` - Salesforce
@@ -118051,6 +118221,7 @@ export namespace Schemas {
       Stripe: 'stripe',
       TiktokAds: 'tiktok-ads',
       Twilio: 'twilio',
+      TwitterAds: 'twitter-ads',
       Vercel: 'vercel',
       YoutubeAnalytics: 'youtube-analytics',
     } as const;
@@ -118097,6 +118268,10 @@ export namespace Schemas {
     };
 
     export type IntegrationsGithubReposRetrieveParams = {
+    /**
+     * When true, return only id, name, and full_name for each repository. Use it to list large rosters in fewer, smaller pages.
+     */
+    compact?: boolean;
     /**
      * Maximum number of repositories to return per request (max 500).
      * @minimum 1
@@ -120821,6 +120996,15 @@ export namespace Schemas {
       email: string;
     }};
 
+    export type SignalsReportsForYouRetrieveParams = {
+    /**
+     * How many of the top reports to return, 1 to 20. Defaults to 5.
+     * @minimum 1
+     * @maximum 20
+     */
+    limit?: number;
+    };
+
     export type SignalsReportsPrCiStatusesParams = {
     /**
      * Comma-separated report UUIDs to resolve CI state for, at most 100 per request.
@@ -123449,6 +123633,10 @@ export namespace Schemas {
     };
 
     export type UsersIntegrationsGithubReposRetrieveParams = {
+    /**
+     * When true, return only id, name, and full_name for each repository. Use it to list large rosters in fewer, smaller pages.
+     */
+    compact?: boolean;
     /**
      * Maximum number of repositories to return per request (max 500).
      * @minimum 1
