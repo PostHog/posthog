@@ -690,8 +690,8 @@ Assignment uses the task ID and persists across its runs. Turning the flag off s
 Runs booted while disabled require a new run to enroll. Desktop, steering during a running turn, compaction, and autonomous continuations are outside this experiment.
 
 The default `CONTEXT_SELECTION_ALLOWED_TEAM_IDS` is empty. Configure only projects containing synthetic or PostHog-owned data; the current actor must also be staff.
-`CONTEXT_SELECTION_PROVIDER` defaults to `gateway`, using the existing `AI_GATEWAY_URL` and `AI_GATEWAY_API_KEY` configuration and its owning team wallet.
-`CONTEXT_SELECTION_MODEL` defaults to the PostHog-hosted `posthog/hogference/jeeves-0.1`. Explicit `typesafe` mode uses the existing NORMAL egress lane and requires a TypeSafe model such as `jev-latest`; it is available only outside PostHog Cloud. There is no provider fallback.
+Selection uses the existing `build_system_one_client` helper, `AI_GATEWAY_URL` and `AI_GATEWAY_API_KEY` configuration, and the same `HOGQL_PROMPT_JEV_MODEL` setting as the Jev tool.
+It adds no provider routing or fallback configuration. Evidence retains the requested model and the actual model returned by System One.
 
 Skill descriptions and Data Catalog metadata use a project projection in the existing Django cache.
 A cache miss schedules a Celery refresh and skips the current turn. Projections refresh after two minutes and expire after ten minutes.

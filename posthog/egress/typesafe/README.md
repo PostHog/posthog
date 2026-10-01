@@ -51,7 +51,6 @@ Raise both settings when real traffic outgrows them.
 The default reserve ladder applies, and `typesafe_request` defaults to `NORMAL`.
 `typesafe_request` rejects `CRITICAL`, because a `CRITICAL` call is never shed and would skip the hourly spend ceiling.
 Give every caller an explicit lane: `NORMAL` when a person waits for the answer, `BATCH` for background work.
-`context_selection` defaults to the ai-gateway. Outside Cloud, explicitly selecting TypeSafe uses `NORMAL`, gated by `phai-context-selection`, an explicit internal-project allowlist, and a current staff actor. Its provider setting selects TypeSafe explicitly; it never silently falls back from the gateway.
 
 ## Rate-limit headers
 

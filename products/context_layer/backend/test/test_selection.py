@@ -277,13 +277,16 @@ class TestSelectionPermissions(SimpleTestCase):
 
     def test_failed_model_call_keeps_request_evidence(self) -> None:
         with (
-            override_settings(CONTEXT_SELECTION_PROVIDER="typesafe", CONTEXT_SELECTION_MODEL="test-model"),
-            patch("products.context_layer.backend.selection_model.TypeSafeSystemOneClient") as client,
+            override_settings(
+                HOGQL_PROMPT_JEV_MODEL="test-model",
+                AI_GATEWAY_URL="https://ai-gateway.example.com/v1",
+                AI_GATEWAY_API_KEY="phs_test",
+            ),
+            patch("httpx.Client.post", side_effect=httpx.ReadTimeout("test timeout")),
         ):
-            client.return_value.decide.side_effect = TimeoutError("test timeout")
             result = SelectionJudge("selection", "actor", time.monotonic() + 3).judge("activation", "")
             self.assertIsNone(result.probability)
-            self.assertEqual(result.evidence["error_type"], "TimeoutError")
+            self.assertEqual(result.evidence["error_type"], "SystemOneRequestFailed")
             self.assertEqual(result.evidence["request_hash"], request_descriptor("activation", "")["request_hash"])
             self.assertNotIn("request", result.evidence)
 
@@ -395,8 +398,7 @@ class TestSelectionBudget(SimpleTestCase):
 
     @override_settings(
         CLOUD_DEPLOYMENT="US",
-        CONTEXT_SELECTION_PROVIDER="gateway",
-        CONTEXT_SELECTION_MODEL="posthog/hogference/jeeves-0.1",
+        HOGQL_PROMPT_JEV_MODEL="posthog/hogference/test-decision-model",
         AI_GATEWAY_URL="https://ai-gateway.example.com/v1",
         AI_GATEWAY_API_KEY="phs_test",
     )
@@ -406,7 +408,7 @@ class TestSelectionBudget(SimpleTestCase):
             return_value=httpx.Response(
                 200,
                 json={
-                    "model": "posthog/hogference/jeeves-0.1",
+                    "model": "posthog/hogference/test-decision-model",
                     "answers": {"useful": {"noul": 0.9}},
                     "usage": {"input_tokens": 12},
                 },
@@ -415,5 +417,5 @@ class TestSelectionBudget(SimpleTestCase):
             result = SelectionJudge("selection", "actor", time.monotonic() + 60).judge("request", "history")
         self.assertEqual(result.probability, 0.9)
         self.assertIn("ai-gateway.example.com", post.call_args.args[0])
-        self.assertEqual(post.call_args.kwargs["json"]["model"], "posthog/hogference/jeeves-0.1")
+        self.assertEqual(post.call_args.kwargs["json"]["model"], "posthog/hogference/test-decision-model")
         self.assertEqual(result.evidence["response"]["input_tokens"], 12)

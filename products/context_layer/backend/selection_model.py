@@ -5,9 +5,8 @@ from typing import cast
 from django.conf import settings
 
 from posthog.dataclasses import frozen
-from posthog.egress.limiter.policies import Priority
 from posthog.llm.system_one import JsonValue, NoulAnswer, NoulQuestion, build_system_one_body
-from posthog.llm.system_one_client import GatewaySystemOneClient, TypeSafeSystemOneClient, build_system_one_client
+from posthog.llm.system_one_client import build_system_one_client
 
 from products.context_layer.backend.selection_types import Candidate, digest
 
@@ -30,7 +29,7 @@ def model_request(prompt: str, history: str, candidate: Candidate | None = None)
     return build_system_one_body(
         state=state,
         questions={"useful": GATE if candidate is None else RELEVANCE},
-        model=settings.CONTEXT_SELECTION_MODEL,
+        model=settings.HOGQL_PROMPT_JEV_MODEL,
     )
 
 
@@ -58,32 +57,22 @@ class SelectionJudge:
         remaining = self.deadline - time.monotonic()
         if remaining <= 0:
             raise TimeoutError("selector_deadline")
-        provider = settings.CONTEXT_SELECTION_PROVIDER
-        model = settings.CONTEXT_SELECTION_MODEL
-        client: GatewaySystemOneClient | TypeSafeSystemOneClient
-        if provider == "typesafe":
-            client = TypeSafeSystemOneClient(
-                model=model, source="context_selection", priority=Priority.NORMAL, timeout=remaining
-            )
-        elif provider == "gateway":
+        state: dict[str, JsonValue] = {"user_request": prompt, "history": history}
+        question = GATE if candidate is None else RELEVANCE
+        if candidate is not None:
+            state["candidate"] = candidate.as_json()
+        started = time.monotonic()
+        evidence = {**request_descriptor(prompt, history, candidate), "provider": "gateway"}
+        probability = None
+        try:
             client = build_system_one_client(
-                model=model,
+                model=settings.HOGQL_PROMPT_JEV_MODEL,
                 ai_product="posthog_ai",
                 distinct_id=self.distinct_id,
                 trace_id=self.selection_id,
                 properties={"ai_stage": "context_selection"},
                 timeout=remaining,
             )
-        else:
-            raise ValueError("selector_provider_unconfigured")
-        state: dict[str, JsonValue] = {"user_request": prompt, "history": history}
-        question = GATE if candidate is None else RELEVANCE
-        if candidate is not None:
-            state["candidate"] = candidate.as_json()
-        started = time.monotonic()
-        evidence = {**request_descriptor(prompt, history, candidate), "provider": provider}
-        probability = None
-        try:
             result = client.decide(state=state, questions={"useful": question})
             evidence["response"] = cast(dict, asdict(result))
             answer = result.answers["useful"]
