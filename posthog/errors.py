@@ -257,10 +257,6 @@ _TEMPORARY_FAILURE_MESSAGE = (
     "The database had a temporary problem while it ran this query. "
     "Wait a few minutes, then run the query again. If the problem continues, contact support."
 )
-_CANNOT_PARSE_VALUE_MESSAGE = (
-    "A value in the data can't be converted to the type that the query expects. "
-    "Check the column types, or use a function such as toIntOrNull() or toDateTimeOrNull() to skip values that don't convert."
-)
 
 # Fixed copy for internal ClickHouse errors. The raw ClickHouse message stays hidden, because it can
 # contain stored data values or server internals.
@@ -268,7 +264,6 @@ INTERNAL_CH_ERROR_USER_MESSAGES: dict[str, str] = {
     "TOO_MANY_ROWS": _TOO_MUCH_DATA_MESSAGE,
     "TOO_MANY_ROWS_OR_BYTES": _TOO_MUCH_DATA_MESSAGE,
     "SET_SIZE_LIMIT_EXCEEDED": _TOO_MUCH_DATA_MESSAGE,
-    "TOO_LARGE_ARRAY_SIZE": _TOO_MUCH_DATA_MESSAGE,
     "TOO_MANY_COLUMNS": "This query uses more columns than the limit allows. Select fewer columns, then run the query again.",
     "TOO_DEEP_SUBQUERIES": _TOO_COMPLEX_MESSAGE,
     "TOO_DEEP_AST": _TOO_COMPLEX_MESSAGE,
@@ -284,18 +279,9 @@ INTERNAL_CH_ERROR_USER_MESSAGES: dict[str, str] = {
         "PostHog can't read the files behind a data warehouse table. "
         "Check that the files still exist and that the source credentials are valid. Then run the query again."
     ),
-    "CANNOT_PARSE_TEXT": _CANNOT_PARSE_VALUE_MESSAGE,
-    "CANNOT_PARSE_NUMBER": _CANNOT_PARSE_VALUE_MESSAGE,
-    "CANNOT_PARSE_INPUT_ASSERTION_FAILED": _CANNOT_PARSE_VALUE_MESSAGE,
-    "CANNOT_PARSE_IPV4": _CANNOT_PARSE_VALUE_MESSAGE,
-    "CANNOT_PARSE_IPV6": _CANNOT_PARSE_VALUE_MESSAGE,
     "UNKNOWN_IDENTIFIER": (
         "A column in this query doesn't exist in the data. "
         "Check the column names. If the query uses a view, check that the view still matches its source table."
-    ),
-    "INVALID_JOIN_ON_EXPRESSION": (
-        "The database can't run a JOIN condition in this query. "
-        "In the JOIN ON clause, use equality conditions (a = b) and combine them with AND."
     ),
 }
 
