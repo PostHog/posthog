@@ -654,6 +654,26 @@ class TestValidateSchemaAndUpdateTable:
         schema.refresh_from_db()
         assert REGISTERED_SCHEMA_FINGERPRINT_KEY not in schema.sync_type_config
 
+    def test_keeps_the_source_column_order(self, team):
+        # Postgres jsonb sorts object keys by length, so without column_order HogQL lists the
+        # synced columns shortest name first instead of in the source order.
+        schema, job = self._schema_and_job(team)
+        table = self._linked_table(team, schema, job, queryable_folder="orders__query_a")
+        source_columns = {
+            "customer_name": {"clickhouse": "String", "hogql": "x"},
+            "id": {"clickhouse": "Int64", "hogql": "x"},
+            "total": {"clickhouse": "Float64", "hogql": "x"},
+        }
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", return_value=source_columns),
+            patch.object(DataWarehouseTable, "get_count", return_value=150),
+        ):
+            self._register(team, schema, job, queryable_folder="orders__query_a", delta_schema_json="{}")
+
+        table.refresh_from_db()
+        assert table.column_order == ["customer_name", "id", "total"]
+
     def test_zero_row_sync_creates_no_table(self, team):
         # The publish step republishes the whole delta table every run, so files being queryable
         # says nothing about this run writing any. A table born here has no column types to take -

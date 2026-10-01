@@ -1782,10 +1782,14 @@ def _process_batch(
             if arrow_schema:
                 arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(pa.string()))
 
-        # If there are multiple types that aren't a list, then JSON stringify everything
+        # If there are multiple types that aren't a list, then stringify everything. Strings stay
+        # as they are: JSON would wrap them in quotes, so `WHERE col = 'PR'` would stop matching.
         if len(unique_types_in_column) > 1:
             json_array = pa.array(
-                [None if s is None else _json_dumps(s) for s in _to_list_array(columnar_table_data[field_name])]
+                [
+                    None if s is None else s if isinstance(s, str) else _json_dumps(s)
+                    for s in _to_list_array(columnar_table_data[field_name])
+                ]
             )
             columnar_table_data[field_name] = json_array
             py_type = str

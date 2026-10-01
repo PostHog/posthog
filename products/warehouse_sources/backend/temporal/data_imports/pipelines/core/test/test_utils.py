@@ -94,7 +94,7 @@ def test_table_from_py_list_inconsistent_list():
 def test_table_from_py_list_inconsistent_other_types():
     table = table_from_py_list([{"column": "hello"}, {"column": 12}])
 
-    assert table.equals(pa.table({"column": ['"hello"', "12"]}))
+    assert table.equals(pa.table({"column": ["hello", "12"]}))
     assert table.schema.equals(
         pa.schema(
             [
@@ -161,7 +161,7 @@ def test_table_from_py_list_numeric_column_with_none_gaps(values, expected, type
 def test_table_from_py_list_inconsistent_types_with_none():
     table = table_from_py_list([{"column": None}, {"column": "hello"}, {"column": 12}, {"column": None}])
 
-    assert table.equals(pa.table({"column": [None, '"hello"', "12", None]}))
+    assert table.equals(pa.table({"column": [None, "hello", "12", None]}))
     assert table.schema.equals(
         pa.schema(
             [
