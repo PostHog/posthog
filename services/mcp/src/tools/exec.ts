@@ -1522,13 +1522,8 @@ function hasCredentialSegment(key: string): boolean {
 }
 
 /**
- * Records an undeclared argument name only when it reads as a parameter spelling, because the
- * caller chooses the name and it can carry credentials or personal data. Anything else becomes
- * the SDK's `[redacted]` marker. The identifier shape rejects emails, URLs, UUIDs, dotted
- * hostnames, and argument values pasted into the key. A run of five or more digits is a phone
- * number, a date, or an entity ID. A long `_`-separated segment that contains a digit is a
- * random token such as a PostHog `phx_` key or a GitHub `ghp_` token, and a name built from
- * words has no such segment.
+ * Undeclared names come from the caller and can hold private data, so only parameter-shaped
+ * ones are recorded. The digit checks keep out phone numbers, IDs, and tokens such as `phx_` keys.
  */
 const shouldRecordInputKey: ShouldRecordInputKeyFn = (key, { declared }) =>
     declared || (PARAMETER_NAME_PATTERN.test(key) && !DIGIT_RUN_PATTERN.test(key) && !hasCredentialSegment(key))

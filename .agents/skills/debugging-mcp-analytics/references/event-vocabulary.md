@@ -96,7 +96,7 @@ A `$mcp_tool_call` that named a tool and its arguments (a direct-mode call, `ren
 exec `call`) also carries the call's shape, stamped in `tool-executor.ts` from the raw input before
 any alias is folded away, by the `@posthog/mcp` SDK helper `getToolInputProperties`:
 `$mcp_input_keys` (the top-level argument names the caller sent, never values: declared names and
-aliases first, then undeclared names, capped at 20; in exec mode parsed from the `call` command's JSON) and
+aliases first, then undeclared names that look like parameter names (any other name becomes one `[redacted]` entry), capped at 20; in exec mode parsed from the `call` command's JSON) and
 `$mcp_input_aliases_used` (`alias:canonical` tokens such as `experimentId:id`, present only when
 the normaliser filled the canonical from that alias). Exec
 discovery verbs (`tools`, `search`, `info`, `schema`) carry neither, so rate alias use against the
@@ -104,13 +104,6 @@ rows where `$mcp_input_keys` is set, not against every `$mcp_tool_call`. Group t
 `$mcp_client_name` to see which spelling each agent reaches for and how much of it the alias layer
 absorbs. A tool that wraps `normalizeParamAliases` inside its own preprocess (`read-data-schema`)
 reads as alias-free.
-An undeclared name is recorded only when it reads as a parameter spelling: letters, digits, and
-underscores, no run of five or more digits, and no `_`-separated segment of 16 or more characters
-that contains a digit (`shouldRecordInputKey` in `services/mcp/src/tools/exec.ts`). Any other
-undeclared name becomes one `[redacted]` entry, because the caller chooses it and it can carry an
-email, a token, or a pasted value. An undeclared name in `$mcp_input_keys` is a spelling the tool
-does not declare. On a failed call, read it next to `$mcp_validation_fields`: `requiredField` beside
-`required_field:invalid_type:undefined` is an agent that guessed the wrong case.
 A `learn` call also carries `exec_learn_kind` (`search`, `load`, `list` for `learn skills` and a bare `learn`, `describe`, `guide`),
 stamped before the availability check so a rejected skill command still records its form, plus
 the raw `exec_search_query` for `search` (and for a `load` that searches inside the skill with `-s`) and `exec_learn_target` (the qualified skill) for `load`.
