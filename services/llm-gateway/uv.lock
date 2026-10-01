@@ -9,6 +9,9 @@ exclude-newer-span = "P7D"
 [options.exclude-newer-package]
 posthoganalytics = false
 
+[manifest]
+constraints = [{ name = "posthoganalytics", specifier = "<8" }]
+
 [[package]]
 name = "aiohappyeyeballs"
 version = "2.6.1"
