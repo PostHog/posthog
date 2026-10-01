@@ -24,8 +24,8 @@ export function ProjectFilesScene({ folder: folderProp }: ProjectFilesSceneProps
     return (
         <SceneContent className="h-full min-h-0 flex-1 overflow-hidden gap-y-2 pb-1">
             <div className="flex shrink-0 items-center gap-2">
-                <h1 className="m-0 min-w-0 flex-1 truncate text-lg font-semibold" title={folder || 'Project'}>
-                    {folder || 'Project'}
+                <h1 className="m-0 min-w-0 flex-1 truncate text-lg font-semibold" title={folder || 'Collections'}>
+                    {folder || 'Collections'}
                 </h1>
                 {folder && (
                     <LemonButton

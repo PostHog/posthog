@@ -110,12 +110,31 @@ describe('savedInsightsLogic', () => {
                 })
             }
 
-            router.actions.push(savedInsightsUrl)
+            router.actions.push(urls.project(MOCK_TEAM_ID, urls.productAnalytics()))
             await expectLogic(logic)
                 .toFinishAllListeners()
                 .toMatchValues({
                     filters: partial({ tab: expectedTab }),
                 })
+        })
+
+        it('keeps Insights on the list when the home flag resolves', async () => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOME_TAB]: true,
+            })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.filters.tab).toBe(SavedInsightsTabs.All)
+        })
+
+        it('opens the Product analytics home when its flag resolves after navigation', async () => {
+            router.actions.push(urls.project(MOCK_TEAM_ID, urls.productAnalytics()))
+            await expectLogic(logic).toFinishAllListeners()
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOME_TAB]: true,
+            })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.filters.tab).toBe(SavedInsightsTabs.Home)
+            expect(router.values.location.pathname).toBe(urls.project(MOCK_TEAM_ID, urls.productAnalytics()))
         })
 
         it('keeps tab-less filtered links on All insights when Home is enabled', async () => {
@@ -155,11 +174,11 @@ describe('savedInsightsLogic', () => {
             expect(router.values.searchParams).toEqual({})
         })
 
-        it('keeps All insights explicit when a flagged user selects it', async () => {
+        it('navigates from Product analytics to Insights when selecting All insights', async () => {
             featureFlagLogic.actions.setFeatureFlags([], {
                 [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOME_TAB]: 'test',
             })
-            router.actions.push(savedInsightsUrl)
+            router.actions.push(urls.project(MOCK_TEAM_ID, urls.productAnalytics()))
             await expectLogic(logic).toFinishAllListeners()
 
             logic.actions.setSavedInsightsFilters({ tab: SavedInsightsTabs.All })
@@ -168,7 +187,8 @@ describe('savedInsightsLogic', () => {
                 .toMatchValues({
                     filters: partial({ tab: SavedInsightsTabs.All }),
                 })
-            expect(router.values.searchParams).toEqual({ tab: SavedInsightsTabs.All })
+            expect(router.values.searchParams).toEqual({})
+            expect(router.values.location.pathname).toBe(savedInsightsUrl)
         })
     })
 

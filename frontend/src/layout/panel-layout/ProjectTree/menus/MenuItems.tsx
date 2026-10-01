@@ -125,7 +125,7 @@ export function MenuItems({
 
     // Note: renderMenuItems() is called often, so we're using custom components to isolate logic and network requests
     const productMenu =
-        showProductMenuItems && item.name === 'Product analytics' ? (
+        showProductMenuItems && item.name === 'Insights' ? (
             <>
                 <ProductAnalyticsMenuItems
                     MenuItem={MenuItem}

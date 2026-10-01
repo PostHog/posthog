@@ -470,7 +470,7 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                     (root === 'shortcuts://' && item.record?.href && item.record.href.split('/').length - 1 === 1)
 
                 if (showDropdownMenu) {
-                    if (item.name === 'Product analytics') {
+                    if (item.name === 'Insights') {
                         return (
                             <ButtonPrimitive iconOnly isSideActionRight className="z-2 -outline-offset-2">
                                 <IconPlusSmall className="text-tertiary" />

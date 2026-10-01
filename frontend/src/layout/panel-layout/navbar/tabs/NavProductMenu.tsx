@@ -22,7 +22,7 @@ export function NavProductMenu({ product }: { product: string }): JSX.Element {
     const { loadPlaylists } = useActions(sessionRecordingCollectionsLogic)
 
     let items: LemonMenuItems
-    if (product === 'Product analytics') {
+    if (product === 'Insights') {
         items = [
             {
                 title: 'Create new insight type',

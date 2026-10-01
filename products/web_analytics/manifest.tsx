@@ -71,6 +71,7 @@ export const manifest: ProductManifest = {
             path: 'Web analytics',
             intents: [ProductKey.WEB_ANALYTICS],
             category: ProductItemCategory.ANALYTICS,
+            visualOrder: 1,
             iconType: 'web_analytics',
             iconColor: ['var(--color-product-web-analytics-light)'] as FileSystemIconColor,
             href: urls.webAnalytics(),

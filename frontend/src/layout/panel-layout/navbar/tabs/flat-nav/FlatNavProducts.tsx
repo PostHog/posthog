@@ -23,7 +23,7 @@ import { FlatNavSessionReplayMenuItems } from './menus/FlatNavSessionReplayMenuI
 
 // Keyed by product path, the same key the picked-products list stores
 const PRODUCT_MENUS: Record<string, JSX.Element> = {
-    'Product analytics': (
+    Insights: (
         <FlatNavProductMenu icon={<IconPlusSmall />} tooltip="New insight" data-attr="flat-nav-tool-menu-insight">
             <FlatNavProductAnalyticsMenuItems />
         </FlatNavProductMenu>

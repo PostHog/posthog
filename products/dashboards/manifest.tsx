@@ -43,9 +43,17 @@ export const manifest: ProductManifest = {
     ],
     treeItemsProducts: [
         {
+            path: 'Collections',
+            intents: [ProductKey.PRODUCT_ANALYTICS],
+            category: ProductItemCategory.BUSINESS_INTELLIGENCE,
+            href: urls.projectFiles(),
+            iconType: 'folder',
+            sceneKey: 'ProjectFiles',
+        },
+        {
             path: 'Dashboards',
             intents: [ProductKey.PRODUCT_ANALYTICS],
-            category: ProductItemCategory.ANALYTICS,
+            category: ProductItemCategory.BUSINESS_INTELLIGENCE,
             type: 'dashboard',
             iconType: 'dashboard',
             iconColor: ['var(--color-product-dashboards-light)'],

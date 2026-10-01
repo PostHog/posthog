@@ -352,6 +352,7 @@ export interface savedInsightsLogicMeta {
             user: UserType | null,
             filters: SavedInsightFilters
         ) => SavedInsightListItem | null
+        breadcrumbs: (filters: SavedInsightFilters) => Breadcrumb[]
     }
 }
 
@@ -608,11 +609,11 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             },
         ],
         breadcrumbs: [
-            () => [],
-            (): Breadcrumb[] => [
+            (s) => [s.filters],
+            (filters: SavedInsightFilters): Breadcrumb[] => [
                 {
                     key: 'saved_insights',
-                    name: 'Product analytics',
+                    name: filters.tab === SavedInsightsTabs.Home ? 'Product analytics' : 'Insights',
                     iconType: 'product_analytics',
                 },
             ],
@@ -789,7 +790,10 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             if (router.values.searchParams.tab) {
                 return
             }
-            const defaultTab = getDefaultSavedInsightsTab(values.filters, values.showHomeTab)
+            const defaultTab = getDefaultSavedInsightsTab(
+                values.filters,
+                values.showHomeTab && router.values.location.pathname.endsWith(urls.productAnalytics())
+            )
             if (defaultTab !== values.filters.tab) {
                 actions.setSavedInsightsFilters({ tab: defaultTab }, false)
             }
@@ -809,11 +813,20 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             const currentScene = sceneLogic.findMounted()?.values
             if (currentScene?.activeSceneId === Scene.SavedInsights) {
                 const nextValues = cleanFilters(values.filters)
-                const defaultTab = getDefaultSavedInsightsTab(nextValues, values.showHomeTab)
+                const defaultTab = SavedInsightsTabs.All
                 const defaultValues = cleanFilters({}, defaultTab)
-                const urlValues = cleanFilters(router.values.searchParams, defaultTab)
+                const onProductAnalytics = router.values.location.pathname.endsWith(urls.productAnalytics())
+                const urlValues = cleanFilters(
+                    router.values.searchParams,
+                    onProductAnalytics && values.showHomeTab ? SavedInsightsTabs.Home : SavedInsightsTabs.All
+                )
                 if (!objectsEqual(nextValues, urlValues)) {
-                    return [urls.savedInsights(), objectDiffShallow(defaultValues, nextValues), {}, { replace: false }]
+                    return [
+                        nextValues.tab === SavedInsightsTabs.Home ? urls.productAnalytics() : urls.savedInsights(),
+                        objectDiffShallow(defaultValues, nextValues),
+                        {},
+                        { replace: false },
+                    ]
                 }
             }
         }
@@ -822,6 +835,12 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
         }
     }),
     urlToAction(({ actions, values }) => ({
+        [urls.productAnalytics()]: () => {
+            actions.setSavedInsightsFilters(
+                { tab: values.showHomeTab ? SavedInsightsTabs.Home : SavedInsightsTabs.All },
+                false
+            )
+        },
         [urls.savedInsights()]: async (_, searchParams, hashParams) => {
             if (searchParams.tab === SavedInsightsTabs.Alerts || searchParams.alert_id) {
                 const alertsSearchParams = { ...searchParams }
@@ -859,7 +878,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             actions.loadDraftQuery()
 
             const currentFilters = cleanFilters(values.filters)
-            const defaultTab = getDefaultSavedInsightsTab(searchParams, values.showHomeTab)
+            const defaultTab = SavedInsightsTabs.All
             const nextFilters = cleanFilters({ ...searchParams, tab: searchParams.tab || defaultTab })
             if (values.rawFilters === null || !objectsEqual(currentFilters, nextFilters)) {
                 actions.setSavedInsightsFilters(nextFilters, false)

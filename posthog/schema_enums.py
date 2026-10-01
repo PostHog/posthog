@@ -2424,6 +2424,7 @@ class ProductIntentContext(StrEnum):
 
 class ProductItemCategory(StrEnum):
     ANALYTICS = "Analytics"
+    BUSINESS_INTELLIGENCE = "Business intelligence"
     DATA = "Data"
     AI_ENGINEERING = "AI engineering"
     PRODUCT_ENGINEERING = "Product engineering"

@@ -1596,6 +1596,7 @@ export const productUrls = {
     taskDetail: (taskId: string | number): string => `/tasks/${taskId}`,
     taskNew: (): string => '/tasks/new',
     insights: (): string => '/insights',
+    productAnalytics: (): string => '/product-analytics',
     insightNew: ({
         type,
         dashboardId,
@@ -2119,6 +2120,7 @@ export type ProductTreePath =
     | 'Business knowledge'
     | 'Clusters'
     | 'Code review'
+    | 'Collections'
     | 'Customer analytics'
     | 'Dashboards'
     | 'Data catalog'
@@ -2135,6 +2137,7 @@ export type ProductTreePath =
     | 'Heatmaps'
     | 'Identity matching'
     | 'Inbox'
+    | 'Insights'
     | 'Links'
     | 'Live Debugger'
     | 'LLM analytics'
@@ -2277,6 +2280,15 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: ['CodeReview'],
     },
     {
+        path: 'Collections',
+        intents: [ProductKey.PRODUCT_ANALYTICS],
+        category: ProductItemCategory.BUSINESS_INTELLIGENCE,
+        href: urls.projectFiles(),
+        iconType: 'folder',
+        sceneKey: 'ProjectFiles',
+        sceneKeys: [],
+    },
+    {
         path: 'Customer analytics',
         intents: [ProductKey.CUSTOMER_ANALYTICS],
         category: ProductItemCategory.DATA,
@@ -2299,7 +2311,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Dashboards',
         intents: [ProductKey.PRODUCT_ANALYTICS],
-        category: ProductItemCategory.ANALYTICS,
+        category: ProductItemCategory.BUSINESS_INTELLIGENCE,
         type: 'dashboard',
         iconType: 'dashboard',
         iconColor: ['var(--color-product-dashboards-light)'],
@@ -2538,6 +2550,16 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: ['Inbox'],
     },
     {
+        path: 'Insights',
+        intents: [ProductKey.PRODUCT_ANALYTICS],
+        category: ProductItemCategory.BUSINESS_INTELLIGENCE,
+        type: 'insight',
+        href: urls.savedInsights(),
+        iconType: 'insight/trends',
+        sceneKey: 'SavedInsights',
+        sceneKeys: ['SavedInsights', 'Insight'],
+    },
+    {
         path: 'LLM analytics',
         displayLabel: 'AI observability',
         intents: [
@@ -2648,7 +2670,8 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Marketing analytics',
         intents: [ProductKey.MARKETING_ANALYTICS],
-        category: ProductItemCategory.DATA,
+        category: ProductItemCategory.ANALYTICS,
+        visualOrder: 2,
         href: urls.marketingAnalyticsApp(),
         iconType: 'marketing_analytics' as FileSystemIconType,
         iconColor: ['var(--color-product-marketing-analytics-light)'] as FileSystemIconColor,
@@ -2715,11 +2738,12 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         intents: [ProductKey.PRODUCT_ANALYTICS],
         category: ProductItemCategory.ANALYTICS,
         type: 'insight',
-        href: urls.insights(),
+        href: urls.productAnalytics(),
+        visualOrder: 0,
         iconType: 'product_analytics',
         iconColor: ['var(--color-product-product-analytics-light)'],
         sceneKey: 'SavedInsights',
-        sceneKeys: ['SavedInsights', 'Insight'],
+        sceneKeys: ['SavedInsights'],
     },
     {
         path: 'Product tours',
@@ -2960,6 +2984,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         path: 'Web analytics',
         intents: [ProductKey.WEB_ANALYTICS],
         category: ProductItemCategory.ANALYTICS,
+        visualOrder: 1,
         iconType: 'web_analytics',
         iconColor: ['var(--color-product-web-analytics-light)'] as FileSystemIconColor,
         href: urls.webAnalytics(),

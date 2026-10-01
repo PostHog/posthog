@@ -10,6 +10,8 @@ const descriptions: Record<string, string> = {
         'Ask questions that need more than a chart builder. Query your events and warehouse tables together, then turn the results into a table or visualization.',
     'Product analytics':
         'Find out how people discover, use, and return to your product. Explore trends, conversion funnels, retention, and the paths people take.',
+    Collections: 'Organize dashboards, insights, and notebooks in shared folders for your teams and projects.',
+    Insights: 'Explore your data with custom analyses and reports.',
     Dashboards:
         'Bring related insights together in one place. Follow your key metrics over time and share the same view of progress with your team.',
     'Session replay':
@@ -70,6 +72,7 @@ export const SIDEBAR_PRODUCTS_WITHOUT_DOCS = new Set<string>([
     'Autoresearch',
     'Broadcasts',
     'Business knowledge',
+    'Collections',
     'Engineering analytics',
     'Identity matching',
     'Links',
@@ -85,6 +88,8 @@ const examples: Record<string, string> = {
     Activity: 'Check which properties arrive with a signup event.',
     'SQL editor': 'Join signup events with billing data to compare activation by plan.',
     'Product analytics': 'Find the step where new users drop out of onboarding.',
+    Collections: 'Keep your team’s dashboards and analyses together in one folder.',
+    Insights: 'Build a custom funnel or query for a question specific to your business.',
     Dashboards: 'Keep activation, retention, and revenue on a weekly team dashboard.',
     'Session replay': 'Watch a failed checkout to see what got in the way.',
     'Feature flags': 'Try a new navigation with your team before rolling it out to everyone.',
