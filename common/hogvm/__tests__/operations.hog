@@ -8,6 +8,9 @@ test(1 - 2)                               // -1
 test(3 * 2)                               // 6
 test(3 / 2)                               // 1.5
 test(3 % 2)                               // 1
+test(-7 % 3)                              // -1
+test(7 % -3)                              // 1
+test(-7.5 % 2)                            // -1.5
 test(1 and 2)                             // true
 test(1 or 0)                              // true
 test(1 and 0)                             // false
