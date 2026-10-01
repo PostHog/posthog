@@ -61,7 +61,7 @@ describe('todayPreviewCards', () => {
             title: 'Session',
             channel,
             latest_run: { output: { pr_url: 'https://github.com/example-org/web/pull/7' } },
-        } as TaskListItemApi)
+        } as unknown as TaskListItemApi)
         const preview = sessionPreview(item, {
             unread: false,
             pinned: false,

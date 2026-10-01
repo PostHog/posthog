@@ -200,7 +200,7 @@ describe('todayWorkItems', () => {
         ['nothing for a blank message', { final_message: '   ' }, null],
         ['nothing for a message that is not text', { final_message: { text: 'hi' } }, null],
     ])('reads %s from the latest run', (_name, output, message) => {
-        const item = sessionItem({ id: 's', title: 'Session', latest_run: { output } } as TaskListItemApi)
+        const item = sessionItem({ id: 's', title: 'Session', latest_run: { output } } as unknown as TaskListItemApi)
 
         expect(item.finalMessage).toBe(message)
     })

@@ -427,7 +427,7 @@ export const SessionHoverCard: Story = {
                                     'The webhook now retries three times with a backoff. I opened a pull request with the change and a test for the failure case.',
                             },
                         },
-                    } as TaskListItemApi),
+                    } as unknown as TaskListItemApi),
                     {
                         unread: false,
                         pinned: true,
