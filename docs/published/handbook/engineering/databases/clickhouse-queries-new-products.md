@@ -85,7 +85,7 @@ session_id_v7 UInt128,
 
 ClickHouse does not sort UUIDs correctly as of today. The internal representation swaps the high and low 64-bit words, so `ORDER BY uuid_column` does not produce chronological order for UUIDv7s. This is a [known issue](https://michcioperz.com/wiki/clickhouse-uuid-ordering/) (see also [ClickHouse issue #77226](https://github.com/ClickHouse/ClickHouse/issues/77226)).
 
-The workaround is to store your UUIDv7 as `UInt128` instead of `UUID`. You can convert with `reinterpretAsUInt128(toUUID(...))` or use a materialized column to do this at insert time. See the `$session_id_uuid` column of `sharded_events` in `posthog/clickhouse/schema/modules/events/storage.tf` for an example of this conversion at the data layer.
+The workaround is to store your UUIDv7 as `UInt128` instead of `UUID`. You can convert with `reinterpretAsUInt128(toUUID(...))` or use a materialized column to do this at insert time. See the `$session_id_uuid` column of `sharded_events` in `posthog/clickhouse/schema/catalog/events/columns.tf` for an example of this conversion at the data layer.
 
 ### When not to use UUIDv7
 
@@ -97,7 +97,7 @@ You need a good reason to use a different format. The main exception is person I
 
 If your product frequently filters or groups by a specific property, you should ensure that property has a materialized column. Materialized columns store JSON property values as separate columns on disk, making reads up to 25x faster.
 
-Properties are automatically materialized by a cron job that analyzes slow queries (see `analyze.py`). But for new products, you may want to proactively create materialized columns for properties you know will be heavily queried. You can do this by declaring the column in the table's module under `posthog/clickhouse/schema/modules/`. `sharded_events` in `modules/events/storage.tf` has examples of a materialized column with a skip index on it.
+Properties are automatically materialized by a cron job that analyzes slow queries (see `analyze.py`). But for new products, you may want to proactively create materialized columns for properties you know will be heavily queried. You can do this by declaring the column in the table's module under `posthog/clickhouse/schema/catalog/`. `sharded_events` in `catalog/events/families.tf` has examples of a materialized column with a skip index on it.
 
 For more details, see the [materialized columns handbook page](./materialized-columns.md).
 

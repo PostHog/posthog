@@ -7,7 +7,7 @@ request for as long as the stack runs, which burns CPU and floods the server log
 A Kafka table whose topic does not exist behaves the same way, so the stack must
 create the topic of every Kafka table before ClickHouse starts.
 
-The schema under posthog/clickhouse/schema/modules is what the local stacks apply.
+The schema under posthog/clickhouse/schema/catalog is what the local stacks apply.
 A cluster that needs more consumers sets the count in its own root, as an override.
 """
 
@@ -18,12 +18,12 @@ REPO_ROOT = Path(__file__).parents[3]
 # hogli clickhouse:logs:init runs this SQL straight at a local server, so it is not part of the schema modules.
 EXTRA_LOCAL_SQL = "bin/clickhouse-logs.sql"
 
-_KAFKA_CONSUMERS = re.compile(r"kafka_num_consumers\s*=\s*(\d+)")
-_KAFKA_TOPIC = re.compile(r"kafka_topic_list\s*=\s*'([^']+)'")
+_KAFKA_CONSUMERS = re.compile(r'kafka_num_consumers\s*=\s*"?(\d+)')
+_KAFKA_TOPIC = re.compile(r'kafka_topic_list\s*=\s*\'([^\']+)\'|\btopic\s*=\s*"([^"\n]+)"')
 
 
 def _schema_kafka_tables() -> list[Path]:
-    return sorted((REPO_ROOT / "posthog" / "clickhouse" / "schema" / "modules").glob("*/ingest.tf"))
+    return sorted((REPO_ROOT / "posthog" / "clickhouse" / "schema" / "catalog").rglob("*.tf"))
 
 
 def test_local_kafka_tables_declare_one_consumer() -> None:
@@ -52,7 +52,11 @@ def test_dev_stack_pre_creates_every_kafka_table_topic() -> None:
         for line in bootstrap.read_text().splitlines()
         if (stripped := line.strip()) and not stripped.startswith("#")
     }
-    topics = {topic for path in _schema_kafka_tables() for topic in _KAFKA_TOPIC.findall(path.read_text())}
+    topics = {
+        setting or declaration
+        for path in _schema_kafka_tables()
+        for setting, declaration in _KAFKA_TOPIC.findall(path.read_text())
+    }
     assert topics, "found no kafka_topic_list setting to check"
 
     missing = sorted(topics - listed)

@@ -36,6 +36,7 @@ variable "columns" {
 variable "storage" {
   type = object({
     engine       = optional(string, "MergeTree")
+    replicated   = optional(bool, true)
     engine_args  = optional(list(string), [])
     order_by     = string
     partition_by = optional(string)
@@ -60,9 +61,20 @@ variable "storage" {
 }
 
 variable "sharding_key" {
-  description = "Expression used for routing inserts and Distributed reads."
+  description = "Routing expression. Null uses the layout's default; an empty string omits the sharding argument."
   type        = string
-  default     = "cityHash64(team_id)"
+  default     = null
+}
+
+variable "routing" {
+  description = "Explicit routing objects and schemas for existing families that differ from the convention."
+  type = object({
+    read          = optional(bool)
+    write         = optional(bool)
+    read_columns  = optional(any)
+    write_columns = optional(any)
+  })
+  default = {}
 }
 
 variable "kafka" {
@@ -77,9 +89,20 @@ variable "kafka" {
     }))
     consumer_group = optional(string)
     format         = optional(string, "JSONEachRow")
+    arguments      = optional(string, "engine")
     settings       = optional(map(string))
   })
   default = null
+  validation {
+    condition     = var.kafka == null ? true : contains(["engine", "settings"], var.kafka.arguments)
+    error_message = "Kafka arguments must use engine or settings syntax."
+  }
+}
+
+variable "mv_target" {
+  description = "Existing ingestion target when it is not the conventional writable table."
+  type        = string
+  default     = null
 }
 
 variable "mv_select" {
@@ -125,18 +148,20 @@ variable "deployment" {
   validation {
     condition = alltrue([for name, override in var.deployment.overrides :
       name == coalesce(var.names.storage, var.layout == "sharded" ? "sharded_${var.name}" : var.name) ||
+      can(regex("^(Replicated)?[A-Za-z]*MergeTree", try(override.engine, ""))) ||
       length(setintersection(keys(override), ["indexes", "add_indexes", "drop_indexes", "projections", "add_projections", "drop_projections", "constraints", "add_constraints", "drop_constraints"])) == 0
     ])
-    error_message = "Indexes, projections and constraints can only be overridden on the storage table."
+    error_message = "Indexes, projections and constraints can only be overridden on a MergeTree storage table."
   }
   validation {
     condition = alltrue([for name, override in var.deployment.overrides :
       name == coalesce(var.names.storage, var.layout == "sharded" ? "sharded_${var.name}" : var.name) ||
+      can(regex("^(Replicated)?[A-Za-z]*MergeTree", try(override.engine, ""))) ||
       alltrue([for column in concat(try(override.add_columns, []), try(values(override.modify_columns), [])) :
-        alltrue([for attribute in ["codec", "ttl", "materialized_expression", "ephemeral_expression"] : try(column[attribute], null) == null])
+        alltrue([for attribute in ["codec", "ttl"] : try(column[attribute], null) == null])
       ])
     ])
-    error_message = "Column codecs, TTLs and computed expressions can only be overridden on the storage table."
+    error_message = "Column codecs and TTLs can only be overridden on a MergeTree storage table."
   }
 
 }

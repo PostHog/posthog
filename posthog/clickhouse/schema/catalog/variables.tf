@@ -11,3 +11,17 @@ variable "deployment" {
     families = optional(any, {})
   })
 }
+
+variable "ttl" {
+  type    = bool
+  default = true
+}
+variable "dictionary_user" {
+  type    = string
+  default = "default"
+}
+variable "dictionary_password" {
+  type      = string
+  default   = ""
+  sensitive = true
+}

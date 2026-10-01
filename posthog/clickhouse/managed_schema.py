@@ -53,9 +53,6 @@ class ClickHouseDatabase:
             "CLICKHOUSE_SCHEMA_KAFKA": "true" if kafka else "false",
             "CLICKHOUSE_SCHEMA_TEST": "true" if settings.TEST else "false",
         }
-        if settings.TEST:
-            # The dev database on the same server uses the default replication paths.
-            env["CLICKHOUSE_SCHEMA_ZK_PATH_SUFFIX"] = f"_{self.name}"
         result = subprocess.run(
             [str(REPO_ROOT / "bin" / "clickhouse-schema"), "apply", "-no-color"],
             env=env,

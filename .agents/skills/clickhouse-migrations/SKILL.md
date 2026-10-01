@@ -19,11 +19,12 @@ Read [`posthog/clickhouse/schema/README.md`](../../../posthog/clickhouse/schema/
 posthog/clickhouse/schema/
   catalog/           # standard sharded and global family declarations
   lib/table_family/  # storage, routing, Kafka and MV conventions
-  modules/<group>/   # custom groups built from low-level helpers
+  catalog/<group>/   # existing groups using families and low-level helpers
     main.tf          # which components the group has
-    variables.tf     # database, components, exclude, overrides, zk_path_suffix
+    variables.tf     # database, deployment and group-specific inputs
     columns.tf       # column lists that more than one object uses
-    storage.tf  read.tf  write.tf  ingest.tf  test.tf   # one file per component
+    families.tf      # storage and routing conventions
+    storage.tf  read.tf  write.tf  ingest.tf  test.tf   # custom objects
   lib/               # table, view, materialized_view, dictionary helpers
   local/             # root module: every group on one server
 ```
@@ -36,13 +37,13 @@ Replication uses a complete default Keeper path containing the database name; de
 Preserve existing names, paths, consumer groups and settings during a conversion, and use `moved` blocks for state addresses. Require a plan with zero DDL before adopting a refactor.
 
 For custom schemas, each object is one `module` block that calls a low-level `lib` helper.
-`modules/person` is a small custom group to copy from. `modules/events` is the sharded equivalent.
+`catalog/person/families.tf` is a global example. `catalog/events/families.tf` is the sharded equivalent.
 
 ## Pick the group and the component
 
 A group is one table family.
 Add the object to the group of the table it stores, reads, or fills.
-Standard families go in the catalogue. Make a new explicit group only when the schema needs custom objects, and add a `module` block for it to `local/modules.tf`.
+Standard families go in the catalogue. Make a new catalogue group only when the schema needs custom objects, add its caller in `catalog/<group>.tf`, and select its local components in `local/modules.tf`.
 
 The component decides which nodes get the object in PostHog Cloud, so choose it by what the object does:
 
@@ -54,23 +55,23 @@ The component decides which nodes get the object in PostHog Cloud, so choose it 
 | Kafka table, or the materialized view that consumes it          | `ingest`  | `ingest.tf`  |
 | Object only the test suite uses, such as a view replacing Kafka | `test`    | `test.tf`    |
 
-Every object follows the same shape, from `modules/person/write.tf`:
+Every object follows the same shape, for a custom writable table:
 
 ```hcl
 module "writable_person" {
   source = "../../lib/table"
 
-  enabled  = local.write && !contains(var.exclude, "writable_person")
+  enabled  = local.write && !contains(local.deployment.exclude, "writable_person")
   database = var.database
   name     = "writable_person"
   engine   = "Distributed('posthog_single_shard', '${var.database}', 'person')"
   columns  = local.person_columns
-  override = try(var.overrides["writable_person"], {})
+  override = try(local.deployment.overrides["writable_person"], {})
 }
 ```
 
 Keep the `enabled` and `override` lines exactly in this form. The infrastructure repository relies on them to leave an object out of a cluster or to change it there.
-Use `${var.database}` for the database name. Keep `${var.zk_path_suffix}` in existing custom groups until their replication paths are explicitly migrated; standard families use full paths instead.
+Use `${var.database}` for the database name and supply complete replication paths. Preserve an existing database's Keeper identity with a full path override when its historical path differs.
 Add `depends_on` when an object reads from or writes to another one, as `person_mv` does.
 
 A table that only exists in PostHog Cloud is not declared here. It belongs in the infrastructure repository.
@@ -78,7 +79,7 @@ Everything declared here is created locally and in tests too.
 
 ## Add a column
 
-1. For a catalogue family, update its stored columns and Kafka input columns as needed. The library derives the Distributed schemas. For an explicit group, find its column list; `modules/person/columns.tf` builds `person_columns` from `kafka_person_columns`.
+1. For a catalogue family, update its stored columns and Kafka input columns as needed. The library derives the Distributed schemas. For an explicit group, find its column list; `catalog/person/columns.tf` builds `person_columns` from `kafka_person_columns`.
 2. If a table declares its columns inline, add the column to each table that needs it: the storage table, the Distributed tables in front of it, and the Kafka table when the value comes from the topic.
 3. Add the column to the `SELECT` of the materialized view that fills the table.
 4. For a materialized column, put `materialized_expression` on the storage table. The Distributed table in front of it declares the plain column, as `events` does for the `$group_0` column of `sharded_events`.

@@ -78,14 +78,32 @@ module "global" {
   columns  = local.stored_columns
   storage  = local.storage
   kafka = {
-    topic   = "${var.database}_reference_input"
-    columns = local.input_columns
+    topic     = "${var.database}_reference_input"
+    columns   = local.input_columns
+    arguments = "settings"
   }
   mv_select = "team_id, timestamp, value"
+  mv_target = "${var.database}.reference"
+  routing   = { read = true }
+  names     = { read = "reference_read" }
   deployment = {
-    components = ["storage", "write", "ingest"]
+    components = ["storage", "read", "write", "ingest"]
     cluster    = "posthog"
     overrides  = { reference = { force_destroy = true } }
+  }
+}
+
+module "plain" {
+  source = "../../"
+
+  name     = "plain_reference"
+  database = clickhousedbops_database.test.name
+  layout   = "global"
+  columns  = local.input_columns
+  storage  = { replicated = false, order_by = "team_id" }
+  deployment = {
+    components = ["storage"]
+    cluster    = "posthog"
   }
 }
 

@@ -8,8 +8,8 @@ locals {
   }
   enabled = {
     storage = contains(var.deployment.components, "storage") && !contains(var.deployment.exclude, local.names.storage)
-    read    = var.layout == "sharded" && contains(var.deployment.components, "read") && !contains(var.deployment.exclude, local.names.read)
-    write   = (var.layout == "sharded" || var.kafka != null) && contains(var.deployment.components, "write") && !contains(var.deployment.exclude, local.names.write)
+    read    = coalesce(var.routing.read, var.layout == "sharded") && contains(var.deployment.components, "read") && !contains(var.deployment.exclude, local.names.read)
+    write   = coalesce(var.routing.write, var.layout == "sharded" || var.kafka != null) && contains(var.deployment.components, "write") && !contains(var.deployment.exclude, local.names.write)
     kafka   = var.kafka != null && contains(var.deployment.components, "ingest") && !contains(var.deployment.exclude, local.names.kafka)
     mv      = var.kafka != null && contains(var.deployment.components, "ingest") && !contains(var.deployment.exclude, local.names.mv)
   }
@@ -22,7 +22,8 @@ locals {
   write_cluster = coalesce(var.deployment.write_cluster,
     var.layout == "global" ? "${var.deployment.cluster}_single_shard" : var.deployment.cluster
   )
-  sharding_arg = var.layout == "global" ? "" : ", ${var.sharding_key}"
+  sharding_key = var.sharding_key == null ? (var.layout == "global" ? "" : "cityHash64(team_id)") : var.sharding_key
+  sharding_arg = local.sharding_key == "" ? "" : ", ${local.sharding_key}"
 
   # Computed values are read as plain columns; only storage computes and compresses them.
   read_columns = [for column in var.columns : {
@@ -42,7 +43,13 @@ locals {
     kafka_skip_broken_messages = "100"
     kafka_thread_per_consumer  = "1"
   } : var.kafka.settings, var.deployment.kafka_settings)
-  kafka_engine = var.kafka == null ? "Kafka" : "Kafka(${var.deployment.kafka_collection}, kafka_topic_list = '${var.kafka.topic}', kafka_group_name = '${local.kafka_group}', kafka_format = '${var.kafka.format}')"
+  kafka_arguments = var.kafka == null ? {} : {
+    kafka_topic_list = "'${var.kafka.topic}'"
+    kafka_group_name = "'${local.kafka_group}'"
+    kafka_format     = "'${var.kafka.format}'"
+  }
+  kafka_engine            = var.kafka == null ? "Kafka" : var.kafka.arguments == "settings" ? "Kafka(${var.deployment.kafka_collection})" : "Kafka(${var.deployment.kafka_collection}, kafka_topic_list = '${var.kafka.topic}', kafka_group_name = '${local.kafka_group}', kafka_format = '${var.kafka.format}')"
+  resolved_kafka_settings = merge(local.kafka_settings, var.kafka == null ? {} : var.kafka.arguments == "settings" ? local.kafka_arguments : {})
 }
 
 module "storage" {
@@ -51,7 +58,7 @@ module "storage" {
   enabled           = local.enabled.storage
   database          = var.database
   name              = local.names.storage
-  engine            = "Replicated${var.storage.engine}('${local.keeper_path}', '${local.replica_name}'${local.engine_args})"
+  engine            = var.storage.replicated ? "Replicated${var.storage.engine}('${local.keeper_path}', '${local.replica_name}'${local.engine_args})" : "${var.storage.engine}${length(var.storage.engine_args) == 0 ? "" : "(${join(", ", var.storage.engine_args)})"}"
   columns           = var.columns
   partition_by      = var.storage.partition_by
   primary_key       = var.storage.primary_key
@@ -74,7 +81,7 @@ module "read" {
   database   = var.database
   name       = local.names.read
   engine     = "Distributed('${local.read_cluster}', '${var.database}', '${local.names.storage}'${local.sharding_arg})"
-  columns    = local.read_columns
+  columns    = var.routing.read_columns == null ? local.read_columns : var.routing.read_columns
   override   = try(var.deployment.overrides[local.names.read], {})
   depends_on = [module.storage]
 }
@@ -86,7 +93,7 @@ module "write" {
   database   = var.database
   name       = local.names.write
   engine     = "Distributed('${local.write_cluster}', '${var.database}', '${local.names.storage}'${local.sharding_arg})"
-  columns    = local.write_columns
+  columns    = var.routing.write_columns == null ? local.write_columns : var.routing.write_columns
   override   = try(var.deployment.overrides[local.names.write], {})
   depends_on = [module.storage]
 }
@@ -99,7 +106,7 @@ module "kafka" {
   name       = local.names.kafka
   engine     = local.kafka_engine
   columns    = var.kafka == null ? [] : var.kafka.columns
-  settings   = length(local.kafka_settings) == 0 ? null : join(", ", [for key in sort(keys(local.kafka_settings)) : "${key} = ${local.kafka_settings[key]}"])
+  settings   = length(local.resolved_kafka_settings) == 0 ? null : join(", ", [for key in sort(keys(local.resolved_kafka_settings)) : "${key} = ${local.resolved_kafka_settings[key]}"])
   override   = try(var.deployment.overrides[local.names.kafka], {})
   depends_on = [module.write]
 }
@@ -110,10 +117,10 @@ module "mv" {
   enabled    = local.enabled.mv
   database   = var.database
   name       = local.names.mv
-  to_table   = "${var.database}.${local.names.write}"
+  to_table   = coalesce(var.mv_target, "${var.database}.${local.names.write}")
   query      = var.kafka == null ? "SELECT 1" : "SELECT ${var.mv_select} FROM ${var.database}.${local.names.kafka}"
   override   = try(var.deployment.overrides[local.names.mv], {})
-  depends_on = [module.kafka, module.write]
+  depends_on = [module.kafka, module.write, module.storage, module.read]
 }
 
 output "objects" {
@@ -124,7 +131,7 @@ output "objects" {
     type = kind == "mv" ? "clickhousedbops_materialized_view" : "clickhousedbops_table"
   } if enabled }
   precondition {
-    condition     = !local.enabled.mv || (local.enabled.kafka && local.enabled.write)
+    condition     = !local.enabled.mv || (local.enabled.kafka && (var.mv_target != null || local.enabled.write))
     error_message = "An ingestion materialized view requires its Kafka source and writable target on the same root."
   }
   precondition {

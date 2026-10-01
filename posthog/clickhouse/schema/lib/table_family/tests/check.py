@@ -70,6 +70,8 @@ def check() -> None:
                 "kafka_family",
                 "family_mv",
                 "reference",
+                "reference_read",
+                "plain_reference",
                 "writable_reference",
                 "kafka_reference",
                 "reference_mv",
@@ -104,6 +106,11 @@ def check() -> None:
                 f"INSERT INTO {database}.writable_reference SETTINGS insert_distributed_sync=1 VALUES (1, '2026-01-01 00:00:00', 7)"
             )
             assert query(f"SELECT doubled FROM {database}.reference") == "14\n"
+            assert query(f"SELECT doubled FROM {database}.reference_read") == "14\n"
+            assert "ENGINE = MergeTree" in objects["plain_reference"]
+            assert "Kafka(warpstream_ingestion)" in objects["kafka_reference"]
+            assert "kafka_topic_list =" in objects["kafka_reference"]
+            assert f"TO {database}.reference" in objects["reference_mv"]
             assert f"{database}.sharded_family" in objects["sharded_family"]
             assert f"noshard/{database}.reference" in objects["reference"]
             run("plan", "-no-color", "-out=tfplan")
@@ -119,7 +126,9 @@ def check() -> None:
                 text=True,
             )
             diagnostic = " ".join((invalid.stdout + invalid.stderr).split())
-            assert invalid.returncode != 0 and "only be overridden on the storage table" in diagnostic, diagnostic
+            assert invalid.returncode != 0 and "only be overridden on a MergeTree storage table" in diagnostic, (
+                diagnostic
+            )
             sys.stdout.write("PASS: table-family checks and empty second plan\n")
         finally:
             run("destroy", "-auto-approve", "-no-color")

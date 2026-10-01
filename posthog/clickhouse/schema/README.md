@@ -6,7 +6,7 @@ There are no migrations: you change the declaration, and OpenTofu works out the 
 ```text
 schema/
   catalog/           # simple table-family declarations, shared by local and cloud roots
-  modules/<group>/   # explicit groups for schemas that need custom objects
+  catalog/<group>/   # existing groups: families, columns and custom objects
   lib/               # one helper module per object kind; each group is built from these
   local/             # root module: every group on one server
   provider-version.txt
@@ -46,13 +46,15 @@ module "example_events" {
 `sharding_key` defaults to `cityHash64(team_id)` and can be changed explicitly.
 The materialized view's `mv_select` is the expression list after `SELECT`; the library supplies its Kafka `FROM` and writable `TO`. More complex queries can use an explicit MV `query` override or the low-level helper.
 
-Indexes, projections, constraints, codecs, column TTLs and computed expressions belong to storage. Readers expose computed values as plain columns; writers expose insertable columns. Kafka has its own input columns. The library rejects index, projection and constraint overrides on other objects.
+Indexes, projections, constraints, codecs, column TTLs and computed expressions belong to storage. Readers expose computed values as plain columns; writers expose insertable columns. Kafka has its own input columns. The library rejects index, projection and constraint overrides unless the target uses a MergeTree engine. Existing routing schemas can explicitly retain computed expressions.
 Kafka defaults use one consumer, a 100000-row maximum block, a 10000ms poll timeout, 100 skipped broken messages and one thread per consumer. A supplied `kafka.settings` map replaces these defaults; values are SQL expressions, for example `date_time_input_format = "'best_effort'"`. Existing families preserve their existing settings and consumer groups. Billing retains its local Kafka engine/SETTINGS spelling through a deployment override; changing that spelling would otherwise replace the consumer table. Retire this exception only in an explicit Kafka change that preserves its consumer group.
 
-For a global family, set `layout = "global"` and use `var.deployment.global`. Its storage table is `<name>` with one Keeper path across the participating nodes; it has no Distributed reader. A global family without Kafka creates only storage. With Kafka, the library also creates its ingestion objects and a writable table routing to one shard of the storage cluster. Replica names must be unique across the participating nodes.
+For a global family, set `layout = "global"` and use `var.deployment.global`. Its storage table is `<name>` with one Keeper path across the participating nodes; it has no Distributed reader. A global family without Kafka creates only storage. Set `storage.replicated = false` for a plain MergeTree reference table. With Kafka, the library also creates its ingestion objects and a writable table routing to one shard of the storage cluster. Replica names must be unique across the participating nodes.
 
-New replication paths use the actual database name, so test databases are isolated without a suffix. Deployment can set a complete `keeper_path` and `replica_name`; `names` can preserve historical object names. Do not change existing Keeper paths as part of a refactor.
+New replication paths use the actual database name, so test databases are isolated without a suffix. Deployment can set a complete `keeper_path` and `replica_name`; `names` can preserve historical object names. Do not change existing Keeper paths as part of a refactor. Before adopting an existing custom database whose path previously used `posthog` plus a suffix, supply that exact complete path.
 Placement, exclusions and per-object overrides stay in the calling root. Cloud defaults are aux storage, small ingestion and reads on the app query cluster. Local development puts the components on one server. Existing families keep their recorded placement until an explicit migration changes it.
+
+All existing groups live in the catalogue. Their `families.tf` files share storage and routing conventions; their columns and custom objects remain beside them. Historical groups receive explicit deployment records, so a refactor does not move data or create missing objects. Three legacy Kafka pipelines keep their low-level declarations because their input schemas carry codecs.
 
 Keep unusual views, dictionaries and extra ingestion pipelines in explicit modules built from `lib/table`, `lib/materialized_view`, `lib/view` and `lib/dictionary`. A family does not have to fit the standard five-object pattern.
 
@@ -67,7 +69,7 @@ The check creates and removes its own scratch database, checks storage-only phys
 ## Groups and components
 
 A group holds the objects that belong to one table family.
-`modules/events`, for example, has the sharded data table, the Distributed tables that read from it and write to it, the Kafka table and the materialized view that fills it.
+`catalog/events`, for example, has the sharded data table, the Distributed tables that read from it and write to it, the Kafka table and the materialized view that fills it.
 
 Each object is in one component of its group:
 
@@ -90,7 +92,7 @@ That root is what local development, tests, CI and self-hosted installs use.
 
 Which clusters and nodes get which components in PostHog Cloud is not decided here.
 The infrastructure repository has one root per cluster.
-Each root takes these modules from `master` and passes three things:
+Each root calls the catalogue from `master` and supplies deployment records with three things:
 
 - `components`: the parts of the group that cluster has.
 - `exclude`: objects of those components that cluster does not have.
@@ -105,7 +107,7 @@ Objects that exist only in PostHog Cloud are declared in the infrastructure repo
 
 1. Edit the module of the group. Column lists that several objects use are in `columns.tf` of the module, so a new column usually goes in one place.
 2. Write expressions the way ClickHouse prints them in `SHOW CREATE TABLE`. The provider compares your text with what the server reports and ignores only whitespace, so `x::Date` instead of `CAST(x, 'Date')` shows up as a change on every plan. The exception is text inside a quoted string, such as the `QUERY` of a dictionary source: ClickHouse stores that as written.
-3. A standard family goes in `catalog/` and uses `lib/table_family`. An unusual object goes in its explicit group and component. A new explicit group is a directory under `modules/` and a `module` block in `local/modules.tf`.
+3. A standard family goes in `catalog/` and uses `lib/table_family`. An unusual object goes in its catalogue group and component. A new custom group is a directory under `catalog/` and a caller in `catalog/<group>.tf`; local deployment selects its components in `local/modules.tf`.
 4. Run `bin/clickhouse-schema plan` to see the statements, then `bin/clickhouse-schema apply`.
 
 A pull request that changes this directory gets applied to a fresh ClickHouse in CI, and a second plan must come back empty.

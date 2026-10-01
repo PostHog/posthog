@@ -41,12 +41,6 @@ variable "test" {
   default     = false
 }
 
-variable "zk_path_suffix" {
-  description = "Appended to every replication path. Set it when a second database on the same server holds the same schema."
-  type        = string
-  default     = ""
-}
-
 variable "dictionary_user" {
   description = "User the dictionaries connect to their source as."
   type        = string

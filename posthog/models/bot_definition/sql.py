@@ -35,7 +35,7 @@ BOT_DEFINITIONS_FILE = (
     / "posthog"
     / "clickhouse"
     / "schema"
-    / "modules"
+    / "catalog"
     / "web_bot_definition"
     / "web_bot_definitions.jsonl"
 )

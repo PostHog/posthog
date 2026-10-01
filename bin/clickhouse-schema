@@ -120,7 +120,6 @@ export TF_VAR_password="${CLICKHOUSE_PASSWORD:-}"
 export TF_VAR_database="$database"
 export TF_VAR_kafka="${CLICKHOUSE_SCHEMA_KAFKA:-true}"
 export TF_VAR_test="${CLICKHOUSE_SCHEMA_TEST:-false}"
-export TF_VAR_zk_path_suffix="${CLICKHOUSE_SCHEMA_ZK_PATH_SUFFIX:-}"
 export TF_VAR_dictionary_user="${CLICKHOUSE_DICT_READER_USER:-${CLICKHOUSE_USER:-default}}"
 export TF_VAR_dictionary_password="${CLICKHOUSE_DICT_READER_PASSWORD:-${CLICKHOUSE_PASSWORD:-}}"
 export TF_IN_AUTOMATION=1
