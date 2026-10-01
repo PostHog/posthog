@@ -148,14 +148,29 @@ class TestEvaluationDelay(SimpleTestCase):
                 ],
             ),
             ("month", "UTC", ["2026-01-01", "2026-02-01", "2026-03-01", "2026-04-01", "2026-05-01"]),
+            ("day", "UTC", ["2026-01-08", "2026-01-09", "2026-01-12", "2026-01-13", "2026-01-14"], "2026-01-10"),
+            (
+                "day",
+                "America/New_York",
+                [
+                    "2026-03-06T00:00:00-05:00",
+                    "2026-03-08T00:00:00-05:00",
+                    "2026-03-10T00:00:00-04:00",
+                    "2026-03-11T00:00:00-04:00",
+                    "2026-03-12T00:00:00-04:00",
+                ],
+                "2026-03-09T00:00:00-04:00",
+            ),
         ]
     )
-    def test_delay_uses_query_bucket_boundaries(self, interval: str, timezone: str, dates: list[str]) -> None:
+    def test_delay_uses_query_bucket_boundaries(
+        self, interval: str, timezone: str, dates: list[str], expected_end: str | None = None
+    ) -> None:
         self.query["interval"] = interval
         self.team.timezone = timezone
         result = self.evaluate([40.0, 42.0, 0.0, 0.0, 0.0], dates)
         self.assertEqual(result.triggered_metadata["evaluated_interval_start"], dates[1])
-        self.assertEqual(result.triggered_metadata["evaluated_interval_end"], dates[2])
+        self.assertEqual(result.triggered_metadata["evaluated_interval_end"], expected_end or dates[2])
 
     @parameterized.expand([(-1,), (101,), (1.5,), (True,), (None,)])
     def test_invalid_delay_rejected_before_query(self, delay: object) -> None:

@@ -1,6 +1,8 @@
 from dataclasses import replace
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
-from posthog.schema import NodeKind, TrendsQuery
+from posthog.schema import IntervalType, NodeKind, TrendsQuery
 
 from posthog.tasks.alerts.trends import _is_non_time_series_trend
 from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, AlertEvaluationResult
@@ -51,6 +53,8 @@ def apply_evaluation_delay(
         start, end = series.points[index].date, series.points[index + 1].date
         if start is None or end is None:
             raise DelayedEvaluationUnavailable("The delayed interval has no dates. Check the insight and try again.")
+        if result.interval_type == IntervalType.DAY:
+            end = _day_bucket_end(start, end, timezone)
         evaluated_interval = EvaluatedInterval(start=start, end=end, timezone=timezone, delay=delay)
         selected_series.append(replace(series, points=series.points[: index + 1], current_index=index))
     if not selected_series:
@@ -60,6 +64,21 @@ def apply_evaluation_delay(
     return replace(
         result, series=selected_series, evaluated_interval=evaluated_interval, framed=False, include_series_label=True
     )
+
+
+def _day_bucket_end(start: str, next_start: str, timezone: str) -> str:
+    # A daysOfWeek filter drops day buckets, so the next returned bucket can start days later.
+    try:
+        if date.fromisoformat(next_start[:10]) - date.fromisoformat(start[:10]) <= timedelta(days=1):
+            return next_start
+        if len(start) == 10:
+            return (date.fromisoformat(start) + timedelta(days=1)).isoformat()
+        moment = datetime.fromisoformat(start)
+    except ValueError:
+        return next_start
+    if moment.tzinfo is not None:
+        moment = moment.astimezone(ZoneInfo(timezone))
+    return (moment + timedelta(days=1)).isoformat()
 
 
 def describe_delayed_evaluation(result: AlertEvaluationResult, extraction: ExtractionResult) -> AlertEvaluationResult:
