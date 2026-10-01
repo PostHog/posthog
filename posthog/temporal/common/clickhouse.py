@@ -131,7 +131,7 @@ class ClickHouseClientNotConnected(Exception):
 
 _CLICKHOUSE_ERROR_START = re.compile(r"Code: \d+\. ")
 # ClickHouse 25+ wraps the error in "__exception__" lines and closes it with "<size> <tag>".
-_CLICKHOUSE_ERROR_TRAILER = re.compile(r"(\s*\d+ \w+)?\s*__exception__.*", re.DOTALL)
+_CLICKHOUSE_ERROR_TRAILER = re.compile(r"(\r?\n\d+ \w+)?\r?\n__exception__\s*$")
 
 
 def extract_clickhouse_error(payload: bytes) -> str | None:

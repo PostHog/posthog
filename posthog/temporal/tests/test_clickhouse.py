@@ -579,6 +579,10 @@ _MEMORY_LIMIT_ERROR = (
     "Code: 241. DB::Exception: Query memory limit exceeded: would use 10.00 GiB, maximum: 10.00 GiB. "
     "(MEMORY_LIMIT_EXCEEDED) (version x.x.x.x (official build))"
 )
+_MISSING_COLUMN_ERROR = (
+    "Code: 47. DB::Exception: Missing columns: '__exception__' while processing query. "
+    "(UNKNOWN_IDENTIFIER) (version x.x.x.x (official build))"
+)
 
 
 @pytest.mark.parametrize(
@@ -590,9 +594,14 @@ _MEMORY_LIMIT_ERROR = (
             ClickHouseMemoryLimitExceededError,
             _MEMORY_LIMIT_ERROR,
         ),
+        (
+            f"{_MISSING_COLUMN_ERROR}\n".encode(),
+            ClickHouseError,
+            _MISSING_COLUMN_ERROR,
+        ),
         (b"not an arrow message and not an error", InvalidMessageFormat, None),
     ],
-    ids=["plain_error_tail", "wrapped_error_tail", "no_error_in_tail"],
+    ids=["plain_error_tail", "wrapped_error_tail", "error_names_the_wrapper_token", "no_error_in_tail"],
 )
 async def test_astream_query_as_arrow_raises_error_appended_to_stream(
     clickhouse_client, tail, expected_exception, expected_message
