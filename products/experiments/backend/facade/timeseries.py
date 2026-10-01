@@ -1,6 +1,9 @@
 """Timeseries capabilities, re-exported for callers outside the experiments product."""
 
-from products.experiments.backend.metric_calculation.keys import metric_calculation_keys
+from products.experiments.backend.metric_calculation.keys import (
+    metric_calculation_keys,
+    metric_calculation_keys_for_experiments,
+)
 from products.experiments.backend.metric_resolution import (
     build_metric,
     is_daily_timeseries_metric,
@@ -14,6 +17,7 @@ __all__ = [
     "build_metric",
     "is_daily_timeseries_metric",
     "metric_calculation_keys",
+    "metric_calculation_keys_for_experiments",
     "resolve_saved_metric_definition",
     "sync_timeseries_recalculation",
 ]

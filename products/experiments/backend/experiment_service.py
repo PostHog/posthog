@@ -59,7 +59,11 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     get_exposure_event_and_property,
     resolve_default_exposure_event,
 )
-from products.experiments.backend.metric_calculation.spec import ExperimentCalculationSettings, stamp_calculation_keys
+from products.experiments.backend.metric_calculation.spec import (
+    ExperimentCalculationSettings,
+    saved_metric_calculation_keys,
+    stamp_calculation_keys,
+)
 from products.experiments.backend.metric_resolution import MetricRole
 from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event
 from products.experiments.backend.metric_validation import (
@@ -993,6 +997,16 @@ class ExperimentService:
         )
         if saved_metrics.count() != len(saved_metrics_ids):
             raise ValidationError("Saved metric does not exist or does not belong to this project")
+
+    @staticmethod
+    def saved_metric_calculation_keys(experiment: Experiment) -> dict[int, str]:
+        """The calculation key of each saved metric linked to the experiment, by link id.
+
+        The API response stamps these keys as the saved metrics' `fingerprint`, so the chart reads the rows
+        the daily workflow wrote. The links come from the caller's prefetch when it has one, and the team's
+        experiment settings take one query.
+        """
+        return saved_metric_calculation_keys(experiment, ExperimentCalculationSettings.of_experiment(experiment))
 
     def validate_metric_event_names(
         self, metrics: list[dict] | None, *, known_event_names: set[str] | None = None
