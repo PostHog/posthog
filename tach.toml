@@ -1284,27 +1284,16 @@ from = [
     "products.error_tracking",
 ]
 
-# Legacy leaks — core (posthog), cdp and warehouse_sources still import these batch_exports
-# internals directly. Each entry names its crossing and the facade that replaces it. The block
+# Legacy leaks — cdp and warehouse_sources still import these batch_exports internals
+# directly. Each entry names its crossing and the facade that replaces it. The block
 # drains as those callers move, and keeps backend:contract-check off until it is empty.
 # tach interfaces have no consumer scoping, so this block opens the listed paths to every module,
 # not only to the consumers named below.
 [[interfaces]]
 expose = [
-    # The shared Temporal test utilities read the models.
-    # Exit: move the utilities into the product.
-    "backend\\.models.*",
-    # The shared Temporal test utilities, the payload codec test and the warehouse_sources S3
-    # writer reach the service layer.
-    # Exit: facade.testing and contracts.AWSCredentials.
+    # The warehouse_sources S3 writer reads AWSCredentials from the service layer.
+    # Exit: facade.pipeline.
     "backend\\.service.*",
-    # The worker bootstrap commands, the worker's metrics interceptor, the shared Temporal test
-    # conftest and the team-deletion test register the workflows and activities.
-    # Exit: facade.temporal.
-    "backend\\.temporal\\.ACTIVITIES",
-    "backend\\.temporal\\.WORKFLOWS",
-    "backend\\.temporal\\.metrics.*",
-    "backend\\.temporal\\.noop.*",
     # The warehouse_sources data-import writers reuse the destination clients and the stream
     # transformers.
     # Exit: facade.pipeline.
