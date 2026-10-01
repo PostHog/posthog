@@ -1052,7 +1052,9 @@ function MessageDisplay({
     ]
 
     const trimmedContent = message.content.trim()
-    const useJsonEditor = trimmedContent.startsWith('{') || trimmedContent.startsWith('[')
+    // A leading `{{` is a template token, not JSON (no valid JSON starts with it)
+    const useJsonEditor =
+        (trimmedContent.startsWith('{') && !trimmedContent.startsWith('{{')) || trimmedContent.startsWith('[')
 
     return (
         <>
