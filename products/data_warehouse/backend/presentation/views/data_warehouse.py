@@ -116,12 +116,14 @@ _MONITORING_ERROR_RESPONSES = {
 
 _TRINO_VARIANT_MONITORING_ERROR = (
     "This warehouse runs on Trino. Use the Trino monitoring endpoints "
-    "(managed-warehouse-trino-monitoring and managed-warehouse-trino-monitoring-timeseries) instead."
+    "(managed-warehouse-trino-monitoring and managed-warehouse-trino-monitoring-timeseries) instead. "
+    "The matching MCP tools are managed-warehouse-trino-monitoring-get and managed-warehouse-trino-metric-history-get."
 )
 
 _DUCKDB_VARIANT_MONITORING_ERROR = (
     "This warehouse doesn't run on Trino. Use the managed warehouse monitoring endpoints "
-    "(managed-warehouse-monitoring and managed-warehouse-monitoring-timeseries) instead."
+    "(managed-warehouse-monitoring and managed-warehouse-monitoring-timeseries) instead. "
+    "The matching MCP tools are managed-warehouse-monitoring-get and managed-warehouse-metric-history-get."
 )
 
 
@@ -1371,7 +1373,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         },
                         required=False,
                         allow_null=True,
-                        help_text="Trino status for organizations on the Trino Data ops variant. Null otherwise.",
+                        help_text="Trino status for organizations on the Trino Data ops variant, once the warehouse is ready. Null otherwise.",
                     ),
                     "has_backfill": serializers.BooleanField(
                         help_text="Whether this project already has a warehouse backfill configured. When true, its "
@@ -1410,7 +1412,12 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             if managed_warehouse.data_ops_variant(self.team.organization_id) == "trino":
                 # Users of a Trino organization connect only through Trino.
                 resp.data["connection"] = None
-                resp.data["trino"] = managed_warehouse.trino_status_for(self.team.organization_id)
+                # Trino's state only matters once the warehouse is ready, and the scene polls while it is not.
+                resp.data["trino"] = (
+                    managed_warehouse.trino_status_for(self.team.organization_id)
+                    if resp.data.get("state") == "ready"
+                    else None
+                )
             else:
                 resp.data["trino"] = None
         return resp

@@ -1367,6 +1367,9 @@ def _trino_upstream(**status_overrides: object) -> Response:
             {"state": "failed", "ready_at": "2026-09-01T12:00:00Z", "connection": None},
         ),
         (_trino_upstream(state="", ready_at=None), {"state": "pending", "ready_at": None, "connection": None}),
+        (_trino_upstream(state=None, ready_at=None), {"state": "pending", "ready_at": None, "connection": None}),
+        (_trino_upstream(state="resharding"), {"state": "unavailable", "ready_at": None, "connection": None}),
+        (_trino_upstream(state=["ready"]), {"state": "unavailable", "ready_at": None, "connection": None}),
         (
             Response({"enabled": False, "assigned": False}, status=200),
             {"state": "not_enabled", "ready_at": None, "connection": None},
@@ -1389,4 +1392,4 @@ def test_trino_status_for_presents_only_customer_safe_fields(
     mock_request.return_value = upstream
 
     assert managed_warehouse.trino_status_for(_TRINO_ORG_ID) == expected
-    mock_request.assert_called_once_with("GET", _TRINO_ORG_ID, "/trino")
+    mock_request.assert_called_once_with("GET", _TRINO_ORG_ID, "/trino", timeout=10)
