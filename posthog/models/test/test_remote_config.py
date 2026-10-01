@@ -485,15 +485,25 @@ class TestRemoteConfig(_RemoteConfigBase):
                     "inputs": {"token": {"value": None}, "label": None},
                 },
             ),
+            (
+                "null_input_after_a_mapping_with_a_secret_default",
+                {
+                    "inputs_schema": [
+                        {"key": "token", "type": "string", "secret": True, "default": "example-private-browser-value"}
+                    ],
+                    "inputs": {"token": {"value": None}},
+                },
+                {"inputs_schema": [], "inputs": {"label": None}},
+            ),
         ]
     )
-    def test_site_functions_publish_when_no_secret_reaches_the_browser(self, _name: str, mapping: dict) -> None:
+    def test_site_functions_publish_when_no_secret_reaches_the_browser(self, _name: str, *mappings: dict) -> None:
         function = HogFunction.objects.create(
             team=self.team,
             type="site_destination",
             enabled=True,
             hog=SITE_HOG,
-            mappings=[mapping],
+            mappings=list(mappings),
         )
 
         with patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile):

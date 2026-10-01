@@ -28,22 +28,16 @@ def exposed_secret_input_keys(hog_function: HogFunction) -> set[str]:
         if not isinstance(config, dict):
             continue
         inputs = config.get("inputs") or {}
-        schemas = config.get("inputs_schema") or []
-        # For every null mapping input the transpiler emits the default of the mapping's last schema.
-        if is_mapping and schemas and any(not isinstance(value, dict) for value in inputs.values()):
-            last = schemas[-1]
-            if isinstance(last, dict) and last.get("secret") and "key" in last and last.get("default") is not None:
-                exposed.add(str(last["key"]))
-        for schema in schemas:
+        for schema in config.get("inputs_schema") or []:
             if not isinstance(schema, dict) or not schema.get("secret") or "key" not in schema:
                 continue
             value = inputs.get(schema["key"])
             if isinstance(value, dict) and value.get("value") is not None:
                 exposed.add(str(schema["key"]))
-            # The transpiler falls back to the schema default only for a mapping input the caller left
-            # out. It builds the top-level inputs from stored values alone, so a top-level default never
+            # The transpiler falls back to a mapping input's own schema default when the input is missing
+            # or null. It builds the top-level inputs from stored values alone, so a top-level default never
             # reaches the browser.
-            elif is_mapping and schema["key"] not in inputs and schema.get("default") is not None:
+            elif is_mapping and inputs.get(schema["key"]) is None and schema.get("default") is not None:
                 exposed.add(str(schema["key"]))
     return exposed
 
@@ -125,12 +119,13 @@ def get_transpiled_function(hog_function: HogFunction) -> str:
         mapping_code += "(function (){"  # IIFE so that the code below has different globals than the filters above
         mapping_code += "const newInputs = structuredClone(inputs); const __getGlobal = (key) => key === 'inputs' ? newInputs : globals[key];\n"
 
-        for schema in mapping_inputs_schema:
-            if "key" in schema and schema["key"] not in mapping_inputs:
-                mapping_inputs[schema["key"]] = {"value": schema.get("default", None)}
+        mapping_defaults = {schema["key"]: schema.get("default") for schema in mapping_inputs_schema if "key" in schema}
+        for key, default in mapping_defaults.items():
+            if key not in mapping_inputs:
+                mapping_inputs[key] = {"value": default}
 
         for key, input in mapping_inputs.items():
-            value = input.get("value") if input is not None else schema.get("default", None)
+            value = input.get("value") if input is not None else mapping_defaults.get(key)
             key_string = json.dumps(str(key) or "<empty>")
             if (isinstance(value, str) and "{" in value) or isinstance(value, dict) or isinstance(value, list):
                 base_code = transpile_template_code(value, compiler)
