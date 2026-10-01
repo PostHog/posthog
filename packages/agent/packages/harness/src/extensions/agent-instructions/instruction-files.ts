@@ -71,16 +71,13 @@ export class AgentInstructionFiles {
     private readonly paths: string[] = getAgentInstructionFilePaths(),
   ) {}
 
-  // A null run state means the fetch failed, so the files keep what an earlier session wrote.
-  // A run state without the key clears the block, so a snapshot never carries removed text.
+  // A resumed snapshot carries the previous run's block, which can be another person's instructions.
+  // A failed fetch can't prove they apply to this run, so it clears them like a run without the key.
   async sync(
     runState: TaskRunState | null | undefined,
     context: AgentInstructionFilesSyncContext,
   ): Promise<string | null> {
-    if (runState === null || runState === undefined) {
-      return null;
-    }
-    const instructions = runState.agent_instructions?.trim() || null;
+    const instructions = runState?.agent_instructions?.trim() || null;
     const errors: { path: string; message: string }[] = [];
     for (const path of this.paths) {
       try {

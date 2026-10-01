@@ -59,7 +59,7 @@ describe("agent instruction files", () => {
     expect(applyInstructionsBlock(written, null)).toBeNull();
   });
 
-  it("writes every harness's file, then clears them when the key is gone", async () => {
+  it("writes every harness's file, then clears them when the key or the run state is gone", async () => {
     const home = await homeDir();
     const paths = getAgentInstructionFilePaths({
       home,
@@ -80,13 +80,15 @@ describe("agent instruction files", () => {
       expect(await readFile(path, "utf-8")).toContain("Use pnpm.");
     }
 
-    // A failed run fetch says nothing about the instructions, so the files stay.
-    expect(await files.sync(null, context)).toBeNull();
-    expect(await readFile(paths[1], "utf-8")).toContain("Use pnpm.");
-
-    await files.sync({}, context);
-    expect(await readFile(paths[0], "utf-8")).toBe("# Baked into the image\n");
-    await expect(readFile(paths[1], "utf-8")).rejects.toThrow("ENOENT");
-    await expect(readFile(paths[2], "utf-8")).rejects.toThrow("ENOENT");
+    // A failed run fetch clears them too: a snapshot's block can belong to another person.
+    for (const state of [{}, null]) {
+      await files.sync({ agent_instructions: "Use pnpm." }, context);
+      expect(await files.sync(state, context)).toBeNull();
+      expect(await readFile(paths[0], "utf-8")).toBe(
+        "# Baked into the image\n",
+      );
+      await expect(readFile(paths[1], "utf-8")).rejects.toThrow("ENOENT");
+      await expect(readFile(paths[2], "utf-8")).rejects.toThrow("ENOENT");
+    }
   });
 });
