@@ -37,6 +37,7 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
     WindowedCandidateQuery,
 )
 from products.replay_vision.backend.quota import quota_state
+from products.replay_vision.backend.scanner_access import can_read_targeted_experiment
 from products.replay_vision.backend.scout_writes import refuse_scout_scanner_scan
 from products.replay_vision.backend.temporal.snapshots import BackfillScannerSnapshot
 
@@ -218,6 +219,11 @@ class ReplayScannerBackfillViewSet(
         self.check_object_permissions(self.request, scanner)
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
             raise PermissionDenied("Replay Vision backfills require session_recording read access.")
+        # Before any window handling: the window clamp reads the experiment's end date, so a denied
+        # caller who reached it could binary-search that date from which error comes back.
+        # Not-found, not 403, matching the observations endpoint.
+        if not can_read_targeted_experiment(self.user_access_control, self.team_id, scanner):
+            raise NotFound()
         self._scanner_for_url_cache = scanner
         return scanner
 
