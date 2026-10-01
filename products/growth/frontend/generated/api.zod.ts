@@ -9,6 +9,35 @@
  */
 import * as zod from 'zod'
 
+export const growthAccountAuditsStartCreateBodyReasonMax = 500
+
+export const growthAccountAuditsStartCreateBodySkillNameMax = 64
+
+export const GrowthAccountAuditsStartCreateBody = /* @__PURE__ */ zod.object({
+    organization_id: zod.uuid().describe('Organization that owns the target team.'),
+    team_id: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe(
+            'Target team ID. Defaults to the non-demo root project with the most distinct resource viewers in the last 30 days, excluding projects pending deletion. Ties use the oldest project.'
+        ),
+    reason: zod
+        .string()
+        .max(growthAccountAuditsStartCreateBodyReasonMax)
+        .describe('Why the account audit is being requested.'),
+    skill_project: zod
+        .number()
+        .min(1)
+        .describe(
+            'Project ID containing the skill in this region. Audit credentials authorize reading skills from any project.'
+        ),
+    skill_name: zod
+        .string()
+        .max(growthAccountAuditsStartCreateBodySkillNameMax)
+        .describe('Name of the single-file skill in skill_project. Uses its latest active version.'),
+})
+
 /**
  * Staff-only, unscoped API for the enrichment AI enrichment: browse labels and their prompt
  * config versions, test-run a draft config against recently archived orgs, save a new

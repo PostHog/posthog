@@ -35,6 +35,7 @@ FREE_TIER_PIN_KEY = "posthog_code:free"
 
 PRODUCT_ALLOWED_MODELS: dict[str, list[str]] = {
     "posthog_ai": _FIRST_PARTY_AGENT_MODELS,
+    "onboarding": _FIRST_PARTY_AGENT_MODELS,
     "posthog_code": DESKTOP_AGENT_MODELS,
     FREE_TIER_PIN_KEY: FREE_TIER_MODELS,
     "review_hog": _FIRST_PARTY_AGENT_MODELS,

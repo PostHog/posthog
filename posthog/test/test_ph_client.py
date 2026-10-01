@@ -45,6 +45,16 @@ class TestScopedCaptureFlush(SimpleTestCase):
         client.capture.assert_called_once_with(distinct_id="person", event="event")
         client.shutdown.assert_called_once()
 
+    @override_settings(CLOUD_DEPLOYMENT="EU")
+    def test_cross_region_capture_preserves_the_event_region(self) -> None:
+        before_send = MagicMock(side_effect=lambda event: event)
+        client = get_client("US", send=False, disabled=False, enable_local_evaluation=False, before_send=before_send)
+        with patch("posthog.ph_client.get_client", return_value=client) as make_client:
+            with ph_scoped_capture(region="US", event_region="EU") as capture:
+                capture(distinct_id="person", event="onboarding_audit_finished")
+        make_client.assert_called_once_with("US")
+        self.assertEqual(before_send.call_args.args[0]["properties"]["region"], "EU")
+
 
 class TestGetClientTestGuard(SimpleTestCase):
     def test_client_is_disabled_under_test_settings(self) -> None:

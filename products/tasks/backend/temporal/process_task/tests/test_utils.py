@@ -497,14 +497,21 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
             {"name": "x-posthog-mcp-consumer", "value": consumer},
         ]
 
+    @parameterized.expand([(None, True), ("onboarding_audit", False)])
     @patch(MOCK_API_URL)
     @patch(MOCK_FACADE)
-    def test_builds_configs_from_facade_results(self, mock_facade, mock_api_url) -> None:
+    def test_builds_configs_from_facade_results(
+        self, origin_product: str | None, mounts_store: bool, mock_facade, mock_api_url
+    ) -> None:
         mock_api_url.return_value = self.API_BASE
         installation = self._make_installation()
         mock_facade.return_value = [installation]
 
-        configs = get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID)
+        configs = get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID, origin_product=origin_product)
+
+        if not mounts_store:
+            assert configs == []
+            return
 
         mock_facade.assert_called_once_with(
             self.TEAM_ID,
