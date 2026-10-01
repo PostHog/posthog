@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 
 from posthog.schema import IntervalType, NodeKind, TrendsQuery
 
-from posthog.tasks.alerts.trends import _is_non_time_series_trend
+from posthog.tasks.alerts.trends import _has_breakdown, _is_non_time_series_trend
 from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, AlertEvaluationResult
 from posthog.utils import get_from_dict_or_attr
 
@@ -22,10 +22,18 @@ def validate_evaluation_delay(query: object, config: object, delay: int) -> None
         return
     if get_from_dict_or_attr(query, "kind") in WRAPPER_NODE_KINDS:
         query = get_from_dict_or_attr(query, "source")
-    if get_from_dict_or_attr(query, "kind") != NodeKind.TRENDS_QUERY or _is_non_time_series_trend(
-        TrendsQuery.model_validate(query)
-    ):
+    if get_from_dict_or_attr(query, "kind") != NodeKind.TRENDS_QUERY:
         raise ValueError("Evaluation delay is only supported for time-series Trends insights.")
+    trends_query = TrendsQuery.model_validate(query)
+    if _is_non_time_series_trend(trends_query):
+        raise ValueError("Evaluation delay is only supported for time-series Trends insights.")
+    # Compare mode adds previous-period breakdown rows with their own dates, and the check cannot
+    # tell which row breached, so it cannot name the evaluated interval.
+    if _has_breakdown(trends_query) and trends_query.compareFilter and trends_query.compareFilter.compare:
+        raise ValueError(
+            "Evaluation delay is not supported for breakdown insights that compare to a previous period. "
+            "Turn off the comparison or set the delay to 0."
+        )
     if config is not None and not isinstance(config, dict):
         raise ValueError("Alert config must be a JSON object.")
     if (config or {}).get("check_ongoing_interval"):
