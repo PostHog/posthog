@@ -51,6 +51,12 @@ DEPOT_ORG = "ntsdt08fpt"
 MIRROR_APP_ID = 2492437
 # The Trunk merge queue tests each batch through a draft pull request on this branch.
 MERGE_QUEUE_PREFIX = "trunk-merge/"
+
+
+def is_merge_queue(head_ref: str) -> bool:
+    return head_ref.startswith(MERGE_QUEUE_PREFIX)
+
+
 DEPOT_WORKFLOW = "Backend CI on Depot"
 WAIT_JOB = "Wait for GitHub Actions to hand off backend tests"
 # Renders the same text as the wait job's name expression in .depot/workflows/ci-backend.yml.
@@ -482,26 +488,25 @@ def retry_instructions(event: Event, details_url: str, run_id: str = "") -> list
         f"  gh run rerun {run_id} --repo {event.repo} --failed",
         "",
     ]
-    # Labels do not route a merge queue batch, and a push to its branch ends the queue attempt.
-    to_github = (
-        [
-            "Run on GitHub Actions instead: CI_BACKEND_DEPOT_MERGE_QUEUE_PERCENT=0 keeps new merge queue batches there.",
-            f"  gh variable set CI_BACKEND_DEPOT_MERGE_QUEUE_PERCENT --repo {event.repo} --body 0",
-            "Then queue the pull request again.",
-        ]
-        if event.merge_queue
-        else [
-            "Run on GitHub Actions instead: the ci-backend-github label routes the next commit of this PR there.",
-            f"  gh pr edit {event.pr_number} --repo {event.repo} --add-label ci-backend-github",
-            "  git commit --allow-empty -m 'chore: retry backend ci on github actions' && git push",
-        ]
-    )
-    return [
+    lines = [
         f"Backend tests for {event.sha} ran on Depot CI, not GitHub Actions.",
         f"Depot run: {details_url or 'not found'}",
         "",
         *(rerun if run_id else []),
-        *to_github,
+    ]
+    # Labels do not route a merge queue batch, and a push to its branch ends the queue attempt.
+    if event.merge_queue:
+        return [
+            *lines,
+            "Run on GitHub Actions instead: CI_BACKEND_DEPOT_MERGE_QUEUE_PERCENT=0 keeps new merge queue batches there.",
+            f"  gh variable set CI_BACKEND_DEPOT_MERGE_QUEUE_PERCENT --repo {event.repo} --body 0",
+            "Then queue the pull request again.",
+        ]
+    return [
+        *lines,
+        "Run on GitHub Actions instead: the ci-backend-github label routes the next commit of this PR there.",
+        f"  gh pr edit {event.pr_number} --repo {event.repo} --add-label ci-backend-github",
+        "  git commit --allow-empty -m 'chore: retry backend ci on github actions' && git push",
     ]
 
 
@@ -541,7 +546,7 @@ def main(argv: Sequence[str]) -> int:
         sha=env["SHA"],
         pr_number=int(env["PR_NUMBER"]),
         event_at=env["EVENT_AT"],
-        merge_queue=env.get("HEAD_REF", "").startswith(MERGE_QUEUE_PREFIX),
+        merge_queue=is_merge_queue(env.get("HEAD_REF", "")),
     )
     reader = CheckRunReader(event.repo, event.sha, env["GH_TOKEN"], pr_number=event.pr_number)
     try:

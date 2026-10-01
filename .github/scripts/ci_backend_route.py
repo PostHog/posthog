@@ -35,13 +35,13 @@ from typing import Any
 
 from ci_backend_relay import (
     EVENT_TIME,
-    MERGE_QUEUE_PREFIX,
     MIRROR_APP_ID,
     CheckReader,
     CheckRunReader,
     ReadFailedError,
     ReadRefusedError,
     event_check_name,
+    is_merge_queue,
 )
 
 LABEL_FORCE_GITHUB = "ci-backend-github"
@@ -138,7 +138,7 @@ def decide(
     prior_engine = ENGINE_BY_HANDOFF_CONCLUSION.get(prior_handoff or "")
     if prior_engine:
         return Decision(prior_engine, f"an earlier run of this commit chose {prior_engine}")
-    if head_ref.startswith(MERGE_QUEUE_PREFIX):
+    if is_merge_queue(head_ref):
         return by_bucket(pr_number, merge_queue_percent, "merge queue bucket")
     if LABEL_FORCE_GITHUB in labels:
         return Decision("github", f"label {LABEL_FORCE_GITHUB}")
