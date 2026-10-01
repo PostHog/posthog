@@ -118,6 +118,20 @@ export interface experimentWizardLogicActions {
             secondary: ExperimentMetricUnion[]
         }
     } // createExperimentLogic
+    setVariantNote: (
+        variantKey: string,
+        note: string
+    ) => {
+        note: string
+        variantKey: string
+    } // createExperimentLogic
+    setVariantScreenshots: (
+        variantKey: string,
+        mediaIds: string[]
+    ) => {
+        mediaIds: string[]
+        variantKey: string
+    } // createExperimentLogic
     reportExperimentWizardGuideToggled: (
         visible: boolean,
         currentStep: string
@@ -230,6 +244,8 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
             [
                 'setExperiment',
                 'setExperimentValue',
+                'setVariantNote',
+                'setVariantScreenshots',
                 'setFeatureFlagConfig',
                 'setExposureCriteria',
                 'setCreateReplayVisionScanner',

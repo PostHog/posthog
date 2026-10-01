@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { Fragment } from 'react'
 
 import { getSeriesColor } from 'lib/colors'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -9,14 +10,20 @@ import { alphabet } from 'lib/utils/strings'
 import type { FeatureFlagType } from '~/types'
 
 import { TrafficPreview } from '../../ExperimentForm/VariantDistributionEditor'
-import { VariantsPanelCreateFeatureFlag } from '../../ExperimentForm/VariantsPanelCreateFeatureFlag'
+import {
+    StackedVariantColumnsRow,
+    VariantsPanelCreateFeatureFlag,
+    useVariantColumnsLayout,
+} from '../../ExperimentForm/VariantsPanelCreateFeatureFlag'
 import { getFlagVariants } from '../../utils'
 import { experimentWizardLogic } from '../experimentWizardLogic'
+import { useVariantDetailsColumns } from './VariantDetails'
 
 const ReadOnlyVariantsStep = ({ flag }: { flag: FeatureFlagType }): JSX.Element => {
     const variants = getFlagVariants(flag)
     const rolloutPercentage = flag.filters.groups?.[0]?.rollout_percentage ?? 100
     const variantRolloutSum = variants.reduce((sum, { rollout_percentage }) => sum + rollout_percentage, 0)
+    const { ref: variantsTableRef, inlineColumns, stackedColumns } = useVariantColumnsLayout(useVariantDetailsColumns())
 
     return (
         <>
@@ -49,32 +56,52 @@ const ReadOnlyVariantsStep = ({ flag }: { flag: FeatureFlagType }): JSX.Element 
 
                 <div className="flex-1">
                     <div className="font-semibold mb-2">Variants</div>
-                    <div className="border border-primary rounded p-4">
+                    <div className="border border-primary rounded p-4" ref={variantsTableRef}>
                         <table className="w-full">
                             <thead>
                                 <tr className="text-sm font-bold">
                                     <td className="w-8" />
                                     <td>Variant key</td>
                                     <td>Split</td>
+                                    {inlineColumns.map((column) => (
+                                        <td key={column.key} className={column.className}>
+                                            {column.title}
+                                        </td>
+                                    ))}
                                 </tr>
                             </thead>
                             <tbody>
                                 {variants.map((variant, index) => (
-                                    <tr key={variant.key}>
-                                        <td className="py-2 pr-2">
-                                            <div className="flex items-center justify-center">
-                                                <Lettermark name={alphabet[index]} color={LettermarkColor.Gray} />
-                                            </div>
-                                        </td>
-                                        <td className="py-2 pr-2">
-                                            <div className="flex items-center h-10 px-2 font-medium">{variant.key}</div>
-                                        </td>
-                                        <td className="py-2">
-                                            <div className="flex items-center h-10 px-2">
-                                                {formatPercentage(variant.rollout_percentage, { compact: true })}
-                                            </div>
-                                        </td>
-                                    </tr>
+                                    <Fragment key={variant.key}>
+                                        <tr>
+                                            <td className="py-2 pr-2">
+                                                <div className="flex items-center justify-center">
+                                                    <Lettermark name={alphabet[index]} color={LettermarkColor.Gray} />
+                                                </div>
+                                            </td>
+                                            <td className="py-2 pr-2">
+                                                <div className="flex items-center h-10 px-2 font-medium">
+                                                    {variant.key}
+                                                </div>
+                                            </td>
+                                            <td className="py-2">
+                                                <div className="flex items-center h-10 px-2">
+                                                    {formatPercentage(variant.rollout_percentage, { compact: true })}
+                                                </div>
+                                            </td>
+                                            {inlineColumns.map((column) => (
+                                                <td key={column.key} className={`py-2 pl-2 ${column.className ?? ''}`}>
+                                                    {column.render(variant, index)}
+                                                </td>
+                                            ))}
+                                        </tr>
+                                        <StackedVariantColumnsRow
+                                            columns={stackedColumns}
+                                            variant={variant}
+                                            index={index}
+                                            colSpan={2}
+                                        />
+                                    </Fragment>
                                 ))}
                             </tbody>
                         </table>
@@ -88,11 +115,12 @@ const ReadOnlyVariantsStep = ({ flag }: { flag: FeatureFlagType }): JSX.Element 
 export function VariantsStep(): JSX.Element {
     const { experiment, linkedFeatureFlag } = useValues(experimentWizardLogic)
     const { setFeatureFlagConfig } = useActions(experimentWizardLogic)
+    const detailsColumns = useVariantDetailsColumns()
 
     return (
         <div className="space-y-6">
             <div>
-                <h3 className="text-lg font-semibold">Who sees which variant?</h3>
+                <h3 className="text-lg font-semibold">How will the experiment roll out?</h3>
             </div>
             {linkedFeatureFlag ? (
                 <ReadOnlyVariantsStep flag={linkedFeatureFlag} />
@@ -101,6 +129,7 @@ export function VariantsStep(): JSX.Element {
                     experiment={experiment}
                     onChange={setFeatureFlagConfig}
                     layout="vertical"
+                    extraVariantColumns={detailsColumns}
                 />
             )}
         </div>
