@@ -27,7 +27,7 @@ from posthog.security.url_validation import is_url_allowed, resolve_url_hosts_ip
 from posthog.temporal.oauth import POSTHOG_CODE_OAUTH_APP_CLIENT_IDS
 
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.facade.api import CHANNEL_INSTRUCTIONS_MAX_BYTES
+from products.tasks.backend.facade.api import CHANNEL_INSTRUCTIONS_MAX_BYTES, TASK_RUN_TERMINATION_REASON_MARKERS
 from products.tasks.backend.facade.client_provenance import is_api_key_request, is_sandbox_oauth_request
 from products.tasks.backend.facade.contracts import (
     ChannelDTO,
@@ -533,6 +533,18 @@ class TaskRunDetailSerializer(DataclassSerializer):
         child=serializers.CharField(),
         help_text="Latest slug tags for this task, including tags inherited from an earlier run.",
     )
+    termination_reason = serializers.ChoiceField(
+        choices=list(TASK_RUN_TERMINATION_REASON_MARKERS),
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Which lifecycle bound stopped this run, when one did. `timed_out_wall_clock` is the "
+            "hard cap on total run time, `timed_out_inactivity` the idle cap, and `sandbox_gone` a "
+            "sandbox that disappeared. Null when no bound was tripped, which on a terminal run "
+            "means the run ended on its own, so a failed run with a null `error_message` and a "
+            "null reason is a genuine failure rather than a timeout."
+        ),
+    )
 
     class Meta:
         dataclass = TaskRunDetailDTO
@@ -553,6 +565,7 @@ class TaskRunDetailSerializer(DataclassSerializer):
             "task_summary",
             "task_tags",
             "state",
+            "termination_reason",
             "artifacts",
             "created_at",
             "updated_at",
