@@ -13,7 +13,7 @@ from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH
 
 from products.visual_review.backend.facade import api
 from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
-from products.visual_review.backend.facade.enums import RunStatus, RunType, SnapshotResult
+from products.visual_review.backend.facade.enums import RunPurpose, RunStatus, RunType, SnapshotResult
 from products.visual_review.backend.logic import artifact_store, quarantine, runs
 from products.visual_review.backend.models import Run, RunSnapshot
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES, VisualReviewTeamScopedTestMixin
@@ -185,7 +185,9 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
                 repo_id=self.vr_project.id,
                 run_type=RunType.STORYBOOK,
                 commit_sha="abc123",
-                branch="main",
+                branch="trunk-merge/pr-42",
+                pr_number=42,
+                purpose=RunPurpose.OBSERVE,
                 snapshots=[],
             ),
             team_id=self.team.id,
@@ -197,6 +199,7 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         data = response.json()
         self.assertEqual(data["commit_sha"], "abc123")
         self.assertEqual(data["status"], "pending")
+        self.assertEqual(data["purpose"], "observe")
 
     def test_get_run_snapshots(self):
         create_result = api.create_run(
