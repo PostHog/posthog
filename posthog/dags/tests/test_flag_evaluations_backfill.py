@@ -453,7 +453,7 @@ def test_backfill_stops_before_copying_when_another_backfill_run_is_executing(
     yesterday = datetime.now(UTC).date() - timedelta(days=1)
 
     with (
-        patch.object(ShardBackfill, "check_disk_headroom"),
+        patch.object(ShardBackfill, "wait_for_disk_headroom"),
         patch.object(ShardBackfill, "check_consumer_lag"),
         patch.object(ShardBackfill, "copy_day", return_value=0) as copy_day,
     ):
@@ -464,6 +464,22 @@ def test_backfill_stops_before_copying_when_another_backfill_run_is_executing(
             backfill.run([yesterday])
 
     assert copy_day.called is not stops
+
+
+def test_backfill_ignores_a_blocking_run_that_finished_while_it_waited_for_disk() -> None:
+    instance = dagster.DagsterInstance.ephemeral()
+
+    def finish_a_deletes_run() -> None:
+        instance.create_run_for_job(job_def=deletes_job, status=dagster.DagsterRunStatus.SUCCESS)
+
+    with (
+        patch.object(ShardBackfill, "wait_for_disk_headroom", side_effect=finish_a_deletes_run),
+        patch.object(ShardBackfill, "check_consumer_lag"),
+        patch.object(ShardBackfill, "copy_day", return_value=5),
+    ):
+        totals = shard_backfill(instance=instance).run([datetime.now(UTC).date() - timedelta(days=1)])
+
+    assert totals == ShardBackfillTotals(days=1, rows=5)
 
 
 # The earliest day the TTL keeps is 2025-12-11 on 2026-03-10, and 2025-12-12 on 2026-03-11.
@@ -510,7 +526,7 @@ def test_backfill_stops_at_the_first_expired_day(start: datetime, step: str, ste
 
         with (
             patch.object(ShardBackfill, "wait_for_parts_to_merge", side_effect=patched("wait_for_parts_to_merge")),
-            patch.object(ShardBackfill, "check_disk_headroom"),
+            patch.object(ShardBackfill, "wait_for_disk_headroom"),
             patch.object(ShardBackfill, "check_consumer_lag"),
             patch.object(ShardBackfill, "copy_day", side_effect=patched("copy_day")) as copy_day,
         ):
@@ -581,6 +597,44 @@ def test_disk_headroom_leaves_out_the_share_the_mover_keeps_free(
     headroom = disk_headroom(disks)
 
     assert (headroom.usable_bytes, headroom.below_move_line) == (usable_bytes, below_move_line)
+
+
+BELOW_MOVE_LINE = [
+    PolicyDisk(volume_priority=1, move_factor=0.1, free_bytes=50, total_bytes=1000),
+    PolicyDisk(volume_priority=2, move_factor=0.1, free_bytes=5000, total_bytes=8000),
+]
+ABOVE_MOVE_LINE = [
+    PolicyDisk(volume_priority=1, move_factor=0.1, free_bytes=300, total_bytes=1000),
+    PolicyDisk(volume_priority=2, move_factor=0.1, free_bytes=4750, total_bytes=8000),
+]
+
+
+@pytest.mark.parametrize(
+    "readings, overrides, sleeps, failure",
+    [
+        pytest.param([BELOW_MOVE_LINE, ABOVE_MOVE_LINE], {}, 1, None, id="mover_frees_the_disk"),
+        pytest.param(
+            [BELOW_MOVE_LINE], {"disk_check_max_wait_seconds": 0}, 0, "still moving parts", id="mover_too_slow"
+        ),
+        pytest.param([BELOW_MOVE_LINE], {"min_free_bytes": 10_000}, 0, "under the floor", id="under_the_floor"),
+    ],
+)
+def test_backfill_waits_while_clickhouse_moves_parts_off_a_full_disk(
+    readings: list[list[PolicyDisk]], overrides: dict[str, Any], sleeps: int, failure: str | None
+) -> None:
+    backfill = shard_backfill(FlagEvaluationsBackfillConfig(**{"min_free_bytes": 1000, **overrides}))
+    host = MagicMock()
+    host.connection_info.host = "replica-1"
+    backfill.cluster.map_hosts_in_shard_by_role.return_value.result.side_effect = [{host: disks} for disks in readings]
+
+    with patch("posthog.dags.flag_evaluations_backfill.time.sleep") as sleep:
+        if failure is None:
+            backfill.wait_for_disk_headroom()
+        else:
+            with pytest.raises(dagster.Failure, match=failure):
+                backfill.wait_for_disk_headroom()
+
+    assert sleep.call_count == sleeps
 
 
 @pytest.mark.parametrize(

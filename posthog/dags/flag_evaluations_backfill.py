@@ -142,6 +142,14 @@ class FlagEvaluationsBackfillConfig(dagster.Config):
     )
     parts_check_poll_frequency_seconds: int = 30
     parts_check_max_wait_seconds: int = 60 * 60
+    disk_check_max_wait_seconds: int = pydantic.Field(
+        default=2 * 60 * 60,
+        description=(
+            "Wait before each day while a replica has less free space than its move_factor reserve, which ClickHouse "
+            "restores by moving parts to the next volume. Stop the shard after waiting this long."
+        ),
+    )
+    disk_check_poll_frequency_seconds: int = 60
 
 
 @frozen
@@ -307,8 +315,10 @@ class ShardBackfill:
             if self._reached_expired_day(day, uncopied_days=uncopied_days):
                 break
             self.wait_for_parts_to_merge(day)
+            self.wait_for_disk_headroom()
+            # The post-copy check counts every blocking run that starts after this wait returns. A long wait
+            # between this one and the copy would make it flag runs that never overlapped the copy.
             blocking_run_check = self.wait_for_blocking_runs()
-            self.check_disk_headroom()
             self.check_consumer_lag()
             # The waits above have no shared deadline. The TTL boundary moves at UTC midnight.
             if self._reached_expired_day(day, uncopied_days=uncopied_days):
@@ -413,7 +423,25 @@ class ShardBackfill:
                 f"AND inserted_at = timestamp{team_filter}`), then run the backfill again for the same teams."
             )
 
-    def check_disk_headroom(self) -> None:
+    def wait_for_disk_headroom(self) -> None:
+        deadline = time.monotonic() + self.config.disk_check_max_wait_seconds
+        while True:
+            hosts_moving_parts = self._hosts_moving_parts()
+            if not hosts_moving_parts:
+                return
+            if time.monotonic() >= deadline:
+                raise dagster.Failure(
+                    description=f"Stopping shard {self.shard_num}: ClickHouse is still moving parts off a disk "
+                    f"below its move_factor reserve on {', '.join(hosts_moving_parts)} after "
+                    f"{self.config.disk_check_max_wait_seconds}s."
+                )
+            self.log.info(
+                f"Waiting for ClickHouse to move parts off a disk below its move_factor reserve on "
+                f"{', '.join(hosts_moving_parts)}"
+            )
+            time.sleep(self.config.disk_check_poll_frequency_seconds)
+
+    def _hosts_moving_parts(self) -> list[str]:
         # Every replica of the shard, including offline ones, stores a copy of each inserted part.
         disks_by_host = self.cluster.map_hosts_in_shard_by_role(
             self.shard_num, self._tagged(_read_policy_disks), node_role=self.node_role
@@ -421,23 +449,22 @@ class ShardBackfill:
         if not disks_by_host:
             raise dagster.Failure(description=f"No replica of shard {self.shard_num} reported its disks.")
         problems = []
+        hosts_moving_parts = []
         for host, disks in disks_by_host.items():
             if not disks:
                 problems.append(f"{host.connection_info.host} has no disks for {FLAG_EVALUATIONS_DATA_TABLE}")
                 continue
             headroom = disk_headroom(disks)
-            if headroom.below_move_line:
-                problems.append(
-                    f"{host.connection_info.host} has a disk with less free space than its move_factor reserve, "
-                    "so ClickHouse is moving parts off it"
-                )
-            elif headroom.usable_bytes < self.config.min_free_bytes:
+            if headroom.usable_bytes < self.config.min_free_bytes:
                 problems.append(
                     f"{host.connection_info.host} has {headroom.usable_bytes} usable bytes, "
                     f"under the floor of {self.config.min_free_bytes}"
                 )
+            elif headroom.below_move_line:
+                hosts_moving_parts.append(host.connection_info.host)
         if problems:
             raise dagster.Failure(description=f"Stopping shard {self.shard_num}: " + "; ".join(problems))
+        return hosts_moving_parts
 
     def check_consumer_lag(self) -> None:
         kafka_partitions, lag_seconds = self._on_copy_host(partial(self._first_row, _KAFKA_POSITION_QUERY))
