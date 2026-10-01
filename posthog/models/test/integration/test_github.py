@@ -920,6 +920,16 @@ class TestGitHubIntegrationModel(BaseTest):
             with pytest.raises(type(error)):
                 GitHubIntegration.first_for_team_repository(self.team.id, "PostHog/posthog")
 
+    def test_first_for_team_repository_raises_a_server_error_only_when_strict(self):
+        self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        with patch.object(
+            GitHubIntegration, "_installation_authenticated_get", return_value=MagicMock(status_code=503)
+        ):
+            assert GitHubIntegration.first_for_team_repository(self.team.id, "PostHog/posthog") is None
+            with pytest.raises(GitHubIntegrationError) as error:
+                GitHubIntegration.first_for_team_repository(self.team.id, "PostHog/posthog", strict=True)
+        assert error.value.status_code == 503
+
     @parameterized.expand(
         [
             ("owner_repo", "PostHog/posthog", "https://api.github.com/repos/PostHog/posthog/pulls/123"),

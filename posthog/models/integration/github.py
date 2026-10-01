@@ -331,6 +331,7 @@ class GitHubIntegration(GitHubIntegrationBase):
         *,
         source: str | None = None,
         priority: Priority | None = None,
+        strict: bool = False,
     ) -> "GitHubIntegration | None":
         """First GitHub integration for the team whose installation can access ``repository`` (``owner/name``).
 
@@ -341,6 +342,8 @@ class GitHubIntegration(GitHubIntegrationBase):
 
         An installation whose probe runs out of egress budget or hits GitHub's rate limit is
         skipped. When no other installation covers the repository, that first error is raised.
+        With ``strict``, a GitHub 5xx on a probe is handled the same way, so a caller can tell a
+        failed check from a repository that no installation covers.
         """
         if not _is_safe_github_repo_path(repository):
             return None
@@ -348,8 +351,12 @@ class GitHubIntegration(GitHubIntegrationBase):
         for integration in model.Integration.objects.filter(team_id=team_id, kind="github").order_by("id"):
             github = cls(integration, source=source, priority=priority)
             try:
-                covers = github.installation_can_access_repository(repository)
-            except (EgressBudgetExhausted, GitHubRateLimitError) as e:
+                covers = (
+                    github.installation_can_access_repository_strict(repository)
+                    if strict
+                    else github.installation_can_access_repository(repository)
+                )
+            except (EgressBudgetExhausted, GitHubRateLimitError, GitHubIntegrationError) as e:
                 # A team's first installation being out of budget must not hide a later one that
                 # covers the repository. The first error is kept and raised only when none does,
                 # so a caller that has no reader still sees why.

@@ -6,7 +6,14 @@ objects, not data, so they live in their own facade submodule — keeping the
 ``temporalio`` imports out of ``facade/api.py``.
 """
 
-from products.error_tracking.backend.temporal import ACTIVITIES, LIFECYCLE_ACTIVITIES, LIFECYCLE_WORKFLOWS, WORKFLOWS
+from products.error_tracking.backend.temporal import (
+    ACTIVITIES,
+    LIFECYCLE_ACTIVITIES,
+    LIFECYCLE_WORKFLOWS,
+    REPO_PATHS_ACTIVITIES,
+    REPO_PATHS_WORKFLOWS,
+    WORKFLOWS,
+)
 from products.error_tracking.backend.temporal.recommendations_refresh.types import RecommendationsRefreshInputs
 from products.error_tracking.backend.temporal.spike_event_cleanup.schedule import (
     create_error_tracking_spike_event_cleanup_schedule,
@@ -20,6 +27,8 @@ __all__ = [
     "ACTIVITIES",
     "LIFECYCLE_ACTIVITIES",
     "LIFECYCLE_WORKFLOWS",
+    "REPO_PATHS_ACTIVITIES",
+    "REPO_PATHS_WORKFLOWS",
     "WORKFLOWS",
     "RecommendationsRefreshInputs",
     "create_error_tracking_spike_event_cleanup_schedule",

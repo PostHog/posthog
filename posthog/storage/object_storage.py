@@ -1,5 +1,6 @@
 import abc
 import threading
+from datetime import datetime
 from typing import IO, Any, Optional, Union
 from urllib.parse import urlparse
 
@@ -57,6 +58,10 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
 
     @abc.abstractmethod
     def list_objects(self, bucket: str, prefix: str) -> Optional[list[str]]:
+        pass
+
+    @abc.abstractmethod
+    def list_objects_last_modified(self, bucket: str, prefix: str) -> dict[str, datetime]:
         pass
 
     @abc.abstractmethod
@@ -139,6 +144,9 @@ class UnavailableStorage(ObjectStorageClient):
 
     def list_objects(self, bucket: str, prefix: str) -> Optional[list[str]]:
         pass
+
+    def list_objects_last_modified(self, bucket: str, prefix: str) -> dict[str, datetime]:
+        return {}
 
     def read(self, bucket: str, key: str, *, missing_ok: bool = False) -> Optional[str]:
         return None
@@ -290,6 +298,15 @@ class ObjectStorage(ObjectStorageClient):
             )
             capture_exception(e)
             return None
+
+    def list_objects_last_modified(self, bucket: str, prefix: str) -> dict[str, datetime]:
+        try:
+            pages = self.aws_client.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=prefix)
+            return {obj["Key"]: obj["LastModified"] for page in pages for obj in page.get("Contents", [])}
+        except Exception as e:
+            logger.exception("object_storage.list_objects_failed", bucket=bucket, prefix=prefix, error=e)
+            capture_exception(e)
+            return {}
 
     def read(self, bucket: str, key: str, *, missing_ok: bool = False) -> Optional[str]:
         object_bytes = self.read_bytes(bucket, key, missing_ok=missing_ok)
@@ -599,6 +616,12 @@ def read_object(
 
 def list_objects(prefix: str, bucket: str | None = None) -> Optional[list[str]]:
     return object_storage_client().list_objects(bucket=bucket or settings.OBJECT_STORAGE_BUCKET, prefix=prefix)
+
+
+def list_objects_last_modified(prefix: str, bucket: str | None = None) -> dict[str, datetime]:
+    return object_storage_client().list_objects_last_modified(
+        bucket=bucket or settings.OBJECT_STORAGE_BUCKET, prefix=prefix
+    )
 
 
 def copy_objects(source_prefix: str, target_prefix: str) -> int:
