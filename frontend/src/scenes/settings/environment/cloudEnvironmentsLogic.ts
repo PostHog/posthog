@@ -18,6 +18,7 @@ export interface CloudEnvironmentDraft {
     include_default_domains: boolean
     repositories: string[]
     private: boolean
+    custom_image_id: string | null
 }
 
 const NEW_ENVIRONMENT: CloudEnvironmentDraft = {
@@ -28,6 +29,7 @@ const NEW_ENVIRONMENT: CloudEnvironmentDraft = {
     include_default_domains: true,
     repositories: [],
     private: true,
+    custom_image_id: null,
 }
 
 function isNetworkAccessLevel(value: string): value is SandboxEnvironmentNetworkAccessLevelEnumApi {
@@ -45,6 +47,7 @@ export function draftFromEnvironment(environment: SandboxEnvironmentDTOApi): Clo
         include_default_domains: environment.include_default_domains,
         repositories: environment.repositories ?? [],
         private: environment.private,
+        custom_image_id: environment.custom_image_id ?? null,
     }
 }
 
@@ -203,6 +206,7 @@ export const cloudEnvironmentsLogic = kea<cloudEnvironmentsLogicType>([
                 include_default_domains: draft.include_default_domains,
                 repositories: draft.repositories,
                 private: draft.private,
+                custom_image_id: draft.custom_image_id,
             }
             try {
                 if (draft.id) {
