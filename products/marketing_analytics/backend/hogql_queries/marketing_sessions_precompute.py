@@ -42,6 +42,10 @@ SESSION_READ_REACHBACK_DAYS = 1
 MAX_PRECOMPUTED_SESSION_SECONDS = 3 * 24 * 60 * 60
 SESSION_SETTLING_PERIOD_SECONDS = MAX_PRECOMPUTED_SESSION_SECONDS
 
+# Cap on (host, pathname) entries kept per session, most-viewed first. Sessions average a few entries,
+# and the tail past this cap holds a negligible share of pageviews.
+MAX_SESSION_PATHS = 50
+
 SESSIONS_INSERT_TEMPLATE = """
 SELECT
     toStartOfHour(toTimeZone(min(events.session.$start_timestamp), 'UTC')) AS period_bucket,
@@ -58,7 +62,30 @@ SELECT
     any(toString(ifNull(events.session.$entry_utm_content, ''))) AS utm_content,
     any(toString(ifNull(events.session.$entry_referring_domain, ''))) AS referring_domain,
     any(toString(ifNull(events.session.$entry_pathname, ''))) AS entry_pathname,
-    count() AS pageview_count
+    any(toString(ifNull(events.session.$entry_hostname, ''))) AS entry_hostname,
+    any(toString(ifNull(events.session.$end_pathname, ''))) AS end_pathname,
+    argMin(toString(ifNull(events.properties.$device_type, '')), events.timestamp) AS device_type,
+    argMin(toString(ifNull(events.properties.$os, '')), events.timestamp) AS os,
+    argMin(toString(ifNull(events.properties.$browser, '')), events.timestamp) AS browser,
+    argMin(toString(ifNull(events.properties.$geoip_country_code, '')), events.timestamp) AS country_code,
+    argMin(toString(ifNull(events.properties.$geoip_subdivision_1_code, '')), events.timestamp) AS region_code,
+    argMin(toString(ifNull(events.properties.$geoip_city_name, '')), events.timestamp) AS city_name,
+    count() AS pageview_count,
+    any(ifNull(events.session.$is_bounce, false)) AS is_bounce,
+    any(ifNull(events.session.$session_duration, 0)) AS session_duration,
+    argMin(ifNull(events.$virt_is_bot, false), events.timestamp) AS is_bot,
+    arraySlice(
+        arraySort(
+            entry -> (-tupleElement(entry, 3), tupleElement(entry, 1), tupleElement(entry, 2)),
+            arrayMap(
+                (key, views) -> tuple(splitByChar('\t', key)[1], splitByChar('\t', key)[2], views),
+                tupleElement(sumMap([concat(toString(ifNull(events.properties.$host, '')), '\t', toString(ifNull(events.properties.$pathname, '')))], [1]), 1),
+                tupleElement(sumMap([concat(toString(ifNull(events.properties.$host, '')), '\t', toString(ifNull(events.properties.$pathname, '')))], [1]), 2)
+            )
+        ),
+        1,
+        {max_session_paths}
+    ) AS paths
 FROM events
 WHERE and(
     {classifier_version} = {classifier_version},
@@ -88,6 +115,7 @@ def base_placeholders() -> dict[str, ast.Expr]:
     return {
         "classifier_version": ast.Constant(value=f"{SESSION_CHANNEL_CLASSIFIER_VERSION}:{fingerprint}"),
         "max_session_seconds": ast.Constant(value=MAX_PRECOMPUTED_SESSION_SECONDS),
+        "max_session_paths": ast.Constant(value=MAX_SESSION_PATHS),
     }
 
 
@@ -137,10 +165,8 @@ def ensure_marketing_sessions_precomputed(
         ),
         table=LazyComputationTable.WEB_SESSIONS_DIMENSIONAL_PREAGGREGATED,
         modifiers=modifiers,
-        # Traffic-type classification is absent from this query; its rollout may differ across workers.
-        cache_key_context={
-            "modifiers": modifiers.model_dump_json(exclude_none=True, exclude={"cookielessTrafficIsRegular"})
-        },
+        # `is_bot` depends on traffic classification, so every result-changing modifier joins the job hash.
+        cache_key_context={"modifiers": modifiers.model_dump_json(exclude_none=True)},
         placeholders=base_placeholders(),
         query_type="marketing_sessions_dimensional_insert",
     )
