@@ -1003,8 +1003,10 @@ feature_flags: PostgresTable = PostgresTable(
             name="active",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_active"])]),
             description=(
-                "1 if the flag is enabled, 0 if it is switched off and serves nobody. This is the flag's on/off "
-                "state, not whether it is in use."
+                "1 if the flag is enabled, 0 if it is switched off and serves nobody. An enabled flag still serves "
+                "nobody when every release condition in `filters` is at 0%, unless `filters.feature_enrollment` is "
+                "true. That marks an early access flag, which serves every user who opted in. A release condition "
+                "with no `rollout_percentage` serves 100% of the users it matches."
             ),
         ),
         "_archived": BooleanDatabaseField(name="archived", hidden=True),
@@ -1013,8 +1015,9 @@ feature_flags: PostgresTable = PostgresTable(
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_archived"])]),
             description=(
                 "1 if the flag has been archived, 0 otherwise. An archived flag is always disabled. The flag list "
-                "and the API hide archived and deleted flags alike, so the roster they show is "
-                "`WHERE archived = 0 AND deleted = 0`."
+                "and the API hide archived and deleted flags. They also hide the flags that surveys and product "
+                "tours manage internally, which this table includes, so `WHERE archived = 0 AND deleted = 0` can "
+                "return more flags than the list shows."
             ),
         ),
         "_deleted": BooleanDatabaseField(name="deleted", hidden=True),

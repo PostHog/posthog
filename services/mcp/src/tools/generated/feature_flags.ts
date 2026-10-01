@@ -250,6 +250,7 @@ const featureFlagGetAll = (): ToolBase<
                     'active',
                     'archived',
                     'filters.groups.*.rollout_percentage',
+                    'filters.feature_enrollment',
                     'updated_at',
                     'status',
                     'tags',
