@@ -37,6 +37,9 @@ database "posthog" {
       type    = "DateTime64(6, 'UTC')"
       default = "timestamp"
     }
+    column "written_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
     column "$group_0" {
       type    = "String"
       comment = "column_materializer::$group_0"
@@ -103,6 +106,9 @@ database "posthog" {
       ttl_only_drop_parts = "1"
     }
     extend = "_flag_evaluations_columns"
+    patch_column "written_at" {
+      default = "inserted_at"
+    }
     patch_column "$group_0" {
       default = "replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^\"|\"$', '')"
     }
@@ -152,6 +158,11 @@ database "posthog" {
     }
     index "inserted_at_idx" {
       expr        = "inserted_at"
+      type        = "minmax"
+      granularity = 1
+    }
+    index "written_at_idx" {
+      expr        = "written_at"
       type        = "minmax"
       granularity = 1
     }

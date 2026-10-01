@@ -211,8 +211,9 @@ def _hogql_column_names(table: Table) -> set[str]:
     return names
 
 
-# Kafka metadata, deliberately not exposed to customers.
-_FLAG_EVALUATIONS_COLUMNS_HIDDEN_FROM_HOGQL = {"_timestamp", "_offset", "_partition"}
+# Kafka metadata and written_at, deliberately not exposed to customers. written_at is ingestion
+# bookkeeping for incremental readers. Exposing it would commit HogQL to its semantics.
+_FLAG_EVALUATIONS_COLUMNS_HIDDEN_FROM_HOGQL = {"_timestamp", "_offset", "_partition", "written_at"}
 
 
 def test_flag_evaluations_hogql_table_matches_the_read_table():

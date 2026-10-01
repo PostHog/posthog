@@ -1389,6 +1389,7 @@ CREATE TABLE posthog.sharded_flag_evaluations (
   created_at DateTime64(6, 'UTC'),
   person_id UUID,
   inserted_at DateTime64(6, 'UTC') DEFAULT timestamp,
+  written_at DateTime64(6, 'UTC') DEFAULT inserted_at,
   $group_0 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^"|"$', '') COMMENT 'column_materializer::$group_0',
   $group_1 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^"|"$', '') COMMENT 'column_materializer::$group_1',
   $group_2 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_2'), '^"|"$', '') COMMENT 'column_materializer::$group_2',
@@ -1405,7 +1406,8 @@ CREATE TABLE posthog.sharded_flag_evaluations (
   INDEX person_id_idx person_id TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX session_id_idx session_id TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX request_id_idx request_id TYPE bloom_filter(0.01) GRANULARITY 1,
-  INDEX inserted_at_idx inserted_at TYPE minmax GRANULARITY 1
+  INDEX inserted_at_idx inserted_at TYPE minmax GRANULARITY 1,
+  INDEX written_at_idx written_at TYPE minmax GRANULARITY 1
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/posthog.flag_evaluations', '{replica}') ORDER BY (team_id, flag_key, toDate(timestamp), cityHash64(distinct_id)) PARTITION BY toYYYYMM(timestamp) TTL toDate(timestamp) + toIntervalDay(90) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.sharded_heatmaps (
   session_id String,
@@ -3011,6 +3013,7 @@ CREATE TABLE posthog.flag_evaluations (
   created_at DateTime64(6, 'UTC'),
   person_id UUID,
   inserted_at DateTime64(6, 'UTC') DEFAULT timestamp,
+  written_at DateTime64(6, 'UTC'),
   $group_0 String COMMENT 'column_materializer::$group_0',
   $group_1 String COMMENT 'column_materializer::$group_1',
   $group_2 String COMMENT 'column_materializer::$group_2',

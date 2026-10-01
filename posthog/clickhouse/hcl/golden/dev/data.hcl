@@ -1803,6 +1803,9 @@ database "posthog" {
       type    = "DateTime64(6, 'UTC')"
       default = "timestamp"
     }
+    column "written_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
     column "$group_0" {
       type    = "String"
       comment = "column_materializer::$group_0"
@@ -5519,6 +5522,10 @@ database "posthog" {
       type    = "DateTime64(6, 'UTC')"
       default = "timestamp"
     }
+    column "written_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "inserted_at"
+    }
     column "$group_0" {
       type    = "String"
       default = "replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^\"|\"$', '')"
@@ -5595,6 +5602,11 @@ database "posthog" {
     }
     index "inserted_at_idx" {
       expr        = "inserted_at"
+      type        = "minmax"
+      granularity = 1
+    }
+    index "written_at_idx" {
+      expr        = "written_at"
       type        = "minmax"
       granularity = 1
     }

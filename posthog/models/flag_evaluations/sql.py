@@ -91,6 +91,23 @@ FLAG_EVALUATIONS_KAFKA_COLUMNS = _FLAG_EVALUATIONS_COLUMNS_TEMPLATE.format(ts_de
 
 _FLAG_EVALUATIONS_COLUMNS = _FLAG_EVALUATIONS_COLUMNS_TEMPLATE.format(ts_default=" DEFAULT timestamp")
 
+# written_at is for incremental readers that checkpoint on the time ClickHouse writes a row.
+# inserted_at cannot serve them, because the Kafka path stamps it with the message time, before
+# ClickHouse consumes the message.
+#
+# The DEFAULT is inserted_at, not now64(). A part that does not store a column computes its
+# DEFAULT at read time and stores the result at its next merge. A now64() default would therefore
+# stamp rows written before the column existed with a merge time, and readers would take them for
+# new rows. The backfill omits written_at too, so a now64() default would also stamp its history
+# rows with the backfill's write time.
+_FLAG_EVALUATIONS_WRITTEN_AT_COLUMN = """
+    , written_at DateTime64(6, 'UTC') DEFAULT inserted_at
+"""
+
+_FLAG_EVALUATIONS_PROXY_WRITTEN_AT_COLUMN = """
+    , written_at DateTime64(6, 'UTC')
+"""
+
 # Typed copies of properties the hot path cannot afford to parse per row. A
 # property earns one only when queries filter or group on it across many rows
 # (flag_key, response) or a skip index needs a real column to sit on (session_id,
@@ -149,18 +166,19 @@ _FLAG_EVALUATIONS_PROXY_TYPED_COLUMNS = """
 """
 
 # The bloom filters cover point lookups the sort key can't serve (a specific user,
-# person, session, or flags-service request). The minmax on inserted_at serves
-# incremental consumers that checkpoint on it: partitioning is on timestamp, so an
-# inserted_at range predicate prunes no partitions on its own and would otherwise
-# read all 90 days. A skip index only covers parts written after it exists, so
-# retrofitting one means a full MATERIALIZE INDEX mutation — much cheaper to
-# declare up front.
+# person, session, or flags-service request). The minmax indexes on inserted_at and
+# written_at serve incremental consumers that checkpoint on them: partitioning is on
+# timestamp, so a range predicate on either column prunes no partitions on its own
+# and would otherwise read all 90 days. A skip index only covers parts written after
+# it exists, so retrofitting one means a full MATERIALIZE INDEX mutation — much
+# cheaper to declare up front.
 _FLAG_EVALUATIONS_INDEXES = """
     , INDEX distinct_id_idx distinct_id TYPE bloom_filter(0.01) GRANULARITY 1
     , INDEX person_id_idx   person_id   TYPE bloom_filter(0.01) GRANULARITY 1
     , INDEX session_id_idx  session_id  TYPE bloom_filter(0.01) GRANULARITY 1
     , INDEX request_id_idx  request_id  TYPE bloom_filter(0.01) GRANULARITY 1
     , INDEX inserted_at_idx inserted_at TYPE minmax GRANULARITY 1
+    , INDEX written_at_idx  written_at  TYPE minmax GRANULARITY 1
 """
 
 
@@ -184,6 +202,7 @@ FLAG_EVALUATIONS_TABLE_SQL = lambda: (
 CREATE TABLE IF NOT EXISTS {FLAG_EVALUATIONS_DATA_TABLE}
 (
     {_FLAG_EVALUATIONS_COLUMNS}
+    {_FLAG_EVALUATIONS_WRITTEN_AT_COLUMN}
     {_FLAG_EVALUATIONS_TYPED_COLUMNS}
     {_FLAG_EVALUATIONS_INDEXES}
     {KAFKA_COLUMNS_WITH_PARTITION}
@@ -221,12 +240,12 @@ def DROP_FLAG_EVALUATIONS_TABLE_SQL() -> str:
     return f"DROP TABLE IF EXISTS {FLAG_EVALUATIONS_DATA_TABLE} SYNC"
 
 
-def _distributed_table_sql(table_name: str, *, typed_columns: str = "") -> str:
+def _distributed_table_sql(table_name: str, *, shard_computed_columns: str = "") -> str:
     return f"""
 CREATE TABLE IF NOT EXISTS {table_name}
 (
     {_FLAG_EVALUATIONS_COLUMNS}
-    {typed_columns}
+    {shard_computed_columns}
     {KAFKA_COLUMNS_WITH_PARTITION}
 )
 ENGINE = {Distributed(data_table=FLAG_EVALUATIONS_DATA_TABLE, sharding_key=FLAG_EVALUATIONS_SHARDING_KEY)}
@@ -238,7 +257,8 @@ WRITABLE_FLAG_EVALUATIONS_TABLE_SQL = lambda: _distributed_table_sql(FLAG_EVALUA
 
 # Read path on DATA nodes, and the name queries use.
 DISTRIBUTED_FLAG_EVALUATIONS_TABLE_SQL = lambda: _distributed_table_sql(
-    FLAG_EVALUATIONS_TABLE, typed_columns=_FLAG_EVALUATIONS_PROXY_TYPED_COLUMNS
+    FLAG_EVALUATIONS_TABLE,
+    shard_computed_columns=_FLAG_EVALUATIONS_PROXY_WRITTEN_AT_COLUMN + _FLAG_EVALUATIONS_PROXY_TYPED_COLUMNS,
 )
 
 
