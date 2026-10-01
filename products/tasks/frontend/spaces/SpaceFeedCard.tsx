@@ -2,8 +2,6 @@ import { useValues } from 'kea'
 
 import { IconGitBranch } from '@posthog/icons'
 import {
-    Avatar,
-    AvatarFallback,
     Badge,
     Button,
     Card,
@@ -34,6 +32,7 @@ import { spaceFeedStatus } from './spaceFeedStatus'
 import { SpaceFeedStatusIcon } from './SpaceFeedStatusIcon'
 import { TaskPullRequestChip } from './TaskPullRequestChip'
 import { pullRequestLabel, splitPullRequests } from './taskPullRequests'
+import { TaskUserAvatar, taskUserName } from './TaskUserAvatar'
 
 interface SpaceFeedCardProps {
     task: TaskListItemApi
@@ -53,14 +52,7 @@ export function SpaceFeedCard({ task, pinned, unread, repository }: SpaceFeedCar
     const pullRequests = splitPullRequests(item.pullRequests)
     const preview = spaceFeedPreview('description_preview' in task ? task.description_preview : task.description)
     const author = task.created_by
-    const authorName = author ? [author.first_name, author.last_name].filter(Boolean).join(' ') || author.email : null
-    const initials = authorName
-        ? authorName
-              .split(/\s+/)
-              .slice(0, 2)
-              .map((part) => part[0]?.toUpperCase())
-              .join('')
-        : ''
+    const authorName = author ? taskUserName(author) : null
 
     return (
         <Card
@@ -173,14 +165,18 @@ export function SpaceFeedCard({ task, pinned, unread, repository }: SpaceFeedCar
                             </PopoverContent>
                         </Popover>
                     )}
-                    {authorName && (
+                    {author && authorName && (
                         <Tooltip>
                             <TooltipTrigger
                                 render={
-                                    <Avatar size="xs" className="relative ml-auto shrink-0" aria-label={authorName} />
+                                    <span
+                                        role="img"
+                                        aria-label={authorName}
+                                        className="relative ml-auto flex shrink-0"
+                                    />
                                 }
                             >
-                                <AvatarFallback>{initials}</AvatarFallback>
+                                <TaskUserAvatar user={author} />
                             </TooltipTrigger>
                             <TooltipContent>{authorName}</TooltipContent>
                         </Tooltip>

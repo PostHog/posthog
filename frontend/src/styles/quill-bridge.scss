@@ -244,6 +244,10 @@
     --tw-ring-color: var(--border);
 }
 
+[data-quill] .ring-background {
+    --tw-ring-color: var(--background);
+}
+
 [data-quill] .ring-ring {
     --tw-ring-color: var(--ring);
 }

@@ -28,6 +28,7 @@ import {
     TaskActivityReadMarkerApi,
     TaskListItemApi,
 } from 'products/tasks/frontend/generated/api.schemas'
+import { SpacePresence, presenceBySpace } from 'products/tasks/frontend/spaces/spacePresence'
 import { pullRequestStates, sessionIdsWithPullRequests } from 'products/tasks/frontend/spaces/taskPullRequests'
 
 import {
@@ -63,6 +64,10 @@ const RECENT_ITEM_LIMIT = 30
 const UNREAD_ACTIVITY_LIMIT = 200
 // The sidebar and a space scene both refresh on mount, so collapse their requests into one.
 const UNREAD_ACTIVITY_DEBOUNCE_MS = 100
+// Like PostHog Desktop: one page of the team's newest activity across all spaces, polled slowly.
+// A space whose latest activity sits below this page shows no faces.
+const SPACE_PRESENCE_FETCH_LIMIT = 100
+const SPACE_PRESENCE_POLL_INTERVAL_MS = 90_000
 
 export type TodayWorkSectionId = 'pinned' | 'recent' | 'spaces'
 
@@ -142,6 +147,8 @@ export interface todaySpacesLogicValues {
     sectionHeights: Partial<Record<TodayWorkSectionId, number>>
     sortedSpaces: ChannelDTOApi[]
     spaceNames: Record<string, string>
+    spacePresence: Record<string, SpacePresence>
+    spacePresenceLoading: boolean
     spaces: ChannelDTOApi[]
     spacesLoading: boolean
     spacesUnavailable: boolean
@@ -215,6 +222,21 @@ export interface todaySpacesLogicActions {
         payload?: any
     ) => {
         recentTasks: TaskListItemApi[]
+        payload?: any
+    }
+    loadSpacePresence: () => any
+    loadSpacePresenceFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadSpacePresenceSuccess: (
+        spacePresence: Record<string, SpacePresence>,
+        payload?: any
+    ) => {
+        spacePresence: Record<string, SpacePresence>
         payload?: any
     }
     loadSpaces: () => any
@@ -417,6 +439,22 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
                         limit: RECENT_SESSION_LIMIT,
                     })
                     return response.results
+                },
+            },
+        ],
+        spacePresence: [
+            {} as Record<string, SpacePresence>,
+            {
+                loadSpacePresence: async () => {
+                    if (!values.currentTeamId) {
+                        return {}
+                    }
+                    const response = await tasksList(String(values.currentTeamId), {
+                        ordering: '-last_activity_at',
+                        basic: true,
+                        limit: SPACE_PRESENCE_FETCH_LIMIT,
+                    })
+                    return presenceBySpace(response.results, Date.now())
                 },
             },
         ],
@@ -639,9 +677,15 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
             }
         },
     })),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, cache }) => {
         actions.loadSpaces()
         actions.loadPinnedTasks()
         actions.loadRecentTasks()
+        // Setup runs now and again whenever the tab comes back, so the faces refresh on return.
+        cache.disposables.add(() => {
+            actions.loadSpacePresence()
+            const pollTimer = window.setInterval(() => actions.loadSpacePresence(), SPACE_PRESENCE_POLL_INTERVAL_MS)
+            return () => clearInterval(pollTimer)
+        }, 'spacePresencePoll')
     }),
 ])
