@@ -187,7 +187,7 @@ const VisualReviewReposQuarantineCreateSchema = () => {
                     "The repo's UUID, the run's `repo_id`."
                 ),
                 run_type: VisualReviewReposQuarantineCreateParams.shape['run_type'].describe(
-                    "The failing run's `run_type`, `storybook` or `playwright`. Other run types stay gated."
+                    "The failing run's `run_type`, `storybook` or `playwright`. The quarantine covers only this run type."
                 ),
             })
     )
