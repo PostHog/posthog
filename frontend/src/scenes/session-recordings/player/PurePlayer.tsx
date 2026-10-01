@@ -217,74 +217,59 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
 
     const speedHotkeys = useMemo(() => createPlaybackSpeedKey(setSpeed), [setSpeed])
 
-    const hotkeys: HotkeysInterface = {
-        f: {
-            action: () => setIsFullScreen(!isFullScreen),
-        },
-        c: {
-            action: () => setIsCommenting(!isCommenting),
-        },
-        e: {
-            action: () => setQuickEmojiIsOpen(!quickEmojiIsOpen),
-        },
-        s: {
-            action: () => takeScreenshot(),
-        },
-        x: {
-            action: () => setShowingClipParams(!showingClipParams),
-        },
-        t: {
-            action: () => setPlaylistCollapsed(!isPlaylistCollapsed),
-        },
-        m: {
-            action: () => setMuted(!isMuted),
-        },
-        space: {
-            action: () => togglePlayPause(),
-        },
-        arrowleft: {
-            action: (e) => {
-                if (e.ctrlKey || e.metaKey) {
-                    return
-                }
-                e.preventDefault()
-                e.altKey && setPause()
-                seekBackward(e.altKey ? ONE_SECOND_MS : undefined)
-            },
-            willHandleEvent: true,
-            allowRepeat: true,
-        },
-        arrowright: {
-            action: (e) => {
-                if (e.ctrlKey || e.metaKey) {
-                    return
-                }
-                e.preventDefault()
-                e.altKey && setPause()
-                seekForward(e.altKey ? ONE_SECOND_MS : undefined)
-            },
-            willHandleEvent: true,
-            allowRepeat: true,
-        },
-        ...speedHotkeys,
-        ...(isFullScreen ? { escape: { action: () => setIsFullScreen(false) } } : {}),
-    }
-
     useKeyboardHotkeys(
-        Object.fromEntries(
-            Object.entries(hotkeys).map(([key, hotkey]) => [
-                key,
-                {
-                    ...hotkey,
-                    action: (e: KeyboardEvent) => {
-                        if (!e.repeat && !e.ctrlKey && !e.metaKey) {
-                            posthog.capture('recording player hotkey used', { key })
-                        }
-                        hotkey.action(e)
-                    },
+        {
+            f: {
+                action: () => setIsFullScreen(!isFullScreen),
+            },
+            c: {
+                action: () => setIsCommenting(!isCommenting),
+            },
+            e: {
+                action: () => setQuickEmojiIsOpen(!quickEmojiIsOpen),
+            },
+            s: {
+                action: () => takeScreenshot(),
+            },
+            x: {
+                action: () => setShowingClipParams(!showingClipParams),
+            },
+            t: {
+                action: () => setPlaylistCollapsed(!isPlaylistCollapsed),
+            },
+            m: {
+                action: () => setMuted(!isMuted),
+            },
+            space: {
+                action: () => togglePlayPause(),
+            },
+            arrowleft: {
+                action: (e) => {
+                    if (e.ctrlKey || e.metaKey) {
+                        return
+                    }
+                    e.preventDefault()
+                    e.altKey && setPause()
+                    seekBackward(e.altKey ? ONE_SECOND_MS : undefined)
                 },
-            ])
-        ),
+                willHandleEvent: true,
+                allowRepeat: true,
+            },
+            arrowright: {
+                action: (e) => {
+                    if (e.ctrlKey || e.metaKey) {
+                        return
+                    }
+                    e.preventDefault()
+                    e.altKey && setPause()
+                    seekForward(e.altKey ? ONE_SECOND_MS : undefined)
+                },
+                willHandleEvent: true,
+                allowRepeat: true,
+            },
+            ...speedHotkeys,
+            ...(isFullScreen ? { escape: { action: () => setIsFullScreen(false) } } : {}),
+        },
         [isFullScreen]
     )
 

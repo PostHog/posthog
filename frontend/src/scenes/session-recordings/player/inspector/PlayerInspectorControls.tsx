@@ -151,7 +151,7 @@ function NetworkFilterSettingsButton(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
 
     const hasNetworkItems = allItemsByItemType['network']?.length > 0
-    const showNetworkUpsell = !hasNetworkItems && !currentTeam?.capture_performance_opt_in
+    const showNetworkUpsell = !!currentTeam && !hasNetworkItems && !currentTeam.capture_performance_opt_in
 
     useEffect(() => {
         if (showNetworkUpsell) {
@@ -200,7 +200,7 @@ function ConsoleFilterSettingsButton(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
 
     const hasConsoleItems = allItemsByItemType['console']?.length > 0
-    const showConsoleUpsell = !hasConsoleItems && !currentTeam?.capture_console_log_opt_in
+    const showConsoleUpsell = !!currentTeam && !hasConsoleItems && !currentTeam.capture_console_log_opt_in
 
     useEffect(() => {
         if (showConsoleUpsell) {
