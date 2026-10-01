@@ -1,7 +1,6 @@
 """Generating a briefing: PostHog picks the person's top reports, and one LLM call writes the text about them."""
 
 from datetime import timedelta
-from typing import Final
 
 from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import build_async_openai_client
@@ -21,7 +20,6 @@ from .llm_output import BriefingOutput, strict_schema, to_content
 from .prompt import build_prompt
 
 MODEL = "gpt-6-luna"
-REASONING_EFFORT: Final = "low"
 MAX_COMPLETION_TOKENS = 8192
 MAX_ITEMS = 5
 CALL_TIMEOUT = timedelta(minutes=2)
@@ -78,7 +76,6 @@ async def _write_text(prepared: _PreparedRun, team_id: int) -> BriefingOutput:
         response = await client.chat.completions.create(
             model=MODEL,
             messages=[{"role": "user", "content": prepared.prompt}],
-            reasoning_effort=REASONING_EFFORT,
             max_completion_tokens=MAX_COMPLETION_TOKENS,
             response_format={
                 "type": "json_schema",
