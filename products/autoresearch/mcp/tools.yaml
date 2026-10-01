@@ -272,8 +272,8 @@ tools:
             idempotent: false
         title: Run inference (score users)
         description: >
-            Score today's prediction date now with the pipeline's champion model, instead of waiting for the daily
-            02:00 UTC scoring run. Use it after autoresearch-train-create completes and promotes a champion. The call is
+            Score today's prediction date now with the pipeline's champion model, instead of waiting for the daily 02:00
+            UTC scoring run. Use it after autoresearch-train-create completes and promotes a champion. The call is
             synchronous and returns the inference run with status and rows_scored. It emits one
             'autoresearch_prediction' event per scored user, with the score in '$autoresearch_p_y', and sets the
             pipeline's output_person_property on each scored person. A manual score counts as that day's scoring, so the
@@ -416,8 +416,8 @@ tools:
             and ask the user to start training from the pipeline's page in PostHog. Needs PostHog Desktop access,
             because the run is a cloud sandbox. After a run promotes a champion, the daily 02:00 UTC scoring job scores
             the inference population and emits autoresearch_prediction events. To score now instead, call
-            autoresearch-score-create once. You can optionally override the
-            iteration_budget for this run. A pipeline with an action target also needs the action:read scope.
+            autoresearch-score-create once. You can optionally override the iteration_budget for this run. A pipeline
+            with an action target also needs the action:read scope.
         feature_flag: autoresearch
     autoresearch-training-runs-artifacts-delete-create:
         operation: autoresearch_training_runs_artifacts_delete_create
