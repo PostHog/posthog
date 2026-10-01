@@ -118,7 +118,11 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerType,
     apply_experiment_targeting,
 )
-from products.replay_vision.backend.prompt_questions import question_fields_for_save, scanner_question
+from products.replay_vision.backend.prompt_questions import (
+    question_fields_for_save,
+    scanner_question,
+    template_question,
+)
 from products.replay_vision.backend.queries import (
     ESTIMATE_STALE_AFTER,
     MIN_SAMPLING_RATE,
@@ -175,7 +179,7 @@ _QUERY_FIELDS_TO_STRIP = ("date_from", "date_to")
 
 # The goal-based creation flow's flag. Multivariate so it can graduate to an experiment without a
 # rename; server-side so a client/rollout skew cannot half-apply the new flow.
-GOAL_FLOW_FLAG = "vision-goal-based-creation-flow"
+GOAL_FLOW_FLAG = "vision-goal-flow-v2"
 
 
 class ScannerCreationMethod(models.TextChoices):
@@ -325,6 +329,9 @@ def scanner_lifecycle_properties(scanner: ReplayScanner) -> dict[str, Any]:
         # separate flag keeps experiment-scoped scanners countable apart from hand-filtered ones.
         "has_filters": any(query.get(key) for key in _QUERY_FILTER_KEYS) or bool(scanner.experiment_targeting),
         "has_experiment_targeting": bool(scanner.experiment_targeting),
+        # True when the prompt is a stock template's word for word, so a creation-flow experiment can
+        # tell a scanner tailored to the team from a template saved with its defaults.
+        "uses_template_prompt": template_question(scanner.scanner_config) is not None,
         "estimated_monthly_observations": estimate,
         "estimated_monthly_credits": (
             estimate * observation_credits_for_model(scanner.model) if estimate is not None else None
@@ -477,6 +484,16 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
     scanner_type = serializers.ChoiceField(
         choices=ScannerType.choices,
         help_text="What the scanner does: monitor, classifier, scorer, or summarizer.",
+    )
+    goal = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=2000,
+        help_text=(
+            "The goal an AI draft was built from, in the creator's own words, so the scanner keeps "
+            "what it was meant to find. Set on create only and ignored on update."
+        ),
     )
     creation_method = serializers.ChoiceField(
         choices=ScannerCreationMethod.choices,
@@ -649,6 +666,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "description",
             "tags",
             "scanner_type",
+            "goal",
             "creation_method",
             "scanner_config",
             "prompt_question",
@@ -955,6 +973,8 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         # A scanner is built once, so this says nothing about an edit. Dropped here because the UI
         # PATCHes the whole form back and would otherwise send it into the getattr diff below.
         validated_data.pop("creation_method", None)
+        # The goal records what the scanner was first built for, so an edit never rewrites it.
+        validated_data.pop("goal", None)
         # Compared as tagify()d names, since that is what set_tags_on_object stores.
         tags_changed = tags is not None and {tagify(t) for t in tags} != set(
             instance.tagged_items.values_list("tag__name", flat=True)
@@ -1024,7 +1044,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
     @staticmethod
     def _reraise_unique_name_violation(error: IntegrityError) -> NoReturn:
         # Narrow to the unique-name constraint so other future constraints aren't mis-reported as duplicates.
-        if "replay_scanner_unique_team_name" in str(error):
+        if "replay_scanner_unique_configured_team_name" in str(error):
             raise serializers.ValidationError({"name": "A scanner with this name already exists in this team."})
         raise error
 

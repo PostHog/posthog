@@ -371,6 +371,12 @@ in a production app. A new app name has to be a class attribute for that to keep
 
 ### Sandbox templates
 
+Staff can inspect the agent release pipeline at `/admin/tasks/task/infrastructure/` in each region.
+The read-only page compares the published package, master version pin, registry platforms, custom-image bases, and the last recorded dev-stack bake.
+Release evidence separates workflow status from image build and base promotion results, including skipped builds.
+Select a custom image to inspect its latest Temporal execution. A failed refresh can leave a ready image on an older base.
+Missing or stale sources remain unverified. This view does not measure versions inside running sandboxes or reconstruct historical rollout completion.
+
 Each sandbox is created from a template that determines its base image and capabilities.
 
 | Template        | Image                                      | Description                                                                                                                                                    |
