@@ -249,7 +249,7 @@ export function ComposerModelEffortPickers({
                         {billing?.value === ModelAccessEnumApi.OwnSubscription && (
                             <span className="text-muted">ChatGPT plan</span>
                         )}
-                        <IconChevronDown />
+                        {chrome.icons && <IconChevronDown />}
                     </Button>
                 }
             />

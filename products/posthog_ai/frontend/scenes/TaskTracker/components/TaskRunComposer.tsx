@@ -112,6 +112,7 @@ export function TaskRunComposer({
     const labelRef = useRef<HTMLLabelElement>(null)
     const groupRef = useRef<HTMLDivElement>(null)
     const skin = useThreadSkin()
+    const codexBillingEnabled = useFeatureFlag('POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD')
 
     const placeholder = isTerminal
         ? 'Send a message to start a new run, or type / for commands…'
@@ -125,22 +126,29 @@ export function TaskRunComposer({
             modes={getModesForRuntimeAdapter(composerAdapter)}
         />
     )
-    const modelPicker = (
-        <ComposerModelEffortPickers
-            models={offeredModels}
-            selectedModel={selectedModel}
-            defaultModel={defaultModel}
-            isDefaultModelLoading={myConfigLoading}
-            selectedEffort={selectedEffort}
-            onModelChange={setModel}
-            onEffortChange={setEffort}
-            // While the run is live its harness is fixed to whatever the sandbox booted; once
-            // terminal the next send starts a fresh run, which may pick any harness.
-            lockedRuntimeAdapter={isTerminal ? null : logicProps.currentRuntimeAdapter}
-            onOpenDefaultSettings={() =>
-                router.actions.push(urls.settings('environment-task-agents', 'task-agent-my-preference'))
+    const modelPickerProps: ComposerModelEffortPickersProps = {
+        models: offeredModels,
+        selectedModel,
+        defaultModel,
+        isDefaultModelLoading: myConfigLoading,
+        selectedEffort,
+        onModelChange: setModel,
+        onEffortChange: setEffort,
+        // While the run is live its harness is fixed to whatever the sandbox booted; once
+        // terminal the next send starts a fresh run, which may pick any harness.
+        lockedRuntimeAdapter: isTerminal ? null : logicProps.currentRuntimeAdapter,
+        onOpenDefaultSettings: () =>
+            router.actions.push(urls.settings('environment-task-agents', 'task-agent-my-preference')),
+    }
+    const modelPicker = codexBillingEnabled ? (
+        <ComposerCodexBillingPickers
+            {...modelPickerProps}
+            lockedCodexModelAccess={
+                isTerminal ? null : (logicProps.currentCodexModelAccess ?? ModelAccessEnumApi.PosthogGateway)
             }
         />
+    ) : (
+        <ComposerModelEffortPickers {...modelPickerProps} />
     )
     const field = (
         <ComposerCommandMenu commands={slashCommands}>
@@ -177,22 +185,6 @@ export function TaskRunComposer({
             {sendButton}
         </AIConsentPopoverWrapper>
     )
-
-    const codexBillingEnabled = useFeatureFlag('POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD')
-    const modelPickerProps: ComposerModelEffortPickersProps = {
-        models: offeredModels,
-        selectedModel,
-        defaultModel,
-        isDefaultModelLoading: myConfigLoading,
-        selectedEffort,
-        onModelChange: setModel,
-        onEffortChange: setEffort,
-        // While the run is live its harness is fixed to whatever the sandbox booted; once terminal the next send
-        // starts a fresh run, which may pick any harness.
-        lockedRuntimeAdapter: isTerminal ? null : logicProps.currentRuntimeAdapter,
-        onOpenDefaultSettings: () =>
-            router.actions.push(urls.settings('environment-task-agents', 'task-agent-my-preference')),
-    }
 
     return (
         <div onFocusCapture={() => setComposerFocused(true)} onBlurCapture={() => setComposerFocused(false)}>
@@ -253,69 +245,15 @@ export function TaskRunComposer({
                         />
                     </Composer.Banner>
                 )}
-                <Composer.Frame ref={frameRef}>
-                    <Composer.Header className="flex flex-wrap items-center gap-1">
-                        <AttachedContextBar />
-                        <ComposerAttachments attachmentsKey={attachmentsKey} dropTargetRef={frameRef} />
-                    </Composer.Header>
-                    <ComposerCommandMenu commands={slashCommands}>
-                        <Composer.Field>
-                            <Composer.Placeholder>
-                                {isTerminal
-                                    ? 'Send a message to start a new run, or type / for commands…'
-                                    : 'Send a follow-up message, or type / for commands…'}
-                            </Composer.Placeholder>
-                            <Composer.Textarea
-                                data-attr="sandbox-composer-input"
-                                autoFocus={autoFocus}
-                                onPaste={onPaste}
-                            />
-                        </Composer.Field>
-                    </ComposerCommandMenu>
-                    <Composer.Footer className="flex flex-wrap items-center gap-1 pl-2">
-                        <fieldset
-                            disabled={!controlsReady}
-                            className="flex flex-wrap items-center gap-1 border-0 p-0 m-0 min-w-0"
-                        >
-                            {/* Mode + model/effort pickers: selection lives in the bound runInteractionLogic and is
-                            applied when the message is sent — synced to the running agent on a follow-up,
-                            or used to seed the next run once terminal. */}
-                            <ComposerModePicker
-                                selectedMode={selectedMode}
-                                onModeChange={setMode}
-                                modes={getModesForRuntimeAdapter(composerAdapter)}
-                            />
-                            {codexBillingEnabled ? (
-                                <ComposerCodexBillingPickers
-                                    {...modelPickerProps}
-                                    lockedCodexModelAccess={
-                                        isTerminal
-                                            ? null
-                                            : (logicProps.currentCodexModelAccess ?? ModelAccessEnumApi.PosthogGateway)
-                                    }
-                                />
-                            ) : (
-                                <ComposerModelEffortPickers {...modelPickerProps} />
-                            )}
-                        </fieldset>
-                        <div className="ml-auto">
-                            <ContextUsageChip />
-                        </div>
-                    </Composer.Footer>
-                </Composer.Frame>
-                <AIConsentPopoverWrapper
-                    placement="top-end"
-                    showArrow
-                    ignoreDismissal
-                    hidden={!consentBlocked}
-                    // A draft may be a slash command, so it resubmits through the command path rather than
-                    // straight to the agent. Queue and steer have no command form and go back as they were.
-                    onApprove={() => {
-                        if (consentBlockedSource === 'draft') {
-                            clearConsentBlock()
-                            submitComposer()
-                        } else {
-                            submitAfterConsent()
+                {skin === 'quill' ? (
+                    <QuillComposerLayout
+                        groupRef={groupRef}
+                        textAreaRef={textAreaRef}
+                        chips={
+                            <>
+                                <AttachedContextChips />
+                                <ComposerAttachmentChips attachmentsKey={attachmentsKey} />
+                            </>
                         }
                         field={field}
                         send={withConsent(<QuillComposerSendButton data-attr="sandbox-composer-send" />)}
