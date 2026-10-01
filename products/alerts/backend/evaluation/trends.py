@@ -33,7 +33,7 @@ from products.alerts.backend.evaluation.contract import (
     lookback_intervals_for,
     zero_sentinel_series,
 )
-from products.alerts.backend.evaluation.delay import DelayedEvaluationUnavailable, apply_evaluation_delay
+from products.alerts.backend.evaluation.delay import apply_evaluation_delay
 from products.alerts.backend.evaluation.formatting import make_trends_value_formatter
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.facade.models import Insight
@@ -197,12 +197,12 @@ class TrendsExtractor:
         if calculation_result.result is None:
             raise RuntimeError(f"No results found for insight with alert id = {alert.id}")
         if not calculation_result.result:
-            if alert.evaluation_delay_intervals:
-                raise DelayedEvaluationUnavailable("No completed intervals are available after the evaluation delay.")
+            # The window includes the delayed interval, so no rows still means that interval is zero.
             return ExtractionResult(
                 series=[zero_sentinel_series()],
                 is_breakdown=has_breakdown,
                 interval_type=interval_type,
+                framed=not alert.evaluation_delay_intervals,
                 empty_query_result=True,
                 value_formatter=value_formatter,
             )

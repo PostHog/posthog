@@ -114,6 +114,17 @@ class TestEvaluationDelay(SimpleTestCase):
         self.assertFalse(result.breaches)
         self.assertIn("Not enough completed intervals", result.skipped_reason)
 
+    def test_empty_breakdown_result_breaches_as_zero(self) -> None:
+        self.query["breakdownFilter"] = {"breakdown": "$browser", "breakdown_type": "event"}
+        with patch("products.alerts.backend.evaluation.trends.calculate_for_query_based_insight") as calculate:
+            calculate.return_value.result = []
+            result = check_alert_for_insight(self.alert)
+        self.assertIsNone(result.skipped_reason)
+        self.assertEqual(result.value, 0)
+        self.assertEqual(len(result.breaches), 1)
+        self.assertIn("less than lower threshold", result.breaches[0])
+        self.assertNotIn("previous hour", result.breaches[0])
+
     @parameterized.expand([(False,), (True,)])
     def test_missing_eligible_value_is_skipped(self, detector: bool) -> None:
         self.alert.detector_config = {"type": "zscore", "window": 30} if detector else None
