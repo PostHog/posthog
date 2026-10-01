@@ -153,8 +153,11 @@ tools:
     inbox-report-checks-replace:
         operation: signals_report_checks_replace_create
         enabled: true
+        feature_flag: signals-report-checks-replace
+        feature_flag_behavior: enable
         scopes:
             - task:write
+            - query:read
         annotations:
             readOnly: false
             destructive: true
@@ -165,7 +168,8 @@ tools:
             report first. Supply a bounded live Trends query or a report metric ID, an explicit comparison, and a
             measured baseline. The old check stays live if the replacement fails validation. A successful replacement
             starts unapproved and is scheduled independently of human approval. Do not use this to change an agent
-            check.
+            check. The measurement also requires event_definition:read for event series, action:read for action
+            series, and cohort:read for cohort filters when present.
     inbox-report-checks-retrieve:
         operation: signals_report_checks_retrieve
         enabled: true

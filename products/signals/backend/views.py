@@ -4894,7 +4894,7 @@ class SignalReportCheckViewSet(
         description="Atomically replace an open metric check. The old check stays live if the new one is invalid.",
         operation_id="signals_report_checks_replace_create",
     )
-    @action(detail=True, methods=["post"], url_path="replace", required_scopes=["task:write"])
+    @action(detail=True, methods=["post"], url_path="replace", required_scopes=["task:write", "query:read"])
     def replace(self, request: ValidatedRequest, *args, **kwargs) -> Response:
         check = cast(SignalReportCheck, self.get_object())
         data = request.validated_data
