@@ -126,6 +126,14 @@ jobs:
                       echo 'rust_affected=true' >> "$GITHUB_OUTPUT"
                   fi
 
+                  if printf '%s\n' "$changed" | grep -qxE 'pnpm-lock\.yaml|pnpm-workspace\.yaml'; then
+                      if ! git show "$merge_base:pnpm-lock.yaml" > "$RUNNER_TEMP/pnpm-lock.base.yaml" \
+                          || ! git show "$merge_base:pnpm-workspace.yaml" > "$RUNNER_TEMP/pnpm-workspace.base.yaml"; then
+                          echo "::warning::Could not read the base JS lockfile; a lockfile change claims node:ingestion."
+                          rm -f "$RUNNER_TEMP/pnpm-lock.base.yaml" "$RUNNER_TEMP/pnpm-workspace.base.yaml"
+                      fi
+                  fi
+
             # The determinator that ci-rust.yml selects tests with is the sole
             # authority on which crates a change set affects, because the lane
             # script holds no crate dependency edges of its own, so the two
@@ -173,6 +181,11 @@ jobs:
                   if [ "$RESOLVED" != "true" ]; then
                       echo 'targets={"impactedTargets":"ALL"}' >> "$GITHUB_OUTPUT"
                       exit 0
+                  fi
+
+                  if [ -s "$RUNNER_TEMP/pnpm-lock.base.yaml" ] && [ -s "$RUNNER_TEMP/pnpm-workspace.base.yaml" ]; then
+                      export PNPM_LOCKFILE_BASE="$RUNNER_TEMP/pnpm-lock.base.yaml"
+                      export PNPM_WORKSPACE_BASE="$RUNNER_TEMP/pnpm-workspace.base.yaml"
                   fi
 
                   # The script prints a JSON array on stdout, or the JSON string "ALL" when it

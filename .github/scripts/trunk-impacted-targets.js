@@ -158,6 +158,7 @@ const CARGO_LOCK = 'cargo-lock'
 // this lane already. The rust and proto rules also use it to name that lane
 // without dragging in the frontend.
 const NODE = 'node'
+const JS_LOCKFILE = 'js-lockfile'
 
 // Suites that run the backend and the frontend together: E2E, Hog, and the
 // builds of the images those suites run inside. Both language families in
@@ -560,8 +561,8 @@ const TRIPWIRE_RULES = [
     // PR, and the shape that reaches a python lane is lockfile drift against a
     // workspace package.json, which needs both PRs to edit pnpm-lock.yaml and
     // so surfaces as a textual conflict git forces a rebase for.
-    ['pnpm-lock.yaml', JAVASCRIPT],
-    ['pnpm-workspace.yaml', JAVASCRIPT],
+    ['pnpm-lock.yaml', JS_LOCKFILE],
+    ['pnpm-workspace.yaml', JS_LOCKFILE],
     ['package.json', JAVASCRIPT],
     // The python lockfile and manifests, on the same reasoning. Every section
     // of pyproject.toml configures a python tool, and nothing in the pnpm
@@ -1518,6 +1519,14 @@ const RUST_DETERMINATOR = 'rust:determinator'
 // it sits in this same lane.
 const NATIVE_BINDING_CONSUMER_LANES = ['node:ingestion']
 
+const NODE_INGESTION = 'node:ingestion'
+const NODE_RASTERIZER = 'node:recording-rasterizer'
+const RASTERIZER_DIR = 'nodejs/src/session-replay/recording-rasterizer'
+const RASTERIZER_ONLY_PACKAGE = '@posthog/replay-headless'
+const RASTERIZER_ONLY_IMPORTERS = new Set(['common/replay-headless'])
+const RASTERIZER_COMMON_PACKAGES = ['replay-headless', 'replay-shared']
+const NODE_IMPORTERS = ['nodejs', 'nodejs/src/scripts']
+
 // Every target this script can emit. A widening decision names this set instead
 // of the "ALL" sentinel, so the set intersection Trunk computes is unchanged
 // while the target list stays readable: the telemetry can show which lanes a
@@ -1539,7 +1548,8 @@ function allKnownTargets(context) {
     const targets = new Set([
         'py:core',
         'fe:core',
-        'node:ingestion',
+        NODE_INGESTION,
+        NODE_RASTERIZER,
         'agents',
         'deploy',
         'hobby',
@@ -1605,7 +1615,8 @@ function addJavaScriptLanes(targets, context) {
     }
     // The pnpm workspace spans frontend, nodejs, services, tools, and products,
     // and ci-cli.yml builds the CLI from services/mcp sources.
-    targets.add('node:ingestion')
+    targets.add(NODE_INGESTION)
+    targets.add(NODE_RASTERIZER)
     for (const service of context.services) {
         targets.add(`svc:${service}`)
     }
@@ -1669,8 +1680,37 @@ function addCargoLockLanes(targets, context) {
 }
 
 function addNodeLanes(targets) {
-    targets.add('node:ingestion')
+    targets.add(NODE_INGESTION)
+    targets.add(NODE_RASTERIZER)
     return true
+}
+
+function addJsLockfileLanes(targets, context) {
+    const lanes = new Set()
+    if (!addJavaScriptLanes(lanes, context)) {
+        return false
+    }
+    if (context.jsLockfileReachesNodeIngestion === false) {
+        lanes.delete(NODE_INGESTION)
+    }
+    for (const lane of lanes) {
+        targets.add(lane)
+    }
+    return true
+}
+
+function nodeSourceLanes(file, context) {
+    const boundary = context.rasterizerBoundary
+    if (!boundary) {
+        return [NODE_INGESTION, NODE_RASTERIZER]
+    }
+    if (file.startsWith(`${RASTERIZER_DIR}/`)) {
+        return [NODE_RASTERIZER]
+    }
+    const deleted = context.deletedFiles && context.deletedFiles.has(file)
+    const shared =
+        !file.startsWith(`${NODE_SOURCE_ROOT}/`) || file.endsWith('.d.ts') || deleted || boundary.imports.has(file)
+    return shared ? [NODE_INGESTION, NODE_RASTERIZER] : [NODE_INGESTION]
 }
 
 function addFullstackLanes(targets, context) {
@@ -1816,6 +1856,7 @@ function addProtoLanes(targets, context, file) {
 const DOMAIN_LANES = new Map([
     [PYTHON, addPythonLanes],
     [JAVASCRIPT, addJavaScriptLanes],
+    [JS_LOCKFILE, addJsLockfileLanes],
     [RUST, addRustLanes],
     [CARGO_LOCK, addCargoLockLanes],
     [NODE, addNodeLanes],
@@ -1990,7 +2031,9 @@ function computeTargets(changedFiles, context) {
             continue
         }
         if (top === 'nodejs') {
-            targets.add('node:ingestion')
+            for (const lane of nodeSourceLanes(file, context)) {
+                targets.add(lane)
+            }
             continue
         }
         if (top === 'services' && segments.length > 1) {
@@ -2039,6 +2082,9 @@ function computeTargets(changedFiles, context) {
             }
             if (COMMON_FRONTEND.includes(segments[1])) {
                 allFeProducts()
+                if (RASTERIZER_COMMON_PACKAGES.includes(segments[1])) {
+                    targets.add(NODE_RASTERIZER)
+                }
                 continue
             }
             // A file at the root of common/ is the tree's own package marker,
@@ -2327,13 +2373,395 @@ function parseRustAffectedCrates(raw, rustInventory) {
     return crates
 }
 
+const NODE_SOURCE_ROOT = 'nodejs/src'
+const NODE_IMPORT_PATTERNS = [
+    /\bfrom\s*['"]([^'"]+)['"]/g,
+    /\bimport\s*['"]([^'"]+)['"]/g,
+    /\bimport\(\s*['"]([^'"]+)['"]\s*\)/g,
+    /\brequire\(\s*['"]([^'"]+)['"]\s*\)/g,
+    /\bjest\.(?:mock|requireActual)\(\s*['"]([^'"]+)['"]/g,
+]
+const NODE_RESOLVE_SUFFIXES = ['', '.ts', '.tsx', '.js', '.json', '.d.ts', '/index.ts', '/index.tsx', '/index.js']
+const NODE_SOURCE_EXTENSIONS = /\.(ts|tsx|js|mjs|cjs)$/
+
+function nodeImportSpecifiers(text) {
+    const specifiers = []
+    for (const pattern of NODE_IMPORT_PATTERNS) {
+        for (const match of text.matchAll(pattern)) {
+            specifiers.push(match[1])
+        }
+    }
+    return specifiers
+}
+
+function nodeImportBase(fromFile, specifier) {
+    if (specifier.startsWith('~/tests/')) {
+        return `nodejs/tests/${specifier.slice('~/tests/'.length)}`
+    }
+    if (specifier.startsWith('~/')) {
+        return `${NODE_SOURCE_ROOT}/${specifier.slice(2)}`
+    }
+    if (specifier.startsWith('.')) {
+        return path.posix.normalize(path.posix.join(path.posix.dirname(fromFile), specifier))
+    }
+    return undefined
+}
+
+function resolveNodeImport(repoRoot, fromFile, specifier) {
+    const base = nodeImportBase(fromFile, specifier)
+    if (base === undefined) {
+        return undefined
+    }
+    const stems = base.endsWith('.js') ? [base, base.slice(0, -3)] : [base]
+    for (const stem of stems) {
+        for (const suffix of NODE_RESOLVE_SUFFIXES) {
+            const candidate = `${stem}${suffix}`
+            const absolute = path.join(repoRoot, candidate)
+            if (fs.existsSync(absolute) && fs.statSync(absolute).isFile()) {
+                return candidate
+            }
+        }
+    }
+    return null
+}
+
+function listFilesUnder(repoRoot, relativeDir) {
+    const files = []
+    const walk = (dir) => {
+        for (const entry of fs.readdirSync(path.join(repoRoot, dir), { withFileTypes: true })) {
+            const child = `${dir}/${entry.name}`
+            if (entry.isDirectory()) {
+                if (entry.name !== 'node_modules') {
+                    walk(child)
+                }
+            } else if (NODE_SOURCE_EXTENSIONS.test(entry.name)) {
+                files.push(child)
+            }
+        }
+    }
+    walk(relativeDir)
+    return files
+}
+
+function loadRasterizerBoundary(repoRoot) {
+    if (!fs.existsSync(path.join(repoRoot, RASTERIZER_DIR))) {
+        return null
+    }
+    try {
+        const insideRasterizer = (file) => file.startsWith(`${RASTERIZER_DIR}/`)
+        const imports = new Set()
+        const visited = new Set()
+        const queue = listFilesUnder(repoRoot, RASTERIZER_DIR)
+        while (queue.length > 0) {
+            const file = queue.pop()
+            if (visited.has(file)) {
+                continue
+            }
+            visited.add(file)
+            if (!insideRasterizer(file)) {
+                imports.add(file)
+            }
+            if (!NODE_SOURCE_EXTENSIONS.test(file)) {
+                continue
+            }
+            for (const specifier of nodeImportSpecifiers(fs.readFileSync(path.join(repoRoot, file), 'utf8'))) {
+                const resolved = resolveNodeImport(repoRoot, file, specifier)
+                if (resolved === null && insideRasterizer(nodeImportBase(file, specifier))) {
+                    continue
+                }
+                if (resolved === null) {
+                    console.error(`Could not resolve ${specifier} from ${file}; the rasterizer lane stays merged`)
+                    return null
+                }
+                if (resolved !== undefined) {
+                    queue.push(resolved)
+                }
+            }
+        }
+        let headlessOnlyInRasterizer = true
+        for (const dir of [NODE_SOURCE_ROOT, 'nodejs/tests']) {
+            if (!fs.existsSync(path.join(repoRoot, dir))) {
+                continue
+            }
+            for (const file of listFilesUnder(repoRoot, dir)) {
+                if (insideRasterizer(file)) {
+                    continue
+                }
+                for (const specifier of nodeImportSpecifiers(fs.readFileSync(path.join(repoRoot, file), 'utf8'))) {
+                    if (specifier.startsWith(RASTERIZER_ONLY_PACKAGE)) {
+                        headlessOnlyInRasterizer = false
+                    }
+                    const resolved = resolveNodeImport(repoRoot, file, specifier)
+                    if (resolved && insideRasterizer(resolved)) {
+                        console.error(`${file} imports the rasterizer; the rasterizer lane stays merged`)
+                        return null
+                    }
+                }
+            }
+        }
+        return { imports, headlessOnlyInRasterizer }
+    } catch (error) {
+        console.error(`Could not map the rasterizer's imports (${error.message}); the rasterizer lane stays merged`)
+        return null
+    }
+}
+
+function unquoteYamlKey(key) {
+    return key.replace(/^(['"])(.*)\1$/, '$2')
+}
+
+function parsePnpmLockfile(text) {
+    const sections = new Map()
+    let section = null
+    let entry = null
+    for (const line of text.split('\n')) {
+        if (!line.trim()) {
+            continue
+        }
+        const top = line.match(/^([^\s#][^:]*):\s*(.*)$/)
+        if (top) {
+            section = { scalar: top[2], entries: new Map() }
+            sections.set(top[1], section)
+            entry = null
+            continue
+        }
+        if (!section) {
+            return null
+        }
+        const key = line.match(/^ {2}('[^']*'|"[^"]*"|[^\s'"].*?):(?:\s+(.*))?$/)
+        if (key) {
+            entry = { lines: key[2] ? [key[2].trim()] : [] }
+            section.entries.set(unquoteYamlKey(key[1]), entry)
+            continue
+        }
+        if (entry) {
+            entry.lines.push(line)
+        } else {
+            section.entries.set(line, { lines: [] })
+        }
+    }
+    return sections
+}
+
+function importerDependencies(entry) {
+    const dependencies = []
+    let name = null
+    for (const line of entry.lines) {
+        const dependency = line.match(/^ {6}(\S.*?):\s*$/)
+        if (dependency) {
+            name = unquoteYamlKey(dependency[1])
+            continue
+        }
+        const version = line.match(/^ {8}version:\s*(.+)$/)
+        if (version && name) {
+            dependencies.push({ name, version: unquoteYamlKey(version[1].trim()) })
+            name = null
+        }
+    }
+    return dependencies
+}
+
+function snapshotDependencies(entry) {
+    const dependencies = []
+    let group = null
+    for (const line of entry.lines) {
+        const header = line.match(/^ {4}(\S+):\s*$/)
+        if (header) {
+            group = header[1]
+            continue
+        }
+        const dependency = line.match(/^ {6}(\S.*?):\s*(.+)$/)
+        if (dependency && (group === 'dependencies' || group === 'optionalDependencies')) {
+            dependencies.push({ name: unquoteYamlKey(dependency[1]), version: unquoteYamlKey(dependency[2].trim()) })
+        }
+    }
+    return dependencies
+}
+
+function snapshotKey(name, version) {
+    const atIndex = version.indexOf('@', 1)
+    const parenIndex = version.indexOf('(')
+    const isAlias = atIndex > 0 && (parenIndex === -1 || atIndex < parenIndex)
+    return isAlias ? version : `${name}@${version}`
+}
+
+const PNPM_LOCK_RESOLUTION_SECTIONS = new Set(['importers', 'packages', 'snapshots', 'catalogs'])
+
+function nodeResolutionFingerprint(lockfile, excludedImporters, isWorkspaceMember) {
+    const importers = lockfile.get('importers')
+    const snapshots = lockfile.get('snapshots')
+    const packages = lockfile.get('packages')
+    if (!importers || !snapshots || !packages) {
+        return null
+    }
+    if (!importers.entries.has(NODE_IMPORTERS[0])) {
+        console.error(`The lockfile has no importer ${NODE_IMPORTERS[0]}; a JS lockfile change claims node:ingestion`)
+        return null
+    }
+    const fingerprint = new Map()
+    const pendingImporters = NODE_IMPORTERS.filter((importer) => importers.entries.has(importer))
+    const pendingSnapshots = []
+    const seenImporters = new Set()
+    while (pendingImporters.length > 0) {
+        const importer = pendingImporters.pop()
+        if (seenImporters.has(importer) || excludedImporters.has(importer)) {
+            continue
+        }
+        seenImporters.add(importer)
+        const entry = importers.entries.get(importer)
+        if (!entry) {
+            if (!isWorkspaceMember(importer)) {
+                console.error(
+                    `The lockfile links ${importer}, which no workspace glob names; a JS lockfile change claims node:ingestion`
+                )
+                return null
+            }
+            fingerprint.set(`importer:${importer}`, '')
+            continue
+        }
+        fingerprint.set(`importer:${importer}`, entry.lines.join('\n'))
+        for (const { name, version } of importerDependencies(entry)) {
+            if (version.startsWith('link:')) {
+                pendingImporters.push(path.posix.normalize(path.posix.join(importer, version.slice('link:'.length))))
+            } else {
+                pendingSnapshots.push(snapshotKey(name, version))
+            }
+        }
+    }
+    const seenSnapshots = new Set()
+    while (pendingSnapshots.length > 0) {
+        const key = pendingSnapshots.pop()
+        if (seenSnapshots.has(key)) {
+            continue
+        }
+        seenSnapshots.add(key)
+        const snapshot = snapshots.entries.get(key)
+        const packageKey = key.includes('(', 1) ? key.slice(0, key.indexOf('(', 1)) : key
+        const packageEntry = packages.entries.get(packageKey)
+        if (!snapshot || !packageEntry) {
+            console.error(`The lockfile has no entry for ${key}; a JS lockfile change claims node:ingestion`)
+            return null
+        }
+        fingerprint.set(`snapshot:${key}`, `${snapshot.lines.join('\n')}\n${packageEntry.lines.join('\n')}`)
+        for (const { name, version } of snapshotDependencies(snapshot)) {
+            if (!version.startsWith('link:')) {
+                pendingSnapshots.push(snapshotKey(name, version))
+            }
+        }
+    }
+    return fingerprint
+}
+
+function nonResolutionSections(lockfile) {
+    return JSON.stringify(
+        [...lockfile.entries()]
+            .filter(([name]) => !PNPM_LOCK_RESOLUTION_SECTIONS.has(name))
+            .map(([name, section]) => [
+                name,
+                section.scalar,
+                [...section.entries.entries()].map(([key, entry]) => [key, entry.lines]),
+            ])
+    )
+}
+
+function workspaceWithoutCatalogs(text) {
+    const kept = []
+    let inCatalog = false
+    for (const line of text.split('\n')) {
+        if (/^\S/.test(line)) {
+            inCatalog = /^catalogs?:/.test(line)
+        }
+        if (!inCatalog && line.trim() && !line.trim().startsWith('#')) {
+            kept.push(line.trimEnd())
+        }
+    }
+    return kept.join('\n')
+}
+
+function sameFingerprint(left, right) {
+    if (left.size !== right.size) {
+        return false
+    }
+    for (const [key, value] of left) {
+        if (right.get(key) !== value) {
+            return false
+        }
+    }
+    return true
+}
+
+function jsLockfileReachesNodeIngestion({
+    baseLockfile,
+    headLockfile,
+    baseWorkspace,
+    headWorkspace,
+    rasterizerBoundary,
+}) {
+    if (baseLockfile == null || headLockfile == null || baseWorkspace == null || headWorkspace == null) {
+        return null
+    }
+    if (workspaceWithoutCatalogs(baseWorkspace) !== workspaceWithoutCatalogs(headWorkspace)) {
+        return true
+    }
+    const base = parsePnpmLockfile(baseLockfile)
+    const head = parsePnpmLockfile(headLockfile)
+    if (!base || !head) {
+        return null
+    }
+    if (nonResolutionSections(base) !== nonResolutionSections(head)) {
+        return true
+    }
+    const excluded =
+        rasterizerBoundary && rasterizerBoundary.headlessOnlyInRasterizer ? RASTERIZER_ONLY_IMPORTERS : new Set()
+    const memberOf = (workspace) => {
+        const matcher = compileWorkspaceMatcher(parseWorkspacePackageGlobs(workspace))
+        return (importer) => Boolean(matcher) && matcher(`${importer}/package.json`)
+    }
+    const baseFingerprint = nodeResolutionFingerprint(base, excluded, memberOf(baseWorkspace))
+    const headFingerprint = nodeResolutionFingerprint(head, excluded, memberOf(headWorkspace))
+    if (!baseFingerprint || !headFingerprint) {
+        return null
+    }
+    return !sameFingerprint(baseFingerprint, headFingerprint)
+}
+
+const PNPM_LOCKFILE_BASE_ENV = 'PNPM_LOCKFILE_BASE'
+const PNPM_WORKSPACE_BASE_ENV = 'PNPM_WORKSPACE_BASE'
+
+function readOptional(file) {
+    try {
+        return file ? fs.readFileSync(file, 'utf8') : null
+    } catch (error) {
+        console.error(`Could not read ${file} (${error.message}); a JS lockfile change claims node:ingestion`)
+        return null
+    }
+}
+
+function loadJsLockfileReach(repoRoot, rasterizerBoundary) {
+    const baseLockfile = readOptional(process.env[PNPM_LOCKFILE_BASE_ENV])
+    const baseWorkspace = readOptional(process.env[PNPM_WORKSPACE_BASE_ENV])
+    if (baseLockfile === null || baseWorkspace === null) {
+        return null
+    }
+    return jsLockfileReachesNodeIngestion({
+        baseLockfile,
+        baseWorkspace,
+        headLockfile: readOptional(path.join(repoRoot, 'pnpm-lock.yaml')),
+        headWorkspace: readOptional(path.join(repoRoot, 'pnpm-workspace.yaml')),
+        rasterizerBoundary,
+    })
+}
+
 function buildContext(repoRoot) {
     const products = listProducts(repoRoot)
     const tachGraph = loadTachGraph(repoRoot)
     const rustInventory = loadRustInventory(repoRoot)
     const contractSurfaces = loadContractSurfaces(repoRoot, products)
+    const rasterizerBoundary = loadRasterizerBoundary(repoRoot)
     return {
         products,
+        rasterizerBoundary,
+        jsLockfileReachesNodeIngestion: loadJsLockfileReach(repoRoot, rasterizerBoundary),
         rustAffectedCrates: parseRustAffectedCrates(process.env[RUST_AFFECTED_CRATES_ENV], rustInventory),
         services: listServices(repoRoot),
         isolatedProducts: listIsolatedProducts(repoRoot, products, contractSurfaces),
@@ -2349,6 +2777,10 @@ function buildContext(repoRoot) {
 
 module.exports = {
     computeTargets,
+    jsLockfileReachesNodeIngestion,
+    loadRasterizerBoundary,
+    NODE_RASTERIZER,
+    RASTERIZER_DIR,
     allKnownTargets,
     buildContext,
     compileContractMatcher,

@@ -16,6 +16,9 @@ const path = require('node:path')
 
 const {
     computeTargets,
+    jsLockfileReachesNodeIngestion,
+    NODE_RASTERIZER,
+    RASTERIZER_DIR,
     allKnownTargets,
     buildContext,
     parseRustAffectedCrates,
@@ -824,8 +827,204 @@ test('the ml-mirror sidecar image and its workflow stay on the node lane', () =>
         '.github/workflows/ci-ml-mirror-image-scrub-container.yml',
         'Dockerfile.ml-mirror-image-scrub',
     ]) {
-        assert.deepEqual(computeTargets([file], CONTEXT), ['node:ingestion'], file)
+        assert.deepEqual(computeTargets([file], CONTEXT), ['node:ingestion', NODE_RASTERIZER], file)
     }
+})
+
+const RASTERIZER_CONTEXT = {
+    ...CONTEXT,
+    rasterizerBoundary: { imports: new Set(['nodejs/src/common/utils/request.ts']), headlessOnlyInRasterizer: true },
+}
+
+test('the rasterizer holds its own node lane, and what it imports claims both', () => {
+    const cases = [
+        [`${RASTERIZER_DIR}/capture/player.ts`, RASTERIZER_CONTEXT, [NODE_RASTERIZER]],
+        ['nodejs/src/ingestion/pipelines/step.ts', RASTERIZER_CONTEXT, ['node:ingestion']],
+        ['nodejs/src/common/utils/request.ts', RASTERIZER_CONTEXT, ['node:ingestion', NODE_RASTERIZER]],
+        ['nodejs/src/types/ambient.d.ts', RASTERIZER_CONTEXT, ['node:ingestion', NODE_RASTERIZER]],
+        ['nodejs/package.json', RASTERIZER_CONTEXT, ['node:ingestion', NODE_RASTERIZER]],
+        ['nodejs/tests/helpers/kafka.ts', RASTERIZER_CONTEXT, ['node:ingestion', NODE_RASTERIZER]],
+        ['nodejs/src/ingestion/pipelines/step.ts', CONTEXT, ['node:ingestion', NODE_RASTERIZER]],
+        [`${RASTERIZER_DIR}/capture/player.ts`, CONTEXT, ['node:ingestion', NODE_RASTERIZER]],
+    ]
+    for (const [file, context, expected] of cases) {
+        assert.deepEqual(computeTargets([file], context), expected, file)
+    }
+    const deleted = 'nodejs/src/common/utils/gone.ts'
+    assert.deepEqual(computeTargets([deleted], { ...RASTERIZER_CONTEXT, deletedFiles: new Set([deleted]) }), [
+        'node:ingestion',
+        NODE_RASTERIZER,
+    ])
+    assert.equal(computeTargets(['common/replay-headless/src/player.ts'], CONTEXT).includes(NODE_RASTERIZER), true)
+    assert.equal(computeTargets(['common/replay-shared/src/index.ts'], CONTEXT).includes(NODE_RASTERIZER), true)
+})
+
+test('a JS lockfile change drops node:ingestion only when the lockfile says nodejs did not move', () => {
+    for (const file of ['pnpm-lock.yaml', 'pnpm-workspace.yaml']) {
+        const unreached = computeTargets([file], { ...RASTERIZER_CONTEXT, jsLockfileReachesNodeIngestion: false })
+        assert.equal(unreached.includes('node:ingestion'), false, file)
+        assert.equal(unreached.includes(NODE_RASTERIZER), true, file)
+        assert.equal(unreached.includes('fe:core'), true, file)
+        for (const answer of [true, null, undefined]) {
+            const reached = computeTargets([file], { ...RASTERIZER_CONTEXT, jsLockfileReachesNodeIngestion: answer })
+            assert.equal(reached.includes('node:ingestion'), true, `${file} ${answer}`)
+        }
+    }
+    const withNodeCode = computeTargets(['nodejs/src/ingestion/pipelines/step.ts', 'pnpm-lock.yaml'], {
+        ...RASTERIZER_CONTEXT,
+        jsLockfileReachesNodeIngestion: false,
+    })
+    assert.equal(withNodeCode.includes('node:ingestion'), true)
+    assert.equal(
+        computeTargets(['package.json'], { ...RASTERIZER_CONTEXT, jsLockfileReachesNodeIngestion: false }).includes(
+            'node:ingestion'
+        ),
+        true
+    )
+})
+
+function lockfile({ nodeDeps, headlessDeps = '', snapshots, packages, overrides = '' }) {
+    return [
+        "lockfileVersion: '9.0'",
+        '',
+        'settings:',
+        '  autoInstallPeers: true',
+        '',
+        overrides,
+        'importers:',
+        '',
+        '  nodejs:',
+        '    dependencies:',
+        "      '@posthog/replay-headless':",
+        '        specifier: workspace:*',
+        '        version: link:../common/replay-headless',
+        '      tiny-lib:',
+        '        specifier: link:../packages/tiny-lib',
+        '        version: link:../packages/tiny-lib',
+        nodeDeps,
+        '',
+        '  common/replay-headless:',
+        '    dependencies:',
+        headlessDeps,
+        '',
+        'packages:',
+        '',
+        packages,
+        '',
+        'snapshots:',
+        '',
+        snapshots,
+        '',
+    ].join('\n')
+}
+
+const NODE_DEP = ['      kafka-client:', '        specifier: ^2.0.0', '        version: 2.0.0'].join('\n')
+const headlessDep = (version) =>
+    ['      browser-sdk:', '        specifier: catalog:', `        version: ${version}`].join('\n')
+const packagesFor = (sdk, shim) =>
+    [
+        `  browser-sdk@${sdk}:`,
+        `    resolution: {integrity: sha512-sdk${sdk}}`,
+        '',
+        '  kafka-client@2.0.0:',
+        '    resolution: {integrity: sha512-kafka}',
+        '',
+        `  shim@${shim}:`,
+        `    resolution: {integrity: sha512-shim${shim}}`,
+    ].join('\n')
+const snapshotsFor = (sdk, shim) =>
+    [
+        `  browser-sdk@${sdk}: {}`,
+        '',
+        '  kafka-client@2.0.0:',
+        '    dependencies:',
+        `      shim: ${shim}`,
+        '',
+        `  shim@${shim}: {}`,
+    ].join('\n')
+const WORKSPACE = [
+    'packages:',
+    '    - nodejs',
+    '    - common/*',
+    '    - packages/*',
+    'catalog:',
+    '    browser-sdk: ^1.0.0',
+].join('\n')
+
+test('the lockfile comparison follows what nodejs resolves, not what the lockfile touched', () => {
+    const base = lockfile({
+        nodeDeps: NODE_DEP,
+        headlessDeps: headlessDep('1.0.0'),
+        snapshots: snapshotsFor('1.0.0', '1.0.0'),
+        packages: packagesFor('1.0.0', '1.0.0'),
+    })
+    const headlessBump = lockfile({
+        nodeDeps: NODE_DEP,
+        headlessDeps: headlessDep('1.0.1'),
+        snapshots: snapshotsFor('1.0.1', '1.0.0'),
+        packages: packagesFor('1.0.1', '1.0.0'),
+    })
+    const transitiveBump = lockfile({
+        nodeDeps: NODE_DEP,
+        headlessDeps: headlessDep('1.0.0'),
+        snapshots: snapshotsFor('1.0.0', '1.0.1'),
+        packages: packagesFor('1.0.0', '1.0.1'),
+    })
+    const overridden = lockfile({
+        nodeDeps: NODE_DEP,
+        headlessDeps: headlessDep('1.0.0'),
+        snapshots: snapshotsFor('1.0.0', '1.0.0'),
+        packages: packagesFor('1.0.0', '1.0.0'),
+        overrides: 'overrides:\n  shim: 1.0.0\n',
+    })
+    const dangling = base.replace('  shim@1.0.0: {}', '')
+    const boundary = { imports: new Set(), headlessOnlyInRasterizer: true }
+    const cases = [
+        ['an unchanged lockfile', base, WORKSPACE, boundary, false],
+        ['a bump only replay-headless resolves', headlessBump, WORKSPACE, boundary, false],
+        [
+            'the same bump once nodejs imports replay-headless directly',
+            headlessBump,
+            WORKSPACE,
+            { ...boundary, headlessOnlyInRasterizer: false },
+            true,
+        ],
+        ['the same bump with no rasterizer boundary', headlessBump, WORKSPACE, null, true],
+        ['a transitive dependency of nodejs', transitiveBump, WORKSPACE, boundary, true],
+        ['a new override', overridden, WORKSPACE, boundary, true],
+        [
+            'a workspace change outside the catalog',
+            base,
+            WORKSPACE.replace('    - packages/*', '    - packages/*\n    - tools/*'),
+            boundary,
+            true,
+        ],
+        ['a catalog-only workspace change', base, WORKSPACE.replace('^1.0.0', '^1.0.1'), boundary, false],
+        ['a snapshot the walk cannot find', dangling, WORKSPACE, boundary, null],
+    ]
+    for (const [label, headLockfile, headWorkspace, rasterizerBoundary, expected] of cases) {
+        assert.equal(
+            jsLockfileReachesNodeIngestion({
+                baseLockfile: base,
+                headLockfile,
+                baseWorkspace: WORKSPACE,
+                headWorkspace,
+                rasterizerBoundary,
+            }),
+            expected,
+            label
+        )
+    }
+    assert.equal(
+        jsLockfileReachesNodeIngestion({
+            baseLockfile: null,
+            headLockfile: base,
+            baseWorkspace: WORKSPACE,
+            headWorkspace: WORKSPACE,
+            rasterizerBoundary: boundary,
+        }),
+        null
+    )
 })
 
 // Semgrep enforces the languages: declaration on every rule, so it is a sound
