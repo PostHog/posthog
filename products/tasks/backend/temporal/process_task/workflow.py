@@ -110,6 +110,7 @@ from .activities.run_wizard import RunWizardInput, run_wizard
 from .activities.send_followup_to_sandbox import (
     SEND_FOLLOWUP_MAX_ATTEMPTS,
     STEER_DECLINED_OUTCOME,
+    TURN_IN_FLIGHT_OUTCOME,
     SendFollowupToSandboxInput,
     send_followup_to_sandbox,
 )
@@ -3741,13 +3742,13 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 ),
             )
             # A delivered message opens a turn: the first heartbeat may lag or be throttled away.
-            # The delivery call can return after that turn's completion signal, in which case the
-            # signal already holds the newer state and must not be overwritten.
             if outcome != STEER_DECLINED_OUTCOME:
                 turn_opens_on_dispatch = _turn_opens_on_dispatch()
                 preserve_completion = _preserve_completion_during_delivery()
                 completion_arrived = self._turn_completion_signal_count != turn_completion_count
-                if turn_opens_on_dispatch and (not completion_arrived or not preserve_completion):
+                if turn_opens_on_dispatch and (
+                    outcome == TURN_IN_FLIGHT_OUTCOME or not completion_arrived or not preserve_completion
+                ):
                     self._end_of_turn_received = False
                     # The ingest plane never reports a turn active, only inactive at its close, so a
                     # stale `False` from the turn that just ended must not carry into this one — it
