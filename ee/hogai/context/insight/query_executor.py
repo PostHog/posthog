@@ -9,6 +9,7 @@ from django.conf import settings
 from django.core.serializers.json import DjangoJSONEncoder
 from django.utils import timezone
 
+import psycopg
 import structlog
 from asgiref.sync import async_to_sync
 from posthoganalytics import capture_exception
@@ -39,6 +40,8 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import (
     ExposedHogQLError,
     NotImplementedError as HogQLNotImplementedError,
+    QueryError,
+    SyntaxError as HogQLSyntaxError,
     TableAccessDeniedError,
 )
 
@@ -105,6 +108,43 @@ from .prompts import (
 logger = structlog.get_logger(__name__)
 
 TIMING_LOG_PREFIX = "[QUERY_EXECUTOR]"
+
+
+def _hogql_tool_error(error: ExposedHogQLError) -> MaxToolError:
+    cause: BaseException = error
+    seen: set[int] = set()
+    while type(cause) is ExposedHogQLError and cause.__cause__ is not None and id(cause) not in seen:
+        seen.add(id(cause))
+        cause = cause.__cause__
+
+    if isinstance(cause, TableAccessDeniedError):
+        return MaxToolFatalError(str(error), error_type="permission")
+    if isinstance(
+        cause,
+        (
+            psycopg.errors.ConnectionDoesNotExist,
+            psycopg.errors.ConnectionFailure,
+            psycopg.errors.ConnectionTimeout,
+            psycopg.errors.CannotConnectNow,
+        ),
+    ):
+        return MaxToolTransientError(str(error), error_type="api_5xx")
+    # User-safe errors can also describe outages; only known input errors should skip exception capture.
+    error_type: MaxToolErrorType = (
+        "validation"
+        if isinstance(
+            cause,
+            (
+                QueryError,
+                HogQLSyntaxError,
+                psycopg.errors.SyntaxError,
+                psycopg.errors.UndefinedColumn,
+                psycopg.errors.UndefinedTable,
+            ),
+        )
+        else "internal"
+    )
+    return MaxToolRetryableError(str(error), error_type=error_type)
 
 
 @frozen
@@ -469,9 +509,10 @@ class AssistantQueryExecutor:
                 "rate_limited" if classify_query_error(err) == QueryErrorCategory.RATE_LIMITED else "api_5xx"
             )
             raise MaxToolTransientError(str(err), error_type=error_type) from err
+        except ExposedHogQLError as err:
+            raise _hogql_tool_error(err) from err
         except (
             APIException,
-            ExposedHogQLError,
             HogQLNotImplementedError,
             ExposedCHQueryError,
         ) as err:

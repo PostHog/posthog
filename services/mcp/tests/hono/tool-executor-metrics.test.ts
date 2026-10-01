@@ -51,6 +51,7 @@ import {
     ToolInputValidationError,
     wrapError,
 } from '@/lib/errors'
+import { getPostHogClient } from '@/lib/posthog'
 import { URI_MAP } from '@/resources/ui-apps.generated'
 import { normalizeParamAliases } from '@/tools/cast-helpers'
 
@@ -109,10 +110,15 @@ describe('ToolExecutor metrics', () => {
         executor = new ToolExecutor(catalog, new InstructionsBuilder(''))
     })
 
-    afterEach(() => vi.unstubAllGlobals())
+    afterEach(() => {
+        vi.unstubAllGlobals()
+        vi.restoreAllMocks()
+    })
 
     it.each([
         { tool: 'execute-sql', useSingleExec: false, type: 'api_5xx' },
+        { tool: 'execute-sql', useSingleExec: false, type: 'internal' },
+        { tool: 'execute-sql', useSingleExec: true, type: 'internal' },
         { tool: 'execute-sql', useSingleExec: true, type: 'validation' },
         { tool: 'execute-sql', useSingleExec: false, type: 'memory_limit' },
         { tool: 'execute-sql', useSingleExec: true, type: 'memory_limit' },
@@ -121,6 +127,7 @@ describe('ToolExecutor metrics', () => {
     ])(
         'classifies backend result errors without capturing caller content: %j',
         async ({ tool, useSingleExec, type }) => {
+            const captureException = vi.spyOn(getPostHogClient(), 'captureException').mockImplementation(() => {})
             const tools = catalog
                 .getPreBuiltEntries()
                 .map((entry) => toolFromPreBuilt(catalog.getToolByName(entry.name)!, entry))
@@ -153,6 +160,7 @@ describe('ToolExecutor metrics', () => {
                 content: [{ type: 'text', text: `Error: [${tool}]: ${content}` }],
             })
             expect(mockToolErrorsInc).toHaveBeenCalledWith({ tool, error_type: type })
+            expect(captureException).toHaveBeenCalledTimes(['validation', 'permission'].includes(type) ? 0 : 1)
             const properties = trackToolCallExtras(tool)
             expect(properties).toMatchObject({ $mcp_error_type: type, $mcp_error_message: `Tool failed: ${type}` })
             expect(JSON.stringify(properties)).not.toContain('private caller query')

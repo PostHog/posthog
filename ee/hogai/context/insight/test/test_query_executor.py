@@ -377,6 +377,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
             ("validation", "Unknown field: missing_column", None),
             ("timeout", "Query timed out", "error"),
             ("memory_limit", "Query memory limit exceeded", "clickhouse_memory_limit_exceeded"),
+            ("warehouse_connection", "Warehouse connection failed", None),
         ]
     )
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")

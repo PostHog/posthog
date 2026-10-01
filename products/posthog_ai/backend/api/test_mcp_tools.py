@@ -5,12 +5,20 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from django.db import OperationalError
 
+import psycopg
 from parameterized import parameterized
 from psycopg.errors import QueryCanceled
 from rest_framework import status
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 
 from posthog.schema import CachedTeamTaxonomyQueryResponse
+
+from posthog.hogql.errors import (
+    ExposedHogQLError,
+    QueryError,
+    SyntaxError as HogQLSyntaxError,
+    TableAccessDeniedError,
+)
 
 from posthog.event_usage import EventSource
 from posthog.exceptions import (
@@ -27,6 +35,12 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 
 from ee.hogai.mcp_tool import MCPToolResult
 from ee.hogai.tool_errors import MaxToolRetryableError
+
+
+def _wrapped_hogql_error(cause: Exception, message: str) -> ExposedHogQLError:
+    error = ExposedHogQLError(message)
+    error.__cause__ = cause
+    return error
 
 
 class TestMCPToolsAPI(APIBaseTest):
@@ -217,6 +231,66 @@ class TestMCPToolsAPI(APIBaseTest):
                 ValidationError("Invalid query input"),
                 "validation",
                 "Tool failed: MaxToolRetryableError: Invalid query input. You may retry with adjusted inputs.",
+            ),
+            (
+                HogQLSyntaxError("Unexpected SELECT"),
+                "validation",
+                "Tool failed: MaxToolRetryableError: Unexpected SELECT. You may retry with adjusted inputs.",
+            ),
+            (
+                QueryError("Unknown field: missing_column"),
+                "validation",
+                "Tool failed: MaxToolRetryableError: Unknown field: missing_column. You may retry with adjusted inputs.",
+            ),
+            (
+                _wrapped_hogql_error(TableAccessDeniedError("restricted_table"), "Warehouse table access denied"),
+                "permission",
+                "Tool failed: MaxToolFatalError: Warehouse table access denied.",
+            ),
+            (
+                _wrapped_hogql_error(psycopg.errors.SyntaxError("syntax error"), "Warehouse SQL is invalid"),
+                "validation",
+                "Tool failed: MaxToolRetryableError: Warehouse SQL is invalid. You may retry with adjusted inputs.",
+            ),
+            (
+                _wrapped_hogql_error(psycopg.errors.ConnectionFailure("socket closed"), "Warehouse connection failed"),
+                "api_5xx",
+                "Tool failed: MaxToolTransientError: Warehouse connection failed. You may retry this operation once without changes.",
+            ),
+            (
+                _wrapped_hogql_error(
+                    _wrapped_hogql_error(psycopg.errors.ConnectionTimeout("timed out"), "Connection unavailable"),
+                    "Warehouse unavailable",
+                ),
+                "api_5xx",
+                "Tool failed: MaxToolTransientError: Warehouse unavailable. You may retry this operation once without changes.",
+            ),
+            (
+                _wrapped_hogql_error(psycopg.errors.CannotConnectNow("starting up"), "Warehouse is starting"),
+                "api_5xx",
+                "Tool failed: MaxToolTransientError: Warehouse is starting. You may retry this operation once without changes.",
+            ),
+            (
+                _wrapped_hogql_error(psycopg.OperationalError("connection refused"), "Warehouse connection failed"),
+                "internal",
+                "Tool failed: MaxToolRetryableError: Warehouse connection failed. You may retry with adjusted inputs.",
+            ),
+            (
+                _wrapped_hogql_error(
+                    psycopg.errors.InvalidPassword("authentication failed"), "Warehouse authentication failed"
+                ),
+                "internal",
+                "Tool failed: MaxToolRetryableError: Warehouse authentication failed. You may retry with adjusted inputs.",
+            ),
+            (
+                _wrapped_hogql_error(psycopg.errors.QueryCanceled("statement timeout"), "Warehouse query timed out"),
+                "internal",
+                "Tool failed: MaxToolRetryableError: Warehouse query timed out. You may retry with adjusted inputs.",
+            ),
+            (
+                ExposedHogQLError("Managed warehouse is not available"),
+                "internal",
+                "Tool failed: MaxToolRetryableError: Managed warehouse is not available. You may retry with adjusted inputs.",
             ),
         ]
     )
