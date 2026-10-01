@@ -23,6 +23,7 @@ from slack_sdk.errors import SlackApiError
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.dataclasses import frozen
+from posthog.email import is_email_available
 from posthog.event_usage import groups
 from posthog.git import extract_explicit_repo, extract_linked_repo, extract_repo_from_scopes
 from posthog.models.integration import (
@@ -74,6 +75,7 @@ from products.slack_app.backend.models import (
 from products.slack_app.backend.services import (
     bare_mention,
     inbox_interactivity,
+    invite_request,
     project_picker,
     slack_welcome_messages,
     turn_feedback,
@@ -1883,6 +1885,185 @@ def _post_project_picker(
     return True
 
 
+def _request_invite_for_unmatched_user(
+    event: dict[str, Any],
+    probe: Integration,
+    candidates: list[Integration],
+    *,
+    requester_email: str,
+    slack_team_id: str,
+) -> str | None:
+    """Ask someone who may invite to do so. Returns the clause that tells the requester, or None."""
+    requester_slack_user_id = event.get("user")
+    channel = event.get("channel")
+    thread_ts = event.get("thread_ts") or event.get("ts")
+    if not isinstance(requester_slack_user_id, str) or not isinstance(channel, str) or not isinstance(thread_ts, str):
+        return None
+    organization = invite_request.single_organization(candidates)
+    if organization is None or not is_email_available(with_absolute_urls=True):
+        return None
+    if invite_request.jit_signin_available(organization, requester_email):
+        capture_slack_event(
+            probe, "slack app invite requested", slack_user_id=requester_slack_user_id, approver_path="jit_signin"
+        )
+        return invite_request.jit_signin_followup(organization, requester_email)
+
+    dedupe_key = invite_request.request_dedupe_key(organization.id, requester_email)
+    already_asked = cache.get(dedupe_key)
+    if isinstance(already_asked, str):
+        return invite_request.repeat_request_followup(already_asked)
+
+    approver = invite_request.pick_approver(organization, probe, requester_slack_user_id=requester_slack_user_id)
+    if approver is None:
+        capture_slack_event(
+            probe, "slack app invite requested", slack_user_id=requester_slack_user_id, approver_path="none"
+        )
+        return None
+
+    context_token = uuid.uuid4().hex
+    cache.set(
+        _picker_context_cache_key(context_token),
+        invite_request.build_context(
+            integration=probe,
+            organization=organization,
+            approver=approver,
+            requester_slack_user_id=requester_slack_user_id,
+            requester_email=requester_email,
+            mention_channel=channel,
+            mention_thread_ts=thread_ts,
+        ),
+        timeout=invite_request.INVITE_REQUEST_TTL_SECONDS,
+    )
+    client = SlackIntegration(probe).client
+    client.timeout = SLACK_WEBHOOK_TIMEOUT_SECONDS
+    try:
+        client.chat_postMessage(
+            channel=approver.slack_user_id,
+            text=f"Someone needs a PostHog invite to {organization.name}",
+            blocks=invite_request.build_dm_blocks(
+                context_token=context_token,
+                integration=probe,
+                organization=organization,
+                approver_slack_user_id=approver.slack_user_id,
+                requester_slack_user_id=requester_slack_user_id,
+                requester_email=requester_email,
+                mention_channel=channel,
+            ),
+        )
+    except Exception:
+        logger.warning(
+            "slack_app_invite_request_dm_failed",
+            integration_id=probe.id,
+            slack_workspace_id=slack_team_id,
+            approver_path=approver.path,
+            exc_info=True,
+        )
+        cache.delete(_picker_context_cache_key(context_token))
+        return None
+    cache.set(dedupe_key, approver.user.first_name or "an admin", timeout=invite_request.INVITE_REQUEST_TTL_SECONDS)
+    capture_slack_event(
+        probe, "slack app invite requested", slack_user_id=requester_slack_user_id, approver_path=approver.path
+    )
+    return invite_request.approver_followup(approver)
+
+
+def _handle_invite_request_click(payload: dict) -> HttpResponse:
+    """Send the invite the approver confirmed, or record that they declined."""
+    response_url = payload.get("response_url", "")
+    action_id = next((action.get("action_id") for action in payload.get("actions", [])), None)
+    context_token = _extract_context_token(payload)
+    context = _decode_picker_context(context_token) if context_token else None
+    if not context or context.get("kind") != invite_request.INVITE_REQUEST_CONTEXT_KIND:
+        inbox_interactivity.post_response_url(
+            response_url, {"replace_original": True, "text": invite_request.REQUEST_EXPIRED_MESSAGE}
+        )
+        return HttpResponse(status=200)
+
+    slack_team_id = payload.get("team", {}).get("id", "")
+    clicker_slack_user_id = payload.get("user", {}).get("id", "")
+    integration_id = context.get("integration_id")
+    approver_user_id = context.get("approver_user_id")
+    if (
+        clicker_slack_user_id != context.get("approver_slack_user_id")
+        or not isinstance(integration_id, int)
+        or not isinstance(approver_user_id, int)
+    ):
+        return HttpResponse(status=200)
+    integration = (
+        Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
+            id=integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
+            kind=SLACK_INTEGRATION_KIND,
+            integration_id=slack_team_id,
+        )
+        .select_related("team__organization")
+        .first()
+    )
+    if integration is None or str(integration.team.organization_id) != context.get("organization_id"):
+        return HttpResponse(status=200)
+    cache.delete(_picker_context_cache_key(context_token))
+    organization = integration.team.organization
+    requester_email = str(context.get("requester_email") or "")
+
+    if action_id == invite_request.INVITE_REQUEST_ACTION_DECLINE:
+        inbox_interactivity.post_response_url(
+            response_url, {"replace_original": True, "text": invite_request.REQUEST_DECLINED_MESSAGE}
+        )
+        capture_slack_event(integration, "slack app invite declined", slack_user_id=clicker_slack_user_id)
+        return HttpResponse(status=200)
+
+    # Permission is checked again at click time, because the approver may have left or
+    # been demoted since the request was posted.
+    membership = (
+        OrganizationMembership.objects.filter(organization=organization, user_id=approver_user_id, user__is_active=True)
+        .select_related("user")
+        .first()
+    )
+    if membership is None or not invite_request.can_invite(membership, organization):
+        inbox_interactivity.post_response_url(
+            response_url, {"replace_original": True, "text": invite_request.APPROVER_LOST_PERMISSION_MESSAGE}
+        )
+        return HttpResponse(status=200)
+
+    mention_channel = str(context.get("mention_channel") or "")
+    result = invite_request.create_invite(
+        organization, email=requester_email, approver=membership.user, mention_channel=mention_channel
+    )
+    if isinstance(result, str):
+        inbox_interactivity.post_response_url(
+            response_url, {"replace_original": True, "text": invite_request.REJECTION_MESSAGES[result]}
+        )
+        capture_slack_event(
+            integration,
+            "slack app invite declined",
+            slack_user_id=clicker_slack_user_id,
+            posthog_user=membership.user,
+            reason=result,
+        )
+        return HttpResponse(status=200)
+
+    inbox_interactivity.post_response_url(
+        response_url, {"replace_original": True, "text": invite_request.approver_confirmation(requester_email)}
+    )
+    try:
+        post_slack_thread_reply(
+            SlackIntegration(integration).client,
+            channel=mention_channel,
+            thread_ts=str(context.get("mention_thread_ts") or ""),
+            text=invite_request.invite_sent_message(membership.user, requester_email),
+        )
+    except Exception:
+        logger.warning("slack_app_invite_sent_reply_failed", integration_id=integration.id, exc_info=True)
+    capture_slack_event(
+        integration,
+        "slack app invite sent",
+        slack_user_id=clicker_slack_user_id,
+        posthog_user=membership.user,
+        approver_path=context.get("approver_path"),
+        seconds_to_approve=int(time.time()) - int(context.get("created_at") or time.time()),
+    )
+    return HttpResponse(status=200)
+
+
 def _handle_project_picker_pick(payload: dict) -> HttpResponse:
     """Run the mention the picker was raised for against the project the person picked."""
     response_url = payload.get("response_url", "")
@@ -1986,6 +2167,7 @@ def _post_user_resolution_failure_reply(
     slack_email: str | None,
     ephemeral_only: bool = False,
     mention_is_threaded: bool = True,
+    invite_followup: str | None = None,
 ) -> bool:
     """Tell a Slack user when we can't route their mention to a PostHog project.
 
@@ -2013,6 +2195,7 @@ def _post_user_resolution_failure_reply(
         slack_email=slack_email,
         linking_available=linking_available,
         home_tab_url=app_home_url(probe) if linking_available else None,
+        invite_followup=invite_followup,
     )
     if text is None:
         return False
@@ -2843,6 +3026,15 @@ def route_posthog_code_event_to_relevant_region(
             ephemeral_only = bool(
                 is_ext_shared_channel and channel_id and not _channel_is_approved(slack_team_id, channel_id)
             )
+            invite_followup = None
+            if resolution.failure_reason == "user_not_found" and resolution.slack_email and not ephemeral_only:
+                invite_followup = _request_invite_for_unmatched_user(
+                    event,
+                    probe,
+                    workspace_result.candidates,
+                    requester_email=resolution.slack_email,
+                    slack_team_id=slack_team_id,
+                )
             replied = _post_user_resolution_failure_reply(
                 probe=probe,
                 channel=channel_str,
@@ -2852,6 +3044,7 @@ def route_posthog_code_event_to_relevant_region(
                 slack_email=resolution.slack_email,
                 ephemeral_only=ephemeral_only,
                 mention_is_threaded=mention_is_threaded,
+                invite_followup=invite_followup,
             )
             _report_slack_mention_dropped(
                 event,
@@ -2860,6 +3053,7 @@ def route_posthog_code_event_to_relevant_region(
                 replied=replied,
                 integration=probe,
                 posthog_user=attributed_user,
+                invite_requested=invite_followup is not None,
                 **unresolved_user_properties(resolution, probe),
             )
             return ROUTE_HANDLED_LOCALLY
@@ -5371,6 +5565,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     alert_snooze_uuid = _extract_alert_snooze_hints(payload)
     inbox_integration_id = inbox_interactivity.extract_inbox_hints(payload)
     project_picker_integration_id = project_picker.picked_integration_id(payload)
+    invite_request_integration_id = invite_request.extract_hint(payload)
     # Both controls a reply carries, and the modal a thumbs-down opens, claim the same
     # workspace, so one hint serves all three. Only the modal needs its own extractor:
     # a view submission carries no action for the generic one to read.
@@ -5429,6 +5624,13 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         # Reached once the context expired, so that the handler can tell the person.
         local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
             id=project_picker_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
+            kind=SLACK_INTEGRATION_KIND,
+            integration_id=slack_team_id,
+        ).exists()
+    elif slack_team_id and invite_request_integration_id:
+        # Reached once the context expired, so that the handler can tell the approver.
+        local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
+            id=invite_request_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
             kind=SLACK_INTEGRATION_KIND,
             integration_id=slack_team_id,
         ).exists()
@@ -5553,6 +5755,8 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
                 return _handle_untagged_followup_dismiss(payload)
             if project_picker.is_project_picker_action(action_id):
                 return _handle_project_picker_pick(payload)
+            if invite_request.is_invite_request_action(action_id):
+                return _handle_invite_request_click(payload)
             if action_id == SIGNALS_DISMISS_REPORT_ACTION_ID:
                 return _handle_signals_dismiss_report(payload)
             if action_id in (INSIGHT_ALERT_SNOOZE_ACTION_ID, INSIGHT_ALERT_SNOOZE_UNTIL_ACTION_ID):
