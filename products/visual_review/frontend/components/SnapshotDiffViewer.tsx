@@ -248,6 +248,11 @@ export function SnapshotDiffViewer({
                                 size="small"
                                 onClick={onApprove}
                                 loading={isApproving}
+                                disabledReason={
+                                    snapshot.result === 'removed'
+                                        ? 'A removed snapshot has no new image to accept. Finalize the run to remove it from the baseline.'
+                                        : undefined
+                                }
                                 data-attr="visual-review-snapshot-accept"
                             >
                                 Accept change
