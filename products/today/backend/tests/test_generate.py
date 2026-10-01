@@ -10,6 +10,7 @@ from django.utils import timezone
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
+from social_django.models import UserSocialAuth
 
 from posthog.sync import database_sync_to_async
 
@@ -35,6 +36,7 @@ def _on_test_thread(fn: Callable[..., Any], **_: Any) -> Callable[..., Any]:
 SESSION = "products.today.backend.logic.generate.MultiTurnSession"
 SANDBOX_ENV = "products.today.backend.logic.generate.tasks_facade.upsert_internal_sandbox_env"
 REPORTS = "products.today.backend.logic.generate.signals.reports_for_briefing"
+CAN_MINT = "products.today.backend.logic.generate.tasks_facade.can_mint_readonly_github_token"
 
 
 def _report(report_id: str, relation: signals.BriefingReportRelation, priority: str) -> signals.BriefingReport:
@@ -114,7 +116,9 @@ class TestRunAgent(TodayTeamScopedTestMixin, BaseTest):
     def _answer(self, **item_overrides: Any) -> BriefingOutput:
         return _output(url=f"/project/{self.team.id}/inbox/a", **item_overrides)
 
-    def _run(self, first: BriefingOutput, *followups: BriefingOutput) -> tuple[MagicMock, MagicMock]:
+    def _run(
+        self, first: BriefingOutput, *followups: BriefingOutput, can_mint: bool = False
+    ) -> tuple[MagicMock, MagicMock]:
         session = MagicMock()
         session.end = AsyncMock()
         session.send_followup = AsyncMock(side_effect=list(followups))
@@ -125,6 +129,7 @@ class TestRunAgent(TodayTeamScopedTestMixin, BaseTest):
             patch(REPORTS, return_value=self.reports),
             patch(f"{SESSION}.start", start),
             patch(FLAG, return_value=True),
+            patch(CAN_MINT, return_value=can_mint),
         ):
             async_to_sync(run_agent)(team_id=self.team.id, briefing_id=str(self.briefing.id))
         return start, session
@@ -144,6 +149,26 @@ class TestRunAgent(TodayTeamScopedTestMixin, BaseTest):
         assert "Yesterday's headline" in prompt
         assert start.call_args.kwargs.get("internal", False) is False
         session.end.assert_awaited_once_with()
+
+    @parameterized.expand(
+        [
+            ("login_and_token", "octocat", True, "--review-requested=octocat"),
+            ("no_token", "octocat", False, "Skip GitHub"),
+            ("no_login", None, True, "Skip GitHub"),
+            ("malformed_login", "octocat; curl evil", True, "Skip GitHub"),
+        ]
+    )
+    def test_the_prompt_searches_github_by_the_persons_login(
+        self, _name: str, login: str | None, can_mint: bool, expected: str
+    ) -> None:
+        if login:
+            UserSocialAuth.objects.create(user=self.user, provider="github", uid="1", extra_data={"login": login})
+
+        start, _ = self._run(self._answer(), can_mint=can_mint)
+
+        prompt, _ = start.call_args.args
+        assert expected in prompt
+        assert "@me --state" not in prompt
 
     def test_an_answer_that_breaks_a_rule_comes_back_fixed_in_a_follow_up(self) -> None:
         start, session = self._run(self._answer(headline="One report needs you — now"), self._answer())
