@@ -2,7 +2,7 @@ from dataclasses import replace
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from posthog.schema import IntervalType, NodeKind, TrendsQuery
+from posthog.schema import ChartDisplayType, IntervalType, NodeKind, TrendsQuery
 
 from posthog.tasks.alerts.trends import _has_breakdown, _is_non_time_series_trend
 from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, AlertEvaluationResult
@@ -25,7 +25,9 @@ def validate_evaluation_delay(query: object, config: object, delay: int) -> None
     if get_from_dict_or_attr(query, "kind") != NodeKind.TRENDS_QUERY:
         raise ValueError("Evaluation delay is only supported for time-series Trends insights.")
     trends_query = TrendsQuery.model_validate(query)
-    if _is_non_time_series_trend(trends_query):
+    display = trends_query.trendsFilter.display if trends_query.trendsFilter else None
+    # The Trends runner returns a calendar heatmap as one aggregated value, not interval points.
+    if _is_non_time_series_trend(trends_query) or display == ChartDisplayType.CALENDAR_HEATMAP:
         raise ValueError("Evaluation delay is only supported for time-series Trends insights.")
     # Compare mode adds previous-period breakdown rows with their own dates, and the check cannot
     # tell which row breached, so it cannot name the evaluated interval.

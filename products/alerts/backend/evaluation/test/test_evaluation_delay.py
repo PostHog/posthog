@@ -205,6 +205,11 @@ class TestEvaluationDelay(SimpleTestCase):
                 "time-series Trends",
             ),
             (
+                {"kind": "TrendsQuery", "series": [], "trendsFilter": {"display": "CalendarHeatmap"}},
+                {},
+                "time-series Trends",
+            ),
+            (
                 {
                     "kind": "TrendsQuery",
                     "series": [],
