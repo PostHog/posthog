@@ -108,6 +108,7 @@ from products.signals.backend.billing import (
     refund_ineligibility_reason,
     report_pr_is_merged,
 )
+from products.signals.backend.briefing_reports import open_report_counts, reports_for_briefing
 from products.signals.backend.dismissal_notes import forward_dismissal_note
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.feedback_notes import forward_feedback_note
@@ -202,6 +203,8 @@ from products.signals.backend.serializers import (
     SignalReportMetricRefreshResponseSerializer,
     SignalReportRefundSerializer,
     SignalReportSerializer,
+    SignalReportsForYouQuerySerializer,
+    SignalReportsForYouResponseSerializer,
     SignalReportSourceMetadataRequestSerializer,
     SignalReportSourceMetadataResponseSerializer,
     SignalReportSuggestedReviewersArtefactSerializer,
@@ -1126,7 +1129,7 @@ class SignalReportViewSet(
         return Response(ReportReadStateResponseSerializer({"states": states}).data)
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
-        if self.action == "list":
+        if self.action in {"list", "for_you"}:
             return SignalReportListSerializer
         return SignalReportSerializer
 
@@ -1251,7 +1254,7 @@ class SignalReportViewSet(
     _DEFAULT_STATUSES = _FILTERABLE_STATUSES - {SignalReport.Status.SUPPRESSED}
 
     # Actions that work on many reports at once, so per-row annotations are wasted work there.
-    _MULTI_REPORT_ACTIONS = frozenset({"list", "bulk_state"})
+    _MULTI_REPORT_ACTIONS = frozenset({"list", "bulk_state", "for_you"})
 
     # Actions allowed to resolve a suppressed report by ID even without an explicit
     # `status` filter. These are the read/reopen paths the inbox's Dismissed tab needs:
@@ -2259,6 +2262,15 @@ class SignalReportViewSet(
                         "signals.reports.list.has_next_page", page_offset + len(report_ids) < total_count
                     )
 
+        data = self._render_report_rows(reports, include_source_metadata=include_source_metadata)
+
+        if page is not None:
+            return self.get_paginated_response(data)
+        return Response(data)
+
+    def _render_report_rows(self, reports: Sequence[Any], *, include_source_metadata: bool) -> Any:
+        """Serialize report rows the way the inbox list does, with batched lookups instead of per-row queries."""
+        report_ids = [str(r.id) for r in reports]
         # Source metadata is decorative. The serializer degrades to empty values when ClickHouse is
         # unavailable, so a metadata failure does not hide otherwise available reports. The web inbox
         # opts out and loads it after the rows render, so the page does not wait on ClickHouse.
@@ -2307,11 +2319,34 @@ class SignalReportViewSet(
         serializer = self.get_serializer(reports, many=True, context=context)
 
         with tracer.start_as_current_span("signals.reports.list.serialize"):
-            data = serializer.data
+            return serializer.data
 
-        if page is not None:
-            return self.get_paginated_response(data)
-        return Response(data)
+    @validated_request(
+        query_serializer=SignalReportsForYouQuerySerializer,
+        responses={200: OpenApiResponse(response=SignalReportsForYouResponseSerializer)},
+        summary="List the reports that matter most to the current user",
+        description=(
+            "The open, actionable reports for the current user, best first, and how many there are in "
+            "total. Uses the same ranking and count as the Today briefing, so this is the short list to "
+            "show someone who asks what needs them."
+        ),
+    )
+    @action(detail=False, methods=["get"], url_path="for_you", required_scopes=["task:read"])
+    def for_you(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        user = cast(User, request.user)
+        ranked_ids = [
+            report.report_id
+            for report in reports_for_briefing(
+                team_id=self.team_id, user_id=user.id, limit=request.validated_query_data["limit"]
+            )
+        ]
+        by_id = {str(report.id): report for report in self.get_queryset().filter(id__in=ranked_ids)}
+        reports = [by_id[report_id] for report_id in ranked_ids if report_id in by_id]
+        more = open_report_counts(
+            team_id=self.team_id, user=user, exclude_report_ids=[str(report.id) for report in reports]
+        )
+        rows = self._render_report_rows(reports, include_source_metadata=True)
+        return Response({"results": rows, "count": len(rows) + more.for_person})
 
     @extend_schema(
         summary="List the org members who can be suggested as reviewers",

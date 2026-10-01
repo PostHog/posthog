@@ -148,6 +148,7 @@ class TestMaterializeData(TeamScopedTestMixin, BaseTest):
                 sandbox_inference,
                 "run_hogql",
                 side_effect=[
+                    HogQLResult(columns=["eligible", "positives"], rows=[[len(_TRAINING_ROWS), 2]]),
                     HogQLResult(columns=list(_TRAINING_ROWS[0]), rows=[list(r.values()) for r in _TRAINING_ROWS]),
                     HogQLResult(columns=["eligible", "positives"], rows=[[len(_TRAINING_ROWS), 2]]),
                 ],
@@ -155,10 +156,9 @@ class TestMaterializeData(TeamScopedTestMixin, BaseTest):
         ):
             data = materialize_training_data(team=self.team, pipeline=pipeline, feature_sql="SELECT 1 FROM {anchors}")
 
-        # Each query would read its own now(), so a person at a window edge could be in one and not the other.
-        features_query, count_query = (c.kwargs["query"] for c in run_hogql.call_args_list)
-        assert "now()" not in features_query.query and "now()" not in count_query.query
-        assert features_query.values["anchor_ts"] == count_query.values["anchor_ts"]
+        sample_query, features_query, count_query = (call.kwargs["query"] for call in run_hogql.call_args_list)
+        assert all("now()" not in query.query for query in (sample_query, features_query, count_query))
+        assert sample_query.values["anchor_ts"] == features_query.values["anchor_ts"] == count_query.values["anchor_ts"]
         assert data.feature_cols == ["events_total", "pageviews"]
         assert [r["distinct_id"] for r in data.train_rows] == ["p1", "p2"]
         assert [r["distinct_id"] for r in data.holdout_rows] == ["p3"]

@@ -56,7 +56,7 @@ describe('todayLogic', () => {
         briefingCalls = 0
         useMocks({
             get: {
-                '/api/projects/:team_id/signals/reports/': ({ request }) => {
+                '/api/projects/:team_id/signals/reports/for_you/': ({ request }) => {
                     listParams = new URL(request.url).searchParams
                     return listResponse
                 },
@@ -138,19 +138,14 @@ describe('todayLogic', () => {
         expect(briefingCalls).toBe(2)
     })
 
-    it('asks for the top actionable reports by priority and counts the rest', async () => {
+    it('asks for the top reports for the person and counts the rest', async () => {
         const reports = [makeReport({ id: 'a' }), makeReport({ id: 'b' })]
         listResponse = [200, { results: reports, count: 9 }]
         const logic = todayLogic()
         logic.mount()
 
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ reports, moreReportCount: 7 })
-        expect(Object.fromEntries(listParams!.entries())).toMatchObject({
-            status: 'ready,pending_input',
-            actionability: 'immediately_actionable,requires_human_input',
-            ordering: 'priority,-updated_at',
-            limit: String(TOP_REPORT_COUNT),
-        })
+        expect(Object.fromEntries(listParams!.entries())).toEqual({ limit: String(TOP_REPORT_COUNT) })
     })
 
     it('shows sample reports from ?sample=1 without asking the API, until ?sample=0', async () => {
