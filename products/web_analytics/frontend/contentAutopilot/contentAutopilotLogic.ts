@@ -1285,7 +1285,7 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
             lemonToast.error(getErrorMessage(errorObject))
         },
         exportProposalSuccess: () => {
-            lemonToast.success('Markdown exported')
+            lemonToast.success('Draft downloaded')
             actions.loadProposals()
         },
         exportProposalFailure: ({ errorObject }) => {
