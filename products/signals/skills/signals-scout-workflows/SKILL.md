@@ -49,7 +49,7 @@ Close out empty. Re-running with the same key refreshes the timestamp. Never sug
 
 ### Read the numbers
 
-Per workflow, `workflows-stats` with `version=<the workflow's current version>`, `breakdown_by=name`, and `instance_id` set to the email step you are reading. Without `version` you get every version of that workflow merged together, which cannot tell you whether the last change helped. The metrics that matter:
+Per workflow, `workflows-version-stats` with `version=<the workflow's current version>`, `breakdown_by=name`, and `instance_id` set to the email step you are reading. `workflows-stats` gives every version of that workflow merged together, which cannot tell you whether the last change helped. The metrics that matter:
 
 | Metric                           | Reading                                                                  |
 | -------------------------------- | ------------------------------------------------------------------------ |
@@ -64,10 +64,10 @@ Per workflow, `workflows-stats` with `version=<the workflow's current version>`,
 So end the read before now, and check the version's age before you trust it:
 
 - Read the window as whole days that have closed, not up to this minute.
-- Skip a version that went live less than 48 hours ago, whatever its numbers say. `workflows-list-versions` gives each version's `created_at`; the live one is the newest. `updated_at` on the workflow is not this: any draft edit bumps it. A workflow never published since version history began has no rows there; then read `workflows-stats` by day and treat the first day with sends as when the version went live. Write `immature:<workflow>:<step>` to the scratchpad with the version and move on; a later run reads the same version with its feedback in.
+- Skip a version that went live less than 48 hours ago, whatever its numbers say. Read `workflows-stats` by day and treat the first day with sends as when the version went live. `updated_at` on the workflow is not this: any draft edit bumps it. Write `immature:<workflow>:<step>` to the scratchpad with the version and move on; a later run reads the same version with its feedback in.
 - If a version's sends sit almost entirely in the last day of the window, treat the rate as immature for the same reason, even when the version itself is older.
 
-Per-version reads are what make this checkable: `workflows-stats` with `version=<n>` returns only what that version sent, so a version published two weeks ago is a settled cohort even though the workflow as a whole is still sending.
+Per-version reads are what make this checkable: `workflows-version-stats` with `version=<n>` returns only what that version sent, so a version published two weeks ago is a settled cohort even though the workflow as a whole is still sending.
 
 **Zero opens on healthy sends is a measurement gap, not a bad subject line.** Engagement splits by version only for sends made after the versioned tracking code shipped, and you cannot check that date from here. So treat it as unreadable rather than bad: write `noise:<workflow>:<step>` to the scratchpad with the counts you saw and move on. If a later run sees opens on that step, the gap has closed and the numbers are usable.
 
