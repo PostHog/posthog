@@ -98,7 +98,12 @@ def plan_compaction(compression_ratio: float | None, slot_budget_mb: float | Non
     rounded_ratio = round(compression_ratio, 2) if compression_ratio is not None else None
     rounded_slot = round(slot_budget_mb, 1) if slot_budget_mb is not None else None
     if compression_ratio is None or (slot_budget_mb is not None and slot_budget_mb <= 0):
-        return CompactionPlan(None, None, rounded_ratio, rounded_slot)
+        return CompactionPlan(
+            target_size=None,
+            max_concurrent_tasks=None,
+            compression_ratio=rounded_ratio,
+            slot_budget_mb=rounded_slot,
+        )
 
     ratio = max(compression_ratio, 1.0)
     decoded_cap = float(COMPACT_MAX_DECODED_BIN_BYTES)
@@ -107,14 +112,24 @@ def plan_compaction(compression_ratio: float | None, slot_budget_mb: float | Non
         decoded_cap = min(decoded_cap, slot_budget_bytes / _COMPACT_TASK_MEMORY_FACTOR)
     safe_target_size = decoded_cap / ratio
     if safe_target_size < COMPACT_MIN_TARGET_SIZE_BYTES:
-        return CompactionPlan(None, None, rounded_ratio, rounded_slot)
+        return CompactionPlan(
+            target_size=None,
+            max_concurrent_tasks=None,
+            compression_ratio=rounded_ratio,
+            slot_budget_mb=rounded_slot,
+        )
 
     target_size = int(min(DEFAULT_COMPACT_TARGET_SIZE_BYTES, safe_target_size))
     max_concurrent_tasks = None
     if slot_budget_bytes is not None:
         per_task_bytes = target_size * ratio * _COMPACT_TASK_MEMORY_FACTOR
         max_concurrent_tasks = max(1, min(os.cpu_count() or 1, int(slot_budget_bytes // per_task_bytes)))
-    return CompactionPlan(target_size, max_concurrent_tasks, rounded_ratio, rounded_slot)
+    return CompactionPlan(
+        target_size=target_size,
+        max_concurrent_tasks=max_concurrent_tasks,
+        compression_ratio=rounded_ratio,
+        slot_budget_mb=rounded_slot,
+    )
 
 
 def _sample_compression_ratio(table: deltalake.DeltaTable) -> float | None:

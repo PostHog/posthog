@@ -197,7 +197,14 @@ class TestCompactIfFragmented:
             patch.object(
                 maintenance,
                 "_plan_compaction",
-                AsyncMock(return_value=CompactionPlan(DEFAULT_COMPACT_TARGET_SIZE_BYTES, 1, 1.0, 1356.8)),
+                AsyncMock(
+                    return_value=CompactionPlan(
+                        target_size=DEFAULT_COMPACT_TARGET_SIZE_BYTES,
+                        max_concurrent_tasks=1,
+                        compression_ratio=1.0,
+                        slot_budget_mb=1356.8,
+                    )
+                ),
             ),
             patch.object(maintenance, "_compact", AsyncMock()) as mock_compact,
             patch.object(maintenance, "_vacuum", AsyncMock()),
@@ -264,7 +271,14 @@ class TestCompactConflictRetry:
         with patch.object(
             maintenance,
             "_plan_compaction",
-            AsyncMock(return_value=CompactionPlan(DEFAULT_COMPACT_TARGET_SIZE_BYTES, 1, 1.0, 1356.8)),
+            AsyncMock(
+                return_value=CompactionPlan(
+                    target_size=DEFAULT_COMPACT_TARGET_SIZE_BYTES,
+                    max_concurrent_tasks=1,
+                    compression_ratio=1.0,
+                    slot_budget_mb=1356.8,
+                )
+            ),
         ):
             compacted = await maintenance.compact_if_fragmented(partition_count=1, threshold=1)
 
@@ -365,7 +379,12 @@ class TestCompactionMemoryBounds:
         mock_delta.file_uris.return_value = [f"s3://bucket/table/{path}" for path in file_sizes]
         mock_delta._table.get_add_file_sizes.return_value = file_sizes
         maintenance = _make_maintenance(mock_delta)
-        plan = CompactionPlan(27 * _MB, 1, 25.0, 1356.8)
+        plan = CompactionPlan(
+            target_size=27 * _MB,
+            max_concurrent_tasks=1,
+            compression_ratio=25.0,
+            slot_budget_mb=1356.8,
+        )
         with (
             patch.object(maintenance, "_plan_compaction", AsyncMock(return_value=plan)),
             patch.object(maintenance, "_compact", AsyncMock()) as compact,
