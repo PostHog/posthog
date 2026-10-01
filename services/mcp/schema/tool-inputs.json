@@ -1341,7 +1341,7 @@
                             "minLength": 1
                         },
                         "true_is_failure": {
-                            "description": "Whether true means failure. False means true passes; omit or set null for neutral scores.",
+                            "description": "Whether true means failure. False, omitted, or null means true passes in offline evaluations.",
                             "anyOf": [
                                 {
                                     "type": "boolean"
