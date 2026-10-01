@@ -40,6 +40,7 @@ from products.tasks.backend.tests.agent_log_fixtures import (
     _cost_less_usage_update_line,
     _end_turn_line,
     _progress_line,
+    _structured_output_line,
     _tool_call_line,
     _usage_update_line,
     _user_message_line,
@@ -81,6 +82,21 @@ class TestPollForTurnEmptyEndTurn:
         # instead of re-streaming already-printed lines.
         assert exc_info.value.total_lines == len(turn_1) + len(turn_2_empty)
         assert exc_info.value.printed_lines >= 0
+
+    @pytest.mark.asyncio
+    async def test_structured_output_tool_call_is_the_turn_message(self):
+        turn_1 = [_structured_output_line({"word": "alpha"}), _end_turn_line()]
+        turn_2 = [_user_message_line("next"), _structured_output_line({"word": "beta", "count": 2}), _end_turn_line()]
+        log = "\n".join(turn_1 + turn_2)
+
+        with (
+            patch("posthog.storage.object_storage.read", return_value=log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+        ):
+            turn = await poll_for_turn(FakeTaskRun(), skip_lines=len(turn_1))
+
+        assert json.loads(turn.last_message) == {"word": "beta", "count": 2}
 
     @pytest.mark.asyncio
     async def test_text_before_end_turn_across_polls_is_not_empty(self):

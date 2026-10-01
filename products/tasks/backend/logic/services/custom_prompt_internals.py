@@ -78,6 +78,9 @@ FAILED_PROGRESS_STATUS = "failed"
 # side-channels above.
 _PROMPT_ECHO_UPDATES = frozenset({"user_message", "user_message_chunk"})
 
+STRUCTURED_OUTPUT_TOOL_NAME = "StructuredOutput"
+_TOOL_CALL_UPDATES = frozenset({"tool_call", "tool_call_update"})
+
 
 @dataclass(frozen=True)
 class AgentError:
@@ -920,7 +923,7 @@ def _check_logs(task_run, skip_lines: int = 0) -> TurnLogState:
         if text:
             trailing_parts.append(text)
     trailing_parts.reverse()
-    latest_text = "".join(trailing_parts) if trailing_parts else None
+    latest_text = "".join(trailing_parts) if trailing_parts else _structured_output_text(parsed_updates)
     # A refused turn must not surface its partial text — the caller would mistake it for the
     # turn's real response.
     if refused:
@@ -950,6 +953,20 @@ def _check_logs(task_run, skip_lines: int = 0) -> TurnLogState:
         empty_end_turn=False,
         refused=False,
     )
+
+
+def _structured_output_text(updates: list[dict]) -> str | None:
+    for update in reversed(updates):
+        if update.get("sessionUpdate") not in _TOOL_CALL_UPDATES:
+            continue
+        meta = update.get("_meta")
+        claude_meta = meta.get("claudeCode") if isinstance(meta, dict) else None
+        if not isinstance(claude_meta, dict) or claude_meta.get("toolName") != STRUCTURED_OUTPUT_TOOL_NAME:
+            continue
+        raw_input = update.get("rawInput")
+        if isinstance(raw_input, dict) and raw_input:
+            return json.dumps(raw_input)
+    return None
 
 
 def _is_failed_progress(notification: dict) -> bool:
