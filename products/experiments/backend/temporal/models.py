@@ -76,7 +76,7 @@ class ExperimentMetricsRecalculationWorkflowInputs:
     fairness_key: str | None = None
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class ExperimentMetricToRecalculate:
     """A single metric to recalculate.
 
@@ -86,7 +86,9 @@ class ExperimentMetricToRecalculate:
 
     experiment_id: int
     metric_uuid: str
-    metric_type: str  # "primary" or "secondary"
+    # The metric's role ("primary" or "secondary"), not its kind. Recorded workflow histories carry this
+    # field name, so renaming it breaks their replay.
+    metric_type: str
 
 
 @dataclasses.dataclass

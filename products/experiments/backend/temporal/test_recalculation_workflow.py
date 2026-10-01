@@ -53,9 +53,9 @@ def _make_mock_activities(
         metric_uuid: str,
         recalculation_id: str,
         query_to: str,
-        metric_type: str = "primary",
+        role: str = "primary",
     ) -> MetricRecalculationResult:
-        calculate_calls.append((experiment_id, metric_uuid, recalculation_id, query_to, metric_type))
+        calculate_calls.append((experiment_id, metric_uuid, recalculation_id, query_to, role))
         return metric_results.get(metric_uuid, MetricRecalculationResult(metric_uuid=metric_uuid, success=True))
 
     activities = [mock_discover, mock_update_progress, mock_calculate]
@@ -147,7 +147,7 @@ class TestExperimentMetricsRecalculationWorkflow:
             metric_uuid: str,
             recalculation_id: str,
             query_to: str,
-            metric_type: str = "primary",
+            role: str = "primary",
         ) -> MetricRecalculationResult:
             attempts[metric_uuid] = attempts.get(metric_uuid, 0) + 1
             if metric_uuid == "m2" and attempts[metric_uuid] <= 2:
@@ -181,7 +181,7 @@ class TestExperimentMetricsRecalculationWorkflow:
             metric_uuid: str,
             recalculation_id: str,
             query_to: str,
-            metric_type: str,
+            role: str,
             is_final_attempt: bool,
             attempt: int,
         ) -> MetricRecalculationResult:
@@ -232,7 +232,7 @@ class TestExperimentMetricsRecalculationWorkflow:
             metric_uuid: str,
             recalculation_id: str,
             query_to: str,
-            metric_type: str = "primary",
+            role: str = "primary",
         ) -> MetricRecalculationResult:
             return MetricRecalculationResult(metric_uuid=metric_uuid, success=True)
 
@@ -284,7 +284,7 @@ class TestExperimentMetricsRecalculationWorkflow:
             metric_uuid: str,
             recalculation_id: str,
             query_to: str,
-            metric_type: str = "primary",
+            role: str = "primary",
         ) -> MetricRecalculationResult:
             return MetricRecalculationResult(metric_uuid=metric_uuid, success=True)
 
@@ -318,7 +318,7 @@ class TestExperimentMetricsRecalculationWorkflow:
             metric_uuid: str,
             recalculation_id: str,
             query_to: str,
-            metric_type: str = "primary",
+            role: str = "primary",
         ) -> MetricRecalculationResult:
             return MetricRecalculationResult(metric_uuid=metric_uuid, success=True)
 
@@ -360,7 +360,7 @@ class TestExperimentMetricsRecalculationWorkflow:
             metric_uuid: str,
             recalculation_id: str,
             query_to: str,
-            metric_type: str = "primary",
+            role: str = "primary",
         ) -> MetricRecalculationResult:
             return MetricRecalculationResult(metric_uuid=metric_uuid, success=True)
 
@@ -395,7 +395,7 @@ class TestExperimentMetricsRecalculationWorkflow:
             metric_uuid: str,
             recalculation_id: str,
             query_to: str,
-            metric_type: str = "primary",
+            role: str = "primary",
         ) -> MetricRecalculationResult:
             return MetricRecalculationResult(metric_uuid=metric_uuid, success=True)
 
