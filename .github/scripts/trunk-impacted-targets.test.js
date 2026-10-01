@@ -16,9 +16,10 @@ const path = require('node:path')
 
 const {
     computeTargets,
-    jsLockfileReachesNodeIngestion,
-    NODE_RASTERIZER,
-    RASTERIZER_DIR,
+    jsLockfileNodeLanes,
+    loadNodeLaneMap,
+    NODE_LANES,
+    NODE_SUB_LANES,
     allKnownTargets,
     buildContext,
     parseRustAffectedCrates,
@@ -822,68 +823,120 @@ test('the agent-skills workflow claims both language families', () => {
     assert.deepEqual(targets, computeTargets(['mypy.ini', '.oxlintrc.json'], CONTEXT))
 })
 
-test('the ml-mirror sidecar image and its workflow stay on the node lane', () => {
+test('the ml-mirror sidecar image and its workflow stay on the node lanes', () => {
     for (const file of [
         '.github/workflows/ci-ml-mirror-image-scrub-container.yml',
         'Dockerfile.ml-mirror-image-scrub',
     ]) {
-        assert.deepEqual(computeTargets([file], CONTEXT), ['node:ingestion', NODE_RASTERIZER], file)
+        assert.deepEqual(computeTargets([file], CONTEXT), [...NODE_LANES].sort(), file)
     }
 })
 
-const RASTERIZER_CONTEXT = {
+const [RASTERIZER_LANE, RASTERIZER_DIR] = NODE_SUB_LANES.find(([lane]) => lane === 'node:recording-rasterizer')
+const [CDP_LANE] = NODE_SUB_LANES.find(([lane]) => lane === 'node:cdp')
+const ALL_NODE_LANES = [...NODE_LANES].sort()
+
+const NODE_CONTEXT = {
     ...CONTEXT,
-    rasterizerBoundary: { imports: new Set(['nodejs/src/common/utils/request.ts']), headlessOnlyInRasterizer: true },
+    nodeLaneMap: {
+        fileLanes: new Map([
+            ['nodejs/src/cdp/hog-executor.ts', new Set([CDP_LANE])],
+            ['nodejs/src/cdp/types.ts', new Set([CDP_LANE, 'node:ingestion'])],
+            ['nodejs/src/ingestion/pipelines/step.ts', new Set(['node:ingestion'])],
+            [`${RASTERIZER_DIR}/capture/player.ts`, new Set([RASTERIZER_LANE])],
+        ]),
+        packageLanes: new Map([
+            ['@posthog/replay-headless', new Set([RASTERIZER_LANE])],
+            ['@posthog/hogvm', new Set([CDP_LANE, 'node:ingestion'])],
+        ]),
+    },
+    nodeWorkspaceDependencies: new Map([
+        ['common/hogvm/typescript', new Set(['@posthog/hogvm'])],
+        ['common/replay-headless', new Set(['@posthog/replay-headless'])],
+        ['common/replay-shared', new Set(['@posthog/replay-headless'])],
+    ]),
 }
 
-test('the rasterizer holds its own node lane, and what it imports claims both', () => {
+test('a nodejs file claims every node lane whose imports reach it', () => {
     const cases = [
-        [`${RASTERIZER_DIR}/capture/player.ts`, RASTERIZER_CONTEXT, [NODE_RASTERIZER]],
-        ['nodejs/src/ingestion/pipelines/step.ts', RASTERIZER_CONTEXT, ['node:ingestion']],
-        ['nodejs/src/common/utils/request.ts', RASTERIZER_CONTEXT, ['node:ingestion', NODE_RASTERIZER]],
-        ['nodejs/src/types/ambient.d.ts', RASTERIZER_CONTEXT, ['node:ingestion', NODE_RASTERIZER]],
-        ['nodejs/package.json', RASTERIZER_CONTEXT, ['node:ingestion', NODE_RASTERIZER]],
-        ['nodejs/tests/helpers/kafka.ts', RASTERIZER_CONTEXT, ['node:ingestion', NODE_RASTERIZER]],
-        ['nodejs/src/ingestion/pipelines/step.ts', CONTEXT, ['node:ingestion', NODE_RASTERIZER]],
-        [`${RASTERIZER_DIR}/capture/player.ts`, CONTEXT, ['node:ingestion', NODE_RASTERIZER]],
+        ['nodejs/src/cdp/hog-executor.ts', NODE_CONTEXT, [CDP_LANE]],
+        ['nodejs/src/cdp/types.ts', NODE_CONTEXT, [CDP_LANE, 'node:ingestion'].sort()],
+        ['nodejs/src/ingestion/pipelines/step.ts', NODE_CONTEXT, ['node:ingestion']],
+        [`${RASTERIZER_DIR}/capture/player.ts`, NODE_CONTEXT, [RASTERIZER_LANE]],
+        ['nodejs/src/cdp/not-imported-yet.json', NODE_CONTEXT, [CDP_LANE]],
+        ['nodejs/src/servers/cdp-api-server.ts', NODE_CONTEXT, ALL_NODE_LANES],
+        ['nodejs/src/index.ts', NODE_CONTEXT, ALL_NODE_LANES],
+        ['nodejs/src/types/ambient.d.ts', NODE_CONTEXT, ALL_NODE_LANES],
+        ['nodejs/package.json', NODE_CONTEXT, ALL_NODE_LANES],
+        ['nodejs/tests/helpers/kafka.ts', NODE_CONTEXT, ALL_NODE_LANES],
+        ['nodejs/src/cdp/hog-executor.ts', CONTEXT, ALL_NODE_LANES],
     ]
     for (const [file, context, expected] of cases) {
         assert.deepEqual(computeTargets([file], context), expected, file)
     }
-    const deleted = 'nodejs/src/common/utils/gone.ts'
-    assert.deepEqual(computeTargets([deleted], { ...RASTERIZER_CONTEXT, deletedFiles: new Set([deleted]) }), [
-        'node:ingestion',
-        NODE_RASTERIZER,
-    ])
-    assert.equal(computeTargets(['common/replay-headless/src/player.ts'], CONTEXT).includes(NODE_RASTERIZER), true)
-    assert.equal(computeTargets(['common/replay-shared/src/index.ts'], CONTEXT).includes(NODE_RASTERIZER), true)
+    const deleted = 'nodejs/src/cdp/gone.ts'
+    assert.deepEqual(computeTargets([deleted], { ...NODE_CONTEXT, deletedFiles: new Set([deleted]) }), ALL_NODE_LANES)
 })
 
-test('a JS lockfile change drops node:ingestion only when the lockfile says nodejs did not move', () => {
-    for (const file of ['pnpm-lock.yaml', 'pnpm-workspace.yaml']) {
-        const unreached = computeTargets([file], { ...RASTERIZER_CONTEXT, jsLockfileReachesNodeIngestion: false })
-        assert.equal(unreached.includes('node:ingestion'), false, file)
-        assert.equal(unreached.includes(NODE_RASTERIZER), true, file)
-        assert.equal(unreached.includes('fe:core'), true, file)
-        for (const answer of [true, null, undefined]) {
-            const reached = computeTargets([file], { ...RASTERIZER_CONTEXT, jsLockfileReachesNodeIngestion: answer })
-            assert.equal(reached.includes('node:ingestion'), true, `${file} ${answer}`)
-        }
+test('a workspace package nodejs links claims the node lanes that import it', () => {
+    const nodeLanesOf = (file, context) =>
+        computeTargets([file], context).filter((target) => target.startsWith('node:'))
+    assert.deepEqual(
+        nodeLanesOf('common/hogvm/typescript/src/execute.ts', NODE_CONTEXT),
+        [CDP_LANE, 'node:ingestion'].sort()
+    )
+    assert.equal(computeTargets(['common/hogvm/typescript/src/execute.ts'], NODE_CONTEXT).includes('py:core'), true)
+    assert.deepEqual(nodeLanesOf('common/replay-shared/src/index.ts', NODE_CONTEXT), [RASTERIZER_LANE])
+    assert.deepEqual(nodeLanesOf('common/replay-headless/src/player.ts', NODE_CONTEXT), [RASTERIZER_LANE])
+    assert.deepEqual(nodeLanesOf('common/hogvm/typescript/src/execute.ts', CONTEXT), ALL_NODE_LANES)
+    assert.deepEqual(nodeLanesOf('common/hogvm/typescript/README.md', NODE_CONTEXT), [])
+})
+
+function writeTree(files) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'node-lanes-'))
+    for (const [file, text] of Object.entries(files)) {
+        fs.mkdirSync(path.join(root, path.dirname(file)), { recursive: true })
+        fs.writeFileSync(path.join(root, file), text)
     }
-    const withNodeCode = computeTargets(['nodejs/src/ingestion/pipelines/step.ts', 'pnpm-lock.yaml'], {
-        ...RASTERIZER_CONTEXT,
-        jsLockfileReachesNodeIngestion: false,
-    })
-    assert.equal(withNodeCode.includes('node:ingestion'), true)
+    return root
+}
+
+test('the node lane map follows imports in both directions and fails closed', () => {
+    const tree = {
+        'nodejs/src/common/config.ts': "import { Kafka } from 'kafka-client'\nimport { brokers } from './kafka'\n",
+        'nodejs/src/common/kafka.ts': 'export const brokers = []\n',
+        'nodejs/src/common/types.ts': "import type { HogFunction } from '../cdp/types'\nexport type T = HogFunction\n",
+        'nodejs/src/cdp/types.ts': 'export type HogFunction = {}\n',
+        'nodejs/src/cdp/executor.ts':
+            "import { config } from '~/common/config'\nimport { exec } from '@posthog/hogvm'\n",
+        'nodejs/src/ingestion/step.ts': "import type { T } from '~/common/types'\nimport fs from 'node:fs'\n",
+        [`${RASTERIZER_DIR}/player.ts`]: "import { Player } from '@posthog/replay-headless/protocol'\n",
+        [`${RASTERIZER_DIR}/__tests__/guard.test.ts`]: "const script = `require('./missing-in-child-process')`\n",
+        'nodejs/src/servers/cdp-server.ts':
+            "import { run } from '../cdp/executor'\nimport express from 'ultimate-express'\n",
+    }
+    const map = loadNodeLaneMap(writeTree(tree))
+    const lanesOf = (file) => [...(map.fileLanes.get(file) || [])].sort()
+    assert.deepEqual(lanesOf('nodejs/src/cdp/executor.ts'), [CDP_LANE])
+    assert.deepEqual(lanesOf('nodejs/src/cdp/types.ts'), [CDP_LANE, 'node:ingestion'].sort())
+    assert.deepEqual(lanesOf('nodejs/src/common/config.ts'), [CDP_LANE, 'node:ingestion'].sort())
+    assert.deepEqual(lanesOf('nodejs/src/common/kafka.ts'), [CDP_LANE, 'node:ingestion'].sort())
+    assert.deepEqual(lanesOf('nodejs/src/ingestion/step.ts'), ['node:ingestion'])
+    assert.deepEqual(lanesOf(`${RASTERIZER_DIR}/player.ts`), [RASTERIZER_LANE])
+    assert.deepEqual(lanesOf('nodejs/src/servers/cdp-server.ts'), [])
+    assert.deepEqual([...map.packageLanes.get('@posthog/replay-headless')], [RASTERIZER_LANE])
+    assert.deepEqual([...map.packageLanes.get('@posthog/hogvm')], [CDP_LANE])
+    assert.deepEqual([...map.packageLanes.get('kafka-client')].sort(), [CDP_LANE, 'node:ingestion'].sort())
+    assert.deepEqual([...map.packageLanes.get('ultimate-express')].sort(), ALL_NODE_LANES)
+    assert.equal(map.packageLanes.has('node:fs'), false)
+
     assert.equal(
-        computeTargets(['package.json'], { ...RASTERIZER_CONTEXT, jsLockfileReachesNodeIngestion: false }).includes(
-            'node:ingestion'
-        ),
-        true
+        loadNodeLaneMap(writeTree({ ...tree, 'nodejs/src/ingestion/broken.ts': "import { x } from './nowhere'\n" })),
+        null
     )
 })
 
-function lockfile({ nodeDeps, headlessDeps = '', snapshots, packages, overrides = '' }) {
+function lockfile({ nodeDeps, headlessDeps, snapshots, packages, overrides = '' }) {
     return [
         "lockfileVersion: '9.0'",
         '',
@@ -918,30 +971,46 @@ function lockfile({ nodeDeps, headlessDeps = '', snapshots, packages, overrides 
     ].join('\n')
 }
 
-const NODE_DEP = ['      kafka-client:', '        specifier: ^2.0.0', '        version: 2.0.0'].join('\n')
-const headlessDep = (version) =>
-    ['      browser-sdk:', '        specifier: catalog:', `        version: ${version}`].join('\n')
-const packagesFor = (sdk, shim) =>
-    [
-        `  browser-sdk@${sdk}:`,
-        `    resolution: {integrity: sha512-sdk${sdk}}`,
-        '',
-        '  kafka-client@2.0.0:',
-        '    resolution: {integrity: sha512-kafka}',
-        '',
-        `  shim@${shim}:`,
-        `    resolution: {integrity: sha512-shim${shim}}`,
-    ].join('\n')
-const snapshotsFor = (sdk, shim) =>
-    [
-        `  browser-sdk@${sdk}: {}`,
-        '',
-        '  kafka-client@2.0.0:',
-        '    dependencies:',
-        `      shim: ${shim}`,
-        '',
-        `  shim@${shim}: {}`,
-    ].join('\n')
+function lockfileWith({ sdk = '1.0.0', shim = '1.0.0', runner = '1.0.0', overrides } = {}) {
+    return lockfile({
+        overrides,
+        nodeDeps: [
+            '      kafka-client:',
+            '        specifier: ^2.0.0',
+            '        version: 2.0.0',
+            '    devDependencies:',
+            '      test-runner:',
+            '        specifier: ^1.0.0',
+            `        version: ${runner}`,
+        ].join('\n'),
+        headlessDeps: ['      browser-sdk:', '        specifier: catalog:', `        version: ${sdk}`].join('\n'),
+        packages: [
+            `  browser-sdk@${sdk}:`,
+            `    resolution: {integrity: sha512-sdk${sdk}}`,
+            '',
+            '  kafka-client@2.0.0:',
+            '    resolution: {integrity: sha512-kafka}',
+            '',
+            `  shim@${shim}:`,
+            `    resolution: {integrity: sha512-shim${shim}}`,
+            '',
+            `  test-runner@${runner}:`,
+            `    resolution: {integrity: sha512-runner${runner}}`,
+        ].join('\n'),
+        snapshots: [
+            `  browser-sdk@${sdk}: {}`,
+            '',
+            '  kafka-client@2.0.0:',
+            '    dependencies:',
+            `      shim: ${shim}`,
+            '',
+            `  shim@${shim}: {}`,
+            '',
+            `  test-runner@${runner}: {}`,
+        ].join('\n'),
+    })
+}
+
 const WORKSPACE = [
     'packages:',
     '    - nodejs',
@@ -951,80 +1020,99 @@ const WORKSPACE = [
     '    browser-sdk: ^1.0.0',
 ].join('\n')
 
-test('the lockfile comparison follows what nodejs resolves, not what the lockfile touched', () => {
-    const base = lockfile({
-        nodeDeps: NODE_DEP,
-        headlessDeps: headlessDep('1.0.0'),
-        snapshots: snapshotsFor('1.0.0', '1.0.0'),
-        packages: packagesFor('1.0.0', '1.0.0'),
-    })
-    const headlessBump = lockfile({
-        nodeDeps: NODE_DEP,
-        headlessDeps: headlessDep('1.0.1'),
-        snapshots: snapshotsFor('1.0.1', '1.0.0'),
-        packages: packagesFor('1.0.1', '1.0.0'),
-    })
-    const transitiveBump = lockfile({
-        nodeDeps: NODE_DEP,
-        headlessDeps: headlessDep('1.0.0'),
-        snapshots: snapshotsFor('1.0.0', '1.0.1'),
-        packages: packagesFor('1.0.0', '1.0.1'),
-    })
-    const overridden = lockfile({
-        nodeDeps: NODE_DEP,
-        headlessDeps: headlessDep('1.0.0'),
-        snapshots: snapshotsFor('1.0.0', '1.0.0'),
-        packages: packagesFor('1.0.0', '1.0.0'),
-        overrides: 'overrides:\n  shim: 1.0.0\n',
-    })
-    const dangling = base.replace('  shim@1.0.0: {}', '')
-    const boundary = { imports: new Set(), headlessOnlyInRasterizer: true }
+test('a JS lockfile change claims the node lanes whose dependencies it moved', () => {
+    const base = lockfileWith()
+    const nodeLaneMap = {
+        fileLanes: new Map(),
+        packageLanes: new Map([
+            ['@posthog/replay-headless', new Set([RASTERIZER_LANE])],
+            ['kafka-client', new Set([CDP_LANE, 'node:ingestion'])],
+        ]),
+    }
     const cases = [
-        ['an unchanged lockfile', base, WORKSPACE, boundary, false],
-        ['a bump only replay-headless resolves', headlessBump, WORKSPACE, boundary, false],
+        ['an unchanged lockfile', base, WORKSPACE, nodeLaneMap, []],
         [
-            'the same bump once nodejs imports replay-headless directly',
-            headlessBump,
+            'a bump only replay-headless resolves',
+            lockfileWith({ sdk: '1.0.1' }),
             WORKSPACE,
-            { ...boundary, headlessOnlyInRasterizer: false },
-            true,
+            nodeLaneMap,
+            [RASTERIZER_LANE],
         ],
-        ['the same bump with no rasterizer boundary', headlessBump, WORKSPACE, null, true],
-        ['a transitive dependency of nodejs', transitiveBump, WORKSPACE, boundary, true],
-        ['a new override', overridden, WORKSPACE, boundary, true],
+        [
+            'a transitive dependency of a package two lanes import',
+            lockfileWith({ shim: '1.0.1' }),
+            WORKSPACE,
+            nodeLaneMap,
+            [CDP_LANE, 'node:ingestion'],
+        ],
+        ['a dependency no lane imports', lockfileWith({ runner: '1.0.1' }), WORKSPACE, nodeLaneMap, ALL_NODE_LANES],
+        ['a bump with no node lane map', lockfileWith({ sdk: '1.0.1' }), WORKSPACE, null, ALL_NODE_LANES],
+        [
+            'a new override',
+            lockfileWith({ overrides: 'overrides:\n  shim: 1.0.0\n' }),
+            WORKSPACE,
+            nodeLaneMap,
+            ALL_NODE_LANES,
+        ],
         [
             'a workspace change outside the catalog',
             base,
             WORKSPACE.replace('    - packages/*', '    - packages/*\n    - tools/*'),
-            boundary,
-            true,
+            nodeLaneMap,
+            ALL_NODE_LANES,
         ],
-        ['a catalog-only workspace change', base, WORKSPACE.replace('^1.0.0', '^1.0.1'), boundary, false],
-        ['a snapshot the walk cannot find', dangling, WORKSPACE, boundary, null],
+        ['a catalog-only workspace change', base, WORKSPACE.replace('^1.0.0', '^1.0.1'), nodeLaneMap, []],
+        ['a snapshot the walk cannot find', base.replace('  shim@1.0.0: {}', ''), WORKSPACE, nodeLaneMap, null],
     ]
-    for (const [label, headLockfile, headWorkspace, rasterizerBoundary, expected] of cases) {
-        assert.equal(
-            jsLockfileReachesNodeIngestion({
-                baseLockfile: base,
-                headLockfile,
-                baseWorkspace: WORKSPACE,
-                headWorkspace,
-                rasterizerBoundary,
-            }),
-            expected,
-            label
-        )
+    for (const [label, headLockfile, headWorkspace, map, expected] of cases) {
+        const reached = jsLockfileNodeLanes({
+            baseLockfile: base,
+            headLockfile,
+            baseWorkspace: WORKSPACE,
+            headWorkspace,
+            nodeLaneMap: map,
+        })
+        assert.deepEqual(reached && [...reached].sort(), expected && [...expected].sort(), label)
     }
     assert.equal(
-        jsLockfileReachesNodeIngestion({
+        jsLockfileNodeLanes({
             baseLockfile: null,
             headLockfile: base,
             baseWorkspace: WORKSPACE,
             headWorkspace: WORKSPACE,
-            rasterizerBoundary: boundary,
+            nodeLaneMap,
         }),
         null
     )
+})
+
+test('a JS lockfile lane keeps only the node lanes the lockfile reached', () => {
+    const nodeLanesOf = (files, context) =>
+        computeTargets(files, context).filter((target) => target.startsWith('node:'))
+    for (const file of ['pnpm-lock.yaml', 'pnpm-workspace.yaml']) {
+        const narrowed = computeTargets([file], { ...NODE_CONTEXT, jsLockfileNodeLanes: new Set([RASTERIZER_LANE]) })
+        assert.deepEqual(
+            narrowed.filter((target) => target.startsWith('node:')),
+            [RASTERIZER_LANE],
+            file
+        )
+        assert.equal(narrowed.includes('fe:core'), true, file)
+        for (const answer of [null, undefined]) {
+            assert.deepEqual(
+                nodeLanesOf([file], { ...NODE_CONTEXT, jsLockfileNodeLanes: answer }),
+                ALL_NODE_LANES,
+                `${file} ${answer}`
+            )
+        }
+    }
+    assert.deepEqual(
+        nodeLanesOf(['nodejs/src/ingestion/pipelines/step.ts', 'pnpm-lock.yaml'], {
+            ...NODE_CONTEXT,
+            jsLockfileNodeLanes: new Set(),
+        }),
+        ['node:ingestion']
+    )
+    assert.deepEqual(nodeLanesOf(['package.json'], { ...NODE_CONTEXT, jsLockfileNodeLanes: new Set() }), ALL_NODE_LANES)
 })
 
 // Semgrep enforces the languages: declaration on every rule, so it is a sound
