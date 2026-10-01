@@ -929,6 +929,19 @@ class InternalBlastRadiusPersonsSerializer(serializers.Serializer):
     has_more = serializers.BooleanField(help_text="Whether another page may follow.")
 
 
+class InternalAccountAudienceSerializer(serializers.Serializer):
+    """Response contract for the internal account audience endpoint, read by the Node batch resolver."""
+
+    accounts = serializers.ListField(
+        child=serializers.CharField(), help_text="Account group keys in this page, in stable pagination order."
+    )
+    cursor = serializers.CharField(
+        allow_null=True, help_text="Cursor for the next call, or null when this page is the last."
+    )
+    has_more = serializers.BooleanField(help_text="Whether another page may follow.")
+    group_type = serializers.CharField(allow_null=True, help_text="Group type the account keys belong to.")
+
+
 class WorkflowGlobalStatsRequestSerializer(serializers.Serializer):
     after = serializers.CharField(
         required=False,
@@ -6818,12 +6831,14 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         try:
             page = get_account_audience_ids_page(team_id=team.id, filters=filters, cursor=cursor)
             return Response(
-                {
-                    "accounts": page.ids,
-                    "cursor": page.ids[-1] if page.ids else None,
-                    "has_more": page.has_more,
-                    "group_type": group_type,
-                }
+                InternalAccountAudienceSerializer(
+                    {
+                        "accounts": page.ids,
+                        "cursor": page.ids[-1] if page.ids else None,
+                        "has_more": page.has_more,
+                        "group_type": group_type,
+                    }
+                ).data
             )
         except exceptions.ValidationError as e:
             return Response({"error": _validation_error_message(e)}, status=400)
