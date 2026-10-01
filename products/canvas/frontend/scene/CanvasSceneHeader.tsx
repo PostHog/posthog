@@ -15,8 +15,12 @@ import {
 
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { CanvasBuildStatusBadge } from './CanvasBuildStatusBadge'
+import { CanvasVersionControls } from '../history/CanvasVersionControls'
+import { CanvasBuildStatus } from './CanvasBuildStatus'
+import { CanvasGenerationIndicator } from './CanvasGenerationIndicator'
+import { CanvasRuntimeErrorNotice } from './CanvasRuntimeErrorNotice'
 import { canvasSceneLogic } from './canvasSceneLogic'
+import { CanvasSidePanelToggle } from './CanvasSidePanelToggle'
 
 /** The canvas's name, its build status, and the actions on the canvas as a whole. Select the name to rename it. */
 export function CanvasSceneHeader(): JSX.Element {
@@ -32,16 +36,14 @@ export function CanvasSceneHeader(): JSX.Element {
             onNameChange={renameCanvas}
             saveOnBlur
             renameDebounceMs={0}
-            nameSuffix={
-                canvas ? (
-                    <span data-quill className="inline-flex items-center">
-                        <CanvasBuildStatusBadge />
-                    </span>
-                ) : undefined
-            }
             actions={
                 canvas ? (
-                    <div data-quill>
+                    <div data-quill className="flex flex-wrap items-center justify-end gap-1">
+                        <CanvasRuntimeErrorNotice />
+                        <CanvasGenerationIndicator />
+                        <CanvasBuildStatus />
+                        <CanvasVersionControls />
+                        <CanvasSidePanelToggle />
                         <DropdownMenu>
                             <Tooltip>
                                 {/* quill's triggers do not forward refs under React 18, so a span anchors the tooltip. */}

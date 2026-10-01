@@ -903,15 +903,6 @@ export interface CanvasDraftApi {
     build_id: string | null
 }
 
-export interface PaginatedCanvasDraftListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: CanvasDraftApi[]
-}
-
 /**
  * * `write` - Write
  * * `delete` - Delete
@@ -1924,17 +1915,6 @@ export type CanvasesCommentsRetrieveParams = {
      * @maximum 100
      */
     limit?: number
-}
-
-export type CanvasesDraftsRetrieveParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
 }
 
 export type CanvasesLayoutRetrieveParams = {

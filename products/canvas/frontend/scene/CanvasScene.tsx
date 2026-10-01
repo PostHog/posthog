@@ -18,6 +18,12 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
+import { CanvasBrowsedCanvas } from '../history/CanvasBrowsedCanvas'
+import { CanvasHistoryConfirmDialog } from '../history/CanvasHistoryConfirmDialog'
+import { canvasHistoryLogic } from '../history/canvasHistoryLogic'
+import { CanvasSidePanel } from '../sidePanel/CanvasSidePanel'
+import { canvasCommentsLogic } from '../sidePanel/comments/canvasCommentsLogic'
+import { CanvasSelectionCommentAction } from '../sidePanel/comments/CanvasSelectionCommentAction'
 import { CanvasEmptyBody } from './CanvasEmptyBody'
 import { CanvasGeneratingState } from './CanvasGeneratingState'
 import { CanvasRenderer } from './CanvasRenderer'
@@ -31,9 +37,13 @@ export const scene: SceneExport<CanvasSceneLogicProps> = {
 }
 
 function CanvasBody(): JSX.Element {
-    const { bodyState, viewLoading } = useValues(canvasSceneLogic)
+    const { bodyState, viewLoading, liveRenderSource } = useValues(canvasSceneLogic)
     const { loadView } = useActions(canvasSceneLogic)
+    const { browseVersionId } = useValues(canvasHistoryLogic)
 
+    if (browseVersionId && bodyState !== 'missing' && bodyState !== 'error') {
+        return <CanvasBrowsedCanvas />
+    }
     switch (bodyState) {
         case 'loading':
             return (
@@ -89,7 +99,7 @@ function CanvasBody(): JSX.Element {
             )
         case 'built':
         case 'draft':
-            return <CanvasRenderer />
+            return <CanvasRenderer source={liveRenderSource} />
         case 'missing':
             return <NotFound object="canvas" />
     }
@@ -104,18 +114,29 @@ export function CanvasScene({ id }: CanvasSceneLogicProps): JSX.Element {
     }
     return (
         <BindLogic logic={canvasSceneLogic} props={{ id }}>
-            <SceneContent className="h-full min-h-0 gap-y-2">
-                <CanvasSceneHeader />
-                <div data-quill className="@container/canvas-scene flex min-h-0 flex-1">
-                    <main className="min-w-0 flex-1">
-                        <CanvasBody />
-                    </main>
-                    {sidePanelOpen && (
-                        // The side panel (chat, timeline, comments, versions) mounts here.
-                        <aside className="w-96 shrink-0 border-l border-border" data-attr="canvas-side-panel" />
-                    )}
-                </div>
-            </SceneContent>
+            <BindLogic logic={canvasHistoryLogic} props={{ id }}>
+                <BindLogic logic={canvasCommentsLogic} props={{ id }}>
+                    <SceneContent className="h-full min-h-0 gap-y-2">
+                        <CanvasSceneHeader />
+                        <div data-quill className="@container/canvas-scene relative flex min-h-0 flex-1">
+                            <main className="min-w-0 flex-1">
+                                <CanvasBody />
+                            </main>
+                            {sidePanelOpen && (
+                                // A narrow scene overlays the panel on the canvas. A wide one gives it its own column.
+                                <aside
+                                    className="absolute inset-y-0 right-0 z-10 flex w-full max-w-96 flex-col border-l border-border bg-background shadow-lg @min-[48rem]/canvas-scene:static @min-[48rem]/canvas-scene:w-96 @min-[48rem]/canvas-scene:shrink-0 @min-[48rem]/canvas-scene:shadow-none"
+                                    data-attr="canvas-side-panel"
+                                >
+                                    <CanvasSidePanel canvasId={id} />
+                                </aside>
+                            )}
+                            <CanvasSelectionCommentAction />
+                            <CanvasHistoryConfirmDialog />
+                        </div>
+                    </SceneContent>
+                </BindLogic>
+            </BindLogic>
         </BindLogic>
     )
 }

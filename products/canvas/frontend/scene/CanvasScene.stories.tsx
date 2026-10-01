@@ -53,10 +53,13 @@ function mocks(view: CanvasViewResponseApi): ReturnType<typeof mswDecorator> {
                 builds: [],
             },
             '/api/projects/:team_id/task_channels/:id/': { id: SPACE_ID, name: 'me', system_role: 'personal' },
+            '/api/projects/:team_id/canvases/:id/versions/': { count: 0, next: null, previous: null, results: [] },
+            '/api/projects/:team_id/canvases/:id/drafts/': [],
+            '/api/projects/:team_id/comments/': { next: null, previous: null, results: [] },
             '/api/projects/:team_id/tasks/:id/': {
                 id: TASK_ID,
                 title: 'Weekly active users',
-                latest_run: { status: 'in_progress' },
+                latest_run: { id: 'run-1', status: 'in_progress' },
             },
         },
     })

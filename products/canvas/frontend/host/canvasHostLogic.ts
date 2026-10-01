@@ -22,6 +22,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import type { TeamPublicType, TeamType, UserType } from '../../../../frontend/src/types'
 import { CANVAS_EVENTS, canvasErrorType } from '../canvasAnalytics'
+import { canvasesReportErrorCreate } from '../generated/api'
 import { CanvasActionConfirmation, CanvasConnectorPermissionRequest, CanvasDataBridge } from './canvasDataBridge'
 import { CanvasNavIntent, isSafeGitHubPullRequestUrl } from './canvasProtocol'
 
@@ -172,7 +173,7 @@ export const canvasHostLogic = kea<canvasHostLogicType>([
             (prompts: CanvasHostPrompt[]): CanvasHostPrompt | null => prompts[0] ?? null,
         ],
     }),
-    listeners(({ props, cache }) => ({
+    listeners(({ props, values, cache }) => ({
         respondToPrompt: ({ id, allowed }) => {
             const resolve = (cache.resolvers as Map<string, (allowed: boolean) => void>).get(id)
             cache.resolvers.delete(id)
@@ -217,12 +218,29 @@ export const canvasHostLogic = kea<canvasHostLogicType>([
             })
         },
         canvasErrored: ({ message, buildId }) => {
+            // A canvas can throw the same error on every render, so each error is reported once per build.
+            const errorKey = `${buildId ?? 'draft'}:${message}`
+            if (errorKey === cache.lastRuntimeError) {
+                return
+            }
+            cache.lastRuntimeError = errorKey
+            const errorType = canvasErrorType(message)
             posthog.capture(CANVAS_EVENTS.runtimeError, {
                 channel_id: props.spaceId ?? undefined,
                 dashboard_id: props.canvasId,
                 build_id: buildId ?? undefined,
-                error_type: canvasErrorType(message),
+                error_type: errorType,
             })
+            // Files the error in the authoring task's thread so its agent hears about it. Only the
+            // class name leaves the browser: the message can carry the viewer's data.
+            if (buildId && values.currentProjectId) {
+                void canvasesReportErrorCreate(String(values.currentProjectId), props.canvasId, {
+                    build_id: buildId,
+                    error_type: errorType,
+                }).catch(() => {
+                    // Reporting is best effort. The header still shows the error and a way to ask for a fix.
+                })
+            }
         },
     })),
     afterMount((logic) => {

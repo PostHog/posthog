@@ -5,21 +5,29 @@ import {
     tasksCreate,
     tasksRetrieve,
     tasksRunCreate,
+    tasksRunsCommandCreate,
 } from 'products/tasks/frontend/generated/api'
 import type { ChannelDTOApi, TaskDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
 
 export type CanvasSpace = Pick<ChannelDTOApi, 'id' | 'name' | 'system_role'>
-
+export type CanvasTaskRun = Pick<NonNullable<TaskDetailDTOApi['latest_run']>, 'id' | 'status' | 'error_message'>
 export type CanvasGenerationTask = Pick<TaskDetailDTOApi, 'id' | 'title'> & {
-    latest_run: Pick<NonNullable<TaskDetailDTOApi['latest_run']>, 'status'> | null
+    latest_run: CanvasTaskRun | null
+    created_by?: Pick<NonNullable<TaskDetailDTOApi['created_by']>, 'uuid'> | null
 }
 
-function toCanvasTask(task: Pick<TaskDetailDTOApi, 'id' | 'title' | 'latest_run'>): CanvasGenerationTask {
-    return { id: task.id, title: task.title, latest_run: task.latest_run ?? null }
+function toCanvasTask(task: Pick<TaskDetailDTOApi, 'id' | 'title' | 'latest_run' | 'created_by'>): CanvasGenerationTask {
+    return { id: task.id, title: task.title, latest_run: task.latest_run ?? null, created_by: task.created_by }
 }
 
 // pinned: task run statuses from the tasks API
 const TERMINAL_RUN_STATUSES = new Set(['completed', 'failed', 'cancelled'])
+const STARTING_RUN_STATUSES = new Set(['not_started', 'queued'])
+
+/** Whether a run exists but its agent has not begun work yet. */
+export function isStartingRunStatus(status: string | null | undefined): boolean {
+    return !!status && STARTING_RUN_STATUSES.has(status)
+}
 
 export function isTerminalRunStatus(status: string | null | undefined): boolean {
     return !!status && TERMINAL_RUN_STATUSES.has(status)
@@ -88,4 +96,32 @@ export async function startCanvasGenerationRun(projectId: string, taskId: string
             initial_permission_mode: 'bypassPermissions',
         })
     )
+}
+
+/** Sends a follow-up message to a run that is still live. The agent reads it on its next turn. */
+export async function sendCanvasRunMessage(
+    projectId: string,
+    taskId: string,
+    runId: string,
+    content: string
+): Promise<void> {
+    const response = await tasksRunsCommandCreate(projectId, taskId, runId, { jsonrpc: '2.0', method: 'user_message', params: { content } })
+    if (response?.result?.queued !== true) {
+        throw new Error("The agent didn't confirm the message.")
+    }
+}
+
+/**
+ * Starts a new run of a task with a follow-up message. Chained from the last run, the new run
+ * continues that conversation. The server answers with the task, the new run as `latest_run`.
+ */
+export async function resumeCanvasTask(
+    projectId: string,
+    taskId: string,
+    input: { resumeFromRunId: string | null; message: string }
+): Promise<CanvasGenerationTask> {
+    return toCanvasTask(await tasksRunCreate(projectId, taskId, {
+        ...(input.resumeFromRunId ? { resume_from_run_id: input.resumeFromRunId } : {}),
+        pending_user_message: input.message,
+    }))
 }

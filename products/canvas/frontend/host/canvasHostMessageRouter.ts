@@ -1,6 +1,7 @@
 import {
     CANVAS_CHANNEL,
     CanvasNavIntent,
+    CanvasTextSelection,
     CanvasToHostMessage,
     HostToCanvasMessage,
     isSafeGitHubPullRequestUrl,
@@ -65,6 +66,11 @@ export interface CanvasHostCallbacks {
     onReady?: () => void
     onRendered?: () => void
     onNavigate?: (intent: CanvasNavIntent) => void
+    /** The viewer selected text in the canvas. The rect is in the frame's coordinates. */
+    onTextSelection?: (selection: CanvasTextSelection) => void
+    onTextSelectionCleared?: () => void
+    /** The viewer clicked a highlighted comment anchor. */
+    onCommentActivate?: (id: string) => void
 }
 
 export type ExternalOpenBlockReason = 'unsafe-url' | 'no-interaction' | 'throttled'
@@ -203,9 +209,13 @@ export function createCanvasHostMessageRouter(
                 break
             }
             case 'text-selection':
+                options.callbacks().onTextSelection?.(message.selection)
+                break
             case 'text-selection-cleared':
+                options.callbacks().onTextSelectionCleared?.()
+                break
             case 'comment-activate':
-                // The web app has no comment surface for canvases yet, so these are dropped.
+                options.callbacks().onCommentActivate?.(message.id)
                 break
         }
     }

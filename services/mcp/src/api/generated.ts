@@ -66274,15 +66274,6 @@ export namespace Schemas {
       results: CIMDVerificationToken[];
     }
 
-    export interface PaginatedCanvasDraftList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: CanvasDraft[];
-    }
-
     export interface PaginatedCanvasList {
       count: number;
       /** @nullable */
@@ -112394,17 +112385,6 @@ export namespace Schemas {
      * @maximum 100
      */
     limit?: number;
-    };
-
-    export type CanvasesDraftsRetrieveParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
     };
 
     export type CanvasesLayoutRetrieveParams = {

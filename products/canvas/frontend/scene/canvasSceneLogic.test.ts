@@ -63,5 +63,7 @@ describe('canvasSceneLogic', () => {
         releaseTaskRequest()
         await expectLogic(logic).toDispatchActions(['generationFinished'])
         expect(logic.values.bodyState).toEqual('empty')
+        // The side panel and the composer say why, rather than only a toast that disappears.
+        expect(logic.values.generationError).toEqual('Agent-started task runs are not available for this project')
     })
 })
