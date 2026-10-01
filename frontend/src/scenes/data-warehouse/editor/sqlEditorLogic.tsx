@@ -17,7 +17,8 @@ import {
     selectors,
 } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { beforeUnload, router, urlToAction } from 'kea-router'
+import { CombinedLocation } from 'kea-router/lib/utils'
 import { subscriptions } from 'kea-subscriptions'
 import { type IRange, Uri, editor } from 'monaco-editor'
 import posthog from 'posthog-js'
@@ -45,6 +46,7 @@ import { clearLogicReference, initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { findQueryAtCursor, type QueryRange, splitQueries } from 'lib/monaco/multiQueryUtils'
 import { characterOffsetToUtf16 } from 'lib/monaco/offsets'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { slugify } from 'lib/utils/strings'
@@ -3695,7 +3697,16 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         return
                     }
 
-                    const queryToOpen = searchParams.open_query ? searchParams.open_query : (view.query?.query ?? '')
+                    const savedViewQuery = view.query?.query ?? ''
+                    // A hash `q` without `open_view` is the tab state that `getTabHash` wrote, for example
+                    // after a back click or a reload. Keep those edits instead of the saved view query.
+                    const unsavedQueryFromHash =
+                        !searchParams.open_view && hashParams.q !== undefined && String(hashParams.q) !== savedViewQuery
+                            ? String(hashParams.q)
+                            : null
+                    const queryToOpen = searchParams.open_query
+                        ? searchParams.open_query
+                        : (unsavedQueryFromHash ?? savedViewQuery)
 
                     if (outputTabFromUrl) {
                         actions.createTab(
@@ -3711,6 +3722,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     }
                     actions.setViewLoading(false)
                     actions.setViewQueryLoading(false)
+                    if (unsavedQueryFromHash !== null && !searchParams.open_query) {
+                        posthog.capture('sql-editor-unsaved-view-edits-restored')
+                    }
                     tabAdded = true
                     router.actions.replace(urls.sqlEditor(), undefined, getTabHash(values))
                 } else if (
@@ -3896,6 +3910,27 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 actions.loadDatabase(schemaLoadOptions())
             }
         },
+    })),
+    beforeUnload(({ values }) => ({
+        enabled: (newLocation?: CombinedLocation) => {
+            if (values.isEmbeddedMode || !values.editingView || !values.changesToSave) {
+                return false
+            }
+            // Only the editor that owns the current URL warns, so a mounted background tab stays quiet
+            const { location, hashParams } = router.values
+            if (
+                removeProjectIdIfPresent(location.pathname) !== urls.sqlEditor() ||
+                hashParams.view !== values.editingView.id
+            ) {
+                return false
+            }
+            // Ignore in-page URL updates, such as the hash sync while the user types
+            if (newLocation && removeProjectIdIfPresent(newLocation.pathname) === urls.sqlEditor()) {
+                return false
+            }
+            return true
+        },
+        message: 'Leave the SQL editor?\nYour unsaved changes to this view will be lost.',
     })),
     afterMount(({ actions, props, values, cache }) => {
         cache.lastSelectedConnectionId = values.selectedConnectionId
