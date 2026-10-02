@@ -56,7 +56,7 @@ export function ConversionPeopleModal({
                                     title: 'Person',
                                     key: 'person',
                                     render: (_, person) => (
-                                        <Link to={urls.personByUUID(person.id)} className="break-all">
+                                        <Link to={urls.personByUUID(person.id)} className="ph-no-capture break-all">
                                             {person.name}
                                         </Link>
                                     ),
