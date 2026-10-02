@@ -76,7 +76,7 @@ function scoreColor(score: number, min: number, max: number): string {
         : `color-mix(in oklab, var(--success) ${Math.round((position - 0.5) * 200)}%, var(--warning))`
 }
 
-function ConfidenceBadge({ observation }: { observation: ReplayObservationApi }): JSX.Element | null {
+export function ConfidenceBadge({ observation }: { observation: ReplayObservationApi }): JSX.Element | null {
     const confidence = readConfidence(observation)
     if (confidence === null) {
         return null
@@ -175,13 +175,19 @@ function HeadlineValue({
 export function ObservationHeadline({
     observation,
     onSeek,
+    hideLabel = false,
 }: {
     observation: ReplayObservationApi
     onSeek: (timestampMs: number) => void
+    /** For when a tab around the headline already names it. */
+    hideLabel?: boolean
 }): JSX.Element | null {
     const scannerType = observation.scanner_snapshot?.scanner_type
     if (!scannerType || !readModelOutput(observation)) {
         return null
+    }
+    if (hideLabel) {
+        return <HeadlineValue observation={observation} scannerType={scannerType} onSeek={onSeek} />
     }
     return (
         // The badge sits on the heading's line, so it has the same place for every scanner type.

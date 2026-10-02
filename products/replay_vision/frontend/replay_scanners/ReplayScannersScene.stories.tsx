@@ -15,6 +15,7 @@ import { StartupProgramLabel } from '~/types'
 
 import { userEvent, within } from 'storybook/test'
 
+import { LONG, LONG_INACTIVE, summary as timelineSummary } from '../__mocks__/recordingTimelineObservations'
 import type {
     BackfillEstimateResponseApi,
     DraftScannerResponseApi,
@@ -1959,4 +1960,34 @@ export const ScannerEditorGoalOverviewLoading: StoryObj = {
             return <StoryFn />
         },
     ],
+}
+
+// A summary that carries chapters, so the result card gains Summary and Breakdown tabs.
+const breakdownObservationDetail = (() => {
+    const withChapters = timelineSummary({ chapters: LONG, inactive: LONG_INACTIVE })
+    const output = withChapters.scanner_result!.model_output as Record<string, unknown>
+    return observation({
+        ...observationDetail,
+        id: '00000000-0000-0000-0000-0000000000d9',
+        scanner_result: {
+            ...observationDetail.scanner_result!,
+            model_output: {
+                ...(observationDetail.scanner_result!.model_output as Record<string, unknown>),
+                chapters: output.chapters,
+                inactive_periods: output.inactive_periods,
+            },
+        } as ReplayObservationApi['scanner_result'],
+        media: withChapters.media,
+    })
+})()
+
+export const ObservationDetailSummaryWithBreakdown: StoryObj = observationDetailStory(breakdownObservationDetail)
+
+// The breakdown tab on an hour-long recording, the only story where the rail scrolls inside the card.
+export const ObservationDetailBreakdown: StoryObj = {
+    ...observationDetailStory(breakdownObservationDetail),
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByText('Breakdown'))
+        await within(canvasElement).findByText('Session start')
+    },
 }
