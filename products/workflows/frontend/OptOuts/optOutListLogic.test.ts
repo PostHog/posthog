@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import Papa from 'papaparse'
 import posthog from 'posthog-js'
@@ -23,6 +24,7 @@ describe('optOutListLogic usage tracking', () => {
             results: [],
         })
         capture = jest.spyOn(posthog, 'capture')
+        router.actions.push('/audience/topics')
         logic = optOutListLogic({})
         logic.mount()
     })
@@ -40,14 +42,14 @@ describe('optOutListLogic usage tracking', () => {
             logic.actions.exportCsv()
         }).toDispatchActions(['exportCsvSuccess'])
 
-        expect(capture).toHaveBeenCalledWith('messaging opt-outs exported')
+        expect(capture).toHaveBeenCalledWith('messaging opt-outs exported', { surface: 'audience' })
     })
 
     it.each([
         {
             optedOut: 2,
             outcome: 'captures the import count',
-            expected: [['messaging opt-outs imported', { count: 2 }]],
+            expected: [['messaging opt-outs imported', { count: 2, surface: 'audience' }]],
         },
         { optedOut: 0, outcome: 'captures nothing', expected: [] },
     ])('$outcome when the import opts out $optedOut recipients', async ({ optedOut, expected }) => {
