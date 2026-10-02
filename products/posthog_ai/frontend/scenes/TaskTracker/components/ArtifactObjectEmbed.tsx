@@ -15,7 +15,7 @@ import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { DashboardPlacement, InsightShortId } from '~/types'
 
-import type { PostHogObjectRef } from '../taskRunArtifacts'
+import { PRODUCT_OBJECT_EMBEDS, type PostHogObjectRef } from '../taskRunArtifacts'
 
 function EmbedLoading(): JSX.Element {
     return (
@@ -134,7 +134,8 @@ function EmbedBody({ objectKind, objectId }: PostHogObjectRef): JSX.Element | nu
     if (objectKind === 'cohort') {
         return <CohortEmbed id={Number(objectId)} />
     }
-    return null
+    const ProductEmbed = PRODUCT_OBJECT_EMBEDS.get(objectKind)
+    return ProductEmbed ? <ProductEmbed objectId={objectId} /> : null
 }
 
 /**

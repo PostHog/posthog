@@ -4,6 +4,8 @@ import type {
 } from 'products/tasks/frontend/generated/api.schemas'
 
 import {
+    LIVE_OBJECT_KINDS,
+    PRODUCT_OBJECT_EMBEDS,
     RunArtifact,
     artifactPreviewKind,
     collectRunArtifacts,
@@ -98,6 +100,11 @@ describe('taskRunArtifacts', () => {
         ['ArrowDown', 0, 0, null],
     ])('listboxKeyTarget moves %s from %i of %i to %p', (key, current, count, expected) => {
         expect(listboxKeyTarget(key, current, count)).toBe(expected)
+    })
+
+    test.each(['experiment'])('the %s kind from the object tag registry gets a product embed', (kind) => {
+        expect(LIVE_OBJECT_KINDS.has(kind)).toBe(true)
+        expect(PRODUCT_OBJECT_EMBEDS.get(kind)).toBeTruthy()
     })
 
     it('visibleRunArtifacts keeps files the agent wrote and cited PostHog objects', () => {

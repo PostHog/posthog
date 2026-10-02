@@ -12,6 +12,9 @@ import { SceneLayout } from '~/layout/scenes/SceneLayout'
 import { TodayShell } from '~/layout/today/TodayShell'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { mswDecorator } from '~/mocks/browser'
+import EXPERIMENT_WITH_MEAN_METRIC from '~/mocks/fixtures/api/experiments/experiment_with_mean_metric.json'
+import EXPOSURE_QUERY_RESULT from '~/mocks/fixtures/api/experiments/exposure_query_result.json'
+import MEAN_METRIC_RESULT from '~/mocks/fixtures/api/experiments/mean_metric_result.json'
 import TRENDS_LINE_INSIGHT from '~/mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
 import type { MockSignature } from '~/mocks/utils'
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -271,9 +274,17 @@ const CITED_COHORT = {
 
 const COHORT_PEOPLE = ['ada@example.com', 'grace@example.com', 'linus@example.com', 'margaret@example.com']
 
+const CITED_EXPERIMENT = { ...EXPERIMENT_WITH_MEAN_METRIC, id: 12, name: 'Plan picker layout test' }
+
 /** The insight and cohort embeds each run their own query through the same endpoint. */
 async function queryByKind({ request }: { request: Request }): Promise<Record<string, unknown>> {
     const { query } = (await request.json()) as { query: { kind: string; source?: { kind: string } } }
+    if (query.kind === NodeKind.ExperimentExposureQuery) {
+        return EXPOSURE_QUERY_RESULT
+    }
+    if (query.kind === NodeKind.ExperimentQuery) {
+        return MEAN_METRIC_RESULT
+    }
     if (query.kind === NodeKind.ActorsQuery || query.source?.kind === NodeKind.ActorsQuery) {
         return {
             columns: ['person_display_name -- Person', 'id', 'created_at'],
@@ -296,6 +307,9 @@ const OBJECT_MOCKS = {
         '/api/projects/:team_id/feature_flags/7/': CITED_FLAG,
         '/api/projects/:team_id/feature_flags/7/status': { status: 'active', reason: 'Feature flag is active' },
         '/api/projects/:team_id/cohorts/3/': CITED_COHORT,
+        '/api/projects/:team_id/experiments/12/': CITED_EXPERIMENT,
+        '/api/projects/:team_id/experiment_holdouts': [],
+        '/api/projects/:team_id/experiment_saved_metrics/': [],
     },
     post: {
         '/api/environments/:team_id/query/': queryByKind,
@@ -560,6 +574,11 @@ export const PostHogObjectFlag: Story = {
 export const PostHogObjectCohort: Story = {
     parameters: { msw: { mocks: objectMocks() } },
     render: () => <StoryPage fileName="phref_cohort" />,
+}
+
+export const PostHogObjectExperiment: Story = {
+    parameters: { msw: { mocks: objectMocks() } },
+    render: () => <StoryPage fileName="phref_experiment" />,
 }
 
 export const PostHogObjectWithoutEmbed: Story = {
