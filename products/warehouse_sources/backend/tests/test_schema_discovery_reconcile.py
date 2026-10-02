@@ -173,9 +173,9 @@ class TestSchemaDiscoveryReconcile(BaseTest):
         assert sync_result.created == []
         assert not ExternalDataSchema.objects.filter(source_id=source.pk, name="budget_2025").exists()
 
-    def test_a_new_resource_that_takes_the_old_name_keeps_the_stored_schema(self) -> None:
-        # The stored resource was renamed and a new one took its old name. The name wins: the stored
-        # row now points at the new resource, and the renamed one is offered as a new schema.
+    def test_a_new_resource_that_takes_the_old_name_does_not_replace_the_stored_resource(self) -> None:
+        # Stable identity wins when a new resource takes the old name. The colliding new resource
+        # cannot get a second row with that name, but it must not silently replace the synced one.
         source = self._make_source()
         stored = self._with_resource_id(self._make_synced_schema(source, "budget"), "7")
 
@@ -191,8 +191,9 @@ class TestSchemaDiscoveryReconcile(BaseTest):
 
         stored.refresh_from_db()
         assert stored.should_sync is True
-        assert stored.schema_metadata == {SCHEMA_RESOURCE_ID_METADATA_KEY: "9"}
-        assert sync_result.created == ["budget_2025"]
+        assert stored.label == "Budget 2025"
+        assert stored.schema_metadata == {SCHEMA_RESOURCE_ID_METADATA_KEY: "7"}
+        assert sync_result.created == []
 
     def test_a_schema_stored_without_a_resource_id_learns_it_and_keeps_other_metadata(self) -> None:
         source = self._make_source()
