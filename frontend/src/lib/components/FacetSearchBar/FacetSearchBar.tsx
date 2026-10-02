@@ -8,7 +8,7 @@ import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortc
 
 import { ClientFacet, FacetSearchRows, FacetSearchValue, ServerFacet, facetFilterKey } from './facetSearch'
 import { facetSearchBarLogic } from './facetSearchBarLogic'
-import { pillLabel } from './facetSuggestions'
+import { isPillLabelMissing, pillLabel } from './facetSuggestions'
 
 interface FacetSearchBarBaseProps {
     value: FacetSearchValue
@@ -57,6 +57,7 @@ export function FacetSearchBar<TRow>({
         title,
         hints,
         valueLabels,
+        failedLabelFacets,
     } = useValues(logic)
     const {
         setInput,
@@ -104,7 +105,7 @@ export function FacetSearchBar<TRow>({
             } else {
                 setOpen(true)
             }
-        } else if (event.key === 'ArrowUp') {
+        } else if (event.key === 'ArrowUp' && expanded) {
             event.preventDefault()
             moveHighlightByKeyboard(-1)
         } else if (event.key === 'Enter' && expanded) {
@@ -144,7 +145,10 @@ export function FacetSearchBar<TRow>({
                             fullWidth
                             size="small"
                             onClick={() => applySuggestion(suggestion)}
-                            onMouseEnter={() => setHighlightedIndex(index)}
+                            onMouseEnter={() => {
+                                movedByKeyboard.current = false
+                                setHighlightedIndex(index)
+                            }}
                         >
                             <span className="flex items-center gap-2 w-full min-w-0">
                                 <span
@@ -169,7 +173,11 @@ export function FacetSearchBar<TRow>({
                     ))}
                 </div>
             )}
-            {statusMessage && <div className="px-2 py-1 text-secondary">{statusMessage}</div>}
+            {statusMessage && (
+                <div aria-hidden className="px-2 py-1 text-secondary">
+                    {statusMessage}
+                </div>
+            )}
             <div
                 data-attr={`${dataAttr}-hints`}
                 className="flex flex-wrap gap-x-3 px-2 pt-1 mt-1 border-t text-xs text-secondary"
@@ -204,7 +212,7 @@ export function FacetSearchBar<TRow>({
                     role="combobox"
                     aria-label={placeholder}
                     aria-autocomplete="list"
-                    aria-expanded={expanded}
+                    aria-expanded={expanded && options.length > 0}
                     aria-controls={expanded && options.length > 0 ? listboxId : undefined}
                     aria-activedescendant={activeOptionId}
                     className="h-auto min-h-10 flex-wrap gap-y-1 py-1 [&_input]:min-w-40"
@@ -223,6 +231,7 @@ export function FacetSearchBar<TRow>({
                             <PopoverReferenceContext.Provider value={null}>
                                 {value.filters.map((filter) => {
                                     const label = pillLabel(filter, facets, valueLabels)
+                                    const labelFailed = isPillLabelMissing(filter, failedLabelFacets, valueLabels)
                                     return (
                                         <LemonSnack
                                             key={facetFilterKey(filter)}
@@ -236,6 +245,9 @@ export function FacetSearchBar<TRow>({
                                             className="max-w-80"
                                         >
                                             <span className={filter.negated ? 'text-danger' : undefined}>{label}</span>
+                                            {labelFailed && (
+                                                <span className="ml-1 text-secondary">Couldn't load the label</span>
+                                            )}
                                         </LemonSnack>
                                     )
                                 })}

@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { waitFor } from '@testing-library/react'
+import { waitFor } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 import clsx from 'clsx'
 import { useState } from 'react'
@@ -271,6 +271,22 @@ export const ServerModeLoadingValues: ServerStory = {
 export const ServerModeLoadedValuesNarrow: ServerStory = {
     render: (args) => <ServerModeConsumer {...args} />,
     args: { narrow: true, loadTeams: loadTeamsAfterDelay, initial: NO_FILTERS },
+    play: async ({ canvasElement }) => {
+        await typeInto(canvasElement, 'team:')
+        await waitForElement('[role="option"]')
+    },
+}
+
+export const ServerModeLongLabelsNarrow: ServerStory = {
+    render: (args) => <ServerModeConsumer {...args} />,
+    args: {
+        narrow: true,
+        loadTeams: async () => [
+            { value: 'team-9', label: 'Customer success and onboarding for enterprise accounts in Europe', count: 42 },
+            { value: 'team-1', label: 'Growth', count: 7 },
+        ],
+        initial: NO_FILTERS,
+    },
     play: async ({ canvasElement }) => {
         await typeInto(canvasElement, 'team:')
         await waitForElement('[role="option"]')

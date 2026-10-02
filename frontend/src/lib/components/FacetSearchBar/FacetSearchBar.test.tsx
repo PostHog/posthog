@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, isInaccessible, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 
@@ -204,6 +204,7 @@ describe('FacetSearchBar', () => {
             await user.click(input())
             await user.keyboard('status:Draft status:draft status:')
             expect(pills()).toEqual(['Status: Draft'])
+            expect(shown('rows')).toEqual('Renewal,Sync')
             expect(suggestions()).toEqual(['Active (1)', 'Archived (1)'])
         })
 
@@ -234,13 +235,15 @@ describe('FacetSearchBar', () => {
         })
 
         it('scrolls the highlighted option into view for the keyboard, not for the pointer', async () => {
-            Element.prototype.scrollIntoView ??= () => {}
-            const scrollIntoView = jest.spyOn(Element.prototype, 'scrollIntoView')
             const user = setup()
             await user.click(input())
             await user.keyboard('status:')
-            scrollIntoView.mockClear()
+            const scrollIntoView = jest.fn()
+            for (const option of document.querySelectorAll<HTMLElement>('[role="option"]')) {
+                option.scrollIntoView = scrollIntoView
+            }
 
+            await user.keyboard('{ArrowUp}')
             await user.hover(document.querySelectorAll('[role="option"]')[2])
             expect(scrollIntoView).not.toHaveBeenCalled()
 
@@ -350,6 +353,51 @@ describe('FacetSearchBar', () => {
             expect(shown('rows')).toEqual('Renewal')
         })
 
+        it('leaves ArrowUp to the input while the popover is closed', async () => {
+            const user = setup()
+            await user.click(input())
+            await user.keyboard('renew{Escape}')
+            expect(fireEvent.keyDown(input(), { key: 'ArrowUp' })).toBe(true)
+        })
+
+        it.each([
+            ['its own text', 'sends:"Start here\\'],
+            ['a facet token inside it', 'sends:"See status:op\\'],
+        ])('keeps an open quoted draft that ends in an escape, with %s, out of the search text', async (_, typed) => {
+            const user = setup()
+            await user.click(input())
+            await user.keyboard(typed)
+            expect(shown('url')).toEqual('')
+        })
+
+        it('drops a typed draft when the consumer clears the search', async () => {
+            function ClearableConsumer(): JSX.Element {
+                const [value, setValue] = useState(() => parseFacetSearch('status:draft', CLIENT_FACETS))
+                return (
+                    <div>
+                        <FacetSearchBar
+                            facets={CLIENT_FACETS}
+                            data={DATA}
+                            value={value}
+                            onChange={setValue}
+                            placeholder="Search"
+                            dataAttr="clearable-search"
+                        />
+                        <button type="button" data-attr="clear" onClick={() => setValue({ filters: [], text: '' })}>
+                            Clear
+                        </button>
+                    </div>
+                )
+            }
+            render(<ClearableConsumer />)
+            const user = userEvent.setup()
+            await user.click(input())
+            await user.keyboard('status:act')
+            await user.click(document.querySelector('[data-attr="clear"]')!)
+            expect(pills()).toEqual([])
+            expect(input()).toHaveValue('')
+        })
+
         it('Esc closes the popover before anything around the bar, and a click on the input opens it again', async () => {
             const onParentEscape = jest.fn()
             render(
@@ -414,16 +462,17 @@ describe('FacetSearchBar', () => {
         })
 
         it.each([
-            ['a typed facet value followed by a space', 'status:active ', 'status:active'],
-            ['a closed quoted value', 'sends:"Your trial ends"', 'sends:"Your trial ends"'],
-            ['text around a typed facet value', 'wel status:active ren', 'status:active wel ren'],
-            ['a facet alias', 'subject:Deals ', 'sends:Deals'],
-            ['an unknown facet, which stays text', 'owner:me ', 'owner:me'],
-        ])('turns %s into pills and text', async (_, typed, url) => {
+            ['a typed facet value followed by a space', 'status:active ', 'status:active', ['Status: Active']],
+            ['a closed quoted value', 'sends:"Your trial ends"', 'sends:"Your trial ends"', ['Sends: Your trial ends']],
+            ['text around a typed facet value', 'wel status:active ren', 'status:active wel ren', ['Status: Active']],
+            ['a facet alias', 'subject:Deals ', 'sends:Deals', ['Sends: Deals']],
+            ['an unknown facet, which stays text', 'owner:me ', 'owner:me', []],
+        ])('turns %s into pills and text', async (_, typed, url, expectedPills) => {
             const user = setup()
             await user.click(input())
             await user.keyboard(typed)
             expect(shown('url')).toEqual(url)
+            expect(pills()).toEqual(expectedPills)
         })
 
         it.each([
@@ -471,6 +520,8 @@ describe('FacetSearchBar', () => {
             expect(suggestions()).toEqual([])
             expect(listbox()).toBeNull()
             expect(document.querySelector('[role="status"]')).toHaveTextContent(new RegExp(`^${expected}$`))
+            expect(screen.getAllByText(expected).filter((element) => !isInaccessible(element))).toHaveLength(1)
+            expect(input()).toHaveAttribute('aria-expanded', 'false')
             expect(input()).not.toHaveAttribute('aria-activedescendant')
             expect(shown('client-search-hints')).toEqual('escto close')
         })
@@ -632,6 +683,24 @@ describe('FacetSearchBar', () => {
             const user = userEvent.setup()
             await user.click(input())
             await waitFor(() => expect(suggestions()).toEqual(['Search for "gro"', 'Team: Growth']))
+        })
+
+        it('marks a restored pill whose label could not load, and keeps its raw value', async () => {
+            const loadValues = async (): Promise<FacetValueOption[]> => {
+                throw new Error('Forbidden')
+            }
+            render(
+                <ServerConsumer
+                    url="-team:t-2"
+                    facets={[{ key: 'team', label: 'Team', description: 'Owner', loadValues }]}
+                />
+            )
+            await waitFor(() =>
+                expect(document.querySelector('[data-attr="server-search-filter"]')).toHaveTextContent(
+                    "Couldn't load the label"
+                )
+            )
+            expect(pills()).toEqual(['Team is not: t-2'])
         })
 
         it('labels a pill restored from the URL once its value loads', async () => {

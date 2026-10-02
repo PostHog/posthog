@@ -77,6 +77,7 @@ const TOKEN = /(^|\s)(-?)([\w-]+):(?:"((?:[^"\\]|\\.)*)"|([^\s"]+)(?=\s|$))/g
 const TOKEN_FOLLOWED_BY_SPACE = /(^|\s)(-?)([\w-]+):(?:"((?:[^"\\]|\\.)*)"|([^\s"]+)(?=\s))/g
 const DRAFT_TOKEN = /(^|\s)(-?)([\w-]+):(?:"((?:[^"\\]|\\.)*)"?|(\S*))$/
 const QUOTED_TOKEN_START = /-?[\w-]+:"/y
+const OPEN_QUOTED_DRAFT = /^(-?)([\w-]+):"((?:[^"\\]|\\.)*\\?)$/
 
 function isSpace(char: string): boolean {
     return /\s/.test(char)
@@ -155,6 +156,10 @@ export interface FacetDraft {
 }
 
 export function parseFacetDraft(input: string, facets: FacetDefinitionBase[]): FacetDraft | null {
+    const quotedStart = openQuotedTokenStart(input)
+    if (quotedStart < input.length) {
+        return parseOpenQuotedDraft(input, quotedStart, facets)
+    }
     const match = input.match(DRAFT_TOKEN)
     if (!match || match.index === undefined) {
         return null
@@ -168,6 +173,20 @@ export function parseFacetDraft(input: string, facets: FacetDefinitionBase[]): F
         negated: match[2] === '-',
         partial: match[4] !== undefined ? unescapeFacetValue(match[4]) : match[5],
         rest: input.slice(0, match.index + match[1].length),
+    }
+}
+
+function parseOpenQuotedDraft(input: string, start: number, facets: FacetDefinitionBase[]): FacetDraft | null {
+    const match = input.slice(start).match(OPEN_QUOTED_DRAFT)
+    const facet = match && findFacet(facets, match[2])
+    if (!match || !facet) {
+        return null
+    }
+    return {
+        facetKey: facet.key,
+        negated: match[1] === '-',
+        partial: unescapeFacetValue(match[3]),
+        rest: input.slice(0, start),
     }
 }
 

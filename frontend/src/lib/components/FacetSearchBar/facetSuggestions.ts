@@ -366,6 +366,24 @@ export function labelsByFilterValue(facets: AnyFacet[], valueLoads: FacetValueLo
     return labels
 }
 
+/** Loaded facets whose label list failed to load, so their pills can only show the raw value. */
+export function facetsWithFailedLabels(facets: AnyFacet[], valueLoads: FacetValueLoads): Set<string> {
+    return new Set(
+        facets
+            .filter(isLoadedFacet)
+            .filter((facet) => valueLoads[valueLoadKey(facet.key, '')]?.status === 'error')
+            .map((facet) => facet.key)
+    )
+}
+
+export function isPillLabelMissing(
+    filter: FacetFilter,
+    failedLabelFacets: Set<string>,
+    valueLabels: FacetValueLabels
+): boolean {
+    return failedLabelFacets.has(filter.facet) && !valueLabels.has(labelKey(filter.facet, filter.value))
+}
+
 export function pillLabel(filter: FacetFilter, facets: AnyFacet[], valueLabels: FacetValueLabels): string {
     const facet = findFacet(facets, filter.facet)
     const valueLabel = valueLabels.get(labelKey(filter.facet, filter.value)) ?? formatFacetValue(facet, filter.value)
