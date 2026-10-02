@@ -1,4 +1,5 @@
 import json
+from datetime import timedelta
 
 import time_machine
 from posthog.test.base import (
@@ -15,6 +16,7 @@ from unittest.mock import patch
 
 from django.conf import settings
 from django.test import SimpleTestCase
+from django.utils import timezone
 
 from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
 from parameterized import parameterized
@@ -53,6 +55,7 @@ from posthog.event_usage import EventSource
 from posthog.exceptions import APIQueriesBudgetExceeded, ClickHouseQueryTimeOut
 from posthog.llm.completions import OpenAICompletion
 from posthog.models import PersonalAPIKey
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.utils import UUIDT, generate_random_token_personal, hash_key_value
 from posthog.query_scan.findings import FindingCause, build_warning
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
@@ -1460,6 +1463,76 @@ class TestQueryDraftSql(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"sql": "SELECT 1"})
         hit_openai_mock.assert_called_once()
+
+
+class TestQueryHelperActionScopes(APIBaseTest):
+    def _authenticate(self, credential: str, scopes: list[str]) -> None:
+        self.client.logout()
+        if credential == "personal_api_key":
+            value = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="query helpers", user=self.user, secure_value=hash_key_value(value), scopes=scopes
+            )
+        else:
+            app = OAuthApplication.objects.create(
+                name="Query helpers",
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris="https://example.com/callback",
+                algorithm="RS256",
+                organization=self.organization,
+                user=self.user,
+            )
+            value = OAuthAccessToken.objects.create(
+                user=self.user,
+                application=app,
+                token="pha_query_helpers",
+                scope=" ".join(scopes),
+                expires=timezone.now() + timedelta(hours=1),
+                scoped_teams=[self.team.id],
+            ).token
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {value}")
+
+    @parameterized.expand(
+        [
+            (credential, route, helper)
+            for credential in ("personal_api_key", "oauth")
+            for route in ("projects", "environments")
+            for helper in ("check_auth_for_async", "upgrade", "log")
+        ]
+    )
+    @patch("posthog.api.query.HogQLQueryRunner")
+    def test_query_read_token_can_call_helper(self, credential, route, helper, mock_runner):
+        mock_runner.return_value.calculate.return_value.model_dump.return_value = {"results": []}
+        self._authenticate(credential, ["query:read"])
+        base = f"/api/{route}/{self.team.id}/query"
+
+        if helper == "log":
+            response = self.client.get(f"{base}/some_query_id/log/")
+        else:
+            response = self.client.post(
+                f"{base}/{helper}/", {"query": {"kind": "HogQLQuery", "query": "select 1"}}, format="json"
+            )
+
+        self.assertEqual(response.status_code, 200, response.content)
+
+    @parameterized.expand([("personal_api_key",), ("oauth",)])
+    def test_token_without_query_read_cannot_call_helper(self, credential):
+        self._authenticate(credential, ["insight:read"])
+
+        response = self.client.post(f"/api/environments/{self.team.id}/query/check_auth_for_async/")
+
+        self.assertEqual(response.status_code, 403)
+
+    @parameterized.expand([("personal_api_key",), ("oauth",)])
+    @patch("posthog.hogql.ai.hit_openai")
+    def test_query_read_token_cannot_draft_sql(self, credential, hit_openai_mock):
+        self._authenticate(credential, ["query:read"])
+
+        response = self.client.get(f"/api/environments/{self.team.id}/query/draft_sql/", {"prompt": "count events"})
+
+        self.assertEqual(response.status_code, 403)
+        hit_openai_mock.assert_not_called()
 
 
 class TestQueryLLMFormatting(ClickhouseTestMixin, APIBaseTest):

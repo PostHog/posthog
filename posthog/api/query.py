@@ -231,7 +231,16 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     scope_object = "query"
     serializer_class = _FallbackSerializer
     # Special case for query - these are all essentially read actions
-    scope_object_read_actions = ["retrieve", "create", "list", "destroy"]
+    # draft_sql stays out: it sends the team schema to an external LLM, so a query:read token must not unlock it.
+    scope_object_read_actions = [
+        "retrieve",
+        "create",
+        "list",
+        "destroy",
+        "check_auth_for_async",
+        "upgrade",
+        "get_query_log",
+    ]
     scope_object_write_actions: list[str] = []
     sharing_enabled_actions = ["retrieve"]
 
