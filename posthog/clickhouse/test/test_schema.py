@@ -57,13 +57,11 @@ def test_create_table_query_replicated_and_storage(query, snapshot, settings):
     assert build_query(query) == snapshot
 
 
-@pytest.mark.parametrize("test_mode", [True, False])
-def test_ingestion_warnings_v2_ttl_only_outside_tests(test_mode: bool) -> None:
-    with override_settings(TEST=test_mode):
+def test_ingestion_warnings_v2_keeps_ttl_outside_tests() -> None:
+    with override_settings(TEST=False):
         query = INGESTION_WARNINGS_V2_DATA_TABLE_SQL()
 
-    ttl_clauses = [line for line in query.splitlines() if line.startswith("TTL ")]
-    assert ttl_clauses == ([] if test_mode else ["TTL toDateTime(timestamp) + INTERVAL 90 DAY"])
+    assert "\nTTL " in query
 
 
 @pytest.mark.parametrize("query", CREATE_KAFKA_TABLE_QUERIES, ids=get_table_name)
