@@ -3901,10 +3901,10 @@ Today (5): `audit_logs`, `client_matters`, `query_history`, `usage_history`, `va
 
 Diffed against: <https://developers.harvey.ai/vault_api.json>
 
-- [ ] `vault project files (GET /api/v1/vault/projects/{project_id}/files)` — the documents inside each synced vault project - per-file processing status, size and timestamps (high)
-- [ ] `vault project users (GET /api/v1/vault/projects/{project_id}/users)` — membership table with access level per user, joining vault_projects to workspace users (high)
-- [ ] `review table rows (GET /api/v1/vault/get_row/{review_table_id}/{file_id})` — the extracted answer grid - the actual analytical output of a Vault review (medium)
-- [ ] `review table metadata (GET /api/v1/vault/review_table/{review_table_id})` — lookup naming each review table and listing the file IDs it covers (medium)
+- [x] `vault project files (GET /api/v1/vault/projects/{project_id}/files)` — the documents inside each synced vault project - per-file processing status, size and timestamps (high)
+- [x] `vault project users (GET /api/v1/vault/projects/{project_id}/users)` — membership table with access level per user, joining vault_projects to workspace users (high)
+- [x] `review table rows (GET /api/v1/vault/get_row/{review_table_id}/{file_id})` — the extracted answer grid - the actual analytical output of a Vault review (medium)
+- [x] `review table metadata (GET /api/v1/vault/review_table/{review_table_id})` — lookup naming each review table and listing the file IDs it covers (medium)
 - [ ] `vault project metadata (GET /api/v1/vault/get_metadata/{project_id})` — storage limits and file counts not present on the projects list response (low)
 - [ ] `recycle bin vaults (GET /api/v1/vault/workspace/recycle_bin)` — deleted-project retention view for lifecycle reporting (low)
 
