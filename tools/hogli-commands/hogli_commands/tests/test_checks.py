@@ -1925,9 +1925,6 @@ class TestFacadeClassImports:
                 {"destinations/contracts.py"},
             ),
             ({"destinations/enums.py": "from ...logic import Thing\n__all__ = ['Thing']\n"}, {"destinations/enums.py"}),
-            # pytest support code in a facade subfolder is not part of the surface
-            ({"destinations/tests/helpers.py": "from ....logic import Thing\n__all__ = ['Thing']\n"}, set()),
-            ({"destinations/conftest.py": "from ...logic import Thing\n__all__ = ['Thing']\n"}, set()),
         ],
     )
     def test_leaks_are_keyed_by_path_inside_facade(

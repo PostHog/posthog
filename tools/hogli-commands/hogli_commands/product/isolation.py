@@ -696,10 +696,8 @@ def _is_facade_or_garage(source_path: str) -> bool:
     return source_path.startswith((_FACADE_PREFIX, *GARAGE_PREFIXES))
 
 
-def _is_test_module(path: Path) -> bool:
-    if "test" in path.parts or "tests" in path.parts:
-        return True
-    return path.name.startswith("test_") or path.name.endswith("_test.py") or path.name == "conftest.py"
+def _is_test_module(filename: str) -> bool:
+    return filename.startswith("test_") or filename.endswith("_test.py")
 
 
 def _iter_facade_modules(backend_dir: Path) -> Iterator[Path]:
@@ -709,13 +707,13 @@ def _iter_facade_modules(backend_dir: Path) -> Iterator[Path]:
     same checks as a flat one. A finding is keyed on the module's path inside facade/
     (`_facade_module_key`). Rules that read a module's content apply at any depth. Exemptions by
     name (contracts.py, enums.py, testing.py, api*.py and the capability stems) apply to top-level
-    modules only: a nested `destinations/contracts.py` is an ordinary module. Test modules and
-    anything under a test/ or tests/ folder are pytest support code, not part of the surface."""
+    modules only: a nested `destinations/contracts.py` is an ordinary module. Test modules that
+    happen to sit here are pytest files, not part of the surface."""
     facade_dir = backend_dir / "facade"
     if not facade_dir.is_dir():
         return
     for path in sorted(facade_dir.rglob("*.py")):
-        if "__pycache__" not in path.parts and not _is_test_module(path.relative_to(facade_dir)):
+        if "__pycache__" not in path.parts and not _is_test_module(path.name):
             yield path
 
 
