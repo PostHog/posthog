@@ -99,9 +99,11 @@ export interface inboxUsageLogicActions {
     } // billingLogic
     updateBillingLimitsSuccess: (
         billing: BillingType | null,
-        payload?: {
-            [key: string]: number | null
-        }
+        payload?:
+            | {
+                  [key: string]: number | null
+              }
+            | undefined
     ) => {
         billing: BillingType | null
         payload?: {
@@ -216,6 +218,13 @@ export interface inboxUsageLogicMeta {
         quotaLimited: (refundSummary: SignalReportRefundSummaryResponseApi | null) => boolean
         spentUsd: (usedPrs: number, freePrs: number, pricePerPrUsd: number | null) => number | null
         percentage: (usedPrs: number, limitPrs: number | null, freePrs: number) => number
+        maxPrs: (
+            billing: BillingType | null,
+            product: BillingProductV2Type | null,
+            customLimitUsd: number | null,
+            pricePerPrUsd: number | null,
+            freePrs: number
+        ) => number
         resetDate: (billing: BillingType | null) => Dayjs | null
         estimatedBudgetUsd: (
             limitForm: {
