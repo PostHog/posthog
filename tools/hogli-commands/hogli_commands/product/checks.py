@@ -39,7 +39,7 @@ from .isolation import (
     webhook_consumers_unwatched,
 )
 from .paths import TACH_TOML, get_tach_block
-from .wiring_interfaces import WiringVerdict
+from .wiring_interfaces import APPROVED_WIRING_BASES, APPROVED_WIRING_DECORATORS, WiringVerdict
 
 # ---------------------------------------------------------------------------
 # Utilities
@@ -551,7 +551,9 @@ class PackageJsonScriptsCheck(ProductCheck):
         # would be inert, and IsolationChainCheck blocks the narrowing that would make it bite). The
         # absence check below still keys on plain eligibility, so the five products that deliberately
         # keep script+broad while un-narrowed aren't told to drop it.
-        require_contract_check_script = needs_contract_check and not status.facade_leaks
+        require_contract_check_script = (
+            needs_contract_check and not status.facade_leaks and not status.unapproved_wiring
+        )
         required = ["backend:test"] + (["backend:contract-check"] if require_contract_check_script else [])
         for script in required:
             if script not in scripts:
@@ -731,7 +733,7 @@ class TachCheck(ProductCheck):
             return CheckResult(
                 lines=["✗ missing interfaces declaration"],
                 issues=[
-                    f"Isolated product missing interface definition in tach.toml — "
+                    f"Strict product (it has facade/contracts.py) missing interface definition in tach.toml — "
                     f'add a [[interfaces]] block with from = ["{module_path}"]'
                 ],
             )
@@ -864,7 +866,13 @@ class IsolationChainCheck(ProductCheck):
         # PackageJsonScriptsCheck, which is what nags a still-eligible product to add the script.
         # Suppressed when the facade still hands out unsanctioned classes: narrowing would be
         # rejected by the gate above, so nagging toward it is counterproductive — say what blocks it.
-        needs_turn_on = has_script and status.is_sealed and not has_narrowed and not facade_violations
+        needs_turn_on = (
+            has_script
+            and status.is_sealed
+            and not has_narrowed
+            and not facade_violations
+            and not status.unapproved_wiring
+        )
         if needs_turn_on:
             result.issues.append(
                 "product is Sealed and carries "
@@ -878,7 +886,8 @@ class IsolationChainCheck(ProductCheck):
             )
         # When needs_turn_on is suppressed purely because of a facade violation (the other four
         # conjuncts hold), the facade_violations warning above already explains what blocks narrowing,
-        # so there's nothing more to say here — the nag is silently withheld, not replaced.
+        # so there's nothing more to say here — the nag is silently withheld, not replaced. The same
+        # holds for unapproved wiring classes, which WiringInterfaceCheck lists below Isolated.
 
         # Watching the route registration: routes.py is the product's route-registration entry
         # point (public API surface, imported by core to assemble the router), but it lives at
@@ -1068,7 +1077,10 @@ class FacadeShapeCheck(ProductCheck):
         return result
 
 
-_APPROVED_INTERFACES = "QueryRunner, MaxTool, @workflow.defn, @activity.defn, @shared_task"
+_APPROVED_INTERFACES = ", ".join(
+    [qualified.rsplit(".", 1)[1] for qualified in sorted(APPROVED_WIRING_BASES)]
+    + [f"@{qualified.split('.', 1)[1]}" for qualified in sorted(APPROVED_WIRING_DECORATORS)]
+)
 
 
 def _wiring_issue(finding: UnapprovedWiringClass) -> str:

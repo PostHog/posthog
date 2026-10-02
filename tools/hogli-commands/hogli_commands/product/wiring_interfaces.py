@@ -51,9 +51,13 @@ class WiringVerdict(StrEnum):
 
 
 @frozen
-class _ClassRef:
+class _ClassSite:
+    """A class definition the resolver reached, with the names its module binds."""
+
     module: str
-    name: str
+    node: ast.ClassDef
+    bindings: Mapping[str, str]
+    local: frozenset[str]
 
 
 @functools.cache
@@ -72,10 +76,21 @@ class WiringInterfaceResolver:
     def __init__(self, repo_root: Path, roots: Mapping[str, Path] | None = None) -> None:
         self._repo_root = repo_root
         self._roots = dict(roots or {})
-        self._verdicts: dict[str, WiringVerdict] = {}
+        self._ancestor_verdicts: dict[str, WiringVerdict] = {}
+
+    def is_class(self, module: str, name: str) -> bool:
+        """Whether the name reaches a class definition through any chain of re-exports here."""
+        return isinstance(self._locate(f"{module}.{name}", frozenset()), _ClassSite)
 
     def verdict(self, module: str, name: str) -> WiringVerdict:
-        return self._qualified_verdict(f"{module}.{name}", frozenset())
+        site = self._locate(f"{module}.{name}", frozenset())
+        if isinstance(site, WiringVerdict):
+            return site
+        # Temporal registers a class by its own decorator only, so a decorator counts on the class
+        # the facade hands out and never on one of its bases.
+        if any(self._qualify(decorator, site) in APPROVED_WIRING_DECORATORS for decorator in site.node.decorator_list):
+            return WiringVerdict.APPROVED
+        return self._bases_verdict(site, frozenset({f"{module}.{name}"}))
 
     def _module_file(self, module: str) -> tuple[Path, bool] | None:
         """The file of a dotted module and whether it is a package, or None when it is not here."""
@@ -122,74 +137,73 @@ class WiringInterfaceResolver:
                     bindings[alias.asname or alias.name] = f"{source}.{alias.name}"
         return bindings
 
-    def _qualify(self, node: ast.expr, module: str, bindings: Mapping[str, str], local: set[str]) -> str | None:
+    def _qualify(self, node: ast.expr, site: _ClassSite) -> str | None:
         """The qualified name an expression in a base or decorator list refers to."""
         if isinstance(node, ast.Subscript):
-            return self._qualify(node.value, module, bindings, local)
+            return self._qualify(node.value, site)
         if isinstance(node, ast.Call):
-            return self._qualify(node.func, module, bindings, local)
+            return self._qualify(node.func, site)
         if isinstance(node, ast.Attribute):
-            head = self._qualify(node.value, module, bindings, local)
+            head = self._qualify(node.value, site)
             return f"{head}.{node.attr}" if head else None
         if isinstance(node, ast.Name):
-            if node.id in bindings:
-                return bindings[node.id]
-            if node.id in local:
-                return f"{module}.{node.id}"
+            # A module that both imports and defines a name binds it by statement order, so the
+            # lint leaves it unread rather than guess which binding a base refers to.
+            if node.id in site.bindings and node.id in site.local:
+                return None
+            if node.id in site.bindings:
+                return site.bindings[node.id]
+            if node.id in site.local:
+                return f"{site.module}.{node.id}"
             if hasattr(builtins, node.id):
                 return f"builtins.{node.id}"
         return None
 
-    def _split(self, qualified: str) -> _ClassRef | None:
-        """The module and class name of a qualified name whose module is in this repository."""
-        module, _, name = qualified.rpartition(".")
-        if module and self._module_file(module) is not None:
-            return _ClassRef(module=module, name=name)
-        return None
+    def _locate(self, qualified: str, seen: frozenset[str]) -> _ClassSite | WiringVerdict:
+        """The class definition a qualified name reaches through re-exports.
 
-    def _qualified_verdict(self, qualified: str, seen: frozenset[str]) -> WiringVerdict:
+        Where no definition stands at the end, the verdict stands in for it: an approved base, a
+        library class, or a name the source does not resolve statically."""
         if qualified in APPROVED_WIRING_BASES:
             return WiringVerdict.APPROVED
-        if qualified in self._verdicts:
-            return self._verdicts[qualified]
         if qualified in seen:
             return WiringVerdict.UNRESOLVED
-        verdict = self._read_verdict(qualified, seen | {qualified})
-        self._verdicts[qualified] = verdict
-        return verdict
-
-    def _read_verdict(self, qualified: str, seen: frozenset[str]) -> WiringVerdict:
-        ref = self._split(qualified)
-        if ref is None:
+        module, _, name = qualified.rpartition(".")
+        located = self._module_file(module) if module else None
+        if located is None:
             if qualified.split(".", 1)[0] in _REPOSITORY_PACKAGES:
                 return WiringVerdict.UNRESOLVED
             return WiringVerdict.UNAPPROVED
-        module, name = ref.module, ref.name
-        located = self._module_file(module)
-        if located is None:
-            return WiringVerdict.UNRESOLVED
         path, is_package = located
         tree = _parsed(path)
         if tree is None:
             return WiringVerdict.UNRESOLVED
         bindings = self._bindings(module, is_package, tree)
         classes = {node.name: node for node in tree.body if isinstance(node, ast.ClassDef)}
-        node = classes.get(name)
-        if node is None:
-            # A name the module only re-exports is judged where it is defined.
-            if name in bindings:
-                return self._qualified_verdict(bindings[name], seen)
-            return WiringVerdict.UNRESOLVED
-        local = set(classes)
-        if any(self._qualify(d, module, bindings, local) in APPROVED_WIRING_DECORATORS for d in node.decorator_list):
-            return WiringVerdict.APPROVED
+        if name in classes:
+            return _ClassSite(module=module, node=classes[name], bindings=bindings, local=frozenset(classes))
+        # A name the module only re-exports is judged where it is defined.
+        if name in bindings:
+            return self._locate(bindings[name], seen | {qualified})
+        return WiringVerdict.UNRESOLVED
+
+    def _ancestor_verdict(self, qualified: str, seen: frozenset[str]) -> WiringVerdict:
+        if qualified not in self._ancestor_verdicts:
+            site = self._locate(qualified, seen)
+            if isinstance(site, WiringVerdict):
+                self._ancestor_verdicts[qualified] = site
+            else:
+                self._ancestor_verdicts[qualified] = self._bases_verdict(site, seen | {qualified})
+        return self._ancestor_verdicts[qualified]
+
+    def _bases_verdict(self, site: _ClassSite, seen: frozenset[str]) -> WiringVerdict:
         verdicts = []
-        for base in node.bases:
-            base_name = self._qualify(base, module, bindings, local)
+        for base in site.node.bases:
+            base_name = self._qualify(base, site)
             if base_name is None:
                 verdicts.append(WiringVerdict.UNRESOLVED)
             else:
-                verdicts.append(self._qualified_verdict(base_name, seen))
+                verdicts.append(self._ancestor_verdict(base_name, seen))
         if WiringVerdict.APPROVED in verdicts:
             return WiringVerdict.APPROVED
         if WiringVerdict.UNRESOLVED in verdicts:

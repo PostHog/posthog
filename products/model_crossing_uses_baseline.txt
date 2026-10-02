@@ -963,6 +963,7 @@ warehouse_sources.PersonPropertySyncSource products.warehouse_sources.backend.fa
 warehouse_sources.PostgresSource products.warehouse_sources.backend.facade.source_management facade-wiring 1
 warehouse_sources.PostgresSourceConfig products.warehouse_sources.backend.facade.source_management facade-wiring 1
 warehouse_sources.RedshiftSource products.warehouse_sources.backend.facade.source_management facade-wiring 1
+warehouse_sources.RowFilterValidationError products.warehouse_sources.backend.facade.source_management facade-wiring 1
 warehouse_sources.SQLSource products.warehouse_sources.backend.facade.source_management facade-wiring 1
 warehouse_sources.SSLRequiredError products.warehouse_sources.backend.facade.source_management facade-wiring 1
 warehouse_sources.SavedQueryNotFoundError products.warehouse_sources.backend.facade.temporal facade-wiring 1

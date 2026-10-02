@@ -468,6 +468,20 @@ _WIRING_SOURCES: dict[str, dict[str, str]] = {
     },
     "plain_client": {"temporal/flows.py": "class Handed:\n    pass\n"},
     "unreadable_base": {"temporal/flows.py": "class Handed(Mystery):\n    pass\n"},
+    "decorator_on_the_base_only": {
+        "temporal/base.py": "from temporalio import workflow\n\n\n@workflow.defn\nclass Base:\n    pass\n",
+        "temporal/flows.py": "from .base import Base\n\n\nclass Handed(Base):\n    pass\n",
+    },
+    "import_shadowed_by_a_local_class": {
+        "temporal/flows.py": (
+            "from posthog.hogql_queries.query_runner import QueryRunner\n\n\nclass QueryRunner:\n    pass\n\n\n"
+            "class Handed(QueryRunner):\n    pass\n"
+        ),
+    },
+    "absolute_reexport": {
+        "temporal/flows.py": "from products.my_product.backend.temporal.impl import Handed\n",
+        "temporal/impl.py": "class Handed:\n    pass\n",
+    },
 }
 
 
@@ -480,6 +494,9 @@ class TestWiringInterfaces:
             ("approved_library_base", set()),
             ("plain_client", {("Handed", "unapproved")}),
             ("unreadable_base", {("Handed", "unresolved")}),
+            ("decorator_on_the_base_only", {("Handed", "unapproved")}),
+            ("import_shadowed_by_a_local_class", {("Handed", "unresolved")}),
+            ("absolute_reexport", {("Handed", "unapproved")}),
         ],
     )
     def test_scan_reads_the_class_not_the_folder(
@@ -511,6 +528,16 @@ class TestWiringInterfaces:
         row = "my_product.Handed products.my_product.backend.facade.wiring facade-wiring 1"
         monkeypatch.setattr(checks_module, "recorded_facade_shape_rows", lambda _name: {row} if recorded else set())
         assert bool(WiringInterfaceCheck().run(ctx).issues) == blocks
+
+    def test_a_sealed_product_is_not_steered_into_isolation_it_cannot_pass(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _seal_externally(monkeypatch)
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, strict=True)
+        (ctx.backend_dir / "facade" / "wiring.py").write_text(_WIRING_FACADE)
+        (ctx.backend_dir / "temporal").mkdir()
+        (ctx.backend_dir / "temporal" / "flows.py").write_text(_WIRING_SOURCES["plain_client"]["temporal/flows.py"])
+        assert not any("inert" in issue for issue in chain_check.run(ctx).issues)
 
 
 class TestIsolationChainRoutes:
