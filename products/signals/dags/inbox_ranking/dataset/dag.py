@@ -21,7 +21,11 @@ from any later partition, choosing the label-maturity window at read time. Late-
 are never backfilled into old partitions.
 
 Point-in-time caveats, per source:
-- labels are fully point-in-time for any past day (explicit event-time bound);
+- labels are fully point-in-time for any past day (explicit event-time bound), except the
+  server-side action counts. Those read current artefact rows bounded by created_at. A report
+  merge moves the source's notes and linked PRs to the survivor and keeps their created_at, and a
+  note can be deleted. A partition rebuilt after either change gives the action to the survivor
+  or loses it;
 - embeddings are point-in-time within the underlying table's 3-month TTL (inserted_at bound), and
   the title snapshot carries the same guarantee and the same limit. The bound does not cover a
   re-embedded rendering: the source replaces on a key that includes the rendering and the document
