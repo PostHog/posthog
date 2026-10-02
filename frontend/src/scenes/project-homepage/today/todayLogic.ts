@@ -31,6 +31,7 @@ import type {
     BriefingApi,
     BriefingItemApi,
     BriefingItemStateEnumApi,
+    TodayItemReasonEnumApi,
 } from 'products/today/frontend/generated/api.schemas'
 
 import type { TeamPublicType } from '../../../types'
@@ -51,6 +52,8 @@ import { TodayBriefingSegment, briefingForReports, teamReportCard } from './toda
 export const TOP_REPORT_COUNT = 5
 // The most reports the for_you endpoint returns in one call (MAX_FOR_YOU_REPORTS on the backend).
 export const MORE_REPORTS_LIMIT = 20
+// The briefing reasons a report gets when it names the person, the reports the for_you count covers.
+const NAMES_PERSON_REASONS: ReadonlySet<TodayItemReasonEnumApi> = new Set(['waiting_for_you', 'suggested_reviewer'])
 const CLOCK_MS = 30_000
 export const BRIEFING_POLL_MS = 5_000
 // The run's budget is 10 minutes (RUN_TIMEOUT in logic/generate.py). Stop asking a little after that.
@@ -211,8 +214,8 @@ export interface todayLogicValues {
     reportSummary: string
     reports: SignalReport[]
     reportsFailed: boolean
-    shownReportIds: string[]
     showPersonalBriefing: boolean
+    shownReportIds: string[]
     sidebarMoreReports: SignalReport[]
     teamReportPreviews: Record<TodayReportPreview['surface'], Record<string, TodayReportPreview>>
     topReports: TodayReports | null
@@ -437,7 +440,12 @@ export interface todayLogicMeta {
             personalBriefing: BriefingApi | null,
             moreReportCount: number
         ) => boolean
-        moreReportsInInbox: (moreReports: TodayReports | null) => number
+        moreReportsInInbox: (
+            moreReports: TodayReports | null,
+            showPersonalBriefing: boolean,
+            briefingItems: BriefingItemApi[],
+            reports: SignalReport[]
+        ) => number
         briefingWaiting: (
             personalBriefing: BriefingApi | null,
             gaveUpWaitingFor: string | null,
@@ -612,6 +620,7 @@ export const todayLogic = kea<todayLogicType>([
         // A refreshed briefing names other reports, so the list the sidebar loaded past the old one goes.
         moreReports: {
             refreshBriefing: () => null,
+            setUseSampleData: () => null,
         },
         // The refresh call returns before the page reloads the briefing. Until that reload returns
         // the `writing` briefing, the page still waits, so the badge does not flip back to the button.
@@ -773,12 +782,25 @@ export const todayLogic = kea<todayLogicType>([
         // What is neither loaded nor already on screen: the count covers the whole set for the person,
         // including briefing items the page ranked past the loaded ones.
         moreReportsInInbox: [
-            (s) => [s.moreReports, s.shownReportIds],
-            (moreReports: TodayReports | null, shownReportIds: string[]): number => {
+            (s) => [s.moreReports, s.showPersonalBriefing, s.briefingItems, s.reports],
+            (
+                moreReports: TodayReports | null,
+                showPersonalBriefing: boolean,
+                briefingItems: BriefingItemApi[],
+                reports: SignalReport[]
+            ): number => {
                 if (!moreReports) {
                     return 0
                 }
-                const visible = new Set([...moreReports.results.map((report) => report.id), ...shownReportIds])
+                // Past the loaded page the count holds only open reports that name the person, so a resolved
+                // item, or one the person only claimed, is not in it and must not be taken off it.
+                const countedShownIds = showPersonalBriefing
+                    ? briefingItems
+                          .filter((item) => item.state === 'open' && NAMES_PERSON_REASONS.has(item.reason))
+                          .map(itemReportId)
+                          .filter((id): id is string => id !== null)
+                    : reports.map((report) => report.id)
+                const visible = new Set([...moreReports.results.map((report) => report.id), ...countedShownIds])
                 return Math.max(moreReports.count - visible.size, 0)
             },
         ],
@@ -927,8 +949,9 @@ export const todayLogic = kea<todayLogicType>([
                 if (values.useSampleData) {
                     return
                 }
+                // The team list stays loaded under the personal briefing, but only the list on screen counts.
                 for (const [list, reports] of [
-                    ['team', values.reports],
+                    ['team', values.showPersonalBriefing ? [] : values.reports],
                     ['more', values.sidebarMoreReports],
                 ] as const) {
                     const rank = reports.findIndex((report) => teamReportCard(report).key === cardKey) + 1

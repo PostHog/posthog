@@ -282,17 +282,20 @@ describe('todayLogic', () => {
     })
 
     it.each([
-        ['one the list returns too', 'report:a', ['b', 'c'], 2],
+        ['one the list returns too', 'report:a', 'open', ['b', 'c'], 2],
         // The briefing can show a report the list ranks past its page; it is on screen, so it is not "more".
-        ['one the list does not return', 'report:z', ['a', 'b', 'c'], 1],
-    ])(
+        ['one the list does not return', 'report:z', 'open', ['a', 'b', 'c'], 1],
+        // The count holds only open reports, so a resolved one on screen does not take a report off it.
+        ['a resolved one the list does not return', 'report:z', 'done', ['a', 'b', 'c'], 2],
+    ] as const)(
         'loads more reports past the briefing without the ones it shows, and counts the rest for the Inbox, when the briefing shows %s',
-        async (_name, shownKey, listed, remaining) => {
+        async (_name, shownKey, shownState, listed, remaining) => {
             const [a, b, c] = ['a', 'b', 'c'].map((id) => makeReport({ id }))
             const byId = { a, b, c }
             listResponse = [200, { results: [a, b, c], count: 5 }]
             const briefing = makeBriefing({ more_reports_count: 4 })
             briefing.items[0].key = shownKey
+            briefing.items[0].state = shownState
             briefing.paragraphs[0][0].item_key = shownKey
             briefingResponses = [[200, briefing]]
             const logic = todayLogic()
