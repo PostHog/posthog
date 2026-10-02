@@ -37,10 +37,11 @@ import {
 import { generateStacktraceText } from '../hooks/use-stacktrace-display'
 import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 import { externalIssueSearchLogic } from './externalIssueSearchLogic'
+import { IncludeStacktraceField } from './IncludeStacktraceField'
 
 const ERROR_TRACKING_INTEGRATIONS = ['linear', 'github', 'gitlab', 'jira'] as const satisfies readonly IntegrationKind[]
 
-type onSubmitFormType = (integrationId: number, config: Record<string, string>) => void
+type onSubmitFormType = (integrationId: number, config: Record<string, string>, includeStacktrace: boolean) => void
 type onSubmitLinkType = (
     integrationId: number,
     externalContext: ErrorTrackingExternalIssueResultApiExternalContext
@@ -48,10 +49,11 @@ type onSubmitLinkType = (
 type ErrorTrackingIntegrationKind = (typeof ERROR_TRACKING_INTEGRATIONS)[number]
 type ErrorTrackingIntegration = IntegrationType & { kind: ErrorTrackingIntegrationKind }
 
-const POSTHOG_HTML_LINE_BREAKS = '\n<br/>\n<br/>\n'
-
 // Jira rejects a description over 32,767 characters, so a long trace is cut to leave room for the rest of the body.
 const MAX_STACKTRACE_LENGTH = 20000
+
+// The dialog otherwise sizes to its widest line, so it would resize when the stack trace preview is shown or hidden.
+const CREATE_ISSUE_DIALOG_WIDTH = '40rem'
 
 const PROVIDER_LABELS: Record<ErrorTrackingIntegrationKind, string> = {
     github: 'GitHub',
@@ -268,16 +270,11 @@ function markdownCodeBlock(text: string): string {
     return `${fence}\n${text}\n${fence}`
 }
 
-function getIssueDescription(issue: ErrorTrackingRelationalIssue, stacktrace: string): string {
-    return [issue.description, stacktrace && markdownCodeBlock(stacktrace)].filter(Boolean).join('\n\n')
-}
-
-function getIssueMarkdownBody(issue: ErrorTrackingRelationalIssue, issueUrl: string, stacktrace: string): string {
-    return `${getIssueDescription(issue, stacktrace)}${POSTHOG_HTML_LINE_BREAKS}**PostHog issue:** ${issueUrl}`
-}
-
-function getJiraIssueBody(issue: ErrorTrackingRelationalIssue, issueUrl: string, stacktrace: string): string {
-    return `${getIssueDescription(issue, stacktrace)}\n\nPostHog issue: ${issueUrl}`
+function appendStacktrace(text: string, stacktrace: string, includeStacktrace: boolean): string {
+    if (!includeStacktrace || !stacktrace) {
+        return text
+    }
+    return [text.trimEnd(), markdownCodeBlock(stacktrace)].filter(Boolean).join('\n\n')
 }
 
 function createGitHubIssueForm(
@@ -289,10 +286,12 @@ function createGitHubIssueForm(
 ): void {
     LemonDialog.openForm({
         title: 'Create GitHub issue',
+        width: CREATE_ISSUE_DIALOG_WIDTH,
         shouldAwaitSubmit: true,
         initialValues: {
             title: issue.name,
-            body: getIssueMarkdownBody(issue, issueUrl, stacktrace),
+            body: `**PostHog issue:** ${issueUrl}`,
+            includeStacktrace: !!stacktrace,
             integrationId: integration.id,
             repositories: [],
         },
@@ -305,6 +304,7 @@ function createGitHubIssueForm(
                 <LemonField name="body" label="Body">
                     <LemonTextArea data-attr="issue-body" placeholder="Start typing..." maxRows={12} />
                 </LemonField>
+                <IncludeStacktraceField stacktrace={stacktrace} />
             </div>
         ),
         errors: {
@@ -312,8 +312,12 @@ function createGitHubIssueForm(
             repositories: (repositories) =>
                 repositories && repositories.length === 0 ? 'You must choose a repository' : undefined,
         },
-        onSubmit: ({ title, body, repositories }) => {
-            onSubmit(integration.id, { repository: repositories[0], title, body })
+        onSubmit: ({ title, body, includeStacktrace, repositories }) => {
+            onSubmit(
+                integration.id,
+                { repository: repositories[0], title, body: appendStacktrace(body, stacktrace, includeStacktrace) },
+                includeStacktrace
+            )
         },
     })
 }
@@ -327,10 +331,12 @@ function createGitLabIssueForm(
 ): void {
     LemonDialog.openForm({
         title: 'Create GitLab issue',
+        width: CREATE_ISSUE_DIALOG_WIDTH,
         shouldAwaitSubmit: true,
         initialValues: {
             title: issue.name,
-            body: getIssueMarkdownBody(issue, issueUrl, stacktrace),
+            body: `**PostHog issue:** ${issueUrl}`,
+            includeStacktrace: !!stacktrace,
             integrationId: integration.id,
         },
         content: (
@@ -341,13 +347,18 @@ function createGitLabIssueForm(
                 <LemonField name="body" label="Body">
                     <LemonTextArea data-attr="issue-body" placeholder="Start typing..." maxRows={12} />
                 </LemonField>
+                <IncludeStacktraceField stacktrace={stacktrace} />
             </div>
         ),
         errors: {
             title: (title) => (!title ? 'You must enter a title' : undefined),
         },
-        onSubmit: ({ title, body }) => {
-            onSubmit(integration.id, { title, body })
+        onSubmit: ({ title, body, includeStacktrace }) => {
+            onSubmit(
+                integration.id,
+                { title, body: appendStacktrace(body, stacktrace, includeStacktrace) },
+                includeStacktrace
+            )
         },
     })
 }
@@ -361,10 +372,12 @@ function createLinearIssueForm(
 ): void {
     LemonDialog.openForm({
         title: 'Create Linear issue',
+        width: CREATE_ISSUE_DIALOG_WIDTH,
         shouldAwaitSubmit: true,
         initialValues: {
             title: issue.name,
-            description: getIssueDescription(issue, stacktrace),
+            description: '',
+            includeStacktrace: !!stacktrace,
             integrationId: integration.id,
             teamIds: [],
         },
@@ -377,14 +390,23 @@ function createLinearIssueForm(
                 <LemonField name="description" label="Description">
                     <LemonTextArea data-attr="issue-description" placeholder="Start typing..." maxRows={12} />
                 </LemonField>
+                <IncludeStacktraceField stacktrace={stacktrace} />
             </div>
         ),
         errors: {
             title: (title) => (!title ? 'You must enter a title' : undefined),
             teamIds: (teamIds) => (teamIds && teamIds.length === 0 ? 'You must choose a team' : undefined),
         },
-        onSubmit: ({ title, description, teamIds }) => {
-            onSubmit(integration.id, { team_id: teamIds[0], title, description })
+        onSubmit: ({ title, description, includeStacktrace, teamIds }) => {
+            onSubmit(
+                integration.id,
+                {
+                    team_id: teamIds[0],
+                    title,
+                    description: appendStacktrace(description, stacktrace, includeStacktrace),
+                },
+                includeStacktrace
+            )
         },
     })
 }
@@ -398,10 +420,12 @@ function createJiraIssueForm(
 ): void {
     LemonDialog.openForm({
         title: 'Create Jira issue',
+        width: CREATE_ISSUE_DIALOG_WIDTH,
         shouldAwaitSubmit: true,
         initialValues: {
             title: issue.name,
-            description: getJiraIssueBody(issue, issueUrl, stacktrace),
+            description: `PostHog issue: ${issueUrl}`,
+            includeStacktrace: !!stacktrace,
             integrationId: integration.id,
             projectKeys: [],
         },
@@ -414,6 +438,7 @@ function createJiraIssueForm(
                 <LemonField name="description" label="Description">
                     <LemonTextArea data-attr="jira-issue-description" placeholder="Start typing..." maxRows={12} />
                 </LemonField>
+                <IncludeStacktraceField stacktrace={stacktrace} />
             </div>
         ),
         errors: {
@@ -421,8 +446,16 @@ function createJiraIssueForm(
             projectKeys: (projectKeys) =>
                 projectKeys && projectKeys.length === 0 ? 'You must choose a project' : undefined,
         },
-        onSubmit: ({ title, description, projectKeys }) => {
-            onSubmit(integration.id, { project_key: projectKeys[0], title, description })
+        onSubmit: ({ title, description, includeStacktrace, projectKeys }) => {
+            onSubmit(
+                integration.id,
+                {
+                    project_key: projectKeys[0],
+                    title,
+                    description: appendStacktrace(description, stacktrace, includeStacktrace),
+                },
+                includeStacktrace
+            )
         },
     })
 }
