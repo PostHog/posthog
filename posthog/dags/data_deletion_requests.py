@@ -972,6 +972,23 @@ class _ShardStaging:
         )
         return {file.removesuffix(".native"): count for file, count in rows}
 
+    def staged_fingerprints(self, client: Client, months: list[str]) -> dict[str, tuple[int, int]]:
+        """Row count and uuid hash sum of each staged monthly file."""
+        if not months:
+            return {}
+        rows = client.execute(
+            f"SELECT _file, count(), sum(cityHash64(uuid)) FROM s3({self.data_args(months)}) GROUP BY _file",
+            settings=_LONG_QUERY_SETTINGS,
+        )
+        return {file.removesuffix(".native"): (count, uuid_hash) for file, count, uuid_hash in rows}
+
+    def discard_step(self, client: Client, step: str) -> None:
+        # ClickHouse cannot delete an S3 object, so the progress file is overwritten with zero rows.
+        client.execute(
+            f"INSERT INTO FUNCTION s3({self._state_args(step)}) "
+            "SELECT '' AS step, '' AS payload WHERE 0 SETTINGS s3_truncate_on_insert=1"
+        )
+
     def empty_data_files(self, client: Client) -> int:
         """Overwrite every staged data file with zero rows, once the target is verified."""
         steps = self.finished_steps(client)
@@ -1275,8 +1292,8 @@ def delete_property_removal_shard(
             raise dagster.Failure(description=f"[{target.mapping_key}] copy has not finished; refusing to delete")
         copied = steps[_COPIED]
 
-        staged = staging.count_staged_rows(client, sorted(copied["months"]))
-        if staged != copied["months"]:
+        staged = staging.staged_fingerprints(client, sorted(copied["months"]))
+        if {month: rows for month, (rows, _) in staged.items()} != copied["months"]:
             raise dagster.Failure(
                 description=f"[{target.mapping_key}] staged copy changed since the copy step: "
                 f"expected={copied['months']}, staged={staged}. Do not delete; investigate."
@@ -1284,15 +1301,29 @@ def delete_property_removal_shard(
 
         _sync_replica(client, target, log)
         predicate = _shard_predicate(client, deletion_request, target, marker_str, hogql_compiled, log)
-        count_sql = f"SELECT count() FROM {db}.{target.table} WHERE {predicate.sql}"
-        log("count-originals", count_sql)
-        originals = client.execute(count_sql, predicate.params, settings=_LONG_QUERY_SETTINGS)[0][0]
-        # More originals than the copy holds means rows the copy lacks, which this delete would lose.
-        if originals > copied["rows"]:
-            raise dagster.Failure(
-                description=f"[{target.mapping_key}] {originals} originals match but the copy holds "
-                f"{copied['rows']}. Re-run from the copy step after investigating."
+        fingerprint_sql = (
+            f"SELECT toString(toYYYYMM(timestamp)) AS month, count(), sum(cityHash64(uuid)) "
+            f"FROM {db}.{target.table} WHERE {predicate.sql} GROUP BY month"
+        )
+        log("fingerprint-originals", fingerprint_sql)
+        source = {
+            month: (rows, uuid_hash)
+            for month, rows, uuid_hash in client.execute(
+                fingerprint_sql, predicate.params, settings=_LONG_QUERY_SETTINGS
             )
+        }
+        # The delete removes every row the predicate matches, so those rows must be exactly the staged
+        # ones. A count alone misses a different set of the same size; the uuid hash sum catches it.
+        if source != staged:
+            # Nothing is deleted yet, so copying again is safe. Discarding the copy's progress file makes
+            # the next run do that instead of failing here forever.
+            staging.discard_step(client, _COPIED)
+            raise dagster.Failure(
+                description=f"[{target.mapping_key}] originals differ from the staged copy "
+                f"(source={source}, staged={staged}). Nothing was deleted. The copy will run again on the "
+                "next attempt."
+            )
+        originals = sum(rows for rows, _ in source.values())
 
         if originals:
             delete_runner = LightweightDeleteMutationRunner(

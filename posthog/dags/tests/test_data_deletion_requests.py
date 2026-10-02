@@ -2144,8 +2144,17 @@ def test_reexecuting_the_failed_shard_steps_completes_failed_request(cluster: Cl
         assert "keep" in row_props
 
 
+def _delete_one_event(team_id: int, event_uuid: UUID, client: Client) -> None:
+    client.execute(
+        "DELETE FROM sharded_events WHERE team_id = %(team_id)s AND uuid = %(uuid)s "
+        "SETTINGS lightweight_deletes_sync = 2",
+        {"team_id": team_id, "uuid": event_uuid},
+    )
+
+
 @pytest.mark.django_db
-def test_delete_refuses_when_originals_outnumber_the_staged_copy(cluster: ClickhouseCluster):
+@pytest.mark.parametrize("change", ["extra_original", "swapped_original"])
+def test_delete_refuses_when_originals_differ_from_the_staged_copy(cluster: ClickhouseCluster, change: str):
     marker = timezone.now()
     now = datetime.now()
     props = json.dumps({"secret": "value", "keep": "yes"})
@@ -2160,7 +2169,8 @@ def test_delete_refuses_when_originals_outnumber_the_staged_copy(cluster: Clickh
     target = next(t for t in _property_removal_targets(cluster, ctx) if not t.json_schema)
     copy_property_removal_shard(build_op_context(), cluster, target, ctx)
 
-    # An original the copy never saw, inside the marker bound. Deleting it would lose it.
+    # An original the copy never saw, inside the marker bound. Deleting it would lose it. In the
+    # swapped case one staged original also disappears, so a count alone cannot tell the sets apart.
     unseen = (
         PROP_TEAM_ID,
         "$pageview",
@@ -2171,12 +2181,20 @@ def test_delete_refuses_when_originals_outnumber_the_staged_copy(cluster: Clickh
         marker - timedelta(hours=1),
     )
     cluster.any_host(partial(_insert_events_with_properties_and_inserted_at, [unseen])).result()
+    if change == "swapped_original":
+        cluster.any_host(partial(_delete_one_event, PROP_TEAM_ID, originals[0][2])).result()
+    expected = 6 if change == "extra_original" else 5
 
-    with pytest.raises(dagster.Failure, match="originals match but the copy holds"):
+    with pytest.raises(dagster.Failure, match="originals differ from the staged copy"):
         delete_property_removal_shard(build_op_context(), cluster, target, ctx)
     props_after = cluster.any_host(partial(_get_properties, PROP_TEAM_ID, "$pageview")).result()
-    assert len(props_after) == 6
+    assert len(props_after) == expected
     assert all("secret" in p for p in props_after)
+
+    # The refusal discards the copy's progress, so the next attempt copies the current originals.
+    copy_property_removal_shard(build_op_context(), cluster, target, ctx)
+    delete_property_removal_shard(build_op_context(), cluster, target, ctx)
+    assert cluster.any_host(partial(_count_events_by_name, PROP_TEAM_ID, "$pageview")).result() == 0
 
 
 @pytest.mark.django_db
