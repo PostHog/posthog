@@ -1,6 +1,8 @@
 import stat
+import shutil
 import zipfile
 from pathlib import Path
+from typing import BinaryIO
 
 import pytest
 
@@ -107,15 +109,28 @@ def test_extraction_cannot_replace_an_existing_artifact(tmp_path: Path) -> None:
     assert original.read_text() == "original"
 
 
-def test_failed_extraction_does_not_leave_a_partial_artifact(tmp_path: Path) -> None:
+@pytest.mark.parametrize("interrupted", [False, True])
+def test_failed_extraction_does_not_leave_a_partial_artifact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, interrupted: bool
+) -> None:
     archive = write_archive(tmp_path, [("junit.xml", "<testsuites/>")], compression=zipfile.ZIP_STORED)
-    raw = bytearray(archive.read_bytes())
-    with zipfile.ZipFile(archive) as metadata:
-        member = metadata.getinfo("junit.xml")
-        content_start = member.header_offset + 30 + len(member.filename.encode()) + len(member.extra)
-    raw[content_start] ^= 0xFF
-    archive.write_bytes(raw)
+    expected_error: type[BaseException] = zipfile.BadZipFile
+    if interrupted:
+
+        def interrupt(source: BinaryIO, output: BinaryIO, *, length: int) -> None:
+            output.write(b"partial")
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr(shutil, "copyfileobj", interrupt)
+        expected_error = KeyboardInterrupt
+    else:
+        raw = bytearray(archive.read_bytes())
+        with zipfile.ZipFile(archive) as metadata:
+            member = metadata.getinfo("junit.xml")
+            content_start = member.header_offset + 30 + len(member.filename.encode()) + len(member.extra)
+        raw[content_start] ^= 0xFF
+        archive.write_bytes(raw)
     destination = tmp_path / "relay"
-    with pytest.raises(zipfile.BadZipFile):
+    with pytest.raises(expected_error):
         extract_artifact(archive, destination)
     assert not destination.exists()

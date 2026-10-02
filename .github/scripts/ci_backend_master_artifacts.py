@@ -75,6 +75,6 @@ def extract_artifact(
                     target.parent.mkdir(parents=True, exist_ok=True)
                     with archive.open(member) as source, target.open("xb") as output:
                         shutil.copyfileobj(source, output, length=1024**2)
-        except Exception:
+        except BaseException:
             shutil.rmtree(destination)
             raise
