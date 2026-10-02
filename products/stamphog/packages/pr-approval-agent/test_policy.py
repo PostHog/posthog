@@ -84,6 +84,7 @@ OLD_DENY_PATTERN_DEFS = {
             "dockerfile",
             "docker-compose",
             "\\.github/workflows",
+            "\\.depot/workflows",
             "\\.github/pr-deploy",
             "iam",
             "cloudflare",

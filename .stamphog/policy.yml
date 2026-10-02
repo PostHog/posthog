@@ -73,6 +73,7 @@ deny:
                 - 'dockerfile'
                 - 'docker-compose'
                 - '\.github/workflows'
+                - '\.depot/workflows'
                 - '\.github/pr-deploy'
                 - 'iam'
                 - 'cloudflare'

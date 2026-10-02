@@ -62,6 +62,8 @@ from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from posthog.dataclasses import frozen
+
 from .ast_helpers import ast_parse_safe, get_model_names, lazy_reexport_map, lazy_reexport_prefixes
 from .isolation import (
     COMPUTED_WIRING_LOCATIONS,
@@ -1892,6 +1894,35 @@ class BaselineDrift:
     shrunk: list[str]
 
 
+@frozen(order=True)
+class _Debt:
+    crossing: str
+    kind: str
+
+
+def _debt_by_crossing_and_kind(lines: Iterable[str]) -> Counter[_Debt]:
+    debt: Counter[_Debt] = Counter()
+    for line in lines:
+        crossing, _consumer, kind, count = line.split(" ")
+        debt[_Debt(crossing=crossing, kind=kind)] += int(count)
+    return debt
+
+
+def grown_debt(base_lines: Iterable[str], current_lines: Iterable[str]) -> list[str]:
+    """The debt that rose, summed per crossing and kind over all consumers.
+
+    A change that moves or splits a consumer module carries its lines along, so it raises no debt
+    even though its lines are new. This is the one growth rule: a regenerate and the PR-base check
+    in ledger_growth.py both apply it."""
+    base = _debt_by_crossing_and_kind(base_lines)
+    current = _debt_by_crossing_and_kind(current_lines)
+    return [
+        f"{debt.crossing} {debt.kind}: {base[debt]} → {count}"
+        for debt, count in sorted(current.items())
+        if count > base[debt]
+    ]
+
+
 def baseline_drift(recorded: Iterable[str], scanned: Iterable[str]) -> BaselineDrift:
     recorded_counts = _counts_by_identity(recorded)
     scanned_counts = _counts_by_identity(scanned)
@@ -1938,16 +1969,16 @@ class BaselineWouldGrow(Exception):
 
 
 def write_baseline(uses: Iterable[CrossingUse], path: Path = BASELINE_PATH) -> None:
-    """Record the scan, but only while every difference against the file is a removal.
+    """Record the scan, but only while no crossing's debt of any kind rises.
 
-    A regenerate that absorbs a new line hides the coupling from the review of the change that
-    caused it. A deliberate coupling therefore goes in by hand, next to the doctrine note that
-    permits it. There is no flag to skip this: a hand-edited line is what a reviewer reads, and a
-    flag would be pasted from one change into the next."""
+    A regenerate that absorbs new debt hides the coupling from the review of the change that caused
+    it. A moved or split consumer module keeps the debt where it was, so its new lines are written.
+    There is no flag to skip this, because a flag would be pasted from one change into the next."""
     scanned = list(uses)
     if path.exists():
-        drift = baseline_drift(read_baseline(path), scanned_baseline_lines(scanned))
-        if drift.grown:
-            raise BaselineWouldGrow(path, drift.grown)
+        recorded = read_baseline(path)
+        lines = scanned_baseline_lines(scanned)
+        if grown_debt(recorded, lines):
+            raise BaselineWouldGrow(path, baseline_drift(recorded, lines).grown)
     path.write_text(render_baseline(scanned))
     _baseline_lines.cache_clear()

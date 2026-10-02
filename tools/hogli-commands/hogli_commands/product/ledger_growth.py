@@ -7,21 +7,16 @@ file with the pull request's base instead. A change to the scanner may add lines
 check records the findings that already exist when it lands, and because an approved exception
 (an approved interface, a MODEL_CROSSINGS entry, a carve-out) is a scanner change too.
 
-Debt is summed per crossing and kind over all consumers, so a change that moves or splits a
-consumer module carries its lines along without growth.
+Growth is crossings.grown_debt, the rule a regenerate applies too.
 """
 
 from __future__ import annotations
 
 import os
 import subprocess
-from collections import Counter
-from collections.abc import Iterable
 from pathlib import Path
 
-from posthog.dataclasses import frozen
-
-from .crossings import BASELINE_PATH, parse_baseline, read_baseline
+from .crossings import BASELINE_PATH, grown_debt, parse_baseline, read_baseline
 from .paths import REPO_ROOT
 
 # CI sets this to the pull request's base commit. Unset, the check does not run.
@@ -43,30 +38,6 @@ LEDGER_GROWTH_INSTRUCTION = (
 
 class LedgerBaseUnreadable(Exception):
     pass
-
-
-@frozen(order=True)
-class _Debt:
-    crossing: str
-    kind: str
-
-
-def _debt_by_crossing_and_kind(lines: Iterable[str]) -> Counter[_Debt]:
-    debt: Counter[_Debt] = Counter()
-    for line in lines:
-        crossing, _consumer, kind, count = line.split(" ")
-        debt[_Debt(crossing=crossing, kind=kind)] += int(count)
-    return debt
-
-
-def grown_debt(base_lines: Iterable[str], current_lines: Iterable[str]) -> list[str]:
-    base = _debt_by_crossing_and_kind(base_lines)
-    current = _debt_by_crossing_and_kind(current_lines)
-    return [
-        f"{debt.crossing} {debt.kind}: {base[debt]} → {count}"
-        for debt, count in sorted(current.items())
-        if count > base[debt]
-    ]
 
 
 def _git(repo_root: Path, *args: str) -> str:

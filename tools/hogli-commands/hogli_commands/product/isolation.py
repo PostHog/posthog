@@ -840,7 +840,7 @@ class UnapprovedWiringClass:
     """A class a facade hands out from a wiring location without an approved interface."""
 
     facade_module: str  # path inside facade/, e.g. "destinations/s3.py"
-    class_name: str
+    class_name: str  # the name the facade exports, unique within its module
     source_path: str  # backend-relative, e.g. "backend/temporal/destinations/s3_batch_export.py"
     verdict: WiringVerdict  # UNAPPROVED or UNRESOLVED
 
@@ -861,7 +861,7 @@ def facade_unapproved_wiring(backend_dir: Path, name: str) -> list[UnapprovedWir
     a location is necessary but not enough under § Wiring couplings, which also requires an approved
     decorator or base (APPROVED_WIRING_BASES, APPROVED_WIRING_DECORATORS)."""
     resolver = WiringInterfaceResolver(REPO_ROOT, roots={f"products.{name}.backend": backend_dir})
-    findings: list[UnapprovedWiringClass] = []
+    findings: dict[str, UnapprovedWiringClass] = {}
     for module_file in _iter_facade_modules(backend_dir):
         module_key = _facade_module_key(backend_dir, module_file)
         if module_key in ("contracts.py", "enums.py"):
@@ -872,14 +872,24 @@ def facade_unapproved_wiring(backend_dir: Path, name: str) -> list[UnapprovedWir
         for handed in _iter_handed_out_names(tree, backend_dir, _facade_package_parts(module_key)):
             if not handed.source_path.startswith(GARAGE_PREFIXES):
                 continue
-            module = _backend_module(name, handed.source_path)
+            qualified = f"{_backend_module(name, handed.source_path)}.{handed.original}"
             # The resolver follows absolute and chained re-exports, which _name_is_class stops at.
-            if not resolver.is_class(module, handed.original):
-                continue
-            verdict = resolver.verdict(module, handed.original)
-            if verdict is not WiringVerdict.APPROVED:
-                findings.append(UnapprovedWiringClass(module_key, handed.original, handed.source_path, verdict))
-    return findings
+            if resolver.is_class(qualified):
+                exported = {handed.bound: qualified}
+            else:
+                # A collection such as WORKFLOWS hands out every class it holds, and core registers
+                # each one.
+                exported = {
+                    member.rpartition(".")[2]: member
+                    for member in resolver.collection_members(qualified)
+                    if resolver.is_class(member)
+                }
+            for class_name, class_qualified in exported.items():
+                verdict = resolver.verdict(class_qualified)
+                if verdict is not WiringVerdict.APPROVED:
+                    finding = UnapprovedWiringClass(module_key, class_name, handed.source_path, verdict)
+                    findings[f"{module_key}:{class_name}"] = finding
+    return list(findings.values())
 
 
 def facade_carveout_modules(backend_dir: Path, name: str) -> set[str]:

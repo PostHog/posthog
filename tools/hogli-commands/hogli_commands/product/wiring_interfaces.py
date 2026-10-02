@@ -51,13 +51,48 @@ class WiringVerdict(StrEnum):
 
 
 @frozen
-class _ClassSite:
-    """A class definition the resolver reached, with the names its module binds."""
+class _ModuleScope:
+    """What one module binds at its top level."""
 
     module: str
+    tree: ast.Module
+    bindings: Mapping[str, str]  # each imported name and the qualified name it refers to
+    classes: Mapping[str, ast.ClassDef]
+    rebound: frozenset[str]  # names a top-level statement other than an import binds
+
+
+@frozen
+class _ClassSite:
+    scope: _ModuleScope
     node: ast.ClassDef
-    bindings: Mapping[str, str]
-    local: frozenset[str]
+
+
+def _rebound_names(tree: ast.Module) -> frozenset[str]:
+    names: set[str] = set()
+    for statement in tree.body:
+        if isinstance(statement, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            names.add(statement.name)
+        elif isinstance(statement, ast.Assign):
+            names.update(target.id for target in statement.targets if isinstance(target, ast.Name))
+        elif isinstance(statement, (ast.AnnAssign, ast.AugAssign)) and isinstance(statement.target, ast.Name):
+            names.add(statement.target.id)
+    return frozenset(names)
+
+
+def _assigned_collection(tree: ast.Module, name: str) -> ast.List | ast.Tuple | ast.Set | None:
+    """The list, tuple or set literal a top-level statement assigns to the name."""
+    for statement in tree.body:
+        if isinstance(statement, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == name for target in statement.targets
+        ):
+            value: ast.expr | None = statement.value
+        elif isinstance(statement, ast.AnnAssign) and isinstance(statement.target, ast.Name):
+            value = statement.value if statement.target.id == name else None
+        else:
+            continue
+        if isinstance(value, (ast.List, ast.Tuple, ast.Set)):
+            return value
+    return None
 
 
 @functools.cache
@@ -78,19 +113,25 @@ class WiringInterfaceResolver:
         self._roots = dict(roots or {})
         self._ancestor_verdicts: dict[str, WiringVerdict] = {}
 
-    def is_class(self, module: str, name: str) -> bool:
+    def is_class(self, qualified: str) -> bool:
         """Whether the name reaches a class definition through any chain of re-exports here."""
-        return isinstance(self._locate(f"{module}.{name}", frozenset()), _ClassSite)
+        return isinstance(self._locate(qualified, frozenset()), _ClassSite)
 
-    def verdict(self, module: str, name: str) -> WiringVerdict:
-        site = self._locate(f"{module}.{name}", frozenset())
+    def collection_members(self, qualified: str) -> list[str]:
+        """The qualified names that a top-level list, tuple or set literal holds, such as WORKFLOWS."""
+        return self._members(qualified, frozenset())
+
+    def verdict(self, qualified: str) -> WiringVerdict:
+        site = self._locate(qualified, frozenset())
         if isinstance(site, WiringVerdict):
             return site
         # Temporal registers a class by its own decorator only, so a decorator counts on the class
         # the facade hands out and never on one of its bases.
-        if any(self._qualify(decorator, site) in APPROVED_WIRING_DECORATORS for decorator in site.node.decorator_list):
+        if any(
+            self._qualify(decorator, site.scope) in APPROVED_WIRING_DECORATORS for decorator in site.node.decorator_list
+        ):
             return WiringVerdict.APPROVED
-        return self._bases_verdict(site, frozenset({f"{module}.{name}"}))
+        return self._bases_verdict(site, frozenset({qualified}))
 
     def _module_file(self, module: str) -> tuple[Path, bool] | None:
         """The file of a dotted module and whether it is a package, or None when it is not here."""
@@ -137,24 +178,40 @@ class WiringInterfaceResolver:
                     bindings[alias.asname or alias.name] = f"{source}.{alias.name}"
         return bindings
 
-    def _qualify(self, node: ast.expr, site: _ClassSite) -> str | None:
-        """The qualified name an expression in a base or decorator list refers to."""
+    def _scope(self, module: str) -> _ModuleScope | None:
+        located = self._module_file(module)
+        if located is None:
+            return None
+        path, is_package = located
+        tree = _parsed(path)
+        if tree is None:
+            return None
+        return _ModuleScope(
+            module=module,
+            tree=tree,
+            bindings=self._bindings(module, is_package, tree),
+            classes={node.name: node for node in tree.body if isinstance(node, ast.ClassDef)},
+            rebound=_rebound_names(tree),
+        )
+
+    def _qualify(self, node: ast.expr, scope: _ModuleScope) -> str | None:
+        """The qualified name an expression in a base, decorator or collection refers to."""
         if isinstance(node, ast.Subscript):
-            return self._qualify(node.value, site)
+            return self._qualify(node.value, scope)
         if isinstance(node, ast.Call):
-            return self._qualify(node.func, site)
+            return self._qualify(node.func, scope)
         if isinstance(node, ast.Attribute):
-            head = self._qualify(node.value, site)
+            head = self._qualify(node.value, scope)
             return f"{head}.{node.attr}" if head else None
         if isinstance(node, ast.Name):
-            # A module that both imports and defines a name binds it by statement order, so the
+            # A module that imports a name and binds it again binds it by statement order, so the
             # lint leaves it unread rather than guess which binding a base refers to.
-            if node.id in site.bindings and node.id in site.local:
+            if node.id in scope.bindings and node.id in scope.rebound:
                 return None
-            if node.id in site.bindings:
-                return site.bindings[node.id]
-            if node.id in site.local:
-                return f"{site.module}.{node.id}"
+            if node.id in scope.bindings:
+                return scope.bindings[node.id]
+            if node.id in scope.classes:
+                return f"{scope.module}.{node.id}"
             if hasattr(builtins, node.id):
                 return f"builtins.{node.id}"
         return None
@@ -169,23 +226,31 @@ class WiringInterfaceResolver:
         if qualified in seen:
             return WiringVerdict.UNRESOLVED
         module, _, name = qualified.rpartition(".")
-        located = self._module_file(module) if module else None
-        if located is None:
+        scope = self._scope(module) if module else None
+        if scope is None:
             if qualified.split(".", 1)[0] in _REPOSITORY_PACKAGES:
                 return WiringVerdict.UNRESOLVED
             return WiringVerdict.UNAPPROVED
-        path, is_package = located
-        tree = _parsed(path)
-        if tree is None:
-            return WiringVerdict.UNRESOLVED
-        bindings = self._bindings(module, is_package, tree)
-        classes = {node.name: node for node in tree.body if isinstance(node, ast.ClassDef)}
-        if name in classes:
-            return _ClassSite(module=module, node=classes[name], bindings=bindings, local=frozenset(classes))
+        if name in scope.classes:
+            return _ClassSite(scope=scope, node=scope.classes[name])
         # A name the module only re-exports is judged where it is defined.
-        if name in bindings:
-            return self._locate(bindings[name], seen | {qualified})
+        if name in scope.bindings:
+            return self._locate(scope.bindings[name], seen | {qualified})
         return WiringVerdict.UNRESOLVED
+
+    def _members(self, qualified: str, seen: frozenset[str]) -> list[str]:
+        if qualified in seen:
+            return []
+        module, _, name = qualified.rpartition(".")
+        scope = self._scope(module) if module else None
+        if scope is None:
+            return []
+        collection = _assigned_collection(scope.tree, name)
+        if collection is not None:
+            return [member for element in collection.elts if (member := self._qualify(element, scope)) is not None]
+        if name in scope.bindings:
+            return self._members(scope.bindings[name], seen | {qualified})
+        return []
 
     def _ancestor_verdict(self, qualified: str, seen: frozenset[str]) -> WiringVerdict:
         if qualified not in self._ancestor_verdicts:
@@ -199,7 +264,7 @@ class WiringInterfaceResolver:
     def _bases_verdict(self, site: _ClassSite, seen: frozenset[str]) -> WiringVerdict:
         verdicts = []
         for base in site.node.bases:
-            base_name = self._qualify(base, site)
+            base_name = self._qualify(base, site.scope)
             if base_name is None:
                 verdicts.append(WiringVerdict.UNRESOLVED)
             else:

@@ -49,6 +49,7 @@ from hogli_commands.product.crossings import (
     all_crossing_uses,
     baseline_drift,
     baseline_drift_message,
+    grown_debt,
     names_defined_in,
     read_baseline,
     scanned_baseline_lines,
@@ -63,7 +64,9 @@ def test_disallowed_crossing_uses_match_the_baseline() -> None:
         return
 
     drift = baseline_drift(recorded, scanned)
-    raise AssertionError(baseline_drift_message(drift.grown, drift.shrunk))
+    # A moved or split consumer raises no debt, so a regenerate records its new lines.
+    added = drift.grown if grown_debt(recorded, scanned) else []
+    raise AssertionError(baseline_drift_message(added, drift.shrunk))
 
 
 # product_analytics watches backend/hogql_queries/trends/ alone, because trends is the only subtree

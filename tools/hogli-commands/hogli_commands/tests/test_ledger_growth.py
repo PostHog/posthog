@@ -7,7 +7,8 @@ from pathlib import Path
 import pytest
 
 import yaml
-from hogli_commands.product.ledger_growth import LEDGER_BASE_ENV, SCANNER_DIR, grown_debt, ledger_growth_issues
+from hogli_commands.product.crossings import grown_debt
+from hogli_commands.product.ledger_growth import LEDGER_BASE_ENV, SCANNER_DIR, ledger_growth_issues
 from hogli_commands.product.paths import REPO_ROOT
 from parameterized import parameterized
 

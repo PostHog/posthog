@@ -478,6 +478,13 @@ _WIRING_SOURCES: dict[str, dict[str, str]] = {
             "class Handed(QueryRunner):\n    pass\n"
         ),
     },
+    "import_rebound_by_an_assignment": {
+        "temporal/flows.py": (
+            "from posthog.hogql_queries.query_runner import QueryRunner\n\nQueryRunner = object\n\n\n"
+            "class Handed(QueryRunner):\n    pass\n"
+        ),
+    },
+    "collection_of_classes": {"temporal/flows.py": "class Plain:\n    pass\n\n\nHanded = [Plain]\n"},
     "absolute_reexport": {
         "temporal/flows.py": "from products.my_product.backend.temporal.impl import Handed\n",
         "temporal/impl.py": "class Handed:\n    pass\n",
@@ -496,6 +503,8 @@ class TestWiringInterfaces:
             ("unreadable_base", {("Handed", "unresolved")}),
             ("decorator_on_the_base_only", {("Handed", "unapproved")}),
             ("import_shadowed_by_a_local_class", {("Handed", "unresolved")}),
+            ("import_rebound_by_an_assignment", {("Handed", "unresolved")}),
+            ("collection_of_classes", {("Plain", "unapproved")}),
             ("absolute_reexport", {("Handed", "unapproved")}),
         ],
     )
@@ -506,6 +515,12 @@ class TestWiringInterfaces:
             tmp_path, facade_files={"wiring.py": _WIRING_FACADE}, sources=_WIRING_SOURCES[case]
         )
         assert {(f.class_name, str(f.verdict)) for f in facade_unapproved_wiring(backend, "my_product")} == expected
+
+    def test_same_named_classes_keep_their_exported_names(self, tmp_path: Path) -> None:
+        facade = "from ..temporal.a import Worker as AWorker\nfrom ..temporal.b import Worker\n\n__all__ = ['AWorker', 'Worker']\n"
+        sources = {"temporal/a.py": "class Worker:\n    pass\n", "temporal/b.py": "class Worker:\n    pass\n"}
+        _, backend = _write_facade_product(tmp_path, facade_files={"wiring.py": facade}, sources=sources)
+        assert {f.class_name for f in facade_unapproved_wiring(backend, "my_product")} == {"AWorker", "Worker"}
 
     @pytest.mark.parametrize(
         "isolated, recorded, blocks",
