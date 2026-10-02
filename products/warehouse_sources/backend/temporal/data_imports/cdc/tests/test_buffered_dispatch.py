@@ -17,7 +17,7 @@ _SOURCE = "products.warehouse_sources.backend.temporal.data_imports.sources.post
 _SNAPSHOT_LANE = "products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane"
 
 
-def _schema(ingest_mode: str = "buffered", **overrides) -> MagicMock:
+def _schema(**overrides) -> MagicMock:
     schema = MagicMock()
     schema.name = "users"
     schema.is_cdc = overrides.get("is_cdc", True)
@@ -32,7 +32,7 @@ def _schema(ingest_mode: str = "buffered", **overrides) -> MagicMock:
     schema.resolved_s3_folder_name = None
     schema.primary_key_columns = ["id"]
     schema.last_synced_at = None
-    schema.source.job_inputs = {"cdc_enabled": True, "cdc_ingest_mode": ingest_mode}
+    schema.source.job_inputs = {"cdc_enabled": True}
     return schema
 
 
@@ -144,9 +144,8 @@ class TestBufferedDispatch:
         with pytest.raises(ValueError, match="no job row"):
             _dispatch(_schema(), _inputs(), job_version=None)
 
-    @pytest.mark.parametrize("ingest_mode, in_flight", [("buffered", True), ("legacy", False)])
-    def test_a_delivery_still_in_flight_or_an_unconverted_source_no_ops_the_tick(self, ingest_mode, in_flight):
-        response = _dispatch(_schema(ingest_mode, cdc_table_mode="both"), _inputs(), in_flight=in_flight)
+    def test_a_delivery_still_in_flight_no_ops_the_tick(self):
+        response = _dispatch(_schema(cdc_table_mode="both"), _inputs(), in_flight=True)
 
         assert list(response.items()) == []
         assert response.lanes is None
