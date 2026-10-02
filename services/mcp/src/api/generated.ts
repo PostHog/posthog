@@ -122284,7 +122284,7 @@ export namespace Schemas {
 
     export type TodayBriefingRetrieveParams = {
     /**
-     * IANA timezone of the person's browser, for example Europe/Prague. The briefing day starts at 8:00 in it. Defaults to the project timezone.
+     * IANA timezone of the person's browser, for example Europe/Prague. The briefing day starts at 8:00 in it. When omitted, uses the person's last viewed briefing timezone, or the project timezone if none exists.
      * @maxLength 64
      */
     timezone?: string;
@@ -122292,7 +122292,7 @@ export namespace Schemas {
 
     export type TodayBriefingRefreshCreateParams = {
     /**
-     * IANA timezone of the person's browser, for example Europe/Prague. The briefing day starts at 8:00 in it. Defaults to the project timezone.
+     * IANA timezone of the person's browser, for example Europe/Prague. The briefing day starts at 8:00 in it. When omitted, uses the person's last viewed briefing timezone, or the project timezone if none exists.
      * @maxLength 64
      */
     timezone?: string;
@@ -122300,7 +122300,7 @@ export namespace Schemas {
 
     export type TodayCandidatesRetrieveParams = {
     /**
-     * IANA timezone of the person's browser, for example Europe/Prague. The briefing day starts at 8:00 in it. Defaults to the project timezone.
+     * IANA timezone of the person's browser, for example Europe/Prague. The briefing day starts at 8:00 in it. When omitted, uses the person's last viewed briefing timezone, or the project timezone if none exists.
      * @maxLength 64
      */
     timezone?: string;

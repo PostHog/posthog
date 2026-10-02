@@ -111,7 +111,7 @@ def _current(team: Team, user: User, local_day: date) -> CurrentBriefing | None:
 def get_or_start_briefing(
     *, team: Team, user: User, timezone_name: str | None, now: datetime | None = None
 ) -> CurrentBriefing:
-    tz = resolve_timezone(timezone_name, team)
+    tz = resolve_timezone(timezone_name, team, user)
     day = briefing_day(now or timezone.now(), tz)
     current = _current(team, user, day)
     if current is None:
@@ -136,7 +136,7 @@ def get_or_start_briefing(
 def refresh_briefing(*, team: Team, user: User, timezone_name: str | None) -> DailyBriefing:
     """Regenerate today's briefing, unless one is already being written. The ready briefing stays
     on screen until the new one is written."""
-    tz = resolve_timezone(timezone_name, team)
+    tz = resolve_timezone(timezone_name, team, user)
     day = briefing_day(timezone.now(), tz)
     current = _current(team, user, day)
     if current is not None and (current.generating or current.shown.status in _PENDING):
@@ -274,7 +274,7 @@ def _facts_to_candidates(fact_sheet: FactSheet, day: date, *, team: Team, user: 
 
 def list_candidates(*, team: Team, user: User, timezone_name: str | None) -> contracts.CandidateList:
     """The items behind today's briefing with their facts, or an empty list while it is being written."""
-    tz = resolve_timezone(timezone_name, team)
+    tz = resolve_timezone(timezone_name, team, user)
     day = briefing_day(timezone.now(), tz)
     current = _current(team, user, day)
     fact_sheet = stored_fact_sheet(current.shown) if current is not None else None

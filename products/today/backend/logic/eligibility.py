@@ -3,14 +3,24 @@
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from posthog.models import Team
+from posthog.models import Team, User
+
+from ..models import DailyBriefing
 
 # A briefing day starts at 8:00 local time; before that, yesterday's briefing is still the current one.
 DAY_START_HOUR = 8
 
 
-def resolve_timezone(name: str | None, team: Team) -> str:
-    """The browser timezone when it is a valid name, else the project timezone."""
+def resolve_timezone(name: str | None, team: Team, user: User) -> str:
+    """The browser timezone, or the person's last viewed timezone when omitted, else the project's."""
+    if name is None:
+        name = (
+            DailyBriefing.objects.for_team(team.id)
+            .filter(user_id=user.id, last_viewed_at__isnull=False)
+            .order_by("-last_viewed_at", "-created_at")
+            .values_list("timezone", flat=True)
+            .first()
+        )
     for candidate in (name, team.timezone, "UTC"):
         if not candidate:
             continue

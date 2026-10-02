@@ -28,7 +28,7 @@ export const TodayBriefingRetrieveQueryParams = () => zod.object({
         .max(todayBriefingRetrieveQueryTimezoneMax)
         .optional()
         .describe(
-            "IANA timezone of the person's browser, for example Europe\/Prague. The briefing day starts at 8:00 in it. Defaults to the project timezone."
+            "IANA timezone of the person's browser, for example Europe\/Prague. The briefing day starts at 8:00 in it. When omitted, uses the person's last viewed briefing timezone, or the project timezone if none exists."
         ),
 })
 
@@ -52,6 +52,6 @@ export const TodayCandidatesRetrieveQueryParams = () => zod.object({
         .max(todayCandidatesRetrieveQueryTimezoneMax)
         .optional()
         .describe(
-            "IANA timezone of the person's browser, for example Europe\/Prague. The briefing day starts at 8:00 in it. Defaults to the project timezone."
+            "IANA timezone of the person's browser, for example Europe\/Prague. The briefing day starts at 8:00 in it. When omitted, uses the person's last viewed briefing timezone, or the project timezone if none exists."
         ),
 })
