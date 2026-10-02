@@ -31,7 +31,7 @@ export const CrossProjectDashboardsListQueryParams = () => zod.object({
  * dashboard cannot overwrite each other's tiles.
  */
 export const CrossProjectDashboardsTilesListParams = () => zod.object({
-    dashboard_id: zod.string(),
+    dashboard_id: zod.string().describe('Id of the dashboard.'),
     organization_id: zod
         .string()
         .describe(
@@ -48,7 +48,7 @@ export const CrossProjectDashboardsTilesListQueryParams = () => zod.object({
  * Dashboards the organization owns, holding insights from one or more projects.
  */
 export const CrossProjectDashboardsRetrieveParams = () => zod.object({
-    id: zod.string().describe('A UUID string identifying this cross project dashboard.'),
+    id: zod.string().describe('Id of the dashboard.'),
     organization_id: zod
         .string()
         .describe(

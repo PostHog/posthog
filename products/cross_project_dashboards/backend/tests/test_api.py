@@ -1,3 +1,4 @@
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -43,6 +44,17 @@ class TestCrossProjectDashboardAPI(APIBaseTest):
         other = CrossProjectDashboard.objects.create(organization=other_organization, name="Theirs")
         response = self.client.get(self._url(f"{other.id}/"))
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_pages_through_dashboards_created_in_the_same_instant(self, _flag):
+        with time_machine.travel("2026-01-01T00:00:00Z", tick=False):
+            created = {str(self._dashboard().id) for _ in range(3)}
+
+        first = self.client.get(self._url("?limit=2")).json()
+        second = self.client.get(self._url("?limit=2&offset=2")).json()
+
+        paged = [dashboard["id"] for dashboard in first["results"] + second["results"]]
+        assert first["count"] == 3
+        assert sorted(paged) == sorted(created)
 
     def test_delete_is_a_soft_delete(self, _flag):
         dashboard = self._dashboard()

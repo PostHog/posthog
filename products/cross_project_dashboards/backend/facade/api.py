@@ -1,20 +1,78 @@
-"""
-Facade for cross_project_dashboards.
+"""Facade for cross_project_dashboards. The only module other products and the presentation layer import."""
 
-The ONLY module other products are allowed to import, and the only module the presentation
-layer reaches internals through.
+from typing import Any
+from uuid import UUID
 
-No other product consumes this one yet, so the surface is what presentation needs.
-"""
+from posthog.models import User
 
-from products.cross_project_dashboards.backend.logic.access import assert_can_reference_insight, visible_project_ids
-from products.cross_project_dashboards.backend.logic.filters import validate_cross_project_filters
-from products.cross_project_dashboards.backend.models import CrossProjectDashboard, CrossProjectDashboardTile
+from ..logic import dashboards
+from ..logic.filters import validate_cross_project_filters as _validate_cross_project_filters
+from . import contracts
 
-__all__ = [
-    "CrossProjectDashboard",
-    "CrossProjectDashboardTile",
-    "assert_can_reference_insight",
-    "validate_cross_project_filters",
-    "visible_project_ids",
-]
+
+def validate_cross_project_filters(filters: Any) -> dict[str, Any]:
+    """Return the filters normalized, or raise ValidationError for a filter bound to one project."""
+    return _validate_cross_project_filters(filters)
+
+
+def list_dashboards(*, organization_id: UUID | str, user: User) -> list[contracts.CrossProjectDashboard]:
+    """The organization's dashboards, each with only the tiles from projects the user can open."""
+    return dashboards.list_dashboards(organization_id=organization_id, user=user)
+
+
+def get_dashboard(*, organization_id: UUID | str, dashboard_id: UUID, user: User) -> contracts.CrossProjectDashboard:
+    """Raises DashboardNotFoundError."""
+    return dashboards.get_dashboard(organization_id=organization_id, dashboard_id=dashboard_id, user=user)
+
+
+def create_dashboard(
+    *, organization_id: UUID | str, user: User, dashboard: contracts.NewDashboard
+) -> contracts.CrossProjectDashboard:
+    return dashboards.create_dashboard(organization_id=organization_id, user=user, dashboard=dashboard)
+
+
+def update_dashboard(
+    *, organization_id: UUID | str, dashboard_id: UUID, user: User, changes: contracts.DashboardChanges
+) -> contracts.CrossProjectDashboard:
+    """Raises DashboardNotFoundError."""
+    return dashboards.update_dashboard(
+        organization_id=organization_id, dashboard_id=dashboard_id, user=user, changes=changes
+    )
+
+
+def delete_dashboard(*, organization_id: UUID | str, dashboard_id: UUID, user: User) -> None:
+    """Soft-deletes the dashboard. Raises DashboardNotFoundError."""
+    dashboards.delete_dashboard(organization_id=organization_id, dashboard_id=dashboard_id, user=user)
+
+
+def list_tiles(*, organization_id: UUID | str, dashboard_id: UUID, user: User) -> list[contracts.CrossProjectTile]:
+    """The dashboard's tiles from projects the user can open. Empty for a deleted dashboard."""
+    return dashboards.list_tiles(organization_id=organization_id, dashboard_id=dashboard_id, user=user)
+
+
+def get_tile(
+    *, organization_id: UUID | str, dashboard_id: UUID, tile_id: UUID, user: User
+) -> contracts.CrossProjectTile:
+    """Raises TileNotFoundError."""
+    return dashboards.get_tile(organization_id=organization_id, dashboard_id=dashboard_id, tile_id=tile_id, user=user)
+
+
+def create_tile(
+    *, organization_id: UUID | str, dashboard_id: UUID, user: User, tile: contracts.NewTile
+) -> contracts.CrossProjectTile:
+    """Raises DashboardNotFoundError, or ValidationError when the user cannot view the insight."""
+    return dashboards.create_tile(organization_id=organization_id, dashboard_id=dashboard_id, user=user, tile=tile)
+
+
+def update_tile(
+    *, organization_id: UUID | str, dashboard_id: UUID, tile_id: UUID, user: User, changes: contracts.TileChanges
+) -> contracts.CrossProjectTile:
+    """Raises TileNotFoundError. A tile's project and insight never change."""
+    return dashboards.update_tile(
+        organization_id=organization_id, dashboard_id=dashboard_id, tile_id=tile_id, user=user, changes=changes
+    )
+
+
+def delete_tile(*, organization_id: UUID | str, dashboard_id: UUID, tile_id: UUID, user: User) -> None:
+    """Soft-deletes the tile. Raises TileNotFoundError."""
+    dashboards.delete_tile(organization_id=organization_id, dashboard_id=dashboard_id, tile_id=tile_id, user=user)
