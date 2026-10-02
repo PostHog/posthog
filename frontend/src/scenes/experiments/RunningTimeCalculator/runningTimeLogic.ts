@@ -69,9 +69,9 @@ export interface runningTimeLogicValues {
     }[] // experimentLogic
     primaryMetricsResultsLoading: boolean // experimentLogic
     unmodifiedExperiment: Experiment | null // experimentLogic
+    isRecalculating: boolean // experimentMetricsLogic
     recalcPrimaryMetricsResults: CachedNewExperimentQueryResponse[] // experimentMetricsLogic
     recalcPrimaryMetricsResultsErrors: (unknown | null)[] // experimentMetricsLogic
-    isRecalculating: boolean // experimentMetricsLogic
     defaultMinimumDetectableEffect: number // experimentsConfigLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
     isRunningTimeConfigModalOpen: boolean // modalsLogic
