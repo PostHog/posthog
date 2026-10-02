@@ -7,6 +7,7 @@ from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import UUIDTModel
 
 from .constants import Channel, ChannelDetail, Priority, Status
+from .purged_ticket_thread import PurgedTicketThread, ticket_thread_key
 from .team_conversations_ticket_config import TeamConversationsTicketConfig
 
 # Soft-deleted tickets stay this long so a mistaken delete can still be recovered
@@ -82,15 +83,18 @@ class LiveTicketManager(TicketManager):
 
 
 def deleted_ticket_holds_thread(*, team_id: int, **lookup: Any) -> bool:
-    """Whether a soft-deleted ticket still owns this inbound thread key.
+    """Whether a soft-deleted or purged ticket still owns this inbound thread key.
 
     Callers that create a ticket when no live row matches must check this first.
     The unique keys stay on the deleted row until the sweeper, so a new ticket
     would either violate that constraint or open a second copy of a deleted thread.
+    After the purge, a PurgedTicketThread row keeps the thread closed.
     """
     if not lookup:
         return False
-    return Ticket.all_objects.filter(team_id=team_id, deleted_at__isnull=False, **lookup).exists()
+    if Ticket.all_objects.filter(team_id=team_id, deleted_at__isnull=False, **lookup).exists():
+        return True
+    return PurgedTicketThread.objects.for_team(team_id).filter(thread_key=ticket_thread_key(**lookup)).exists()
 
 
 class Ticket(Taggable, UUIDTModel):
@@ -295,3 +299,18 @@ class Ticket(Taggable, UUIDTModel):
 
     def __str__(self):
         return f"Ticket {self.id} - {self.widget_session_id[:8]}..."
+
+    def inbound_thread_keys(self) -> list[str]:
+        """Keys of the external threads that route inbound messages to this ticket."""
+        lookups: list[dict[str, Any]] = []
+        if self.slack_channel_id and self.slack_thread_ts:
+            lookups.append({"slack_channel_id": self.slack_channel_id, "slack_thread_ts": self.slack_thread_ts})
+        if self.teams_channel_id and self.teams_conversation_id:
+            lookups.append(
+                {"teams_channel_id": self.teams_channel_id, "teams_conversation_id": self.teams_conversation_id}
+            )
+        if self.github_repo and self.github_issue_number is not None:
+            lookups.append({"github_repo": self.github_repo, "github_issue_number": self.github_issue_number})
+        if self.zendesk_ticket_id is not None:
+            lookups.append({"zendesk_ticket_id": self.zendesk_ticket_id})
+        return [ticket_thread_key(**lookup) for lookup in lookups]

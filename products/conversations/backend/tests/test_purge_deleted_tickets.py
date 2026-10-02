@@ -16,8 +16,9 @@ from products.conversations.backend.models import ConversationDelivery, Conversa
 from products.conversations.backend.models.constants import Channel
 from products.conversations.backend.models.delivery import ConversationDeliveryChannel
 from products.conversations.backend.models.inbound_event import ConversationInboundEventSource
-from products.conversations.backend.models.ticket import TICKET_HARD_DELETE_AFTER, Ticket
+from products.conversations.backend.models.ticket import TICKET_HARD_DELETE_AFTER, Ticket, deleted_ticket_holds_thread
 from products.conversations.backend.tasks.maintenance import purge_deleted_tickets
+from products.conversations.backend.temporal.zendesk_import.activities import _partition_new_tickets
 
 
 class TestPurgeDeletedTickets(BaseTest):
@@ -109,6 +110,9 @@ class TestPurgeDeletedTickets(BaseTest):
         Ticket.all_objects.filter(id=ticket.id).update(
             created_at=deleted_at - timedelta(days=1),
             deleted_at=deleted_at,
+            slack_channel_id="C123",
+            slack_thread_ts="1700000000.000100",
+            zendesk_ticket_id=4242,
         )
 
         purge_deleted_tickets()
@@ -148,6 +152,15 @@ class TestPurgeDeletedTickets(BaseTest):
             distinct_id="person-3",
         )
         self.assertEqual(after.ticket_number, ticket.ticket_number + 1)
+        self.assertTrue(
+            deleted_ticket_holds_thread(
+                team_id=self.team.id, slack_channel_id="C123", slack_thread_ts="1700000000.000100"
+            )
+        )
+        self.assertFalse(
+            deleted_ticket_holds_thread(team_id=self.team.id, slack_channel_id="C123", slack_thread_ts="other")
+        )
+        self.assertEqual(_partition_new_tickets(self.team.id, [4242, 4343]).to_import, [4343])
 
     @patch(
         "products.conversations.backend.tasks.maintenance.object_storage.delete",
