@@ -72,9 +72,12 @@ import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
+import { isCommentableArtifact } from '../artifactComments'
 import { withStrictCsp } from '../artifactHtml'
+import { TaskArtifactCommentsLogicProps } from '../taskArtifactCommentsLogic'
 import {
     ArtifactFile,
+    ArtifactPreviewKind,
     RunArtifact,
     TaskRunTab,
     artifactPreviewKind,
@@ -89,6 +92,8 @@ import {
     postHogObjectRef,
 } from '../taskRunArtifacts'
 import { FullPageSource, artifactDownloadUrl, taskRunArtifactsLogic } from '../taskRunArtifactsLogic'
+import { ArtifactCommentActions } from './ArtifactCommentActions'
+import { ArtifactCommentsPanel } from './ArtifactCommentsPanel'
 import { ArtifactEditor } from './ArtifactEditor'
 import { ArtifactEditToolbar } from './ArtifactEditToolbar'
 import { ArtifactIcon } from './ArtifactIcon'
@@ -107,6 +112,15 @@ const FULL_PAGE_KEY = 'f'
 /** The replay player uses F for its own full screen, so a replay gets no full page shortcut. */
 function hasFullPageShortcut(artifact: RunArtifact): boolean {
     return postHogObjectRef(artifact)?.objectKind !== 'replay'
+}
+
+/** The comments logic for an artifact version, or null when the artifact takes no comments. */
+function commentLogicProps(
+    taskId: string,
+    artifact: RunArtifact | null,
+    kind: ArtifactPreviewKind | null
+): TaskArtifactCommentsLogicProps | null {
+    return isCommentableArtifact(artifact) && kind ? { taskId, artifactId: artifact.id, kind } : null
 }
 
 /** Size for a file, the object kind for a cited PostHog object, where the agent sent a living document. */
@@ -718,6 +732,7 @@ function ArtifactToolbar({
         taskRunArtifactsLogic({ taskId })
     )
     const kind = artifactPreviewKind(artifact)
+    const comments = commentLogicProps(taskId, artifact, kind)
     const objectRef = postHogObjectRef(artifact)
     const objectLink =
         objectRef && currentProjectId !== null
@@ -790,6 +805,7 @@ function ArtifactToolbar({
                         <IconPencil className="size-4" />
                     </IconAction>
                 )}
+                {comments && <ArtifactCommentActions logicProps={comments} />}
                 {isTextPreview(kind) && <CopySourceAction text={selectedText?.text ?? null} />}
                 {/* The file list replaces these once there is room for it. */}
                 <div className="flex items-center gap-1 @[52rem]/main-content:hidden">
@@ -881,6 +897,21 @@ function PreviewSurface({ taskId, mode }: { taskId: string; mode: PreviewMode })
     )
 }
 
+/** The preview, with the comments panel beside it when it is open. */
+function PreviewBody({ taskId, mode }: { taskId: string; mode: PreviewMode }): JSX.Element {
+    const { selectedArtifact, selectedKind, commentsOpen } = useValues(taskRunArtifactsLogic({ taskId }))
+    const comments = commentLogicProps(taskId, selectedArtifact, selectedKind)
+    return (
+        <div className="relative flex min-h-0 flex-1">
+            <div className="flex min-w-0 flex-1 flex-col">
+                <OlderVersionNotice taskId={taskId} />
+                <PreviewSurface taskId={taskId} mode={mode} />
+            </div>
+            {comments && commentsOpen && <ArtifactCommentsPanel key={comments.artifactId} logicProps={comments} />}
+        </div>
+    )
+}
+
 function ArtifactsWorkspace({ taskId }: { taskId: string }): JSX.Element {
     const { files, selectedArtifact, isEditing } = useValues(taskRunArtifactsLogic({ taskId }))
     const { setActiveTab, reportFullPageOpened } = useActions(taskRunArtifactsLogic({ taskId }))
@@ -959,12 +990,7 @@ function ArtifactsWorkspace({ taskId }: { taskId: string }): JSX.Element {
             <ArtifactNav taskId={taskId} />
             <section className="flex min-w-0 flex-1 flex-col">
                 {toolbar}
-                {!expanded && (
-                    <>
-                        <OlderVersionNotice taskId={taskId} />
-                        <PreviewSurface taskId={taskId} mode={mode} />
-                    </>
-                )}
+                {!expanded && <PreviewBody taskId={taskId} mode={mode} />}
             </section>
             <Dialog open={expanded} onOpenChange={setExpanded}>
                 {/* Full page covers the whole window, so the dialog drops its inset, corners and shadow. */}
@@ -976,8 +1002,7 @@ function ArtifactsWorkspace({ taskId }: { taskId: string }): JSX.Element {
                     {/* The toolbar hides parts by container width, so the dialog gets its own container. */}
                     <div className="@container/main-content flex min-h-0 flex-1 flex-col">
                         {toolbar}
-                        <OlderVersionNotice taskId={taskId} />
-                        <PreviewSurface taskId={taskId} mode={mode} />
+                        <PreviewBody taskId={taskId} mode={mode} />
                     </div>
                 </DialogContent>
             </Dialog>
