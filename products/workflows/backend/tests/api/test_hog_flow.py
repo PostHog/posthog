@@ -5381,6 +5381,23 @@ class TestHogFlowVersionedMetrics(ClickhouseTestMixin, APIBaseTest):
         # The unversioned read keys batch runs on the run, so it is its own series rather than a sum.
         assert self._succeeded(whole) == 7
 
+    def test_a_personal_api_key_can_read_one_version(self):
+        # The scout reads this over MCP with a scoped token, so the action has to be a declared read
+        # action; an action missing from that list refuses the key rather than the scope.
+        self._seed("hog_flow_version", f"{self.flow.id}/1", succeeded=3)
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="scout", user=self.user, secure_value=hash_key_value(key), scopes=["hog_flow:read"]
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}/metrics/version?version=1",
+            headers={"authorization": f"Bearer {key}"},
+        )
+
+        assert response.status_code == 200, response.json()
+        assert self._succeeded(response) == 3
+
     def test_the_version_is_required(self):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}/metrics/version")
 
