@@ -467,8 +467,8 @@ class ExperimentSerializer(ExperimentBaseSerializer):
     resolved_exposure_event = serializers.SerializerMethodField(
         help_text=(
             "The event exposures are actually counted on when the experiment doesn't configure a "
-            "custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the "
-            "rollout and the experiment started at or after the cutoff. Resolved server-side so "
+            "custom one — `$feature_flag_called`, or `$experiment_exposure` when the experiment "
+            "started at or after the cutoff. Resolved server-side so "
             "clients display the same event the results queries read. For a draft, this is what the "
             "experiment would resolve to if launched now."
         ),
@@ -604,7 +604,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
     def get_resolved_exposure_event(self, obj: Experiment) -> str:
         # A draft has no start_date yet, so resolve against now: that's the event it would get if
         # launched today, which is what the setup UI needs to show.
-        return resolve_default_exposure_event(obj.team, obj.start_date or timezone.now())
+        return resolve_default_exposure_event(obj.start_date or timezone.now())
 
     @staticmethod
     def _stored_saved_metric_queries(instance: Experiment) -> dict[int, dict[str, Any]]:

@@ -827,7 +827,7 @@ def _resolve_exposure(flag_key: str, exposure_criteria: Optional[dict]) -> _Reso
         criteria = None
     exposure_config = criteria.exposure_config if criteria else None
     # This surface deliberately stays on the legacy default rather than resolving the
-    # $experiment_exposure rollout per experiment: its shared flag-evaluations query reads
+    # $experiment_exposure cutoff per experiment: its shared flag-evaluations query reads
     # $feature_flag_called, and while ingestion emits both events every exposure still lands on
     # the same sessions, so the legacy event stays correct here for now.
     event, variant_property = get_exposure_event_and_property(

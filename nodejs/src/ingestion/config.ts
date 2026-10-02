@@ -416,7 +416,9 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         KAFKA_BATCH_START_LOGGING_ENABLED: false,
         FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
         FLAG_CALLED_PERSONLESS_EXCLUDED_TEAMS: DEFAULT_FLAG_CALLED_PERSONLESS_EXCLUDED_TEAMS,
-        EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS: '',
+        // Experiments started after the backend's EXPERIMENT_EXPOSURE_EVENT_CUTOFF count exposures on
+        // $experiment_exposure, and no SDK sends it, so every deployment makes the copy for all teams.
+        EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS: '*',
 
         // $feature_flag_called fork into the flag_evaluations ClickHouse table.
         // Teams default empty so flipping the mode alone forks nobody; ramp by

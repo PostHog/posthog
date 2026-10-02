@@ -2209,7 +2209,7 @@ class ExperimentService:
 
         Runs a synchronous scan of the experiment's exposure events, honoring
         ``exposure_criteria`` (custom exposure event or action plus its property filters) and the
-        $experiment_exposure rollout resolution via the same helpers the metrics pipeline uses,
+        $experiment_exposure cutoff resolution via the same helpers the metrics pipeline uses,
         and requiring the exposure to have landed a variant — so the snapshot is the analyzed
         population, not everyone who fired the event.
         Capped at FREEZE_EXPOSURE_QUERY_TIMEOUT_SECONDS and returning at most
@@ -2225,10 +2225,10 @@ class ExperimentService:
         assert start_date is not None
         flag_key = experiment.get_feature_flag_key()
 
-        # The same rollout resolution the analysis queries apply: a post-cutoff experiment frozen
+        # The same exposure-event resolution the analysis queries apply: a post-cutoff experiment frozen
         # off $feature_flag_called would snapshot nobody once the two events stop being emitted
         # together, and an empty snapshot un-enrolls everyone.
-        default_exposure_event = resolve_default_exposure_event(self.team, start_date)
+        default_exposure_event = resolve_default_exposure_event(start_date)
         _, variant_property = get_exposure_event_and_property(
             flag_key, experiment.exposure_criteria, default_exposure_event=default_exposure_event
         )

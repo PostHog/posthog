@@ -16,10 +16,7 @@ from pydantic import BaseModel, Field, ValidationError
 from posthog.models import Team, User
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
-from products.experiments.backend.hogql_queries.exposure_query_logic import (
-    DEFAULT_EXPOSURE_EVENT,
-    EXPERIMENT_EXPOSURE_EVENT,
-)
+from products.experiments.backend.hogql_queries.exposure_query_logic import DEFAULT_EXPOSURE_EVENT
 
 
 def initialize_self_capture(team_id: int | None = None):
@@ -444,11 +441,6 @@ class Command(BaseCommand):
             help="Ratio of users to get detailed person properties (0.0 to 1.0, default: 0.7)",
         )
         parser.add_argument(
-            "--exposure-event",
-            action="store_true",
-            help="Also emit $experiment_exposure alongside $feature_flag_called, as production does during the migration",
-        )
-        parser.add_argument(
             "--multiple-pct",
             type=float,
             default=0,
@@ -503,11 +495,6 @@ class Command(BaseCommand):
         person_properties_ratio = options.get("person_properties_ratio", 0.7)
         persons_created = 0
 
-        # Production emits both events during the migration window, so mirror that.
-        exposure_events = [DEFAULT_EXPOSURE_EVENT]
-        if options.get("exposure_event"):
-            exposure_events.append(EXPERIMENT_EXPOSURE_EVENT)
-
         multiple_pct = options.get("multiple_pct", 0) / 100
         multiple_count = 0
 
@@ -551,36 +538,34 @@ class Command(BaseCommand):
                 weights = [opt.probability for opt in prop_options]
                 exposure_props[prop_key] = random.choices(values, weights=weights)[0]
 
-            for event in exposure_events:
-                posthoganalytics.capture(
-                    distinct_id=distinct_id,
-                    event=event,
-                    timestamp=random_timestamp,
-                    properties={
-                        feature_flag_property: variant,
-                        "$feature_flag_response": variant,
-                        "$feature_flag": experiment_id,
-                        "$session_id": session_id,
-                        **exposure_props,
-                    },
-                )
+            posthoganalytics.capture(
+                distinct_id=distinct_id,
+                event=DEFAULT_EXPOSURE_EVENT,
+                timestamp=random_timestamp,
+                properties={
+                    feature_flag_property: variant,
+                    "$feature_flag_response": variant,
+                    "$feature_flag": experiment_id,
+                    "$session_id": session_id,
+                    **exposure_props,
+                },
+            )
 
             if multiple_pct > 0 and random.random() < multiple_pct:
                 other_variants = [v for v in variants if v != variant]
                 if other_variants:
                     other_variant = random.choice(other_variants)
-                    for event in exposure_events:
-                        posthoganalytics.capture(
-                            distinct_id=distinct_id,
-                            event=event,
-                            timestamp=random_timestamp + timedelta(minutes=1),
-                            properties={
-                                feature_flag_property: other_variant,
-                                "$feature_flag_response": other_variant,
-                                "$feature_flag": experiment_id,
-                                "$session_id": session_id,
-                            },
-                        )
+                    posthoganalytics.capture(
+                        distinct_id=distinct_id,
+                        event=DEFAULT_EXPOSURE_EVENT,
+                        timestamp=random_timestamp + timedelta(minutes=1),
+                        properties={
+                            feature_flag_property: other_variant,
+                            "$feature_flag_response": other_variant,
+                            "$feature_flag": experiment_id,
+                            "$session_id": session_id,
+                        },
+                    )
                     multiple_count += 1
 
             should_stop = False

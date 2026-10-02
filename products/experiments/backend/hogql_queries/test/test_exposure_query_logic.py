@@ -1,4 +1,8 @@
+from datetime import UTC, datetime, timedelta
+
 import pytest
+
+from django.test import override_settings
 
 from parameterized import parameterized
 
@@ -13,11 +17,26 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     get_multiple_variant_handling_from_experiment,
     get_test_accounts_filter,
     normalize_to_exposure_criteria,
+    resolve_default_exposure_event,
 )
 
 
 def _event_config(event):
     return {"exposure_config": {"kind": "ExperimentEventExposureConfig", "event": event, "properties": []}}
+
+
+class TestResolveDefaultExposureEvent:
+    @parameterized.expand(
+        [
+            # (name, start date offset in days from an overridden cutoff, expected event)
+            ("after_default_cutoff_before_override", -1, DEFAULT_EXPOSURE_EVENT),
+            ("at_overridden_cutoff", 0, EXPERIMENT_EXPOSURE_EVENT),
+        ]
+    )
+    def test_follows_the_configured_cutoff(self, _name: str, start_offset_days: int, expected: str) -> None:
+        cutoff = datetime(2026, 10, 15, tzinfo=UTC)
+        with override_settings(EXPERIMENT_EXPOSURE_EVENT_CUTOFF=cutoff):
+            assert resolve_default_exposure_event(cutoff + timedelta(days=start_offset_days)) == expected
 
 
 class TestGetExposureEventAndProperty:

@@ -5,6 +5,7 @@ import time_machine
 from posthog.test.base import ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
+from django.conf import settings
 from django.core.cache import cache
 
 from parameterized import parameterized
@@ -23,11 +24,7 @@ from posthog.session_recordings.queries.test.session_replay_sql import produce_r
 from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
 from products.experiments.backend import session_buckets
-from products.experiments.backend.hogql_queries.exposure_query_logic import (
-    EXPERIMENT_EXPOSURE_EVENT,
-    EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
-    EXPERIMENT_EXPOSURE_EVENT_FLAG,
-)
+from products.experiments.backend.hogql_queries.exposure_query_logic import EXPERIMENT_EXPOSURE_EVENT
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.session_buckets import MAX_BUCKET_METRICS, MAX_BUCKET_SCAN_DAYS, MAX_BUCKET_SOURCES
@@ -536,24 +533,23 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
 
     @parameterized.expand(
         [
-            # (name, rollout flag enabled, experiment start offset from the cutoff, expected event)
-            ("after_cutoff", True, 7, EXPERIMENT_EXPOSURE_EVENT),
-            ("after_cutoff_flag_disabled", False, 7, "$feature_flag_called"),
-            ("before_cutoff", True, -7, "$feature_flag_called"),
+            # (name, experiment start offset from the cutoff, expected event)
+            ("after_cutoff", 7, EXPERIMENT_EXPOSURE_EVENT),
+            ("before_cutoff", -7, "$feature_flag_called"),
         ]
     )
-    @time_machine.travel(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=10), tick=False)
+    @time_machine.travel(settings.EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=10), tick=False)
     def test_bucket_population_reads_the_resolved_exposure_event(
-        self, _name: str, flag_enabled: bool, start_offset_days: int, expected_event: str
+        self, _name: str, start_offset_days: int, expected_event: str
     ) -> None:
         # setUp logged in under the class-level freeze, months before this test's frozen clock,
         # so that session has expired; log in again inside the window.
         self.client.force_login(self.user)
         experiment = self._create_experiment(
             metrics=[PURCHASE_METRIC],
-            start_date=EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=start_offset_days),
+            start_date=settings.EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=start_offset_days),
         )
-        at = EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=8)
+        at = settings.EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=8)
         purchase_at = at + timedelta(minutes=5)
         new_event_session = self._session(
             exposure_event=EXPERIMENT_EXPOSURE_EVENT, at=at, events=[("purchase", purchase_at)]
@@ -570,13 +566,7 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
         )
         flush_persons_and_events()
 
-        # Only answer for the exposure-event flag; returning True for every flag would flip
-        # unrelated HogQL query modifiers on and break the query under test.
-        def fake_feature_enabled(flag_key: str, *args: Any, **kwargs: Any) -> bool:
-            return flag_enabled if flag_key == EXPERIMENT_EXPOSURE_EVENT_FLAG else False
-
-        with patch("posthoganalytics.feature_enabled", side_effect=fake_feature_enabled):
-            response = self._post_bucket(experiment, bucket="fired_any", metric_uuids=[PURCHASE_METRIC["uuid"]])
+        response = self._post_bucket(experiment, bucket="fired_any", metric_uuids=[PURCHASE_METRIC["uuid"]])
 
         # The analysis queries resolve the default exposure event per experiment
         # (resolve_default_exposure_event), and the playlist ANDs these ids with an exposure
@@ -591,14 +581,14 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
         assert other_flag_session not in response.json()["session_ids"]
         assert response.json()["used_exposure_fallback"] is False
 
-    @time_machine.travel(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=10), tick=False)
-    def test_rollout_exposure_event_captured_server_side_keeps_the_stamped_property_fallback(self) -> None:
+    @time_machine.travel(settings.EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=10), tick=False)
+    def test_default_exposure_event_captured_server_side_keeps_the_stamped_property_fallback(self) -> None:
         self.client.force_login(self.user)
         experiment = self._create_experiment(
             metrics=[PURCHASE_METRIC],
-            start_date=EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=7),
+            start_date=settings.EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=7),
         )
-        at = EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=8)
+        at = settings.EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=8)
         purchased = self._session(
             variant=None,
             at=at,
@@ -607,13 +597,9 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
         )
         flush_persons_and_events()
 
-        def fake_feature_enabled(flag_key: str, *args: Any, **kwargs: Any) -> bool:
-            return flag_key == EXPERIMENT_EXPOSURE_EVENT_FLAG
+        response = self._post_bucket(experiment, bucket="fired_any", metric_uuids=[PURCHASE_METRIC["uuid"]])
 
-        with patch("posthoganalytics.feature_enabled", side_effect=fake_feature_enabled):
-            response = self._post_bucket(experiment, bucket="fired_any", metric_uuids=[PURCHASE_METRIC["uuid"]])
-
-        # Under the rollout $experiment_exposure is the default exposure, not a custom choice, so
+        # After the cutoff $experiment_exposure is the default exposure, not a custom choice, so
         # exposure evaluated in a backend SDK must keep the stamped-property fallback rather than
         # being refused the way a custom event is.
         assert response.status_code == status.HTTP_200_OK, response.json()

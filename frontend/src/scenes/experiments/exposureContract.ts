@@ -20,7 +20,7 @@ import { Experiment } from '~/types'
  *
  * Use this only to recognize the default; for the event actually counted, use the experiment's
  * server-resolved event (`experimentLogic`'s `resolvedExposureEvent`), which accounts for the
- * `$experiment_exposure` rollout.
+ * `$experiment_exposure` cutoff.
  */
 export const EXPOSURE_DEFAULT_EVENT = '$feature_flag_called'
 export const EXPERIMENT_EXPOSURE_EVENT = '$experiment_exposure'
@@ -29,8 +29,10 @@ export const EXPOSURE_FEATURE_FLAG_PROPERTY = '$feature_flag'
 
 /**
  * The event an experiment's default exposure is actually counted on, as resolved by the backend
- * (`resolve_default_exposure_event`). Falls back to the pre-rollout default for an experiment that
- * hasn't come from the API yet — a locally-constructed draft, or an older cached payload.
+ * (`resolve_default_exposure_event`). Falls back to the legacy event, because a payload without the
+ * field can be a pre-cutoff experiment: the list endpoint omits it (`ExperimentBasicSerializer`),
+ * and older cached payloads predate it. Only a caller that knows the experiment is new — the
+ * creation form — should pass `EXPERIMENT_EXPOSURE_EVENT` instead.
  */
 export function resolvedExposureEvent(
     experiment: Pick<Experiment, 'resolved_exposure_event'>,
@@ -93,7 +95,7 @@ export function getActivationConfig(
  *
  * `resolvedExposureEvent` is the experiment's server-resolved default (`experimentLogic`'s
  * `resolvedExposureEvent`). Pass it whenever an experiment is in hand — omitting it assumes the
- * pre-rollout default and will name the wrong event for experiments on `$experiment_exposure`.
+ * legacy default and will name the wrong event for experiments on `$experiment_exposure`.
  */
 export function getExposureEventAndProperty({
     featureFlagKey,

@@ -16,8 +16,8 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
-from unittest.mock import patch
 
+from django.conf import settings
 from django.test import override_settings
 
 from parameterized import parameterized
@@ -37,7 +37,6 @@ from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import print_cohort_hogql_query
-from products.experiments.backend.hogql_queries.exposure_query_logic import EXPERIMENT_EXPOSURE_EVENT_CUTOFF
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
 
 
@@ -195,11 +194,11 @@ class TestExperimentActorsQuery(ExperimentQueryRunnerBaseTest, ClickhouseTestMix
         for distinct_id in distinct_ids:
             assert distinct_id.startswith(f"user_{variant}_")
 
-    @time_machine.travel(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=4), tick=False)
+    @time_machine.travel(settings.EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=4), tick=False)
     def test_experiment_funnel_actors_resolves_explicit_default_exposure_event(self) -> None:
         feature_flag, experiment, experiment_query = self._create_experiment_with_funnel()
-        experiment.start_date = EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=1)
-        experiment.end_date = EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=3)
+        experiment.start_date = settings.EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=1)
+        experiment.end_date = settings.EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=3)
         experiment.save(update_fields=["start_date", "end_date"])
 
         distinct_id = "user_exposed_after_cutoff"
@@ -208,14 +207,14 @@ class TestExperimentActorsQuery(ExperimentQueryRunnerBaseTest, ClickhouseTestMix
             team=self.team,
             event="$experiment_exposure",
             distinct_id=distinct_id,
-            timestamp=EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=1, hours=1),
+            timestamp=settings.EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=1, hours=1),
             properties={"$feature_flag": feature_flag.key, "$feature_flag_response": "control"},
         )
         _create_event(
             team=self.team,
             event="signup",
             distinct_id=distinct_id,
-            timestamp=EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=1, hours=2),
+            timestamp=settings.EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=1, hours=2),
         )
         flush_persons_and_events()
 
@@ -230,8 +229,7 @@ class TestExperimentActorsQuery(ExperimentQueryRunnerBaseTest, ClickhouseTestMix
             select=["id", "person"],
         )
 
-        with patch("posthoganalytics.feature_enabled", return_value=True):
-            response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
+        response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
 
         assert [row[1]["distinct_ids"][0] for row in response.results] == [distinct_id]
 

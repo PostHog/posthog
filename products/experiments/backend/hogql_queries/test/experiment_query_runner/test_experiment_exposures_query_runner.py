@@ -3,8 +3,8 @@ from zoneinfo import ZoneInfo
 
 import time_machine
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
-from unittest.mock import patch
 
+from django.conf import settings
 from django.forms.models import model_to_dict
 from django.test import override_settings
 
@@ -18,11 +18,7 @@ from posthog.test.test_journeys import journeys_for
 from products.actions.backend.models.action import Action
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
-from products.experiments.backend.hogql_queries.exposure_query_logic import (
-    EXPERIMENT_EXPOSURE_EVENT,
-    EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
-    EXPERIMENT_EXPOSURE_EVENT_FLAG,
-)
+from products.experiments.backend.hogql_queries.exposure_query_logic import EXPERIMENT_EXPOSURE_EVENT
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.utils import (
     create_standard_group_test_events,
@@ -154,25 +150,23 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
 
     @parameterized.expand(
         [
-            # (name, flag enabled, experiment start/end offsets, query start offset, expected exposures)
-            ("fully_before_cutoff", True, -14, -7, -14, {"control": 2, "test": 1}),
-            ("start_before_end_after_cutoff", True, -7, 7, -7, {"control": 2, "test": 1}),
-            ("fully_after_cutoff", True, 7, 14, 7, {"control": 1, "test": 2}),
-            ("fully_after_cutoff_flag_disabled", False, 7, 14, 7, {"control": 2, "test": 1}),
-            ("query_window_starts_after_cutoff", True, -7, 14, 7, {"control": 2, "test": 1}),
+            # (name, experiment start/end offsets, query start offset, expected exposures)
+            ("fully_before_cutoff", -14, -7, -14, {"control": 2, "test": 1}),
+            ("start_before_end_after_cutoff", -7, 7, -7, {"control": 2, "test": 1}),
+            ("fully_after_cutoff", 7, 14, 7, {"control": 1, "test": 2}),
+            ("query_window_starts_after_cutoff", -7, 14, 7, {"control": 2, "test": 1}),
         ]
     )
-    @time_machine.travel(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=30), tick=False)
+    @time_machine.travel(settings.EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=30), tick=False)
     def test_exposure_event_selected_relative_to_cutoff(
         self,
         _name,
-        new_event_enabled,
         start_offset_days,
         end_offset_days,
         query_start_offset_days,
         expected_exposures,
     ):
-        cutoff = EXPERIMENT_EXPOSURE_EVENT_CUTOFF.replace(tzinfo=None)
+        cutoff = settings.EXPERIMENT_EXPOSURE_EVENT_CUTOFF.replace(tzinfo=None)
         start_date = cutoff + timedelta(days=start_offset_days)
         end_date = cutoff + timedelta(days=end_offset_days)
         query_start_date = cutoff + timedelta(days=query_start_offset_days)
@@ -226,13 +220,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             exposure_criteria=experiment.exposure_criteria,
         )
 
-        # Only answer for the exposure-event flag; returning True for every flag would flip
-        # unrelated HogQL query modifiers on and break the query under test.
-        def fake_feature_enabled(flag_key: str, *args, **kwargs) -> bool:
-            return new_event_enabled if flag_key == EXPERIMENT_EXPOSURE_EVENT_FLAG else False
-
-        with patch("posthoganalytics.feature_enabled", side_effect=fake_feature_enabled):
-            response = ExperimentExposuresQueryRunner(team=self.team, query=query).calculate()
+        response = ExperimentExposuresQueryRunner(team=self.team, query=query).calculate()
 
         self.assertEqual(response.total_exposures, expected_exposures)
 

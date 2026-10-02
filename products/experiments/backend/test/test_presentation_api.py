@@ -8,6 +8,7 @@ import time_machine
 from posthog.test.base import ClickhouseTestMixin, FuzzyInt, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import ANY, MagicMock, patch
 
+from django.conf import settings
 from django.core.cache import cache
 from django.db import connection
 from django.db.models import F
@@ -43,10 +44,6 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
-from products.experiments.backend.hogql_queries.exposure_query_logic import (
-    EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
-    EXPERIMENT_EXPOSURE_EVENT_FLAG,
-)
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.metric_resolution import find_metric_dict
 from products.experiments.backend.models.experiment import (
@@ -627,14 +624,13 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
     @parameterized.expand(
         [
-            # (name, flag enabled for team, start_date offset from cutoff in days, expected event)
-            ("before_cutoff", True, -7, "$feature_flag_called"),
-            ("after_cutoff", True, 7, "$experiment_exposure"),
-            ("after_cutoff_flag_disabled", False, 7, "$feature_flag_called"),
+            # (name, start_date offset from cutoff in days, expected event)
+            ("before_cutoff", -7, "$feature_flag_called"),
+            ("after_cutoff", 7, "$experiment_exposure"),
         ]
     )
     def test_detail_reports_resolved_exposure_event(
-        self, _name: str, flag_enabled: bool, start_offset_days: int, expected_event: str
+        self, _name: str, start_offset_days: int, expected_event: str
     ) -> None:
         # The frontend names the exposure event from this field, so it has to agree with what the
         # results queries actually read (resolve_default_exposure_event). Resolution compares
@@ -645,14 +641,10 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             feature_flag=FeatureFlag.objects.create(
                 team=self.team, key=f"resolved-exposure-{_name}", created_by=self.user
             ),
-            start_date=EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=start_offset_days),
+            start_date=settings.EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=start_offset_days),
         )
 
-        def fake_feature_enabled(flag_key: str, *args: Any, **kwargs: Any) -> bool:
-            return flag_enabled if flag_key == EXPERIMENT_EXPOSURE_EVENT_FLAG else False
-
-        with patch("posthoganalytics.feature_enabled", side_effect=fake_feature_enabled):
-            response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["resolved_exposure_event"], expected_event)
@@ -675,9 +667,8 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             start_date=None,
         )
 
-        with (
-            time_machine.travel(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=now_offset_days), tick=False),
-            patch("posthoganalytics.feature_enabled", return_value=True),
+        with time_machine.travel(
+            settings.EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=now_offset_days), tick=False
         ):
             serialized = ExperimentSerializer(
                 experiment, context={"team_id": self.team.id, "get_team": lambda: self.team}
