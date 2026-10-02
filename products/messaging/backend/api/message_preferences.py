@@ -340,7 +340,11 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response(MessagePreferencesSerializer(preference).data, status=response_status)
 
     def _report_if_first_preference(self, preference: MessageRecipientPreference, request: Request) -> None:
-        if MessageRecipientPreference.objects.filter(team_id=self.team_id).exclude(id=preference.id).exists():
+        # Compare creation times instead of "any other row" so that two concurrent first writes
+        # cannot each see the other's row and both skip the report.
+        if MessageRecipientPreference.objects.filter(
+            team_id=self.team_id, created_at__lt=preference.created_at
+        ).exists():
             return
         # pinned: feature usage event name, renaming it breaks the Audience setup funnel
         report_user_action(
