@@ -98,6 +98,27 @@
     gap: 8px;
 }
 
+// Lines up with the row titles: the row padding plus the icon and its gap.
+.TodaySidebar__more {
+    align-self: flex-start;
+    padding-inline: 0;
+    margin: 2px 0 0 65px;
+    font-size: 12px;
+    color: var(--today-muted);
+
+    &:hover {
+        color: var(--today-ink);
+    }
+}
+
+.TodaySidebar__more--empty {
+    color: var(--today-faint);
+
+    &:hover {
+        color: var(--today-faint);
+    }
+}
+
 .TodayNavItem {
     --report-color: #5c5c57;
 

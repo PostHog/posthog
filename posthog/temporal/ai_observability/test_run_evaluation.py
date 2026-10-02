@@ -316,8 +316,8 @@ def _mock_config_with_active_key(provider: str = "openai") -> MagicMock:
             {"input_tokens": 120},
         ),
         (
-            {"api_key": "example-token", "base_url": "https://decisions.example.com/v1"},
-            "https://decisions.example.com/v1",
+            {"api_key": "example-token", "base_url": "https://ai-gateway.us.posthog.com/v1"},
+            "https://ai-gateway.us.posthog.com/v1",
             "example-judge-v1",
             {},
         ),
@@ -355,13 +355,14 @@ def test_system_one_judge_emits_boolean_probability_without_reasoning(
         "evaluation_config": {"prompt": "Is the response polite?"},
     }
     with (
+        override_settings(POSTHOG_INTERNAL_ORG_IDS=[]),
         patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
-        patch(
-            "posthog.temporal.ai_observability.evaluation_llm_judge.system_one_evaluations_enabled", return_value=True
-        ),
+        patch("products.ai_observability.backend.llm.system_one.Team.objects.only") as teams,
+        patch("products.ai_observability.backend.llm.system_one.get_feature_flag_or_none", return_value=True),
         patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response) as request,
     ):
+        teams.return_value.get.return_value = Team(id=1, organization_id=uuid.uuid4(), uuid=uuid.uuid4())
         spec.return_value.resolve.return_value = resolved
         result = call_llm_judge(
             evaluation=evaluation,
@@ -371,6 +372,9 @@ def test_system_one_judge_emits_boolean_probability_without_reasoning(
         )
 
     assert str(request.call_args.args[0].url) == f"{base_url}/systemone"
+    assert request.call_args.args[0].headers.get("Authorization") == (
+        f"Bearer {connection_config['api_key']}" if connection_config["api_key"] else None
+    )
     assert json.loads(request.call_args.args[0].content)["model"] == model
     assert result["verdict"] is verdict
     assert result["reasoning"] == ""
@@ -576,7 +580,11 @@ def test_system_one_numeric_requires_a_score_range(output_config: dict[str, floa
 
 @pytest.mark.parametrize(
     "base_url,flag",
-    [("https://decisions.example.com/v1", False), ("https://ai-gateway.us.posthog.com/v1", True)],
+    [
+        ("https://decisions.example.com/v1", False),
+        ("https://ai-gateway.us.posthog.com/v1", False),
+        ("https://api.typesafe.ai/v1", True),
+    ],
 )
 def test_system_one_restricted_connection_does_not_send_evaluation_data(base_url: str, flag: bool) -> None:
     with (

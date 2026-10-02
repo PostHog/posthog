@@ -51,9 +51,21 @@ export function itemStateLabel(item: Pick<BriefingItemApi, 'state'>): string | n
     return STATE_LABELS[item.state]
 }
 
+const REPORT_STATUS_STATES: Record<string, BriefingItemStateEnumApi> = {
+    resolved: 'done',
+    suppressed: 'dismissed',
+    deleted: 'dismissed',
+}
+
+/** A report's status in the briefing's terms, the way the backend gives briefing items their live state. */
+export function reportItemState(status: string): BriefingItemStateEnumApi {
+    return REPORT_STATUS_STATES[status] ?? 'open'
+}
+
 export function briefingItemReportCard(item: BriefingItemApi): TodayReportCard {
     return {
         key: item.key,
+        reportId: itemReportId(item),
         title: item.title,
         reason: itemReasonLabel(item),
         stateLabel: itemStateLabel(item),

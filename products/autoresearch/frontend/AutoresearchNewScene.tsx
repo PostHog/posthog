@@ -39,8 +39,12 @@ function formatNumber(value: number | null | undefined): string {
 }
 
 function ValidationPanel(): JSX.Element {
-    const { validation, validationLoading, validationFailed, newPipeline } = useValues(autoresearchNewLogic)
+    const { validation, validationLoading, validationFailed, newPipeline, newPipelineValidationErrors } =
+        useValues(autoresearchNewLogic)
     const { runValidate } = useActions(autoresearchNewLogic)
+    // The form hides field errors until the first submit, and the validate loader skips invalid day values.
+    // So this panel is the only place that says why no estimate appears.
+    const dayError = newPipelineValidationErrors.training_lookback_days ?? newPipelineValidationErrors.horizon_days
 
     if (validationFailed && !validationLoading) {
         return (
@@ -54,6 +58,14 @@ function ValidationPanel(): JSX.Element {
             >
                 Couldn't check this model definition. Retry, or change a field to check again.
             </LemonBanner>
+        )
+    }
+
+    if (dayError) {
+        return (
+            <div className="border rounded p-4 bg-bg-light text-muted text-sm">
+                {dayError}. Fix it to see live training estimates.
+            </div>
         )
     }
 

@@ -19,6 +19,8 @@ from posthog import settings
 from posthog.dags.common import JobOwners
 from posthog.storage.object_storage import ObjectStorage
 
+from products.signals.backend.models import SignalActorKind
+
 DATASET_VERSION = "v1"
 
 S3_BUCKET_ENV = "INBOX_RANKING_DATASET_S3_BUCKET"
@@ -36,6 +38,13 @@ LABELS_EPOCH = "2026-04-01T00:00:00+00:00"
 # head predicts). already_fixed and wontfix_irrelevant are deliberately not here. Shared by the
 # labels SQL (cumulative count) and the head definition.
 WRONG_DISMISSAL_REASONS = ("analysis_wrong", "report_unclear", "wontfix_intentional")
+
+# Artefact actors whose writes count as a person acting on a report. `agent` is an external MCP
+# client that authenticates as a real user, so a person drove it. `task` is a self-driving sandbox
+# (scouts, implementation runs) and `system` is the pipeline: their claims, notes and PRs are
+# internal operational writes, far more frequent than the human ones, and say nothing about intent.
+# A null actor is a legacy or system write, so it is also excluded.
+HUMAN_ACTOR_KINDS = (SignalActorKind.USER, SignalActorKind.AGENT)
 
 partition_def = dagster.DailyPartitionsDefinition(start_date="2026-04-01")
 

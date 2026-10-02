@@ -80,7 +80,6 @@ import {
     defaultRecordingDurationFilter,
     sessionRecordingsPlaylistLogic,
 } from '../playlist/sessionRecordingsPlaylistLogic'
-import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import { FilterTemplates } from '../templates/FilterTemplates'
 import { CurrentFilterIndicator } from './CurrentFilterIndicator'
 import { DurationFilter } from './DurationFilter'
@@ -445,8 +444,6 @@ const SaveFiltersModal = ({
 
     const [savedFilterName, setSavedFilterName] = useState('')
 
-    const { reportRecordingPlaylistCreated } = useActions(sessionRecordingEventUsageLogic)
-
     const closeSaveFiltersModal = (): void => {
         setIsOpen(false)
         setSavedFilterName('')
@@ -454,10 +451,9 @@ const SaveFiltersModal = ({
 
     const addSavedFilter = async (): Promise<void> => {
         const f = await createPlaylist(
-            { name: savedFilterName, filters: stripSessionIds(filters), type: 'filters' },
+            { name: savedFilterName, filters: stripSessionIds(filters), type: 'filters', creation_method: 'new' },
             false
         )
-        reportRecordingPlaylistCreated('new')
         loadSavedFilters()
         setIsOpen(false)
         setSavedFilterName('')
