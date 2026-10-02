@@ -1923,13 +1923,14 @@ class FeatureFlagSerializer(
     def _v2_validation_error(exc: ConfigValidationError) -> serializers.ValidationError:
         """Translate pure validation errors into this endpoint's error envelope.
 
-        Same shape as the v1 structural tier: one detail per field error, prefixed with its
-        `filters....` path and carrying the validator's code. The validator's details never
-        echo config values, seeds or metadata.
+        Keyed by each error's `filters....` path, so the response's `attr` is that path and its
+        `detail` the bare message, with the validator's code. The handler renders the first key,
+        which is the validator's first error. The details never echo config values, seeds or metadata.
         """
-        return serializers.ValidationError(
-            [ErrorDetail(f"{error.attr}: {error.detail}", code=error.code) for error in exc.errors]
-        )
+        errors: dict[str, list[ErrorDetail]] = {}
+        for error in exc.errors:
+            errors.setdefault(error.attr, []).append(ErrorDetail(error.detail, code=error.code))
+        return serializers.ValidationError(errors)
 
     def _apply_v2_update(self, locked_instance: FeatureFlag, validated_data: dict, locked_version: int) -> None:
         """Enforce the v2 row-version token and resolve the final document under the lock.
