@@ -913,8 +913,24 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             mock_inline.assert_called_once()
             mock_materialized.assert_not_called()
 
-    def test_fresh_materialized_data_uses_materialized_table(self):
+    @parameterized.expand(
+        [
+            ("eligible_query_serves_materialized", None, "materialized"),
+            # Rules can tighten after a version is materialized; the table must stop being served then.
+            ("ineligible_query_serves_inline", {"compare": True, "compare_to": "-1w"}, "inline"),
+        ]
+    )
+    def test_fresh_materialized_data_uses_materialized_table(self, _name, compare_filter, expected_path):
         """Test that fresh materialized data uses the materialized table for faster execution."""
+        query = (
+            self.sample_hogql_query
+            if compare_filter is None
+            else {
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                "compareFilter": compare_filter,
+            }
+        )
         # Create a materialized endpoint with fresh data
         now = timezone.now()
         saved_query = DataWarehouseSavedQuery.objects.create(
@@ -937,7 +953,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         endpoint = create_endpoint_with_version(
             name="fresh_data_endpoint",
             team=self.team,
-            query=self.sample_hogql_query,
+            query=query,
             created_by=self.user,
             is_active=True,
         )
@@ -962,9 +978,8 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             )
 
             self.assertEqual(response.status_code, status.HTTP_200_OK)
-            # Should use materialized table because data is fresh
-            mock_materialized.assert_called_once()
-            mock_inline.assert_not_called()
+            self.assertEqual(mock_materialized.call_count, int(expected_path == "materialized"))
+            self.assertEqual(mock_inline.call_count, int(expected_path == "inline"))
 
     @parameterized.expand(
         [
