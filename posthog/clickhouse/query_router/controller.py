@@ -43,10 +43,10 @@ FAILED_READ_HOLD_SECONDS = 10
 # drops out because it is overloaded comes back within minutes. A node taken out for maintenance can
 # stay out for hours, and without a bound the limit could then only fall. So the limit may rise again
 # once no read has reached every node for this long. Redis keeps the time of the last complete read,
-# because leadership moves to another process whenever a run ends.
+# because leadership moves to another process when the leader stops or loses its lease.
 PARTIAL_SAMPLE_HOLD_SECONDS = 300
 
-# Every run exports the same state from Redis, so a run exports whether it leads or not.
+# Every controller exports the same state from Redis, so a controller exports whether it leads or not.
 STATE_EXPORT_INTERVAL_SECONDS = 15
 
 CONTROLLER_TICKS_COUNTER = Counter(
@@ -325,11 +325,13 @@ class ControllerLoop:
         self,
         controller: LimitController,
         *,
+        heartbeat: Callable[[], None],
         get_time: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
         export_state: Callable[[], None] = _export_router_state,
     ) -> None:
         self._controller = controller
+        self._heartbeat = heartbeat
         self._get_time = get_time
         self._sleep = sleep
         self._export_state = export_state
@@ -339,29 +341,22 @@ class ControllerLoop:
         try:
             self._export_state()
         except Exception:
-            # A failed export must not end the run, because the run keeps the limit current while the
-            # next scheduled run may still be most of a minute away.
+            # A failed export must not end the loop, because the loop keeps the limit current and the
+            # next export usually succeeds.
             logger.exception("query_router_state_export_failed")
 
-    def run(self, *, max_seconds: float | None = None) -> None:
-        deadline = None if max_seconds is None else self._get_time() + max_seconds
+    def run(self) -> None:
         next_export = self._get_time() + STATE_EXPORT_INTERVAL_SECONDS
         try:
             while not self._stop_requested:
                 started = self._get_time()
-                if deadline is not None and started >= deadline:
-                    return
+                self._heartbeat()
                 try:
-                    result = self._controller.tick()
+                    self._controller.tick()
                 except Exception:
-                    # A failed tick must not end the run, because this run recovers on its next tick
-                    # while the next scheduled run may still be most of a minute away.
+                    # A failed tick must not end the loop, because the next tick usually recovers and a
+                    # restarted process needs much longer before its first tick.
                     logger.exception("query_router_controller_tick_failed")
-                else:
-                    # With the router off a run ends at once instead of holding a worker. The next
-                    # scheduled run starts the loop again after the router is turned on.
-                    if result == TickResult.OFF:
-                        return
                 if started >= next_export:
                     self._export()
                     next_export = started + STATE_EXPORT_INTERVAL_SECONDS
@@ -369,9 +364,6 @@ class ControllerLoop:
                 self._sleep(max(0.0, TICK_INTERVAL_SECONDS - elapsed))
         finally:
             self._controller.stand_down()
-            # With the router off the controller stops writing its keys, so once they expire this export
-            # clears the limit and load that an earlier run pushed.
-            self._export()
 
     def stop(self) -> None:
         self._stop_requested = True

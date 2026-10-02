@@ -55,7 +55,6 @@ from posthog.tasks.tasks import (
     pg_plugin_server_query_timing,
     pg_table_cache_hit_rate,
     process_scheduled_changes,
-    query_router_controller,
     redis_celery_queue_depth,
     redis_heartbeat,
     redispatch_orphaned_queued_task_runs,
@@ -288,17 +287,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     sender.add_periodic_task(10, redis_heartbeat.s(), name="10 sec heartbeat")
-
-    # Runs overlap on purpose: each lasts two minutes and one starts every minute, so a standby run
-    # takes the lease within seconds when the leader's run ends or its worker dies.
-    add_periodic_task_with_expiry(
-        sender,
-        crontab(minute="*"),
-        query_router_controller.s(),
-        name="query router controller",
-        expires_seconds=60,
-    )
-
     sender.add_periodic_task(
         QueryStatusManager.POLL_INTERVAL_SECONDS,
         start_poll_query_performance.s(),

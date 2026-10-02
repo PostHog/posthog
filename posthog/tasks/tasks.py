@@ -23,7 +23,6 @@ from structlog import get_logger
 from posthog.hogql.constants import LimitContext
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency
-from posthog.clickhouse.query_router.controller import ControllerLoop, LimitController, LoadReader
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorUnknownTable
@@ -396,19 +395,6 @@ def clear_expired_sessions() -> None:
 @shared_task(ignore_result=True)
 def redis_heartbeat() -> None:
     get_client().set("POSTHOG_HEARTBEAT", int(time.time()))
-
-
-QUERY_ROUTER_CONTROLLER_RUN_SECONDS = 120
-
-
-@shared_task(
-    ignore_result=True,
-    queue=CeleryQueue.LONG_RUNNING.value,
-    soft_time_limit=QUERY_ROUTER_CONTROLLER_RUN_SECONDS + 30,
-    time_limit=QUERY_ROUTER_CONTROLLER_RUN_SECONDS + 60,
-)
-def query_router_controller() -> None:
-    ControllerLoop(LimitController(load_reader=LoadReader())).run(max_seconds=QUERY_ROUTER_CONTROLLER_RUN_SECONDS)
 
 
 def _process_query_task_failure(

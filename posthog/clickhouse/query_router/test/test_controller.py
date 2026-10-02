@@ -1,4 +1,5 @@
 import itertools
+from collections.abc import Callable
 
 from unittest.mock import patch
 
@@ -149,6 +150,24 @@ class TestLimitController(SimpleTestCase):
     def _controller(self, fetch: _FakeFetch) -> LimitController:
         return LimitController(load_reader=LoadReader(fetch=fetch), get_time=self.clock)
 
+    def _run_loop(
+        self,
+        controller: LimitController,
+        *,
+        seconds: int,
+        export_state: Callable[[], None],
+        heartbeat: Callable[[], None] = lambda: None,
+    ) -> None:
+        def sleep_then_stop(duration: float) -> None:
+            self.clock.sleep(duration)
+            if len(self.clock.slept) == seconds:
+                loop.stop()
+
+        loop = ControllerLoop(
+            controller, heartbeat=heartbeat, get_time=self.clock, sleep=sleep_then_stop, export_state=export_state
+        )
+        loop.run()
+
     def test_controller_without_the_lease_writes_nothing(self) -> None:
         fetch = _FakeFetch(_sample(_node("off1", "offline", overload=0.9), _node("on1", "online", overload=0.9)))
         leader = self._controller(fetch)
@@ -238,48 +257,47 @@ class TestLimitController(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("off_when_the_run_starts", [], 0),
-            ("turned_off_while_leading", [RouterMode.OBSERVE], 1),
+            ("off_from_the_start", []),
+            ("turned_off_while_leading", [RouterMode.OBSERVE]),
         ]
     )
-    def test_run_ends_and_leaves_no_lease_once_the_router_is_off(
-        self, _name: str, modes_before_off: list[RouterMode], expected_sleeps: int
+    def test_loop_keeps_running_and_holds_no_lease_while_the_router_is_off(
+        self, _name: str, modes_before_off: list[RouterMode]
     ) -> None:
         off_ticks_before = REGISTRY.get_sample_value("posthog_query_router_controller_ticks_total", {"result": "off"})
         self.redis.set(config.limit_updated_key(Pool.OFFLINE), self.clock.now)
         exports: list[float] = []
-        loop = ControllerLoop(
-            self._controller(_FakeFetch(_sample(_node("off1", "offline"), _node("on1", "online")))),
-            get_time=self.clock,
-            sleep=self.clock.sleep,
-            export_state=lambda: exports.append(self.clock.now),
-        )
 
         with patch.object(
             config, "get_global_mode", side_effect=itertools.chain(modes_before_off, itertools.repeat(RouterMode.OFF))
         ):
-            loop.run(max_seconds=120)
+            self._run_loop(
+                self._controller(_FakeFetch(_sample(_node("off1", "offline"), _node("on1", "online")))),
+                seconds=20,
+                export_state=lambda: exports.append(self.clock.now),
+            )
 
         off_ticks_after = REGISTRY.get_sample_value("posthog_query_router_controller_ticks_total", {"result": "off"})
-        assert len(self.clock.slept) == expected_sleeps
+        assert len(self.clock.slept) == 20
         assert self.redis.get(config.CONTROLLER_LEADER_KEY) is None
         assert read_router_state(self.redis, now=self.clock.now).pools[Pool.OFFLINE].limit_updated_at is None
-        assert (off_ticks_after or 0) - (off_ticks_before or 0) == 1
+        assert (off_ticks_after or 0) - (off_ticks_before or 0) == 20 - len(modes_before_off)
         assert len(exports) == 1
 
-    def test_run_exports_the_state_every_interval_and_when_it_ends(self) -> None:
+    def test_loop_exports_the_state_every_interval_and_beats_every_tick(self) -> None:
         started = self.clock.now
         exports: list[float] = []
-        loop = ControllerLoop(
+        heartbeats: list[float] = []
+
+        self._run_loop(
             self._controller(_FakeFetch(_sample(_node("off1", "offline"), _node("on1", "online")))),
-            get_time=self.clock,
-            sleep=self.clock.sleep,
+            seconds=60,
             export_state=lambda: exports.append(self.clock.now - started),
+            heartbeat=lambda: heartbeats.append(self.clock.now),
         )
 
-        loop.run(max_seconds=60)
-
-        assert exports == [15, 30, 45, 60]
+        assert exports == [15, 30, 45]
+        assert len(heartbeats) == 60
 
     def test_stops_rewriting_the_limit_ten_seconds_after_the_last_good_read(self) -> None:
         fetch = _FakeFetch(_sample(_node("off1", "offline", overload=0.9), _node("on1", "online", overload=0.0)))
