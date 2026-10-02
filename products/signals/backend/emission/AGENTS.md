@@ -35,7 +35,7 @@ They still honor steering, through the gate in `direct_gate.py` that `emit_signa
 Two rules keep that gate predictable.
 A team that wrote no steering gets no LLM call and no change in behavior.
 A team that wrote steering is filtered by that text alone, because the prompt there carries no actionability criteria of its own, unlike the record-shaped prompts in `_prompts.py`.
-The gate fails open, and reports a dropped signal as `signal_data_source_filtered` with `steering_applied`, the same stage event the pipeline fires.
+The gate fails open, except that a model refusal drops the signal, and reports a dropped signal as `signal_data_source_filtered` with `steering_applied`, the same stage event the pipeline fires.
 
 A pair listed in `DIRECT_STEERABLE_SOURCES` that the registry also serves would have every record judged twice, so the two sets must stay disjoint (`tests/test_direct_gate.py` holds that).
 The roster's `steerable` flags in `products/signals/frontend/inbox/components/config/agentRosterMeta.ts` mirror the same set: a source that offers the steering form without a gate behind it stores text nothing reads.

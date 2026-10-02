@@ -37,6 +37,9 @@ A conversation is NOT_ACTIONABLE if it is:
 - An auto-generated, bot, or out-of-office message
 - An internal test message
 - A conversation whose primary ask is a manual human action, not a code change (e.g. requesting a refund, updating payment method, asking about pricing)
+- A complaint or expression of dissatisfaction that does not point to a specific page, feature, action, or error. Broad statements such as "everything is slow", "it feels broken", or "the new version is worse" are not specific. A frustrated message that names a specific problem is still ACTIONABLE
+- A report that contradicts itself, so no single problem can be identified
+- A report whose writer takes the complaint back, so nothing specific is left to check. A hedged report that still names a specific problem ("might be nothing, but X stopped working") is ACTIONABLE
 
 When in doubt, classify as ACTIONABLE. It is worse to miss real feedback than to let some noise through.
 

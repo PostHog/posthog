@@ -40,6 +40,9 @@ An issue is NOT_ACTIONABLE if it is:
 - Spam, abuse, or profanity with no real feedback
 - A meta/tracking issue with no substantive feedback — issues that contain only a title and a bare link or a short reminder without describing a problem, use case, or solution (release checklists, sprint trackers, experiment-to-do notes)
 - A duplicate that only says "same as #X" with no new information
+- A complaint or expression of dissatisfaction that does not point to a specific page, feature, action, or error. Broad statements such as "everything is slow", "it feels broken", or "the new version is worse" are not specific. A frustrated message that names a specific problem is still ACTIONABLE
+- A report that contradicts itself, so no single problem can be identified
+- A report whose writer takes the complaint back, so nothing specific is left to check. A hedged report that still names a specific problem ("might be nothing, but X stopped working") is ACTIONABLE
 
 The issue may end with a record_metadata block naming its author. `author_login` is the GitHub handle that filed it, and `author_association` is that account's relationship to the repository: OWNER, MEMBER, and COLLABORATOR are maintainers, while CONTRIBUTOR, FIRST_TIME_CONTRIBUTOR, and NONE are reporters from outside the org. A handle ending in [bot] is automation, so treat what it files as bot-generated. Beyond that, the author is context and not a verdict — a bug report from an outside reporter is exactly the feedback worth capturing, so never classify an issue as NOT_ACTIONABLE just because its author isn't a maintainer.
 
