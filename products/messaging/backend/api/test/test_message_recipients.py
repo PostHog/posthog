@@ -338,6 +338,13 @@ class TestMessageRecipients(ClickhouseTestMixin, NonAtomicAPIBaseTest):
 
         assert [person["distinct_id"] for person in recipient["persons"]] == ["z-kept"]
 
+    def test_never_lists_an_identifier_that_is_only_whitespace(self) -> None:
+        self._prefer(" \t", {"$all": "OPTED_OUT"})
+        self._suppress("  ")
+        self._prefer("a@example.com", {})
+
+        assert self._emails() == ["a@example.com"]
+
     def test_ignores_a_preference_row_that_is_not_a_map(self) -> None:
         self._prefer("broken@example.com", ["OPTED_OUT"])  # type: ignore[arg-type]
 
@@ -446,3 +453,4 @@ class TestMessageRecipients(ClickhouseTestMixin, NonAtomicAPIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"persons_without_email": 4}
+        assert self._emails() == ["reachable@example.com"]

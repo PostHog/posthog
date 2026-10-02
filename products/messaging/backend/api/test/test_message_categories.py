@@ -146,6 +146,16 @@ class TestMessageCategoryAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
+    def test_cant_create_category_with_the_all_marketing_key(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/messaging_categories/",
+            {"name": "All marketing", "key": "all-marketing", "category_type": "marketing"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual("key", response.json()["attr"])
+        self.assertIn("reserved", response.json()["detail"])
+
     def test_delete_is_forbidden(self):
         """
         Tests that DELETE /messaging_categories/:id is forbidden.
