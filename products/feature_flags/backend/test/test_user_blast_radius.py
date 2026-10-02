@@ -40,6 +40,7 @@ class TestUnevaluableFiltersAsValidationErrors(SimpleTestCase):
         with self.assertRaises(ValidationError) as ctx, unevaluable_filters_as_validation_errors():
             raise err
         message = str(ctx.exception)
+        assert isinstance(ctx.exception.detail, dict)
         self.assertEqual(ctx.exception.detail["filters"], expected_message)
         self.assertNotIn("NaN", message)
         self.assertNotIn("None", message)
