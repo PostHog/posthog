@@ -59,6 +59,22 @@ tools:
             to find a channel_id when wiring up Slack delivery for an alert — pass the channel id into the
             cdp-functions-create inputs.channel.value field. Requires the Slack integration's id; use integrations-list
             (filter by kind=slack) to find it.
+    integrations-email-status-retrieve:
+        operation: integrations_email_status_retrieve
+        enabled: true
+        scopes:
+            - integration:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        feature_flag: workflows-email-domain-agent-setup
+        title: Get email sending domain status
+        description: >
+            Get the setup progress of an email sender's domain by integration ID. Returns the overall status, the
+            three setup steps, and every DNS record to publish with its current status (pending, found, verified).
+            Poll it after adding DNS records until verified is true, waiting at least 10 seconds between calls.
+            Pass refresh=true right after changing DNS to skip the 10 second cache. It does not change DNS or SES.
     integrations-github-repos-retrieve:
         operation: integrations_github_repos_retrieve
         enabled: true

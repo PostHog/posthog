@@ -81,6 +81,33 @@ const integrationsChannelsRetrieve = (): ToolBase<
     },
 })
 
+const IntegrationsEmailStatusRetrieveSchema = () => {
+    const IntegrationsEmailStatusRetrieveParams = orvalSchemas.IntegrationsEmailStatusRetrieveParams()
+    const IntegrationsEmailStatusRetrieveQueryParams = orvalSchemas.IntegrationsEmailStatusRetrieveQueryParams()
+    return IntegrationsEmailStatusRetrieveParams.omit({ project_id: true }).extend(
+        IntegrationsEmailStatusRetrieveQueryParams.shape
+    )
+}
+
+const integrationsEmailStatusRetrieve = (): ToolBase<
+    ReturnType<typeof IntegrationsEmailStatusRetrieveSchema>,
+    Schemas.EmailDomainStatus
+> => ({
+    name: 'integrations-email-status-retrieve',
+    schema: IntegrationsEmailStatusRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof IntegrationsEmailStatusRetrieveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.EmailDomainStatus>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/${encodeURIComponent(String(params.id))}/email/status/`,
+            query: {
+                refresh: params.refresh,
+            },
+        })
+        return result
+    },
+})
+
 const IntegrationsGithubReposRetrieveSchema = () => {
     const IntegrationsGithubReposRetrieveParams = orvalSchemas.IntegrationsGithubReposRetrieveParams()
     const IntegrationsGithubReposRetrieveQueryParams = orvalSchemas.IntegrationsGithubReposRetrieveQueryParams()
@@ -256,6 +283,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'integration-delete': integrationDelete,
     'integration-get': integrationGet,
     'integrations-channels-retrieve': integrationsChannelsRetrieve,
+    'integrations-email-status-retrieve': integrationsEmailStatusRetrieve,
     'integrations-github-repos-retrieve': integrationsGithubReposRetrieve,
     'integrations-jira-projects-retrieve': integrationsJiraProjectsRetrieve,
     'integrations-linear-teams-retrieve': integrationsLinearTeamsRetrieve,
