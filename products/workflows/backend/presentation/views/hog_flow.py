@@ -4885,6 +4885,7 @@ class HogFlowViewSet(
         "retrieve",
         "logs",
         "metrics",
+        "metrics_version",
         "metrics_totals",
         "metrics_global",
         "team_reputation",
