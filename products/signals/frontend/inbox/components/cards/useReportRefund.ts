@@ -12,13 +12,29 @@ import { signalsReportsRefundCreate } from 'products/signals/frontend/generated/
 import { captureInboxReportAction, InboxReportActionSurface } from '../../inboxAnalytics'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { reportPullRequests, hasMergedReportPullRequest } from '../../utils/reportPullRequests'
-import { openRefundReportDialog } from '../shell/RefundReportDialog'
+import { openRefundReportDialog, RefundKeptStatus } from '../shell/RefundReportDialog'
 
 // Copy per backend `refund_ineligibility_reason`. `already_refunded` / `billing_exempt` never
 // reach the button (it's hidden for those), so only the two visible-but-ineligible reasons map.
 const REFUND_DISABLED_REASONS: Record<string, string> = {
     out_of_period: 'This PR was billed in a previous billing period and can no longer be refunded',
     no_billable_pr: "This PR isn't billable, so there's nothing to refund",
+}
+
+/**
+ * The status a refund leaves in place, or null when the refund dismisses the report. A merged PR
+ * implemented the fix, so the refund endpoint keeps a Monitoring or Resolved report where it is
+ * (the `implemented_via_merged_pr` branch). The dialog copy and the detail pane's navigation both
+ * read this, so they agree.
+ */
+export function refundKeptStatus(report: SignalReport): RefundKeptStatus | null {
+    if (
+        (report.status === SignalReportStatus.MONITORING || report.status === SignalReportStatus.RESOLVED) &&
+        hasMergedReportPullRequest(report)
+    ) {
+        return report.status
+    }
+    return null
 }
 
 /**
@@ -68,10 +84,7 @@ export function useReportRefund({
         event.stopPropagation()
         openRefundReportDialog({
             reportTitle: report.title,
-            // A merged PR resolved the report? The refund leaves it in Resolved instead of dismissing
-            // it (the `resolved_via_merged_pr` branch in the refund endpoint), so the copy must not
-            // promise a dismissal.
-            staysResolved: report.status === SignalReportStatus.RESOLVED && hasMergedReportPullRequest(report),
+            keptStatus: refundKeptStatus(report),
             onConfirm: async ({ reason, note }) => {
                 if (isRefunding || currentTeamId == null) {
                     return

@@ -15,9 +15,9 @@ import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from '../../logics/reportListLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { canResolveReport } from '../../utils/reportActions'
-import { hasActiveReportPullRequest, hasMergedReportPullRequest } from '../../utils/reportPullRequests'
+import { hasActiveReportPullRequest } from '../../utils/reportPullRequests'
 import { useReportDismiss } from '../cards/useReportDismiss'
-import { useReportRefund } from '../cards/useReportRefund'
+import { refundKeptStatus, useReportRefund } from '../cards/useReportRefund'
 import { useReportResolve } from './useReportResolve'
 
 /**
@@ -49,8 +49,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
     const isDismissed = report.status === SignalReportStatus.SUPPRESSED
     // Resolved reports are terminal – nothing to dismiss, restore, or resolve.
     const isResolved = report.status === SignalReportStatus.RESOLVED
-    const staysPutOnRefund =
-        (isResolved || report.status === SignalReportStatus.MONITORING) && hasMergedReportPullRequest(report)
+    const staysPutOnRefund = refundKeptStatus(report) !== null
 
     // Once a verdict persists, broadcast so every mounted list reconciles against the server (the
     // report leaves Needs decision / Review and merge and joins Resolved or Dismissed), then return to
@@ -78,7 +77,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
         report,
         surface: 'detail_pane',
         // Refunding dismisses the report server-side, so reconcile the lists the same way and
-        // return to the list — except for resolved reports, which stay where they are.
+        // return to the list — except for reports a merged PR implemented, which keep their status.
         onRefunded: () => {
             reportStateChanged()
             if (!staysPutOnRefund) {

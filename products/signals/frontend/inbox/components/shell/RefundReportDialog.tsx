@@ -5,6 +5,11 @@ import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 
 import { SignalReportRefundReasonEnumApi } from 'products/signals/frontend/generated/api.schemas'
 
+import { SignalReportStatus } from '../../types'
+
+/** The status a refund leaves in place when a merged PR implemented the fix. */
+export type RefundKeptStatus = SignalReportStatus.MONITORING | SignalReportStatus.RESOLVED
+
 export interface RefundReportDialogResult {
     reason: SignalReportRefundReasonEnumApi
     note: string
@@ -14,11 +19,10 @@ interface OpenRefundReportDialogParams {
     /** Report title for the dialog copy. */
     reportTitle?: string | null
     /**
-     * True when a merged PR resolved the report. The refund then leaves it in Resolved instead of
-     * dismissing it, so the copy must not promise a dismissal. Mirrors the `resolved_via_merged_pr`
-     * branch in the refund endpoint.
+     * The status the refund leaves in place when a merged PR implemented the fix (see
+     * `refundKeptStatus`). The copy must then not promise a dismissal.
      */
-    staysResolved?: boolean
+    keptStatus?: RefundKeptStatus | null
     /** Called with the chosen reason + note once the user confirms. */
     onConfirm: (result: RefundReportDialogResult) => void | Promise<void>
 }
@@ -35,14 +39,17 @@ const REFUND_REASON_OPTIONS: LemonRadioOption<SignalReportRefundReasonEnumApi>[]
 /**
  * Opens the refund dialog (mirrors {@link openDismissReportDialog}): pick a required reason plus an
  * optional note, then refund. The caller wires `onConfirm` to the refund API call. Refunding
- * dismisses the report, except when a merged PR resolved it (then it stays resolved), which
- * `staysResolved` reflects in the copy. `shouldAwaitSubmit` keeps the primary button in a loading
+ * dismisses the report, except when a merged PR implemented the fix (then it keeps its status),
+ * which `keptStatus` reflects in the copy. `shouldAwaitSubmit` keeps the primary button in a loading
  * state while the request is in flight, so it can't be double-submitted.
  */
-export function openRefundReportDialog({ reportTitle, staysResolved, onConfirm }: OpenRefundReportDialogParams): void {
-    const outcomeLine = staysResolved
-        ? 'The report stays resolved.'
-        : "The report is dismissed as part of the refund and can't be restored."
+export function openRefundReportDialog({ reportTitle, keptStatus, onConfirm }: OpenRefundReportDialogParams): void {
+    const outcomeLine =
+        keptStatus === SignalReportStatus.MONITORING
+            ? 'The report stays in monitoring, and its follow-up checks keep running.'
+            : keptStatus === SignalReportStatus.RESOLVED
+              ? 'The report stays resolved.'
+              : "The report is dismissed as part of the refund and can't be restored."
     LemonDialog.openForm({
         title: `Refund the PR for "${reportTitle?.trim() ? reportTitle : 'Untitled report'}"?`,
         description: `You won't pay for this PR and it won't count toward your included PRs. ${outcomeLine}`,
