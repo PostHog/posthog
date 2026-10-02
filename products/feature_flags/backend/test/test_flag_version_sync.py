@@ -494,9 +494,7 @@ class TestFlagDependencyVersionSync(BaseTest):
     def test_sibling_flag_with_malformed_filters_does_not_block_save_or_bump(self, _name, filters):
         base, dependent, _ = self._create_chain()
         # filters is a JSONField with no shape validation, so a row can hold any JSON the
-        # dependency prefilter matches. That must not abort the save being made to an unrelated
-        # flag. The malformed-key case in the chain test can't reach this: a bad key inside a
-        # well-shaped document is skipped further in.
+        # dependency prefilter matches.
         broken = self._create_flag("broken", _flag_dependency_filters(base.pk))
         FeatureFlag.objects.filter(pk=broken.pk).update(filters=filters)
 
