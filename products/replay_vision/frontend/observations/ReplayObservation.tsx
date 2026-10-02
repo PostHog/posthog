@@ -54,7 +54,8 @@ export const scene: SceneExport = {
 }
 
 export function ReplayObservationSceneComponent(): JSX.Element {
-    const { observationId } = useValues(replayObservationSceneLogic)
+    const { observationId, resultTab } = useValues(replayObservationSceneLogic)
+    const { setResultTab } = useActions(replayObservationSceneLogic)
     const { searchParams } = useValues(router)
     const playerRef = useRef<HTMLDivElement>(null)
     const [pendingSeek, setPendingSeek] = useState<{ ms: number; trigger: number } | null>(null)
@@ -77,7 +78,6 @@ export function ReplayObservationSceneComponent(): JSX.Element {
     const { observation, observationLoading, retrying, previousObservationId, nextObservationId, neighborsPending } =
         useValues(observationLogic)
     const { retryObservation } = useActions(observationLogic)
-    const [resultTab, setResultTab] = useState<'summary' | 'breakdown'>('summary')
     const hasBreakdown = useMemo(
         () => (observation ? recordingTimeline([observation]).chapters.length > 0 : false),
         [observation]
