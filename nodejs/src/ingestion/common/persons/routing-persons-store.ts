@@ -292,6 +292,12 @@ export class RoutingPersonsStore implements PersonsStore {
         run: (person: InternalPerson) => Promise<unknown>,
         hold?: () => void
     ): Promise<void> {
+        // Ops still held for this id were stated earlier, so later ops queue behind them, as the event's
+        // partition does when the authoritative store retries.
+        if (hold && this.personhog.hasHeldOps(teamId, distinctId)) {
+            hold()
+            return
+        }
         const shadowPerson = await this.personhog.fetchForUpdate(teamId, distinctId, batchId)
         if (shadowPerson === null) {
             if (hold) {
@@ -373,6 +379,30 @@ export class RoutingPersonsStore implements PersonsStore {
                     batchId
                 ),
             {
+                shadow: (abandoned) =>
+                    this.shadowCreate(
+                        () =>
+                            this.personhog.createPerson(
+                                createdAt,
+                                properties,
+                                propertiesLastUpdatedAt,
+                                propertiesLastOperation,
+                                teamId,
+                                isUserId,
+                                isIdentified,
+                                uuid,
+                                primaryDistinctId,
+                                extraDistinctIds,
+                                tx,
+                                batchId
+                            ),
+                        teamId,
+                        properties,
+                        isIdentified,
+                        primaryDistinctId.distinctId,
+                        batchId,
+                        abandoned
+                    ),
                 after: (authoritative, shadow, abandoned) =>
                     this.reconcileShadowCreate(
                         authoritative,
@@ -384,6 +414,43 @@ export class RoutingPersonsStore implements PersonsStore {
                     ),
             }
         )
+    }
+
+    /**
+     * A create the client gave up on may have left the person without its properties, and the event does not retry
+     * here, so its properties are held set-once for the distinct id. A deterministic rejection would fail again, and
+     * an abandoned create's batch may be released, so neither is held.
+     */
+    private async shadowCreate(
+        create: () => Promise<CreatePersonResult>,
+        teamId: number,
+        properties: Properties,
+        isIdentified: boolean,
+        distinctId: string,
+        batchId: number,
+        abandoned: AbortSignal
+    ): Promise<CreatePersonResult> {
+        try {
+            return await create()
+        } catch (error) {
+            if (!abandoned.aborted && (error as { isRetriable?: boolean })?.isRetriable === true) {
+                this.personhog.holdEventOps(
+                    teamId,
+                    distinctId,
+                    {
+                        set: {},
+                        setOnce: properties,
+                        unset: [],
+                        denied: false,
+                        shouldForceUpdate: true,
+                        eventName: CREATE_EVENT_NAME,
+                        ...(isIdentified ? { isIdentified: true } : {}),
+                    },
+                    batchId
+                )
+            }
+            throw error
+        }
     }
 
     /** Postgres created the person and personhog only found it: apply the creation properties set-once. */

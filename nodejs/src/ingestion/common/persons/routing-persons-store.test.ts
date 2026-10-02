@@ -96,7 +96,11 @@ describe('RoutingPersonsStore', () => {
         // The personhog store implements PersonsStore, so the same
         // compile-checked factory serves; the cast to the concrete class
         // is the constructor's requirement, not an escape from checking.
-        const personhogMock = Object.assign(mockStore(), { abandonBatch: jest.fn(), holdEventOps: jest.fn() })
+        const personhogMock = Object.assign(mockStore(), {
+            abandonBatch: jest.fn(),
+            holdEventOps: jest.fn(),
+            hasHeldOps: jest.fn().mockReturnValue(false),
+        })
         const personhog = personhogMock as unknown as PersonhogPersonsStore
         return { pg, personhogMock, personhog }
     }
@@ -760,6 +764,89 @@ describe('RoutingPersonsStore', () => {
             }
         )
 
+        const createIn = (store: RoutingPersonsStore, isIdentified = false) =>
+            store.createPerson(
+                DateTime.fromMillis(3_600_000, { zone: 'utc' }),
+                { plan: 'pro' },
+                {},
+                {},
+                1,
+                null,
+                isIdentified,
+                'caller-supplied-uuid',
+                { distinctId: 'd1' },
+                undefined,
+                undefined,
+                0
+            )
+        const createdByPg = {
+            success: true,
+            person: person(1, '7'),
+            messages: [],
+            created: true,
+        } as never
+
+        it.each([
+            [
+                'retriable, holds its properties set-once',
+                Object.assign(new ConnectError('timed out', Code.DeadlineExceeded), { isRetriable: true }),
+                false,
+                { set: {}, setOnce: { plan: 'pro' }, unset: [], denied: false, shouldForceUpdate: true },
+            ],
+            [
+                'retriable for an identified person, holds the identity too',
+                Object.assign(new ConnectError('timed out', Code.DeadlineExceeded), { isRetriable: true }),
+                true,
+                { setOnce: { plan: 'pro' }, isIdentified: true },
+            ],
+            ['deterministic, holds nothing', new ConnectError('rejected', Code.InvalidArgument), false, null],
+        ])('a shadow createPerson whose failure is %s', async (_case, failure, isIdentified, held) => {
+            const stores = makeStores()
+            stores.pg.createPerson.mockResolvedValue(createdByPg)
+            stores.personhogMock.createPerson.mockRejectedValue(failure)
+            const store = makeStore(stores, 'shadow')
+
+            const result = await createIn(store, isIdentified)
+
+            expect(result).toBe(createdByPg)
+            expect(personhogStoreShadowErrorsCounter.labels).toHaveBeenCalledWith(
+                expect.objectContaining({ verb: 'createPerson' })
+            )
+            if (held === null) {
+                expect(stores.personhogMock.holdEventOps).not.toHaveBeenCalled()
+            } else {
+                expect(stores.personhogMock.holdEventOps).toHaveBeenCalledWith(
+                    1,
+                    'd1',
+                    expect.objectContaining({ ...held, eventName: '$create_person' }),
+                    0
+                )
+            }
+        })
+
+        it('a shadow createPerson that fails after the ceiling abandoned it holds nothing', async () => {
+            jest.useFakeTimers()
+            try {
+                const stores = makeStores()
+                stores.pg.createPerson.mockResolvedValue(createdByPg)
+                let fail: (error: Error) => void = () => {}
+                stores.personhogMock.createPerson.mockReturnValue(
+                    new Promise<never>((_resolve, reject) => (fail = reject))
+                )
+                const store = makeStore(stores, 'shadow')
+
+                const creating = createIn(store)
+                await jest.advanceTimersByTimeAsync(60_000)
+                await creating
+                fail(Object.assign(new ConnectError('timed out', Code.DeadlineExceeded), { isRetriable: true }))
+                await jest.advanceTimersByTimeAsync(1)
+
+                expect(stores.personhogMock.holdEventOps).not.toHaveBeenCalled()
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
         it('mergePersons replays the same request against the personhog backend, pg staying authoritative', async () => {
             const stores = makeStores()
             const pgResult = { survivor: person(1, '7'), results: [] }
@@ -1090,6 +1177,21 @@ describe('RoutingPersonsStore', () => {
             expect(stores.personhogMock.applyEventOps).not.toHaveBeenCalled()
             expect(stores.personhogMock.holdEventOps).toHaveBeenCalledWith(1, 'd1', ops, 0)
             expect(personhogStoreShadowSkipsCounter.labels).not.toHaveBeenCalled()
+        })
+
+        it('holds the ops behind ops already held for the distinct id, without resolving the person', async () => {
+            const stores = makeStores()
+            stores.pg.applyEventOps.mockResolvedValue([person(1, '7'), []])
+            stores.personhogMock.hasHeldOps.mockReturnValue(true)
+            stores.personhogMock.fetchForUpdate.mockResolvedValue(person(1, '99'))
+            const store = makeStore(stores, 'shadow')
+
+            await store.applyEventOps(person(1, '7'), ops, 'd1', 0)
+
+            expect(stores.personhogMock.hasHeldOps).toHaveBeenCalledWith(1, 'd1')
+            expect(stores.personhogMock.fetchForUpdate).not.toHaveBeenCalled()
+            expect(stores.personhogMock.applyEventOps).not.toHaveBeenCalled()
+            expect(stores.personhogMock.holdEventOps).toHaveBeenCalledWith(1, 'd1', ops, 0)
         })
 
         it('skips a direct diff update, counted, when the person does not exist in the personhog backend', async () => {

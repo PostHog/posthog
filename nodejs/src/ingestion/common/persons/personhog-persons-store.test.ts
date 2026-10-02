@@ -1100,6 +1100,49 @@ describe('PersonhogPersonsStore', () => {
             store.holdEventOps(1, 'd1', ops({ $set: { a: '1' } }, '$exception'), 0)
             expect((store as any).entries.size).toBe(0)
         })
+
+        const creation = (properties: Record<string, unknown>) => ({
+            set: {},
+            setOnce: properties,
+            unset: [],
+            denied: false,
+            shouldForceUpdate: true,
+            eventName: '$create_person',
+        })
+
+        it('reports held ops until the flush writes them', async () => {
+            const bound = store.forBatch(0)
+            expect(store.hasHeldOps(1, 'd1')).toBe(false)
+            store.holdEventOps(1, 'd1', creation({ k: 'initial' }), 0)
+            expect(store.hasHeldOps(1, 'd1')).toBe(true)
+            expect(store.hasHeldOps(1, 'd2')).toBe(false)
+            repository.resolvePersonsByDistinctIds.mockResolvedValue([
+                { teamId: 1, distinctId: 'd1', person: { ...person, id: '9' } },
+            ] as never)
+
+            await bound.flush()
+
+            expect(store.hasHeldOps(1, 'd1')).toBe(false)
+        })
+
+        it('ops held into a lane a flush already resolved and wrote resolve the owner afresh', async () => {
+            const bound = store.forBatch(0)
+            store.holdEventOps(1, 'd1', ops({ $set: { a: '1' } }), 0)
+            repository.resolvePersonsByDistinctIds
+                .mockResolvedValueOnce([{ teamId: 1, distinctId: 'd1', person: { ...person, id: '9' } }] as never)
+                .mockResolvedValueOnce([{ teamId: 1, distinctId: 'd1', person: { ...person, id: '11' } }] as never)
+            await bound.flush()
+            // The batch still references the emptied lane, so it is the same entry the next hold lands in.
+            store.holdEventOps(1, 'd1', creation({ k: 'initial' }), 0)
+
+            await bound.flush()
+
+            expect(repository.resolvePersonsByDistinctIds).toHaveBeenCalledTimes(2)
+            expect(repository.updatePersonProperties).toHaveBeenLastCalledWith(
+                expect.objectContaining({ personId: '11', setOnceProperties: { k: 'initial' } }),
+                expect.any(String)
+            )
+        })
     })
 
     describe('round-6 closures', () => {

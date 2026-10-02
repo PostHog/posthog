@@ -690,12 +690,19 @@ export class PersonhogPersonsStore implements PersonsStore {
             })
             return
         }
-        // Ops held into a lane a flush emptied are a new hold.
-        if (existing.unresolved && existing.segments.length === 0) {
+        // Ops held into a lane a flush emptied are a new hold, resolved afresh: the owner a past flush found may
+        // have changed since. A lane mid-write keeps its owner for what follows its in-flight segments.
+        if (existing.segments.length === 0 && !existing.inFlight) {
+            existing.unresolved = true
             existing.heldSince = Date.now()
             existing.lastResolvedAt = undefined
         }
         this.appendSegment(existing, ops)
+    }
+
+    /** Whether ops held for this distinct id are still unwritten; later ops for the id must queue behind them. */
+    hasHeldOps(teamId: number, distinctId: string): boolean {
+        return (this.entries.get(heldLaneKey(teamId, distinctId))?.segments.length ?? 0) > 0
     }
 
     /** A held lane still inside its window outlives the batch release and the shed. */
