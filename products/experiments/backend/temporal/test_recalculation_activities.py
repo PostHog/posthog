@@ -20,8 +20,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.temporal.common.errors import NonReportableError
 
-from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
-from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
+from products.experiments.backend.metric_calculation.spec import plan_metric
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -51,6 +50,12 @@ _discover_raw = _discover_experiment_metrics_sync.func  # type: ignore[attr-defi
 _update_raw = _update_recalculation_progress_sync.func  # type: ignore[attr-defined]
 _calculate_raw = _calculate_experiment_metric_for_recalculation_sync.func  # type: ignore[attr-defined]
 _cancel_raw = _cancel_metric_query_sync.func  # type: ignore[attr-defined]
+
+
+def _calculation_key(experiment: Experiment, metric_uuid: str) -> str:
+    spec = plan_metric(experiment, metric_uuid)
+    assert spec is not None
+    return spec.calculation_key()
 
 
 def _discover(recalculation_id: str):
@@ -989,15 +994,7 @@ class TestCalculateActivity(BaseTest):
         metric = _mean_metric("m1")
         exp = self._experiment(flag_key="calc-skip-existing", metrics=[metric])
         query_to = datetime.fromisoformat(_QUERY_TO)
-        recalc_fp = compute_recalc_fingerprint(
-            compute_metric_fingerprint(
-                metric,
-                exp.start_date,
-                get_experiment_stats_method(exp),
-                exp.exposure_criteria,
-                only_count_matured_users=exp.only_count_matured_users,
-            )
-        )
+        recalc_fp = compute_recalc_fingerprint(_calculation_key(exp, "m1"))
         existing = ExperimentMetricResult.objects.create(
             experiment=exp,
             metric_uuid="m1",
@@ -1056,15 +1053,7 @@ class TestCalculateActivity(BaseTest):
         metric = _mean_metric("m1")
         exp = self._experiment(flag_key="calc-excluded", metrics=[metric])
         query_to = datetime.fromisoformat(_QUERY_TO)
-        recalc_fp = compute_recalc_fingerprint(
-            compute_metric_fingerprint(
-                metric,
-                exp.start_date,
-                get_experiment_stats_method(exp),
-                exp.exposure_criteria,
-                only_count_matured_users=exp.only_count_matured_users,
-            )
-        )
+        recalc_fp = compute_recalc_fingerprint(_calculation_key(exp, "m1"))
         ExperimentMetricResult.objects.create(
             experiment=exp,
             metric_uuid="m1",

@@ -36,6 +36,7 @@ from products.experiments.backend.facade.timeseries import (
     backfill_experiment_timeseries,
     build_metric,
     is_daily_timeseries_metric,
+    metric_calculation_keys_for_experiments,
     resolve_saved_metric_definition,
     sync_timeseries_recalculation,
 )
@@ -44,9 +45,8 @@ from products.experiments.backend.hogql_queries.error_handling import (
     capture_experiment_metric_error_event,
     classify_experiment_query_error,
 )
-from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
-from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method, sanitize_non_finite
+from products.experiments.backend.hogql_queries.utils import sanitize_non_finite
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult as ExperimentMetricResultModel,
@@ -75,18 +75,24 @@ def _get_experiment_regular_metrics_for_hour_sync(hour: int) -> list[ExperimentR
 
     experiment_metrics: list[ExperimentRegularMetricInput] = []
 
-    experiments = Experiment.objects.filter(
-        recalculation_hour_filter(hour),
-        deleted=False,
-        status=Experiment.Status.RUNNING,
-        start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=EXPERIMENT_RECALCULATION_MAX_AGE_DAYS),
-    ).exclude(
-        Q(metrics__isnull=True) | Q(metrics=[]),
-        Q(metrics_secondary__isnull=True) | Q(metrics_secondary=[]),
+    experiments = list(
+        Experiment.objects.filter(
+            recalculation_hour_filter(hour),
+            deleted=False,
+            status=Experiment.Status.RUNNING,
+            start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=EXPERIMENT_RECALCULATION_MAX_AGE_DAYS),
+        ).exclude(
+            Q(metrics__isnull=True) | Q(metrics=[]),
+            Q(metrics_secondary__isnull=True) | Q(metrics_secondary=[]),
+        )
+    )
+    keys_by_experiment = metric_calculation_keys_for_experiments(
+        {experiment.id: experiment.team_id for experiment in experiments}
     )
 
     for experiment in experiments:
         all_metrics = (experiment.metrics or []) + (experiment.metrics_secondary or [])
+        calculation_keys = keys_by_experiment[experiment.id].inline
 
         for metric in all_metrics:
             metric_uuid = metric.get("uuid")
@@ -97,14 +103,10 @@ def _get_experiment_regular_metrics_for_hour_sync(hour: int) -> list[ExperimentR
                 )
                 continue
 
-            fingerprint = compute_metric_fingerprint(
-                metric,
-                experiment.start_date,
-                get_experiment_stats_method(experiment),
-                experiment.exposure_criteria,
-                only_count_matured_users=experiment.only_count_matured_users,
-                excluded_variants=experiment.excluded_variants,
-            )
+            fingerprint = calculation_keys.get(metric_uuid)
+            if fingerprint is None:
+                # The experiment lost this metric after the discovery query read it.
+                continue
 
             experiment_metrics.append(
                 ExperimentRegularMetricInput(
@@ -378,14 +380,23 @@ def _get_experiment_saved_metrics_for_hour_sync(hour: int) -> list[ExperimentSav
 
     experiment_metrics: list[ExperimentSavedMetricInput] = []
 
-    experiments = Experiment.objects.filter(
-        recalculation_hour_filter(hour),
-        deleted=False,
-        status=Experiment.Status.RUNNING,
-        start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=EXPERIMENT_RECALCULATION_MAX_AGE_DAYS),
-    ).prefetch_related("experimenttosavedmetric_set__saved_metric")
+    experiments = [
+        experiment
+        for experiment in Experiment.objects.filter(
+            recalculation_hour_filter(hour),
+            deleted=False,
+            status=Experiment.Status.RUNNING,
+            start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=EXPERIMENT_RECALCULATION_MAX_AGE_DAYS),
+        ).prefetch_related("experimenttosavedmetric_set__saved_metric")
+        if experiment.experimenttosavedmetric_set.all()
+    ]
+    keys_by_experiment = metric_calculation_keys_for_experiments(
+        {experiment.id: experiment.team_id for experiment in experiments}
+    )
 
     for experiment in experiments:
+        calculation_keys = keys_by_experiment[experiment.id].saved
+
         for exp_to_saved_metric in experiment.experimenttosavedmetric_set.all():
             saved_metric = exp_to_saved_metric.saved_metric
             metric_uuid = saved_metric.query.get("uuid")
@@ -398,17 +409,10 @@ def _get_experiment_saved_metrics_for_hour_sync(hour: int) -> list[ExperimentSav
                 )
                 continue
 
-            # Fingerprint the effective definition (with the link overrides), the same dict the calc
-            # activity computes and every reader (timeseries sync, chart read) resolves. Hashing the raw
-            # saved query here would file override-configured metrics under a hash no reader looks up.
-            fingerprint = compute_metric_fingerprint(
-                resolve_saved_metric_definition(saved_metric.query, exp_to_saved_metric.metadata),
-                experiment.start_date,
-                get_experiment_stats_method(experiment),
-                experiment.exposure_criteria,
-                only_count_matured_users=experiment.only_count_matured_users,
-                excluded_variants=experiment.excluded_variants,
-            )
+            fingerprint = calculation_keys.get(exp_to_saved_metric.id)
+            if fingerprint is None:
+                # The experiment lost this link after the discovery query read it.
+                continue
 
             experiment_metrics.append(
                 ExperimentSavedMetricInput(

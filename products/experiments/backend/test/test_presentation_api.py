@@ -42,13 +42,11 @@ from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.experiment_service import ExperimentService
-from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
     EXPERIMENT_EXPOSURE_EVENT_FLAG,
 )
-from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
-from products.experiments.backend.metric_resolution import find_metric_dict
+from products.experiments.backend.metric_calculation.spec import plan_metric
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_GROUP_KEY,
     EXPOSURE_FROZEN_GROUP_MARKER,
@@ -504,6 +502,31 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         # Query count must stay flat as rows grow — five experiments must not cost more than one.
         self.assertLessEqual(len(five_rows.captured_queries), len(single_row.captured_queries))
+        # The list serializer stamps no calculation keys, so the saved metrics cost no extra query.
+        self.assertEqual(len(five_rows.captured_queries), 15)
+
+    def test_experiment_detail_with_saved_metrics_reads_each_relation_once(self) -> None:
+        experiment = self._create_fully_populated_experiment(0)
+        second_saved_metric = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name="Second saved metric",
+            created_by=self.user,
+            query={"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "EventsNode", "event": "b"}},
+        )
+        ExperimentToSavedMetric.objects.create(
+            experiment=experiment, saved_metric=second_saved_metric, metadata={"type": "secondary"}
+        )
+        self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}/")
+
+        # The saved-metric fingerprints reuse the prefetched links and add one read of the team's
+        # experiment settings, whatever the number of saved metrics.
+        with self.assertNumQueries(17):
+            response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        fingerprints = [saved_metric["query"].get("fingerprint") for saved_metric in response.json()["saved_metrics"]]
+        self.assertEqual(len(fingerprints), 2)
+        self.assertTrue(all(fingerprints))
 
     def _create_experiment_with_action_metrics(self, index: int) -> tuple[Experiment, Action]:
         action = Action.objects.create(team=self.team, name=f"Action {index}", steps_json=[{"event": f"event_{index}"}])
@@ -1287,31 +1310,13 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         experiment = Experiment.objects.get(pk=experiment_response.json()["id"])
         saved_query = experiment.saved_metrics.first().query  # type: ignore[union-attr]
-        fingerprint_args = (
-            experiment.start_date,
-            get_experiment_stats_method(experiment),
-            experiment.exposure_criteria,
-        )
-        effective_definition = find_metric_dict(experiment, saved_query["uuid"])
-        assert effective_definition is not None
-        expected = compute_metric_fingerprint(
-            effective_definition,
-            *fingerprint_args,
-            only_count_matured_users=experiment.only_count_matured_users,
-            excluded_variants=experiment.excluded_variants or [],
-        )
-        self.assertEqual(stamped, expected)
+        spec = plan_metric(experiment, saved_query["uuid"])
+        assert spec is not None
+        self.assertEqual(stamped, spec.calculation_key())
         # The raw query hashes differently when real breakdowns exist, so a stamp computed on it would
         # point the chart at rows that do not exist.
-        self.assertNotEqual(
-            stamped,
-            compute_metric_fingerprint(
-                saved_query,
-                *fingerprint_args,
-                only_count_matured_users=experiment.only_count_matured_users,
-                excluded_variants=experiment.excluded_variants or [],
-            ),
-        )
+        raw_query_spec = spec.settings.spec_for(metric_id=spec.metric_id, role=spec.role, definition=saved_query)
+        self.assertNotEqual(stamped, raw_query_spec.calculation_key())
 
     def test_saved_metrics(self):
         response = self.client.post(

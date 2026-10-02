@@ -19,10 +19,9 @@ from posthog.temporal.experiments.activities import (
 )
 from posthog.temporal.experiments.models import TIMESERIES_METRIC_MAX_ATTEMPTS
 
-from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
+from products.experiments.backend.facade.timeseries import metric_calculation_keys
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
-from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.models.experiment import (
     ExperimentMetricResult,
     ExperimentSavedMetric,
@@ -160,13 +159,7 @@ class TestTemporalRecalcWarmsResponseCache(ExperimentQueryRunnerBaseTest):
         # Two test-only workarounds: .func skips the @database_sync_to_async
         # wrapper, and patch stops the activity from closing the test's DB
         # connection mid-run. Same pattern as test_backfill.py.
-        fingerprint = compute_metric_fingerprint(
-            metric_dict,
-            experiment.start_date,
-            get_experiment_stats_method(experiment),
-            experiment.exposure_criteria,
-            only_count_matured_users=experiment.only_count_matured_users,
-        )
+        fingerprint = metric_calculation_keys(experiment.id, team_id=self.team.id).inline[metric_dict["uuid"]]
         with patch("posthog.temporal.experiments.activities.close_old_connections"):
             activity_result = _calculate_experiment_regular_metric_sync.func(  # type: ignore[attr-defined]
                 experiment.id, metric_dict["uuid"], fingerprint
@@ -204,7 +197,7 @@ class TestTemporalRecalcWarmsResponseCache(ExperimentQueryRunnerBaseTest):
         )
         # No breakdowns on the link metadata — mirrors the production scenario
         # where the frontend still wraps the metric with breakdownFilter: {breakdowns: []}.
-        ExperimentToSavedMetric.objects.create(
+        saved_metric_link = ExperimentToSavedMetric.objects.create(
             experiment=experiment,
             saved_metric=saved_metric,
             metadata={"type": "primary"},
@@ -235,13 +228,7 @@ class TestTemporalRecalcWarmsResponseCache(ExperimentQueryRunnerBaseTest):
                 )
         flush_persons_and_events()
 
-        fingerprint = compute_metric_fingerprint(
-            metric_dict,
-            experiment.start_date,
-            get_experiment_stats_method(experiment),
-            experiment.exposure_criteria,
-            only_count_matured_users=experiment.only_count_matured_users,
-        )
+        fingerprint = metric_calculation_keys(experiment.id, team_id=self.team.id).saved[saved_metric_link.id]
 
         # Build the metric the way /query sees it for saved metrics:
         # fingerprint added by the API serializer (presentation/serializers.py)
