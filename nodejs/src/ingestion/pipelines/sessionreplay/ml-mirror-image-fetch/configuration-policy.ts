@@ -26,7 +26,8 @@ const JSON_ARRAY_START_BYTE = '['.charCodeAt(0)
 
 export type ConfigurationFetchResult =
     | { outcome: 'available'; body: string; cache: HttpCacheMetadata }
-    | { outcome: 'absent' | 'refused' | 'unreachable'; cache?: HttpCacheMetadata }
+    | { outcome: 'absent'; cache?: HttpCacheMetadata; nonArrayBody?: boolean }
+    | { outcome: 'refused' | 'unreachable'; cache?: HttpCacheMetadata }
     | { outcome: 'deferred'; reason: ConfigurationRequestBlockReason }
 
 export type ConfigurationRequestBlockReason =
@@ -180,8 +181,12 @@ export class HttpConfigurationFetcher {
         }
         const body = await response.read(CONFIG_BODY_LIMIT)
         // This check comes before the size and UTF-8 checks, so that an oversized or non-UTF-8 HTML page also means that the origin has no tdmrep.json (README 3.14).
-        if (file === 'tdmrep' && !canStartJsonArray(body.bytes)) {
-            return complete({ kind: 'done', result: { outcome: 'absent', cache }, reason: 'not_json_array' })
+        if (file === 'tdmrep' && cannotBeJsonArray(body)) {
+            return complete({
+                kind: 'done',
+                result: { outcome: 'absent', cache, nonArrayBody: true },
+                reason: 'not_json_array',
+            })
         }
         if (body.overLimit && file === 'tdmrep') {
             return complete({ kind: 'done', result: { outcome: 'unreachable', cache }, reason: 'body_limit' })
@@ -364,7 +369,13 @@ export class ConfigurationPolicyService {
                 deferredReason: fetched.reason,
             }
         }
-        if (fetched.outcome === 'unreachable' && previous && previous.status !== 'unreachable') {
+        const nonArrayBodyReplacesFile =
+            fetched.outcome === 'absent' && fetched.nonArrayBody === true && previous?.status === 'available'
+        if (
+            (fetched.outcome === 'unreachable' || nonArrayBodyReplacesFile) &&
+            previous &&
+            previous.status !== 'unreachable'
+        ) {
             const retained = {
                 ...previous,
                 refreshAtMs: nowMs + CONFIG_RETRY_MS,
@@ -567,12 +578,20 @@ function isTdmReservation(value: unknown): boolean {
     return value === 1 || value === '1' || value === true
 }
 
-function canStartJsonArray(bytes: Uint8Array): boolean {
+function cannotBeJsonArray(body: { bytes: Uint8Array; overLimit: boolean }): boolean {
+    const firstByte = firstByteAfterJsonWhitespace(body.bytes)
+    if (firstByte === undefined) {
+        return !body.overLimit
+    }
+    return firstByte !== JSON_ARRAY_START_BYTE
+}
+
+function firstByteAfterJsonWhitespace(bytes: Uint8Array): number | undefined {
     let index = hasUtf8ByteOrderMark(bytes) ? UTF8_BYTE_ORDER_MARK.length : 0
     while (index < bytes.length && JSON_WHITESPACE_BYTES.has(bytes[index])) {
         index++
     }
-    return bytes[index] === JSON_ARRAY_START_BYTE
+    return index < bytes.length ? bytes[index] : undefined
 }
 
 function hasUtf8ByteOrderMark(bytes: Uint8Array): boolean {

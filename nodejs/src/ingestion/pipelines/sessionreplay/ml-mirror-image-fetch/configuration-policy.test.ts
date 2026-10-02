@@ -336,6 +336,33 @@ describe('ConfigurationPolicyService', () => {
         })
     })
 
+    it.each([
+        {
+            description: 'keeps a cached TDMRep file',
+            cachedTdmrep: [
+                [
+                    configurationCacheKey(ORIGIN, 'tdmrep'),
+                    {
+                        ...cached('tdmrep', 'available', JSON.stringify([{ location: '/', 'tdm-reservation': 1 }])),
+                        refreshAtMs: NOW_MS - 1,
+                    },
+                ] as const,
+            ],
+            status: 'available',
+            tdmrepReservation: true,
+        },
+        { description: 'records an absent TDMRep file', cachedTdmrep: [], status: 'absent', tdmrepReservation: false },
+    ])('$description when a refresh returns a non-array body', async ({ cachedTdmrep, status, tdmrepReservation }) => {
+        const { policy } = service({ tdmrep: { outcome: 'absent', nonArrayBody: true } })
+        const cache = new Map([[configurationCacheKey(ORIGIN, 'robots'), cached('robots', 'absent')], ...cachedTdmrep])
+
+        await expect(policy.check(`${ORIGIN}/image.png`, cache, NOW_MS)).resolves.toMatchObject({
+            allowed: true,
+            tdmrepReservation,
+            updates: [expect.objectContaining({ kind: 'tdmrep', status })],
+        })
+    })
+
     it('keeps a previous usable file when its refresh is unreachable', async () => {
         const { policy } = service({ robots: { outcome: 'unreachable' } })
         const previous = { ...cached('robots', 'absent'), refreshAtMs: NOW_MS - 1 }
@@ -444,65 +471,79 @@ describe('HttpConfigurationFetcher', () => {
             description: 'a string reservation',
             bytes: Buffer.from('[{"location": "/", "tdm-reservation": "1"}]'),
             overLimit: false,
-            outcome: 'available',
+            result: { outcome: 'available' },
             reason: 'available',
         },
         {
             description: 'a byte order mark and leading whitespace',
             bytes: Buffer.from('\uFEFF\n  []'),
             overLimit: false,
-            outcome: 'available',
+            result: { outcome: 'available' },
             reason: 'available',
         },
         {
             description: 'a damaged array',
             bytes: Buffer.from('[{"location": "/",'),
             overLimit: false,
-            outcome: 'unreachable',
+            result: { outcome: 'unreachable' },
             reason: 'invalid_document',
         },
         {
             description: 'an oversized array',
             bytes: Buffer.from('[]'),
             overLimit: true,
-            outcome: 'unreachable',
+            result: { outcome: 'unreachable' },
             reason: 'body_limit',
+        },
+        {
+            description: 'an oversized whitespace prefix',
+            bytes: Buffer.from('\uFEFF \n\t '),
+            overLimit: true,
+            result: { outcome: 'unreachable' },
+            reason: 'body_limit',
+        },
+        {
+            description: 'an empty body',
+            bytes: Buffer.alloc(0),
+            overLimit: false,
+            result: { outcome: 'absent', nonArrayBody: true },
+            reason: 'not_json_array',
         },
         {
             description: 'an HTML page',
             bytes: Buffer.from('<!doctype html><title>Home</title>'),
             overLimit: false,
-            outcome: 'absent',
+            result: { outcome: 'absent', nonArrayBody: true },
             reason: 'not_json_array',
         },
         {
             description: 'a JSON object',
             bytes: Buffer.from('{"error": "not found"}'),
             overLimit: false,
-            outcome: 'absent',
+            result: { outcome: 'absent', nonArrayBody: true },
             reason: 'not_json_array',
         },
         {
             description: 'an oversized HTML page',
             bytes: Buffer.from('<!doctype html>'),
             overLimit: true,
-            outcome: 'absent',
+            result: { outcome: 'absent', nonArrayBody: true },
             reason: 'not_json_array',
         },
         {
             description: 'a Latin-1 HTML page',
             bytes: Buffer.from('<p>caf\u00e9</p>', 'latin1'),
             overLimit: false,
-            outcome: 'absent',
+            result: { outcome: 'absent', nonArrayBody: true },
             reason: 'not_json_array',
         },
-    ])('maps a TDMRep body with $description to $outcome', async ({ bytes, overLimit, outcome, reason }) => {
+    ])('maps a TDMRep body with $description to $result.outcome', async ({ bytes, overLimit, result, reason }) => {
         fetchStreamedMock.mockResolvedValue(response(200, [], { bytes, overLimit }))
 
-        await expect(httpFetcher().fetch(ORIGIN, 'tdmrep')).resolves.toMatchObject({ outcome })
+        await expect(httpFetcher().fetch(ORIGIN, 'tdmrep')).resolves.toEqual(expect.objectContaining(result))
         const fetches = await register.getSingleMetric('ml_image_fetch_configuration_fetches_total')!.get()
         expect(fetches.values).toEqual([
-            expect.objectContaining({ labels: { file: 'tdmrep', outcome, reason }, value: 1 }),
+            expect.objectContaining({ labels: { file: 'tdmrep', outcome: result.outcome, reason }, value: 1 }),
         ])
     })
 
