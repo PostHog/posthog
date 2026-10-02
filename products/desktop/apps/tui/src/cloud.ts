@@ -2,7 +2,9 @@ import { appendFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PostHogAPIClient } from "@posthog/api-client/posthog-client";
+import type { AuthService } from "@posthog/core/auth/auth";
 import { createCloudTaskEngine } from "@posthog/core/cloud-task/cloud-task-engine";
+import { GatewayTokenService } from "@posthog/core/llm-gateway/gateway-token";
 import type { RootLogger, ScopedLogger } from "@posthog/di/logger";
 import type { IAnalytics } from "@posthog/platform/analytics";
 import { TRANSCRIPT_TAIL_WINDOW } from "@posthog/shared";
@@ -12,7 +14,6 @@ import type {
   AgentMcpApps,
 } from "@posthog/workspace-server/services/agent/ports";
 import { AuthProxyService } from "@posthog/workspace-server/services/auth-proxy/auth-proxy";
-import type { GatewayCredentialSource } from "@posthog/workspace-server/services/auth-proxy/ports";
 import { McpProxyService } from "@posthog/workspace-server/services/mcp-proxy/mcp-proxy";
 import { LocalPiRpcClientFactory } from "@posthog/workspace-server/services/pi-session/pi-rpc-client-factory";
 import type { TuiAuth } from "./auth";
@@ -98,13 +99,6 @@ const noMcpApps: AgentMcpApps = {
   cleanup: async () => {},
 };
 
-// The TUI mints no gateway tokens, so local pi sessions route through the legacy gateway.
-const legacyGateway: GatewayCredentialSource = {
-  getRoute: async () => ({ mode: "legacy", reason: "tui" }),
-  remint: async () => null,
-  fallBack: () => {},
-};
-
 export function createCloud(
   auth: TuiAuth,
   api: PostHogAPIClient,
@@ -171,10 +165,28 @@ export function createCloud(
     authenticatedFetch: (fetch, input, init) =>
       authenticatedFetch(auth, fetch)(input, init),
   };
+  // createCloud runs once per sign-in, so the auth state the token service reads never changes.
+  const gateway = new GatewayTokenService(
+    {
+      getValidAccessToken: agentAuth.getValidAccessToken,
+      authenticatedFetch: authenticatedFetch(auth),
+    },
+    { goEnabled: true, override: null },
+    {
+      getState: () => ({
+        status: "authenticated",
+        cloudRegion: auth.region,
+        currentProjectId: projectId,
+      }),
+      on: () => {},
+    } as unknown as AuthService,
+    logger,
+  );
   // The same auth proxy, MCP servers and gateway attribution the desktop app gives local pi sessions.
   const authProxy = new AuthProxyService(
     { authenticatedFetch: authenticatedFetch(auth) },
     logger,
+    gateway,
   );
   const mcp = new AgentAuthAdapter(
     agentAuth,
@@ -187,7 +199,7 @@ export function createCloud(
       logger,
     ),
     logger,
-    legacyGateway,
+    gateway,
   );
   const piClients = new LocalPiRpcClientFactory(
     agentAuth,
@@ -195,7 +207,7 @@ export function createCloud(
     mcp,
     noMcpApps,
     logger,
-    legacyGateway,
+    gateway,
   );
   const localChats = new LocalChats();
   const sendPi: PiCommand = async (input) =>

@@ -8,7 +8,7 @@ import {
   GATEWAY_TOKEN_HOST,
   type GatewayTokenHost,
   LLM_GATEWAY_HOST,
-  type LlmGatewayHost,
+  type LlmGatewayAuth,
   type LlmGatewayLogger,
 } from "./identifiers";
 import {
@@ -65,7 +65,7 @@ export class GatewayTokenService {
 
   constructor(
     @inject(LLM_GATEWAY_HOST)
-    private readonly host: LlmGatewayHost,
+    private readonly host: LlmGatewayAuth,
     @inject(GATEWAY_TOKEN_HOST)
     private readonly config: GatewayTokenHost,
     @inject(AUTH_SERVICE)
