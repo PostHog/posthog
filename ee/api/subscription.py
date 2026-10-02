@@ -1022,10 +1022,7 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
         )
         if blocked_names:
             blocked = ", ".join(f"`{name}`" for name in blocked_names)
-            raise ValidationError(
-                f"Can't save this subscription: you don't have access to {blocked}, "
-                "which its queries use. Ask an admin for access, or choose insights you can query."
-            )
+            raise ValidationError(f"Can't save this subscription: you don't have access to {blocked}.")
         attrs["query_access_verified_at"] = timezone.now()
 
     def _is_becoming_active_summary(self, attrs: dict) -> bool:
