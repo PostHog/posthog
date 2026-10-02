@@ -110,6 +110,13 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
     def _trends_query(self, **kwargs: Any) -> dict[str, Any]:
         return TrendsQuery(**kwargs).model_dump()
 
+    def _compare_mode_rollout(self):
+        """Eligibility is re-checked on every materialized read, not just when materializing."""
+        return mock.patch(
+            "products.endpoints.backend.models.posthoganalytics.feature_enabled",
+            return_value=True,
+        )
+
     # =========================================================================
     # TRENDS
     # =========================================================================
@@ -436,10 +443,7 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
             inline_response = self._run_endpoint(endpoint)
             assert inline_response.status_code == status.HTTP_200_OK
             inline_compare_range = inline_response.json()["resolved_compare_date_range"]
-            with mock.patch(
-                "products.endpoints.backend.models.posthoganalytics.feature_enabled",
-                return_value=True,
-            ):
+            with self._compare_mode_rollout():
                 saved_query = self._materialize_endpoint(endpoint, data_freshness_seconds=604800)
 
             flat_response = process_query_model(
@@ -451,6 +455,7 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
 
         with (
             time_machine.travel(materialized_at + timedelta(days=6), tick=False),
+            self._compare_mode_rollout(),
             mock.patch(
                 "products.endpoints.backend.logic.execution.process_query_model",
                 return_value=flat_response,

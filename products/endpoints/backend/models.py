@@ -122,11 +122,12 @@ def can_materialize_query(query: dict | None, team: Team | None = None) -> tuple
     assert query is not None
 
     compare_filter = query.get("compareFilter") or {}
-    compare_mode_supported = (
-        query_kind == "TrendsQuery" and team is not None and compare_mode_materialization_enabled(team)
-    )
-    if compare_filter.get("compare") and not compare_mode_supported:
-        return False, "Compare mode is not supported for materialized endpoints."
+    if compare_filter.get("compare"):
+        compare_mode_supported = (
+            query_kind == "TrendsQuery" and team is not None and compare_mode_materialization_enabled(team)
+        )
+        if not compare_mode_supported:
+            return False, "Compare mode is not supported for materialized endpoints."
 
     # Block cohort breakdowns — they produce a UNION ALL across cohorts, which
     # inject_series_index tags as separate series, causing a mismatch at read time.
