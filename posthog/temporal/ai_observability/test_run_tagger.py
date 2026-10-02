@@ -1,7 +1,7 @@
 import json
 import uuid
 import asyncio
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, TypedDict
 
 import pytest
@@ -863,7 +863,7 @@ class TestSkippedResultsStayOutOfErrorTracking:
         activity_error.__cause__ = exc_info.value
         with (
             patch("temporalio.workflow.deprecate_patch"),
-            patch("temporalio.workflow.now", return_value=datetime.now()),
+            patch("temporalio.workflow.now", return_value=datetime(2026, 1, 1, tzinfo=UTC)),
             patch("temporalio.workflow.execute_activity", side_effect=[tagger, activity_error]),
         ):
             result = asyncio.run(
