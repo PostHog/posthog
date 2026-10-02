@@ -4,6 +4,8 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -943,12 +945,14 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         expected = managed if clear_settings else {**managed, "widget_color": "#123456"}
         self.assertEqual(self.team.conversations_settings, expected)
 
-    @parameterized.expand([(TeamSerializer,), (ProjectBackwardCompatSerializer,)])
-    def test_conversations_settings_clear_rereads_team_before_merging(self, serializer_class: type) -> None:
-        # A null PATCH must merge the managed keys it preserves out of a freshly locked
-        # Team row, not out of the instance the serializer was handed. Otherwise a
-        # dedicated integration update that commits between the request's snapshot and
-        # the save gets clobbered by the whole-blob write, restoring stale state.
+    @parameterized.expand(
+        [(TeamSerializer, "null"), (ProjectBackwardCompatSerializer, "null"), (TeamSerializer, "enabled")]
+    )
+    def test_conversations_settings_clear_rereads_team_before_merging(self, serializer_class: type, mode: str) -> None:
+        # A conversations PATCH must read the team row it writes from under the lock, not
+        # from the instance the serializer was handed. Otherwise a dedicated integration
+        # update that commits between the request's snapshot and the save gets clobbered
+        # by the whole-blob write, restoring stale state.
         self.team.conversations_settings = {"widget_color": "#123456"}
         self.team.save()
 
@@ -967,22 +971,41 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             return real_select_for_update(*args, **kwargs)
 
         real_select_for_update = Team.objects.select_for_update
-        with patch.object(Team.objects, "select_for_update", simulate_integration_update):
-            if serializer_class is TeamSerializer:
-                TeamSerializer(context={"request": MagicMock(user=self.user)}).update(
-                    self.team, {"conversations_settings": None}
-                )
-            else:
-                request = APIRequestFactory().patch("/", {"conversations_settings": None}, format="json")
-                request.user = self.user
-                ProjectBackwardCompatSerializer(context={"request": request, "view": None}).update(
-                    self.project, {"conversations_settings": None}
-                )
+        if mode == "null":
+            payload: dict[str, Any] = {"conversations_settings": None}
+        else:
+            payload = {"conversations_enabled": True}
+
+        with CaptureQueriesContext(connection) as queries:
+            with patch.object(Team.objects, "select_for_update", simulate_integration_update):
+                if serializer_class is TeamSerializer:
+                    TeamSerializer(context={"request": MagicMock(user=self.user)}).update(self.team, payload)
+                else:
+                    request = APIRequestFactory().patch("/", payload, format="json")
+                    request.user = self.user
+                    ProjectBackwardCompatSerializer(context={"request": request, "view": None}).update(
+                        self.project, payload
+                    )
 
         self.team.refresh_from_db()
-        self.assertEqual(
-            self.team.conversations_settings, {"widget_public_token": "integration-token", "teams_enabled": True}
-        )
+        if mode == "enabled":
+            # The enable path finds the token the integration update just wrote, so it
+            # keeps that whole blob rather than re-minting.
+            expected: dict[str, Any] = {
+                "widget_color": "#123456",
+                "widget_public_token": "integration-token",
+                "teams_enabled": True,
+            }
+        else:
+            expected = {"widget_public_token": "integration-token", "teams_enabled": True}
+        self.assertEqual(self.team.conversations_settings, expected)
+
+        # The blob must be written exactly once by this request, inside the lock. The
+        # first captured UPDATE is the simulated integration write; a second one after
+        # the lock is released would clobber an integration writer queued on it.
+        settings_saves = [q for q in queries.captured_queries if q["sql"].startswith('UPDATE "posthog_team"')]
+        self.assertEqual(len(settings_saves), 2, [q["sql"][:120] for q in settings_saves])
+        self.assertIn("integration-token", settings_saves[0]["sql"])
 
     def test_generate_conversations_public_token(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
