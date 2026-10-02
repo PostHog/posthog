@@ -13,6 +13,7 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.models.user import User
 
 from ..facade import api, contracts
+from .query_concurrency import query_concurrency_slots
 from .trace_ids import MalformedTraceIdSegmentError, decode_trace_id_segment
 
 
@@ -48,6 +49,7 @@ class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             200: OpenApiResponse(response=contracts.Trace),
             400: OpenApiResponse(description="The timestamp hint or the encoded trace id is malformed."),
             404: OpenApiResponse(description="No trace with this id in the project."),
+            429: OpenApiResponse(description="Too many queries are running for the project or organization."),
         },
         operation_id="ai_observability_traces_retrieve",
     )
@@ -60,7 +62,8 @@ class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         tag_queries(feature=Feature.QUERY)
         user = request.user if isinstance(request.user, User) else None
         try:
-            trace = api.get_trace(self.team, user, trace_id, request.validated_query_data.get("timestamp_hint"))
+            with query_concurrency_slots(self.team):
+                trace = api.get_trace(self.team, user, trace_id, request.validated_query_data.get("timestamp_hint"))
         except api.TraceNotFoundError:
             return Response({"detail": "Trace not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(trace.model_dump(mode="json", by_alias=True))

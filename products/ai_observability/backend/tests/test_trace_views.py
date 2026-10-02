@@ -2,9 +2,11 @@ import base64
 from datetime import UTC, datetime
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, RateLimit
 from posthog.constants import AvailableFeature
 from posthog.models import Team
 from posthog.models.ai_events.test_util import bulk_create_ai_events
@@ -72,6 +74,29 @@ class TestTraceViewSet(ClickhouseTestMixin, APIBaseTest):
         _create_trace(self.team, "trace-1")
 
         assert self.client.get(self._url(segment), query).status_code == 400
+
+    @parameterized.expand([("browser session", False, "app_per_org"), ("personal api key", True, "api_per_team")])
+    def test_throttles_when_the_query_concurrency_limit_is_exhausted(
+        self, _name: str, with_api_key: bool, exhausted_limit: str
+    ) -> None:
+        _create_trace(self.team, "trace-1")
+        headers = {}
+        if with_api_key:
+            headers["authorization"] = f"Bearer {self.create_personal_api_key_with_scopes(['llm_analytics:read'])}"
+            self.client.logout()
+
+        def use(limiter: RateLimit, *args: object, **kwargs: object) -> ConcurrencySlot | None:
+            if limiter.limit_name == exhausted_limit:
+                raise ConcurrencyLimitExceeded(exhausted_limit)
+            return None
+
+        with (
+            patch("posthog.clickhouse.client.limit.TEST", False),
+            patch.object(RateLimit, "use", autospec=True, side_effect=use),
+        ):
+            response = self.client.get(self._url(_encode("trace-1")), headers=headers)
+
+        assert response.status_code == 429
 
 
 class TestTraceViewSetResourceLevelAccess(ClickhouseTestMixin, APIBaseTest):
