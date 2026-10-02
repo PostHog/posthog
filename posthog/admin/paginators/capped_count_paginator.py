@@ -1,4 +1,5 @@
 from django.core.paginator import Paginator
+from django.db.models import QuerySet
 from django.utils.functional import cached_property
 
 
@@ -12,4 +13,7 @@ class CappedCountPaginator(Paginator):
 
     @cached_property
     def count(self) -> int:
-        return self.object_list[: self.MAX_COUNT].count()
+        capped = self.object_list[: self.MAX_COUNT]
+        if isinstance(capped, QuerySet):
+            return capped.count()
+        return len(capped)
