@@ -598,7 +598,7 @@ function prFilesUrl(prUrl: string): string {
     return prUrl.replace(/\/+$/, '').replace(/(\/files)?$/, '/files')
 }
 
-/** The "Open in GitHub" button, shared by the page header and the summary's pull request note. */
+/** The "GitHub" button, shared by the page header and the summary's pull request note. */
 function OpenPullRequestButton({
     report,
     prUrl,
@@ -615,16 +615,16 @@ function OpenPullRequestButton({
             sideIcon={<IconExternal />}
             to={prFilesUrl(prUrl)}
             targetBlank
-            tooltip={`${prRef.repoSlug}#${prRef.number}`}
+            tooltip={`Open ${prRef.repoSlug}#${prRef.number} in GitHub`}
             onClick={() => captureInboxReportAction({ report, actionType: 'open_pr', surface: 'detail_pane' })}
         >
-            Open in GitHub
+            GitHub
         </LemonButton>
     )
 }
 
 /**
- * Unified report detail for Pull requests / Reports / Not actionable. The "Open in GitHub" action
+ * Unified report detail for Pull requests / Reports / Not actionable. The "GitHub" action
  * surfaces only when the report has a shipped implementation PR; otherwise it reads as a plain
  * report. Runs keep their own `AgentRunDetail`.
  */
