@@ -85,6 +85,11 @@ class TestElementBreakdownExpression(SimpleTestCase):
             ),
         )
 
+    @parameterized.expand(["selector", "id", "garbage"])
+    def test_unsupported_key_raises_query_error(self, key: str):
+        with self.assertRaises(QueryError):
+            element_property_key_to_breakdown_expr(key)
+
 
 class TestProperty(BaseTest):
     maxDiff = None
