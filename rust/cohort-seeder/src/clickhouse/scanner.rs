@@ -23,13 +23,17 @@ use super::client::ClickHouseClient;
 use super::log_comment::{ScanLogComment, LOG_COMMENT_OPTION};
 use super::row::{row_to_event, EventRow};
 use super::scan_volume::{self, ScanKind};
-use super::sql::{fits_client_get, plan_scan, row_filter_sql, scan_sql, ScanPlan, ScanSpec};
+use super::sql::{
+    ambiguous_value_probe_sql, fits_client_get, plan_scan, row_filter_sql, scan_sql, ScanPlan,
+    ScanSpec,
+};
 use crate::domain::{
     conditions_active_on, diff_tiles, ActiveConditions, AggregateError, CancelCause,
     ChunkAccumulator, ChunkDomainError, ChunkProjection, ChunkSpec, ClaimedChunk, ColumnExactKeys,
-    ConditionAnalyses, DayIdx, EventNameSet, Halted, MaterializedColumns, PinnedCondition,
-    PinnedRun, ProjectedKeys, PropertiesSourcing, RecordOutcome, RecordStats, ScanRowFilter,
-    ScanVolume, ScannedChunk, SeedDomain, SeedTile, SourcedProjection, TileDiff, UtcMillis,
+    ColumnUpgrade, ConditionAnalyses, DayIdx, EventNameSet, Halted, MaterializedColumns,
+    PinnedCondition, PinnedRun, ProjectedKeys, PropertiesSourcing, RecordOutcome, RecordStats,
+    ScanRowFilter, ScanVolume, ScannedChunk, SeedDomain, SeedTile, SourcedProjection, TileDiff,
+    UtcMillis,
 };
 use crate::observability::metrics::{
     team_label, MetricTimer, AGGREGATE_ENTRIES, CHUNKS_PROJECTED, CHUNKS_VACUOUS,
@@ -142,7 +146,18 @@ impl ChunkScanner {
         let columns = self
             .lookup_columns(&column_lookup_keys(&projection, &exact, &row_filter))
             .await;
-        let narrowed = narrow_scan(scan_spec, projection, &exact, &row_filter, &columns);
+        let comment = ScanLogComment::BehavioralChunk {
+            spec,
+            cohort_id: run.sole_cohort_id(),
+        };
+        let sourcing = match projection.source_properties(&exact, &columns) {
+            PropertiesSourcing::Upgradable(upgrade) => {
+                self.probe_ambiguous_values(&scan_spec, upgrade, comment, lease_cancel, shutdown)
+                    .await?
+            }
+            decided @ PropertiesSourcing::Decided(_) => decided,
+        };
+        let narrowed = narrow_scan(scan_spec, sourcing, &row_filter, &columns);
         self.record_narrowing(run.team_id, &narrowed);
         let scan_spec = narrowed.filtered.spec;
         let projection = narrowed.sourced.into_projection();
@@ -156,10 +171,7 @@ impl ChunkScanner {
                 &scan_spec,
                 &projection,
                 ScanKind::Behavioral,
-                ScanLogComment::BehavioralChunk {
-                    spec,
-                    cohort_id: run.sole_cohort_id(),
-                },
+                comment,
                 lease_cancel,
                 shutdown,
             )
@@ -346,6 +358,39 @@ impl ChunkScanner {
         Ok(())
     }
 
+    /// The column form reads a column value that trims to `false` as the boolean, which the VM
+    /// equates with every exact literal, while the string `"false"` equals none. Only the blob holds
+    /// the type, so a chunk with such a value keeps the rebuild.
+    async fn probe_ambiguous_values(
+        &self,
+        spec: &ScanSpec,
+        upgrade: ColumnUpgrade,
+        comment: ScanLogComment,
+        lease_cancel: &CancellationToken,
+        shutdown: &CancellationToken,
+    ) -> Result<PropertiesSourcing, ScanHalt> {
+        let sql = ambiguous_value_probe_sql(spec, upgrade.backed());
+        // The column form's scan is longer than the probe, so it would not fit either.
+        if !fits_client_get(&sql) {
+            return Ok(PropertiesSourcing::Decided(upgrade.decline_too_long()));
+        }
+        let probe = self
+            .client
+            .query(&sql)
+            .with_option(LOG_COMMENT_OPTION, comment.to_string())
+            .fetch_optional::<u8>();
+        let found = tokio::select! {
+            biased;
+            _ = shutdown.cancelled() => return Err(ScanHalt::Cancelled(CancelCause::Shutdown)),
+            _ = lease_cancel.cancelled() => return Err(ScanHalt::Cancelled(CancelCause::LeaseLost)),
+            found = probe => found.map_err(ScanError::Probe)?,
+        };
+        Ok(match found {
+            Some(_) => PropertiesSourcing::Decided(upgrade.decline_ambiguous_value()),
+            None => PropertiesSourcing::Upgradable(upgrade),
+        })
+    }
+
     /// A failed or timed-out lookup returns no columns, so the scan reads the blob.
     async fn lookup_columns(&self, keys: &BTreeSet<&str>) -> MaterializedColumns {
         match tokio::time::timeout(
@@ -419,15 +464,14 @@ struct FilteredSpec {
 /// Columns take the GET budget before the row filter: they keep ClickHouse off every row's blob.
 fn narrow_scan(
     spec: ScanSpec,
-    projection: ChunkProjection,
-    exact: &ColumnExactKeys,
+    sourcing: PropertiesSourcing,
     row_filter: &ScanRowFilter,
     columns: &MaterializedColumns,
 ) -> NarrowedScan {
-    let sourced = match projection.source_properties(exact, columns) {
+    let sourced = match sourcing {
         PropertiesSourcing::Decided(sourced) => sourced,
         PropertiesSourcing::Upgradable(upgrade)
-            if fits_client_get(&scan_sql(&spec, upgrade.column_form())) =>
+            if fits_client_get(&scan_sql(&spec, &upgrade.column_form())) =>
         {
             upgrade.accept()
         }
@@ -780,6 +824,8 @@ pub enum ScanError {
     Domain(#[from] ChunkDomainError),
     #[error("building ClickHouse scan cursor")]
     Query(#[source] clickhouse::error::Error),
+    #[error("probing ClickHouse for ambiguous column values")]
+    Probe(#[source] clickhouse::error::Error),
     #[error("streaming ClickHouse scan cursor")]
     Cursor(#[source] clickhouse::error::Error),
     #[error("aggregating ClickHouse scan row")]
@@ -992,11 +1038,12 @@ mod tests {
             TeamAllowlist::Only(std::collections::HashSet::from([2, 3])),
             false,
         );
-        let narrow = |projection, exact: &ColumnExactKeys, columns: &MaterializedColumns| {
+        let narrow = |projection: ChunkProjection,
+                      exact: &ColumnExactKeys,
+                      columns: &MaterializedColumns| {
             narrow_scan(
                 pageview_spec(),
-                projection,
-                exact,
+                projection.source_properties(exact, columns),
                 &ScanRowFilter::default(),
                 columns,
             )
@@ -1275,7 +1322,7 @@ mod tests {
         else {
             panic!("six exact keys with columns can be read from columns");
         };
-        let column_form = upgrade.column_form().clone();
+        let column_form = upgrade.column_form();
         let filter_fits_beside = |projection: &ChunkProjection, literal_len: usize| {
             let row_filter = row_filter_on("key_00", &"x".repeat(literal_len));
             fit_row_filter(spec.clone(), &row_filter, &columns, projection).outcome
@@ -1294,8 +1341,7 @@ mod tests {
 
         let near_the_limit = narrow_scan(
             spec.clone(),
-            rebuilt(6),
-            &exact,
+            rebuilt(6).source_properties(&exact, &columns),
             &row_filter_on("key_00", &"x".repeat(literal_len)),
             &columns,
         );
@@ -1306,8 +1352,7 @@ mod tests {
 
         let short = narrow_scan(
             spec.clone(),
-            rebuilt(6),
-            &exact,
+            rebuilt(6).source_properties(&exact, &columns),
             &row_filter_on("key_00", "x"),
             &columns,
         );

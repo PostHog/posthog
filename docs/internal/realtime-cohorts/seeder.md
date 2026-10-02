@@ -404,14 +404,16 @@ HogVM equality gives the same answer for both only when the condition compares t
 2. **Deciding per chunk.**
    The scan uses columns only when every projected key qualifies and has a column.
    One key left on the blob would read the whole blob again.
+   A column value that reads as `false` can be the boolean or the string `"false"`, and the VM equates the boolean with every literal that is not `true`.
+   An over-counted tile stays, because the processor applies the larger of the live and seeded counts.
+   So before it uses columns, the scan asks ClickHouse for one row of the chunk where such a column trims to `false`, which reads only the columns.
+   If one exists, the chunk keeps the rebuild.
    The scan also keeps the rebuild when the column form makes the query too long to send by GET.
    When the column form and the row filter do not both fit, the row filter is dropped, because the columns keep ClickHouse off the blob for every row.
    The shadow compare's wide arm still reads the blob, so the compare checks the columns against it.
 
 Some rows still differ, because the column has no type:
 
-- **A string whose text is `false`**, with or without spaces around it, comes back as the boolean, and the VM equates `false` with any literal that is not `true`.
-  Such a row matches every exact equality on that key (over-count).
 - **A blob ClickHouse cannot parse**, such as one holding an integer past 64 bits, stores `''` in every column, while `serde_json` reads the blob (under-count).
 - **A string whose text is JSON nested deeper than 128 levels** comes back typed, so the rebuilt object fails to parse and the row is skipped (under-count).
 - **A blob that does not parse at all, or whose root is an array**, still becomes an object, so the row is evaluated on its other globals where the live path drops it (over-count).
@@ -420,17 +422,6 @@ Some rows still differ, because the column has no type:
 `tests/ch_materialized_properties.rs` checks against a live ClickHouse that only these rows differ, with the VM as the oracle.
 A column holds the first value of a repeated key where `serde_json` reads the last, which the row filter already assumes never happens.
 
-The first residual can reach any key with a trim-quotes column, not only URL keys.
-An over-counted tile stays, because the processor applies the larger of the live and seeded counts.
-So before a run on a new team, count the string `false` in each column the run will read, for the run's event names over its lookback:
-
-```sql
-SELECT count() FROM events
-WHERE team_id = <team> AND event IN (<event names>) AND trim(BOTH ' ' FROM `mat_<key>`) = 'false'
-```
-
-A count above zero needs a second look with `JSONType(properties, '<key>')` on those rows, because a boolean `false` reads the same in the column and is not a residual.
-
 A column must also be stored in the parts the scan reads.
 ClickHouse computes a column added after the data was written from `properties` at read time, until a merge or `ALTER TABLE ... MATERIALIZE COLUMN` stores it.
 The materializer backfills only `MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS`, which defaults to 0.
@@ -438,7 +429,8 @@ So check `system.parts_columns` for the lookback before a long run: an old parti
 
 `seeder_scan_properties_source_total{source}` reports per chunk where `properties` came from.
 `columns` and `empty` keep ClickHouse off the blob.
-`rebuilt_inexact_key`, `rebuilt_no_column` and `rebuilt_too_long` name why a chunk kept the rebuild, and `rebuilt_no_column` includes a failed or timed-out lookup.
+`rebuilt_inexact_key`, `rebuilt_no_column`, `rebuilt_ambiguous_value` and `rebuilt_too_long` name why a chunk kept the rebuild, and `rebuilt_no_column` includes a failed or timed-out lookup.
+A chunk that reads a key holding the boolean `false`, such as a flag response, counts under `rebuilt_ambiguous_value`.
 
 ### ClickHouse settings
 

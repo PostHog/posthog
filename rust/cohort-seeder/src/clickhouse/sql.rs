@@ -96,12 +96,6 @@ pub fn scan_sql(spec: &ScanSpec, projection: &ChunkProjection) -> String {
         ChunkProjection::FullColumns => render_select_list(&ColumnPlan::full()),
         ChunkProjection::Projected(plan) => render_select_list(plan),
     };
-    let event_names = spec
-        .event_names
-        .iter()
-        .map(|name| clickhouse_string_literal(name))
-        .collect::<Vec<_>>()
-        .join(", ");
     let row_filter = spec
         .row_filter
         .as_ref()
@@ -117,16 +111,49 @@ pub fn scan_sql(spec: &ScanSpec, projection: &ChunkProjection) -> String {
     };
 
     format!(
-        "SELECT {}\nFROM events AS e\nLEFT JOIN (\n    SELECT distinct_id, argMax(person_id, version) AS person_id\n    FROM person_distinct_id_overrides\n    WHERE team_id = {}\n    GROUP BY distinct_id\n    HAVING argMax(is_deleted, version) = 0\n) AS ov ON e.distinct_id = ov.distinct_id\nWHERE e.team_id = {}\n  AND e.timestamp >= fromUnixTimestamp64Milli({})\n  AND e.timestamp < fromUnixTimestamp64Milli({})\n  AND e.event IN ({})\n  AND coalesce(e.inserted_at, e._timestamp) < fromUnixTimestamp64Milli({}){}{}",
+        "SELECT {}\nFROM events AS e\nLEFT JOIN (\n    SELECT distinct_id, argMax(person_id, version) AS person_id\n    FROM person_distinct_id_overrides\n    WHERE team_id = {}\n    GROUP BY distinct_id\n    HAVING argMax(is_deleted, version) = 0\n) AS ov ON e.distinct_id = ov.distinct_id\nWHERE {}{}{}",
         select_list,
         spec.team_id.0,
-        spec.team_id.0,
-        spec.day_start_ms,
-        spec.day_end_ms,
-        event_names,
-        spec.s_chunk_ms,
+        chunk_rows_sql(spec),
         row_filter,
         band_predicate,
+    )
+}
+
+/// Finds a row of the chunk where a column the scan would read cannot tell the boolean `false` from
+/// the string `"false"`. It leaves out only the row filter and the band, so it reads every row the
+/// scan can read.
+pub fn ambiguous_value_probe_sql(spec: &ScanSpec, columns: &ColumnBackedKeys) -> String {
+    format!(
+        "SELECT 1\nFROM events AS e\nWHERE {}\n  AND {}\nLIMIT 1",
+        chunk_rows_sql(spec),
+        ambiguous_values_sql(columns),
+    )
+}
+
+/// True where [`columns_object_expr`] would build the boolean `false`. A string keeps its spaces in
+/// the column, and JSON reads ` false ` as the boolean. Tabs and line breaks stay escaped.
+pub fn ambiguous_values_sql(columns: &ColumnBackedKeys) -> String {
+    join_terms(
+        columns.iter().map(|(_, column)| {
+            format!("trim(BOTH ' ' FROM {}) = 'false'", column_reference(column))
+        }),
+        "OR",
+    )
+}
+
+/// One team, one day, the chunk's event names, and only rows inserted before the chunk's claim.
+/// The claim is in the past, so every query over the chunk reads the same rows.
+fn chunk_rows_sql(spec: &ScanSpec) -> String {
+    let event_names = spec
+        .event_names
+        .iter()
+        .map(|name| clickhouse_string_literal(name))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "e.team_id = {}\n  AND e.timestamp >= fromUnixTimestamp64Milli({})\n  AND e.timestamp < fromUnixTimestamp64Milli({})\n  AND e.event IN ({})\n  AND coalesce(e.inserted_at, e._timestamp) < fromUnixTimestamp64Milli({})",
+        spec.team_id.0, spec.day_start_ms, spec.day_end_ms, event_names, spec.s_chunk_ms,
     )
 }
 
@@ -584,13 +611,18 @@ mod tests {
 
     #[test]
     fn column_backed_properties_read_each_key_from_its_column() {
+        let columns = backed(&[
+            ("$current_url", "mat_$current_url"),
+            ("$pathname", "mat_$pathname"),
+        ]);
+        assert_eq!(
+            ambiguous_value_probe_sql(&unbanded_spec(), &columns),
+            "SELECT 1\nFROM events AS e\nWHERE e.team_id = 2\n  AND e.timestamp >= fromUnixTimestamp64Milli(86400000)\n  AND e.timestamp < fromUnixTimestamp64Milli(172800000)\n  AND e.event IN ('purchase')\n  AND coalesce(e.inserted_at, e._timestamp) < fromUnixTimestamp64Milli(200000000)\n  AND (trim(BOTH ' ' FROM e.`mat_$current_url`) = 'false' OR trim(BOTH ' ' FROM e.`mat_$pathname`) = 'false')\nLIMIT 1"
+        );
         let projection = ChunkProjection::Projected(ColumnPlan {
             uuid: ScalarColumn::Empty,
             elements_chain: ScalarColumn::Empty,
-            properties: PropertiesSource::Columns(backed(&[
-                ("$current_url", "mat_$current_url"),
-                ("$pathname", "mat_$pathname"),
-            ])),
+            properties: PropertiesSource::Columns(columns),
             person_properties: BlobSource::Empty,
         });
         let sql = scan_sql(&unbanded_spec(), &projection);

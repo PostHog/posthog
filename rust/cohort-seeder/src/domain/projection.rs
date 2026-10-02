@@ -164,6 +164,9 @@ pub enum Unbacked {
 pub enum RebuildReason {
     Unbacked(Unbacked),
     TooLong,
+    /// A column of the chunk holds a value that reads as `false`. It can be the boolean or the
+    /// string `"false"`, and the VM answers an exact equality on the two oppositely.
+    AmbiguousValue,
 }
 
 /// The `source` label of `seeder_scan_properties_source_total`.
@@ -184,6 +187,7 @@ impl PropertiesOutcome {
             Self::Rebuilt(RebuildReason::Unbacked(Unbacked::InexactKey)) => "rebuilt_inexact_key",
             Self::Rebuilt(RebuildReason::Unbacked(Unbacked::NoColumn)) => "rebuilt_no_column",
             Self::Rebuilt(RebuildReason::TooLong) => "rebuilt_too_long",
+            Self::Rebuilt(RebuildReason::AmbiguousValue) => "rebuilt_ambiguous_value",
         }
     }
 }
@@ -191,43 +195,48 @@ impl PropertiesOutcome {
 #[derive(Debug)]
 pub enum PropertiesSourcing {
     Decided(SourcedProjection),
-    /// The caller decides whether the column form fits.
+    /// The caller decides whether the column form fits and whether the chunk's values are
+    /// unambiguous.
     Upgradable(ColumnUpgrade),
 }
 
 #[derive(Debug)]
 pub struct ColumnUpgrade {
-    columns: ChunkProjection,
-    rebuilt: ChunkProjection,
+    rebuilt: ColumnPlan,
+    backed: ColumnBackedKeys,
 }
 
 impl ColumnUpgrade {
-    fn new(rebuilt: ColumnPlan, backed: ColumnBackedKeys) -> Self {
-        let columns = ColumnPlan {
-            properties: PropertiesSource::Columns(backed),
-            ..rebuilt.clone()
-        };
-        Self {
-            columns: ChunkProjection::Projected(columns),
-            rebuilt: ChunkProjection::Projected(rebuilt),
-        }
+    pub fn backed(&self) -> &ColumnBackedKeys {
+        &self.backed
     }
 
-    pub fn column_form(&self) -> &ChunkProjection {
-        &self.columns
+    pub fn column_form(&self) -> ChunkProjection {
+        ChunkProjection::Projected(ColumnPlan {
+            properties: PropertiesSource::Columns(self.backed.clone()),
+            ..self.rebuilt.clone()
+        })
     }
 
     pub fn accept(self) -> SourcedProjection {
         SourcedProjection {
-            projection: self.columns,
+            projection: self.column_form(),
             outcome: PropertiesOutcome::Columns,
         }
     }
 
     pub fn decline_too_long(self) -> SourcedProjection {
+        self.decline(RebuildReason::TooLong)
+    }
+
+    pub fn decline_ambiguous_value(self) -> SourcedProjection {
+        self.decline(RebuildReason::AmbiguousValue)
+    }
+
+    fn decline(self, reason: RebuildReason) -> SourcedProjection {
         SourcedProjection {
-            projection: self.rebuilt,
-            outcome: PropertiesOutcome::Rebuilt(RebuildReason::TooLong),
+            projection: ChunkProjection::Projected(self.rebuilt),
+            outcome: PropertiesOutcome::Rebuilt(reason),
         }
     }
 }
@@ -344,7 +353,10 @@ impl ChunkProjection {
             PropertiesSource::Blob(BlobSource::Empty) => PropertiesOutcome::Empty,
             PropertiesSource::Blob(BlobSource::Keys(keys)) => match exact.back(keys, columns) {
                 Ok(backed) => {
-                    return PropertiesSourcing::Upgradable(ColumnUpgrade::new(plan, backed))
+                    return PropertiesSourcing::Upgradable(ColumnUpgrade {
+                        rebuilt: plan,
+                        backed,
+                    })
                 }
                 Err(unbacked) => PropertiesOutcome::Rebuilt(RebuildReason::Unbacked(unbacked)),
             },
@@ -754,11 +766,21 @@ mod tests {
         assert_eq!(plan.person_properties, BlobSource::Full);
         assert_eq!(plan.elements_chain, ScalarColumn::Keep);
 
-        let declined = upgrade(both.clone()).decline_too_long();
-        assert_eq!(
-            (declined.outcome(), declined.into_projection()),
-            (PropertiesOutcome::Rebuilt(RebuildReason::TooLong), both)
-        );
+        for (declined, reason) in [
+            (
+                upgrade(both.clone()).decline_too_long(),
+                RebuildReason::TooLong,
+            ),
+            (
+                upgrade(both.clone()).decline_ambiguous_value(),
+                RebuildReason::AmbiguousValue,
+            ),
+        ] {
+            assert_eq!(
+                (declined.outcome(), declined.into_projection()),
+                (PropertiesOutcome::Rebuilt(reason), both.clone())
+            );
+        }
 
         let inexact = rebuilt(&["$current_url", "plan"]);
         assert_eq!(inexact.column_candidates(&exact), None);

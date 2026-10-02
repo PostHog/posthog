@@ -1,5 +1,6 @@
 //! Checks against a live ClickHouse, with the VM as the oracle, that `properties` built from
-//! trim-quotes columns answers exact equalities like the blob, except for the named residuals.
+//! trim-quotes columns answers exact equalities like the blob, except for the named residuals and
+//! the rows the ambiguity probe sends back to the blob.
 
 #![cfg(feature = "ch-test-support")]
 
@@ -12,7 +13,7 @@ use cohort_core::filters::{CohortId, TeamFilters, TeamFiltersBuilder, TeamId};
 use cohort_core::hogvm::analysis::GlobalsPlan;
 use cohort_core::hogvm::{build_behavioral_globals, evaluate_detailed, EvalOutcome, GlobalsBuild};
 use cohort_seeder::clickhouse::client::build_client;
-use cohort_seeder::clickhouse::sql::columns_object_expr;
+use cohort_seeder::clickhouse::sql::{ambiguous_values_sql, columns_object_expr};
 use cohort_seeder::clickhouse::ClickHouseClient;
 use cohort_seeder::config::Config;
 use cohort_seeder::domain::{
@@ -48,8 +49,6 @@ const LITERALS: &[&str] = &[
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Residual {
-    /// The string `"false"` comes back as the boolean.
-    StringFalse,
     /// Every column stores `''` while `serde_json` reads the blob.
     BlobClickHouseCannotParse,
     /// The column holds the first value, `serde_json` the last.
@@ -63,7 +62,7 @@ enum Residual {
 impl Residual {
     const fn divergence(self) -> Divergence {
         match self {
-            Self::StringFalse | Self::UnreadableBlob => Divergence::OverCount,
+            Self::UnreadableBlob => Divergence::OverCount,
             Self::BlobClickHouseCannotParse | Self::StringHoldingDeepJson | Self::RepeatedKey => {
                 Divergence::UnderCount
             }
@@ -87,23 +86,38 @@ impl Divergence {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Expect {
+    Same,
+    /// A column reads as `false`, so the scan keeps the blob for the whole chunk.
+    Ambiguous,
+    Residual(Residual),
+}
+
 struct Case {
     blob: String,
-    residual: Option<Residual>,
+    expect: Expect,
 }
 
 impl Case {
     fn exact(blob: impl Into<String>) -> Self {
         Self {
             blob: blob.into(),
-            residual: None,
+            expect: Expect::Same,
+        }
+    }
+
+    fn ambiguous(blob: impl Into<String>) -> Self {
+        Self {
+            blob: blob.into(),
+            expect: Expect::Ambiguous,
         }
     }
 
     fn residual(blob: impl Into<String>, residual: Residual) -> Self {
         Self {
             blob: blob.into(),
-            residual: Some(residual),
+            expect: Expect::Residual(residual),
         }
     }
 }
@@ -114,7 +128,6 @@ fn corpus() -> Vec<Case> {
         r#"{"other":"https://example.com/"}"#,
         r#"{"$current_url":null}"#,
         r#"{"$current_url":true}"#,
-        r#"{"$current_url":false}"#,
         r#"{"$current_url":5}"#,
         r#"{"$current_url":5.0}"#,
         r#"{"$current_url":-0.0}"#,
@@ -161,8 +174,10 @@ fn corpus() -> Vec<Case> {
         ]);
     }
     cases.extend([
-        Case::residual(r#"{"$current_url":"false"}"#, Residual::StringFalse),
-        Case::residual(r#"{"$current_url":" false "}"#, Residual::StringFalse),
+        Case::ambiguous(r#"{"$current_url":false}"#),
+        Case::ambiguous(r#"{"$current_url":"false"}"#),
+        Case::ambiguous(r#"{"$current_url":" false "}"#),
+        Case::ambiguous(json!({ URL: "https://example.com/", ODD: "false" }).to_string()),
         Case::residual(
             r#"{"$current_url":"elsewhere","$current_url":"https://example.com/"}"#,
             Residual::RepeatedKey,
@@ -187,6 +202,7 @@ fn corpus() -> Vec<Case> {
 struct Rebuilt {
     seq: u32,
     properties: String,
+    ambiguous: bool,
 }
 
 #[tokio::test]
@@ -207,7 +223,29 @@ async fn columns_answer_every_exact_equality_like_the_blob_but_the_named_residua
     let corpus = corpus();
     let rebuilt = rebuild_all(&corpus, &columns).await;
 
-    for (case, rebuilt) in corpus.iter().zip(&rebuilt) {
+    assert_eq!(
+        corpus
+            .iter()
+            .zip(&rebuilt)
+            .filter(|(_, row)| row.ambiguous)
+            .map(|(case, _)| case.blob.as_str())
+            .collect::<Vec<_>>(),
+        corpus
+            .iter()
+            .filter(|case| case.expect == Expect::Ambiguous)
+            .map(|case| case.blob.as_str())
+            .collect::<Vec<_>>(),
+        "the probe flagged other rows than those whose columns read as false"
+    );
+
+    for (
+        case,
+        Rebuilt {
+            properties: rebuilt,
+            ..
+        },
+    ) in corpus.iter().zip(&rebuilt)
+    {
         match serde_json::from_str::<Value>(rebuilt) {
             Ok(Value::Object(object)) => assert_eq!(
                 object.keys().map(String::as_str).collect::<Vec<_>>(),
@@ -217,8 +255,8 @@ async fn columns_answer_every_exact_equality_like_the_blob_but_the_named_residua
             ),
             Ok(other) => panic!("{} rebuilt as a non-object {other}", case.blob),
             Err(error) => assert_eq!(
-                case.residual,
-                Some(Residual::StringHoldingDeepJson),
+                case.expect,
+                Expect::Residual(Residual::StringHoldingDeepJson),
                 "{} rebuilt as {rebuilt}, which does not parse: {error}",
                 case.blob
             ),
@@ -229,13 +267,14 @@ async fn columns_answer_every_exact_equality_like_the_blob_but_the_named_residua
         .iter()
         .zip(&rebuilt)
         .enumerate()
-        .filter_map(|(index, (case, rebuilt))| {
+        .filter(|(_, (_, row))| !row.ambiguous)
+        .filter_map(|(index, (case, row))| {
             let found = programs
                 .iter()
                 .filter_map(|program| {
                     Divergence::between(
                         program_matches(program, &case.blob),
-                        program_matches(program, rebuilt),
+                        program_matches(program, &row.properties),
                     )
                 })
                 .collect::<BTreeSet<_>>();
@@ -247,7 +286,9 @@ async fn columns_answer_every_exact_equality_like_the_blob_but_the_named_residua
         .iter()
         .enumerate()
         .filter_map(|(index, case)| {
-            let residual = case.residual?;
+            let Expect::Residual(residual) = case.expect else {
+                return None;
+            };
             Some((index, BTreeSet::from([residual.divergence()])))
         })
         .collect();
@@ -380,7 +421,7 @@ fn column_backed_properties(
     }
 }
 
-async fn rebuild_all(corpus: &[Case], columns: &ColumnBackedKeys) -> Vec<String> {
+async fn rebuild_all(corpus: &[Case], columns: &ColumnBackedKeys) -> Vec<Rebuilt> {
     let admin = connect(None);
     for statement in [
         format!("DROP DATABASE IF EXISTS {DATABASE}"),
@@ -406,8 +447,9 @@ async fn rebuild_all(corpus: &[Case], columns: &ColumnBackedKeys) -> Vec<String>
         .expect("the corpus inserts");
 
     let sql = format!(
-        "SELECT seq, {} AS properties FROM events AS e ORDER BY seq",
-        columns_object_expr(columns)
+        "SELECT seq, {} AS properties, {} AS ambiguous FROM events AS e ORDER BY seq",
+        columns_object_expr(columns),
+        ambiguous_values_sql(columns),
     );
     assert!(
         !sql.contains("e.properties"),
@@ -419,13 +461,10 @@ async fn rebuild_all(corpus: &[Case], columns: &ColumnBackedKeys) -> Vec<String>
         .await
         .unwrap_or_else(|error| panic!("the column form failed: {error}\n{sql}"));
     assert_eq!(rows.len(), corpus.len(), "a row went missing: {sql}");
-    rows.into_iter()
-        .enumerate()
-        .map(|(position, row)| {
-            assert_eq!(row.seq as usize, position + 1, "rows arrived out of order");
-            row.properties
-        })
-        .collect()
+    for (position, row) in rows.iter().enumerate() {
+        assert_eq!(row.seq as usize, position + 1, "rows arrived out of order");
+    }
+    rows
 }
 
 /// The materializer's expression, with `?` doubled for the client's binds.
