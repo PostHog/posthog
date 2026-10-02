@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from posthog.admin.paginators.no_count_paginator import NoCountPaginator
+from posthog.admin.paginators.capped_count_paginator import CappedCountPaginator
 from posthog.models import AsyncDeletion
 
 
@@ -8,7 +8,7 @@ from posthog.models import AsyncDeletion
 class AsyncDeletionAdmin(admin.ModelAdmin):
     # The table only grows, and COUNT(*) on it takes seconds
     show_full_result_count = False
-    paginator = NoCountPaginator
+    paginator = CappedCountPaginator
     list_display = (
         "id",
         "deletion_type",
