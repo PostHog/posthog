@@ -4780,6 +4780,7 @@ const api = {
                 stdout?: string
                 stderr?: string
                 media?: { mime_type: string; data: string }[]
+                result_text?: string
             } | null
             error: string | null
             // Direct (no-sandbox) runs only: the full capped row set for client-side paging,
