@@ -136,11 +136,15 @@ describe('workflowProposalsLogic', () => {
         await expectLogic(flowLogic).toDispatchActions(['loadWorkflowSuccess'])
         await expectLogic(logic).toDispatchActions(['loadProposalsSuccess'])
 
+        logic.actions.setOutcome(PROPOSAL_ID, { versions: [] } as any)
+        expect(logic.values.outcomes[PROPOSAL_ID]).not.toBeUndefined()
+
         workflowVersion = 4
         await expectLogic(logic, () => {
             flowLogic.actions.loadWorkflow()
-        }).toDispatchActions(['loadProposals', 'loadApplied'])
+        }).toDispatchActions(['clearOutcomes', 'loadProposals', 'loadApplied'])
         expect(logic.values.lastSeenVersion).toBe(4)
+        expect(logic.values.outcomes).toEqual({})
     })
 
     it('reloads the queue when a discard rewrites the draft stamp without moving the version', async () => {
