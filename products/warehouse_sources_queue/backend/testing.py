@@ -13,13 +13,7 @@ from django.db import connection
 import psycopg
 
 from products.warehouse_sources_queue.backend.core.generic_jobs import JOB_LEASE_TABLE, JOB_STATUS_TABLE, JOB_TABLE
-from products.warehouse_sources_queue.backend.core.jobs_db import (
-    BATCH_TABLE,
-    LEASE_TABLE,
-    STATUS_TABLE,
-    STATUS_VIEW,
-    BatchQueue,
-)
+from products.warehouse_sources_queue.backend.core.jobs_db import BATCH_TABLE, LEASE_TABLE, STATUS_TABLE, BatchQueue
 
 
 def get_test_database_url() -> str:
@@ -111,13 +105,6 @@ def ensure_queue_tables(conn: psycopg.Connection[Any]) -> None:
             updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             CONSTRAINT sgl_team_schema_uniq UNIQUE (team_id, schema_id)
         )
-    """)
-    conn.execute(f"DROP VIEW IF EXISTS {STATUS_VIEW}")
-    conn.execute(f"""
-        CREATE VIEW {STATUS_VIEW} AS
-        SELECT DISTINCT ON (batch_id) *
-        FROM {STATUS_TABLE}
-        ORDER BY batch_id ASC, created_at DESC, id DESC
     """)
 
 
