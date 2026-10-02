@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { Button } from '@posthog/quill'
+import { Button, Spinner } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
@@ -26,10 +26,13 @@ export function TodayMoreReports(): JSX.Element | null {
                 variant="link-muted"
                 size="sm"
                 className="TodaySidebar__more"
-                loading={moreReportsLoading}
+                // The spinner sits next to the label rather than over it: quill's `loading` overlays the
+                // button's box, which on this left-aligned link lands above the text.
+                disabled={moreReportsLoading}
                 onClick={loadMoreReports}
                 data-attr="today-nav-load-more"
             >
+                {moreReportsLoading && <Spinner />}
                 Show more reports
             </Button>
         )
