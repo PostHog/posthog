@@ -471,26 +471,32 @@ const withAIConsent = (approved: boolean): Decorator =>
     }
 
 export const JevChartAndTable: Story = {
+    // These interactive scenarios need Run; automatic snapshots only capture the same idle editor.
+    tags: ['test-skip'],
     parameters: chartExperimentParameters(true),
     decorators: [withAIConsent(true)],
 }
 
 export const JevWithoutConsent: Story = {
+    tags: ['test-skip'],
     parameters: chartExperimentParameters(false),
     decorators: [withAIConsent(false)],
 }
 
 export const JevChoosingChart: Story = {
+    tags: ['test-skip'],
     parameters: chartExperimentParameters(true, 3000),
     decorators: [withAIConsent(true)],
 }
 
 export const JevChartTimeout: Story = {
+    tags: ['test-skip'],
     parameters: chartExperimentParameters(true, 6000),
     decorators: [withAIConsent(true)],
 }
 
 export const JevEarlySelection: Story = {
+    tags: ['test-skip'],
     parameters: chartExperimentParameters(true, 100, 3000),
     decorators: [withAIConsent(true)],
 }
