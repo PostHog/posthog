@@ -207,6 +207,22 @@ export const ClientModeManyPillsNarrow: ClientStory = {
     },
 }
 
+export const ClientModePillsOnOneRowNarrow: ClientStory = {
+    render: (args) => <ClientModeConsumer {...args} />,
+    args: {
+        narrow: true,
+        initial: {
+            filters: [
+                { facet: 'status', value: 'open', negated: false },
+                { facet: 'priority', value: 'low', negated: true },
+                { facet: 'label', value: 'billing', negated: false },
+            ],
+            text: '',
+        },
+    },
+    play: async ({ canvasElement }) => typeInto(canvasElement, 'invoice'),
+}
+
 export const ServerMode: ServerStory = {
     render: (args) => <ServerModeConsumer {...args} />,
     args: {

@@ -170,7 +170,7 @@ export function FacetSearchBar<TRow>({
                     aria-expanded={open}
                     aria-controls={open && !message ? listboxId : undefined}
                     aria-activedescendant={activeOptionId}
-                    className="h-auto min-h-10 flex-wrap gap-y-1 py-1 [&_.LemonInput__input]:min-w-40"
+                    className="h-auto min-h-10 flex-wrap gap-y-1 py-1 [&_input]:min-w-40"
                     value={input}
                     placeholder={value.filters.length ? 'Add a filter or search' : placeholder}
                     onChange={setInput}
