@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import json
 import asyncio
 import logging
@@ -355,6 +356,16 @@ class FixVerificationOutput(BaseModel):
         if not section:
             raise ValueError("Verification plan sections must not be empty")
         return section
+
+    @field_validator("summary")
+    @classmethod
+    def preserve_other_summary_sections(cls, summary: str | None, info: ValidationInfo) -> str | None:
+        original = (info.context or {}).get("summary")
+        if summary is not None and isinstance(original, str):
+            impact_section = r"(?ms)^## Expected impact[ \t]*\n.*?(?=^#{1,2} |\Z)"
+            if re.sub(impact_section, "", summary).strip() != re.sub(impact_section, "", original).strip():
+                raise ValueError("Only the Expected impact section may change during verification")
+        return summary
 
     @field_validator("checks", mode="wrap")
     @classmethod
@@ -1574,6 +1585,7 @@ async def run_multi_turn_research(
                         "report_id": signal_report_id,
                         "team_id": context.team_id,
                         "previous_checks": previous_checks or [],
+                        "summary": presentation_result.summary,
                     },
                 )
                 verification_note = verification_result.to_note()

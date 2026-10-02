@@ -6,6 +6,8 @@ from xml.etree import ElementTree
 import pytest
 from unittest.mock import patch
 
+from pydantic import ValidationError
+
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.report_checks import MAX_ACTIVE_CHECKS_PER_REPORT
@@ -308,6 +310,21 @@ class TestBuildFixVerificationPrompt:
         assert "Do not invent tool arguments, IDs, events, baselines, or numerical thresholds" in prompt
         assert '"current_state"' in prompt
         assert '"outcome"' in prompt
+
+    @pytest.mark.parametrize("other_sections", ["unchanged", "missing", "changed"])
+    def test_verification_preserves_non_impact_summary_sections(self, other_sections: str) -> None:
+        original = "## Problem\nFailures recur.\n\n## Expected impact\nReduce failures.\n\n## Solution\nRetry once.\n\n[[chart:failures]]"
+        revised = original.replace("Reduce failures.", "At most 50 failures.")
+        if other_sections == "missing":
+            revised = "## Expected impact\nAt most 50 failures."
+        elif other_sections == "changed":
+            revised = revised.replace("[[chart:failures]]", "")
+        data = {"current_state": "Confirm failures.", "outcome": "Confirm recovery.", "summary": revised}
+        if other_sections == "unchanged":
+            assert FixVerificationOutput.model_validate(data, context={"summary": original}).summary == revised
+        else:
+            with pytest.raises(ValidationError, match="Only the Expected impact section"):
+                FixVerificationOutput.model_validate(data, context={"summary": original})
 
     @pytest.mark.parametrize("with_check", [False, True])
     @pytest.mark.parametrize("existing_wait", [None, 72])

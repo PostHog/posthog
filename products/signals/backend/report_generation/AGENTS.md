@@ -208,3 +208,5 @@ Renders a concise timeline of: prompts, tool calls, tool outputs, agent messages
 - If you change how local debug commands exercise this flow,
   update this file and `../management/AGENTS.md`.
 - **If you change any command or the flow, update this file to match**
+
+Fix verification may revise only the Expected impact section of the presentation summary; validation preserves all other sections and chart links.

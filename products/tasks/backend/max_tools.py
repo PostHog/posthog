@@ -212,7 +212,7 @@ Use this tool when the user wants to:
     args_schema: type[BaseModel] = GetTaskRunArgs
 
     async def _arun_impl(self, task_id: str, run_id: str | None = None) -> tuple[str, dict[str, Any]]:
-        may_read = analytics_context_reader(team=self._team, user=self._user)
+        may_read = analytics_context_reader(team_id=self._team.id, user_id=self._user.id)
 
         @sync_to_async
         def get_task_and_run():
@@ -309,7 +309,7 @@ Use this tool when the user wants to:
     args_schema: type[BaseModel] = GetTaskRunLogsArgs
 
     async def _arun_impl(self, task_id: str, run_id: str | None = None) -> tuple[str, dict[str, Any]]:
-        may_read = analytics_context_reader(team=self._team, user=self._user)
+        may_read = analytics_context_reader(team_id=self._team.id, user_id=self._user.id)
 
         @sync_to_async
         def get_task_and_run():
@@ -465,7 +465,7 @@ Use this tool when the user wants to:
     args_schema: type[BaseModel] = ListTaskRunsArgs
 
     async def _arun_impl(self, task_id: str, limit: int = 10) -> tuple[str, dict[str, Any]]:
-        may_read = analytics_context_reader(team=self._team, user=self._user)
+        may_read = analytics_context_reader(team_id=self._team.id, user_id=self._user.id)
 
         @sync_to_async
         def get_task_and_runs():

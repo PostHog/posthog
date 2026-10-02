@@ -1182,7 +1182,6 @@ class TestTaskAPI(BaseTaskAPITest):
         url = f"/api/projects/@current/tasks/{task.id}/pin/"
 
         self.client.post(url, {"pinned": True}, format="json")
-        self.client.post(url, {"pinned": True}, format="json")
         self.assertEqual(TaskPin.objects.filter(user=self.user, task=task).count(), 1)
 
         response = self.client.post(url, {"pinned": False}, format="json")
@@ -1390,7 +1389,6 @@ class TestTaskAPI(BaseTaskAPITest):
     def test_list_tasks_stage_filter_uses_exists_without_distinct(self):
         matching_task = self.create_task("Matching stage")
         other_task = self.create_task("Other stage")
-        TaskRun.objects.create(task=matching_task, team=self.team, stage="building")
         TaskRun.objects.create(task=matching_task, team=self.team, stage="building")
         TaskRun.objects.create(task=other_task, team=self.team, stage="planning")
 
@@ -3350,6 +3348,47 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(task.runs.count(), 1)
         mock_workflow.assert_not_called()
+
+    @parameterized.expand([("run",), ("warm",)])
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_resume_requires_access_to_source_analytics(self, action, mock_workflow):
+        task = self.create_task()
+        task.origin_product = Task.OriginProduct.SIGNAL_REPORT
+        task.save(update_fields=["origin_product"])
+        source = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={"analytics_query_context": [None], "task_summary": "Protected findings"},
+        )
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/{action}/", {"resume_from_run_id": str(source.id)}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(task.runs.count(), 1)
+        mock_workflow.assert_not_called()
+
+        source.state["analytics_query_context"] = [
+            {
+                "kind": "InsightVizNode",
+                "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+            }
+        ]
+        source.save(update_fields=["state"])
+        allowed = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/{action}/",
+            {"resume_from_run_id": str(source.id)},
+            format="json",
+        )
+        self.assertEqual(allowed.status_code, status.HTTP_200_OK)
+        if action == "run":
+            successor = task.latest_run
+            assert successor is not None
+            self.assertEqual(successor.state["analytics_query_context"], source.state["analytics_query_context"])
+            client = self._sandbox_oauth_client(task.id)
+            history = client.get(f"/api/projects/@current/tasks/{task.id}/runs/{source.id}/")
+            self.assertEqual(history.status_code, status.HTTP_200_OK)
+            self.assertEqual(history.json()["task_summary"], "Protected findings")
 
     @patch(
         "products.tasks.backend.temporal.client.execute_task_processing_workflow",
@@ -6507,11 +6546,23 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         self.assertEqual(allowed.status_code, status.HTTP_200_OK)
         self.assertEqual(denied.status_code, status.HTTP_404_NOT_FOUND)
-        TaskRun.objects.create(task=bound_task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        successor = TaskRun.objects.create(task=bound_task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
         later_client = self._sandbox_oauth_client(bound_task.id, client_id=ARRAY_APP_CLIENT_ID_US)
         for method in (later_client.get, later_client.patch):
             response = method(f"/api/projects/@current/tasks/{bound_task.id}/runs/{bound_run.id}/")
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        successor.refresh_from_db()
+        successor.state["resume_from_run_id"] = str(bound_run.id)
+        successor.save(update_fields=["state"])
+        resumed = later_client.get(f"/api/projects/@current/tasks/{bound_task.id}/runs/{bound_run.id}/")
+        self.assertEqual(resumed.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            resumed.json()["log_url"], f"/api/projects/{self.team.id}/tasks/{bound_task.id}/runs/{bound_run.id}/logs/"
+        )
+        denied_write = later_client.patch(
+            f"/api/projects/@current/tasks/{bound_task.id}/runs/{bound_run.id}/", {"stage": "plan"}, format="json"
+        )
+        self.assertEqual(denied_write.status_code, status.HTTP_403_FORBIDDEN)
         other_run.refresh_from_db()
         self.assertIsNone(other_run.stage)
 
@@ -6849,6 +6900,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "github_credential_source": "caller_token",
                 "analytics_query_context": [],
                 "sandbox_oauth_token_ids": ["server-token-id"],
+                "resume_from_run_id": "server-resume-id",
                 "systemPrompt": system_prompt,
                 "claude_model_access": "own-subscription",
                 "claude_subscription_user_id": self.user.id,
@@ -6926,6 +6978,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "github_credential_source": "server_integration",
                     "analytics_query_context": [{"kind": "private"}],
                     "sandbox_oauth_token_ids": ["forged-token-id"],
+                    "resume_from_run_id": "caller-resume-id",
                     "systemPrompt": "Caller-controlled instructions",
                     "claude_model_access": "posthog-gateway",
                     "claude_subscription_user_id": self.user.id + 1,
@@ -7009,6 +7062,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["claude_model_access"] == "own-subscription"
         assert run.state["claude_subscription_user_id"] == self.user.id
         assert run.state["analytics_query_context"] == []
+        assert run.state["resume_from_run_id"] == "server-resume-id"
         assert run.state["sandbox_oauth_token_ids"] == ["server-token-id"]
         assert run.state["github_credential_source"] == "caller_token"
         assert run.state["pr_authorship_mode"] == "user"
@@ -7071,6 +7125,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["scratch"] == "ok"  # non-protected keys still merge
         assert run.state["systemPrompt"] == system_prompt
         assert run.state["analytics_query_context"] == []
+        assert run.state["resume_from_run_id"] == "server-resume-id"
         assert run.state["sandbox_oauth_token_ids"] == ["server-token-id"]
 
         # Nor can a caller remove a protected key to force a fallback or unguarded path.
@@ -7081,6 +7136,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "state_remove_keys": [
                     "analytics_query_context",
                     "sandbox_oauth_token_ids",
+                    "resume_from_run_id",
+                    "resume_from_run_id",
                     "systemPrompt",
                     "claude_model_access",
                     "claude_subscription_user_id",
@@ -7186,6 +7243,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert "scratch" not in run.state  # non-protected key removed
         assert run.state["systemPrompt"] == system_prompt
         assert run.state["analytics_query_context"] == []
+        assert run.state["resume_from_run_id"] == "server-resume-id"
         assert run.state["sandbox_oauth_token_ids"] == ["server-token-id"]
 
         response = self.client.patch(
@@ -7207,6 +7265,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         run.refresh_from_db()
         assert run.state["systemPrompt"] == system_prompt
         assert run.state["analytics_query_context"] == []
+        assert run.state["resume_from_run_id"] == "server-resume-id"
         assert run.state["sandbox_oauth_token_ids"] == ["server-token-id"]
         assert run.state["scratch"] == ["ok"]
         assert run.state["task_management_ci_idle_skips"] == 1

@@ -123,6 +123,7 @@ from products.tasks.backend.facade.streams import (
     run_uses_dedicated_stream,
     session_update_type,
 )
+from products.tasks.backend.presentation import run_context
 from products.tasks.backend.presentation.serializers import (
     ConnectionTokenResponseSerializer,
     LegacyDesktopAccessResponseSerializer,
@@ -553,7 +554,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     page,
                     self.team_id,
                     user_id=self._user_id(),
-                    analytics_context_reader=tasks_access.analytics_context_reader(request=request, team=self.team),
+                    analytics_context_reader=run_context.analytics_context_reader(
+                        request=request, team_id=self.team_id
+                    ),
                 ),
                 many=True,
             ).data
@@ -592,7 +595,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             pk,
             self.team_id,
             self._user_id(),
-            analytics_context_reader=tasks_access.analytics_context_reader(request=request, team=self.team),
+            analytics_context_reader=run_context.analytics_context_reader(request=request, team_id=self.team_id),
         )
         if task is None:
             raise NotFound()
@@ -613,7 +616,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self.team_id,
             self._user_id(),
             bypass_visibility=bypass_visibility,
-            analytics_context_reader=tasks_access.analytics_context_reader(request=request, team=self.team),
+            analytics_context_reader=run_context.analytics_context_reader(request=request, team_id=self.team_id),
         )
         if task is None:
             raise NotFound()
@@ -631,7 +634,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             pk,
             self.team_id,
             self._user_id(),
-            analytics_context_reader=tasks_access.analytics_context_reader(request=request, team=self.team),
+            analytics_context_reader=run_context.analytics_context_reader(request=request, team_id=self.team_id),
         )
         if task is None or task.created_at is None:
             raise NotFound()
@@ -1132,7 +1135,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ids=ids,
             limit=limit,
             offset=offset,
-            analytics_context_reader=tasks_access.analytics_context_reader(request=request, team=self.team),
+            analytics_context_reader=run_context.analytics_context_reader(request=request, team_id=self.team_id),
         )
         paginator.set_count(count)
         page = self.paginate_queryset(summaries)
@@ -1387,6 +1390,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # Original order: 404 if the task isn't visible, then gate (always cloud) before the run.
         if not tasks_facade.task_visible(pk, self.team_id, self._user_id(), for_control=True):
             raise NotFound()
+        if resume_id and not run_context.may_read_task_run_context(
+            request=request, team_id=self.team_id, task_id=str(pk), run_id=str(resume_id)
+        ):
+            raise PermissionDenied("The analytics data in this task run is not available to you.")
         if one_shot_response := self._one_shot_analysis_response(str(pk)):
             return one_shot_response
         if tasks_facade.task_runtime(
@@ -1600,6 +1607,13 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         gate = tasks_facade.task_control_runtime_and_origin(pk, self.team_id, self._user_id())
         if gate is None:
             raise NotFound()
+        if not run_context.may_read_task_run_context(
+            request=request,
+            team_id=self.team_id,
+            task_id=str(pk),
+            run_id=str(request.validated_data["resume_from_run_id"]),
+        ):
+            raise PermissionDenied("The analytics data in this task run is not available to you.")
         if gate.runtime == tasks_facade.TaskRuntime.PI or not self._warm_enabled(gate.origin_product):
             return Response(status=status.HTTP_200_OK)
         if access_response := code_access_required_response(request, self.organization, task_id=pk):
@@ -1799,10 +1813,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 UUID(run_id)
             except (ValueError, TypeError):
                 raise NotFound("Task run not found")
-        if not tasks_access.is_sandbox_run_request(
-            request=self.request, team=self.team, task_id=task_id, run_id=run_id
-        ) and not tasks_access.may_read_task_run_context(
-            request=self.request, team=self.team, task_id=task_id, run_id=run_id
+        if not run_context.is_sandbox_run_request(
+            request=self.request,
+            team_id=self.team_id,
+            task_id=task_id,
+            run_id=run_id,
+            include_resume_sources=is_read_only,
+        ) and not run_context.may_read_task_run_context(
+            request=self.request, team_id=self.team_id, task_id=task_id, run_id=run_id
         ):
             raise PermissionDenied("The analytics data in this task run is not available to you.")
         if (
@@ -1819,11 +1837,15 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             pk,
             task_id,
             self.team_id,
-            include_agent_state=tasks_access.is_sandbox_run_request(
-                request=self.request, team=self.team, task_id=task_id, run_id=pk
+            include_agent_state=run_context.is_sandbox_run_request(
+                request=self.request,
+                team_id=self.team_id,
+                task_id=task_id,
+                run_id=pk,
+                include_resume_sources=True,
             ),
             user_id=self._user_id(),
-            analytics_context_reader=tasks_access.analytics_context_reader(request=self.request, team=self.team),
+            analytics_context_reader=run_context.analytics_context_reader(request=self.request, team_id=self.team_id),
         )
         if run is None:
             raise NotFound()
@@ -1848,7 +1870,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             task_id,
             self.team_id,
             user_id=self._user_id(),
-            analytics_context_reader=tasks_access.analytics_context_reader(request=request, team=self.team),
+            analytics_context_reader=run_context.analytics_context_reader(request=request, team_id=self.team_id),
         )
         page = self.paginate_queryset(runs)
         if page is not None:
@@ -2175,11 +2197,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self.team_id,
             summary=request.validated_data["summary"],
             tags=request.validated_data.get("tags"),
-            include_agent_state=tasks_access.is_sandbox_run_request(
-                request=self.request, team=self.team, task_id=task_id, run_id=pk
+            include_agent_state=run_context.is_sandbox_run_request(
+                request=self.request,
+                team_id=self.team_id,
+                task_id=task_id,
+                run_id=pk,
             ),
             user_id=self._user_id(),
-            analytics_context_reader=tasks_access.analytics_context_reader(request=self.request, team=self.team),
+            analytics_context_reader=run_context.analytics_context_reader(request=self.request, team_id=self.team_id),
         )
         if run is None:
             raise NotFound()
@@ -4280,8 +4305,8 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             raise NotFound("Task not found")
         if not is_read and not tasks_facade.task_run_matches_current_ownership(self._run_id(), task_id, self.team_id):
             raise NotFound("Task run not found")
-        if not tasks_access.may_read_task_run_context(
-            request=self.request, team=self.team, task_id=task_id, run_id=None
+        if not run_context.may_read_task_run_context(
+            request=self.request, team_id=self.team_id, task_id=task_id, run_id=None
         ):
             raise PermissionDenied("The analytics data in this task run is not available to you.")
         return task_id

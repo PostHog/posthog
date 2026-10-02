@@ -628,7 +628,13 @@ def _task_run_detail_to_dto(
         provider=state.provider.value if state.provider is not None else None,
         model=state.model,
         reasoning_effort=state.reasoning_effort.value if state.reasoning_effort is not None else None,
-        log_url=_task_run_log_url(run, has_analytics_context=has_analytics_context) if include_log_url else None,
+        log_url=(
+            f"/api/projects/{run.team_id}/tasks/{run.task_id}/runs/{run.id}/logs/"
+            if has_analytics_context and include_agent_state and include_log_url
+            else _task_run_log_url(run, has_analytics_context=has_analytics_context)
+            if include_log_url
+            else None
+        ),
         error_message=run.error_message if not protected_context else None,
         output=run.output if not protected_context else None,
         task_summary=run.task_summary if can_read_summary and not protected_context else None,
@@ -2636,6 +2642,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
     {
         "analytics_query_context",
         "sandbox_oauth_token_ids",
+        "resume_from_run_id",
         "run_source",
         "pr_base_branch",
         "stack_base_branch",

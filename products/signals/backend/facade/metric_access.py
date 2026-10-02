@@ -1,6 +1,5 @@
-from collections.abc import Callable, Mapping
-
-from rest_framework.request import Request
+from collections.abc import Callable, Mapping, Sequence
+from functools import cache
 
 from posthog.models import Team, User
 
@@ -8,13 +7,20 @@ from products.signals.backend.report_metric_access import ReportMetricAccessPoli
 
 
 def metric_context_reader(
-    *, team: Team, request: Request | None = None, user: User | None = None
+    *, team_id: int, user_id: int | None, token_scopes: Sequence[str] | None = None
 ) -> Callable[[object], bool]:
-    policy = ReportMetricAccessPolicy(request=request, team=team, user=user)
+    @cache
+    def policy() -> ReportMetricAccessPolicy:
+        return ReportMetricAccessPolicy(
+            request=None,
+            team=Team.objects.get(id=team_id),
+            user=User.objects.filter(id=user_id).first(),
+            token_scopes=token_scopes,
+        )
 
     def may_read(queries: object) -> bool:
         return isinstance(queries, list) and all(
-            isinstance(query, Mapping) and policy.may_read_snapshot({"query": query}) for query in queries
+            isinstance(query, Mapping) and policy().may_read_snapshot({"query": query}) for query in queries
         )
 
     return may_read
