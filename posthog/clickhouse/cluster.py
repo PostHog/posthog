@@ -27,6 +27,7 @@ from posthog.clickhouse.client.connection import (
     get_clickhouse_creds,
     is_file_backed_user,
 )
+from posthog.clickhouse.client.escape import substitute_params
 from posthog.dataclasses import frozen
 from posthog.settings import CLICKHOUSE_PER_TEAM_SETTINGS
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER, TEST
@@ -1004,10 +1005,9 @@ class MutationRunner(abc.ABC):
         # value containing the heredoc delimiter would close it early and the rest would parse as
         # SQL. Mutation parameters carry third-party strings (a person's distinct_id), so that is
         # reachable input, and the injection is silent because the surrounding array keeps its length.
-        rendered_commands = [
-            client.substitute_params(f"{alter_prefix}{cmd}", self.parameters, client.connection.context)
-            for cmd in command_list
-        ]
+        # Rendered without the client's connection context: on a fresh pooled client no query has run
+        # yet, so `context.server_info` is None and tz-aware datetime parameters fail to escape.
+        rendered_commands = [substitute_params(f"{alter_prefix}{cmd}", self.parameters) for cmd in command_list]
         per_command_alters = ", ".join(f"%(__command_{i})s" for i in range(len(rendered_commands)))
         mutations = client.execute(
             f"""

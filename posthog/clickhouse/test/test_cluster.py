@@ -3,7 +3,7 @@ import json
 import uuid
 from collections import defaultdict
 from collections.abc import Callable, Iterator, Mapping
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from posthog.test.base import materialized
@@ -424,6 +424,26 @@ def test_find_existing_mutations_handles_delimiter_shaped_parameter_value(cluste
     assert all(not mutations for mutations in existing.values()), (
         "expected no pre-existing mutation for this delimiter-shaped parameter"
     )
+
+
+def test_find_existing_mutations_renders_tz_aware_datetimes_before_connecting() -> None:
+    """Regression test: commands were rendered with `client.connection.context`, whose `server_info` is
+    None until the client has run a query. A tz-aware datetime parameter (e.g. an event removal time
+    range) then raised `'NoneType' object has no attribute 'get_timezone'` on a fresh pooled client.
+    """
+    runner = LightweightDeleteMutationRunner(
+        table=EVENTS_DATA_TABLE(),
+        predicate="team_id = %(team_id)s AND timestamp >= %(start_time)s",
+        parameters={"team_id": 1, "start_time": datetime(2026, 1, 1, tzinfo=UTC)},
+    )
+    client = Client("unconnected-host")
+    assert client.connection.context.server_info is None
+
+    with patch.object(client, "execute", return_value=[(None,)]) as execute:
+        assert runner.find_existing_mutations(client) == {}
+
+    (params,) = [call.args[1] for call in execute.call_args_list]
+    assert "'2026-01-01 00:00:00'" in params["__command_0"]
 
 
 def test_alter_mutation_multiple_commands(cluster: ClickhouseCluster) -> None:
