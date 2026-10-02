@@ -1497,6 +1497,11 @@ describe('EmailService', () => {
                     query: 'utm_source=newsletter&amp;utm_medium=email&amp;utm_campaign=PRO&amp;utm_content=Welcome',
                 },
                 {
+                    case: 'a rendered value with characters HTML escapes',
+                    utmParams: { utm_campaign: '{{ "Starter & Premium" }}' },
+                    query: 'utm_source=posthog&amp;utm_medium=email&amp;utm_campaign=Starter%20%26%20Premium&amp;utm_content=Welcome',
+                },
+                {
                     case: 'the default for a value with a Liquid error',
                     utmParams: { utm_campaign: '{{ person.properties.plan' },
                     query: 'utm_source=posthog&amp;utm_medium=email&amp;utm_campaign=Spring%20sale&amp;utm_content=Welcome',

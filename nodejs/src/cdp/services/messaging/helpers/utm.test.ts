@@ -43,6 +43,16 @@ describe('addUtmTagsToEmail', () => {
             expected: '<a data-ph-no-utm href="https://example.com/pricing">x</a>',
         },
         {
+            case: 'a link with data-href before href',
+            html: '<a data-href="x" href="https://example.com/pricing">x</a>',
+            expected: `<a data-href="x" href="https://example.com/pricing?${QUERY}">x</a>`,
+        },
+        {
+            case: 'a link whose title mentions data-ph-no-utm',
+            html: '<a title="add data-ph-no-utm to skip" href="https://example.com/pricing">x</a>',
+            expected: `<a title="add data-ph-no-utm to skip" href="https://example.com/pricing?${QUERY}">x</a>`,
+        },
+        {
             case: 'an unrendered template tag',
             html: '<a href="https://example.com/{{ person.id }}">x</a>',
             expected: '<a href="https://example.com/{{ person.id }}">x</a>',

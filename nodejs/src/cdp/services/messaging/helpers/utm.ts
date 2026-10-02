@@ -12,9 +12,11 @@ export type UtmTags = {
 
 const UTM_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content'] as const
 
-const ANCHOR_TAG_REGEX = /<a\b[^>]*>/gi
-const HREF_ATTR_REGEX = /(\bhref\s*=\s*)(?:"([^"]*)"|'([^']*)')/i
-const UTM_OPT_OUT_REGEX = /\bdata-ph-no-utm\b/i
+// A quoted attribute value may contain `>`, so the tag ends at the first `>` outside quotes.
+const ANCHOR_TAG_REGEX = /<a\b(?:"[^"]*"|'[^']*'|[^'">])*>/gi
+// One attribute per match, so `href` and `data-ph-no-utm` count only as attribute names, never as text
+// inside another attribute's value or as part of a longer name like `data-href`.
+const ATTRIBUTE_REGEX = /\s([^\s"'<>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g
 
 /**
  * Renders each custom value as Liquid with the recipient's data. A value that fails to render is
@@ -35,7 +37,8 @@ export const renderUtmOverrides = (
             continue
         }
         try {
-            rendered[key] = LiquidRenderer.renderWithHogFunctionGlobals(value, globals)
+            // Liquid escapes HTML in what it renders, and a URL needs the plain text.
+            rendered[key] = decodeHtmlEntitiesInHref(LiquidRenderer.renderWithHogFunctionGlobals(value, globals))
         } catch (error) {
             onError(key, error instanceof Error ? error.message : String(error))
         }
@@ -98,26 +101,25 @@ export const addUtmTagsToUrl = (url: string, tags: UtmTags, siteHost: string | n
 export const addUtmTagsToEmail = (html: string, tags: UtmTags, siteUrl: string): string => {
     const siteHost = hostOf(siteUrl)
     return html.replace(ANCHOR_TAG_REGEX, (anchor) => {
-        if (UTM_OPT_OUT_REGEX.test(anchor)) {
+        const attributes = [...anchor.matchAll(ATTRIBUTE_REGEX)]
+        if (attributes.some((attribute) => attribute[1].toLowerCase() === 'data-ph-no-utm')) {
             return anchor
         }
-        return anchor.replace(
-            HREF_ATTR_REGEX,
-            (match, prefix: string, doubleQuoted?: string, singleQuoted?: string) => {
-                const quote = doubleQuoted !== undefined ? '"' : "'"
-                const tagged = addUtmTagsToUrl(
-                    decodeHtmlEntitiesInHref(doubleQuoted ?? singleQuoted ?? ''),
-                    tags,
-                    siteHost
-                )
-                if (tagged === null) {
-                    return match
-                }
-                const encoded = tagged
-                    .replace(/&/g, '&amp;')
-                    .replace(quote === '"' ? /"/g : /'/g, quote === '"' ? '&quot;' : '&#39;')
-                return `${prefix}${quote}${encoded}${quote}`
-            }
-        )
+        const href = attributes.find((attribute) => attribute[1].toLowerCase() === 'href')
+        const value = href ? (href[2] ?? href[3]) : undefined
+        if (!href || value === undefined) {
+            return anchor
+        }
+        const tagged = addUtmTagsToUrl(decodeHtmlEntitiesInHref(value), tags, siteHost)
+        if (tagged === null) {
+            return anchor
+        }
+        const quote = href[2] !== undefined ? '"' : "'"
+        const encoded = tagged
+            .replace(/&/g, '&amp;')
+            .replace(quote === '"' ? /"/g : /'/g, quote === '"' ? '&quot;' : '&#39;')
+        const start = href.index! + href[0].indexOf('=')
+        const replaced = `=${quote}${encoded}${quote}`
+        return anchor.slice(0, start) + replaced + anchor.slice(href.index! + href[0].length)
     })
 }
