@@ -40,7 +40,7 @@ class MetricsPageInput:
     page_size: int  # experiments per page, not metrics
 
 
-@dataclasses.dataclass
+@frozen
 class ExperimentRegularMetricsWorkflowInputs:
     """Input to the hourly workflow."""
 
@@ -76,13 +76,13 @@ class RegularMetricsPage:
     """One discovery page of regular metrics, grouped by whole experiments."""
 
     metrics: list[ExperimentRegularMetricInput]
-    # Id of the last experiment the page scanned when the page was full, else None (no more pages).
-    # Derived from experiments scanned, not metrics returned: a page whose experiments all have zero
-    # eligible metrics still advances the cursor.
+    # Id of the last experiment the page included when more experiments may remain (full page, or the
+    # page ended early on the metric budget), else None. Derived from experiments included, not
+    # metrics returned: a page whose experiments all have zero eligible metrics still advances it.
     next_after_experiment_id: int | None
 
 
-@dataclasses.dataclass
+@frozen
 class ExperimentSavedMetricsWorkflowInputs:
     """Input to the hourly saved metrics workflow."""
 

@@ -1,5 +1,6 @@
+from collections.abc import Callable
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, TypeVar
 from zoneinfo import ZoneInfo
 
 from django.db import close_old_connections
@@ -147,26 +148,61 @@ async def get_experiment_regular_metrics_for_hour(hour: int) -> list[ExperimentR
     return await _get_experiment_regular_metrics_for_hour_sync(hour)
 
 
+# One leg's activity count must stay bounded even when a single experiment carries a pathological
+# number of scheduled metrics: the workflow only checks history length between pages, so the page is
+# the bound. Metrics past the budget on one experiment are dropped from the run with a warning, which
+# beats the alternative of the whole hour dying at the history cap and skipping other teams.
+MAX_METRICS_PER_PAGE = 1_000
+
+_MetricInputT = TypeVar("_MetricInputT")
+
+
+def _paged_metric_inputs(
+    experiments: list[Experiment],
+    metric_inputs: Callable[[Experiment], list[_MetricInputT]],
+    page_size: int,
+) -> tuple[list[_MetricInputT], int | None]:
+    """Build one page of metric inputs from id-ordered experiments; returns (metrics, next cursor).
+
+    Pages split on whole experiments so an experiment's metrics and its publish always land in the
+    same workflow leg. The cursor advances by experiments included, not metrics returned, so a page
+    of experiments whose metrics are all filtered out still makes progress. A None cursor means the
+    hour is exhausted."""
+    metrics: list[_MetricInputT] = []
+    included = 0
+    for experiment in experiments:
+        experiment_metrics = metric_inputs(experiment)
+        if metrics and len(metrics) + len(experiment_metrics) > MAX_METRICS_PER_PAGE:
+            break
+        if len(experiment_metrics) > MAX_METRICS_PER_PAGE:
+            logger.warning(
+                "Experiment exceeds the per-page metric budget, dropping the excess from this run",
+                experiment_id=experiment.id,
+                scheduled_metrics=len(experiment_metrics),
+                kept=MAX_METRICS_PER_PAGE,
+            )
+            experiment_metrics = experiment_metrics[:MAX_METRICS_PER_PAGE]
+        metrics.extend(experiment_metrics)
+        included += 1
+
+    if included < len(experiments) or len(experiments) == page_size:
+        return metrics, experiments[included - 1].id
+    return metrics, None
+
+
 @database_sync_to_async
 def _get_experiment_regular_metrics_page_sync(inputs: MetricsPageInput) -> RegularMetricsPage:
     close_old_connections()
 
-    # Pages are whole experiments so an experiment's metrics and its publish always land in the
-    # same workflow leg. The explicit id ordering is what makes the cursor correct: the model has
-    # no default ordering, so an unordered query could skip or repeat experiments between pages.
+    # The explicit id ordering is what makes the cursor correct: the model has no default ordering,
+    # so an unordered query could skip or repeat experiments between pages.
     experiments = list(
         _regular_metrics_queryset(inputs.hour)
         .filter(id__gt=inputs.after_experiment_id)
         .order_by("id")[: inputs.page_size]
     )
 
-    experiment_metrics: list[ExperimentRegularMetricInput] = []
-    for experiment in experiments:
-        experiment_metrics.extend(_regular_metric_inputs(experiment))
-
-    # The cursor advances by experiments scanned, not metrics returned, so a page of experiments
-    # whose metrics are all filtered out still makes progress.
-    next_cursor = experiments[-1].id if len(experiments) == inputs.page_size else None
+    experiment_metrics, next_cursor = _paged_metric_inputs(experiments, _regular_metric_inputs, inputs.page_size)
 
     logger.info(
         "Discovered a page of experiment metrics for hour",
@@ -508,19 +544,14 @@ async def get_experiment_saved_metrics_for_hour(hour: int) -> list[ExperimentSav
 def _get_experiment_saved_metrics_page_sync(inputs: MetricsPageInput) -> SavedMetricsPage:
     close_old_connections()
 
-    # Same paging contract as _get_experiment_regular_metrics_page_sync: whole experiments per page,
-    # explicit id ordering because the model has none, cursor advanced by experiments scanned.
+    # Same paging contract as _get_experiment_regular_metrics_page_sync, through _paged_metric_inputs.
     experiments = list(
         _saved_metrics_queryset(inputs.hour)
         .filter(id__gt=inputs.after_experiment_id)
         .order_by("id")[: inputs.page_size]
     )
 
-    experiment_metrics: list[ExperimentSavedMetricInput] = []
-    for experiment in experiments:
-        experiment_metrics.extend(_saved_metric_inputs(experiment))
-
-    next_cursor = experiments[-1].id if len(experiments) == inputs.page_size else None
+    experiment_metrics, next_cursor = _paged_metric_inputs(experiments, _saved_metric_inputs, inputs.page_size)
 
     logger.info(
         "Discovered a page of experiment saved metrics for hour",

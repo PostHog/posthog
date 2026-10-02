@@ -41,7 +41,7 @@ When a schedule triggers, it starts a workflow that:
 
 Temporal Cloud terminates a workflow whose history exceeds 51,200 events, and the termination records no failure anywhere. At roughly 6 history events per activity, one execution can hold about 8,500 activities; the big hours need more than that, so the single-execution shape got terminated mid-batch every day and every experiment past the cutoff was silently skipped. The run therefore rotates executions with `continue_as_new` between pages: the discovery cursor (`after_experiment_id`), the original run start, and the accumulated totals travel in the continuation inputs, so each leg starts from an empty history. Legs are sequential and share one `MAX_CONCURRENT_METRICS` semaphore per leg, so ClickHouse concurrency is identical to the unpaged shape. The final leg returns the chain-wide summary and emits the publish-outcome counter exactly once.
 
-Pages split on whole experiments, never mid-experiment, so an experiment's publish always runs in the same leg as its metrics. The cursor advances by experiments scanned rather than metrics returned, so a page whose experiments all get filtered out still makes progress.
+Pages split on whole experiments, never mid-experiment, so an experiment's publish always runs in the same leg as its metrics. The cursor advances by experiments scanned rather than metrics returned, so a page whose experiments all get filtered out still makes progress. A per-page metric budget ends a page early when its experiments carry many metrics, and an experiment that alone exceeds the budget is truncated to it with a warning, so one pathological configuration cannot grow a leg past the event cap.
 
 ### Handing fresh points to the recalculation reader
 

@@ -209,6 +209,57 @@ class TestRecalculationTimeFilter:
                     assert id_set.isdisjoint(other)
             assert page_id_sets[0] == {experiments[0].id, experiments[1].id}
 
+    def test_metric_budget_splits_pages_and_truncates_an_oversized_experiment(self):
+        """A single experiment with a pathological scheduled-metric count must not grow a page past the
+        per-leg activity budget: the workflow only checks history between pages, so an unbounded page
+        reintroduces the history-cap termination this paging exists to prevent. The budget has to end a
+        page early on whole experiments, and an experiment over the budget alone has to be truncated
+        with the cursor still advancing, or the run loops on it forever."""
+        org = Organization.objects.create(name="Test Org Budget")
+        team = Team.objects.create(organization=org, name="Team Budget")
+        user = User.objects.create(email="budget@test.com")
+
+        def two_metrics(key: str) -> list[dict]:
+            return [
+                {"metric_type": "mean", "uuid": f"{key}-a", "source": {"kind": "EventsNode", "event": "test"}},
+                {"metric_type": "mean", "uuid": f"{key}-b", "source": {"kind": "EventsNode", "event": "test"}},
+            ]
+
+        experiments = [
+            _create_running_experiment(team, user, f"budget-{i}", metrics=two_metrics(f"budget-{i}")) for i in range(3)
+        ]
+        our_ids = {e.id for e in experiments}
+
+        def sweep() -> list:
+            pages = []
+            cursor = 0
+            while True:
+                page = _get_metrics_page_sync(hour=2, after_experiment_id=cursor, page_size=2)
+                pages.append(page)
+                if page.next_after_experiment_id is None:
+                    break
+                assert page.next_after_experiment_id > cursor
+                cursor = page.next_after_experiment_id
+            return pages
+
+        # Budget of 3 fits one experiment's 2 metrics but not two experiments' 4: pages end early on
+        # whole experiments and the sweep still covers everything.
+        with patch("posthog.temporal.experiments.activities.MAX_METRICS_PER_PAGE", 3):
+            pages = sweep()
+        for page in pages:
+            assert len({m.experiment_id for m in page.metrics if m.experiment_id in our_ids}) <= 1
+        covered = {m.experiment_id for page in pages for m in page.metrics if m.experiment_id in our_ids}
+        assert covered == our_ids
+
+        # Budget of 1 is below a single experiment's metric count: its page is truncated to the budget
+        # and the cursor still advances past it.
+        with patch("posthog.temporal.experiments.activities.MAX_METRICS_PER_PAGE", 1):
+            pages = sweep()
+        our_pages = [[m for m in page.metrics if m.experiment_id in our_ids] for page in pages]
+        assert all(len(metrics) <= 1 for metrics in our_pages)
+        covered = {m.experiment_id for metrics in our_pages for m in metrics}
+        assert covered == our_ids
+
     def test_team_with_no_config_row_defaults_to_hour_2(self):
         org = Organization.objects.create(name="Test Org 2")
         team = Team.objects.create(organization=org, name="Team No Config")
