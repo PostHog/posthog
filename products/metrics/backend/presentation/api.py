@@ -535,13 +535,6 @@ class _MetricAttributeKeysParamsSerializer(serializers.Serializer):
         default=None,
         help_text="Upper bound (exclusive) of the window. ISO 8601. Defaults to now.",
     )
-    limit = serializers.IntegerField(
-        required=False,
-        default=100,
-        min_value=1,
-        max_value=1000,
-        help_text="Max number of keys to return. Defaults to 100; values above 100 return at most 100 keys.",
-    )
 
 
 class _MetricAttributeValuesParamsSerializer(serializers.Serializer):
@@ -567,13 +560,6 @@ class _MetricAttributeValuesParamsSerializer(serializers.Serializer):
         allow_null=True,
         default=None,
         help_text="Upper bound (exclusive) of the window. ISO 8601. Defaults to now.",
-    )
-    limit = serializers.IntegerField(
-        required=False,
-        default=100,
-        min_value=1,
-        max_value=1000,
-        help_text="Max number of values to return. Defaults to 100; values above 100 return at most 100 values.",
     )
 
 
@@ -942,7 +928,6 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             results = list_metric_names(
                 team=self.team,
                 search=params.validated_data["value"],
-                limit=params.validated_data["limit"],
                 services=params.validated_data["service"],
                 names=params.validated_data.get("names", []),
             )
@@ -972,7 +957,6 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             results = list_metric_picker_names(
                 team=self.team,
                 search=params.validated_data["value"],
-                limit=params.validated_data["limit"],
                 services=params.validated_data["service"],
             )
         except ValueError as exc:
@@ -1005,7 +989,6 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 search=params.validated_data["search"],
                 date_from=params.validated_data["dateFrom"],
                 date_to=params.validated_data["dateTo"],
-                limit=params.validated_data["limit"],
             )
         except ValueError as exc:
             raise ParseError(str(exc))
@@ -1037,7 +1020,6 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 search=params.validated_data["value"],
                 date_from=params.validated_data["dateFrom"],
                 date_to=params.validated_data["dateTo"],
-                limit=params.validated_data["limit"],
             )
         except ValueError as exc:
             raise ParseError(str(exc))

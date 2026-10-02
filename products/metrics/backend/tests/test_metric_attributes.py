@@ -160,8 +160,6 @@ class TestMetricAttributesAPI(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             ("missing_key", "attribute_values", {}),
-            ("bad_limit", "attributes", {"limit": "0"}),
-            ("non_numeric_limit", "attributes", {"limit": "lots"}),
             ("bad_date", "attributes", {"dateFrom": "not-a-date"}),
         ]
     )
@@ -230,11 +228,14 @@ class TestMetricAttributeSlicesAPI(ClickhouseTestMixin, APIBaseTest):
                 labels={"old_key": f"v{index}", "shared": f"old{index}"},
             )
 
-    def _get(self, action: str, params: dict) -> tuple[list[dict], int]:
-        with patch(
-            "products.metrics.backend.metric_attributes_query_runner.execute_hogql_query",
-            wraps=execute_hogql_query,
-        ) as execute:
+    def _get(self, action: str, params: dict, limit: int) -> tuple[list[dict], int]:
+        with (
+            patch("products.metrics.backend.metric_attributes_query_runner._LIMIT", limit),
+            patch(
+                "products.metrics.backend.metric_attributes_query_runner.execute_hogql_query",
+                wraps=execute_hogql_query,
+            ) as execute,
+        ):
             response = self.client.get(f"/api/projects/{self.team.id}/metrics/{action}", params)
         assert response.status_code == status.HTTP_200_OK, response.json()
         return response.json()["results"], execute.call_count
@@ -250,7 +251,7 @@ class TestMetricAttributeSlicesAPI(ClickhouseTestMixin, APIBaseTest):
     def test_attributes_read_the_older_slice_only_to_fill_the_limit(
         self, _name: str, metric_name: str, limit: int, expected: list[str], expected_queries: int
     ) -> None:
-        results, queries = self._get("attributes", {"metricName": metric_name, "limit": limit})
+        results, queries = self._get("attributes", {"metricName": metric_name}, limit)
         assert [r["name"] for r in results] == expected
         assert queries == expected_queries
 
@@ -263,6 +264,6 @@ class TestMetricAttributeSlicesAPI(ClickhouseTestMixin, APIBaseTest):
     def test_attribute_values_read_the_older_slice_only_to_fill_the_limit(
         self, _name: str, limit: int, expected: list[str], expected_queries: int
     ) -> None:
-        results, queries = self._get("attribute_values", {"key": "shared", "limit": limit})
+        results, queries = self._get("attribute_values", {"key": "shared"}, limit)
         assert [r["name"] for r in results] == expected
         assert queries == expected_queries
