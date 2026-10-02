@@ -67,7 +67,9 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
     const pane = (
         <div className="TodayShell__pane">
             {activePane === 'home' ? (
-                <TodayHomeSidebar />
+                <TodayPreviewCardProvider>
+                    <TodayHomeSidebar />
+                </TodayPreviewCardProvider>
             ) : activePane === 'spaces' ? (
                 <TodayPreviewCardProvider>
                     <TodaySpacesSidebar />

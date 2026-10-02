@@ -67,7 +67,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.constants import FlagRequestType
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
-from posthog.exceptions import Conflict
+from posthog.exceptions import Conflict, first_error_message
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.dashboard_templates import add_enriched_insights_to_feature_flag_dashboard
 from posthog.helpers.impersonation import is_impersonated
@@ -1846,8 +1846,9 @@ class FeatureFlagSerializer(
     def _drop_echoed_v2_fields(self, attrs: dict) -> set[str]:
         """Remove every submitted value equal to the stored one and return their names.
 
-        An echo is neither judged nor written: PUT must repeat `key`, and a bulk delete does not
-        bump `version`, so a written `deleted: false` could undo one.
+        An echo is neither judged nor written: PUT must repeat `key`, and a soft delete from outside
+        this serializer (the file-system trash) does not bump `version`, so a written
+        `deleted: false` could undo one.
         """
         assert isinstance(self.instance, FeatureFlag)
         echoed = {
@@ -2704,8 +2705,9 @@ class FeatureFlagSerializer(
                 # Every read and the save below use the locked row, not the instance loaded
                 # before the lock. `save()` writes every field, so applying this request to the
                 # stale copy would restore whatever another writer changed in the meantime for
-                # a field this request never sent. A bulk delete leaves `version` untouched, so
-                # the version check above cannot catch it and the flag came back undeleted.
+                # a field this request never sent. A soft delete from outside this serializer (the
+                # file-system trash, or a bulk delete of a config version 1 flag) leaves `version`
+                # untouched, so the version check above cannot catch it and the flag came back undeleted.
                 old_key = locked_instance.key
 
                 # Clear any soft-deleted tombstone on `new_key` so the (team, key)
@@ -5072,8 +5074,9 @@ class FeatureFlagViewSet(
 
         Returns same format as bulk_delete for UI compatibility.
 
-        Uses bulk operations for efficiency: database updates are batched and cache
-        invalidation happens once at the end rather than per-flag.
+        Config version 1 flags are deleted with batched updates, and cache invalidation
+        runs once at the end. Config version 2 flags are deleted one at a time through
+        ``update_flag``. Each one bumps its ``version`` and commits on its own.
         """
         from django.utils import timezone
 
@@ -5190,6 +5193,7 @@ class FeatureFlagViewSet(
         # Also track which need key renames (have deleted experiments)
         flags_to_delete_normal: list[FeatureFlag] = []
         flags_to_delete_with_rename: list[FeatureFlag] = []
+        v2_flags: list[tuple[FeatureFlag, dict]] = []
         activity_log_entries: list[LogActivityEntry] = []
 
         current_user = request.user if request.user.is_authenticated else None
@@ -5255,6 +5259,11 @@ class FeatureFlagViewSet(
             checker = FeatureFlagStatusChecker(feature_flag=flag)
             rollout_info = _get_flag_rollout_info(flag, checker)
             old_key = flag.key
+            entry = {"id": flag_id, "key": old_key, **rollout_info}
+
+            if detect_config_format(flag.filters).kind == "v2":
+                v2_flags.append((flag, entry))
+                continue
 
             # Rename the key if the flag is linked to any experiment, to free it up.
             # Use the prefetched experiment_set cache (see queryset above) rather than
@@ -5279,7 +5288,7 @@ class FeatureFlagViewSet(
                 )
             )
 
-            deleted.append({"id": flag_id, "key": old_key, **rollout_info})
+            deleted.append(entry)
 
         # Perform bulk database updates
         # Using queryset.update() instead of individual saves means Django signals don't fire.
@@ -5324,6 +5333,26 @@ class FeatureFlagViewSet(
                     update_team_remote_config.delay(team_id)
 
                 transaction.on_commit(invalidate_caches)
+
+        # Outside the transaction above: the facade requires gated writes like `update_flag` to run
+        # outside any transaction, so each config version 2 flag commits on its own.
+        if v2_flags:
+            from products.feature_flags.backend.facade.api import update_flag
+
+            for flag, entry in v2_flags:
+                try:
+                    update_flag(
+                        flag,
+                        {"deleted": True, "version": flag.version or 0},
+                        team=flag.team,
+                        user=request.user,
+                        request=FlagLifecycleWriteRequest(request),
+                        serializer_context=self.get_serializer_context(),
+                    )
+                except exceptions.APIException as exc:
+                    errors.append({"id": flag.id, "key": flag.key, "reason": first_error_message(exc.detail)})
+                else:
+                    deleted.append(entry)
 
         return Response(
             {
