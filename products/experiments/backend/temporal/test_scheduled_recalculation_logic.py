@@ -82,24 +82,17 @@ class TestScheduledRecalculationLogic(BaseTest):
     def test_configured_hour_overrides_default(self):
         TeamExperimentsConfig.objects.update_or_create(
             team=self.team,
-            defaults={
-                "experiment_recalculation_times": ["05:00:00"],
-                "experiment_recalculation_time": "05:00:00",
-            },
+            defaults={"experiment_recalculation_times": ["05:00:00"]},
         )
         experiment = self._experiment()
         assert experiment.id in self._candidate_ids(5)
         assert experiment.id not in self._candidate_ids(2)
 
     def test_both_configured_times_select_the_experiment(self):
-        # The singular field mirrors only the first entry, so matching on it alone would drop
-        # the team's second daily run.
+        # Matching only the first entry would drop the team's second daily run.
         TeamExperimentsConfig.objects.update_or_create(
             team=self.team,
-            defaults={
-                "experiment_recalculation_times": ["00:00:00", "12:00:00"],
-                "experiment_recalculation_time": "00:00:00",
-            },
+            defaults={"experiment_recalculation_times": ["00:00:00", "12:00:00"]},
         )
         experiment = self._experiment()
         assert experiment.id in self._candidate_ids(0)
@@ -109,7 +102,7 @@ class TestScheduledRecalculationLogic(BaseTest):
     def test_a_team_with_no_configured_times_falls_to_the_default_hour(self):
         TeamExperimentsConfig.objects.update_or_create(
             team=self.team,
-            defaults={"experiment_recalculation_times": None, "experiment_recalculation_time": None},
+            defaults={"experiment_recalculation_times": None},
         )
         experiment = self._experiment()
         assert experiment.id in self._candidate_ids(2)
