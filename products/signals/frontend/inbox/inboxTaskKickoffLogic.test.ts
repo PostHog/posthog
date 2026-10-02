@@ -20,6 +20,7 @@ import {
 import { makeReport } from './__mocks__/inboxMocks'
 import {
     FREE_TRIAL_PR_DISABLED_REASON,
+    MERGE_PR_REQUEST,
     REPORT_AI_PANEL,
     REPORT_AI_PANEL_ID,
     buildCreatePrReportPrompt,
@@ -550,6 +551,39 @@ describe('inboxTaskKickoffLogic', () => {
             expect(prompt).toContain('Fewer failed checkouts')
             expect(prompt).toContain('inbox-report-artefacts-create')
             expect(prompt).toContain('Do not create a check, start monitoring, change the report state')
+            expect(prompt).not.toContain('inbox-reports-set-state')
+        })
+
+        it.each([
+            ['an approved, open PR', 'open', 'approved', true],
+            // The approval is what the person acted on, so a fresh state without it answers only.
+            ['an open PR that still needs review', 'open', 'review_required', false],
+            ['a PR that merged meanwhile', 'merged', 'approved', false],
+        ] as const)('frames a merge request on a report with %s', (_name, state, reviewDecision, merges) => {
+            const prompt = buildDiscussReportPrompt(
+                makeReport({
+                    status: SignalReportStatus.IN_PROGRESS,
+                    pull_requests: [
+                        {
+                            id: 'pr-1',
+                            url: 'https://github.com/org/repo/pull/1',
+                            state,
+                            merged: state === 'merged',
+                            review_decision: reviewDecision,
+                            merged_at: null,
+                            claim_id: null,
+                            attached_at: null,
+                            attached_by: null,
+                        },
+                    ],
+                }),
+                url,
+                MERGE_PR_REQUEST,
+                'merge_pr'
+            )
+            expect(prompt).toContain(MERGE_PR_REQUEST)
+            expect(prompt.includes('merge queue')).toBe(merges)
+            expect(prompt.includes('Answer this question')).toBe(!merges)
             expect(prompt).not.toContain('inbox-reports-set-state')
         })
 
