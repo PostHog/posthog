@@ -35,6 +35,9 @@ export type LogEntriesOutput = typeof LOG_ENTRIES_OUTPUT
 export const TOPHOG_OUTPUT = 'tophog' as const
 export type TophogOutput = typeof TOPHOG_OUTPUT
 
+export const USAGE_INGESTION_OUTPUT = 'usage_ingestion' as const
+export type UsageIngestionOutput = typeof USAGE_INGESTION_OUTPUT
+
 export const HOG_INVOCATION_RESULTS_OUTPUT = 'hog_invocation_results' as const
 export type HogInvocationResultsOutput = typeof HOG_INVOCATION_RESULTS_OUTPUT
 

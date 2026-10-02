@@ -141,9 +141,10 @@ export type CommonConfig = BaseServerConfig & {
     PERSONHOG_INITIAL_STREAM_WINDOW_BYTES: number
     PERSONHOG_INITIAL_CONNECTION_WINDOW_BYTES: number
 
-    // Usage ingestion gRPC. One team list per deployment, because each reporting site is its
+    // Usage ingestion. One team list per deployment, because each reporting site is its
     // own service: '' reports nothing, '*' every team, '1,2' those teams. No percentage: it
     // would bill a fraction of a team.
+    USAGE_INGESTION_MODE: 'grpc' | 'kafka'
     USAGE_INGESTION_ADDR: string
     USAGE_INGESTION_TLS: boolean
     USAGE_INGESTION_TIMEOUT_MS: number
@@ -359,7 +360,8 @@ export function getDefaultCommonConfig(): CommonConfig {
         PERSONHOG_INITIAL_STREAM_WINDOW_BYTES: 0,
         PERSONHOG_INITIAL_CONNECTION_WINDOW_BYTES: 0,
 
-        // Usage ingestion gRPC
+        // Usage ingestion
+        USAGE_INGESTION_MODE: 'grpc',
         USAGE_INGESTION_ADDR: isDevEnv() ? 'localhost:7143' : '',
         USAGE_INGESTION_TLS: false,
         USAGE_INGESTION_TIMEOUT_MS: 5_000,
