@@ -39,10 +39,30 @@ import {
 } from '../TaxonomicFilter/types'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from './constants'
 
-function isApplicableSavedFilter(
-    item: unknown
-): item is SessionRecordingPlaylistType & { filters: NonNullable<SessionRecordingPlaylistType['filters']> } {
+type ApplicableSavedFilter = SessionRecordingPlaylistType & {
+    filters: NonNullable<SessionRecordingPlaylistType['filters']>
+}
+
+function isApplicableSavedFilter(item: unknown): item is ApplicableSavedFilter {
     return typeof item === 'object' && item !== null && 'short_id' in item && 'filters' in item && item.filters != null
+}
+
+/**
+ * The Saved filters list hands back the saved filter itself. A row from the Recent category is a
+ * stored summary of one: it carries the short id the row is keyed by and never the filters, which
+ * are too heavy to keep in local storage. Resolve that summary against the loaded list so both
+ * rows apply the same filter.
+ */
+export function resolveSavedFilter(
+    item: unknown,
+    shortId: TaxonomicFilterValue,
+    savedFilters: SessionRecordingPlaylistType[]
+): ApplicableSavedFilter | null {
+    if (isApplicableSavedFilter(item)) {
+        return item
+    }
+    const match = savedFilters.find((saved) => saved.short_id === shortId)
+    return isApplicableSavedFilter(match) ? match : null
 }
 
 function recordRecentFromPropertyFilter(propertyFilter: AnyPropertyFilter): void {
@@ -260,8 +280,14 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
 
         addGroupFilter: ({ taxonomicGroup, propertyKey, item }) => {
             if (taxonomicGroup.type === TaxonomicFilterGroupType.ReplaySavedFilters) {
-                if (isApplicableSavedFilter(item)) {
-                    sessionRecordingSavedFiltersLogic.findMounted()?.actions.requestApplySavedFilter(item)
+                const savedFiltersLogic = sessionRecordingSavedFiltersLogic.findMounted()
+                const savedFilter = resolveSavedFilter(
+                    item,
+                    propertyKey,
+                    savedFiltersLogic?.values.savedFilters.results ?? []
+                )
+                if (savedFilter) {
+                    savedFiltersLogic?.actions.requestApplySavedFilter(savedFilter)
                 }
                 return
             }
