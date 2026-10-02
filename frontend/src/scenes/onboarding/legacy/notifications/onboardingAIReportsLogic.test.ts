@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -40,7 +41,13 @@ describe('onboardingAIReportsLogic', () => {
     // `send_test_now` flipping back to its server default of true, which would immediately
     // mail an AI report over a project that likely has no events yet.
     it('creates a weekly email subscription with a start date about a week out', async () => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
         await expectLogic(logic, () => logic.actions.createReportSubscription()).toFinishAllListeners()
+
+        expect(capture).toHaveBeenCalledWith(
+            'onboarding ai report subscribed',
+            expect.objectContaining({ report_key: logic.values.report.key, version: 1, flow_variant: 'legacy' })
+        )
 
         expect(mockedCreate).toHaveBeenCalledTimes(1)
         const [, payload] = mockedCreate.mock.calls[0]

@@ -3,8 +3,8 @@ import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
-import type { OnboardingEventProperties } from 'lib/utils/eventUsageLogic'
 
+import type { OnboardingEventProperties } from './onboardingUsage'
 import { resolveOnboardingFlowVariant } from './onboardingVariants'
 
 export type SelfDrivingOnboardingStepId =
