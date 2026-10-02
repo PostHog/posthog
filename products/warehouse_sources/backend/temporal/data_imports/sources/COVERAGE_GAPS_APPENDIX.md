@@ -3726,7 +3726,7 @@ Note: The swagger-ui URL recorded in the source (https://customapi.goldcast.io/s
 
 ## Gong — gaps
 
-Today (10): `answered_scorecards`, `calls`, `calls_content`, `calls_extensive`, `interaction_stats`, `scorecards`, `trackers`, `transcripts`, `users`, `workspaces`
+Today (15): `answered_scorecards`, `call_outcomes`, `calls`, `calls_content`, `calls_extensive`, `daily_activity`, `flows`, `interaction_stats`, `library_folder_calls`, `library_folders`, `scorecards`, `trackers`, `transcripts`, `users`, `workspaces`
 
 Diffed against: <https://help.gong.io/llms.txt>
 
@@ -3734,13 +3734,13 @@ Diffed against: <https://help.gong.io/llms.txt>
 - [x] `stats/activity/scorecards` — answered scorecard responses; we currently only sync scorecard definitions, not the reviews (high)
 - [x] `settings/trackers` — lookup resolving the tracker IDs that appear on calls_extensive (high)
 - [x] `stats/interaction` — talk ratio, patience, longest monologue - Gong's signature conversation metrics per user (high)
-- [ ] `stats/activity/day-by-day` — daily per-rep activity fact table for coaching and adoption reporting (high)
-- [ ] `call-outcomes` — lookup resolving call outcome values used to segment calls (medium)
+- [x] `stats/activity/day-by-day` — daily per-rep activity fact table for coaching and adoption reporting (high)
+- [x] `call-outcomes` — lookup resolving call outcome values used to segment calls (medium)
 - [ ] `stats/activity/aggregate-by-period` — pre-aggregated activity by period, cheaper than deriving from raw calls (medium)
 - [ ] `coaching` — coaching metrics per manager/rep (medium)
 - [ ] `logs` — audit log of access and data events, used for security and usage reporting (medium)
-- [ ] `library/folders + library/folder-content` — curated call collections and their membership (medium)
-- [ ] `flows + flows/prospects` — Gong Engage sequences and prospect assignments for outbound analysis (medium)
+- [x] `library/folders + library/folder-content` — curated call collections and their membership (medium)
+- [x] `flows + flows/prospects` — Gong Engage sequences and prospect assignments for outbound analysis (medium). `flows` only: `POST /v2/flows/prospects` looks up the flows of CRM prospect ids the caller already has, with no way to list them
 - [ ] `users/{id}/settings-history` — state-transition history of user recording settings, explains gaps in call coverage (low)
 
 Note: Gong's OpenAPI at https://api.gong.io/v2/api-docs is auth-gated (401), and the settings/api/documentation UI requires login. The resource list above was read from Gong's own docs index at help.gong.io/llms.txt, which enumerates every API-reference page with its /v2 path.
@@ -3771,14 +3771,14 @@ Today (9): `customers`, `macros`, `messages`, `satisfaction_surveys`, `tags`, `t
 
 Diffed against: <https://developers.gorgias.com/llms.txt>
 
-- [ ] `events (/api/events)` — the account-wide event stream, including ticket state transitions and assignment changes - the only way to do time-in-status or SLA analysis (high)
+- [x] `events (/api/events)` — the account-wide event stream, including ticket state transitions and assignment changes - the only way to do time-in-status or SLA analysis (high)
 - [x] `ticket_tags (/api/tickets/{id}/tags)` — the ticket-to-tag join; we sync tags and tickets but not the mapping between them (high)
 - [x] `voice_calls` — phone channel fact table, entirely absent today (high)
 - [x] `custom_fields` — lookup resolving the custom field IDs used on tickets and customers (high)
 - [x] `ticket_field_values (/api/tickets/{id}/custom-fields)` — per-ticket custom field values, including system fields like AI Intent and AI Agent Outcome (high)
-- [ ] `customer_field_values (/api/customers/{id}/custom-fields)` — per-customer custom field values (medium)
-- [ ] `voice_call_events` — per-call state transitions (ringing, answered, transferred) for phone queue analysis (medium)
-- [ ] `voice_call_recordings` — recording metadata joined to voice calls (medium)
+- [x] `customer_field_values (/api/customers/{id}/custom-fields)` — per-customer custom field values (medium)
+- [x] `voice_call_events` — per-call state transitions (ringing, answered, transferred) for phone queue analysis (medium)
+- [x] `voice_call_recordings` — recording metadata joined to voice calls (medium)
 - [ ] `statistics (/api/statistics/{slug} and metric cards)` — Gorgias' own precomputed support metrics, useful as a benchmark against derived numbers (medium)
 - [ ] `view_items (/api/views/{id}/items)` — the ticket membership of each saved view; we sync views but not their contents (low)
 
@@ -3840,10 +3840,10 @@ Today (2): `columns`, `records`
 
 Diffed against: <https://www.gridly.com/docs/api/>
 
-- [ ] `views (GET /v1/views?gridId=)` — lookup for the view the synced records and columns belong to; also the only way to discover other views (high)
-- [ ] `grids (GET /v1/grids?dbId=)` — lookup resolving the grid that owns each view/record set (high)
-- [ ] `databases (GET /v1/databases?projectId=)` — lookup completing the project > database > grid > view hierarchy around synced records (high)
-- [ ] `projects (GET /v1/projects)` — top-level lookup for project names/IDs referenced by databases (high)
+- [x] `views (GET /v1/views?gridId=)` — lookup for the view the synced records and columns belong to; also the only way to discover other views (high)
+- [x] `grids (GET /v1/grids?dbId=)` — lookup resolving the grid that owns each view/record set (high)
+- [x] `databases (GET /v1/databases?projectId=)` — lookup completing the project > database > grid > view hierarchy around synced records (high)
+- [x] `projects (GET /v1/projects)` — top-level lookup for project names/IDs referenced by databases (high)
 - [ ] `record histories (GET /v1/views/{viewId}/records/{recordId}/histories)` — per-cell change history - who changed which localization value and when (medium)
 - [ ] `dependencies (GET /v1/views/{viewId}/dependencies)` — source-to-target column mapping that explains translation status columns (medium)
 - [ ] `branches (GET /v1/branches?gridId=)` — branch metadata needed to interpret records synced from a branched grid (medium)
@@ -3951,18 +3951,18 @@ Note: Could not reach any vendor-hosted doc this run: the Notion doc URL in the 
 
 ## Helicone — gaps
 
-Today (4): `prompts`, `requests`, `sessions`, `users`
+Today (6): `eval_scores`, `prompts`, `properties`, `requests`, `sessions`, `users`
 
 Diffed against: <https://docs.helicone.ai/llms.txt>
 
-- [ ] `POST /v1/evals/query` — evaluation results per request — the core quality metric Helicone users chart (high)
-- [ ] `GET /v1/evals/scores` — lookup of the eval score definitions that eval results reference (high)
-- [ ] `POST /v1/property/query` — custom properties attached to requests; the dimension almost every Helicone breakdown is sliced by (high)
+- ~~`POST /v1/evals/query`~~ — not table material: it returns one aggregate row per score name (avg/min/max/count plus hourly series over the requested window) and ignores `limit`/`offset`; the per-request scores it rolls up are already on `requests.scores`
+- [x] `GET /v1/evals/scores` — lookup of the eval score names that eval results reference (high). Added as `eval_scores`. It returns score names only, not definitions.
+- [x] `POST /v1/property/query` — catalog of the custom property keys attached to requests (high). Added as `properties`. It returns the org's non-hidden keys; per-request values are already on `requests.request_properties`.
 - [ ] `POST /v1/user/metrics/query` — per-user aggregated cost/token/request metrics, complements the raw users table we sync (medium)
 - [ ] `POST /v1/session/metrics/query` — per-session cost and latency rollups for the sessions we already sync (medium)
 - [ ] `GET /v1/public/model-registry/models` — lookup table resolving model ids on requests to provider, context window and pricing (medium)
 - [ ] `POST /v1/dashboard/scores/query` — dashboard scoring metrics over time (medium)
-- [ ] `GET /v1/request/inputs` — prompt-template variable values per request — joins requests to the prompts we already sync (medium)
+- ~~`GET /v1/request/inputs`~~ — not table material: the API only serves `GET /v1/request/{requestId}/inputs`, a point lookup that would mean one call per logged request; requests already carry `prompt_id` and `prompt_version` for the join to prompts
 - [ ] `POST /v1/evals/score-distributions/query` — score distribution breakdowns for eval reporting (low)
 - [ ] `GET /v1/prompt-2025/tags` — prompt tag lookup for grouping the prompts table (low)
 - [ ] `GET /v1/prompt-2025/environments` — environment lookup so prompt versions can be attributed to prod/staging (low)
@@ -3971,14 +3971,14 @@ Note: Helicone's API is POST-query shaped rather than REST-collection shaped, so
 
 ## Hellobaton — gaps
 
-Today (11): `activity`, `companies`, `milestones`, `phases`, `project_attachments`, `projects`, `task_attachments`, `tasks`, `templates`, `time_entries`, `users`
+Today (15): `activity`, `companies`, `custom_field_values`, `custom_fields`, `milestones`, `phases`, `project_attachments`, `project_phases`, `project_users`, `projects`, `task_attachments`, `tasks`, `templates`, `time_entries`, `users`
 
 Diffed against: <https://app.hellobaton.com/api/swagger.json>
 
-- [ ] `project_users` — project membership join table — who is on which project, missing entirely today (high)
-- [ ] `custom_field_values` — the actual custom field data on projects and tasks; without it custom fields are invisible (high)
-- [ ] `custom_fields` — lookup table naming and typing the custom field ids carried by custom_field_values (high)
-- [ ] `project_phases` — per-project phase instances with dates — the state/transition history behind project progress (high)
+- [x] `project_users` — project membership join table — who is on which project, missing entirely today (high)
+- [x] `custom_field_values` — the actual custom field data on projects (the endpoint returns project values only); without it custom fields are invisible (high)
+- [x] `custom_fields` — lookup table naming and typing the custom field ids carried by custom_field_values (high)
+- [x] `project_phases` — per-project phase instances with dates — the state/transition history behind project progress (high)
 - [ ] `comments` — collaboration events on projects and tasks, the main activity signal alongside activity (high)
 - [ ] `custom_field_options` — lookup resolving picklist option ids stored in custom_field_values (medium)
 - [ ] `departments` — lookup table resolving the department ids on users and projects (medium)

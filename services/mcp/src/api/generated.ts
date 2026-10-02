@@ -61943,6 +61943,22 @@ export namespace Schemas {
      */
     export type MCPToolResponseStructuredContent = {[key: string]: JsonValue} | null;
 
+    /**
+     * Failure category for MCP analytics.
+     */
+    export type MCPToolResponseErrorType = typeof MCPToolResponseErrorType[keyof typeof MCPToolResponseErrorType] | null;
+
+
+    export const MCPToolResponseErrorType = {
+      Validation: 'validation',
+      Permission: 'permission',
+      Timeout: 'timeout',
+      MemoryLimit: 'memory_limit',
+      RateLimited: 'rate_limited',
+      Api5xx: 'api_5xx',
+      Internal: 'internal',
+    } as const;
+
     export interface MCPToolResponse {
       /** Formatted tool output for the model. */
       content: string;
@@ -61950,6 +61966,8 @@ export namespace Schemas {
       structured_content?: MCPToolResponseStructuredContent;
       /** Whether the tool completed successfully. */
       success: boolean;
+      /** Failure category for MCP analytics. */
+      error_type?: MCPToolResponseErrorType;
     }
 
     /**
@@ -69426,6 +69444,20 @@ export namespace Schemas {
       Filters: 'filters',
     } as const;
 
+    /**
+     * * `new` - new
+     * * `pin` - pin
+     * * `duplicate` - duplicate
+     */
+    export type SessionRecordingPlaylistCreationMethodEnum = typeof SessionRecordingPlaylistCreationMethodEnum[keyof typeof SessionRecordingPlaylistCreationMethodEnum];
+
+
+    export const SessionRecordingPlaylistCreationMethodEnum = {
+      New: 'new',
+      Pin: 'pin',
+      Duplicate: 'duplicate',
+    } as const;
+
     export type SessionRecordingPlaylistRecordingsCounts = {[key: string]: {[key: string]: number | boolean | null}};
 
     export interface SessionRecordingPlaylist {
@@ -69463,6 +69495,12 @@ export namespace Schemas {
       /** Return whether this is a synthetic playlist */
       readonly is_synthetic: boolean;
       _create_in_folder?: string;
+      /** How the PostHog app created the playlist, for product analytics. Not stored.
+       *
+       * * `new` - new
+       * * `pin` - pin
+       * * `duplicate` - duplicate */
+      creation_method?: SessionRecordingPlaylistCreationMethodEnum;
     }
 
     export interface PaginatedSessionRecordingPlaylistList {
@@ -80562,6 +80600,12 @@ export namespace Schemas {
       /** Return whether this is a synthetic playlist */
       readonly is_synthetic?: boolean;
       _create_in_folder?: string;
+      /** How the PostHog app created the playlist, for product analytics. Not stored.
+       *
+       * * `new` - new
+       * * `pin` - pin
+       * * `duplicate` - duplicate */
+      creation_method?: SessionRecordingPlaylistCreationMethodEnum;
     }
 
     /**
