@@ -5,10 +5,10 @@ import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
 import { IconBlank } from 'lib/lemon-ui/icons'
 
-import { MCP_DASHBOARD_CARDS } from './dashboardCards'
+import { MCP_DASHBOARD_CARDS, McpDashboardCardId } from './dashboardCards'
 import { mcpDashboardCardsLogic } from './mcpDashboardCardsLogic'
 
-export function DashboardCardsMenu(): JSX.Element {
+export function DashboardCardsMenu({ cardsWithoutData }: { cardsWithoutData: McpDashboardCardId[] }): JSX.Element {
     const { hiddenCount, isCardVisible } = useValues(mcpDashboardCardsLogic)
     const { toggleCard, showAllCards } = useActions(mcpDashboardCardsLogic)
 
@@ -16,15 +16,20 @@ export function DashboardCardsMenu(): JSX.Element {
         <LemonMenu
             closeOnClickInside={false}
             items={[
-                ...MCP_DASHBOARD_CARDS.map(({ id, label }) => ({
-                    label,
-                    onClick: () => toggleCard(id),
-                    icon: isCardVisible(id) ? <IconCheck /> : <IconBlank />,
-                    'data-attr': `mcp-dashboard-card-${id}`,
-                })),
-                ...(hiddenCount > 0
-                    ? [{ label: 'Show all cards', onClick: showAllCards, 'data-attr': 'mcp-dashboard-show-all-cards' }]
-                    : []),
+                {
+                    items: MCP_DASHBOARD_CARDS.map(({ id, label }) => ({
+                        label,
+                        onClick: () => toggleCard(id),
+                        icon: isCardVisible(id) ? <IconCheck /> : <IconBlank />,
+                        tooltip: cardsWithoutData.includes(id) ? 'No data in this date range' : undefined,
+                        'data-attr': `mcp-dashboard-card-${id}`,
+                    })),
+                },
+                hiddenCount > 0 && {
+                    items: [
+                        { label: 'Show all cards', onClick: showAllCards, 'data-attr': 'mcp-dashboard-show-all-cards' },
+                    ],
+                },
             ]}
         >
             <LemonButton

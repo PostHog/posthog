@@ -50,6 +50,7 @@ describe('mcpDashboardCardsLogic', () => {
         logic.actions.showAllCards()
 
         expectLogic(logic).toMatchValues({ hiddenCardIds: [], hiddenCount: 0 })
+        expect(posthog.capture).toHaveBeenLastCalledWith('mcp analytics dashboard cards reset', { hidden_count: 2 })
     })
 
     it('reports each toggle with the resulting hidden state', () => {

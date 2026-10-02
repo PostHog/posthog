@@ -105,7 +105,12 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                     }}
                     dataAttr="mcp-dashboard-date-filter"
                 />
-                <DashboardCardsMenu />
+                <DashboardCardsMenu
+                    cardsWithoutData={[
+                        ...(hasModelData ? [] : ['model' as const]),
+                        ...(hasProtocolVersionData ? [] : ['protocol-version' as const]),
+                    ]}
+                />
             </McpSharedFilters>
             <MCPAnalyticsFeedbackPrompt
                 contextKey={feedbackContextKey}
@@ -115,7 +120,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
             <MCPAnalyticsFirstLook />
             {!(showKpis || showUsage || showReliability || showRecentActivity) && (
                 <div className="flex flex-col items-start gap-2" data-attr="mcp-dashboard-all-cards-hidden">
-                    <p className="mb-0">All cards are hidden.</p>
+                    <p className="mb-0">No cards to show.</p>
                     <LemonButton type="secondary" size="small" onClick={showAllCards}>
                         Show all cards
                     </LemonButton>

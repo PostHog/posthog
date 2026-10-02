@@ -69,9 +69,14 @@ export const mcpDashboardCardsLogic = kea<mcpDashboardCardsLogicType>([
                     !hiddenCardIds.includes(id),
         ],
     }),
-    listeners(({ values }) => ({
+    listeners(({ values, selectors }) => ({
         toggleCard: ({ id }) => {
             posthog.capture('mcp analytics dashboard card toggled', { card: id, hidden: !values.isCardVisible(id) })
+        },
+        showAllCards: (_, __, ___, previousState) => {
+            posthog.capture('mcp analytics dashboard cards reset', {
+                hidden_count: selectors.hiddenCount(previousState),
+            })
         },
     })),
 ])

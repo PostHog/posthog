@@ -9,14 +9,20 @@ export type McpDashboardCardId =
     | 'notable-sessions'
     | 'recent-activity'
 
-export const MCP_DASHBOARD_CARDS: { id: McpDashboardCardId; label: string }[] = [
-    { id: 'kpis', label: 'Key metrics' },
-    { id: 'activity', label: 'Tool calls and errors' },
-    { id: 'tool-usage', label: 'Tool call breakdown' },
-    { id: 'harness', label: 'Share of calls by harness' },
-    { id: 'model', label: 'Share of calls by model' },
-    { id: 'protocol-version', label: 'Calls by MCP protocol version' },
-    { id: 'tool-errors', label: 'Tools with the highest error rate' },
-    { id: 'notable-sessions', label: 'Sessions flagged for review' },
-    { id: 'recent-activity', label: 'Recent activity' },
-]
+// A Record so a new card id fails to compile until it has a label. Key order is menu order.
+const CARD_LABELS: Record<McpDashboardCardId, string> = {
+    kpis: 'Key metrics',
+    activity: 'Tool calls and errors',
+    'tool-usage': 'Tool call breakdown',
+    harness: 'Share of calls by harness',
+    model: 'Share of calls by model',
+    'protocol-version': 'Calls by MCP protocol version',
+    'tool-errors': 'Tools with the highest error rate',
+    'notable-sessions': 'Sessions flagged for review',
+    'recent-activity': 'Recent activity',
+}
+
+export const MCP_DASHBOARD_CARDS = (Object.keys(CARD_LABELS) as McpDashboardCardId[]).map((id) => ({
+    id,
+    label: CARD_LABELS[id],
+}))
