@@ -20,8 +20,6 @@ export interface RecordingTimelineProps {
     onSummarize: () => void
     summarizing: boolean
     summarizeDisabledReason?: string | null
-    onRebuild: () => void
-    rebuilding: boolean
 }
 
 const ROW_GRID = 'grid grid-cols-[2.5rem_1rem_minmax(0,1fr)] gap-x-1.5 px-2'
@@ -35,8 +33,6 @@ function SummaryNotice({
     onSummarize,
     summarizing,
     summarizeDisabledReason,
-    onRebuild,
-    rebuilding,
 }: RecordingTimelineProps): JSX.Element | null {
     if (timeline.summaryState === 'ready') {
         return null
@@ -63,8 +59,8 @@ function SummaryNotice({
                 size="small"
                 type="secondary"
                 icon={<IconSparkles />}
-                onClick={outdated ? onRebuild : onSummarize}
-                loading={outdated ? rebuilding : summarizing}
+                onClick={onSummarize}
+                loading={summarizing}
                 disabledReason={summarizeDisabledReason}
                 data-attr={outdated ? 'vision-timeline-rebuild' : 'vision-timeline-summarize'}
             >

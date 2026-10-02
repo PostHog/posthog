@@ -51,8 +51,6 @@ const render: Story['render'] = ({ observations, currentTimeMs = 0, durationMs }
             onSeek={() => {}}
             onSummarize={() => {}}
             summarizing={false}
-            onRebuild={() => {}}
-            rebuilding={false}
         />
     )
 }

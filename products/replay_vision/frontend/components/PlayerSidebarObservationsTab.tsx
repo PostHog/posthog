@@ -319,9 +319,8 @@ function FocusPane({
 
 function ObservationsTabContent({ sessionId }: { sessionId: string }): JSX.Element {
     const logic = observationsDockLogic({ sessionId })
-    const { observations, observationsLoading, timeline, followMoments, summarizePending, retryingObservationIds } =
-        useValues(logic)
-    const { setFollowMoments, summarize, retryObservation } = useActions(logic)
+    const { observations, observationsLoading, timeline, followMoments, summarizePending } = useValues(logic)
+    const { setFollowMoments, summarize } = useActions(logic)
     const { quota } = useValues(visionQuotaLogic)
     const { disabledReason: quotaDisabledReason } = quotaUx(quota)
     const lastJumpMs = useRef<number | null>(null)
@@ -362,8 +361,6 @@ function ObservationsTabContent({ sessionId }: { sessionId: string }): JSX.Eleme
         followedIndex.current = currentIndex
         timelineRef.current?.querySelector<HTMLElement>(CURRENT_MOMENT_SELECTOR)?.scrollIntoView({ block: 'nearest' })
     }, [currentIndex, followMoments])
-
-    const outdatedSummary = timeline.summaryState === 'outdated' ? timeline.summary : null
 
     return (
         <div className="flex flex-col flex-1 min-h-0" data-attr="vision-observations-tab">
@@ -431,8 +428,6 @@ function ObservationsTabContent({ sessionId }: { sessionId: string }): JSX.Eleme
                             onSummarize={summarize}
                             summarizing={summarizePending}
                             summarizeDisabledReason={scanBlock?.reason ?? quotaDisabledReason}
-                            onRebuild={() => outdatedSummary && retryObservation(outdatedSummary.id)}
-                            rebuilding={outdatedSummary ? retryingObservationIds.includes(outdatedSummary.id) : false}
                         />
                         <ObservationRuns sessionId={sessionId} observations={observations} onSeek={seekToTime} />
                     </div>

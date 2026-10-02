@@ -36,7 +36,14 @@ const chapter = (start: number, end: number, title: string, kind = 'activity'): 
 })
 
 describe('recordingTimeline', () => {
-    it.each<{ name: string; observations: ReplayObservationApi[]; state: string; chapters: number; markers: number }>([
+    it.each<{
+        name: string
+        observations: ReplayObservationApi[]
+        state: string
+        chapters: number
+        markers: number
+        inactive?: number
+    }>([
         { name: 'only scans', observations: [monitor('m1', 5_000)], state: 'none', chapters: 0, markers: 1 },
         {
             name: 'a summary still running',
@@ -53,19 +60,36 @@ describe('recordingTimeline', () => {
             markers: 0,
         },
         {
+            name: 'a summary from before inactive periods, whose idle chapters become gaps',
+            observations: [
+                summary({
+                    chapters: [
+                        chapter(0, 10_000, 'A'),
+                        chapter(10_000, 70_000, 'Idle', 'idle'),
+                        chapter(70_000, 80_000, 'B'),
+                    ],
+                }),
+            ],
+            state: 'ready',
+            chapters: 2,
+            markers: 0,
+            inactive: 1,
+        },
+        {
             name: 'a summary with chapters, and a scan without a key moment',
             observations: [summary({ chapters: [chapter(0, 10_000, 'A')] }), monitor('m1', null)],
             state: 'ready',
             chapters: 1,
             markers: 0,
         },
-    ])('reads the state of $name', ({ observations, state, chapters, markers }) => {
+    ])('reads the state of $name', ({ observations, state, chapters, markers, inactive = 0 }) => {
         const timeline = recordingTimeline(observations)
-        expect([timeline.summaryState, timeline.chapters.length, timeline.markers.length]).toEqual([
-            state,
-            chapters,
-            markers,
-        ])
+        expect([
+            timeline.summaryState,
+            timeline.chapters.length,
+            timeline.markers.length,
+            timeline.inactive.length,
+        ]).toEqual([state, chapters, markers, inactive])
     })
 
     it.each<{ name: string; observations: ReplayObservationApi[]; durationMs: number | null; expected: string[] }>([

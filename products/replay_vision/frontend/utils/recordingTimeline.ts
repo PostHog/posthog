@@ -105,10 +105,15 @@ function readChapters(summary: ReplayObservationApi): TimelineChapter[] {
 }
 
 function readInactive(summary: ReplayObservationApi): TimelineInactive[] {
-    const raw = readModelOutput(summary)?.inactive_periods
-    if (!Array.isArray(raw)) {
-        return []
-    }
+    const output = readModelOutput(summary)
+    const periods = output?.inactive_periods
+    const chapters = output?.chapters
+    // Summaries written before inactive periods existed list idle as chapters instead.
+    const raw: unknown[] = Array.isArray(periods)
+        ? periods
+        : Array.isArray(chapters)
+          ? chapters.filter((c: unknown) => (c as Record<string, unknown> | null)?.kind === 'idle')
+          : []
     return raw
         .map((entry: unknown) => {
             const period = (entry ?? {}) as Record<string, unknown>
