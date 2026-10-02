@@ -228,7 +228,9 @@ class TestHelpers:
 
 
 class TestFetchPage:
-    @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
+    @parameterized.expand(
+        [("request_timeout", 408), ("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)]
+    )
     def test_retryable_statuses_raise_retryable_error(self, _name: str, status_code: int) -> None:
         session = _FakeSession([_make_response(status_code) for _ in range(5)])
         # tenacity exposes retry_with on the decorated callable to rebuild it with different
