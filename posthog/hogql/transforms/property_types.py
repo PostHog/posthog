@@ -623,7 +623,7 @@ class PropertySwapper(CloningVisitor):
             inner = inner.expr
 
         if isinstance(inner, ast.Call):
-            if inner.name in ("toDateTime", "toDateTime64"):
+            if inner.name in ("toDateTime", "toDateTime64", "toTimeZone"):
                 return expr
             # Recurse into wrapper functions like assumeNotNull(toDateTime(...))
             if inner.name in ("assumeNotNull",) and len(inner.args) == 1:
