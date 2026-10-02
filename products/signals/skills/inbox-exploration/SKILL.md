@@ -26,7 +26,8 @@ the user's actual question.
 
 ## When to use this skill
 
-- "What's in my inbox?" / "What should I look at first?"
+- "What's in my inbox?" / "What should I look at first?" / "What needs me?" — see
+  _Workflow: the user's personal Inbox_
 - "Show me actionable reports" / "What's PostHog flagged recently?"
 - "Are there any reports about <topic / product area>?"
 - "What signal sources are configured for this project?"
@@ -189,9 +190,44 @@ isn't producing signals right now, which may explain a thin inbox.
 If Step 1 found a healthy setup and at least one report exists, continue with the triage / drill /
 filter workflows below.
 
+## Workflow: the user's personal Inbox
+
+When the user asks what is in their inbox, what needs them, or what to look at first, call the
+list with no filters:
+
+```json
+inbox-reports-list
+{
+  "limit": 10
+}
+```
+
+When the personal Inbox is enabled for the user, this returns the same reports, in the same
+order, that the Inbox shows them: reports that name them as a suggested reviewer or that they
+claimed, ranked by relevance. Each row then has a `personal_inbox` object:
+
+- `reasons` — why the report is theirs: `suggested_reviewer`, `claimed`, or both
+- `action_state` — `action_available`, `waiting` (an agent, author, or other person acts first),
+  `unknown` (state not verified), or `closed`
+- `next_action` — the recommended step and, for PR steps, `pull_request_url`. It is a
+  recommendation, not permission to act
+- `observed_at` — when the facts behind the state were last observed
+
+Keep the returned order and use these fields as given. Do not re-rank the list or infer readiness
+that `action_state` does not state. Say when a state is `unknown`. Page with `offset` for more.
+An empty result means nothing needs the user, not that the Inbox is empty; do not substitute
+project-wide reports.
+
+To combine the personal Inbox with a filter, pass `"scope": "for_me"` and `"sort": "relevance"`
+explicitly, because any filter turns the no-filter default off.
+
+If rows come back with `personal_inbox: null`, the personal Inbox is not enabled for this user
+and the list is project-wide. Use the triage workflow below instead.
+
 ## Workflow: triage what's actionable
 
-When the user asks "what should I look at?" or "what's actionable?":
+When the user asks "what's actionable?" across the project, or the personal Inbox is not
+enabled:
 
 ### Step 1 — Pull the ready/in-progress queue
 

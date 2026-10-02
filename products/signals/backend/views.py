@@ -232,7 +232,7 @@ from products.signals.backend.slack_notification_targets import (
     validate_slack_notification_target,
 )
 from products.signals.backend.suggested_reviewer_index import report_ids_naming_reviewers
-from products.signals.backend.task_attribution import TASK_ID_HEADER, resolve_request_attribution
+from products.signals.backend.task_attribution import MCP_CLIENT_HEADER, TASK_ID_HEADER, resolve_request_attribution
 from products.signals.backend.tasks import send_reviewer_added_slack_notifications, sync_signals_refund_credit
 from products.signals.backend.temporal.backfill_error_tracking import (
     BackfillErrorTrackingInput,
@@ -1540,7 +1540,7 @@ class SignalReportViewSet(
         )
 
     def _apply_signal_report_inbox_scope_filter(self, queryset):
-        scope = self.request.query_params.get("scope")
+        scope = self._list_query_param("scope")
         if not scope or scope == "entire_project":
             return queryset
         if scope == "for_me":
@@ -1564,19 +1564,39 @@ class SignalReportViewSet(
             )
         return self._cached_personal_inbox_enabled
 
+    # A bare MCP list call means "my Inbox". Any filter, sort, or scope keeps its literal meaning, so
+    # a search or a project-wide scan is never narrowed by an injected default.
+    _BARE_LIST_PARAMS = frozenset({"limit", "offset", "count_only", "include_source_metadata"})
+    _MCP_PERSONAL_DEFAULTS = {"scope": "for_me", "sort": "relevance"}
+
+    def _bare_mcp_personal_list(self) -> bool:
+        if not hasattr(self, "_cached_bare_mcp_personal_list"):
+            request = self.request
+            self._cached_bare_mcp_personal_list = (
+                self.action == "list"
+                and request.headers.get(MCP_CLIENT_HEADER, "").strip().lower() == "mcp"
+                # Task agents (scouts, implementation runs) scan the project, and act for no single person.
+                and not request.headers.get(TASK_ID_HEADER)
+                and set(request.query_params) <= self._BARE_LIST_PARAMS
+                and self._personal_inbox_enabled()
+            )
+        return self._cached_bare_mcp_personal_list
+
+    def _list_query_param(self, name: str) -> str | None:
+        value = self.request.query_params.get(name)
+        if value is None and self._bare_mcp_personal_list():
+            return self._MCP_PERSONAL_DEFAULTS.get(name)
+        return value
+
     def _personal_inbox_requested(self) -> bool:
         # The personal selection and its explanations apply to the list only, and only behind the flag.
-        return (
-            self.action == "list"
-            and self.request.query_params.get("scope") == "for_me"
-            and self._personal_inbox_enabled()
-        )
+        return self.action == "list" and self._list_query_param("scope") == "for_me" and self._personal_inbox_enabled()
 
     def _relevance_sort_requested(self) -> bool:
         return (
             self.action == "list"
             and self.request.query_params.get("ordering") is None
-            and self.request.query_params.get("sort") == "relevance"
+            and self._list_query_param("sort") == "relevance"
         )
 
     def _rank_personal_inbox(self, queryset) -> RankedInbox:
@@ -1941,9 +1961,9 @@ class SignalReportViewSet(
     def _parse_signal_report_ordering(self) -> list[str]:
         raw = self.request.query_params.get("ordering")
         if raw is None:
-            inbox_sort = self.request.query_params.get("sort")
+            inbox_sort = self._list_query_param("sort")
             if inbox_sort == "relevance":
-                if self.request.query_params.get("scope") != "for_me":
+                if self._list_query_param("scope") != "for_me":
                     raise serializers.ValidationError({"sort": "relevance requires scope=for_me."})
                 # `list` ranks these rows in Python after filtering. The SQL order only has to be stable.
                 raw = self._DEFAULT_SIGNAL_REPORT_ORDERING
