@@ -1,4 +1,6 @@
-import { Link } from 'lib/lemon-ui/Link'
+import { Button, cn } from '@posthog/quill'
+
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import type { BriefingItemStateEnumApi } from 'products/today/frontend/generated/api.schemas'
 
@@ -34,12 +36,15 @@ export function TodayNavItem({
     dataAttr,
 }: TodayNavItemProps): JSX.Element {
     return (
-        <Link
-            to={to}
-            target={target}
-            subtle
-            className="TodayNavItem"
-            data-active={active || current}
+        <Button
+            left
+            nativeButton={false}
+            render={<LinkPrimitive to={to} target={target} />}
+            title={meta || undefined}
+            className={cn(
+                'TodayNavItem w-full',
+                current ? 'bg-[var(--fill-selected)]' : active && 'bg-[var(--fill-hover)]'
+            )}
             aria-current={current ? 'page' : undefined}
             data-state={state}
             data-attr={dataAttr}
@@ -55,10 +60,7 @@ export function TodayNavItem({
             >
                 {icon}
             </span>
-            <span className="TodayNavItem__copy">
-                <span className="TodayNavItem__title">{title}</span>
-                <span className="TodayNavItem__meta">{meta}</span>
-            </span>
-        </Link>
+            <span className="TodayNavItem__title">{title}</span>
+        </Button>
     )
 }
