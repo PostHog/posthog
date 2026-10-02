@@ -151,6 +151,12 @@ class ActionSerializer(
     is_calculating = serializers.SerializerMethodField()
     is_action = serializers.BooleanField(read_only=True, default=True)
     creation_context = serializers.SerializerMethodField()
+    selector_match_changed_steps = serializers.SerializerMethodField(
+        help_text=(
+            "Indexes of steps whose CSS selector used to match events its selector does not describe, so this "
+            "action's counts fell when selector matching was corrected. Empty for almost every action."
+        )
+    )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
@@ -163,6 +169,7 @@ class ActionSerializer(
             "post_to_slack",
             "slack_message_format",
             "steps",
+            "selector_match_changed_steps",
             "created_at",
             "created_by",
             "deleted",
@@ -179,6 +186,7 @@ class ActionSerializer(
         read_only_fields = [
             "team_id",
             "bytecode_error",
+            "selector_match_changed_steps",
         ]
         extra_kwargs = {
             "team_id": {"read_only": True},
@@ -196,6 +204,11 @@ class ActionSerializer(
 
     def get_is_calculating(self, action: Action) -> bool:
         return False
+
+    @extend_schema_field(serializers.ListField(child=serializers.IntegerField()))
+    def get_selector_match_changed_steps(self, action: Action) -> list[int]:
+        # Reads the prefetch the viewset sets up, so listing actions stays one query.
+        return sorted(change.step_index for change in action.selector_match_changes.all())
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_creation_context(self, obj) -> None:
@@ -543,7 +556,7 @@ class ActionViewSet(
         tuple[type[BaseRenderer], ...],
         (*tuple(api_settings.DEFAULT_RENDERER_CLASSES), csvrenderers.PaginatedCSVRenderer),
     )
-    queryset = Action.objects.select_related("created_by").all()
+    queryset = Action.objects.select_related("created_by").prefetch_related("selector_match_changes").all()
     serializer_class = ActionSerializer
     ordering = ["-last_calculated_at", "name"]
 
