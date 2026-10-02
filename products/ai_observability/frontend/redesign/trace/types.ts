@@ -2,6 +2,8 @@ export type TraceNodeKind = 'trace' | 'span' | 'generation' | 'embedding'
 
 export type TraceMode = 'spans' | 'thread' | 'timeline'
 
+export type TraceViewChoice = 'new' | 'legacy'
+
 export type NodeDetailTab = 'messages' | 'details' | 'evals' | 'raw'
 
 export interface NodeStats {
