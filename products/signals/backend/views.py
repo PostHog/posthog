@@ -2429,13 +2429,23 @@ class SignalReportViewSet(
                         "signals.reports.list.has_next_page", page_offset + len(report_ids) < total_count
                     )
 
-        data = self._render_report_rows(reports, include_source_metadata=include_source_metadata)
+        data = self._render_report_rows(
+            reports,
+            include_source_metadata=include_source_metadata,
+            personal_decisions=ranked.decisions if ranked is not None else None,
+        )
 
         if page is not None:
             return self.get_paginated_response(data)
         return Response(data)
 
-    def _render_report_rows(self, reports: Sequence[Any], *, include_source_metadata: bool) -> Any:
+    def _render_report_rows(
+        self,
+        reports: Sequence[Any],
+        *,
+        include_source_metadata: bool,
+        personal_decisions: dict[str, PersonalDecision] | None = None,
+    ) -> Any:
         """Serialize report rows the way the inbox list does, with batched lookups instead of per-row queries."""
         report_ids = [str(r.id) for r in reports]
         # Source metadata is decorative. The serializer degrades to empty values when ClickHouse is
@@ -2475,19 +2485,20 @@ class SignalReportViewSet(
                 report.artefact_count = artefact_counts.get(str(report.id), 0)
                 report.channel_id = live_channel_ids.get(str(report.id))
         claims_map = dict.fromkeys(report_ids) | get_active_claims(team_id=self.team_id, report_ids=report_ids)
-        personal_decisions: dict[str, PersonalDecision] = {}
-        if ranked is not None:
-            personal_decisions = {rid: ranked.decisions[rid] for rid in report_ids if rid in ranked.decisions}
+        if personal_decisions is not None:
+            personal_decisions = {rid: personal_decisions[rid] for rid in report_ids if rid in personal_decisions}
         elif self._personal_inbox_requested() and pull_requests_loaded:
             # Without PR state an explanation could offer a review of work that already has a PR.
             with tracer.start_as_current_span("signals.reports.list.decide_personal_inbox"):
                 personal_decisions = decide_reports(
                     reports,
                     team_id=self.team_id,
-                    user=cast(User, request.user),
+                    user=cast(User, self.request.user),
                     claims=claims_map,
                     pull_requests=pull_requests_map,
                 )
+        else:
+            personal_decisions = {}
         context = {
             **self.get_serializer_context(),
             "source_products_map": {rid: meta.source_products for rid, meta in signal_meta_map.items()},
