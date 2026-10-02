@@ -223,7 +223,7 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
     celery_at = datetime(2026, 5, 5, 0, 0, 0, tzinfo=UTC)
     period = get_previous_day(celery_at)
     seeded = _seed_all_data(team_a1.id, team_a2.id, team_b.id)
-    seeded["teams_with_cdp_billable_invocations_in_period"] = {team_a1.id: 11, team_a2.id: 13, legacy_only_team.id: 5}
+    seeded["teams_with_workflow_emails_sent_in_period"] = {team_a1.id: 11, team_a2.id: 13, legacy_only_team.id: 5}
 
     s3 = _install_in_memory_object_storage(monkeypatch)
     sqs_messages = _install_fake_sqs_producer(monkeypatch)
@@ -232,17 +232,17 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
     # and silence the start/end PostHog `capture` calls.
     monkeypatch.setattr("posthoganalytics.feature_enabled", lambda *a, **kw: False)
     monkeypatch.setattr("django.conf.settings.CLOUD_DEPLOYMENT", "US")
-    monkeypatch.setattr("django.conf.settings.USAGE_COUNTER_REALTIME_MODES", f"cdp-invocations:{mode}")
+    monkeypatch.setattr("django.conf.settings.USAGE_COUNTER_REALTIME_MODES", f"workflow-emails:{mode}")
     capture = mock.Mock()
     monkeypatch.setattr("posthoganalytics.capture", capture)
     monkeypatch.setattr("posthog.tasks.usage_report.ph_scoped_capture", lambda **kw: nullcontext(capture))
     scan = mock.Mock(
         return_value=[
-            (team_a1.id, org_a.id, "cdp_billable_invocations", "invocations", 7),
-            (team_a2.id, org_a.id, "cdp_billable_invocations", "invocations", 9),
-            (idle_team.id, idle_org.id, "cdp_billable_invocations", "invocations", 4),
-            (987654, deleted_org_id, "cdp_billable_invocations", "invocations", 6),
-            (987655, excluded_org_id, "cdp_billable_invocations", "invocations", 23),
+            (team_a1.id, org_a.id, "workflow_emails_sent", "invocations", 7),
+            (team_a2.id, org_a.id, "workflow_emails_sent", "invocations", 9),
+            (idle_team.id, idle_org.id, "workflow_emails_sent", "invocations", 4),
+            (987654, deleted_org_id, "workflow_emails_sent", "invocations", 6),
+            (987655, excluded_org_id, "workflow_emails_sent", "invocations", 23),
         ]
     )
     monkeypatch.setattr("posthog.tasks.usage_report.sync_execute", scan)
@@ -415,7 +415,7 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
     assert temporal_per_org[str(org_b.id)]["apm_tracing_bytes_in_period"] == 999_999
     assert temporal_per_org[str(org_b.id)]["apm_tracing_spans_in_period"] == 5
     assert temporal_per_org[str(org_b.id)]["apm_tracing_mb_in_period"] == 0
-    assert temporal_per_org[str(org_a.id)]["cdp_billable_invocations_in_period"] == (16 if mode == "realtime" else 24)
+    assert temporal_per_org[str(org_a.id)]["workflow_emails_sent_in_period"] == (16 if mode == "realtime" else 24)
     assert temporal_per_org[str(org_a.id)]["posthog_code_credits_used_in_period"] == 321 + 9
     assert temporal_per_org[str(org_a.id)]["sandbox_compute_memory_mib_seconds_in_period"] == 2_000
     assert temporal_per_org[str(org_a.id)]["logs_retention_mb_days_in_period"] == 4
@@ -425,12 +425,12 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
     assert (str(legacy_only_org.id) in temporal_per_org) == (mode != "realtime")
     if mode != "legacy":
         assert temporal_per_org[str(org_a.id)]["counter_comparisons"] == {
-            "cdp_billable_invocations_in_period": {"legacy": 24, "realtime": 16}
+            "workflow_emails_sent_in_period": {"legacy": 24, "realtime": 16}
         }
         assert temporal_per_org[str(org_b.id)]["counter_comparisons"] == {
-            "cdp_billable_invocations_in_period": {"legacy": 0, "realtime": 0}
+            "workflow_emails_sent_in_period": {"legacy": 0, "realtime": 0}
         }
-        assert temporal_per_org[str(org_a.id)]["usage_sources"]["cdp_billable_invocations_in_period"] == mode
+        assert temporal_per_org[str(org_a.id)]["usage_sources"]["workflow_emails_sent_in_period"] == mode
         missing_events = [
             call.kwargs
             for call in capture.call_args_list
@@ -438,13 +438,11 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
         ]
         assert len(missing_events) == 2
         assert {event["properties"]["caller"] for event in missing_events} == {"daily_report", "usage_reports_v2"}
-        expected_missing = {deleted_org_id: {"cdp_billable_invocations_in_period": {"legacy": 0, "realtime": 6}}}
+        expected_missing = {deleted_org_id: {"workflow_emails_sent_in_period": {"legacy": 0, "realtime": 6}}}
         if mode == "both":
-            expected_missing[str(idle_org.id)] = {"cdp_billable_invocations_in_period": {"legacy": 0, "realtime": 4}}
+            expected_missing[str(idle_org.id)] = {"workflow_emails_sent_in_period": {"legacy": 0, "realtime": 4}}
         else:
-            expected_missing[str(legacy_only_org.id)] = {
-                "cdp_billable_invocations_in_period": {"legacy": 5, "realtime": 0}
-            }
+            expected_missing[str(legacy_only_org.id)] = {"workflow_emails_sent_in_period": {"legacy": 5, "realtime": 0}}
         for event in missing_events:
             assert event["properties"]["organizations"] == expected_missing
     else:

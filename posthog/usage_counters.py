@@ -21,6 +21,11 @@ SHADOW_FAILURES = Counter("usage_counter_shadow_failures_total", "Usage counter 
 SHADOW_MISSING_ORGS = Gauge(
     "usage_counter_shadow_missing_organizations", "Organizations with shadow usage but no report", ["caller"]
 )
+REALTIME_BLOCKED = Counter(
+    "usage_counter_realtime_blocked_total",
+    "Realtime mode requests resolved to both for a known undercount",
+    ["counter"],
+)
 
 
 class UsageCounter(StrEnum):
@@ -122,6 +127,20 @@ COUNTER_FLAG_NAMES = {
     UsageCounter.WORKFLOW_SMS: "workflow-sms",
     UsageCounter.WORKFLOW_INVOCATIONS: "workflow-invocations",
 }
+_REPLAY_UNDERCOUNT = (
+    "The replay pipeline marks a session as seen before it parses the first message. "
+    "When that message fails, the session writes no usage record, even when later messages record."
+)
+# These counters resolve to `both` when their flag asks for `realtime`, because their usage records undercount.
+# Remove an entry only after the producer bills every unit or a measurement shows the records are more correct.
+RECORD_UNDERCOUNTS = {
+    UsageCounter.RECORDINGS: _REPLAY_UNDERCOUNT,
+    UsageCounter.MOBILE_RECORDINGS: _REPLAY_UNDERCOUNT,
+    UsageCounter.MOBILE_BILLABLE_RECORDINGS: _REPLAY_UNDERCOUNT,
+    UsageCounter.CDP_INVOCATIONS: (
+        "CDP usage records use the event UUID as the record ID, so two events that share a UUID bill once."
+    ),
+}
 
 
 def validate_usage_record_window(period: DayRange) -> None:
@@ -205,9 +224,14 @@ def _resolve_counter_mode(counter: UsageCounter, overrides: str, caller: UsageCo
     if not isinstance(mode, str):
         return UsageCounterMode.LEGACY
     try:
-        return UsageCounterMode(mode)
+        resolved = UsageCounterMode(mode)
     except ValueError:
         return UsageCounterMode.LEGACY
+    if resolved == UsageCounterMode.REALTIME and counter in RECORD_UNDERCOUNTS:
+        logger.warning("usage_counter_realtime_blocked", counter=counter, reason=RECORD_UNDERCOUNTS[counter])
+        REALTIME_BLOCKED.labels(counter=counter.value).inc()
+        return UsageCounterMode.BOTH
+    return resolved
 
 
 def resolve_modes(caller: UsageCounterCaller) -> dict[UsageCounter, UsageCounterMode]:

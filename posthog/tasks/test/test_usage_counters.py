@@ -11,6 +11,7 @@ from parameterized import parameterized
 from posthog.tasks import usage_report
 from posthog.usage_counters import (
     COUNTER_FLAG_NAMES,
+    RECORD_UNDERCOUNTS,
     SHADOW_FAILURES,
     UsageCounter,
     UsageCounterCaller,
@@ -235,19 +236,19 @@ class TestUsageCounterReport(SimpleTestCase):
         period = DayRange(start=datetime(2026, 5, 4, tzinfo=UTC), end=datetime(2026, 5, 5, tzinfo=UTC))
         records_query = self.records
         records_query.return_value = [
-            UsageRecordTotal(team_id=1, organization_id="org-a", usage_key="cdp_billable_invocations", quantity=9)
+            UsageRecordTotal(team_id=1, organization_id="org-a", usage_key="workflow_emails_sent", quantity=9)
         ]
-        self.legacy[UsageCounter.CDP_INVOCATIONS].return_value = [(1, 12)]
+        self.legacy[UsageCounter.WORKFLOW_EMAILS].return_value = [(1, 12)]
         service = UsageCounterService()
         with patch(
             "posthoganalytics.get_feature_flag",
-            side_effect=lambda name, distinct_id: flag_value if name.endswith("cdp-invocations") else "legacy",
+            side_effect=lambda name, distinct_id: flag_value if name.endswith("workflow-emails") else "legacy",
         ) as flag:
             if isinstance(flag_value, Exception):
                 flag.side_effect = flag_value
             plan = service.resolve_plan(period, caller="daily_report", complete=True)
             report = service.fetch_report(period, plan=plan)
-            assert report.counts[UsageCounter.CDP_INVOCATIONS.value] == [(1, 9 if flag_value == "realtime" else 12)]
+            assert report.counts[UsageCounter.WORKFLOW_EMAILS.value] == [(1, 9 if flag_value == "realtime" else 12)]
             assert (report.counter_comparisons is not None) == (flag_value in ("both", "realtime"))
             assert records_query.call_count == int(flag_value in ("both", "realtime"))
             assert flag.call_count == len(COUNTER_FLAG_NAMES)
@@ -273,21 +274,21 @@ class TestUsageCounterReport(SimpleTestCase):
     ) -> None:
         start = datetime(2026, 5, 4, tzinfo=UTC) - timedelta(days=days_ago)
         period = DayRange(start=start, end=start + timedelta(days=1))
-        legacy = self.legacy[UsageCounter.CDP_INVOCATIONS]
+        legacy = self.legacy[UsageCounter.WORKFLOW_EMAILS]
         legacy.return_value = [(1, 12)]
         records = self.records
         records.return_value = [
-            UsageRecordTotal(team_id=1, organization_id="org-a", usage_key="cdp_billable_invocations", quantity=9)
+            UsageRecordTotal(team_id=1, organization_id="org-a", usage_key="workflow_emails_sent", quantity=9)
         ]
         service = UsageCounterService()
         with (
-            self.settings(USAGE_COUNTER_REALTIME_MODES=f"cdp-invocations:{mode}"),
+            self.settings(USAGE_COUNTER_REALTIME_MODES=f"workflow-emails:{mode}"),
             patch("posthoganalytics.get_feature_flag", return_value="legacy"),
         ):
             plan = service.resolve_plan(period, caller=caller, complete=days_ago > 0)
         report = service.fetch_report(period, plan=plan)
         assert set(report.counts) == {*UsageCounter, *SANDBOX_COMPUTE_RESOURCE_KEYS}
-        assert report.counts[UsageCounter.CDP_INVOCATIONS.value] == [
+        assert report.counts[UsageCounter.WORKFLOW_EMAILS.value] == [
             (1, 9 if mode == UsageCounterMode.REALTIME else 12)
         ]
         compares = mode == UsageCounterMode.BOTH or (mode == UsageCounterMode.REALTIME and days_ago > 0)
@@ -295,7 +296,7 @@ class TestUsageCounterReport(SimpleTestCase):
         assert records.call_count == int(mode != UsageCounterMode.LEGACY)
         assert report.counter_comparisons == (
             {
-                "cdp_billable_invocations_in_period": UsageCounterComparisonRows(
+                "workflow_emails_sent_in_period": UsageCounterComparisonRows(
                     legacy_by_team={1: 12}, realtime_by_team={1: {"org-a": 9}}
                 )
             }
@@ -327,7 +328,13 @@ class TestUsageCounterReport(SimpleTestCase):
             assert flag.call_count == len(COUNTER_FLAG_NAMES)
             clock.return_value = 161
             assert resolve_modes("daily_report") == {
-                counter: UsageCounterMode.REALTIME if counter in COUNTER_FLAG_NAMES else UsageCounterMode.LEGACY
+                counter: (
+                    UsageCounterMode.LEGACY
+                    if counter not in COUNTER_FLAG_NAMES
+                    else UsageCounterMode.BOTH
+                    if counter in RECORD_UNDERCOUNTS
+                    else UsageCounterMode.REALTIME
+                )
                 for counter in UsageCounter
             }
             assert flag.call_count == 2 * len(COUNTER_FLAG_NAMES)
@@ -414,7 +421,9 @@ class TestUsageCounterReport(SimpleTestCase):
         report = service.fetch_report(period, plan=plan)
 
         for index, (counter, (_, quantity)) in enumerate(counter_keys.items()):
-            assert report.counts[counter] == [(1, quantity if mode == UsageCounterMode.REALTIME else index + 1)]
+            reads_records = plan.modes[counter] == UsageCounterMode.REALTIME
+            assert reads_records == (mode == UsageCounterMode.REALTIME and counter not in RECORD_UNDERCOUNTS)
+            assert report.counts[counter] == [(1, quantity if reads_records else index + 1)]
         assert report.counts["teams_with_web_exceptions_captured_in_period"] == [(1, 3)]
         assert report.counts["teams_with_js_lite_exceptions_captured_in_period"] == [(1, 5)]
         self.exceptions.assert_called_once_with(period.start, period.end)
@@ -431,7 +440,7 @@ class TestUsageCounterReport(SimpleTestCase):
                 for index, (counter, (_, quantity)) in enumerate(counter_keys.items())
             }
 
-    @override_settings(USAGE_COUNTER_REALTIME_MODES="mobile-recordings:both,mobile-billable-recordings:realtime")
+    @override_settings(USAGE_COUNTER_REALTIME_MODES="mobile-recordings:legacy,mobile-billable-recordings:both")
     def test_mobile_replay_counters_select_modes_independently_with_one_record_key(self) -> None:
         period = DayRange(start=datetime(2026, 5, 4, tzinfo=UTC), end=datetime(2026, 5, 5, tzinfo=UTC))
         self.legacy[UsageCounter.MOBILE_RECORDINGS].return_value = [(1, 5)]
@@ -451,19 +460,16 @@ class TestUsageCounterReport(SimpleTestCase):
 
         assert report.counts == {
             UsageCounter.MOBILE_RECORDINGS: [(1, 5)],
-            UsageCounter.MOBILE_BILLABLE_RECORDINGS: [(1, 7)],
+            UsageCounter.MOBILE_BILLABLE_RECORDINGS: [(1, 3)],
         }
         assert report.counter_comparisons == {
-            "mobile_recording_count_in_period": UsageCounterComparisonRows(
-                legacy_by_team={1: 5}, realtime_by_team={1: {"org-a": 7}}
-            ),
             "mobile_billable_recording_count_in_period": UsageCounterComparisonRows(
                 legacy_by_team={1: 3}, realtime_by_team={1: {"org-a": 7}}
             ),
         }
         assert report.usage_sources == {
-            "mobile_recording_count_in_period": UsageCounterMode.BOTH,
-            "mobile_billable_recording_count_in_period": UsageCounterMode.REALTIME,
+            "mobile_recording_count_in_period": UsageCounterMode.LEGACY,
+            "mobile_billable_recording_count_in_period": UsageCounterMode.BOTH,
         }
         self.records.assert_called_once_with(period, ("mobile_replay_recordings",), "daily_report")
         self.legacy[UsageCounter.MOBILE_BILLABLE_RECORDINGS].assert_called_once_with(period.start, period.end)
