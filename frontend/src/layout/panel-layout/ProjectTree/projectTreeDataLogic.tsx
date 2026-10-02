@@ -1058,6 +1058,11 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         item_name: shortcutItem.path,
                     })
                     lemonToast.success('Added to starred')
+                    // The API returns the existing shortcut when the item is already starred, so
+                    // appending it unconditionally would show the same star twice until a reload.
+                    if (values.shortcutData.some((shortcut) => shortcut.id === response.id)) {
+                        return values.shortcutData
+                    }
                     return [...values.shortcutData, response]
                 },
                 reorderShortcuts: async ({ orderedIds }) => {
