@@ -26,6 +26,7 @@ class TestAnalyzePythonGlobalsUsed(SimpleTestCase):
             ("magic_with_python_argument", "%timeit -n 10 df.sum()", ["df"]),
             ("magic_with_attached_option_value", "%timeit -n10 -r3 df.sum()", ["df"]),
             ("cell_magic_setup_statement", "%%timeit -n10 local = df.head()\nlocal.sum()", ["df"]),
+            ("stacked_cell_magics", "%%time\n" * 1200 + "out = df.head()", ["df"]),
             ("python_body_cell_magic", "%%time\nout = df.head()", ["df"]),
             ("other_language_cell_magic", "%%bash\necho $df", []),
         ]
