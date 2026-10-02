@@ -7,6 +7,7 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
@@ -145,6 +146,30 @@ describe('recipient detail', () => {
 
         expect(await screen.findByText(email)).toBeInTheDocument()
         expect(lookups).toEqual([email])
+    })
+
+    it('shows its own error with a retry instead of a toast, and tracks the visit once it loads', async () => {
+        const toastError = jest.spyOn(lemonToast, 'error')
+        let failNextLookup = true
+        useMocks({
+            get: {
+                '/api/projects/:team_id/messaging_recipients/': () => {
+                    if (failNextLookup) {
+                        failNextLookup = false
+                        return [500, { detail: 'The query took too long.' }]
+                    }
+                    return [200, { results: [SUPPRESSED_JAMIE], next_cursor: null }]
+                },
+                '/api/projects/:team_id/messaging_categories/': { results: [NEWSLETTER], next: null },
+            },
+        })
+        openRecipient()
+
+        fireEvent.click((await screen.findAllByTestId('audience-recipient-retry'))[0])
+
+        expect(await screen.findByText(/Suppressed after 5 soft bounces in a row/)).toBeInTheDocument()
+        expect(toastError).not.toHaveBeenCalled()
+        expect(capturedEvents('audience recipient opened')).toHaveLength(1)
     })
 
     it('shows a way back to the list when the address is unknown', async () => {
