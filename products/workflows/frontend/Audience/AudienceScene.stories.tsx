@@ -15,7 +15,6 @@ import type {
     MessageSuppressionApi,
 } from 'products/messaging/frontend/generated/api.schemas'
 
-import { newCategoryLogic } from '../OptOuts/newCategoryLogic'
 import { optOutCategoriesLogic } from '../OptOuts/optOutCategoriesLogic'
 import { AudienceScene } from './AudienceScene'
 import { AudienceTab } from './audienceSceneLogic'
@@ -182,12 +181,13 @@ export const NewTopicModal: Story = {
             }
         })
         optOutCategoriesLogic.actions.openNewCategoryModal()
-        await waitFor(() => {
-            const form = newCategoryLogic.findMounted({})
-            if (!form) {
-                throw new Error('The new topic form has not mounted')
+        const nameInput = await waitFor(() => {
+            const input = document.querySelector<HTMLInputElement>('input[placeholder="e.g., Product updates"]')
+            if (!input) {
+                throw new Error('The new topic modal has not opened')
             }
-            form.actions.setCategoryFormValue('name', 'Release notes')
+            return input
         })
+        fireEvent.change(nameInput, { target: { value: 'Release notes' } })
     },
 }

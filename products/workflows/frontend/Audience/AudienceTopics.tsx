@@ -58,6 +58,7 @@ function TopicsMoreMenu(): JSX.Element {
     return (
         <More
             data-attr="audience-topics-more"
+            aria-label="More topic actions"
             overlay={
                 <>
                     <LemonButton

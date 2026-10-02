@@ -22,6 +22,7 @@ export interface TopicVocabulary {
         updated: string
     }
     topicSelect: {
+        label: string
         placeholder: string
         noTopics: string
     }
@@ -96,6 +97,7 @@ export const MESSAGE_CATEGORY_WORDS: TopicVocabulary = {
         updated: 'Category updated successfully',
     },
     topicSelect: {
+        label: 'Message category',
         placeholder: 'Select message type',
         noTopics: 'Configure message categories in the opt-outs section',
     },
@@ -148,8 +150,7 @@ export const AUDIENCE_TOPIC_WORDS: TopicVocabulary = {
         heading: 'Topics',
         newTopic: 'New topic',
         emptyStateThing: 'topic',
-        emptyStateDescription:
-            'Topics are the kinds of email a recipient can subscribe to or unsubscribe from. Recipients see them on their preferences page.',
+        emptyStateDescription: 'Create your first topic, or import topics from Customer.io in the More menu.',
         createTopic: 'Create topic',
         deleteTitle: 'Delete topic',
         deleteQuestion: 'Delete the topic',
@@ -169,6 +170,7 @@ export const AUDIENCE_TOPIC_WORDS: TopicVocabulary = {
         updated: 'Topic updated',
     },
     topicSelect: {
+        label: 'Topic',
         placeholder: 'Select a topic',
         noTopics: 'Create a topic in Audience first',
     },
