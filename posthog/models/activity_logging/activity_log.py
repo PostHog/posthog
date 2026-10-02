@@ -240,6 +240,14 @@ class ActivityLog(UUIDTModel):
                 fields=["team_id", "-created_at"],
                 name="idx_alog_team_created_at",
             ),
+            # Org-level rows for teams that receive them. The list splits its team OR org filter
+            # into two ordered scans, and this one serves the org branch without walking the
+            # rows of every team in the org.
+            models.Index(
+                fields=["organization_id", "-created_at"],
+                name="idx_alog_org_level_created_at",
+                condition=models.Q(team_id__isnull=True),
+            ),
         ]
 
     team_id = models.PositiveIntegerField(null=True)
