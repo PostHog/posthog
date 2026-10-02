@@ -40,6 +40,7 @@ ACTIVITY_LOG_WRITE_FAILURES = Counter(
 
 ActivityScope = Literal[
     "Cohort",
+    "CrossProjectDashboard",
     "FeatureFlag",
     "Person",
     "Group",
@@ -625,6 +626,8 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
 
 field_exclusions: dict[AuditableScope, list[str]] = {
     "AccountView": ["version"],
+    # Tiles are edited through their own endpoint, so diffing the reverse relation only reads every tile row.
+    "CrossProjectDashboard": ["tiles", "organization"],
     # The reverse relations are listed because the diff reads each one in full; a scanner's
     # observations run to millions of rows, and its alerts carry their own audit trail.
     "ReplayScanner": [*replay_scanner_machine_fields, "observations", "backfills", "prompt_suggestions", "alerts"],
