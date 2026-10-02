@@ -28,7 +28,7 @@ from posthog.models.user import User
 from posthog.renderers import SafeJSONRenderer
 
 from ee.hogai.mcp_tool import MCPToolResult, mcp_tool_registry
-from ee.hogai.tool_errors import MaxToolError
+from ee.hogai.tool_errors import MaxToolError, MaxToolErrorType
 from ee.hogai.tools.docs_search_shadow import fetch_inkeep_with_shadow
 from ee.hogai.tools.search import format_inkeep_docs_response
 
@@ -43,6 +43,9 @@ class MCPToolRequest(pydantic.BaseModel):
 
 class MCPToolResponse(MCPToolResult):
     success: bool = pydantic.Field(description="Whether the tool completed successfully.")
+    error_type: MaxToolErrorType | None = pydantic.Field(
+        default=None, description="Failure category for MCP analytics."
+    )
 
 
 class DocsSearchRequestSerializer(serializers.Serializer):
@@ -173,6 +176,7 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 {
                     "success": False,
                     "content": f"Tool failed: {e.to_summary()}.{e.retry_hint}",
+                    "error_type": e.error_type,
                 }
             )
         except Exception as e:

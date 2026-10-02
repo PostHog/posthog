@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 
 import { IconSparkles } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -10,56 +10,33 @@ import {
     captureInboxReportAction,
     discussQuestionProperties,
 } from 'products/signals/frontend/inbox/inboxAnalytics'
-import {
-    REPORT_DISCUSSION_QUESTION_MAX_LENGTH,
-    inboxTaskKickoffLogic,
-} from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 
+import { todayLogic } from './todayLogic'
 import { isSampleReportId } from './todaySampleReports'
 import { reportPrompts } from './todaySignalReports'
 
-/** Prompts that fill the composer, which starts a PostHog AI session about the report. */
-export function TodayReportPrompts({ report, reportUrl }: { report: SignalReport; reportUrl: string }): JSX.Element {
-    const { isDiscussing, isCreatingPr, aiConsentDisabledReason } = useValues(inboxTaskKickoffLogic)
-    const { openReportDiscussion, discussReport } = useActions(inboxTaskKickoffLogic)
-    const textAreaRef = useRef<HTMLTextAreaElement>(null)
+/** Prompts and a composer that open PostHog AI with the report as context. A prompt sends at once. */
+export function TodayReportPrompts({ report }: { report: SignalReport }): JSX.Element {
+    const { askingAi } = useValues(todayLogic)
+    const { askAi } = useActions(todayLogic)
     const [draft, setDraft] = useState('')
-    const [pickedPrompt, setPickedPrompt] = useState<string | null>(null)
     const prompts = reportPrompts(report)
-    const loading = isDiscussing || isCreatingPr
-    const isOverLengthLimit = Array.from(draft.trim()).length > REPORT_DISCUSSION_QUESTION_MAX_LENGTH
     const disabledReason = isSampleReportId(report.id)
-        ? 'Sample reports can’t start a session. Turn off sample reports to ask about a real one.'
-        : isOverLengthLimit
-          ? `Your message is too long. Shorten it to ${REPORT_DISCUSSION_QUESTION_MAX_LENGTH.toLocaleString()} characters or fewer.`
-          : (aiConsentDisabledReason ?? undefined)
+        ? 'Sample reports can’t start a chat. Turn off sample reports to ask about a real one.'
+        : undefined
 
-    const pickPrompt = (prompt: string): void => {
-        setDraft(prompt)
-        setPickedPrompt(prompt)
-        textAreaRef.current?.focus()
-    }
-
-    const submit = (): void => {
-        const question = draft.trim()
-        if (!question || loading || disabledReason) {
+    const ask = (question: string, source: InboxQuestionSource): void => {
+        if (!question || disabledReason || askingAi) {
             return
         }
-        const source: InboxQuestionSource =
-            pickedPrompt === null ? 'typed' : pickedPrompt === question ? 'suggested' : 'edited_suggestion'
         captureInboxReportAction({
             report,
             actionType: 'discuss',
             surface: 'today',
             extra: discussQuestionProperties({ source, suggestionCount: prompts.length }),
         })
-        // Pointing the side panel at this report first makes the new session open there, even when the
-        // panel still shows a discussion about another report.
-        openReportDiscussion(report, reportUrl)
-        discussReport(report, reportUrl, question)
-        setDraft('')
-        setPickedPrompt(null)
+        askAi(question, 'report_page', report)
     }
 
     return (
@@ -72,8 +49,8 @@ export function TodayReportPrompts({ report, reportUrl }: { report: SignalReport
                         type="secondary"
                         size="small"
                         icon={<IconSparkles />}
-                        onClick={() => pickPrompt(prompt)}
-                        disabledReason={loading ? 'A session is starting.' : undefined}
+                        onClick={() => ask(prompt, 'suggested')}
+                        disabledReason={disabledReason ?? (askingAi ? 'Opening PostHog AI…' : undefined)}
                         data-attr="today-report-prompt"
                     >
                         {prompt}
@@ -82,29 +59,24 @@ export function TodayReportPrompts({ report, reportUrl }: { report: SignalReport
             </div>
             <Composer.Root
                 value={draft}
-                onChange={(value) => {
-                    setDraft(value)
-                    if (!value) {
-                        setPickedPrompt(null)
-                    }
+                onChange={setDraft}
+                onSubmit={() => {
+                    ask(draft.trim(), 'typed')
+                    setDraft('')
                 }}
-                onSubmit={submit}
-                loading={loading}
-                disabled={loading}
                 disabledReason={disabledReason}
-                textAreaRef={textAreaRef}
+                loading={askingAi}
+                disabled={askingAi}
             >
                 <Composer.Frame>
                     <Composer.Field>
-                        <Composer.Placeholder>Ask a question, or pick a prompt above</Composer.Placeholder>
+                        <Composer.Placeholder>Or ask your own question</Composer.Placeholder>
                         <Composer.Textarea data-attr="today-report-prompt-input" />
                     </Composer.Field>
                 </Composer.Frame>
                 <Composer.Submit data-attr="today-report-prompt-submit" />
             </Composer.Root>
-            <p className="TodayPrompts__hint">
-                Starts a PostHog AI session with this report attached. It opens in the side panel.
-            </p>
+            <p className="TodayPrompts__hint">Opens PostHog AI with this report as context.</p>
         </section>
     )
 }

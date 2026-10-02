@@ -34,7 +34,6 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 )
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table"
-CONTROLLER_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller"
 
 TEAM_ID = 1
 SCHEMA_ID = str(uuid.uuid4())
@@ -108,14 +107,12 @@ class TestRepartitionActivityDeltaFolder:
     @patch(f"{MODULE}.HeartbeaterSync")
     @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
     @patch(f"{MODULE}.DeltaTableRef")
-    @patch(f"{MODULE}.is_auto_repartition_enabled", return_value=True)
     @patch(f"{MODULE}.ExternalDataJob")
     @patch(f"{MODULE}.ExternalDataSchema")
     def test_repartitions_the_folder_the_pipeline_wrote_to(
         self,
         mock_schema_model: MagicMock,
         mock_job_model: MagicMock,
-        _mock_enabled: MagicMock,
         mock_helper_cls: MagicMock,
         mock_repartition: AsyncMock,
         _mock_heartbeater: MagicMock,
@@ -151,14 +148,12 @@ class TestJobContextBinding:
     @patch(f"{MODULE}.HeartbeaterSync")
     @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
     @patch(f"{MODULE}.DeltaTableRef")
-    @patch(f"{MODULE}.is_auto_repartition_enabled", return_value=True)
     @patch(f"{MODULE}.ExternalDataJob")
     @patch(f"{MODULE}.ExternalDataSchema")
     def test_activity_binds_source_and_schema_identity_for_captured_exceptions(
         self,
         mock_schema_model: MagicMock,
         mock_job_model: MagicMock,
-        _mock_enabled: MagicMock,
         _mock_helper_cls: MagicMock,
         mock_repartition: AsyncMock,
         _mock_heartbeater: MagicMock,
@@ -241,7 +236,6 @@ class TestBudgetExhaustion:
     @patch(f"{MODULE}.HeartbeaterSync")
     @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
     @patch(f"{MODULE}.DeltaTableRef")
-    @patch(f"{MODULE}.is_auto_repartition_enabled", return_value=True)
     @patch(f"{MODULE}.ExternalDataJob")
     @patch(f"{MODULE}.ExternalDataSchema")
     def test_stalled_rewrite_burns_an_attempt_and_gives_up_with_a_cooldown(
@@ -251,7 +245,6 @@ class TestBudgetExhaustion:
         expect_give_up: bool,
         mock_schema_model: MagicMock,
         _mock_job_model: MagicMock,
-        _mock_enabled: MagicMock,
         _mock_helper_cls: MagicMock,
         mock_repartition: AsyncMock,
         _mock_heartbeater: MagicMock,
@@ -294,7 +287,6 @@ class TestBudgetExhaustion:
     @patch(f"{MODULE}.HeartbeaterSync")
     @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
     @patch(f"{MODULE}.DeltaTableRef")
-    @patch(f"{MODULE}.is_auto_repartition_enabled", return_value=True)
     @patch(f"{MODULE}.ExternalDataJob")
     @patch(f"{MODULE}.ExternalDataSchema")
     def test_progressing_rewrite_resumes_without_burning_an_attempt(
@@ -303,7 +295,6 @@ class TestBudgetExhaustion:
         prior_attempts: int,
         mock_schema_model: MagicMock,
         _mock_job_model: MagicMock,
-        _mock_enabled: MagicMock,
         _mock_helper_cls: MagicMock,
         mock_repartition: AsyncMock,
         _mock_heartbeater: MagicMock,
@@ -345,14 +336,12 @@ class TestBudgetExhaustion:
     @patch(f"{MODULE}.HeartbeaterSync")
     @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
     @patch(f"{MODULE}.DeltaTableRef")
-    @patch(f"{MODULE}.is_auto_repartition_enabled", return_value=True)
     @patch(f"{MODULE}.ExternalDataJob")
     @patch(f"{MODULE}.ExternalDataSchema")
     def test_first_over_budget_attempt_that_checkpoints_is_progress_not_a_failure(
         self,
         mock_schema_model: MagicMock,
         _mock_job_model: MagicMock,
-        _mock_enabled: MagicMock,
         _mock_helper_cls: MagicMock,
         mock_repartition: AsyncMock,
         _mock_heartbeater: MagicMock,
@@ -387,7 +376,6 @@ class TestBudgetExhaustion:
     @patch(f"{MODULE}.HeartbeaterSync")
     @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
     @patch(f"{MODULE}.DeltaTableRef")
-    @patch(f"{MODULE}.is_auto_repartition_enabled", return_value=True)
     @patch(f"{MODULE}.ExternalDataJob")
     @patch(f"{MODULE}.ExternalDataSchema")
     def test_restarted_rewrite_burns_an_attempt_however_many_rows_it_wrote(
@@ -397,7 +385,6 @@ class TestBudgetExhaustion:
         expect_give_up: bool,
         mock_schema_model: MagicMock,
         _mock_job_model: MagicMock,
-        _mock_enabled: MagicMock,
         _mock_helper_cls: MagicMock,
         mock_repartition: AsyncMock,
         _mock_heartbeater: MagicMock,
@@ -436,14 +423,12 @@ class TestBudgetExhaustion:
     @patch(f"{MODULE}.HeartbeaterSync")
     @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
     @patch(f"{MODULE}.DeltaTableRef")
-    @patch(f"{MODULE}.is_auto_repartition_enabled", return_value=True)
     @patch(f"{MODULE}.ExternalDataJob")
     @patch(f"{MODULE}.ExternalDataSchema")
     def test_a_staged_swap_is_resumed_even_after_attempts_are_spent(
         self,
         mock_schema_model: MagicMock,
         _mock_job_model: MagicMock,
-        _mock_enabled: MagicMock,
         _mock_helper_cls: MagicMock,
         mock_repartition: AsyncMock,
         _mock_heartbeater: MagicMock,
@@ -481,7 +466,6 @@ class TestBudgetExhaustion:
     @patch(f"{MODULE}.HeartbeaterSync")
     @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
     @patch(f"{MODULE}.DeltaTableRef")
-    @patch(f"{MODULE}.is_auto_repartition_enabled", return_value=True)
     @patch(f"{MODULE}.ExternalDataJob")
     @patch(f"{MODULE}.ExternalDataSchema")
     def test_a_skipped_rewrite_does_not_consume_an_attempt(
@@ -489,7 +473,6 @@ class TestBudgetExhaustion:
         reason: str,
         mock_schema_model: MagicMock,
         _mock_job_model: MagicMock,
-        _mock_enabled: MagicMock,
         _mock_helper_cls: MagicMock,
         mock_repartition: AsyncMock,
         _mock_heartbeater: MagicMock,
@@ -534,7 +517,6 @@ class TestKilledAttemptRetry:
     @patch(f"{MODULE}.HeartbeaterSync")
     @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
     @patch(f"{MODULE}.DeltaTableRef")
-    @patch(f"{MODULE}.is_auto_repartition_enabled", return_value=True)
     @patch(f"{MODULE}.ExternalDataJob")
     @patch(f"{MODULE}.ExternalDataSchema")
     def test_a_retry_reruns_the_rewrite_only_when_the_dead_attempt_advanced_it(
@@ -547,7 +529,6 @@ class TestKilledAttemptRetry:
         expect_rewrite: bool,
         mock_schema_model: MagicMock,
         _mock_job_model: MagicMock,
-        _mock_enabled: MagicMock,
         _mock_helper_cls: MagicMock,
         mock_repartition: AsyncMock,
         _mock_heartbeater: MagicMock,
@@ -617,8 +598,6 @@ class TestKilledAttemptRetry:
     @patch(f"{MODULE}.HeartbeaterSync")
     @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
     @patch(f"{MODULE}.DeltaTableRef")
-    @patch(f"{MODULE}.is_auto_coarsen_enabled", return_value=True)
-    @patch(f"{MODULE}.is_auto_repartition_enabled", return_value=True)
     @patch(f"{MODULE}.ExternalDataJob")
     @patch(f"{MODULE}.ExternalDataSchema")
     def test_the_cap_gives_up_only_on_a_rewrite_that_stopped_advancing(
@@ -631,8 +610,6 @@ class TestKilledAttemptRetry:
         expect_resume: bool,
         mock_schema_model: MagicMock,
         _mock_job_model: MagicMock,
-        _mock_enabled: MagicMock,
-        _mock_coarsen_enabled: MagicMock,
         _mock_helper_cls: MagicMock,
         mock_repartition: AsyncMock,
         _mock_heartbeater: MagicMock,
@@ -691,16 +668,12 @@ class TestKilledAttemptRetry:
     @patch(f"{MODULE}.HeartbeaterSync")
     @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
     @patch(f"{MODULE}.DeltaTableRef")
-    @patch(f"{MODULE}.is_auto_coarsen_enabled", return_value=True)
-    @patch(f"{MODULE}.is_auto_repartition_enabled", return_value=True)
     @patch(f"{MODULE}.ExternalDataJob")
     @patch(f"{MODULE}.ExternalDataSchema")
     def test_the_cap_does_not_discard_a_swap_staged_while_it_was_deciding(
         self,
         mock_schema_model: MagicMock,
         _mock_job_model: MagicMock,
-        _mock_enabled: MagicMock,
-        _mock_coarsen_enabled: MagicMock,
         _mock_helper_cls: MagicMock,
         mock_repartition: AsyncMock,
         _mock_heartbeater: MagicMock,
@@ -754,14 +727,12 @@ class TestTransientObjectStoreFailure:
     @patch(f"{MODULE}.HeartbeaterSync")
     @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
     @patch(f"{MODULE}.DeltaTableRef")
-    @patch(f"{MODULE}.is_auto_repartition_enabled", return_value=True)
     @patch(f"{MODULE}.ExternalDataJob")
     @patch(f"{MODULE}.ExternalDataSchema")
     def test_bare_nosuchkey_stands_down_without_burning_an_attempt(
         self,
         mock_schema_model: MagicMock,
         _mock_job_model: MagicMock,
-        _mock_enabled: MagicMock,
         _mock_helper_cls: MagicMock,
         mock_repartition: AsyncMock,
         _mock_heartbeater: MagicMock,
@@ -806,7 +777,6 @@ class TestTransientObjectStoreFailure:
     @patch(f"{MODULE}.HeartbeaterSync")
     @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
     @patch(f"{MODULE}.DeltaTableRef")
-    @patch(f"{MODULE}.is_auto_repartition_enabled", return_value=True)
     @patch(f"{MODULE}.ExternalDataJob")
     @patch(f"{MODULE}.ExternalDataSchema")
     def test_db_connection_drop_stands_down_without_reporting_to_error_tracking(
@@ -815,7 +785,6 @@ class TestTransientObjectStoreFailure:
         error: Exception,
         mock_schema_model: MagicMock,
         _mock_job_model: MagicMock,
-        _mock_enabled: MagicMock,
         _mock_helper_cls: MagicMock,
         mock_repartition: AsyncMock,
         _mock_heartbeater: MagicMock,
@@ -863,7 +832,6 @@ class TestTransientObjectStoreFailure:
     @patch(f"{MODULE}.HeartbeaterSync")
     @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
     @patch(f"{MODULE}.DeltaTableRef")
-    @patch(f"{MODULE}.is_auto_repartition_enabled", return_value=True)
     @patch(f"{MODULE}.ExternalDataJob")
     @patch(f"{MODULE}.ExternalDataSchema")
     def test_object_store_blip_stands_down_without_burning_an_attempt(
@@ -872,7 +840,6 @@ class TestTransientObjectStoreFailure:
         error: Exception,
         mock_schema_model: MagicMock,
         _mock_job_model: MagicMock,
-        _mock_enabled: MagicMock,
         _mock_helper_cls: MagicMock,
         mock_repartition: AsyncMock,
         _mock_heartbeater: MagicMock,
@@ -904,14 +871,12 @@ class TestTransientObjectStoreFailure:
     @patch(f"{MODULE}.HeartbeaterSync")
     @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
     @patch(f"{MODULE}.DeltaTableRef")
-    @patch(f"{MODULE}.is_auto_repartition_enabled", return_value=True)
     @patch(f"{MODULE}.ExternalDataJob")
     @patch(f"{MODULE}.ExternalDataSchema")
     def test_a_database_blip_after_the_swap_is_reported_not_shrugged_off(
         self,
         mock_schema_model: MagicMock,
         _mock_job_model: MagicMock,
-        _mock_enabled: MagicMock,
         _mock_helper_cls: MagicMock,
         mock_repartition: AsyncMock,
         _mock_heartbeater: MagicMock,
@@ -953,14 +918,12 @@ class TestTransientObjectStoreFailure:
     @patch(f"{MODULE}.HeartbeaterSync")
     @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
     @patch(f"{MODULE}.DeltaTableRef")
-    @patch(f"{MODULE}.is_auto_repartition_enabled", return_value=True)
     @patch(f"{MODULE}.ExternalDataJob")
     @patch(f"{MODULE}.ExternalDataSchema")
     def test_a_native_panic_is_recorded_instead_of_escaping(
         self,
         mock_schema_model: MagicMock,
         _mock_job_model: MagicMock,
-        _mock_enabled: MagicMock,
         _mock_helper_cls: MagicMock,
         mock_repartition: AsyncMock,
         _mock_heartbeater: MagicMock,
@@ -992,14 +955,12 @@ class TestTransientObjectStoreFailure:
     @patch(f"{MODULE}.HeartbeaterSync")
     @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
     @patch(f"{MODULE}.DeltaTableRef")
-    @patch(f"{MODULE}.is_auto_repartition_enabled", return_value=True)
     @patch(f"{MODULE}.ExternalDataJob")
     @patch(f"{MODULE}.ExternalDataSchema")
     def test_a_worker_shutdown_still_propagates(
         self,
         mock_schema_model: MagicMock,
         _mock_job_model: MagicMock,
-        _mock_enabled: MagicMock,
         _mock_helper_cls: MagicMock,
         mock_repartition: AsyncMock,
         _mock_heartbeater: MagicMock,
@@ -1069,14 +1030,12 @@ class TestEarlyFetchTransientInfraError:
         mock_capture_exception.assert_not_called()
 
     @patch(f"{MODULE}.capture_exception")
-    @patch(f"{MODULE}.is_auto_repartition_enabled", return_value=True)
     @patch(f"{MODULE}.ExternalDataJob")
     @patch(f"{MODULE}.ExternalDataSchema")
     def test_transient_db_error_fetching_job_stands_down(
         self,
         mock_schema_model: MagicMock,
         mock_job_model: MagicMock,
-        _mock_enabled: MagicMock,
         mock_capture_exception: MagicMock,
     ) -> None:
         schema = _schema(name="public.usages", s3_folder_name="usages")
@@ -1092,62 +1051,6 @@ class TestEarlyFetchTransientInfraError:
         mock_capture_exception.assert_not_called()
 
 
-class TestFeatureFlagGate:
-    @parameterized.expand(
-        [
-            ("flag_off_releases_a_queued_rewrite", False, True, None, "proactive_threshold", False),
-            ("flag_off_still_finishes_a_staged_swap", False, True, {"state": "ready"}, "proactive_threshold", True),
-            ("flag_off_does_not_block_an_operator", False, True, None, "admin", True),
-            ("flag_on_rewrites_as_usual", True, True, None, "proactive_threshold", True),
-            ("flag_off_does_not_release_a_nomination", False, False, None, "coarsening_requested", True),
-            ("coarsen_flag_off_releases_a_queued_coarsen", True, False, None, "coarsening", False),
-            ("repartition_flag_off_keeps_a_queued_coarsen", False, True, None, "coarsening", True),
-        ]
-    )
-    @patch(f"{MODULE}.capture_repartition_event")
-    @patch(f"{MODULE}.HeartbeaterSync")
-    @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
-    @patch(f"{MODULE}.DeltaTableRef")
-    @patch(f"{MODULE}.is_auto_coarsen_enabled")
-    @patch(f"{MODULE}.is_auto_repartition_enabled")
-    @patch(f"{MODULE}.ExternalDataJob")
-    @patch(f"{MODULE}.ExternalDataSchema")
-    def test_flag_gates_the_queued_rewrite(
-        self,
-        _name: str,
-        enabled: bool,
-        coarsen_enabled: bool,
-        swap: dict | None,
-        trigger_reason: str,
-        expect_rewrite: bool,
-        mock_schema_model: MagicMock,
-        _mock_job_model: MagicMock,
-        mock_enabled: MagicMock,
-        mock_coarsen_enabled: MagicMock,
-        _mock_helper_cls: MagicMock,
-        mock_repartition: AsyncMock,
-        _mock_heartbeater: MagicMock,
-        _mock_capture_event: MagicMock,
-    ) -> None:
-        mock_enabled.return_value = enabled
-        mock_coarsen_enabled.return_value = coarsen_enabled
-        schema = _schema(
-            name="public.usages",
-            s3_folder_name="usages",
-            pending={**PENDING_TARGET, "trigger_reason": trigger_reason},
-            swap=swap,
-        )
-        mock_schema_model.objects.select_related.return_value.get.return_value = schema
-        mock_repartition.return_value = {"outcome": "completed"}
-
-        _maybe_repartition_table(
-            RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID),
-            MagicMock(),
-        )
-
-        assert mock_repartition.await_count == (1 if expect_rewrite else 0)
-
-
 class TestRepartitionActivityHasWork:
     @parameterized.expand(
         [
@@ -1156,49 +1059,26 @@ class TestRepartitionActivityHasWork:
                 {"delta_revive_required": {"at": "x"}},
                 PENDING_TARGET,
                 None,
-                None,
-                True,
                 False,
             ),
-            ("queued_rewrite_flag_on", {}, PENDING_TARGET, None, None, True, True),
-            # The activity's own fast path treats a queued rewrite as a no-op once the flag that
-            # staged it is disabled (the flag is the only lever support has to release such a table) —
-            # this must agree, or the schema keeps paying a full activity round trip forever.
-            ("queued_rewrite_released_by_disabled_flag", {}, PENDING_TARGET, None, None, False, False),
-            (
-                "queued_rewrite_admin_reason_fails_open",
-                {},
-                {**PENDING_TARGET, "trigger_reason": "admin"},
-                None,
-                None,
-                False,
-                True,
-            ),
-            ("staged_swap", {}, None, {"state": "ready"}, None, False, True),
-            ("flag_on_measures_the_table", {}, None, None, None, True, True),
-            ("flag_off_nothing_queued", {}, None, None, None, False, False),
-            ("coarsen_nomination_without_flag", {}, None, None, {"requested_by": "op"}, False, True),
-            ("cdc_never_measures", {"sync_type": ExternalDataSchema.SyncType.CDC}, None, None, None, True, False),
+            ("queued_rewrite", {}, PENDING_TARGET, None, True),
+            ("staged_swap", {}, None, {"state": "ready"}, True),
+            ("nothing_queued_measures_the_table", {}, None, None, True),
+            ("cdc_never_measures", {"sync_type": ExternalDataSchema.SyncType.CDC}, None, None, False),
         ]
     )
-    @patch(f"{CONTROLLER_MODULE}.is_auto_repartition_enabled")
     def test_matches_the_activitys_own_fast_path(
         self,
         _name: str,
         overrides: dict[str, Any],
         pending: dict[str, Any] | None,
         swap: dict[str, Any] | None,
-        coarsen_requested: dict[str, Any] | None,
-        enabled: bool,
         expected: bool,
-        mock_enabled: MagicMock,
     ) -> None:
         # The workflow skips scheduling the activity on this answer, so a False here for a table the
         # activity would have rewritten or measured silently stops that table repartitioning.
-        mock_enabled.return_value = enabled
         schema = _schema(name="public.usages", s3_folder_name="usages", pending=pending, swap=swap)
         schema.sync_type = ExternalDataSchema.SyncType.INCREMENTAL
-        schema.coarsen_requested = coarsen_requested
         for attribute, value in overrides.items():
             setattr(schema, attribute, value)
 
@@ -1232,7 +1112,7 @@ class TestMaybeFlagPreExtraction:
         helper = MagicMock()
         helper.get_delta_table = AsyncMock(side_effect=TransientObjectStoreError(message))
 
-        result = _maybe_flag_pre_extraction(schema, MagicMock(), helper, MagicMock(), enabled=True)
+        result = _maybe_flag_pre_extraction(schema, MagicMock(), helper, MagicMock())
 
         assert result is None
         mock_capture.assert_not_called()
@@ -1254,7 +1134,7 @@ class TestMaybeFlagPreExtraction:
         helper = MagicMock()
         helper.get_delta_table = AsyncMock(side_effect=error)
 
-        result = _maybe_flag_pre_extraction(schema, MagicMock(), helper, MagicMock(), enabled=True)
+        result = _maybe_flag_pre_extraction(schema, MagicMock(), helper, MagicMock())
 
         assert result is None
         mock_capture.assert_not_called()
@@ -1266,7 +1146,7 @@ class TestMaybeFlagPreExtraction:
         error = ValueError("unexpected schema drift")
         helper.get_delta_table = AsyncMock(side_effect=error)
 
-        result = _maybe_flag_pre_extraction(schema, MagicMock(), helper, MagicMock(), enabled=True)
+        result = _maybe_flag_pre_extraction(schema, MagicMock(), helper, MagicMock())
 
         assert result is None
         mock_capture.assert_called_once_with(error)

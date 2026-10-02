@@ -280,7 +280,7 @@ class CuratedGitHubSource:
             self._tables.workflow_jobs,
         )
 
-    def _jobs_table(self, workflow_jobs_table: str) -> str:
+    def _jobs_table(self, workflow_jobs_table: str) -> workflow_jobs.JobsTable:
         return depot_ci.with_depot_jobs(workflow_jobs_table, self._depot_job_attempts(), self._tables.workflow_runs)
 
     def trunk_merge_queue_source(self) -> str | None:

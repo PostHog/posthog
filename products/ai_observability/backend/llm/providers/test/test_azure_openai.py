@@ -270,6 +270,8 @@ class TestAzureOpenAICreateClient:
         from products.ai_observability.backend.llm.types import AnalyticsContext
 
         adapter = AzureOpenAIAdapter(azure_endpoint=MOCK_ENDPOINT, api_version="2025-01-01")
+        adapter.request_timeout = 12.0
+        adapter.max_retries = 0
         analytics = AnalyticsContext(distinct_id="test", capture=False)
 
         adapter._create_client("test-key", None, analytics)
@@ -278,6 +280,8 @@ class TestAzureOpenAICreateClient:
         assert mock_azure.call_args.kwargs["api_key"] == "test-key"
         assert mock_azure.call_args.kwargs["azure_endpoint"] == MOCK_ENDPOINT
         assert mock_azure.call_args.kwargs["api_version"] == "2025-01-01"
+        assert mock_azure.call_args.kwargs["timeout"] == 12.0
+        assert mock_azure.call_args.kwargs["max_retries"] == 0
 
     @patch("products.ai_observability.backend.llm.providers.azure_openai.openai.AzureOpenAI")
     def test_create_client_ignores_base_url(self, mock_azure):
@@ -300,6 +304,8 @@ class TestAzureOpenAICreateClient:
         from products.ai_observability.backend.llm.types import AnalyticsContext
 
         adapter = AzureOpenAIAdapter(azure_endpoint=MOCK_ENDPOINT)
+        adapter.request_timeout = 12.0
+        adapter.max_retries = 0
         analytics = AnalyticsContext(distinct_id="test", capture=True)
 
         adapter._create_client("test-key", None, analytics)
@@ -307,3 +313,5 @@ class TestAzureOpenAICreateClient:
         mock_wrapped.assert_called_once()
         assert mock_wrapped.call_args.kwargs["api_key"] == "test-key"
         assert mock_wrapped.call_args.kwargs["azure_endpoint"] == MOCK_ENDPOINT
+        assert mock_wrapped.call_args.kwargs["timeout"] == 12.0
+        assert mock_wrapped.call_args.kwargs["max_retries"] == 0

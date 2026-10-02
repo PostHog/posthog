@@ -6,7 +6,7 @@ call these functions instead of driving the serializer and its DRF context by ha
 ``deactivate_trashed_flag`` and ``reactivate_restored_flag`` bypass the serializer, because
 file-system trash and restore flip ``active`` without the gate or validation.
 ``clear_feature_enrollment`` falls back to a raw model write when the serializer rejects
-a flag's stored filters, because enrollment cleanup must never fail.
+a flag's stored config version 1 filters, because enrollment cleanup must never fail.
 The read helpers (``user_can_edit_flag``, ``user_can_create_flags``, ``flag_disable_requires_approval``,
 ``serialize_flags``, ``get_feature_flag_request_usage``) expose the flag API's
 access-control, approval-policy, representation, and request-usage logic behind
@@ -259,6 +259,9 @@ def clear_feature_enrollment(flag_id: int, *, team: Team) -> None:
     Prefer the gated facade write (validation, activity logging); fall back to a raw
     model write when it raises. This is a system write (user=None): an enabled approval
     policy must never block cleanup with a 409, and activity is logged as system.
+
+    Another config format raises ``ConfigFormatError`` from ``set_feature_enrollment`` before
+    either write. No caller reaches it: an early access feature only links config version 1 flags.
 
     The early return covers a hard-deleted id or another team's flag, so nothing is left to
     clear. A soft-deleted flag still gets cleared, through ``objects_including_soft_deleted``:

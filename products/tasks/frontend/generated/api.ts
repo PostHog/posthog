@@ -154,7 +154,6 @@ import type {
     TasksCommentsRetrieveParams,
     TasksConfigListParams,
     TasksListParams,
-    TasksMeConfigListParams,
     TasksRepositoryReadinessRetrieveParams,
     TasksReviewRetrieveParams,
     TasksRunsListParams,
@@ -164,6 +163,8 @@ import type {
     TasksSearchRetrieveParams,
     TasksSlackThreadContextRetrieveParams,
     TasksSummariesCreateParams,
+    TasksTaskDefaultsApi,
+    TasksTaskDefaultsUpdateApi,
     TasksTeamConfigResponseApi,
     TasksThreadMessagesListParams,
     TasksUserConfigResponseApi,
@@ -2592,14 +2593,11 @@ export const tasksRunsLivingArtifactsList = async (
     taskId: string,
     runId: string,
     options?: RequestInit
-): Promise<TaskRunLivingArtifactsResponseApi[]> => {
-    return apiMutator<TaskRunLivingArtifactsResponseApi[]>(
-        getTasksRunsLivingArtifactsListUrl(projectId, taskId, runId),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<TaskRunLivingArtifactsResponseApi> => {
+    return apiMutator<TaskRunLivingArtifactsResponseApi>(getTasksRunsLivingArtifactsListUrl(projectId, taskId, runId), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getTasksRunsLivingArtifactsCreateUrl = (projectId: string, taskId: string, runId: string) => {
@@ -2677,6 +2675,34 @@ export const tasksRunsLivingArtifactsEdit = async (
             body: JSON.stringify(taskRunLivingArtifactEditRequestApi),
         }
     )
+}
+
+export const getTasksRunsLivingArtifactsVersionContentUrl = (
+    projectId: string,
+    taskId: string,
+    runId: string,
+    id: string,
+    version: number
+) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${runId}/living_artifacts/${id}/versions/${version}/`
+}
+
+/**
+ * Streams the content of one living artifact version from the app origin. Slack file versions return their stored file. Slack canvas and message versions return their text.
+ * @summary Download one version of a living artifact
+ */
+export const tasksRunsLivingArtifactsVersionContent = async (
+    projectId: string,
+    taskId: string,
+    runId: string,
+    id: string,
+    version: number,
+    options?: RequestInit
+): Promise<Blob> => {
+    return apiMutator<Blob>(getTasksRunsLivingArtifactsVersionContentUrl(projectId, taskId, runId, id, version), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getTasksRunsLivingArtifactsChartUrl = (projectId: string, taskId: string, runId: string) => {
@@ -2808,20 +2834,8 @@ export const tasksThreadMessagesSendToAgentCreate = async (
     })
 }
 
-export const getTasksMeConfigListUrl = (projectId: string, params?: TasksMeConfigListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/tasks/@me/config/?${stringifiedParams}`
-        : `/api/projects/${projectId}/tasks/@me/config/`
+export const getTasksMeConfigListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tasks/@me/config/`
 }
 
 /**
@@ -2829,10 +2843,9 @@ export const getTasksMeConfigListUrl = (projectId: string, params?: TasksMeConfi
  */
 export const tasksMeConfigList = async (
     projectId: string,
-    params?: TasksMeConfigListParams,
     options?: RequestInit
 ): Promise<TasksUserConfigResponseApi> => {
-    return apiMutator<TasksUserConfigResponseApi>(getTasksMeConfigListUrl(projectId, params), {
+    return apiMutator<TasksUserConfigResponseApi>(getTasksMeConfigListUrl(projectId), {
         ...options,
         method: 'GET',
     })
@@ -2875,6 +2888,26 @@ export const tasksMeConfigAgentInstructionsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(tasksAgentInstructionsApi),
+    })
+}
+
+export const getTasksMeConfigTaskDefaultsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tasks/@me/config/task_defaults/`
+}
+
+/**
+ * Update your per-project defaults for new tasks. Fields you leave out keep their stored value.
+ */
+export const tasksMeConfigTaskDefaultsCreate = async (
+    projectId: string,
+    tasksTaskDefaultsUpdateApi?: TasksTaskDefaultsUpdateApi,
+    options?: RequestInit
+): Promise<TasksTaskDefaultsApi> => {
+    return apiMutator<TasksTaskDefaultsApi>(getTasksMeConfigTaskDefaultsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tasksTaskDefaultsUpdateApi),
     })
 }
 
