@@ -273,9 +273,11 @@ function RunSurfaceThread({
 function RunSurfaceComposer({
     children,
     isStopping = false,
+    loadingFallback,
 }: {
     children?: ReactNode
     isStopping?: boolean
+    loadingFallback?: ReactNode
 }): JSX.Element | null {
     const { interaction, streamKey, floatingInputsHeight, setFloatingInputsHeight } = useRunSurfaceContext()
     const { pendingPermissionRequest, respondingToPermission, currentRunStatus, runOpening } = useValues(runStreamLogic)
@@ -302,7 +304,7 @@ function RunSurfaceComposer({
                 disabled={isStopping}
             />
         ))
-    const composer = children && (currentRunStatus !== null || runOpening) ? children : null
+    const composer = children && (currentRunStatus !== null || runOpening) ? children : loadingFallback
 
     // Both inputs keep their local state through delivery and restoration, including uncommitted draft keystrokes.
     if (skin === 'quill') {
