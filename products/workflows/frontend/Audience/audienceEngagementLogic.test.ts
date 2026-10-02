@@ -103,7 +103,6 @@ describe('audience engagement', () => {
                 },
             },
         })
-        dashboardsModel.mount()
         logic = audienceEngagementLogic()
         logic.mount()
 
