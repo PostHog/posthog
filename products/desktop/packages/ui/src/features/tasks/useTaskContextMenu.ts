@@ -33,7 +33,9 @@ export function useTaskContextMenu() {
     import.meta.env.DEV,
   );
   const { channels } = useChannels({ enabled: bluebirdEnabled });
-  const fileTaskToChannel = useFileTaskToChannel();
+  const fileTaskToChannel = useFileTaskToChannel({
+    enabled: bluebirdEnabled,
+  });
 
   const showContextMenu = useCallback(
     async (

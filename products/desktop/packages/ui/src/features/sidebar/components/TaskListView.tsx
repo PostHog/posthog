@@ -40,7 +40,13 @@ import {
   motion,
   useReducedMotion,
 } from "framer-motion";
-import { Fragment, useCallback, useEffect, useMemo } from "react";
+import {
+  Fragment,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+} from "react";
 
 interface TaskListViewProps {
   pinnedTasks: TaskData[];
@@ -73,6 +79,58 @@ interface TaskListViewProps {
 
 function SectionLabel({ label }: { label: string }) {
   return <MenuLabel className="flex items-center py-0">{label}</MenuLabel>;
+}
+
+function FilingTaskAnimation({
+  taskId,
+  isDragged,
+  prefersReducedMotion,
+  children,
+}: {
+  taskId: string;
+  isDragged: boolean;
+  prefersReducedMotion: boolean;
+  children: ReactNode;
+}) {
+  const filing = useFilingTasksStore((state) => state.filingTasks[taskId]);
+  const hideFiledTask = useFilingTasksStore((state) => state.hideFiledTask);
+
+  if (filing?.status === "hidden") return null;
+
+  const rowTransition = prefersReducedMotion
+    ? { duration: 0 }
+    : {
+        layout: { type: "spring" as const, stiffness: 520, damping: 42 },
+        height: { duration: 0.16, ease: "easeOut" as const },
+        opacity: { duration: 0.1 },
+      };
+
+  return (
+    <motion.div
+      layout={prefersReducedMotion ? false : "position"}
+      layoutId={`sidebar-task-${taskId}`}
+      initial={false}
+      animate={
+        isDragged || filing?.status === "complete"
+          ? {
+              height: 0,
+              opacity: 0,
+              scale: 0.98,
+              x: filing?.status === "complete" ? -16 : 0,
+            }
+          : { height: "auto", opacity: 1, scale: 1 }
+      }
+      onAnimationComplete={() => {
+        if (filing?.status === "complete") {
+          hideFiledTask(taskId, filing.channelId);
+        }
+      }}
+      transition={rowTransition}
+      className="overflow-hidden"
+    >
+      {children}
+    </motion.div>
+  );
 }
 
 export function TaskListView({
@@ -116,8 +174,6 @@ export function TaskListView({
   );
   const view = useAppView();
   const isOnTaskInput = view.type === "task-input";
-  const filingTasks = useFilingTasksStore((state) => state.filingTasks);
-  const hideFiledTask = useFilingTasksStore((state) => state.hideFiledTask);
   const prefersReducedMotion = useReducedMotion();
   // A drag that starts on a selected row carries the whole selection, so a pin
   // or an unpin applies to every row the user picked, not just the grabbed one.
@@ -175,14 +231,6 @@ export function TaskListView({
     [],
   );
 
-  const rowTransition = prefersReducedMotion
-    ? { duration: 0 }
-    : {
-        layout: { type: "spring" as const, stiffness: 520, damping: 42 },
-        height: { duration: 0.16, ease: "easeOut" as const },
-        opacity: { duration: 0.1 },
-      };
-
   const draggedIdSet = useMemo(
     () => new Set(dragState?.items.map((task) => task.id) ?? []),
     [dragState],
@@ -190,31 +238,12 @@ export function TaskListView({
 
   const renderTaskRow = (task: TaskData, depth = 0) => {
     const isDragged = draggedIdSet.has(task.id);
-    const filing = filingTasks[task.id];
-    if (filing?.status === "hidden") return null;
     return (
-      <motion.div
+      <FilingTaskAnimation
         key={task.id}
-        layout={prefersReducedMotion ? false : "position"}
-        layoutId={`sidebar-task-${task.id}`}
-        initial={false}
-        animate={
-          isDragged || filing?.status === "complete"
-            ? {
-                height: 0,
-                opacity: 0,
-                scale: 0.98,
-                x: filing?.status === "complete" ? -16 : 0,
-              }
-            : { height: "auto", opacity: 1, scale: 1 }
-        }
-        onAnimationComplete={() => {
-          if (filing?.status === "complete") {
-            hideFiledTask(task.id, filing.channelId);
-          }
-        }}
-        transition={rowTransition}
-        className="overflow-hidden"
+        taskId={task.id}
+        isDragged={isDragged}
+        prefersReducedMotion={Boolean(prefersReducedMotion)}
       >
         <TaskRow
           task={task}
@@ -243,7 +272,7 @@ export function TaskListView({
           )}
           depth={depth}
         />
-      </motion.div>
+      </FilingTaskAnimation>
     );
   };
 

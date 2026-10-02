@@ -1,4 +1,6 @@
 import type { Task } from "@posthog/shared/domain-types";
+import { channelFeedQueryRoot } from "@posthog/ui/features/canvas/hooks/useChannelFeed";
+import { useFilingTasksStore } from "@posthog/ui/features/canvas/stores/filingTasksStore";
 import { taskKeys } from "@posthog/ui/features/tasks/taskKeys";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook } from "@testing-library/react";
@@ -69,6 +71,7 @@ describe("useChannelTaskMutations", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    useFilingTasksStore.setState({ filingTasks: {} });
     queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
@@ -118,7 +121,23 @@ describe("useChannelTaskMutations", () => {
     expect(invalidatedChannels()).toEqual(["dest", "loading", "source"]);
   });
 
+  it("refreshes cached space feeds after filing", async () => {
+    const feedKey = [...channelFeedQueryRoot, "source"];
+    queryClient.setQueryData(feedKey, [{ taskId: "t1" }]);
+    const { result } = renderHook(() => useChannelTaskMutations(), { wrapper });
+
+    await act(async () => {
+      await result.current.fileTask("dest", "t1");
+    });
+
+    expect(queryClient.getQueryState(feedKey)?.isInvalidated).toBe(true);
+  });
+
   it("unfiling a task invalidates only the channel that listed it", async () => {
+    const filing = useFilingTasksStore.getState();
+    filing.startFiling("t1", "source");
+    filing.completeFiling("t1", "source");
+    filing.hideFiledTask("t1", "source");
     const { result } = renderHook(() => useChannelTaskMutations(), { wrapper });
 
     await act(async () => {
@@ -126,5 +145,6 @@ describe("useChannelTaskMutations", () => {
     });
 
     expect(invalidatedChannels()).toEqual(["source"]);
+    expect(useFilingTasksStore.getState().filingTasks.t1).toBeUndefined();
   });
 });

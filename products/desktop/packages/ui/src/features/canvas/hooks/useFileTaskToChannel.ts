@@ -10,13 +10,11 @@ import { useCallback } from "react";
  * tasks the same way — filing is a mutation plus the two toasts that make it
  * legible, and duplicating that is how the two paths drift.
  */
-export function useFileTaskToChannel(): (
-  channelId: string,
-  taskId: string,
-  taskTitle: string,
-) => Promise<void> {
+export function useFileTaskToChannel(options?: {
+  enabled?: boolean;
+}): (channelId: string, taskId: string, taskTitle: string) => Promise<void> {
   const { fileTask } = useChannelTaskMutations();
-  const { channels } = useChannels();
+  const { channels } = useChannels({ enabled: options?.enabled });
   const startFiling = useFilingTasksStore((state) => state.startFiling);
   const completeFiling = useFilingTasksStore((state) => state.completeFiling);
   const clearFiling = useFilingTasksStore((state) => state.clearFiling);

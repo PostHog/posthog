@@ -12,7 +12,7 @@ interface FilingTasksStore {
   startFiling: (taskId: string, channelId: string) => void;
   completeFiling: (taskId: string, channelId: string) => void;
   hideFiledTask: (taskId: string, channelId: string) => void;
-  clearFiling: (taskId: string, channelId: string) => void;
+  clearFiling: (taskId: string, channelId?: string) => void;
 }
 
 export const useFilingTasksStore = create<FilingTasksStore>()((set) => ({
@@ -39,12 +39,21 @@ export const useFilingTasksStore = create<FilingTasksStore>()((set) => ({
     set((state) => {
       const filing = state.filingTasks[taskId];
       if (!filing || filing.channelId !== channelId) return state;
-      const { [taskId]: _, ...filingTasks } = state.filingTasks;
-      return { filingTasks };
+      return {
+        filingTasks: {
+          ...state.filingTasks,
+          [taskId]: { ...filing, status: "hidden" },
+        },
+      };
     }),
   clearFiling: (taskId, channelId) =>
     set((state) => {
-      if (state.filingTasks[taskId]?.channelId !== channelId) return state;
+      const filing = state.filingTasks[taskId];
+      if (
+        !filing ||
+        (channelId !== undefined && filing.channelId !== channelId)
+      )
+        return state;
       const { [taskId]: _, ...filingTasks } = state.filingTasks;
       return { filingTasks };
     }),
