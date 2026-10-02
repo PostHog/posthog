@@ -281,11 +281,11 @@ function hogqlFromQueryNode(raw: string): string | null {
 function sqlFromEditorUrl(href: string): string | null {
     let url: URL
     try {
-        url = new URL(href, 'https://app.invalid')
+        url = new URL(href, window.location.origin)
     } catch {
         return null
     }
-    if (!RE_SQL_EDITOR_PATH.test(url.pathname)) {
+    if (url.origin !== window.location.origin || !RE_SQL_EDITOR_PATH.test(url.pathname)) {
         return null
     }
     const value = url.searchParams.get('open_query')?.trim()

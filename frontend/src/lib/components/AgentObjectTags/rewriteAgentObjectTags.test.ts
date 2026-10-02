@@ -1,6 +1,7 @@
 import { rewriteAgentObjectTags } from './rewriteAgentObjectTags'
 
 const BASE = '/project/2'
+const APP = window.location.origin
 
 describe('rewriteAgentObjectTags', () => {
     it.each([
@@ -107,13 +108,13 @@ describe('rewriteAgentObjectTags', () => {
     it.each([
         [
             'a raw SQL link',
-            'Daily users:\n\n[DAU, last 7 days](https://us.posthog.com/project/2/sql?open_query=SELECT%20count()%20FROM%20events "Bots excluded")\n\nDone.',
-            'Daily users:\n\n**[DAU, last 7 days](https://us.posthog.com/project/2/sql?open_query=SELECT%20count()%20FROM%20events)**\n```\nSELECT count() FROM events\n```\n_Bots excluded_\n\nDone.',
+            `Daily users:\n\n[DAU, last 7 days](${APP}/project/2/sql?open_query=SELECT%20count()%20FROM%20events "Bots excluded")\n\nDone.`,
+            `Daily users:\n\n**[DAU, last 7 days](${APP}/project/2/sql?open_query=SELECT%20count()%20FROM%20events)**\n\`\`\`\nSELECT count() FROM events\n\`\`\`\n_Bots excluded_\n\nDone.`,
         ],
         [
             'a query node SQL link',
-            `[Q](https://us.posthog.com/project/2/sql?open_query=${encodeURIComponent(JSON.stringify({ kind: 'DataVisualizationNode', source: { kind: 'HogQLQuery', query: 'SELECT 1' } }))})`,
-            `**[Q](https://us.posthog.com/project/2/sql?open_query=${encodeURIComponent(JSON.stringify({ kind: 'DataVisualizationNode', source: { kind: 'HogQLQuery', query: 'SELECT 1' } }))})**\n\`\`\`\nSELECT 1\n\`\`\``,
+            `[Q](/project/2/sql?open_query=${encodeURIComponent(JSON.stringify({ kind: 'DataVisualizationNode', source: { kind: 'HogQLQuery', query: 'SELECT 1' } }))})`,
+            `**[Q](/project/2/sql?open_query=${encodeURIComponent(JSON.stringify({ kind: 'DataVisualizationNode', source: { kind: 'HogQLQuery', query: 'SELECT 1' } }))})**\n\`\`\`\nSELECT 1\n\`\`\``,
         ],
     ])('shows the query under %s alone in its paragraph', (_name, input, expected) => {
         expect(rewriteAgentObjectTags(input, BASE)).toBe(expected)
@@ -121,10 +122,11 @@ describe('rewriteAgentObjectTags', () => {
     })
 
     it.each([
-        ['an inline SQL link', 'See [q](https://us.posthog.com/project/2/sql?open_query=SELECT%201) now.'],
-        ['a SQL link in a list', '- [q](https://us.posthog.com/project/2/sql?open_query=SELECT%201)'],
-        ['a SQL link inside a fence', '```\n\n[q](https://us.posthog.com/project/2/sql?open_query=SELECT%201)\n\n```'],
-        ['a link to another page', '[docs](https://posthog.com/docs?open_query=x)'],
+        ['an inline SQL link', `See [q](${APP}/project/2/sql?open_query=SELECT%201) now.`],
+        ['a SQL link in a list', `- [q](${APP}/project/2/sql?open_query=SELECT%201)`],
+        ['a SQL link inside a fence', `\`\`\`\n\n[q](${APP}/project/2/sql?open_query=SELECT%201)\n\n\`\`\``],
+        ['a SQL-shaped link on another host', '[q](https://evil.example/project/2/sql?open_query=SELECT%201)'],
+        ['a link to another page', `[docs](${APP}/docs?open_query=x)`],
     ])('leaves %s as written', (_name, input) => {
         expect(rewriteAgentObjectTags(input, BASE)).toBe(input)
     })
