@@ -4,6 +4,7 @@ The layer that knows a transport exists. `dispatch.deliver` handles one destinat
 is what decides which destinations there are and which transport each one takes.
 """
 
+from dataclasses import replace
 from typing import Final
 
 import structlog
@@ -19,6 +20,7 @@ from products.alerts.backend.delivery.transport import DeliveryTransport
 from products.alerts.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertDestinationData,
+    AnnouncedTransition,
     DestinationType,
     EvaluationAnnouncement,
 )
@@ -91,41 +93,54 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     thread_store = DatabaseThreadStore(request.team_id)
     sent = 0
     skipped = 0
-    for target in _destinations(request, announced):
-        transport_class = _TRANSPORTS.get(target["type"])
-        if transport_class is None:
-            skipped += 1
-            continue
-        deliver(
-            transport=transport_class(),
-            thread_store=thread_store,
-            team_id=request.team_id,
-            configuration_id=request.configuration_id,
-            evaluation_key=request.evaluation_key,
-            target=target,
-            announcement=announced,
-        )
-        sent += 1
+    # Per subscription rather than per destination. A destination subscribes to some of the
+    # kinds an alert can announce, so one that asked for firings must not be handed the resolve
+    # that another group produced in the same evaluation.
+    for event_id, transitions in _by_subscription(request, announced).items():
+        for target in _destinations(request, event_id):
+            transport_class = _TRANSPORTS.get(target["type"])
+            if transport_class is None:
+                skipped += 1
+                continue
+            deliver(
+                transport=transport_class(),
+                thread_store=thread_store,
+                team_id=request.team_id,
+                configuration_id=request.configuration_id,
+                evaluation_key=request.evaluation_key,
+                target=target,
+                announcement=replace(announced, transitions=transitions),
+            )
+            sent += 1
     return DeliveryOutcome(live=True, sent=sent, skipped_without_transport=skipped)
 
 
-def _destinations(request: AlertDeliveryRequest, announced: EvaluationAnnouncement) -> list[AlertDestinationData]:
-    """Where this evaluation goes, resolved now rather than pinned when the check ran.
+def _by_subscription(
+    request: AlertDeliveryRequest, announced: EvaluationAnnouncement
+) -> dict[str, tuple[AnnouncedTransition, ...]]:
+    """The transitions this evaluation announced, grouped by the event a destination subscribes to.
+
+    A kind the source does not map to an event id reaches nobody: no destination can have asked
+    for it.
+    """
+    grouped: dict[str, list[AnnouncedTransition]] = {}
+    for transition in announced.transitions:
+        event_id = request.event_ids_by_kind.get(transition.kind.value)
+        if event_id is None:
+            continue
+        grouped.setdefault(event_id, []).append(transition)
+    return {event_id: tuple(transitions) for event_id, transitions in grouped.items()}
+
+
+def _destinations(request: AlertDeliveryRequest, event_id: str) -> list[AlertDestinationData]:
+    """Who subscribed to this event, resolved now rather than pinned when the check ran.
 
     A destination removed between the check and the send is not sent to, which a pinned set
-    would get wrong. The event ids come from the kinds this evaluation actually announced, so a
-    destination configured for firings only does not receive a resolve.
+    would get wrong.
     """
-    event_ids = {
-        request.event_ids_by_kind[transition.kind.value]
-        for transition in announced.transitions
-        if transition.kind.value in request.event_ids_by_kind
-    }
-    if not event_ids:
-        return []
     groups = list_alert_destination_groups(
         team_id=request.team_id,
         alert_id=request.destination_alert_id,
-        allowed_event_ids=sorted(event_ids),
+        allowed_event_ids=[event_id],
     )
     return [group.data for group in groups if group.fully_enabled]

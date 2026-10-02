@@ -5,6 +5,8 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from products.alerts.backend.delivery.evaluation import LIVE_DELIVERY_FLAG, deliver_evaluation
+from products.alerts.backend.delivery.message import AlertMessage
+from products.alerts.backend.delivery.transport import MessageHandle
 from products.alerts.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertDestinationData,
@@ -19,8 +21,27 @@ from products.alerts.backend.facade.contracts import (
 _MODULE = "products.alerts.backend.delivery.evaluation"
 FIRING = datetime(2026, 9, 30, 9, tzinfo=UTC)
 
+FIRING_EVENT = "$logs_alert_firing"
+RESOLVED_EVENT = "$logs_alert_resolved"
+
 SLACK = cast(AlertDestinationData, {"type": DestinationType.SLACK, "slack_workspace_id": 1, "slack_channel_id": "C-1"})
 WEBHOOK = cast(AlertDestinationData, {"type": DestinationType.WEBHOOK, "webhook_url": "https://example.com/hook"})
+
+
+class RecordingTransport:
+    """Stands in for Slack at the edge, so everything inside `deliver` stays real."""
+
+    sends: list[tuple[str, AlertMessage]] = []
+    provider = "slack"
+
+    def channel_target(self, target: AlertDestinationData) -> str:
+        return str(target.get("slack_channel_id", ""))
+
+    def deliver(
+        self, *, team_id: int, target: AlertDestinationData, message: AlertMessage, in_reply_to: Any = None
+    ) -> MessageHandle | None:
+        RecordingTransport.sends.append((self.channel_target(target), message))
+        return MessageHandle(external_ref={"channel": self.channel_target(target), "ts": "1"})
 
 
 def _request(team_id: int) -> AlertDeliveryRequest:
@@ -30,28 +51,25 @@ def _request(team_id: int) -> AlertDeliveryRequest:
         configuration_id="cfg-1",
         evaluation_key="eval-1",
         destination_alert_id="legacy-1",
-        event_ids_by_kind={"firing": "$logs_alert_firing", "resolved": "$logs_alert_resolved"},
+        event_ids_by_kind={"firing": FIRING_EVENT, "resolved": RESOLVED_EVENT},
     )
 
 
-def _announcement(*kinds: AlertEventKind) -> EvaluationAnnouncement:
-    return EvaluationAnnouncement(
-        alert_name="API errors",
-        consecutive_failures=0,
-        transitions=tuple(
-            AnnouncedTransition(
-                grouping_key="",
-                kind=kind,
-                episode_started_at=FIRING,
-                value=None,
-                labels={},
-                condition={},
-                source_config={},
-                error_message=None,
-            )
-            for kind in kinds
-        ),
+def _transition(kind: AlertEventKind, grouping_key: str = "") -> AnnouncedTransition:
+    return AnnouncedTransition(
+        grouping_key=grouping_key,
+        kind=kind,
+        episode_started_at=FIRING,
+        value=None,
+        labels={},
+        condition={},
+        source_config={},
+        error_message=None,
     )
+
+
+def _announcement(*transitions: AnnouncedTransition) -> EvaluationAnnouncement:
+    return EvaluationAnnouncement(alert_name="API errors", consecutive_failures=0, transitions=transitions)
 
 
 def _group(data: AlertDestinationData, fully_enabled: bool = True) -> AlertDestinationGroup:
@@ -59,47 +77,83 @@ def _group(data: AlertDestinationData, fully_enabled: bool = True) -> AlertDesti
 
 
 class TestDeliverEvaluation(APIBaseTest):
-    def _run(self, announced: Any, groups: list[AlertDestinationGroup], live: bool = True) -> Any:
+    def setUp(self) -> None:
+        super().setUp()
+        RecordingTransport.sends = []
+
+    def _run(self, announced: Any, by_event: dict[str, list[AlertDestinationGroup]], live: bool = True) -> Any:
+        def groups(*, team_id: int, alert_id: str, allowed_event_ids: list[str]) -> list[AlertDestinationGroup]:
+            return by_event.get(allowed_event_ids[0], [])
+
         with (
             patch(f"{_MODULE}.posthoganalytics.feature_enabled", return_value=live),
             patch(f"{_MODULE}.announcement", return_value=announced),
-            patch(f"{_MODULE}.list_alert_destination_groups", return_value=groups) as resolved,
+            patch(f"{_MODULE}.list_alert_destination_groups", side_effect=groups),
             patch(f"{_MODULE}.DatabaseThreadStore"),
-            patch(f"{_MODULE}.deliver") as delivered,
+            patch.dict(f"{_MODULE}._TRANSPORTS", {DestinationType.SLACK: RecordingTransport}),
         ):
-            outcome = deliver_evaluation(_request(self.team.id))
-        return outcome, resolved, delivered
+            return deliver_evaluation(_request(self.team.id))
+
+    def test_a_destination_hears_only_about_the_kinds_it_subscribed_to(self) -> None:
+        # One group fires while another resolves. A destination that asked for firings must not
+        # be told about the resolve just because the same evaluation produced it.
+        announced = _announcement(
+            _transition(AlertEventKind.FIRING, "checkout"),
+            _transition(AlertEventKind.RESOLVED, "search"),
+        )
+        fires_only = cast(AlertDestinationData, {**SLACK, "slack_channel_id": "C-fires"})
+        resolves_only = cast(AlertDestinationData, {**SLACK, "slack_channel_id": "C-resolves"})
+
+        self._run(announced, {FIRING_EVENT: [_group(fires_only)], RESOLVED_EVENT: [_group(resolves_only)]})
+
+        assert sorted((channel, m.headline) for channel, m in RecordingTransport.sends) == [
+            ("C-fires", "API errors is firing"),
+            ("C-resolves", "API errors is resolved"),
+        ]
+
+    def test_a_destination_subscribed_to_both_hears_about_both(self) -> None:
+        announced = _announcement(
+            _transition(AlertEventKind.FIRING, "checkout"),
+            _transition(AlertEventKind.RESOLVED, "search"),
+        )
+
+        self._run(announced, {FIRING_EVENT: [_group(SLACK)], RESOLVED_EVENT: [_group(SLACK)]})
+
+        assert sorted(m.headline for _, m in RecordingTransport.sends) == [
+            "API errors is firing",
+            "API errors is resolved",
+        ]
 
     def test_a_destination_with_no_transport_is_skipped_rather_than_failing_the_send(self) -> None:
-        outcome, _, delivered = self._run(_announcement(AlertEventKind.FIRING), [_group(SLACK), _group(WEBHOOK)])
+        outcome = self._run(
+            _announcement(_transition(AlertEventKind.FIRING)),
+            {FIRING_EVENT: [_group(SLACK), _group(WEBHOOK)]},
+        )
 
-        assert [call.kwargs["target"] for call in delivered.call_args_list] == [SLACK]
+        assert [channel for channel, _ in RecordingTransport.sends] == ["C-1"]
         assert (outcome.sent, outcome.skipped_without_transport) == (1, 1)
 
     def test_a_destination_that_is_not_fully_enabled_receives_nothing(self) -> None:
-        outcome, _, delivered = self._run(_announcement(AlertEventKind.FIRING), [_group(SLACK, fully_enabled=False)])
+        outcome = self._run(
+            _announcement(_transition(AlertEventKind.FIRING)),
+            {FIRING_EVENT: [_group(SLACK, fully_enabled=False)]},
+        )
 
-        assert delivered.call_args_list == []
+        assert RecordingTransport.sends == []
         assert outcome.sent == 0
 
-    def test_only_the_kinds_this_evaluation_announced_decide_who_hears_about_it(self) -> None:
-        # A destination configured for firings only must not receive a resolve, so the lookup
-        # asks for the event ids of the kinds actually announced rather than all of them.
-        _, resolved, _ = self._run(_announcement(AlertEventKind.RESOLVED), [_group(SLACK)])
+    def test_an_evaluation_that_announced_nothing_sends_nothing(self) -> None:
+        outcome = self._run(None, {FIRING_EVENT: [_group(SLACK)]})
 
-        assert resolved.call_args.kwargs["allowed_event_ids"] == ["$logs_alert_resolved"]
-
-    def test_an_evaluation_that_announced_nothing_resolves_no_destinations(self) -> None:
-        outcome, resolved, delivered = self._run(None, [_group(SLACK)])
-
-        assert resolved.call_args_list == []
-        assert delivered.call_args_list == []
+        assert RecordingTransport.sends == []
         assert outcome.sent == 0
 
     def test_a_team_without_the_flag_is_not_contacted(self) -> None:
-        outcome, resolved, delivered = self._run(_announcement(AlertEventKind.FIRING), [_group(SLACK)], live=False)
+        outcome = self._run(
+            _announcement(_transition(AlertEventKind.FIRING)), {FIRING_EVENT: [_group(SLACK)]}, live=False
+        )
 
-        assert (resolved.call_args_list, delivered.call_args_list) == ([], [])
+        assert RecordingTransport.sends == []
         assert outcome.live is False
 
     def test_the_flag_is_read_against_the_project(self) -> None:
@@ -115,11 +169,8 @@ class TestDeliverEvaluation(APIBaseTest):
         assert flag.call_args.kwargs["groups"]["project"] == str(self.team.id)
 
     def test_a_flag_that_cannot_be_read_leaves_the_legacy_path_as_the_only_deliverer(self) -> None:
-        with (
-            patch(f"{_MODULE}.posthoganalytics.feature_enabled", side_effect=RuntimeError("flags unreachable")),
-            patch(f"{_MODULE}.deliver") as delivered,
-        ):
+        with patch(f"{_MODULE}.posthoganalytics.feature_enabled", side_effect=RuntimeError("flags unreachable")):
             outcome = deliver_evaluation(_request(self.team.id))
 
-        assert delivered.call_args_list == []
+        assert RecordingTransport.sends == []
         assert outcome.live is False
