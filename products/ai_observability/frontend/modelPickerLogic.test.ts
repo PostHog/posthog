@@ -113,7 +113,7 @@ describe('modelPickerLogic', () => {
                     provider: m.provider,
                     description: m.description,
                     isRecommended: true,
-                    supportsSystemOne: false,
+                    supportsDecisions: false,
                     providerKeyId: 'key-1',
                 }))
             )
@@ -130,8 +130,8 @@ describe('modelPickerLogic', () => {
                         200,
                         new URL(request.url).searchParams.get('provider_key_id')
                             ? [
-                                  { id: 'typesafe/jev-1.13', provider: 'OpenRouter', supports_system_one: true },
-                                  { id: 'typesafe/jev-router', provider: 'OpenRouter', supports_system_one: false },
+                                  { id: 'typesafe/jev-1.13', provider: 'OpenRouter', supports_decisions: true },
+                                  { id: 'typesafe/jev-router', provider: 'OpenRouter', supports_decisions: false },
                               ]
                             : [],
                     ],
@@ -275,7 +275,7 @@ describe('modelPickerLogic', () => {
                     description: m.description,
                     isRecommended: true,
                     providerKeyId: 'key-2',
-                    supportsSystemOne: false,
+                    supportsDecisions: false,
                 }))
             )
             expect(logic.values.providerModelGroups.find((g) => g.providerKeyId === 'key-1')).toEqual({

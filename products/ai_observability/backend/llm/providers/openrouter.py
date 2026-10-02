@@ -25,6 +25,20 @@ from products.ai_observability.backend.llm.types import (
 logger = logging.getLogger(__name__)
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+OPENROUTER_DECISIONS_BASE_URL = "https://openrouter.ai/api/alpha"
+
+# The decisions modality alone does not guarantee support for Noul, Choice, and Score questions.
+SUPPORTED_DECISION_MODELS = frozenset(
+    {
+        "liquid/d1",
+        "togethercomputer/tev1-4b-experimental",
+        "inception/mercury-decide:free",
+        "upstage/solar-decide",
+        "jaredpalmer/kev-4b",
+        "~typesafe/jev-latest",
+        "typesafe/jev-1.13",
+    }
+)
 
 # For App Attribution
 OPENROUTER_HEADERS = {
@@ -77,7 +91,11 @@ def _non_chat_model_ids() -> frozenset[str] | None:
 def decision_model_ids() -> frozenset[str] | None:
     models = _non_chat_models()
     return (
-        frozenset(model for model, modalities in models.items() if "decisions" in modalities)
+        frozenset(
+            model
+            for model, modalities in models.items()
+            if "decisions" in modalities and model in SUPPORTED_DECISION_MODELS
+        )
         if models is not None
         else None
     )

@@ -18,7 +18,7 @@ class ModelInfo(TypedDict):
     provider: str
     description: str
     is_recommended: bool
-    supports_system_one: NotRequired[bool]
+    supports_decisions: NotRequired[bool]
 
 
 # Single registry of providers. Add new providers here and everything else

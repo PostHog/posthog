@@ -39,9 +39,9 @@ They sample the combined input, tool definitions, and output only when that text
 
 Implementation: [trace judge](../../posthog/temporal/ai_observability/run_trace_evaluation.py), [session judge](../../posthog/temporal/ai_observability/run_session_evaluation.py), and [generation judge](../../posthog/temporal/ai_observability/evaluation_llm_judge.py).
 
-## System One judges
+## Decision model judges
 
-System One-compatible models are available under the existing LLM judge option.
+Decision models are available under the existing LLM judge option. They return typed answers without written reasoning.
 The `llm-analytics-system-one-evaluations` project-group feature flag controls access in the browser and background workers.
 Both use the project's UUID as its group key; the numeric project ID is a group property.
 Deploy the ingestion and evaluation worker changes before enabling the flag.
@@ -52,8 +52,11 @@ Connection validation and every evaluation check these gates; an absent flag or 
 Turning the flag off stops subsequent runs, including queued work, without disabling the saved evaluation.
 Keep the experimental flag limited to staff projects during rollout.
 OpenRouter decision models, including Jev, appear under an existing OpenRouter key in the evaluation model picker when this flag is enabled.
-They use OpenRouter's `/api/v1/systemone` endpoint with that key; no custom endpoint or System One connection is needed.
-The OpenRouter catalogue's `decisions` output modality identifies these models, including aliases; chat models such as Jev Router keep using chat completions.
+They use OpenRouter's alpha `/api/alpha/decisions` endpoint with that key; no custom endpoint or System One connection is needed.
+The picker requires both the catalogue's `decisions` output modality and verified support for Noul, Choice, and Score questions.
+Supported models are `typesafe/jev-1.13`, `~typesafe/jev-latest`, `upstage/solar-decide`, `togethercomputer/tev1-4b-experimental`, `liquid/d1`, `inception/mercury-decide:free`, and `jaredpalmer/kev-4b`.
+New decision models need this compatibility check before joining the supported set. Respan models are excluded because they only accept Noul questions.
+Chat models such as Jev Router keep using chat completions.
 Decision models are excluded from the playground and tagger model pickers.
 For projects with this flag enabled, an unavailable catalogue makes OpenRouter runs retry rather than guess which API to call.
 These projects also need the catalogue when changing a model or output configuration, changing the evaluation type, or enabling an evaluation.
@@ -67,9 +70,9 @@ An empty key selects no authentication.
 Changing the endpoint requires entering its credential again, or explicitly choosing no authentication, so an existing key is not forwarded to a new host.
 Private network destinations and redirects are blocked by the shared DNS-pinned HTTP transport.
 Saving a connection validates it with a short synthetic input and a Noul question, without sending evaluation data, using a 10-second request timeout.
-System One connections opt into the shared HTTPX client's bounded transport.
+Decision model connections opt into the shared HTTPX client's bounded transport.
 Each HTTP request has a total deadline covering connection setup, response headers, and the body; expiry cancels the network operation and closes the connection.
-Validation uses 10 seconds and System One evaluations use 60 seconds.
+Validation uses 10 seconds and decision model evaluations use 60 seconds.
 The transport rejects response bodies above 1 MiB, including errors.
 It requests uncompressed responses and rejects compressed responses to prevent decompression from bypassing the size limit.
 Responses stream incrementally, with a separate connection per request; connections are not pooled across requests.
@@ -106,7 +109,7 @@ A custom deployment reporting a recognized model name can inherit that model's c
 
 Evaluations that allow N/A send a separate Noul question about whether the criteria apply, using the 0.5 threshold.
 Uncertainty alone does not produce N/A.
-System One answers contain no written reasoning, so reports inspect the original source when explaining outcomes.
+Decision model answers contain no written reasoning, so reports inspect the original source when explaining outcomes.
 
 Endpoint rate limits and overload responses are retried through Temporal, honoring `Retry-After` up to one minute.
 Evaluation events retain model, usage, latency, and error telemetry.
@@ -115,7 +118,7 @@ Blocked endpoints and redirects disable the evaluation and mark the connection f
 Requests rejected because of an individual input skip that run without changing the shared connection.
 Invalid probabilities, missing answers, and mismatched answer types skip the item as an unparsable response.
 Inputs rejected for exceeding the model's context window are skipped.
-See TypeSafe's [API reference](https://docs.typesafe.ai/api) for the System One protocol.
+See OpenRouter's [Decisions API reference](https://openrouter.ai/docs/api/api-reference/alphadecisions/submit-a-decisions-request) and TypeSafe's [API reference](https://docs.typesafe.ai/api) for their compatible question and answer formats.
 
 ## Model output limits
 
@@ -133,7 +136,7 @@ Boolean online evaluations write their raw verdict to `$ai_evaluation_result`.
 Numeric evaluations write their score to `$ai_evaluation_numeric_result`, with optional `$ai_evaluation_numeric_result_min` and `$ai_evaluation_numeric_result_max` bounds.
 Result badges and mean scores display up to two decimal places, with two significant digits for values below one to keep small nonzero scores visible. Badges in the runs table expose the exact score on hover; storage, sorting, and passing rules use the original value.
 If rounding would change whether the displayed score meets the passing rule, the badge shows the exact score instead.
-For online LLM judges, including System One, `step` is a suggested score increment in the prompt; results are not rounded or restricted to its multiples.
+For online LLM judges, including decision models, `step` is a suggested score increment in the prompt; results are not rounded or restricted to its multiples.
 Hog evaluations use the numeric value returned by the code and do not apply `step`.
 `$ai_evaluation_result_type` identifies the output type; events without it are legacy boolean results.
 Categorical evaluations write a list of category keys to `$ai_evaluation_categorical_result`, including for single selection.

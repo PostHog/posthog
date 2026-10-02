@@ -736,7 +736,7 @@ return result`,
                             provider: 'OpenRouter',
                             description: '',
                             providerKeyId: 'key-1',
-                            supportsSystemOne: true,
+                            supportsDecisions: true,
                         },
                     ])
                     logic.actions.loadEvaluationSuccess({

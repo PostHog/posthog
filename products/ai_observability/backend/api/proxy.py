@@ -49,9 +49,9 @@ from products.ai_observability.backend.llm import (
     ModelInfo,
     get_playground_models,
 )
+from products.ai_observability.backend.llm.decisions import decision_evaluations_enabled
 from products.ai_observability.backend.llm.errors import ProviderConfigurationError, UnsupportedProviderError
 from products.ai_observability.backend.llm.providers.openrouter import OPENROUTER_BASE_URL, decision_model_ids
-from products.ai_observability.backend.llm.system_one import system_one_evaluations_enabled
 from products.ai_observability.backend.models.provider_keys import (
     LLMProvider,
     LLMProviderKey,
@@ -106,8 +106,8 @@ class LLMProxyModelInfoSerializer(serializers.Serializer):
     provider = serializers.CharField(help_text="Provider display name.")
     description = serializers.CharField(allow_blank=True, help_text="Description of the model.")
     is_recommended = serializers.BooleanField(help_text="Whether the provider recommends this model.")
-    supports_system_one = serializers.BooleanField(
-        default=False, help_text="Whether this model uses typed System One decisions instead of chat completions."
+    supports_decisions = serializers.BooleanField(
+        default=False, help_text="Whether this model supports decision questions instead of chat completions."
     )
 
 
@@ -494,7 +494,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
                 recommended = Client.recommended_models(provider_key.provider)
                 provider_display = PROVIDER_DISPLAY_NAMES.get(provider_key.provider, provider_key.provider.title())
                 decision_models: frozenset[str] = frozenset()
-                if provider_key.provider == LLMProvider.OPENROUTER and system_one_evaluations_enabled(
+                if provider_key.provider == LLMProvider.OPENROUTER and decision_evaluations_enabled(
                     provider_key.team_id, base_url=OPENROUTER_BASE_URL
                 ):
                     decision_models = decision_model_ids() or frozenset()
@@ -507,7 +507,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
                             provider=provider_display,
                             description="",
                             is_recommended=m in recommended,
-                            supports_system_one=provider_key.provider == LLMProvider.SYSTEM_ONE or m in decision_models,
+                            supports_decisions=provider_key.provider == LLMProvider.SYSTEM_ONE or m in decision_models,
                         )
                         for m in models
                     ]

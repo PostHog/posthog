@@ -103,7 +103,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
         canEnableReason,
         modelSelectionRequired,
         numericBoundsRequired,
-        usesSystemOne,
+        usesDecisionModel,
     } = useValues(llmEvaluationLogic)
     const { searchParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -142,7 +142,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
         return <NotFound object="evaluation" />
     }
     const openInPlaygroundUrl =
-        evaluationTypeUsesModelConfiguration(evaluation.evaluation_type) && evaluation.id && !usesSystemOne
+        evaluationTypeUsesModelConfiguration(evaluation.evaluation_type) && evaluation.id && !usesDecisionModel
             ? combineUrl(urls.aiObservabilityPlayground(), { source_evaluation_id: evaluation.id }).url
             : null
 
@@ -949,7 +949,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
 function EvaluationModelPicker(): JSX.Element {
     const { byokModels, evaluationProviderModelGroups, byokModelsLoading, providerKeysLoading } =
         useValues(modelPickerLogic)
-    const { selectedModel, selectedPickerProviderKeyId, modelSelectionRequired, evaluation, usesSystemOne } =
+    const { selectedModel, selectedPickerProviderKeyId, modelSelectionRequired, evaluation, usesDecisionModel } =
         useValues(llmEvaluationLogic)
     const { selectModelFromPicker } = useActions(llmEvaluationLogic)
 
@@ -987,13 +987,13 @@ function EvaluationModelPicker(): JSX.Element {
                             data-attr="evaluation-model-selector"
                         />
                         <ByokModelPickerNotice forEvaluation />
-                        {evaluation && usesSystemOne && (
+                        {evaluation && usesDecisionModel && (
                             <p className="text-sm text-muted mt-2">
                                 {evaluation.output_type === 'categorical'
-                                    ? 'This judge selects categories without written reasoning. For multiple selections, each category is included when its probability is 50% or higher.'
+                                    ? 'This decision model selects categories without written reasoning. For multiple selections, each category is included when its probability is 50% or higher.'
                                     : evaluation.output_type === 'numeric'
-                                      ? 'This judge estimates a score between your minimum and maximum without written reasoning. Define what low and high scores mean in your evaluation prompt. Scores can be fractional.'
-                                      : 'This judge returns a probability without written reasoning. A probability of 50% or higher produces a true result.'}
+                                      ? 'This decision model estimates a score between your minimum and maximum without written reasoning. Define what low and high scores mean in your evaluation prompt. Scores can be fractional.'
+                                      : 'This decision model returns a probability without written reasoning. A probability of 50% or higher produces a true result.'}
                             </p>
                         )}
                         {modelSelectionRequired && !selectedModel && (

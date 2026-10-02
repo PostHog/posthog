@@ -131,7 +131,7 @@ class TestModelConfigurationSerializer(SimpleTestCase):
             output_config=output_config,
         )
         serializer = EvaluationSerializer(instance=evaluation, partial=True)
-        data = {"model_configuration": {"provider": "system_one", "model": "custom-model"}}
+        data = {"model_configuration": {"provider": "system_one", "model": "typesafe/jev-1.13"}}
         with patch.object(serializer, "_validate_chat_model"):
             self.assertEqual(serializer.validate(data), data)
 
@@ -157,7 +157,7 @@ class TestModelConfigurationSerializer(SimpleTestCase):
             evaluation_config={"prompt": "Score quality"},
             output_type="numeric",
             output_config={"min": 0, "max": 10},
-            model_configuration=LLMModelConfiguration(provider=provider, model="custom-model"),
+            model_configuration=LLMModelConfiguration(provider=provider, model="typesafe/jev-1.13"),
         )
         serializer = EvaluationSerializer(
             instance=evaluation,
@@ -168,11 +168,9 @@ class TestModelConfigurationSerializer(SimpleTestCase):
         with (
             patch(
                 "products.ai_observability.backend.llm.providers.openrouter._non_chat_models",
-                return_value={"custom-model": ["decisions"]},
+                return_value={"typesafe/jev-1.13": ["decisions"]},
             ),
-            patch(
-                "products.ai_observability.backend.api.evaluations.system_one_evaluations_enabled", return_value=True
-            ),
+            patch("products.ai_observability.backend.api.evaluations.decision_evaluations_enabled", return_value=True),
         ):
             self.assertEqual(serializer.is_valid(), valid, serializer.errors)
         if valid:
@@ -209,9 +207,7 @@ class TestModelConfigurationSerializer(SimpleTestCase):
             patch(
                 "products.ai_observability.backend.llm.providers.openrouter._non_chat_models", return_value=None
             ) as catalogue,
-            patch(
-                "products.ai_observability.backend.api.evaluations.system_one_evaluations_enabled", return_value=flag
-            ),
+            patch("products.ai_observability.backend.api.evaluations.decision_evaluations_enabled", return_value=flag),
         ):
             self.assertEqual(serializer.is_valid(), valid, serializer.errors)
         if valid:
@@ -949,9 +945,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
                     "example/embedding": ["embeddings"],
                 },
             ),
-            patch(
-                "products.ai_observability.backend.api.evaluations.system_one_evaluations_enabled", return_value=flag
-            ),
+            patch("products.ai_observability.backend.api.evaluations.decision_evaluations_enabled", return_value=flag),
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/evaluations/",
@@ -2183,9 +2177,7 @@ class TestReEnableValidatesRootCauseResolved(APIBaseTest):
                 "products.ai_observability.backend.llm.providers.openrouter._non_chat_models",
                 return_value={"typesafe/jev-1.13": ["decisions"]},
             ),
-            patch(
-                "products.ai_observability.backend.api.evaluations.system_one_evaluations_enabled", return_value=flag
-            ),
+            patch("products.ai_observability.backend.api.evaluations.decision_evaluations_enabled", return_value=flag),
         ):
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
