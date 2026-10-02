@@ -23,6 +23,13 @@ const captureSettingsMock = (urlAllowlist: string[]): ReturnType<typeof mswDecor
 const meta: Meta<typeof HeatmapsPricingNotice> = {
     title: 'Web Analytics/Heatmaps/Pricing notice',
     component: HeatmapsPricingNotice,
+    decorators: [
+        (Story) => (
+            <div className="w-200">
+                <Story />
+            </div>
+        ),
+    ],
     parameters: {
         featureFlags: [FEATURE_FLAGS.HEATMAPS_PRICING_NOTICE],
         testOptions: {
