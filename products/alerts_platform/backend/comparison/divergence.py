@@ -16,7 +16,6 @@ from its production policy that nobody declared.
 
 from __future__ import annotations
 
-from dataclasses import fields
 from enum import StrEnum
 
 from posthog.dataclasses import frozen
@@ -29,7 +28,6 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceVerdict,
     SuppressionReason,
 )
-from products.alerts_platform.backend.facade.lifecycle import AlertPolicy
 
 # A source that excludes an alert for one of these would never have checked it, and neither would
 # the platform. A mute is not one: the platform evaluates through a mute on purpose.
@@ -46,11 +44,6 @@ class Agreement(StrEnum):
     AGREED = "agreed"
     DIVERGED = "diverged"
     UNCOMPARABLE = "uncomparable"
-
-
-def diverging_policy_flags(production: AlertPolicy, platform: AlertPolicy) -> frozenset[str]:
-    """The `AlertPolicy` fields on which the two stacks were configured differently."""
-    return frozenset(f.name for f in fields(AlertPolicy) if getattr(production, f.name) != getattr(platform, f.name))
 
 
 @frozen

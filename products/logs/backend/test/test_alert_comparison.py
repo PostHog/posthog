@@ -1,6 +1,6 @@
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from posthog.test.base import BaseTest
 from unittest import TestCase
@@ -47,20 +47,29 @@ def _check_input(alert_id, *, next_check_at) -> PlatformAlertCheckInput:
     )
 
 
-def _held_check(muted_notification: str) -> PlatformCheck:
+EVALUATION_KEY = _evaluation_key(_check_input(uuid4(), next_check_at=CHECKED_AT), WINDOW_END)
+
+
+def _platform_check(
+    *,
+    team_id: int = 1,
+    legacy_configuration_id: UUID | None = None,
+    at: datetime = CHECKED_AT,
+    muted_notification: str = "none",
+) -> PlatformCheck:
     return PlatformCheck(
-        team_id=1,
+        team_id=team_id,
         configuration_id=uuid4(),
-        legacy_configuration_id=uuid4(),
+        legacy_configuration_id=legacy_configuration_id,
         alert_id=uuid4(),
         grouping_key="",
-        evaluation_key=f"slot:{CHECKED_AT.isoformat()}|window:{WINDOW_END.isoformat()}",
+        evaluation_key=EVALUATION_KEY,
         previous_state="not_firing",
         state="firing",
         kind="check",
         muted_notification=muted_notification,
         error_message="",
-        occurred_at=CHECKED_AT,
+        occurred_at=at,
     )
 
 
@@ -72,7 +81,7 @@ class TestLogsDivergenceDeclarations(TestCase):
         [
             (
                 "the source made no check because it was muted",
-                _held_check("none"),
+                _platform_check(),
                 SourceVerdict(
                     coverage=SourceCoverage.SUPPRESSED, state="snoozed", suppressed_by=SuppressionReason.MUTED
                 ),
@@ -80,13 +89,13 @@ class TestLogsDivergenceDeclarations(TestCase):
             ),
             (
                 "the platform held an announcement while the source fell behind",
-                _held_check("fire"),
+                _platform_check(muted_notification="fire"),
                 SourceVerdict(coverage=SourceCoverage.BEHIND, state="not_firing"),
                 True,
             ),
             (
                 "the platform held an announcement the source was not muted for",
-                _held_check("fire"),
+                _platform_check(muted_notification="fire"),
                 SourceVerdict(coverage=SourceCoverage.EVALUATED, state="not_firing"),
                 False,
             ),
@@ -123,20 +132,7 @@ class TestLogsCorrespondence(BaseTest):
         return event
 
     def _check(self, alert: LogsAlertConfiguration, *, at: datetime = CHECKED_AT) -> PlatformCheck:
-        return PlatformCheck(
-            team_id=self.team.id,
-            configuration_id=uuid4(),
-            legacy_configuration_id=alert.id,
-            alert_id=uuid4(),
-            grouping_key="",
-            evaluation_key=f"slot:{CHECKED_AT.isoformat()}|window:{WINDOW_END.isoformat()}",
-            previous_state="not_firing",
-            state="firing",
-            kind="check",
-            muted_notification="none",
-            error_message="",
-            occurred_at=at,
-        )
+        return _platform_check(team_id=self.team.id, legacy_configuration_id=alert.id, at=at)
 
     def _verdict(self, alert: LogsAlertConfiguration):
         check = self._check(alert)
