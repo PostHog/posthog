@@ -128,6 +128,13 @@ class PersonalNextAction:
 
 
 @frozen
+class PersonalNextStep:
+    action_state: PersonalActionState
+    next_action: PersonalNextAction | None = None
+    evidence_pr: ImplementationPr | None = None
+
+
+@frozen
 class PersonalDecision:
     report_id: str
     reasons: tuple[PersonalReason, ...]
@@ -304,15 +311,15 @@ def decide(facts: ReportFacts) -> PersonalDecision:
     if facts.claim_holder in (ClaimHolder.VIEWER, ClaimHolder.VIEWER_TASK):
         reasons.append(PersonalReason.CLAIMED)
 
-    action_state, next_action, evidence_pr = _next_step(facts, is_reviewer=PersonalReason.SUGGESTED_REVIEWER in reasons)
-    observed_at = evidence_pr.checked_at if evidence_pr is not None else facts.updated_at
+    next_step = _next_step(facts, is_reviewer=PersonalReason.SUGGESTED_REVIEWER in reasons)
+    observed_at = next_step.evidence_pr.checked_at if next_step.evidence_pr is not None else facts.updated_at
     return PersonalDecision(
         report_id=facts.report_id,
         reasons=tuple(reasons),
-        action_state=action_state,
-        next_action=next_action,
+        action_state=next_step.action_state,
+        next_action=next_step.next_action,
         observed_at=observed_at,
-        urgent=facts.priority == AutonomyPriority.P0 and action_state != PersonalActionState.WAITING,
+        urgent=facts.priority == AutonomyPriority.P0 and next_step.action_state != PersonalActionState.WAITING,
         priority=facts.priority,
         changed_at=facts.changed_at,
     )
@@ -322,30 +329,26 @@ def _viewer_claims(facts: ReportFacts) -> bool:
     return facts.claim_holder in (ClaimHolder.VIEWER, ClaimHolder.VIEWER_TASK)
 
 
-def _next_step(
-    facts: ReportFacts, *, is_reviewer: bool
-) -> tuple[PersonalActionState, PersonalNextAction | None, ImplementationPr | None]:
+def _next_step(facts: ReportFacts, *, is_reviewer: bool) -> PersonalNextStep:
     if facts.status in _CLOSED_STATUSES:
-        return PersonalActionState.CLOSED, None, None
+        return PersonalNextStep(action_state=PersonalActionState.CLOSED)
     if facts.status == SignalReport.Status.FAILED:
         if _viewer_claims(facts):
-            return (
-                PersonalActionState.ACTION_AVAILABLE,
-                PersonalNextAction(kind=PersonalNextActionKind.RESOLVE_BLOCKER),
-                None,
+            return PersonalNextStep(
+                action_state=PersonalActionState.ACTION_AVAILABLE,
+                next_action=PersonalNextAction(kind=PersonalNextActionKind.RESOLVE_BLOCKER),
             )
-        return PersonalActionState.UNKNOWN, None, None
+        return PersonalNextStep(action_state=PersonalActionState.UNKNOWN)
     if facts.status in _RESEARCH_STATUSES:
-        return PersonalActionState.WAITING, None, None
+        return PersonalNextStep(action_state=PersonalActionState.WAITING)
     if (
         facts.status == SignalReport.Status.PENDING_INPUT
         and facts.actionability == ActionabilityChoice.REQUIRES_HUMAN_INPUT.value
         and (is_reviewer or _viewer_claims(facts))
     ):
-        return (
-            PersonalActionState.ACTION_AVAILABLE,
-            PersonalNextAction(kind=PersonalNextActionKind.ANSWER_QUESTION),
-            None,
+        return PersonalNextStep(
+            action_state=PersonalActionState.ACTION_AVAILABLE,
+            next_action=PersonalNextAction(kind=PersonalNextActionKind.ANSWER_QUESTION),
         )
 
     # Every linked PR counts: one merged layer of a stack does not finish the others.
@@ -359,39 +362,41 @@ def _next_step(
     ]
     if is_reviewer and not _viewer_claims(facts) and awaiting_review:
         pr = awaiting_review[0]
-        return (
-            PersonalActionState.ACTION_AVAILABLE,
-            PersonalNextAction(kind=PersonalNextActionKind.REVIEW_PR, pull_request_url=pr.url),
-            pr,
+        return PersonalNextStep(
+            action_state=PersonalActionState.ACTION_AVAILABLE,
+            next_action=PersonalNextAction(kind=PersonalNextActionKind.REVIEW_PR, pull_request_url=pr.url),
+            evidence_pr=pr,
         )
     unknown = [pr for pr in active if pr.state == SignalReportPullRequest.State.UNKNOWN]
     if unknown:
         pr = unknown[0]
-        return (
-            PersonalActionState.UNKNOWN,
-            PersonalNextAction(kind=PersonalNextActionKind.CHECK_PR, pull_request_url=pr.url),
-            pr,
+        return PersonalNextStep(
+            action_state=PersonalActionState.UNKNOWN,
+            next_action=PersonalNextAction(kind=PersonalNextActionKind.CHECK_PR, pull_request_url=pr.url),
+            evidence_pr=pr,
         )
     if active:
-        return PersonalActionState.WAITING, None, active[0]
+        return PersonalNextStep(action_state=PersonalActionState.WAITING, evidence_pr=active[0])
     merged = [pr for pr in facts.pull_requests if pr.state == SignalReportPullRequest.State.MERGED]
     if merged:
         # The report stays open until completion is verified, so nothing is asked of the viewer.
-        return PersonalActionState.WAITING, None, merged[0]
+        return PersonalNextStep(action_state=PersonalActionState.WAITING, evidence_pr=merged[0])
 
     if facts.claim_holder in (ClaimHolder.OTHER, ClaimHolder.VIEWER_TASK):
-        return PersonalActionState.WAITING, None, None
+        return PersonalNextStep(action_state=PersonalActionState.WAITING)
     if facts.claim_holder == ClaimHolder.VIEWER:
-        return PersonalActionState.ACTION_AVAILABLE, PersonalNextAction(kind=PersonalNextActionKind.CONTINUE_WORK), None
-    if facts.already_addressed:
-        return PersonalActionState.UNKNOWN, None, None
-    if facts.status == SignalReport.Status.READY and _reviewer_is_relevant(facts.status, facts.actionability):
-        return (
-            PersonalActionState.ACTION_AVAILABLE,
-            PersonalNextAction(kind=PersonalNextActionKind.REVIEW_FINDING),
-            None,
+        return PersonalNextStep(
+            action_state=PersonalActionState.ACTION_AVAILABLE,
+            next_action=PersonalNextAction(kind=PersonalNextActionKind.CONTINUE_WORK),
         )
-    return PersonalActionState.UNKNOWN, None, None
+    if facts.already_addressed:
+        return PersonalNextStep(action_state=PersonalActionState.UNKNOWN)
+    if facts.status == SignalReport.Status.READY and _reviewer_is_relevant(facts.status, facts.actionability):
+        return PersonalNextStep(
+            action_state=PersonalActionState.ACTION_AVAILABLE,
+            next_action=PersonalNextAction(kind=PersonalNextActionKind.REVIEW_FINDING),
+        )
+    return PersonalNextStep(action_state=PersonalActionState.UNKNOWN)
 
 
 def decide_reports(
