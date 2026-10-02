@@ -953,7 +953,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard.refresh_from_db()
         self.assertIsNone(dashboard.last_accessed_at)
 
-    def test_self_driving_view_does_not_bump_last_accessed_at(self) -> None:
+    @parameterized.expand([("retrieve", ""), ("stream_tiles", "stream_tiles/")])
+    def test_self_driving_view_does_not_bump_last_accessed_at(self, _name: str, path_suffix: str) -> None:
         # The anomaly-detection scout reads dashboards to score them. Its own reads must not
         # look like team access, or it would keep promoting stale dashboards only it touched.
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard", created_by=self.user)
@@ -962,7 +963,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             "products.dashboards.backend.access.get_event_source",
             return_value=EventSource.SELF_DRIVING,
         ):
-            response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.pk}")
+            response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.pk}/{path_suffix}")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         dashboard.refresh_from_db()
