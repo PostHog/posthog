@@ -2691,14 +2691,21 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
                 "malformed_corrected_repository",
                 {"state": "suppressed", "dismissal_reason": "wrong_repo", "corrected_repository": "not-a-repo"},
             ),
+            (
+                "feedback_with_monitoring",
+                {"state": "monitoring", "dismissal_reason": "pr_merged", "dismissal_note": "Merged the fix."},
+            ),
         ]
     )
     def test_state_transition_rejects_invalid_dismissal(self, _name, body):
         report = self._create_report()
-        response = self.client.post(
-            self._state_url(str(report.id)), data=json.dumps(body), content_type="application/json"
-        )
+        with patch("products.signals.backend.report_content_gates.team_report_monitoring_enabled", return_value=True):
+            response = self.client.post(
+                self._state_url(str(report.id)), data=json.dumps(body), content_type="application/json"
+            )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.READY
         assert not SignalReportArtefact.objects.filter(
             report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL
         ).exists()

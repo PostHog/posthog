@@ -775,6 +775,13 @@ class SignalReportStateRequestSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 {"corrected_repository": "Only allowed when dismissal_reason is 'wrong_repo'."}
             )
+        # The monitoring transition writes no dismissal artefact, so refuse feedback rather than drop it.
+        if attrs.get("state") == SignalReportState.MONITORING and (
+            attrs.get("dismissal_reason") or attrs.get("dismissal_note") or attrs.get("corrected_repository")
+        ):
+            raise serializers.ValidationError(
+                {"state": "'monitoring' records no dismissal_reason, dismissal_note, or corrected_repository."}
+            )
         return attrs
 
 
