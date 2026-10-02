@@ -36,6 +36,7 @@ from posthog.tasks.calculate_cohort import (
     increment_version_and_enqueue_calculate_cohort,
     insert_cohort_from_filters,
     insert_cohort_from_query,
+    reconcile_static_cohort_membership,
     reset_stuck_cohorts,
     trigger_cohort_backfill_run_task,
     update_cohort_metrics,
@@ -1540,6 +1541,47 @@ class TestCohortCalculationTasks(APIBaseTest):
         self.assertEqual(history.error, get_friendly_error_message(CohortErrorCode.UNKNOWN, will_retry=False))
         assert history.error is not None
         self.assertNotIn("personhog unavailable", history.error)
+
+    def test_list_import_repairs_members_missing_from_postgres(self) -> None:
+        earlier = create_person(team=self.team, distinct_ids=["earlier-upload"])
+        added = create_person(team=self.team, distinct_ids=["new-upload"])
+        cohort = Cohort.objects.create(team=self.team, name="csv cohort", is_static=True, is_calculating=True)
+        insert_static_cohort([earlier.uuid], cohort.pk, team_id=self.team.pk)
+
+        calculate_cohort_from_list(cohort.id, ["new-upload"], team_id=self.team.pk, id_type="distinct_id")
+
+        cohort.refresh_from_db()
+        self.assertEqual(set(list_cohort_member_ids(team_id=self.team.pk, cohort_id=cohort.pk)), {earlier.pk, added.pk})
+        self.assertEqual(cohort.count, 2)
+
+    def test_reset_stuck_cohorts_reconciles_failed_static_cohort(self) -> None:
+        person = create_person(team=self.team, distinct_ids=["split-member"])
+        now = timezone.now()
+        failed = Cohort.objects.create(
+            team=self.team,
+            name="failed",
+            is_static=True,
+            errors_calculating=1,
+            last_error_at=now - relativedelta(hours=2),
+        )
+        recently_failed = Cohort.objects.create(
+            team=self.team, name="recent", is_static=True, errors_calculating=1, last_error_at=now
+        )
+        for cohort in (failed, recently_failed):
+            insert_static_cohort([person.uuid], cohort.pk, team_id=self.team.pk)
+
+        with patch(
+            "posthog.tasks.calculate_cohort.reconcile_static_cohort_membership.delay",
+            side_effect=reconcile_static_cohort_membership,
+        ):
+            reset_stuck_cohorts()
+
+        failed.refresh_from_db()
+        self.assertEqual(list_cohort_member_ids(team_id=self.team.pk, cohort_id=failed.pk), [person.pk])
+        self.assertEqual(failed.count, 1)
+        # The failed import can have dropped uploaded IDs from both stores, so the error stays visible.
+        self.assertEqual(failed.errors_calculating, 2)
+        self.assertEqual(list_cohort_member_ids(team_id=self.team.pk, cohort_id=recently_failed.pk), [])
 
     @parameterized.expand(
         [
