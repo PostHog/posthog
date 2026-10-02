@@ -15,9 +15,9 @@ def validate_cross_project_filters(filters: Any) -> dict[str, Any]:
     return _validate_cross_project_filters(filters)
 
 
-def list_dashboards(*, organization_id: UUID | str, user: User) -> list[contracts.CrossProjectDashboard]:
-    """The organization's dashboards, each with only the tiles from projects the user can open."""
-    return dashboards.list_dashboards(organization_id=organization_id, user=user)
+def list_dashboards(*, organization_id: UUID | str, user: User, offset: int, limit: int) -> contracts.DashboardPage:
+    """One page of the organization's dashboards, each with only the tiles from projects the user can open."""
+    return dashboards.list_dashboards(organization_id=organization_id, user=user, offset=offset, limit=limit)
 
 
 def get_dashboard(*, organization_id: UUID | str, dashboard_id: UUID, user: User) -> contracts.CrossProjectDashboard:
@@ -45,9 +45,13 @@ def delete_dashboard(*, organization_id: UUID | str, dashboard_id: UUID, user: U
     dashboards.delete_dashboard(organization_id=organization_id, dashboard_id=dashboard_id, user=user)
 
 
-def list_tiles(*, organization_id: UUID | str, dashboard_id: UUID, user: User) -> list[contracts.CrossProjectTile]:
-    """The dashboard's tiles from projects the user can open. Empty for a deleted dashboard."""
-    return dashboards.list_tiles(organization_id=organization_id, dashboard_id=dashboard_id, user=user)
+def list_tiles(
+    *, organization_id: UUID | str, dashboard_id: UUID, user: User, offset: int, limit: int
+) -> contracts.TilePage:
+    """One page of the dashboard's tiles from projects the user can open. Empty for a deleted dashboard."""
+    return dashboards.list_tiles(
+        organization_id=organization_id, dashboard_id=dashboard_id, user=user, offset=offset, limit=limit
+    )
 
 
 def get_tile(

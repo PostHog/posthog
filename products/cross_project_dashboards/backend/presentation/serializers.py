@@ -64,7 +64,9 @@ class CrossProjectDashboardSerializer(serializers.Serializer):
 
     id = serializers.UUIDField(read_only=True, help_text="Id of the dashboard.")
     name = serializers.CharField(max_length=400, help_text="Name shown in the dashboard list and page header.")
-    description = serializers.CharField(allow_blank=True, default="", help_text="Optional longer description.")
+    description = serializers.CharField(
+        allow_blank=True, default="", max_length=4000, help_text="Optional longer description."
+    )
     filters = serializers.JSONField(default=dict, help_text=DASHBOARD_FILTERS_HELP)
     tiles = CrossProjectDashboardTileSerializer(
         many=True, read_only=True, help_text="Tiles from the projects the reader can open."

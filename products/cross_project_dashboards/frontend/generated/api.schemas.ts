@@ -49,7 +49,10 @@ export interface CrossProjectDashboardApi {
      * @maxLength 400
      */
     name: string
-    /** Optional longer description. */
+    /**
+     * Optional longer description.
+     * @maxLength 4000
+     */
     description?: string
     /** Dashboard-level filters applied to every tile. Supports a date range, an interval, and property filters that refer to a property by name. Filters carrying a project-specific id are rejected. */
     filters?: unknown
@@ -114,7 +117,10 @@ export interface PatchedCrossProjectDashboardApi {
      * @maxLength 400
      */
     name?: string
-    /** Optional longer description. */
+    /**
+     * Optional longer description.
+     * @maxLength 4000
+     */
     description?: string
     /** Dashboard-level filters applied to every tile. Supports a date range, an interval, and property filters that refer to a property by name. Filters carrying a project-specific id are rejected. */
     filters?: unknown

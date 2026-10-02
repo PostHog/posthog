@@ -7,12 +7,13 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.exceptions import NotFound
+from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
-from posthog.permissions import PostHogFeatureFlagPermission
+from posthog.permissions import PostHogFeatureFlagPermission, get_authenticator_scoped_team_ids
 
 from ..facade import api, contracts
 from .serializers import (
@@ -35,7 +36,34 @@ def _uuid(value: str) -> UUID:
         raise NotFound()
 
 
-class CrossProjectDashboardViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+class OrganizationWideCredentialPermission(BasePermission):
+    """A dashboard spans the organization, so a credential confined to some projects cannot use it.
+
+    The check reads the credential itself, because a capture token in the query string can give
+    an organization route a project and pass the routing mixin's own scope check.
+    """
+
+    message = "This credential is limited to specific projects. Cross-project dashboards need organization-wide access."
+
+    def has_permission(self, request: Request, view: Any) -> bool:
+        return get_authenticator_scoped_team_ids(getattr(request, "successful_authenticator", None)) is None
+
+
+class _FacadePageMixin:
+    def _paginated(self, request: Request, page: contracts.DashboardPage | contracts.TilePage, data: Any) -> Response:
+        paginator = self.paginator  # type: ignore[attr-defined]
+        paginator.request = request
+        paginator.limit = paginator.get_limit(request)
+        paginator.offset = paginator.get_offset(request)
+        paginator.count = page.count
+        return paginator.get_paginated_response(data)
+
+    def _page_bounds(self, request: Request) -> tuple[int, int]:
+        paginator = self.paginator  # type: ignore[attr-defined]
+        return paginator.get_offset(request), paginator.get_limit(request)
+
+
+class CrossProjectDashboardViewSet(TeamAndOrgViewSetMixin, _FacadePageMixin, viewsets.GenericViewSet):
     """Dashboards the organization owns, holding insights from one or more projects."""
 
     # Any organization member may create, edit and delete these by design: a dashboard holds only
@@ -45,7 +73,7 @@ class CrossProjectDashboardViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
     lookup_field = "id"
     # Server-side rollout boundary: the flag gates the API, not only the UI.
     posthog_feature_flag = "cross-project-dashboards"
-    permission_classes = [PostHogFeatureFlagPermission]
+    permission_classes = [PostHogFeatureFlagPermission, OrganizationWideCredentialPermission]
 
     def _user(self) -> User:
         return cast(User, self.request.user)
@@ -55,11 +83,9 @@ class CrossProjectDashboardViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
 
     @extend_schema(responses={200: CrossProjectDashboardSerializer(many=True)})
     def list(self, request: Request, **kwargs: Any) -> Response:
-        dashboards = api.list_dashboards(organization_id=self.organization_id, user=self._user())
-        page = self.paginate_queryset(dashboards)
-        if page is not None:
-            return self.get_paginated_response(CrossProjectDashboardSerializer(page, many=True).data)
-        return Response(CrossProjectDashboardSerializer(dashboards, many=True).data)
+        offset, limit = self._page_bounds(request)
+        page = api.list_dashboards(organization_id=self.organization_id, user=self._user(), offset=offset, limit=limit)
+        return self._paginated(request, page, CrossProjectDashboardSerializer(page.results, many=True).data)
 
     @extend_schema(request=CrossProjectDashboardSerializer, responses={201: CrossProjectDashboardSerializer})
     def create(self, request: Request, **kwargs: Any) -> Response:
@@ -110,7 +136,7 @@ class CrossProjectDashboardViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class CrossProjectDashboardTileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+class CrossProjectDashboardTileViewSet(TeamAndOrgViewSetMixin, _FacadePageMixin, viewsets.GenericViewSet):
     """Tiles on one cross-project dashboard, edited one at a time.
 
     Writes are per tile rather than a whole-set replace, so two people editing the same
@@ -121,7 +147,7 @@ class CrossProjectDashboardTileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
     serializer_class = CrossProjectDashboardTileSerializer
     lookup_field = "id"
     posthog_feature_flag = "cross-project-dashboards"
-    permission_classes = [PostHogFeatureFlagPermission]
+    permission_classes = [PostHogFeatureFlagPermission, OrganizationWideCredentialPermission]
 
     def _user(self) -> User:
         return cast(User, self.request.user)
@@ -134,13 +160,15 @@ class CrossProjectDashboardTileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
 
     @extend_schema(parameters=[PARENT_DASHBOARD_ID], responses={200: CrossProjectDashboardTileSerializer(many=True)})
     def list(self, request: Request, **kwargs: Any) -> Response:
-        tiles = api.list_tiles(
-            organization_id=self.organization_id, dashboard_id=self._dashboard_id(), user=self._user()
+        offset, limit = self._page_bounds(request)
+        page = api.list_tiles(
+            organization_id=self.organization_id,
+            dashboard_id=self._dashboard_id(),
+            user=self._user(),
+            offset=offset,
+            limit=limit,
         )
-        page = self.paginate_queryset(tiles)
-        if page is not None:
-            return self.get_paginated_response(CrossProjectDashboardTileSerializer(page, many=True).data)
-        return Response(CrossProjectDashboardTileSerializer(tiles, many=True).data)
+        return self._paginated(request, page, CrossProjectDashboardTileSerializer(page.results, many=True).data)
 
     @extend_schema(
         parameters=[PARENT_DASHBOARD_ID],

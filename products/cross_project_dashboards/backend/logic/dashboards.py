@@ -82,8 +82,10 @@ def _tile_row(organization_id: UUID | str, dashboard_id: UUID, tile_id: UUID, us
     return tile
 
 
-def list_dashboards(*, organization_id: UUID | str, user: User) -> list[contracts.CrossProjectDashboard]:
-    return [_to_dashboard(dashboard) for dashboard in _dashboards(organization_id, user)]
+def list_dashboards(*, organization_id: UUID | str, user: User, offset: int, limit: int) -> contracts.DashboardPage:
+    dashboards = _dashboards(organization_id, user)
+    page = dashboards[offset : offset + limit]
+    return contracts.DashboardPage(results=[_to_dashboard(dashboard) for dashboard in page], count=dashboards.count())
 
 
 def get_dashboard(*, organization_id: UUID | str, dashboard_id: UUID, user: User) -> contracts.CrossProjectDashboard:
@@ -121,8 +123,12 @@ def delete_dashboard(*, organization_id: UUID | str, dashboard_id: UUID, user: U
     dashboard.save(update_fields=["deleted"])
 
 
-def list_tiles(*, organization_id: UUID | str, dashboard_id: UUID, user: User) -> list[contracts.CrossProjectTile]:
-    return [_to_tile(tile) for tile in _tiles(organization_id, dashboard_id, user)]
+def list_tiles(
+    *, organization_id: UUID | str, dashboard_id: UUID, user: User, offset: int, limit: int
+) -> contracts.TilePage:
+    tiles = _tiles(organization_id, dashboard_id, user)
+    page = tiles[offset : offset + limit]
+    return contracts.TilePage(results=[_to_tile(tile) for tile in page], count=tiles.count())
 
 
 def get_tile(
