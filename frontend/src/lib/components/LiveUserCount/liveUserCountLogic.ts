@@ -153,6 +153,9 @@ export const liveUserCountLogic = kea<liveUserCountLogicType>([
                             LIVE_USERS_COUNT_QUERY,
                             { productKey: 'product_analytics', name: 'live_users_count' }
                         )
+                        if (cache.disposables.isDisposed) {
+                            return
+                        }
                         actions.setStats({ users_on_product: value }, new Date(fetchedAt))
                         nextPollMs = Math.max(0, fetchedAt + LIVE_COUNT_REFRESH_MS - Date.now())
                     } finally {

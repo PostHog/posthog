@@ -69,6 +69,9 @@ export const liveRecordingsCountLogic = kea<liveRecordingsCountLogicType>([
                         LIVE_RECORDINGS_COUNT_QUERY,
                         QUERY_TAGS
                     )
+                    if (cache.disposables.isDisposed) {
+                        return
+                    }
                     actions.setActiveRecordings(value)
                     nextPollMs = Math.max(0, fetchedAt + LIVE_COUNT_REFRESH_MS - Date.now())
                 }
