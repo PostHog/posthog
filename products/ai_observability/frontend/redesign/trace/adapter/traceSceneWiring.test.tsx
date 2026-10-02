@@ -59,6 +59,12 @@ describe('TraceScene', () => {
     })
 
     describe('behind the flag gate', () => {
+        beforeEach(() => {
+            useMocks({
+                get: { '/api/projects/:team_id/ai_observability/traces/:id/': () => [200, makeTraceResource()] },
+            })
+        })
+
         async function renderTraceRoute(flagEnabled: boolean): Promise<ReturnType<typeof render>> {
             localStorage.clear()
             initKeaTests()
