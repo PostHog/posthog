@@ -46,7 +46,10 @@ use tracing::warn;
 use uuid::Uuid;
 
 use crate::{
-    api::{errors::FlagError, types::FlagsResponse},
+    api::{
+        errors::{FlagError, CODE_DEPENDENCY_FAILED, CODE_FLAG_DATA_PARSING},
+        types::FlagsResponse,
+    },
     database::{get_connection_with_metrics, PostgresRouter},
     flags::{
         cache_builder::compute_flag_dependencies_or_single_stage,
@@ -363,14 +366,35 @@ pub async fn batch_flag_evaluation(
 }
 
 fn failure_code(result: &Result<FlagsResponse, FlagError>, target_key: &str) -> Option<String> {
-    match result {
-        Ok(response) => response
+    let response = match result {
+        Ok(response) => response,
+        Err(e) => return Some(e.evaluation_error_code()),
+    };
+    let target = response
+        .flags
+        .get(target_key)
+        .filter(|details| details.failed)?;
+    // `dependency_failed` does not say whether a retry can help, so report the code of a failed
+    // dependency. The request names only the target, so the other flags in the response are its
+    // dependencies. A retry helps only when no dependency failed permanently. Dependents of a flag
+    // with an unsupported format read it as false, so that failure cannot fail the target.
+    if target.reason.code == CODE_DEPENDENCY_FAILED {
+        let root_codes: Vec<&str> = response
             .flags
-            .get(target_key)
+            .values()
             .filter(|details| details.failed)
-            .map(|details| details.reason.code.clone()),
-        Err(e) => Some(e.evaluation_error_code()),
+            .map(|details| details.reason.code.as_str())
+            .filter(|code| *code != CODE_DEPENDENCY_FAILED && *code != CODE_FLAG_DATA_PARSING)
+            .collect();
+        if let Some(code) = root_codes
+            .iter()
+            .find(|code| !is_transient_failure(code))
+            .or(root_codes.first())
+        {
+            return Some(code.to_string());
+        }
     }
+    Some(target.reason.code.clone())
 }
 
 /// Whether a failure code comes from a transient database fault or a timeout, which a second
@@ -700,6 +724,35 @@ mod tests {
         target_flag_response(FlagDetails::create_error(&flag, &error, None))
     }
 
+    fn target_with_failed_dependencies(errors: &[FlagError]) -> Result<FlagsResponse, FlagError> {
+        let target = mock!(FeatureFlag, key: "target".to_string());
+        let mut flags = HashMap::from([(
+            "target".to_string(),
+            FlagDetails::create_error(&target, &FlagError::DependencyFailed(2), None),
+        )]);
+        for (dependency_id, error) in (2..).zip(errors) {
+            let key = format!("dependency_{dependency_id}");
+            let dependency = mock!(FeatureFlag, id: dependency_id, key: key.clone());
+            flags.insert(key, FlagDetails::create_error(&dependency, error, None));
+        }
+        let healthy = mock!(FeatureFlag, id: 99, key: "healthy_dependency".to_string());
+        flags.insert(
+            "healthy_dependency".to_string(),
+            FlagDetails::create(
+                &healthy,
+                &FeatureFlagMatch {
+                    matches: false,
+                    variant: None,
+                    reason: FeatureFlagMatchReason::NoConditionMatch,
+                    condition_index: None,
+                    payload: None,
+                    evaluation_v2: None,
+                },
+            ),
+        );
+        Ok(FlagsResponse::new(true, flags, None, Uuid::nil()))
+    }
+
     fn evaluated() -> Result<FlagsResponse, FlagError> {
         let flag = mock!(FeatureFlag, key: "target".to_string());
         target_flag_response(FlagDetails::create(
@@ -742,12 +795,46 @@ mod tests {
         false,
         Some("recovered")
     )]
-    #[case::dependency_failed_flag(
+    #[case::missing_dependency_flag(
         || failed_target_flag(FlagError::DependencyNotFound(DependencyType::Cohort, 1)),
         evaluated,
         1,
         true,
         None
+    )]
+    #[case::transient_failure_in_dependency(
+        || target_with_failed_dependencies(&[FlagError::TimeoutError(Some("pool_timeout".to_string()))]),
+        evaluated,
+        1,
+        false,
+        Some("recovered")
+    )]
+    #[case::permanent_failure_in_dependency(
+        || target_with_failed_dependencies(&[FlagError::DependencyNotFound(DependencyType::Cohort, 1)]),
+        evaluated,
+        1,
+        true,
+        None
+    )]
+    #[case::transient_and_permanent_failures_in_dependencies(
+        || target_with_failed_dependencies(&[
+            FlagError::TimeoutError(Some("pool_timeout".to_string())),
+            FlagError::DependencyNotFound(DependencyType::Cohort, 1),
+        ]),
+        evaluated,
+        1,
+        true,
+        None
+    )]
+    #[case::transient_failure_beside_unsupported_dependency(
+        || target_with_failed_dependencies(&[
+            FlagError::TimeoutError(Some("pool_timeout".to_string())),
+            FlagError::flag_data_parsing("unsupported feature flag configuration format"),
+        ]),
+        evaluated,
+        1,
+        false,
+        Some("recovered")
     )]
     #[case::database_error(
         || Err(FlagError::DatabaseError(sqlx::Error::ColumnNotFound("id".to_string()), None)),
