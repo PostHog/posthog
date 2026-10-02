@@ -1,3 +1,5 @@
+import { Fragment } from 'react'
+
 import { IconSparkles } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
@@ -10,9 +12,10 @@ import type {
     TimelineMarker,
     TimelineRow,
 } from '../utils/recordingTimeline'
-import { currentRowIndex } from '../utils/recordingTimeline'
-import { TimelineChapterRow } from './TimelineChapterRow'
+import { MIN_INACTIVE_ROW_MS, currentRowIndex, rowStartMs, timelineGapPx } from '../utils/recordingTimeline'
+import { ObservationThumbnail } from './ObservationThumbnail'
 import { TimelineMarkerChip } from './TimelineMarkerChip'
+import { TimelineRail } from './TimelineRail'
 
 export interface RecordingTimelineProps {
     timeline: RecordingTimelineData
@@ -25,9 +28,16 @@ export interface RecordingTimelineProps {
     summarizeDisabledReason?: string | null
     onRebuild: () => void
     rebuilding: boolean
+    /** The key moment hovered on the seekbar, highlighted here too. */
+    hoveredMarkMs?: number | null
+    onHoverMarker?: (timestampMs: number | null) => void
 }
 
-const formatTime = (ms: number): string => colonDelimitedDuration(Math.floor(ms / 1000), null)
+const ROW_GRID = 'grid grid-cols-[2.5rem_1rem_minmax(0,1fr)] gap-x-1.5 px-2'
+const ROW_GRID_HOURS = 'grid grid-cols-[4rem_1rem_minmax(0,1fr)] gap-x-1.5 px-2'
+const HOUR_MS = 3_600_000
+
+const formatSpan = (ms: number): string => humanFriendlyDuration(ms / 1000, { maxUnits: 1 })
 
 function SummaryNotice({
     timeline,
@@ -36,7 +46,7 @@ function SummaryNotice({
     summarizeDisabledReason,
     onRebuild,
     rebuilding,
-}: Omit<RecordingTimelineProps, 'rows' | 'currentTimeMs' | 'onSeek' | 'onMarkerClick'>): JSX.Element | null {
+}: RecordingTimelineProps): JSX.Element | null {
     if (timeline.summaryState === 'ready') {
         return null
     }
@@ -73,62 +83,141 @@ function SummaryNotice({
     )
 }
 
-/** The recording's breakdown: summary chapters with idle gaps between them, and every scan's key moment. */
+/** The recording's breakdown on a time rail: summary chapters, idle gaps between them, and every scan's key moment. */
 export function RecordingTimeline(props: RecordingTimelineProps): JSX.Element {
-    const { timeline, rows, currentTimeMs, onSeek, onMarkerClick } = props
+    const { timeline, rows, currentTimeMs, onSeek, onMarkerClick, hoveredMarkMs, onHoverMarker } = props
     const currentIndex = currentRowIndex(rows, currentTimeMs)
+    const hasHours = rows.some((row) => rowStartMs(row) >= HOUR_MS)
+    const rowGrid = hasHours ? ROW_GRID_HOURS : ROW_GRID
+    const formatTime = (ms: number): string => colonDelimitedDuration(Math.floor(ms / 1000), hasHours ? 3 : 2)
+
     return (
-        <div className="flex flex-col" data-attr="vision-recording-timeline">
+        <div className="flex flex-col py-1" data-attr="vision-recording-timeline">
             {rows.map((row, index) => {
+                const startMs = rowStartMs(row)
                 const isCurrent = index === currentIndex
-                if (row.kind === 'chapter') {
-                    return (
-                        <TimelineChapterRow
-                            key={`chapter-${row.chapter.position}`}
-                            summary={timeline.summary as ReplayObservationApi}
-                            chapter={row.chapter}
-                            markers={row.markers}
-                            isCurrent={isCurrent}
-                            onSeek={onSeek}
-                            onMarkerClick={onMarkerClick}
-                        />
-                    )
-                }
-                if (row.kind === 'inactive') {
-                    return (
-                        <div
-                            key={`inactive-${row.startMs}`}
-                            data-current-moment={isCurrent ? true : undefined}
-                            className={cn(
-                                'flex items-center gap-2 px-3 py-1 text-xs text-tertiary bg-surface-secondary',
-                                'bg-[repeating-linear-gradient(135deg,transparent_0_6px,var(--color-border-primary)_6px_7px)]'
-                            )}
-                            data-attr="vision-timeline-inactive"
-                        >
-                            <span className="font-mono w-10 text-right shrink-0">{formatTime(row.startMs)}</span>
-                            <span>
-                                Inactive for {humanFriendlyDuration((row.endMs - row.startMs) / 1000, { maxUnits: 1 })}
-                            </span>
-                        </div>
-                    )
-                }
-                return (
-                    <div
-                        key={`marker-${row.marker.observationId}`}
-                        data-current-moment={isCurrent ? true : undefined}
-                        className={cn('flex items-center gap-2 px-3 py-1', isCurrent && 'bg-fill-highlight-50')}
+                const passedAbove = startMs <= currentTimeMs
+                const passedBelow = index < currentIndex
+                const gapPx = index === 0 ? 0 : timelineGapPx(startMs - rowStartMs(rows[index - 1]))
+                const inactive = row.kind === 'inactive'
+                const timeCell = (
+                    <span
+                        className={cn(
+                            'text-xs font-mono text-right',
+                            row.kind === 'chapter' ? 'pt-0.5' : 'self-center',
+                            isCurrent ? 'text-accent font-semibold' : inactive ? 'text-tertiary' : 'text-secondary'
+                        )}
                     >
-                        <span className="font-mono text-xs text-secondary w-10 text-right shrink-0">
-                            {formatTime(row.marker.timestampMs)}
-                        </span>
-                        <TimelineMarkerChip
-                            marker={row.marker}
-                            onClick={() => {
-                                onSeek(row.marker.timestampMs)
-                                onMarkerClick(row.marker)
-                            }}
-                        />
-                    </div>
+                        {formatTime(startMs)}
+                    </span>
+                )
+                return (
+                    <Fragment key={`${row.kind}-${startMs}-${index}`}>
+                        {gapPx > 0 && (
+                            <div
+                                className={rowGrid}
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{ height: gapPx }}
+                            >
+                                <span />
+                                <TimelineRail
+                                    dot="none"
+                                    passedAbove={passedAbove}
+                                    passedBelow={passedAbove}
+                                    isCurrent={false}
+                                    dashed={rows[index - 1].kind === 'inactive'}
+                                />
+                            </div>
+                        )}
+                        {row.kind === 'chapter' ? (
+                            <div
+                                data-current-moment={isCurrent ? true : undefined}
+                                className={cn(rowGrid, 'py-1 transition-colors', isCurrent && 'bg-fill-highlight-50')}
+                            >
+                                {timeCell}
+                                <TimelineRail
+                                    dot="chapter"
+                                    passedAbove={passedAbove}
+                                    passedBelow={passedBelow}
+                                    isCurrent={isCurrent}
+                                    alignTop
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => onSeek(row.chapter.startMs)}
+                                    className="flex gap-2 min-w-0 text-left cursor-pointer rounded hover:bg-surface-secondary p-1 -m-1"
+                                    data-attr="vision-timeline-chapter"
+                                >
+                                    <ObservationThumbnail
+                                        observation={timeline.summary as ReplayObservationApi}
+                                        chapter={row.chapter.position}
+                                        className="w-20 shrink-0"
+                                    />
+                                    <span className="flex flex-col min-w-0 gap-0.5">
+                                        <span className="text-sm font-medium line-clamp-2">{row.chapter.title}</span>
+                                        <span className="text-xs text-secondary">
+                                            {formatSpan(
+                                                row.chapter.endMs - row.chapter.startMs - row.chapter.inactiveMs
+                                            )}
+                                            {row.chapter.inactiveMs >= MIN_INACTIVE_ROW_MS && (
+                                                <span className="text-tertiary">
+                                                    {' '}
+                                                    · {formatSpan(row.chapter.inactiveMs)} inactive
+                                                </span>
+                                            )}
+                                        </span>
+                                    </span>
+                                </button>
+                            </div>
+                        ) : row.kind === 'inactive' ? (
+                            <div
+                                data-current-moment={isCurrent ? true : undefined}
+                                className={cn(rowGrid, 'py-1')}
+                                data-attr="vision-timeline-inactive"
+                            >
+                                {timeCell}
+                                <TimelineRail
+                                    dot="none"
+                                    passedAbove={passedAbove}
+                                    passedBelow={passedBelow}
+                                    isCurrent={false}
+                                    dashed
+                                />
+                                <span className="text-xs text-tertiary italic">
+                                    Inactive for {formatSpan(row.endMs - row.startMs)}
+                                </span>
+                            </div>
+                        ) : (
+                            <div
+                                data-current-moment={isCurrent ? true : undefined}
+                                className={cn(
+                                    rowGrid,
+                                    'py-0.5 transition-colors',
+                                    isCurrent && 'bg-fill-highlight-50',
+                                    hoveredMarkMs === row.marker.timestampMs && 'bg-surface-secondary'
+                                )}
+                                onMouseEnter={() => onHoverMarker?.(row.marker.timestampMs)}
+                                onMouseLeave={() => onHoverMarker?.(null)}
+                            >
+                                {timeCell}
+                                <TimelineRail
+                                    dot={row.marker.flagged ? 'flagged' : 'moment'}
+                                    passedAbove={passedAbove}
+                                    passedBelow={passedBelow}
+                                    isCurrent={isCurrent}
+                                />
+                                <span className={cn('min-w-0', row.inChapter && 'pl-4')}>
+                                    <TimelineMarkerChip
+                                        marker={row.marker}
+                                        onClick={() => {
+                                            onSeek(row.marker.timestampMs)
+                                            onMarkerClick(row.marker)
+                                        }}
+                                    />
+                                </span>
+                            </div>
+                        )}
+                    </Fragment>
                 )
             })}
             <SummaryNotice {...props} />

@@ -368,8 +368,9 @@ function ObservationsTabContent({ sessionId }: { sessionId: string }): JSX.Eleme
         followMoments,
         summarizePending,
         retryingObservationIds,
+        hoveredMarkMs,
     } = useValues(logic)
-    const { setFollowMoments, focusObservation, summarize, retryObservation } = useActions(logic)
+    const { setFollowMoments, focusObservation, summarize, retryObservation, setHoveredMark } = useActions(logic)
     const { quota } = useValues(visionQuotaLogic)
     const { disabledReason: quotaDisabledReason } = quotaUx(quota)
     const lastJumpMs = useRef<number | null>(null)
@@ -479,6 +480,8 @@ function ObservationsTabContent({ sessionId }: { sessionId: string }): JSX.Eleme
                             summarizeDisabledReason={scanBlock?.reason ?? quotaDisabledReason}
                             onRebuild={() => outdatedSummary && retryObservation(outdatedSummary.id)}
                             rebuilding={outdatedSummary ? retryingObservationIds.includes(outdatedSummary.id) : false}
+                            hoveredMarkMs={hoveredMarkMs}
+                            onHoverMarker={setHoveredMark}
                         />
                         <ObservationRuns sessionId={sessionId} observations={observations} onSeek={seekToTime} />
                     </div>

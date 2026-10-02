@@ -93,12 +93,18 @@ describe('recordingTimeline', () => {
         const timeline = recordingTimeline(observations)
         const rows = timelineRows(timeline).map((row) =>
             row.kind === 'chapter'
-                ? `chapter ${row.chapter.title} [${row.markers.map((m) => m.observationId).join(',')}]`
+                ? `chapter ${row.chapter.title}`
                 : row.kind === 'inactive'
                   ? `inactive ${row.startMs}-${row.endMs}`
-                  : `marker ${row.marker.observationId}`
+                  : `marker ${row.marker.observationId}${row.inChapter ? ' in chapter' : ''}`
         )
-        expect(rows).toEqual(['chapter Browses []', 'inactive 20000-90000', 'marker in-gap', 'chapter Buys [inside]'])
+        expect(rows).toEqual([
+            'chapter Browses',
+            'inactive 20000-90000',
+            'marker in-gap',
+            'chapter Buys',
+            'marker inside in chapter',
+        ])
         expect(timeline.chapters.find((c) => c.title === 'Buys')?.inactiveMs).toBe(5_000)
     })
 })

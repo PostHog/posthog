@@ -54,10 +54,19 @@ export interface RecordingTimeline {
     markers: TimelineMarker[]
 }
 
+/** One row on the rail; `inChapter` marks a key moment that falls inside the chapter above it. */
 export type TimelineRow =
-    | { kind: 'chapter'; chapter: TimelineChapter; markers: TimelineMarker[] }
+    | { kind: 'chapter'; chapter: TimelineChapter }
     | { kind: 'inactive'; startMs: number; endMs: number }
-    | { kind: 'marker'; marker: TimelineMarker }
+    | { kind: 'marker'; marker: TimelineMarker; inChapter: boolean }
+
+// Rows are spaced by elapsed time, capped so one quiet stretch can't push the rest off screen.
+const TIMELINE_GAP_PX_PER_SECOND = 0.3
+export const TIMELINE_GAP_MAX_PX = 20
+
+export function timelineGapPx(deltaMs: number): number {
+    return Math.min(TIMELINE_GAP_MAX_PX, Math.max(0, (deltaMs / 1000) * TIMELINE_GAP_PX_PER_SECOND))
+}
 
 function readNumber(value: unknown): number | null {
     return typeof value === 'number' && Number.isFinite(value) ? value : null
@@ -173,41 +182,33 @@ export function recordingTimeline(observations: ReplayObservationApi[]): Recordi
     return { summary, summaryState, chapters, inactive, markers }
 }
 
-/** The rows the sidebar lists, in time order: chapters with the markers inside them, idle gaps, and loose markers. */
+/** The rows the sidebar lists, in time order: chapters, the key moments inside them, idle gaps, and loose key moments. */
 export function timelineRows(timeline: RecordingTimeline): TimelineRow[] {
-    const rows: { atMs: number; row: TimelineRow }[] = []
-    const placed = new Set<TimelineMarker>()
+    const rows: { atMs: number; order: number; row: TimelineRow }[] = []
     for (const chapter of timeline.chapters) {
-        const inside = timeline.markers.filter((m) => m.timestampMs >= chapter.startMs && m.timestampMs < chapter.endMs)
-        inside.forEach((m) => placed.add(m))
-        rows.push({ atMs: chapter.startMs, row: { kind: 'chapter', chapter, markers: inside } })
+        rows.push({ atMs: chapter.startMs, order: 0, row: { kind: 'chapter', chapter } })
     }
     for (const gap of timeline.inactive) {
-        rows.push({ atMs: gap.startMs, row: { kind: 'inactive', startMs: gap.startMs, endMs: gap.endMs } })
+        rows.push({ atMs: gap.startMs, order: 1, row: { kind: 'inactive', startMs: gap.startMs, endMs: gap.endMs } })
     }
     for (const marker of timeline.markers) {
-        if (!placed.has(marker)) {
-            rows.push({ atMs: marker.timestampMs, row: { kind: 'marker', marker } })
-        }
+        const inChapter = timeline.chapters.some((c) => marker.timestampMs >= c.startMs && marker.timestampMs < c.endMs)
+        rows.push({ atMs: marker.timestampMs, order: 2, row: { kind: 'marker', marker, inChapter } })
     }
-    return rows.sort((a, b) => a.atMs - b.atMs).map(({ row }) => row)
+    // A key moment at a chapter's first second sits under the chapter, not above it.
+    return rows.sort((a, b) => a.atMs - b.atMs || a.order - b.order).map(({ row }) => row)
 }
 
-function rowSpan(row: TimelineRow): { startMs: number; endMs: number } {
-    if (row.kind === 'chapter') {
-        return { startMs: row.chapter.startMs, endMs: row.chapter.endMs }
-    }
-    if (row.kind === 'inactive') {
-        return { startMs: row.startMs, endMs: row.endMs }
-    }
-    return { startMs: row.marker.timestampMs, endMs: row.marker.timestampMs }
+/** Where a row sits on the recording's clock, which the rail spaces and the player highlights by. */
+export function rowStartMs(row: TimelineRow): number {
+    return row.kind === 'chapter' ? row.chapter.startMs : row.kind === 'inactive' ? row.startMs : row.marker.timestampMs
 }
 
 /** The row the player is in: the last one that started at or before the player's position, or -1 before the first. */
 export function currentRowIndex(rows: TimelineRow[], playerTimeMs: number): number {
     let current = -1
     rows.forEach((row, index) => {
-        if (rowSpan(row).startMs <= playerTimeMs) {
+        if (rowStartMs(row) <= playerTimeMs) {
             current = index
         }
     })
