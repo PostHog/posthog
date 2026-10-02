@@ -6,7 +6,7 @@ import http.client
 import urllib.error
 import urllib.parse
 import importlib.util
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -72,7 +72,7 @@ def test_mirrored_checks_carry_the_names_the_relay_reads() -> None:
         .replace("${{ github.event.pull_request.updated_at }}", EVENT_AT)
     )
     assert wait_check == EVENT_WAIT
-    assert handoff["env"]["GATE_CHECK"] == gate["env"]["GATE_CHECK"] == relay.GATE_CHECK
+    assert handoff["env"]["GATE_CHECK"] == gate["env"]["GATE_CHECK"] == relay.MIRRORED_GATE_CHECK
 
 
 @pytest.mark.parametrize(
@@ -478,6 +478,19 @@ class FakeResponse:
         return None
 
 
+def checks_opener(checks: Mapping[int, Mapping[str, Sequence[dict[str, Any]] | None]]) -> Any:
+    def opener(request: Any, timeout: int) -> FakeResponse:
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(request.full_url).query)
+        name = query["check_name"][0]
+        runs = checks[int(query["app_id"][0])][name]
+        if runs is None:
+            raise urllib.error.HTTPError(request.full_url, 502, "Bad Gateway", {}, None)  # type: ignore[arg-type]
+        body = [{**check, "name": name, "head_sha": EVENT.sha} for check in runs]
+        return FakeResponse(json.dumps({"check_runs": body}).encode(), "")
+
+    return opener
+
+
 def test_reader_reuses_its_answer_on_304_and_stops_on_repeated_refusals() -> None:
     sent: list[dict[str, str]] = []
     answers: list[Any] = [
@@ -708,22 +721,19 @@ def test_relay_reads_the_current_attempt_across_apps(
     depot_gate: list[tuple[int, str, str]] | None,
     expected: tuple[Any, str] | None,
 ) -> None:
-    mirror = {EVENT_WAIT: [api_run(1, "success", "w1", "w")], relay.GATE_CHECK: [api_run(*c) for c in mirror_gate]}
+    mirror = {
+        EVENT_WAIT: [api_run(1, "success", "w1", "w")],
+        relay.GATE_CHECK: [],
+        relay.MIRRORED_GATE_CHECK: [api_run(*c) for c in mirror_gate],
+    }
     depot = {
         EVENT_WAIT: [api_run(3, "success", "w1")],
         relay.GATE_CHECK: None if depot_gate is None else [api_run(*c) for c in depot_gate],
     }
 
-    def opener(request: Any, timeout: int) -> FakeResponse:
-        query = urllib.parse.parse_qs(urllib.parse.urlparse(request.full_url).query)
-        name, app_id = query["check_name"][0], int(query["app_id"][0])
-        runs = (mirror if app_id == relay.MIRROR_APP_ID else depot)[name]
-        if runs is None:
-            raise urllib.error.HTTPError(request.full_url, 502, "Bad Gateway", {}, None)  # type: ignore[arg-type]
-        body = [{**check, "name": name, "head_sha": EVENT.sha} for check in runs]
-        return FakeResponse(json.dumps({"check_runs": body}).encode(), "")
-
-    reader = relay.CheckRunReader(EVENT.repo, EVENT.sha, "token", opener=opener)
+    reader = relay.CheckRunReader(
+        EVENT.repo, EVENT.sha, "token", opener=checks_opener({relay.MIRROR_APP_ID: mirror, relay.DEPOT_APP_ID: depot})
+    )
     wait = relay.newest_live(reader.read(EVENT_WAIT))
     if expected is None:
         with pytest.raises(relay.ReadFailedError):
@@ -731,3 +741,31 @@ def test_relay_reads_the_current_attempt_across_apps(
         return
     current = relay.progress(wait, reader.read(relay.GATE_CHECK))
     assert (current.phase, current.state) == expected
+
+
+@pytest.mark.parametrize(
+    "posted,unreadable,expected",
+    [
+        pytest.param(relay.GATE_CHECK, None, ["success"], id="Depot's name from an older workflow revision"),
+        pytest.param(relay.GATE_CHECK, relay.MIRRORED_GATE_CHECK, None, id="a failed read of the mirror's name"),
+    ],
+)
+def test_reader_reads_the_mirrored_gate_under_both_names(
+    posted: str, unreadable: str | None, expected: list[str] | None
+) -> None:
+    mirror: dict[str, list[dict[str, Any]] | None] = {relay.GATE_CHECK: [], relay.MIRRORED_GATE_CHECK: []}
+    mirror[posted] = [api_run(5, "success", "w1", "a1")]
+    if unreadable:
+        mirror[unreadable] = None
+    reader = relay.CheckRunReader(
+        EVENT.repo,
+        EVENT.sha,
+        "token",
+        opener=checks_opener({relay.MIRROR_APP_ID: mirror}),
+        app_ids=(relay.MIRROR_APP_ID,),
+    )
+    if expected is None:
+        with pytest.raises(relay.ReadFailedError):
+            reader.read(relay.GATE_CHECK)
+        return
+    assert [check.state for check in reader.read(relay.GATE_CHECK)] == expected
