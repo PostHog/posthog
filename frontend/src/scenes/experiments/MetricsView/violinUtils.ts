@@ -17,6 +17,7 @@ export function generateViolinPath(x1: number, x2: number, y: number, height: nu
     for (let i = 0; i <= steps; i++) {
         const t = i / steps
         const x = x1 + (deltaX - x1) * t
+        // Two standard deviations keep the tails visible at both ends.
         const z = (t - 1) * 2
         const width = Math.exp(-0.5 * z * z) * maxWidth
         points.push([x, y + height / 2 - width])
