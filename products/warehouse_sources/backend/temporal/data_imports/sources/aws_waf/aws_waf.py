@@ -33,7 +33,6 @@ if TYPE_CHECKING:
 @frozen
 class AwsWafResumeConfig:
     next_marker: str | None = None
-    completed: bool = False
 
 
 class AwsWafError(Exception):
@@ -177,8 +176,6 @@ def get_rows(
     api_version: str,
 ) -> Iterator[list[dict[str, Any]]]:
     state = manager.load_state() or AwsWafResumeConfig()
-    if state.completed:
-        return
     client = AwsWafClient(config, api_version)
     marker = state.next_marker
     try:
@@ -197,7 +194,7 @@ def get_rows(
             next_marker = result.get("NextMarker") or None
             if next_marker and next_marker == marker:
                 raise ValueError("AWS WAF returned a repeated pagination marker.")
-            manager.save_state(AwsWafResumeConfig(next_marker=next_marker, completed=next_marker is None))
+            manager.save_state(AwsWafResumeConfig(next_marker=next_marker))
             if rows:
                 yield rows
             manager.safe_point()

@@ -1,6 +1,6 @@
 import json
-from collections.abc import Iterator
-from typing import Any
+from collections.abc import Generator, Iterable, Iterator
+from typing import Any, cast
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -137,7 +137,7 @@ def test_full_refresh_pagination_and_details(
     ]
     resume = manager()
     stream = aws_waf_source(config(), table, resume)
-    batches = list(stream.items())
+    batches = list(cast(Iterable[list[dict[str, Any]]], stream.items()))
     assert [row["name"] for batch in batches for row in batch] == ["example", "terminal"]
     row = batches[0][0]
     assert row["arn"] == resource["ARN"]
@@ -169,7 +169,7 @@ def test_full_refresh_pagination_and_details(
     assert [call.args[0] for call in resume.save_state.call_args_list] == [
         AwsWafResumeConfig(next_marker="page-2"),
         AwsWafResumeConfig(next_marker="page-3"),
-        AwsWafResumeConfig(completed=True),
+        AwsWafResumeConfig(),
     ]
     assert resume.safe_point.call_count == 3
     resume.clear_state.assert_not_called()
@@ -178,16 +178,17 @@ def test_full_refresh_pagination_and_details(
     resume.clear_state.assert_called_once()
 
 
-@pytest.mark.parametrize("completed", [False, True])
-def test_resume_from_checkpoint(session: MagicMock, completed: bool) -> None:
-    resume = manager(AwsWafResumeConfig(next_marker="saved-page", completed=completed))
-    assert list(aws_waf_source(config(), "web_acls", resume).items()) == []
-    if completed:
-        session.post.assert_not_called()
+@pytest.mark.parametrize("marker", ["saved-page", None])
+def test_resume_from_checkpoint(session: MagicMock, marker: str | None) -> None:
+    resume = manager(AwsWafResumeConfig(next_marker=marker))
+    assert list(cast(Iterable[Any], aws_waf_source(config(), "web_acls", resume).items())) == []
+    payload = json.loads(session.post.call_args.kwargs["data"])
+    if marker:
+        assert payload["NextMarker"] == marker
     else:
-        assert json.loads(session.post.call_args.kwargs["data"])["NextMarker"] == "saved-page"
-        resume.save_state.assert_called_once_with(AwsWafResumeConfig(completed=True))
-        resume.safe_point.assert_called_once()
+        assert "NextMarker" not in payload
+    resume.save_state.assert_called_once_with(AwsWafResumeConfig())
+    resume.safe_point.assert_called_once()
 
 
 def test_checkpoint_is_staged_before_yield(session: MagicMock) -> None:
@@ -196,7 +197,7 @@ def test_checkpoint_is_staged_before_yield(session: MagicMock) -> None:
         response({"WebACL": {"ARN": "arn:example", "Name": "example", "Id": "id"}}),
     ]
     resume = manager()
-    rows = iter(aws_waf_source(config(), "web_acls", resume).items())
+    rows = cast(Generator[list[dict[str, Any]]], aws_waf_source(config(), "web_acls", resume).items())
     assert next(rows)[0]["arn"] == "arn:example"
     resume.save_state.assert_called_once_with(AwsWafResumeConfig(next_marker="next"))
     rows.close()
@@ -213,12 +214,12 @@ def test_resource_deleted_or_denied_during_sync(session: MagicMock, error_code: 
     resume = manager()
     stream = aws_waf_source(config(), "ip_sets", resume)
     if error_code == "WAFNonexistentItemException":
-        assert list(stream.items()) == []
-        resume.save_state.assert_called_once_with(AwsWafResumeConfig(completed=True))
+        assert list(cast(Iterable[Any], stream.items())) == []
+        resume.save_state.assert_called_once_with(AwsWafResumeConfig())
         resume.safe_point.assert_called_once()
     else:
         with pytest.raises(AwsWafError, match=error_code):
-            list(stream.items())
+            list(cast(Iterable[Any], stream.items()))
         resume.save_state.assert_not_called()
     session.close.assert_called_once()
 
@@ -227,7 +228,7 @@ def test_repeated_marker_fails_without_advancing_checkpoint(session: MagicMock) 
     session.post.return_value = response({"WebACLs": [], "NextMarker": "saved"})
     resume = manager(AwsWafResumeConfig(next_marker="saved"))
     with pytest.raises(ValueError, match="repeated pagination marker"):
-        list(aws_waf_source(config(), "web_acls", resume).items())
+        list(cast(Iterable[Any], aws_waf_source(config(), "web_acls", resume).items()))
     resume.save_state.assert_not_called()
 
 
@@ -305,7 +306,7 @@ def test_error_classification(status: int, body: object, headers: dict[str, str]
 def test_transient_errors_retry_without_transport_retry(session: MagicMock, status: int, code: str) -> None:
     session.post.side_effect = [response({"__type": code}, status), response({"WebACLs": []})]
     client = AwsWafClient(config())
-    request = client.request.retry_with(wait=wait_none())
+    request = client.request.retry_with(wait=wait_none())  # type: ignore[attr-defined]
     assert request(client, "ListWebACLs", {"Scope": "REGIONAL", "Limit": 1}) == {"WebACLs": []}
     assert session.post.call_count == 2
 
@@ -313,7 +314,7 @@ def test_transient_errors_retry_without_transport_retry(session: MagicMock, stat
 def test_retries_stop_after_five_attempts(session: MagicMock) -> None:
     session.post.return_value = response({"__type": "ThrottlingException"}, 400)
     client = AwsWafClient(config())
-    request = client.request.retry_with(wait=wait_none())
+    request = client.request.retry_with(wait=wait_none())  # type: ignore[attr-defined]
     with pytest.raises(AwsWafRetryableError, match="ThrottlingException"):
         request(client, "ListWebACLs", {"Scope": "REGIONAL", "Limit": 1})
     assert session.post.call_count == 5
