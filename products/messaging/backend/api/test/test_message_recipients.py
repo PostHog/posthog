@@ -146,20 +146,23 @@ class TestMessageRecipients(ClickhouseTestMixin, NonAtomicAPIBaseTest):
         self._suppress("cat@example.com", source="BOUNCE")
         self._person("cat@example.com")
         self._suppress("dan@example.com", source="MANUAL")
-        self._prefer("dan@example.com", {newsletter: "OPTED_IN"})
+        self._prefer("dan@example.com", {newsletter: "OPTED_IN", "$all": "OPTED_IN"})
         self._person("eve@example.com")
 
     @parameterized.expand(
         [
             ("subscribed", {"filter": ["subscribed:newsletter"]}, ["ben", "dan"]),
+            (
+                "subscribed_reports_the_topic_status_even_under_an_all_marketing_opt_out",
+                {"filter": ["subscribed:newsletter", "unsubscribed:all-marketing"]},
+                ["ben"],
+            ),
+            ("negated_topic", {"filter": ["-subscribed:newsletter"]}, ["ann", "cat", "eve"]),
+            ("subscribed_to_all_marketing", {"filter": ["subscribed:all-marketing"]}, ["dan"]),
             ("unsubscribed", {"filter": ["unsubscribed:newsletter"]}, ["ann"]),
             ("no_preference", {"filter": ["no-preference:newsletter"]}, ["cat", "eve"]),
             ("unsubscribed_from_all_marketing", {"filter": ["unsubscribed:all-marketing"]}, ["ben"]),
-            (
-                "no_preference_on_all_marketing",
-                {"filter": ["no-preference:all-marketing"]},
-                ["ann", "cat", "dan", "eve"],
-            ),
+            ("no_preference_on_all_marketing", {"filter": ["no-preference:all-marketing"]}, ["ann", "cat", "eve"]),
             ("suppressed", {"filter": ["suppressed:BOUNCE"]}, ["cat"]),
             ("values_on_one_facet_are_or", {"filter": ["suppressed:BOUNCE", "suppressed:MANUAL"]}, ["cat", "dan"]),
             ("negated", {"filter": ["-suppressed:BOUNCE"]}, ["ann", "ben", "dan", "eve"]),
@@ -180,18 +183,20 @@ class TestMessageRecipients(ClickhouseTestMixin, NonAtomicAPIBaseTest):
 
     @parameterized.expand(
         [
-            ("unknown_facet", "colour:red"),
-            ("unknown_topic", "subscribed:nope"),
-            ("unknown_suppression_source", "suppressed:SPAM"),
-            ("unknown_person_value", "person:maybe"),
-            ("missing_value", "person:"),
-            ("not_a_facet_filter", "newsletter"),
+            ("unknown_facet", {"filter": "colour:red"}),
+            ("unknown_topic", {"filter": "subscribed:nope"}),
+            ("unknown_suppression_source", {"filter": "suppressed:SPAM"}),
+            ("unknown_person_value", {"filter": "person:maybe"}),
+            ("missing_value", {"filter": "person:"}),
+            ("not_a_facet_filter", {"filter": "newsletter"}),
+            ("unknown_facet_next_to_an_email", {"filter": "colour:red", "email": "jamie@example.com"}),
         ]
     )
-    def test_rejects_an_unknown_filter(self, _name: str, raw_filter: str) -> None:
+    def test_rejects_an_unknown_filter(self, _name: str, params: dict[str, str]) -> None:
         self._topic("newsletter")
+        self._prefer("jamie@example.com", {})
 
-        response = self._get(filter=raw_filter)
+        response = self._get(**params)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "filter"
@@ -218,6 +223,40 @@ class TestMessageRecipients(ClickhouseTestMixin, NonAtomicAPIBaseTest):
             ["e@example.com"],
         ]
 
+    def test_pages_a_filtered_list_by_cursor(self) -> None:
+        self._seed_facet_audience()
+
+        first = self._list(limit=2, filter=["person:linked"], search="@")
+        second = self._list(limit=2, filter=["person:linked"], search="@", cursor=first["next_cursor"])
+
+        assert [row["email"] for row in first["results"] + second["results"]] == [
+            "ann@example.com",
+            "cat@example.com",
+            "eve@example.com",
+        ]
+        assert second["next_cursor"] is None
+
+    @parameterized.expand(
+        [
+            ("non_ascii_casing", "Jürgen.MÜLLER@example.com", "jürgen.müller@example.com", "MÜLLER"),
+            ("surrounding_whitespace", "\tTab@Example.com \n", "tab@example.com", "TAB@"),
+        ]
+    )
+    def test_folds_an_address_the_way_python_normalizes_it(
+        self, _name: str, stored: str, folded: str, search: str
+    ) -> None:
+        self._prefer(stored, {})
+        self._person(stored, distinct_id="holder")
+
+        assert self._emails() == [folded]
+        assert self._emails(search=search) == [folded]
+        assert self._emails(email=stored.upper()) == [folded]
+
+    def test_ignores_a_preference_row_that_is_not_a_map(self) -> None:
+        self._prefer("broken@example.com", ["OPTED_OUT"])  # type: ignore[arg-type]
+
+        assert self._list()["results"][0]["topics"] == {}
+
     def test_email_returns_exactly_that_recipient(self) -> None:
         self._prefer("Jamie@Example.com", {})
         self._prefer("jamie.other@example.com", {})
@@ -238,9 +277,24 @@ class TestMessageRecipients(ClickhouseTestMixin, NonAtomicAPIBaseTest):
 
         assert self._emails() == ["ours@example.com"]
 
-    @parameterized.expand([("list", ""), ("coverage", "coverage/")])
-    def test_denies_users_without_hog_flow_access(self, _name: str, path: str) -> None:
+    @parameterized.expand(
+        [
+            ("list", "", None),
+            ("coverage", "coverage/", None),
+            ("list_with_a_workflow_grant", "", "flow-granted"),
+            ("coverage_with_a_workflow_grant", "coverage/", "flow-granted"),
+        ]
+    )
+    def test_denies_users_without_hog_flow_access(self, _name: str, path: str, granted_flow_id: str | None) -> None:
         self._deny_hog_flow_access()
+        if granted_flow_id is not None:
+            AccessControl.objects.create(
+                team=self.team,
+                resource="hog_flow",
+                resource_id=granted_flow_id,
+                access_level="viewer",
+                organization_member=self.organization_membership,
+            )
 
         response = self.client.get(f"/api/projects/{self.team.id}/messaging_recipients/{path}")
 
