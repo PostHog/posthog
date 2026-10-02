@@ -80,6 +80,7 @@ In production, the `update` path is triggered automatically when a `ready` repor
 This module is intentionally prompt-orchestration only.
 Production persistence is handled outside `run_multi_turn_research()`, in the caller activity, so this module stays isolated from report DB writes.
 Fix verification is best-effort. Generation failures do not fail completed research, but cancellation still does.
+Presentation receives the current follow-up checks as untrusted evidence. When verification proposes metric checks, it can return the full final summary with Expected impact prose aligned with those goals and baselines, preserving other sections and chart markers. Invalid optional check specs leave the presentation summary and existing checks intact.
 
 ### Charts
 

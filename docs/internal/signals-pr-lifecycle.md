@@ -141,9 +141,9 @@ This final request is optional: if generation or note conversion fails, research
 The findings, actionability, priority, title, and summary remain available.
 Core research failures and cancellation still fail the run and trigger session cleanup.
 
-Verification proposals can name `existing_check_id` to revise an open check while preserving its exact soak and remaining recurrence. Equivalent default-valued config fields do not reset approval.
+Verification proposals can name `existing_check_id` to revise an open check while preserving its remaining recurrence. An unchanged rounded `soak_hours` preserves the original minute precision; an explicitly changed wait replaces it. Equivalent default-valued config fields do not reset approval. Invalid stored configs do not prevent a valid proposal from replacing them. Presentation receives current checks as untrusted evidence, and verification can align the final Expected impact prose with its proposed metric goals.
 
-Research traces that contain existing metric-check context require the same analytics permissions as the check query and baseline, including for resumed runs and trace analysis. Query provenance is private server-owned run state; direct storage links and unguarded output copies are withheld.
+Research traces that contain existing metric-check context require the same analytics permissions as the check query and baseline, including for resumed runs, trace analysis, task summaries, and run details. Authorized readers retain summaries and run details; direct storage links remain withheld. Query provenance is private server-owned run state inherited on resume, so ordinary task reads do not scan ancestors. Legacy checks inherit missing display formats only from a report metric with the same stored query. When a suggestion task finishes, the selected report refreshes its prose as well as its checks.
 
 Metric suggestions are available only when `signals-report-checks-replace` enables the replacement tool.
 

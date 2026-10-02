@@ -93,7 +93,7 @@ function openCheckRow(check: SignalReportCheckApi): Pick<ReportCheckRowData, 'ta
 
     if (check.status === 'pending') {
         const start = check.soak_minutes
-            ? `Starts ${soakLabel(check.soak_minutes)} after this report is resolved`
+            ? `${check.kind === 'metric_threshold' ? 'At least' : 'Starts'} ${soakLabel(check.soak_minutes)} after this report is resolved`
             : 'Starts when this report is resolved'
         return { tag: { label: 'Waiting', type: 'muted' }, detail: joinDetail([start, lane && `${lane} runs it`]) }
     }
@@ -272,7 +272,7 @@ export function checkScheduledEntry(content: CheckScheduledContent): CheckLifecy
 
     if (content.arms_on_resolve) {
         const start = content.soak_minutes
-            ? `Starts ${soakLabel(content.soak_minutes)} after this report is resolved`
+            ? `${content.kind === 'metric_threshold' ? 'At least' : 'Starts'} ${soakLabel(content.soak_minutes)} after this report is resolved`
             : 'Starts when this report is resolved'
         return {
             tag: { label: 'Waiting for resolve', type: 'muted' },

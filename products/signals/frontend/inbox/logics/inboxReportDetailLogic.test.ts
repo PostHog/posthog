@@ -11,6 +11,7 @@ import type { SignalReportCheckApi } from 'products/signals/frontend/generated/a
 
 import { ReportTaskPurpose } from '../components/detail/artefactTypes'
 import { INBOX_EVENTS } from '../inboxAnalytics'
+import { inboxSceneLogic } from '../inboxSceneLogic'
 import { EnrichedReviewer, SignalReport } from '../types'
 import { ReportTaskEntry, implementationSlotClaim, inboxReportDetailLogic } from './inboxReportDetailLogic'
 
@@ -626,30 +627,48 @@ describe('inboxReportDetailLogic', () => {
             expect(artefactRequests).toBe(beforeKickoff + 1)
         })
 
-        it('reloads replaced checks on the final task refresh before polling stops', async () => {
-            await expectLogic(logic).toFinishAllListeners()
-            const replacement = { id: 'revised-check', status: 'pending', approved_at: null } as SignalReportCheckApi
-            let checkRequests = 0
-            useMocks({
-                get: {
-                    '/api/projects/:team_id/signals/reports/:id/checks/': () => {
-                        checkRequests++
-                        return [200, { results: [replacement] }]
+        it.each([REPORT.id, 'another-report'])(
+            'reloads checks and only the selected report %s when a task settles',
+            async (selectedReportId) => {
+                await expectLogic(logic).toFinishAllListeners()
+                const reloadReport = jest.fn()
+                const sceneSpy = jest.spyOn(inboxSceneLogic, 'findMounted').mockReturnValue({
+                    values: { selectedReportId },
+                    actions: { loadSelectedReport: reloadReport },
+                } as unknown as ReturnType<typeof inboxSceneLogic.build>)
+                const replacement = {
+                    id: 'revised-check',
+                    status: 'pending',
+                    approved_at: null,
+                } as SignalReportCheckApi
+                let checkRequests = 0
+                useMocks({
+                    get: {
+                        '/api/projects/:team_id/signals/reports/:id/checks/': () => {
+                            checkRequests++
+                            return [200, { results: [replacement] }]
+                        },
                     },
-                },
-            })
-            logic.actions.loadReportTasksSuccess([linkedTask('other', TaskRunStatus.IN_PROGRESS)])
-            await expectLogic(logic).toFinishAllListeners()
-            expect(checkRequests).toBe(0)
-            logic.actions.loadReportTasksSuccess([linkedTask('other', TaskRunStatus.COMPLETED)])
-            await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.shouldPollReportTasks).toBe(false)
-            expect(logic.values.reportChecks).toEqual([replacement])
-            expect(checkRequests).toBe(1)
-            logic.actions.loadReportTasksSuccess([linkedTask('other', TaskRunStatus.COMPLETED)])
-            await expectLogic(logic).toFinishAllListeners()
-            expect(checkRequests).toBe(1)
-        })
+                })
+                logic.actions.loadReportTasksSuccess([linkedTask('other', TaskRunStatus.IN_PROGRESS)])
+                await expectLogic(logic).toFinishAllListeners()
+                expect(checkRequests).toBe(0)
+                logic.actions.loadReportTasksSuccess([linkedTask('other', TaskRunStatus.COMPLETED)])
+                await expectLogic(logic).toFinishAllListeners()
+                expect(logic.values.shouldPollReportTasks).toBe(false)
+                expect(logic.values.reportChecks).toEqual([replacement])
+                expect(checkRequests).toBe(1)
+                expect(reloadReport).toHaveBeenCalledTimes(selectedReportId === REPORT.id ? 1 : 0)
+                if (selectedReportId === REPORT.id) {
+                    expect(reloadReport).toHaveBeenCalledWith({ id: REPORT.id })
+                }
+                logic.actions.loadReportTasksSuccess([linkedTask('other', TaskRunStatus.COMPLETED)])
+                await expectLogic(logic).toFinishAllListeners()
+                expect(checkRequests).toBe(1)
+                expect(reloadReport).toHaveBeenCalledTimes(selectedReportId === REPORT.id ? 1 : 0)
+                sceneSpy.mockRestore()
+            }
+        )
 
         it('keeps a newer check mutation when an earlier list request returns', async () => {
             await expectLogic(logic).toFinishAllListeners()

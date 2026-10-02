@@ -1479,6 +1479,7 @@ async def test_run_agentic_report_activity_does_not_persist_partial_artefacts(mo
         ("timeout", ActionabilityChoice.IMMEDIATELY_ACTIONABLE, TimeoutError),
         ("validation_failure", ActionabilityChoice.IMMEDIATELY_ACTIONABLE, ValidationError),
         ("malformed_optional_checks", ActionabilityChoice.IMMEDIATELY_ACTIONABLE, None),
+        ("revised_metric_summary", ActionabilityChoice.IMMEDIATELY_ACTIONABLE, None),
         ("cancellation", ActionabilityChoice.IMMEDIATELY_ACTIONABLE, asyncio.CancelledError),
     ]
 )
@@ -1532,6 +1533,20 @@ async def test_run_multi_turn_research_requests_verification_note_as_the_final_a
                     **(
                         {"checks": [{"kind": "metric_threshold", "title": "A malformed check"}]}
                         if _name == "malformed_optional_checks"
+                        else {
+                            "checks": [
+                                {
+                                    "title": "Completion returns to baseline",
+                                    "kind": "metric_threshold",
+                                    "config": {
+                                        "metric_id": "completion",
+                                        "comparison": {"operator": "gte", "value": 80},
+                                    },
+                                }
+                            ],
+                            "summary": "Users cannot complete the tracked onboarding flow. Expected impact: completion returns to at least 80 users.",
+                        }
+                        if _name == "revised_metric_summary"
                         else {}
                     ),
                 }
@@ -1557,17 +1572,25 @@ async def test_run_multi_turn_research_requests_verification_note_as_the_final_a
                 _build_signals()[:1],
                 Mock(team_id=1),
                 signal_report_id="report-id",
-                metrics_enabled=_name == "malformed_optional_checks",
+                metrics_enabled=_name in ("malformed_optional_checks", "revised_metric_summary"),
             )
             assert result.effective_findings() == [first_finding]
             assert result.effective_actionability() == actionability_result
             assert result.effective_priority() == priority_result
             assert result.title == presentation_result.title
-            assert result.summary == presentation_result.summary
+            assert result.summary == (
+                "Users cannot complete the tracked onboarding flow. Expected impact: completion returns to at least 80 users."
+                if _name == "revised_metric_summary"
+                else "Users cannot complete the tracked onboarding flow."
+            )
             assert result.research_task_id == "research-task-id"
             if actionability != ActionabilityChoice.NOT_ACTIONABLE and failure is None:
                 assert result.verification_note is not None
-                assert result.checks is None
+                if _name == "revised_metric_summary":
+                    assert result.checks is not None
+                    assert result.checks[0].config["comparison"]["value"] == 80
+                else:
+                    assert result.checks is None
                 assert result.verification_note.note.startswith(
                     "## Verification plan\n\n### Confirm the current state\n\n"
                 )

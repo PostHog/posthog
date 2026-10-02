@@ -59,6 +59,12 @@ describe('reportCheckPresentation', () => {
                 'Starts 7 days after this report is resolved · Error tracking runs it',
             ],
             [
+                'a pending metric check names its minimum wait',
+                { status: 'pending', kind: 'metric_threshold', soak_minutes: 1440 },
+                'Waiting',
+                'At least 1 day after this report is resolved',
+            ],
+            [
                 'a scheduled check leads with its run date and its lane',
                 {},
                 'Runs Sep 27',
@@ -249,7 +255,7 @@ describe('reportCheckPresentation', () => {
                     })
                 ).toEqual({
                     tag: { label: 'Waiting for resolve', type: 'muted' },
-                    detail: `Starts ${label} after this report is resolved · Waits for a full query window`,
+                    detail: `At least ${label} after this report is resolved · Waits for a full query window`,
                 })
             }
         )

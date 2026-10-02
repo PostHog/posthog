@@ -1131,9 +1131,18 @@ class TestReportCheckAPI(APIBaseTest):
         assert SignalReportCheck.objects.for_team(self.team.id).filter(report=self.report).count() == 1
 
         task = Task.objects.create(team=self.team, created_by=self.user, title="Research a report")
-        run = TaskRun.objects.create(task=task, team=self.team, state={"analytics_query_context": [_PAGEVIEWS]})
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            state={"analytics_query_context": [_PAGEVIEWS], "task_summary": "Restricted measurement"},
+        )
         trace = self.client.get(f"/api/projects/{self.team.id}/tasks/{task.id}/runs/{run.id}/session_logs/")
         assert trace.status_code == status.HTTP_403_FORBIDDEN
+        summaries = self.client.post(
+            f"/api/projects/{self.team.id}/tasks/summaries/", {"ids": [str(task.id)]}, format="json"
+        )
+        assert summaries.status_code == status.HTTP_200_OK
+        assert summaries.json()["results"][0]["latest_run"]["task_summary"] is None
 
     def test_task_write_key_without_query_access_cannot_replace_a_metric_check(self) -> None:
         check = self._create()
@@ -1232,6 +1241,40 @@ class TestReportCheckAPI(APIBaseTest):
         assert datetime.fromisoformat(measured_query["source"]["dateRange"]["date_from"]) >= timezone.now() - timedelta(
             days=32
         )
+
+    @parameterized.expand([("same_query", False), ("changed_query", True)])
+    def test_legacy_display_fields_only_come_from_the_metrics_original_query(self, _name: str, changed: bool) -> None:
+        query = trends_metric_query(
+            series=[{"kind": "EventsNode", "event": "completed"}, {"kind": "EventsNode", "event": "started"}],
+        )
+        query["source"]["trendsFilter"] = {"formula": "A / B", "aggregationAxisFormat": "percentage_scaled"}
+        self.report.metrics = [
+            {
+                "metric_id": "conversion",
+                "title": "Completion rate",
+                "kind": "conversion_rate",
+                "value_format": "percentage_scaled",
+                "query": query,
+            }
+        ]
+        self.report.save(update_fields=["metrics"])
+        check = self._create(config={"metric_id": "conversion", "comparison": {"operator": "gte", "value": 0.1}})
+        check.config = {
+            key: value for key, value in check.config.items() if key not in ("metric_kind", "value_format", "unit")
+        }
+        check.save(update_fields=["config"])
+        if changed:
+            self.report.metrics[0]["query"] = _PAGEVIEWS
+            self.report.save(update_fields=["metrics"])
+
+        response = self.client.get(f"{self.url}{check.id}/")
+        assert response.status_code == status.HTTP_200_OK
+        config = response.json()["config"]
+        assert config.get("value_format") == (None if changed else "percentage_scaled")
+        assert config.get("metric_kind") == (None if changed else "conversion_rate")
+        assert config["query"] == query
+        check.refresh_from_db()
+        assert "value_format" not in check.config
 
     def test_a_check_created_in_a_child_environment_stays_on_that_environment(self) -> None:
         child = Team.objects.create(organization=self.organization, name="Child", parent_team=self.team)
@@ -2329,6 +2372,8 @@ class TestResearchAuthoredChecks(APIBaseTest):
             ("omitted_metric_defaults", False, "unchanged", "metric_defaults"),
             ("omitted_agent_defaults", False, "unchanged", "agent_defaults"),
             ("revise_recurring", False, "revise", "recurring"),
+            ("longer_wait", False, "revise", "longer_wait"),
+            ("invalid_stored_config", False, "revise", "invalid_stored"),
         ]
     )
     def test_research_reviews_approved_checks(
@@ -2349,6 +2394,8 @@ class TestResearchAuthoredChecks(APIBaseTest):
             stored_config.pop("baseline_value")
         elif variant == "agent_defaults":
             stored_config.update(probe_hints=[], skill_name=None)
+        if variant == "invalid_stored":
+            stored_config["retired_config_field"] = "obsolete"
         if variant == "recurring":
             SignalReportCheck.objects.for_team(self.team.id).filter(id=existing.id).update(
                 soak_minutes=1450, run_interval_minutes=7 * 24 * 60, runs_remaining=3
@@ -2370,6 +2417,10 @@ class TestResearchAuthoredChecks(APIBaseTest):
             else [spec]
         )
 
+        if variant == "invalid_stored":
+            specs = [self._spec(existing_check_id=existing.id)]
+        elif variant == "longer_wait":
+            specs[0] = specs[0].model_copy(update={"soak_hours": 72})
         written = create_checks_from_specs(
             report=self.report,
             specs=specs,
@@ -2386,9 +2437,9 @@ class TestResearchAuthoredChecks(APIBaseTest):
             assert (existing.next_run_at, existing.expires_at, existing.updated_at) == original_schedule
         assert len(written) == (1 if action == "revise" else 0)
         if written:
-            assert written[0].title == "Revised goal"
+            assert written[0].title == (spec.title if variant == "invalid_stored" else "Revised goal")
             assert written[0].approved_at is None
-            assert written[0].soak_minutes == existing.soak_minutes
+            assert written[0].soak_minutes == (72 * 60 if variant == "longer_wait" else existing.soak_minutes)
             assert written[0].run_interval_minutes == existing.run_interval_minutes
             assert written[0].runs_remaining == existing.runs_remaining
         assert SignalReportCheck.objects.for_team(self.team.id).filter(report=self.report).count() == (

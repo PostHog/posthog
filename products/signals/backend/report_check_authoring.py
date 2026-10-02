@@ -231,6 +231,16 @@ def _with_metric_display(report: SignalReport, config: dict, metric_id: str | No
     return filled
 
 
+def _check_configs_match(report: SignalReport, check: SignalReportCheck, desired: dict) -> bool:
+    try:
+        stored = parse_check_config(
+            check.kind, _with_metric_display(report, check.config, check.config.get("metric_id"))
+        )
+    except CheckConfigValidationError:
+        return False
+    return stored == parse_check_config(check.kind, desired)
+
+
 def create_checks_from_specs(
     *,
     report: SignalReport,
@@ -255,6 +265,13 @@ def create_checks_from_specs(
                 .order_by("id")
             )
             if not research_can_reconcile_checks(existing, checks_snapshot):
+                logger.info(
+                    "signals.report_check.research_reconciliation_skipped",
+                    report_id=str(report.id),
+                    team_id=report.team_id,
+                    reason="checks_changed_during_research",
+                    spec_count=len(specs),
+                )
                 return []
             retained_ids: set[uuid.UUID] = set()
             new_specs: list[tuple[CheckSpec, SignalReportCheck | None]] = []
@@ -276,10 +293,7 @@ def create_checks_from_specs(
                         and check.rationale == spec.rationale
                         and check.kind == spec.kind
                         and max(1, round((check.soak_minutes or 60) / 60)) == spec.soak_hours
-                        and parse_check_config(
-                            check.kind, _with_metric_display(report, check.config, check.config.get("metric_id"))
-                        )
-                        == parse_check_config(spec.kind, config)
+                        and _check_configs_match(report, check, config)
                     ),
                     None,
                 )
@@ -301,7 +315,7 @@ def create_checks_from_specs(
                     soak_minutes=(
                         previous.soak_minutes if previous.soak_minutes is not None else DEFAULT_CHECK_SOAK_HOURS * 60
                     )
-                    if previous is not None
+                    if previous is not None and spec.soak_hours == max(1, round((previous.soak_minutes or 60) / 60))
                     else spec.soak_hours * 60,
                     run_interval_minutes=previous.run_interval_minutes if previous is not None else None,
                     runs_remaining=previous.runs_remaining if previous is not None else 1,

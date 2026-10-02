@@ -68,6 +68,7 @@ import {
     captureInboxReportFeedbackNote,
     InboxReportFeedbackSentiment,
 } from '../inboxAnalytics'
+import { inboxSceneLogic } from '../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../inboxTaskKickoffLogic'
 import {
     EnrichedReviewer,
@@ -662,8 +663,7 @@ export type inboxReportDetailLogicType = MakeLogicType<
 
 /**
  * Per-selected-report detail logic: artefacts, contributing signals, suggested reviewers, and linked tasks.
- * Keyed by `reportId` so each open report gets its own mounted instance. Does NOT import `inboxSceneLogic`
- * (the report id is passed in as a prop) to avoid a logic cycle.
+ * Keyed by `reportId` so each open report gets its own mounted instance.
  */
 export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
     path(['scenes', 'inbox', 'logics', 'inboxReportDetailLogic']),
@@ -1754,6 +1754,10 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             })
             if (settled) {
                 actions.loadReportChecks()
+                const scene = inboxSceneLogic.findMounted()
+                if (scene?.values.selectedReportId === props.reportId) {
+                    scene.actions.loadSelectedReport({ id: props.reportId })
+                }
             }
         },
         // A PR task started from this pane is not in the artefact log the gate was computed from, so
