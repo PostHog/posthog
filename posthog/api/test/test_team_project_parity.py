@@ -21,7 +21,13 @@ from posthog.api.team import TeamSerializer, TeamViewSet
 # is_pending_deletion and deletion_scheduled_at were added project-side on master; a project-only field
 # is fine for the rewrite target.
 # `tags` labels a Project, which environments do not have, so it stays off the Team surface.
-PROJECT_ONLY_SERIALIZER_FIELDS = {"product_description", "is_pending_deletion", "deletion_scheduled_at", "tags"}
+PROJECT_ONLY_SERIALIZER_FIELDS = {
+    "product_description",
+    "is_pending_deletion",
+    "deletion_scheduled_at",
+    "can_cancel_deletion",
+    "tags",
+}
 
 # Actions that legitimately exist only on the project surface (operate on the Project, not the Team).
 PROJECT_ONLY_ACTIONS = {
