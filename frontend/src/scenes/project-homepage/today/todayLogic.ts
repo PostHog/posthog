@@ -22,6 +22,7 @@ import { todayBriefingRefreshCreate, todayBriefingRetrieve } from 'products/toda
 import type { BriefingApi, BriefingItemApi } from 'products/today/frontend/generated/api.schemas'
 
 import type { TeamPublicType } from '../../../types'
+import { TodayAskContext, todayAskPrompt } from './todayAskPrompt'
 import {
     TodayItemOpenSurface,
     briefingDayKey,
@@ -42,6 +43,9 @@ const MAX_BRIEFING_POLLS = 132
 
 /** Where a report was opened from, sent with the `today report opened` event. */
 export type TodayReportOpenSource = 'briefing' | 'chip' | 'sidebar'
+
+/** Where a question to PostHog AI came from, sent with the `today ai asked` event. */
+export type TodayAskSource = 'ask_box' | 'walk_through'
 
 /** The count behind the Inbox link: reports for the person beyond the shown ones, or open in the project. */
 export interface TodayInboxMore {
@@ -164,8 +168,12 @@ export interface todayLogicActions {
         searchParams: Record<string, any>
         url: string
     } // router
-    askAi: (prompt: string) => {
+    askAi: (
+        prompt: string,
+        source: TodayAskSource
+    ) => {
         prompt: string
+        source: TodayAskSource
     }
     itemOpened: (
         item: BriefingItemApi,
@@ -314,7 +322,7 @@ export const todayLogic = kea<todayLogicType>([
         actions: [router, ['locationChanged']],
     })),
     actions({
-        askAi: (prompt: string) => ({ prompt }),
+        askAi: (prompt: string, source: TodayAskSource) => ({ prompt, source }),
         setHoveredReportId: (reportId: string | null) => ({ reportId }),
         openReport: (report: SignalReport, source: TodayReportOpenSource) => ({ report, source }),
         reportOpened: (report: SignalReport, source: TodayReportOpenSource) => ({ report, source }),
@@ -541,8 +549,20 @@ export const todayLogic = kea<todayLogicType>([
             }, 'briefingPoll')
         }
         return {
-            askAi: ({ prompt }) => {
-                router.actions.push(urls.ai(undefined, prompt))
+            askAi: ({ prompt, source }) => {
+                // Sample reports have ids that do not exist, so PostHog AI gets no context to look up.
+                const context: TodayAskContext = values.useSampleData
+                    ? { kind: 'none' }
+                    : values.showPersonalBriefing && values.personalBriefing
+                      ? { kind: 'briefing', briefing: values.personalBriefing }
+                      : { kind: 'reports', reports: values.reports }
+                router.actions.push(urls.ai(undefined, todayAskPrompt(prompt, context)))
+                // pinned: analytics event name and properties. Renaming them breaks dashboards.
+                posthog.capture('today ai asked', {
+                    source,
+                    context: context.kind,
+                    briefing_id: context.kind === 'briefing' ? context.briefing.id : null,
+                })
             },
             tick: () => {
                 // An open tab moves to the new day's briefing at 8:00 without a reload, including a laptop

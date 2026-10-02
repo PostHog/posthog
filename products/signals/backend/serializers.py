@@ -40,6 +40,7 @@ from products.signals.backend.report_checks import (
     MAX_CHECK_TITLE_LENGTH,
     MIN_CHECK_INTERVAL_MINUTES,
     CheckConfigValidationError,
+    MetricThresholdConfig,
     parse_check_config,
 )
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
@@ -1146,6 +1147,13 @@ class ReportRankingSerializer(serializers.Serializer):
         child=serializers.FloatField(),
         help_text="Outcome head name to its calibrated probability. Empty when the served model skipped the report.",
     )
+    lifts = serializers.DictField(
+        child=serializers.FloatField(),
+        help_text=(
+            "Outcome head name to its probability divided by the head's training base rate, e.g. 2.7 means "
+            "2.7x as likely as the average report. A head without a saved base rate has no entry."
+        ),
+    )
     readable_heads = serializers.ListField(
         child=serializers.CharField(),
         help_text="Heads whose holdout AUC the training run could read. Treat scores of other heads with caution.",
@@ -1451,6 +1459,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             return None
 
         from products.signals.backend.ranking.model_contract import (  # noqa: PLC0415 — keeps numpy and pandas off the API import path
+            head_lifts,
             readable_head_names,
         )
 
@@ -1472,6 +1481,8 @@ class SignalReportSerializer(serializers.ModelSerializer):
             if not all(isinstance(head, str) and head for head in heads):
                 raise ValueError("readable head names must be non-empty strings")
             readable_heads = sorted(heads)
+            # A score written before lifts were stored carries the metadata to compute them.
+            lifts = served.lifts or head_lifts(served.scores, served.metadata)
         except (ValueError, KeyError, TypeError, AttributeError):
             logger.warning("signals.ranking_score.invalid_content", report_id=str(obj.id), artefact_id=str(art.id))
             return None
@@ -1482,6 +1493,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "manifest_version": score.manifest_version,
             "scored_at": score.scored_at,
             "scores": served.scores,
+            "lifts": lifts,
             "readable_heads": readable_heads,
         }
 
@@ -1896,6 +1908,11 @@ class SignalReportCheckConfigField(serializers.JSONField):
     """Kind-specific check configuration, validated against its kind's schema on every write."""
 
 
+@extend_schema_field(MetricThresholdConfig)  # type: ignore[arg-type]
+class MetricThresholdCheckConfigField(serializers.JSONField):
+    """Metric threshold check configuration, for requests that accept no other kind."""
+
+
 def redact_check_config(config: Mapping[str, object], policy: ReportMetricAccessPolicy) -> dict[str, object]:
     """Hide the data-bearing fields of a check config this viewer may not read.
 
@@ -1935,6 +1952,7 @@ class SignalReportCheckSerializer(serializers.ModelSerializer):
             "kind",
             "status",
             "config",
+            "approved_at",
             "next_run_at",
             "soak_minutes",
             "run_interval_minutes",
@@ -1985,6 +2003,23 @@ class SignalReportCheckSerializer(serializers.ModelSerializer):
             },
             "consecutive_errors": {"help_text": "Runs that could not be measured since the last clean one."},
         }
+
+
+class SignalReportCheckReplacementSerializer(serializers.Serializer):
+    title = serializers.CharField(max_length=MAX_CHECK_TITLE_LENGTH, help_text="Label for the new metric check.")
+    rationale = serializers.CharField(
+        required=False, allow_blank=True, max_length=MAX_CHECK_RATIONALE_LENGTH, help_text="Why this check is better."
+    )
+    config = MetricThresholdCheckConfigField(
+        help_text="Metric threshold configuration, including a bounded query and comparison."
+    )
+
+    def validate_config(self, value: dict) -> dict:
+        try:
+            parse_check_config(SignalReportCheck.Kind.METRIC_THRESHOLD, value)
+        except CheckConfigValidationError as error:
+            raise serializers.ValidationError(str(error))
+        return value
 
 
 class SignalReportCheckWriteSerializer(serializers.Serializer):
