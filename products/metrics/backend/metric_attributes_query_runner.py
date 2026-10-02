@@ -34,9 +34,6 @@ _SERVICE_NAME_KEYS: frozenset[str] = frozenset({"service_name", "service.name"})
 # metric names picker uses.
 _DEFAULT_LOOKBACK = dt.timedelta(hours=24)
 
-# The picker shows at most this many suggestions.
-_LIMIT = 100
-
 # Longer ranges read this recent slice first, and the older part only to fill the limit.
 _RECENT_SLICE = dt.timedelta(hours=2)
 
@@ -63,6 +60,12 @@ def _resolve_window(date_from: dt.datetime | None, date_to: dt.datetime | None) 
     return resolved_from, resolved_to
 
 
+def _validate_limit(limit: int) -> int:
+    if limit <= 0 or limit > 1000:
+        raise ValueError("limit must be in [1, 1000]")
+    return limit
+
+
 def _bucket_start(value: dt.datetime) -> dt.datetime:
     # `time_bucket` floors timestamps to UTC hours, so the bucket that holds `value` starts here.
     return value.replace(minute=0, second=0, microsecond=0)
@@ -75,11 +78,13 @@ def _slices(date_from: dt.datetime, date_to: dt.datetime) -> list[tuple[dt.datet
     return [(split, date_to), (date_from, split)]
 
 
-def _run_slices(date_from: dt.datetime, date_to: dt.datetime, run_slice: _SliceQuery) -> list[tuple[str, int]]:
+def _run_slices(
+    date_from: dt.datetime, date_to: dt.datetime, limit: int, run_slice: _SliceQuery
+) -> list[tuple[str, int]]:
     rows: list[tuple[str, int]] = []
     for slice_from, slice_to in _slices(date_from, date_to):
-        rows.extend(run_slice(slice_from, slice_to, [name for name, _ in rows], _LIMIT - len(rows)))
-        if len(rows) >= _LIMIT:
+        rows.extend(run_slice(slice_from, slice_to, [name for name, _ in rows], limit - len(rows)))
+        if len(rows) >= limit:
             break
     return rows
 
@@ -117,14 +122,16 @@ class MetricAttributeKeysQueryRunner:
         search: str = "",
         date_from: dt.datetime | None = None,
         date_to: dt.datetime | None = None,
+        limit: int = 100,
     ) -> None:
         self.team = team
         self.metric_name = metric_name.strip()
         self.search = search.strip()
         self.date_from, self.date_to = _resolve_window(date_from, date_to)
+        self.limit = _validate_limit(limit)
 
     def run(self) -> list[dict[str, Any]]:
-        rows = _run_slices(self.date_from, self.date_to, self._run_slice)
+        rows = _run_slices(self.date_from, self.date_to, self.limit, self._run_slice)
         results = [{"name": name, "value_count": count} for name, count in rows]
         search_lower = self.search.lower()
         if not results and (search_lower in "service_name" or search_lower in "service.name"):
@@ -227,6 +234,7 @@ class MetricAttributeValuesQueryRunner:
         search: str = "",
         date_from: dt.datetime | None = None,
         date_to: dt.datetime | None = None,
+        limit: int = 100,
     ) -> None:
         if not key:
             raise ValueError("key is required")
@@ -234,9 +242,10 @@ class MetricAttributeValuesQueryRunner:
         self.key = key
         self.search = search.strip()
         self.date_from, self.date_to = _resolve_window(date_from, date_to)
+        self.limit = _validate_limit(limit)
 
     def run(self) -> list[dict[str, Any]]:
-        rows = _run_slices(self.date_from, self.date_to, self._run_slice)
+        rows = _run_slices(self.date_from, self.date_to, self.limit, self._run_slice)
         return [{"id": value, "name": value, "count": count} for value, count in rows]
 
     def _run_slice(

@@ -351,6 +351,7 @@ def list_metric_attribute_keys(
     search: str = "",
     date_from: dt.datetime | None = None,
     date_to: dt.datetime | None = None,
+    limit: int = 100,
 ) -> list[dict[str, Any]]:
     """List attribute keys by distinct value count, from highest to lowest.
 
@@ -359,8 +360,8 @@ def list_metric_attribute_keys(
     into one list (filters run with scope 'auto', so the split doesn't matter
     to callers); `service_name` is always surfaced when it matches the search.
     The window defaults to the last 24 hours. Returns `{"name": str,
-    "value_count": int}` dicts. Raises `ValueError` for an inverted
-    window.
+    "value_count": int}` dicts. Raises `ValueError` for an out-of-range limit
+    or an inverted window.
     """
     runner = MetricAttributeKeysQueryRunner(
         team=team,
@@ -368,6 +369,7 @@ def list_metric_attribute_keys(
         search=search,
         date_from=date_from,
         date_to=date_to,
+        limit=limit,
     )
     return runner.run()
 
@@ -379,6 +381,7 @@ def list_metric_attribute_values(
     search: str = "",
     date_from: dt.datetime | None = None,
     date_to: dt.datetime | None = None,
+    limit: int = 100,
 ) -> list[dict[str, Any]]:
     """List observed values for one metric attribute key, most frequent first,
     for the filter bar's value autocomplete.
@@ -386,9 +389,11 @@ def list_metric_attribute_values(
     `service_name`/`service.name` read the first-class column, matching how
     filters on it execute. The window defaults to the last 24 hours. Returns
     `{"id": str, "name": str, "count": int}` dicts. Raises `ValueError` for an
-    empty key or an inverted window.
+    empty key, an out-of-range limit, or an inverted window.
     """
-    runner = MetricAttributeValuesQueryRunner(team=team, key=key, search=search, date_from=date_from, date_to=date_to)
+    runner = MetricAttributeValuesQueryRunner(
+        team=team, key=key, search=search, date_from=date_from, date_to=date_to, limit=limit
+    )
     return runner.run()
 
 
