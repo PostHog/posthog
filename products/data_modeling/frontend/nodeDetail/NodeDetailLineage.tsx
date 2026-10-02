@@ -49,6 +49,10 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
                 : node
         )
     }, [lineageGraph, effectiveLastRunAt, effectiveLastRunStatus])
+    const focusNodeIds = useMemo(
+        () => (lineageGraph?.currentNodeId ? new Set([lineageGraph.currentNodeId]) : null),
+        [lineageGraph?.currentNodeId]
+    )
 
     const openNode = (node: DataModelingNode): void => {
         router.actions.push(nodeLineageUrl(node))
@@ -86,6 +90,7 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
                     nodes={nodes}
                     edges={lineageGraph?.edges ?? []}
                     currentNodeId={lineageGraph?.currentNodeId}
+                    focusNodeIds={focusNodeIds}
                     loading={lineageGraphLoading}
                     loadingCenter={lineageGraphLoading && node ? { name: node.name, type: node.type } : undefined}
                     variant="full"
@@ -132,6 +137,7 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
                         nodes={nodes}
                         edges={lineageGraph?.edges ?? []}
                         currentNodeId={lineageGraph?.currentNodeId}
+                        focusNodeIds={focusNodeIds}
                         variant="full"
                         interactive
                         nodesDraggable={nodesDraggable}
