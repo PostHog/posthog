@@ -3976,7 +3976,7 @@ Today (15): `activity`, `companies`, `custom_field_values`, `custom_fields`, `mi
 Diffed against: <https://app.hellobaton.com/api/swagger.json>
 
 - [x] `project_users` — project membership join table — who is on which project, missing entirely today (high)
-- [x] `custom_field_values` — the actual custom field data on projects and tasks; without it custom fields are invisible (high)
+- [x] `custom_field_values` — the actual custom field data on projects (the endpoint returns project values only); without it custom fields are invisible (high)
 - [x] `custom_fields` — lookup table naming and typing the custom field ids carried by custom_field_values (high)
 - [x] `project_phases` — per-project phase instances with dates — the state/transition history behind project progress (high)
 - [ ] `comments` — collaboration events on projects and tasks, the main activity signal alongside activity (high)
