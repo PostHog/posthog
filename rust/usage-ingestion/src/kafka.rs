@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use common_kafka::kafka_producer::KafkaContext;
 use common_liveness::SyncLivenessReporter;
-use futures::{stream, StreamExt, TryStreamExt};
+use futures::future::try_join_all;
 use prost::Message;
 use rdkafka::consumer::{CommitMode, Consumer, ConsumerContext, StreamConsumer};
 use rdkafka::error::KafkaError;
@@ -15,7 +15,7 @@ use rdkafka::util::Timeout;
 use rdkafka::{ClientConfig, ClientContext, Message as KafkaMessage, Offset, TopicPartitionList};
 use usage_ingestion_proto::usage_ingestion::v1::IngestBillingUsageRequest;
 
-use crate::service::{ProcessingError, UsageIngestionService};
+use crate::service::{PendingBatch, ProcessingError, UsageIngestionService};
 
 #[derive(Clone, Copy)]
 pub struct KafkaBatchConfig {
@@ -30,6 +30,12 @@ pub struct KafkaUsageIngestion {
     dead_letter_topic: String,
     service: Arc<UsageIngestionService>,
     batch: KafkaBatchConfig,
+}
+
+struct EnqueuedMessage<'a> {
+    message: &'a OwnedMessage,
+    pending: PendingBatch,
+    record_count: usize,
 }
 
 struct KafkaConsumerContext {
@@ -87,12 +93,18 @@ impl KafkaUsageIngestion {
         loop {
             let messages = self.receive_batch().await?;
 
-            stream::iter(&messages)
-                .map(Ok)
-                .try_for_each_concurrent(self.batch.concurrency, |message| {
-                    self.process_message(message)
-                })
-                .await?;
+            // Enqueue every message before confirming any: the batch's durability point is
+            // the commit below, so awaiting deliveries per message would serialize producer
+            // linger windows. The concurrency limit bounds parallel resolver lookups.
+            let mut enqueued = Vec::with_capacity(messages.len());
+            for chunk in messages.chunks(self.batch.concurrency) {
+                let outcomes =
+                    try_join_all(chunk.iter().map(|message| self.enqueue_message(message))).await?;
+                enqueued.extend(outcomes.into_iter().flatten());
+            }
+            for outcome in enqueued {
+                self.confirm_message(outcome).await?;
+            }
 
             // A batch is all-or-nothing: failures leave every offset uncommitted. Successful
             // output may be replayed, which is safe because usage record IDs are idempotent.
@@ -130,10 +142,12 @@ impl KafkaUsageIngestion {
         Ok(messages)
     }
 
-    async fn process_message(
+    /// Decodes and enqueues one message. `None` means it was dead-lettered and needs no
+    /// confirmation; a retryable error fails the whole batch, so the offsets stay uncommitted.
+    async fn enqueue_message<'a>(
         &self,
-        message: &OwnedMessage,
-    ) -> Result<(), KafkaUsageIngestionError> {
+        message: &'a OwnedMessage,
+    ) -> Result<Option<EnqueuedMessage<'a>>, KafkaUsageIngestionError> {
         let request = message
             .payload()
             .ok_or_else(|| prost::DecodeError::new("empty Kafka payload"))
@@ -142,25 +156,12 @@ impl KafkaUsageIngestion {
         match request {
             Ok(request) => {
                 let record_count = request.records.len();
-                match self.service.process(request).await {
-                    Ok(response) if response.accepted_record_ids.len() == record_count => {
-                        metrics::counter!(
-                            "usage_ingestion_kafka_messages_total",
-                            "outcome" => "processed"
-                        )
-                        .increment(1);
-                        Ok(())
-                    }
-                    Ok(_) => {
-                        let reason = "one or more usage records were rejected";
-                        self.dead_letter(message, reason.to_string()).await?;
-                        tracing::warn!(
-                            partition = message.partition(),
-                            offset = message.offset(),
-                            "sent partially rejected usage ingestion message to the dead-letter topic"
-                        );
-                        Ok(())
-                    }
+                match self.service.enqueue(request).await {
+                    Ok(pending) => Ok(Some(EnqueuedMessage {
+                        message,
+                        pending,
+                        record_count,
+                    })),
                     Err(error) if error.is_retryable() => Err(error.into()),
                     Err(error) => {
                         self.dead_letter(message, error.to_string()).await?;
@@ -170,7 +171,7 @@ impl KafkaUsageIngestion {
                             offset = message.offset(),
                             "sent rejected usage ingestion message to the dead-letter topic"
                         );
-                        Ok(())
+                        Ok(None)
                     }
                 }
             }
@@ -182,9 +183,42 @@ impl KafkaUsageIngestion {
                     offset = message.offset(),
                     "sent malformed usage ingestion message to the dead-letter topic"
                 );
-                Ok(())
+                Ok(None)
             }
         }
+    }
+
+    /// Confirms one enqueued message. An unconfirmed delivery fails the batch for replay;
+    /// a message whose records were partially rejected dead-letters after its accepted
+    /// records are durable.
+    async fn confirm_message(
+        &self,
+        outcome: EnqueuedMessage<'_>,
+    ) -> Result<(), KafkaUsageIngestionError> {
+        let EnqueuedMessage {
+            message,
+            pending,
+            record_count,
+        } = outcome;
+        let accepted_count = pending.accepted_count();
+        self.service.confirm(pending).await?;
+
+        if accepted_count == record_count {
+            metrics::counter!(
+                "usage_ingestion_kafka_messages_total",
+                "outcome" => "processed"
+            )
+            .increment(1);
+            return Ok(());
+        }
+        let reason = "one or more usage records were rejected";
+        self.dead_letter(message, reason.to_string()).await?;
+        tracing::warn!(
+            partition = message.partition(),
+            offset = message.offset(),
+            "sent partially rejected usage ingestion message to the dead-letter topic"
+        );
+        Ok(())
     }
 
     async fn dead_letter(
