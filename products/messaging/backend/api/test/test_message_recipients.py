@@ -317,12 +317,13 @@ class TestMessageRecipients(ClickhouseTestMixin, NonAtomicAPIBaseTest):
 
         assert self._get(**params).status_code == status.HTTP_404_NOT_FOUND
 
+    @time_machine.travel(NOW, tick=False)
     def test_never_lists_another_teams_recipients(self) -> None:
         other_team = Team.objects.create(organization=self.organization)
         self._prefer("theirs@example.com", {}, team=other_team)
         self._suppress("theirs@example.com", team=other_team)
         self._person("theirs@example.com", team=other_team)
-        self._send("ours@example.com", datetime.now(UTC) - timedelta(days=1), team=other_team)
+        self._send("ours@example.com", NOW - timedelta(days=1), team=other_team)
         self._prefer("ours@example.com", {})
 
         assert [(row["email"], row["last_sent_at"]) for row in self._list()["results"]] == [("ours@example.com", None)]
