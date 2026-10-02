@@ -19,6 +19,7 @@ from products.signals.backend.scout_harness.trial_launch import (
     _validate_source,
     assert_trial_capabilities_supported,
     assert_trial_environment_ready,
+    assert_trial_work_enabled,
     load_trial_context,
     read_trial_launch,
     resolve_trial_source_model,
@@ -103,6 +104,7 @@ class ScoutTrialInspection:
         blocked_reasons: list[str] = []
         try:
             assert_trial_environment_ready()
+            assert_trial_work_enabled(self.config.team)
         except ScoutTrialLaunchError as error:
             blocked_reasons.append(str(error))
         try:

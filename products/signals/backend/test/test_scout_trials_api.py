@@ -32,11 +32,13 @@ from products.signals.backend.scout_harness.run_gates import check_fleet_gates
 from products.signals.backend.scout_harness.tools.scratchpad import ScratchpadEntry
 from products.signals.backend.scout_harness.trial_launch import (
     ScoutTrialLaunchError,
+    ScoutTrialsDisabled,
     assert_trial_model_access,
     create_trial_launch,
     load_trial_context,
     load_trial_launch,
     resolve_trial_source_model,
+    scout_trials_enabled,
 )
 from products.signals.backend.scout_harness.trial_result import TrialWorkflowStatus, export_trial_result
 from products.signals.backend.scout_harness.trial_state import ScoutTrialStore, TrialReport, memory_snapshot
@@ -228,6 +230,12 @@ class TestScoutTrialAPI(APIBaseTest):
 class TestScoutTrialLaunch(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        if self.team.id != 2:
+            self.team = Team.objects.create(id=2, organization=self.organization, name="Internal example")
+        self.enterContext(team_scope(self.team.id, canonical=True))
+        self.trials_flag = self.enterContext(
+            patch("products.signals.backend.scout_harness.trial_launch.feature_enabled", return_value=True)
+        )
         self.skill = LLMSkill.objects.create(
             team=self.team,
             name="signals-scout-example",
@@ -285,6 +293,28 @@ class TestScoutTrialLaunch(APIBaseTest):
                 gate_patch.start()
                 self.addCleanup(gate_patch.stop)
         return f"/api/projects/{self.team.id}/signals/scout/configs/{self.config.id}/"
+
+    @parameterized.expand([False, None, RuntimeError("Synthetic flag failure")])
+    def test_disabled_flag_blocks_api_and_queued_launch_but_keeps_setup_readable(self, flag: object) -> None:
+        base = self._internal_scout_base()
+        launch = create_trial_launch(config=self.config, user=self.user, launch_id=uuid4())
+        saved = dict(self.documents)
+        if isinstance(flag, Exception):
+            self.trials_flag.side_effect = flag
+        else:
+            self.trials_flag.return_value = flag
+        response = self.client.post(f"{base}trial/", {"launch_id": str(uuid4())}, format="json")
+        assert response.status_code == 403, response.data
+        assert "disabled" in str(response.data)
+        with self.assertRaises(ScoutTrialsDisabled):
+            create_trial_launch(config=self.config, user=self.user, launch_id=uuid4())
+        with self.assertRaises(ScoutTrialsDisabled):
+            load_trial_launch(self.team.id, launch.id)
+        setup = self.client.get(f"{base}trial_setup/")
+        assert setup.status_code == 200, setup.data
+        assert not setup.json()["ready"]
+        assert "disabled" in setup.json()["blocked_reason"]
+        assert self.documents == saved
 
     @parameterized.expand([("trial_setup",), ("trial_history",), ("trial_comparison_history",)])
     def test_internal_inspection_requires_staff_and_exact_project(self, action: str) -> None:
@@ -394,6 +424,7 @@ class TestScoutTrialLaunch(APIBaseTest):
         invalid.task_run.task.created_by = self.user
         invalid.task_run.task.save(update_fields=["created_by"])
         _make_run(self.team, scout_config=self.config)
+        self.trials_flag.return_value = False
         response = self.client.get(f"{base}trial_history/")
         assert response.status_code == 200, response.data
         history = response.json()
@@ -934,6 +965,26 @@ class TestScoutTrialLaunch(APIBaseTest):
             assert result.status_code == (404 if invalid == "nonstaff" else 400), result.data
             dispatch.assert_not_called()
         assert not self.documents
+
+
+class TestScoutTrialsGate(SimpleTestCase):
+    @parameterized.expand([(2, True, True), (2, False, False), (2, None, False), (2, "true", False), (3, True, False)])
+    def test_trials_flag_requires_exact_project_and_boolean_enablement(
+        self, team_id: int, flag: object, expected: bool
+    ) -> None:
+        team = Team(id=team_id, uuid=uuid4(), parent_team_id=2 if team_id != 2 else None)
+        with patch("products.signals.backend.scout_harness.trial_launch.feature_enabled", return_value=flag) as lookup:
+            assert scout_trials_enabled(team) is expected
+        if team_id != 2:
+            lookup.assert_not_called()
+        else:
+            lookup.assert_called_once_with(
+                "scout-trials",
+                str(team.uuid),
+                groups={"project": str(team.uuid)},
+                group_properties={"project": {"id": team.id, "uuid": str(team.uuid)}},
+                send_feature_flag_events=False,
+            )
 
 
 class TestTrialSourceModel(SimpleTestCase):

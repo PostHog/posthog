@@ -39,11 +39,12 @@ export function ScoutTrialHistory(props: ScoutTrialsViewProps): JSX.Element {
                         icon={<IconPlus />}
                         onClick={props.newComparison}
                         disabledReason={
-                            props.submitting
+                            props.trialsDisabledReason ||
+                            (props.submitting
                                 ? 'Wait for the trial to start.'
                                 : props.setupLoading
                                   ? 'Loading scout settings.'
-                                  : undefined
+                                  : undefined)
                         }
                         data-attr="scout-comparison-new"
                     >

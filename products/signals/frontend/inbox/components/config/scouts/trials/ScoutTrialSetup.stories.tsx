@@ -43,6 +43,7 @@ const meta: Meta<typeof ScoutTrialSetup> = {
         submitting: false,
         totalRuns: 6,
         formError: null,
+        trialsDisabledReason: null,
         hasUnaccepted: false,
         rubric,
         rubricLoading: false,

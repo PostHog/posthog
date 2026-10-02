@@ -1,5 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { mswDecorator } from '~/mocks/browser'
 
 import { scoutRubricReferenceFixture } from '../scoutRubricFixtures'
@@ -25,6 +27,8 @@ variants[1] = {
     prompt: 'Investigate checkout failures over the last 7 days. Cite captured query results and propose one next step.',
 }
 const defaults: ScoutTrialsViewProps = {
+    featureFlags: { [FEATURE_FLAGS.SCOUT_TRIALS]: true },
+    trialsDisabledReason: null,
     comparisonStates: {},
     comparisonState: { value: null, loading: false, resuming: false, error: null, notStarted: false },
     comparisonHistory: { results: [], has_more: false },

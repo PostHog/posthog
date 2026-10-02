@@ -19,6 +19,7 @@ export type ScoutTrialSetupProps = Pick<
     | 'submitting'
     | 'totalRuns'
     | 'formError'
+    | 'trialsDisabledReason'
     | 'hasUnaccepted'
     | 'updateVariant'
     | 'addVariant'
@@ -249,7 +250,9 @@ export function ScoutTrialSetup(props: ScoutTrialSetupProps): JSX.Element {
                         size="large"
                         onClick={props.submitComparison}
                         loading={submitting}
-                        disabledReason={batch ? undefined : rubricDisabledReason || props.formError}
+                        disabledReason={
+                            props.trialsDisabledReason || (batch ? undefined : rubricDisabledReason || props.formError)
+                        }
                         data-attr="scout-comparison-start"
                     >
                         {batch ? 'Retry starting trial' : 'Start trial'}

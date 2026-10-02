@@ -1,6 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { ApiError } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 
@@ -62,6 +64,8 @@ describe('scoutTrialsLogic', () => {
         jest.clearAllMocks()
         localStorage.clear()
         initKeaTests(false)
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SCOUT_TRIALS], { [FEATURE_FLAGS.SCOUT_TRIALS]: true })
         jest.mocked(signalsScoutConfigList).mockResolvedValue([trialFixtureConfig])
         jest.mocked(signalsScoutConfigTrialSetup).mockResolvedValue(trialFixtureSetup)
         jest.mocked(signalsScoutConfigTrialHistory).mockResolvedValue({ results: [], has_more: false })
@@ -100,6 +104,22 @@ describe('scoutTrialsLogic', () => {
 
     afterEach(() => {
         logic.unmount()
+    })
+
+    test.each([false, undefined, 'test'])('blocks new trials when the flag is %s', async (enabled) => {
+        featureFlagLogic.actions.setFeatureFlags(
+            [],
+            enabled === undefined ? {} : { [FEATURE_FLAGS.SCOUT_TRIALS]: enabled }
+        )
+
+        await expectLogic(logic, () => {
+            logic.actions.newComparison()
+            logic.actions.submitComparison()
+        }).toFinishAllListeners()
+
+        expect(logic.values.trialView).toBe('list')
+        expect(logic.values.batch).toBeNull()
+        expect(signalsScoutConfigTrialComparisonCreate).not.toHaveBeenCalled()
     })
 
     test.each([true, false])(
@@ -219,6 +239,11 @@ describe('scoutTrialsLogic', () => {
         await expectLogic(logic, () => logic.actions.submitComparison()).toFinishAllListeners()
         const firstRequest = jest.mocked(signalsScoutConfigTrialComparisonCreate).mock.calls[0][2]
         expect(logic.values.hasUnaccepted).toBe(true)
+
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        await expectLogic(logic, () => logic.actions.submitComparison()).toFinishAllListeners()
+        expect(signalsScoutConfigTrialComparisonCreate).toHaveBeenCalledTimes(1)
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SCOUT_TRIALS], { [FEATURE_FLAGS.SCOUT_TRIALS]: true })
 
         await expectLogic(logic, () => logic.actions.submitComparison()).toFinishAllListeners()
         expect(jest.mocked(signalsScoutConfigTrialComparisonCreate).mock.calls[1][2]).toEqual(firstRequest)
@@ -649,40 +674,46 @@ describe('scoutTrialsLogic', () => {
         otherUser.unmount()
     })
 
-    it('keeps saved trials in the list and restores their report after setup or back navigation without paid submissions', async () => {
-        jest.mocked(signalsScoutConfigTrialComparisonHistory).mockResolvedValue({
-            results: [trialFixtureServerComparison],
-            has_more: false,
-        })
-        jest.mocked(signalsScoutConfigTrialComparisonRetrieve).mockResolvedValue(trialFixtureServerComparison)
+    test.each([true, false])(
+        'keeps saved trials readable without paid submissions when the flag is %s',
+        async (enabled) => {
+            featureFlagLogic.actions.setFeatureFlags(enabled ? [FEATURE_FLAGS.SCOUT_TRIALS] : [], {
+                [FEATURE_FLAGS.SCOUT_TRIALS]: enabled,
+            })
+            jest.mocked(signalsScoutConfigTrialComparisonHistory).mockResolvedValue({
+                results: [trialFixtureServerComparison],
+                has_more: false,
+            })
+            jest.mocked(signalsScoutConfigTrialComparisonRetrieve).mockResolvedValue(trialFixtureServerComparison)
 
-        await expectLogic(logic, () =>
-            logic.actions.loadComparisonHistory(trialFixtureConfig.id)
-        ).toFinishAllListeners()
+            await expectLogic(logic, () =>
+                logic.actions.loadComparisonHistory(trialFixtureConfig.id)
+            ).toFinishAllListeners()
 
-        expect(logic.values.selectedComparison?.id).toBe(trialFixtureServerComparison.comparison_id)
-        expect(logic.values.trialView).toBe('list')
-        expect(logic.values.evaluationState.value?.report).toEqual(trialFixtureServerComparison.evaluation?.report)
-        expect(logic.values.comparisonRows).toHaveLength(4)
-        expect(signalsScoutConfigTrialComparisonRetrieve).not.toHaveBeenCalled()
+            expect(logic.values.selectedComparison?.id).toBe(trialFixtureServerComparison.comparison_id)
+            expect(logic.values.trialView).toBe('list')
+            expect(logic.values.evaluationState.value?.report).toEqual(trialFixtureServerComparison.evaluation?.report)
+            expect(logic.values.comparisonRows).toHaveLength(4)
+            expect(signalsScoutConfigTrialComparisonRetrieve).not.toHaveBeenCalled()
 
-        await expectLogic(logic, () => logic.actions.newComparison()).toFinishAllListeners()
-        expect(logic.values.trialView).toBe('setup')
-        await expectLogic(logic, () => logic.actions.showTrialList()).toFinishAllListeners()
-        expect(logic.values.trialView).toBe('list')
-        expect(logic.values.comparisonsForConfig.map((trial) => trial.id)).toEqual([
-            trialFixtureServerComparison.comparison_id,
-        ])
-        await expectLogic(logic, () =>
-            logic.actions.selectComparison(trialFixtureConfig.id, trialFixtureServerComparison.comparison_id)
-        ).toFinishAllListeners()
-        expect(logic.values.trialView).toBe('detail')
-        expect(logic.values.evaluationState.value?.report).toEqual(trialFixtureServerComparison.evaluation?.report)
-        await expectLogic(logic, () => logic.actions.showTrialList()).toFinishAllListeners()
-        expect(logic.values.trialView).toBe('list')
-        expect(signalsScoutConfigTrialComparisonCreate).not.toHaveBeenCalled()
-        expect(signalsScoutConfigTrialEvaluationCreate).not.toHaveBeenCalled()
-    })
+            await expectLogic(logic, () => logic.actions.newComparison()).toFinishAllListeners()
+            expect(logic.values.trialView).toBe(enabled ? 'setup' : 'list')
+            await expectLogic(logic, () => logic.actions.showTrialList()).toFinishAllListeners()
+            expect(logic.values.trialView).toBe('list')
+            expect(logic.values.comparisonsForConfig.map((trial) => trial.id)).toEqual([
+                trialFixtureServerComparison.comparison_id,
+            ])
+            await expectLogic(logic, () =>
+                logic.actions.selectComparison(trialFixtureConfig.id, trialFixtureServerComparison.comparison_id)
+            ).toFinishAllListeners()
+            expect(logic.values.trialView).toBe('detail')
+            expect(logic.values.evaluationState.value?.report).toEqual(trialFixtureServerComparison.evaluation?.report)
+            await expectLogic(logic, () => logic.actions.showTrialList()).toFinishAllListeners()
+            expect(logic.values.trialView).toBe('list')
+            expect(signalsScoutConfigTrialComparisonCreate).not.toHaveBeenCalled()
+            expect(signalsScoutConfigTrialEvaluationCreate).not.toHaveBeenCalled()
+        }
+    )
 
     it('resumes a restored comparison by ID without resubmitting its private prompt and blocks duplicate retries', async () => {
         logic.actions.registerServerComparison({ ...trialFixtureServerComparison, status: 'failed', evaluation: null })
@@ -701,6 +732,11 @@ describe('scoutTrialsLogic', () => {
                     resolveResume = resolve
                 })
         )
+
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        await expectLogic(logic, () => logic.actions.resumeComparison()).toFinishAllListeners()
+        expect(signalsScoutConfigTrialComparisonResume).not.toHaveBeenCalled()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SCOUT_TRIALS], { [FEATURE_FLAGS.SCOUT_TRIALS]: true })
 
         logic.actions.resumeComparison()
         logic.actions.resumeComparison()
@@ -736,6 +772,11 @@ describe('scoutTrialsLogic', () => {
                     resolveScore = resolve
                 })
         )
+
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        await expectLogic(logic, () => logic.actions.scoreComparison()).toFinishAllListeners()
+        expect(signalsScoutConfigTrialEvaluationCreate).not.toHaveBeenCalled()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SCOUT_TRIALS], { [FEATURE_FLAGS.SCOUT_TRIALS]: true })
 
         logic.actions.scoreComparison()
         logic.actions.scoreComparison()
@@ -777,6 +818,14 @@ describe('scoutTrialsLogic', () => {
             await expectLogic(logic, () =>
                 logic.actions.selectComparison(trialFixtureComparison.configId, trialFixtureComparison.id)
             ).toFinishAllListeners()
+
+            featureFlagLogic.actions.setFeatureFlags([], {})
+            await expectLogic(logic, () => logic.actions.newScoringAttempt()).toFinishAllListeners()
+            expect(logic.values.comparisons).toHaveLength(1)
+            expect(logic.values.evaluationState.value?.report).toEqual(previousEvaluation.report)
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SCOUT_TRIALS], {
+                [FEATURE_FLAGS.SCOUT_TRIALS]: true,
+            })
 
             await expectLogic(logic, () => {
                 logic.actions.newScoringAttempt()

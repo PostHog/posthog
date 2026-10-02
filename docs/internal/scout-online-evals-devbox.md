@@ -26,6 +26,10 @@ SCOUT_LIVE_TRIALS_ENABLED=true
 SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=true
 ```
 
+Enable the `scout-trials` feature flag for the `project` group with `id = 2`. Trials require both the deployment setting and the flag; a missing or unreadable flag blocks new work. The team-2 and staff restrictions still apply even if the flag targets another project.
+
+Switching the flag off blocks new trials, resumes, and queued scout or judge work. Already-running scouts and judge jobs can finish, and saved results remain readable. After re-enabling the flag, resume interrupted trials to recover saved work.
+
 Verify the ports and Docker host mapping. Sandbox URLs and MCP's `POSTHOG_API_BASE_URL` must reach services directly, without the Coder login proxy. Keep `POSTHOG_PUBLIC_URL` and `SITE_URL` on the browser URL.
 Set `SANDBOX_AI_GATEWAY_MINT_KEY` privately to a server credential authorized for team attribution in the intended paying project. The `signals_scout` product must not bill customer credits.
 Enable `SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE` only after confirming query/task telemetry and warehouse replicas do not expose trial content to the inspected project. The gateway must acknowledge capture suppression when minting tokens.

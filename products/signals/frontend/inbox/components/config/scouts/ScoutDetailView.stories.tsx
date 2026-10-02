@@ -108,6 +108,9 @@ const trialsDecorators: Decorator[] = [
 ]
 
 export const ScoutPageTrials: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.PRODUCT_AUTONOMY, FEATURE_FLAGS.INBOX_REDESIGN, FEATURE_FLAGS.SCOUT_TRIALS],
+    },
     args: { skillName: trialFixtureConfig.skill_name },
     decorators: [
         ...trialsDecorators,
@@ -120,6 +123,9 @@ export const ScoutPageTrials: Story = {
 }
 
 export const ScoutPageTrialsNarrow: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.PRODUCT_AUTONOMY, FEATURE_FLAGS.INBOX_REDESIGN, FEATURE_FLAGS.SCOUT_TRIALS],
+    },
     args: { skillName: trialFixtureConfig.skill_name },
     decorators: [
         ...trialsDecorators,

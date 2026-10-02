@@ -69,6 +69,11 @@ export function ScoutTrialsView(props: ScoutTrialsViewProps): JSX.Element {
                         />
                     </LemonField.Pure>
                 )}
+                {props.trialsDisabledReason && (
+                    <LemonBanner type="info">
+                        New trials and judging are currently disabled. Saved results are still available.
+                    </LemonBanner>
+                )}
                 {pageError && (
                     <LemonBanner
                         type="error"

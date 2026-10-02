@@ -34,7 +34,9 @@ export function ScoutTrialDetail(props: ScoutTrialsViewProps): JSX.Element {
                     <LemonButton
                         type="secondary"
                         onClick={props.newComparison}
-                        disabledReason={submitting ? 'Wait for the trial to start.' : undefined}
+                        disabledReason={
+                            props.trialsDisabledReason || (submitting ? 'Wait for the trial to start.' : undefined)
+                        }
                         data-attr="scout-comparison-new"
                     >
                         New trial
@@ -83,6 +85,7 @@ export function ScoutTrialDetail(props: ScoutTrialsViewProps): JSX.Element {
                                 type="primary"
                                 onClick={props.submitComparison}
                                 loading={submitting}
+                                disabledReason={props.trialsDisabledReason}
                                 data-attr="scout-comparison-retry-start"
                             >
                                 Retry starting trial
@@ -95,7 +98,8 @@ export function ScoutTrialDetail(props: ScoutTrialsViewProps): JSX.Element {
                                 onClick={props.resumeComparison}
                                 loading={props.comparisonState.resuming}
                                 disabledReason={
-                                    props.comparisonState.loading ? 'Wait for the current status.' : undefined
+                                    props.trialsDisabledReason ||
+                                    (props.comparisonState.loading ? 'Wait for the current status.' : undefined)
                                 }
                                 data-attr="scout-comparison-resume"
                             >
@@ -263,9 +267,10 @@ export function ScoutTrialDetail(props: ScoutTrialsViewProps): JSX.Element {
                                         size="small"
                                         onClick={props.newScoringAttempt}
                                         disabledReason={
-                                            props.evaluationState.loading || props.evaluationState.scoring
+                                            props.trialsDisabledReason ||
+                                            (props.evaluationState.loading || props.evaluationState.scoring
                                                 ? 'Wait for the current status.'
-                                                : undefined
+                                                : undefined)
                                         }
                                     >
                                         Prepare another judging attempt

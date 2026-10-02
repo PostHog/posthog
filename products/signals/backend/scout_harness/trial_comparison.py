@@ -49,6 +49,7 @@ from products.signals.backend.scout_harness.trial_evaluation_types import (
 from products.signals.backend.scout_harness.trial_inspection import ScoutTrialInspection
 from products.signals.backend.scout_harness.trial_launch import (
     assert_trial_environment_ready,
+    assert_trial_work_enabled,
     create_trial_context,
     create_trial_launch,
     read_trial_launch,
@@ -157,6 +158,7 @@ class ScoutTrialComparisons:
 
     def assert_can_start(self, *, start_scouts: bool = True) -> None:
         assert_trial_environment_ready()
+        assert_trial_work_enabled(self.config.team)
         for rejection in (
             check_fleet_gates(self.config.team_id, check_run_budget=start_scouts),
             check_spend_gates(self.config.team, capture_analytics=False),

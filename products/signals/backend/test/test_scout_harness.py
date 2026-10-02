@@ -126,10 +126,11 @@ async def aorganization():
 
 
 @pytest_asyncio.fixture
-async def ateam(aorganization):
+async def ateam(aorganization, request: pytest.FixtureRequest):
     team = await sync_to_async(Team.objects.create)(
         organization=aorganization,
         name=f"SignalsScoutTestTeam-{random.randint(1, 99999)}",
+        **({"id": 2} if "atrial_operator" in request.fixturenames else {}),
     )
     # Yield inside team_scope so dependent fixtures and test bodies have a team
     # context for the TeamScopedRootMixin-backed scout models.
@@ -1748,6 +1749,8 @@ async def test_trial_runs_keep_runtime_and_state_separate_from_the_production_sc
         *, before_task_dispatch: Callable[[UUID], dict[str, JsonValue] | None], origin_key: str, **kwargs: object
     ) -> tuple[MagicMock, object]:
         captured.append(kwargs)
+        if outcome_case == "completed":
+            trials_flag.return_value = False
         task = await database_sync_to_async(lambda: session.task_run.task)()
         task.origin_key = origin_key
         await database_sync_to_async(task.save)(update_fields=["origin_key"])
@@ -1790,6 +1793,7 @@ async def test_trial_runs_keep_runtime_and_state_separate_from_the_production_sc
 
     session.end.side_effect = end_session
     with (
+        patch("products.signals.backend.scout_harness.trial_launch.feature_enabled", return_value=True) as trials_flag,
         patch("posthog.storage.object_storage.read", side_effect=read_document),
         patch("posthog.storage.object_storage.write") as export,
         patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=start_session),
@@ -1826,6 +1830,9 @@ async def test_trial_runs_keep_runtime_and_state_separate_from_the_production_sc
             outcome = await arun_signals_scout(
                 team_id=ateam.id, skill_name=aerrors_skill.name, trial_launch_id=str(launch.id)
             )
+        if outcome_case == "completed":
+            assert trials_flag.return_value is False
+        trials_flag.return_value = True
         with patch(
             "products.signals.backend.scout_harness.trial_launch.get_model_access_error",
             return_value="Model access revoked",

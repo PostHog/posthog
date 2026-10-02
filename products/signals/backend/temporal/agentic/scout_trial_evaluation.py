@@ -70,11 +70,16 @@ async def judge_scout_trial_run_activity(inputs: TrialEvaluationRunInput) -> Non
     from products.signals.backend.scout_harness.trial_judge import (  # noqa: PLC0415 -- avoid loading judge dependencies through the workflow registry
         safe_judge_failure,
     )
+    from products.signals.backend.scout_harness.trial_launch import (  # noqa: PLC0415 -- keep trial dependencies off workflow imports
+        ScoutTrialsDisabled,
+    )
 
     with private_capture_context():
         try:
             async with Heartbeater():
                 await run_evaluation_run(inputs.team_id, UUID(inputs.evaluation_id), UUID(inputs.launch_id))
+        except ScoutTrialsDisabled as error:
+            raise ApplicationError(str(error), type="ScoutTrialsDisabled", non_retryable=True) from None
         except Exception as error:
             raise ApplicationError(safe_judge_failure("judge_activity", error), non_retryable=True) from None
 
@@ -112,7 +117,7 @@ class RunScoutTrialEvaluationWorkflow:
         )
         semaphore = asyncio.Semaphore(TRIAL_JUDGE_CONCURRENCY)
 
-        async def score(launch_id: str) -> None:
+        async def score(launch_id: str) -> bool:
             async with semaphore:
                 try:
                     await workflow.execute_activity(
@@ -124,11 +129,16 @@ class RunScoutTrialEvaluationWorkflow:
                         heartbeat_timeout=timedelta(seconds=30),
                         retry_policy=RetryPolicy(maximum_attempts=1),
                     )
-                except ActivityError:
+                except ActivityError as error:
+                    if isinstance(error.cause, ApplicationError) and error.cause.type == "ScoutTrialsDisabled":
+                        return True
                     # Finalization records missing outcomes without buying another judge call.
-                    pass
+                return False
 
-        await asyncio.gather(*(score(launch_id) for launch_id in launch_ids))
+        blocked = await asyncio.gather(*(score(launch_id) for launch_id in launch_ids))
+        if any(blocked):
+            # Keep unstarted judgments resumable after active activities have saved their results.
+            raise ApplicationError("Scout trials are disabled. Resume when they are enabled again.", non_retryable=True)
         await workflow.execute_activity(
             finish_scout_trial_evaluation_activity,
             inputs,

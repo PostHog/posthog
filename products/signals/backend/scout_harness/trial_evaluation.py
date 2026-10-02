@@ -13,7 +13,7 @@ from pydantic import BaseModel, JsonValue, ValidationError
 
 from posthog.clickhouse.query_tagging import private_capture_context
 from posthog.dataclasses import frozen
-from posthog.models import User
+from posthog.models import Team, User
 from posthog.storage import object_storage
 from posthog.sync import database_sync_to_async
 
@@ -42,6 +42,7 @@ from products.signals.backend.scout_harness.trial_launch import (
     TrialContext,
     TrialLaunch,
     assert_trial_environment_ready,
+    assert_trial_work_enabled,
     load_trial_context,
     read_trial_launch,
 )
@@ -484,6 +485,7 @@ def prepare_trial_evaluation(
 ) -> TrialEvaluationSnapshot:
     assert_trial_environment_ready()
     _validate_groups(request)
+    assert_trial_work_enabled(config.team)
     request_hash = _request_hash(config, user, request)
     existing = read_trial_evaluation(config.team_id, request.evaluation_id)
     if existing is not None:
@@ -658,6 +660,9 @@ async def run_evaluation_run(team_id: int, evaluation_id: UUID, launch_id: UUID)
                 summary=evidence.exclusion_reason,
             )
         else:
+            await database_sync_to_async(assert_trial_work_enabled)(
+                await database_sync_to_async(Team.objects.get)(pk=team_id)
+            )
             step = "access_check"
             try:
                 await database_sync_to_async(_assert_worker_access)(snapshot)

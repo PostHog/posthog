@@ -35,6 +35,7 @@ from products.signals.backend.scout_harness.trial_launch import (
     ScoutTrialLaunchError,
     create_trial_launch,
     read_trial_launch,
+    scout_trials_enabled,
 )
 from products.signals.backend.scout_harness.trial_result import (
     get_trial_workflow_status,
@@ -61,6 +62,10 @@ class ScoutTrialConfigMixin(ScoutTrialComparisonMixin):
     def _internal_trial_config(self, request: Request, identifier: str) -> SignalScoutConfig:
         if self.team.id != 2 or not request.user.is_staff:
             raise exceptions.NotFound()
+        if request.method not in {"GET", "HEAD", "OPTIONS"} and not scout_trials_enabled(self.team):
+            raise exceptions.PermissionDenied(
+                "Scout trials are disabled for this project. Saved results remain available."
+            )
         return self._trial_config(request, identifier)
 
     def _trial_config(self, request: Request, identifier: str) -> SignalScoutConfig:

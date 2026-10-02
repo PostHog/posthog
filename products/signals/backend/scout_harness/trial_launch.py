@@ -9,6 +9,7 @@ from uuid import UUID
 from django.conf import settings
 from django.utils import timezone
 
+from posthoganalytics import feature_enabled
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from posthog.llm.gateway_client import GatewayNotConfiguredError, ensure_scout_trial_capture_ready
@@ -42,6 +43,33 @@ SCOUT_TRIAL_TASK_STATE_KEY = "scout_trial"
 
 class ScoutTrialLaunchError(ValueError):
     pass
+
+
+class ScoutTrialsDisabled(ScoutTrialLaunchError):
+    pass
+
+
+def scout_trials_enabled(team: Team) -> bool:
+    if team.id != 2:
+        return False
+    try:
+        return (
+            feature_enabled(
+                "scout-trials",
+                str(team.uuid),
+                groups={"project": str(team.uuid)},
+                group_properties={"project": {"id": team.id, "uuid": str(team.uuid)}},
+                send_feature_flag_events=False,
+            )
+            is True
+        )
+    except Exception:
+        return False
+
+
+def assert_trial_work_enabled(team: Team) -> None:
+    if not scout_trials_enabled(team):
+        raise ScoutTrialsDisabled("Scout trials are disabled for this project. Saved results remain available.")
 
 
 class TrialContext(BaseModel):
@@ -193,7 +221,8 @@ def load_trial_launch(team_id: int, launch_id: UUID | str) -> TrialLaunch:
     launch = read_trial_launch(team_id, launch_id)
     assert_trial_environment_ready()
     context = load_trial_context(team_id, launch.context_id)
-    _validate_source(context)
+    config = _validate_source(context)
+    assert_trial_work_enabled(config.team)
     if launch.config_id != context.config_id or launch.user_id != context.user_id:
         raise ScoutTrialLaunchError("The scout trial does not match its saved context.")
     return launch
@@ -285,6 +314,7 @@ def create_trial_context(
     expected_skill_version: int | None = None,
 ) -> TrialContext:
     assert_trial_environment_ready()
+    assert_trial_work_enabled(config.team)
     key = _document_key(config.team_id, "contexts", identifier)
     context = _read_document(key, TrialContext)
     if context is None:
@@ -310,6 +340,7 @@ def create_trial_launch(
     variant: str = "",
 ) -> TrialLaunch:
     assert_trial_environment_ready()
+    assert_trial_work_enabled(config.team)
     request_body = {
         "config_id": str(config.id),
         "user_id": user.id,

@@ -3,6 +3,7 @@ import { MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from 'lib/api.mock'
 import type { Meta, StoryObj } from '@storybook/react'
 import { useEffect } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -17,7 +18,11 @@ const meta: Meta<typeof ScoutTrials> = {
     id: 'scenes-app-inbox-scout-comparisons-interactive',
     title: 'Scenes-App/Inbox/Scout trials interactive',
     component: ScoutTrials,
-    parameters: { layout: 'fullscreen', testOptions: { waitForLoadersToDisappear: false } },
+    parameters: {
+        layout: 'fullscreen',
+        featureFlags: [FEATURE_FLAGS.SCOUT_TRIALS],
+        testOptions: { waitForLoadersToDisappear: false },
+    },
     decorators: [
         (Story) => {
             useEffect(() => {
@@ -33,6 +38,9 @@ export default meta
 type Story = StoryObj<typeof ScoutTrials>
 
 export const Interactive: Story = {}
+export const Disabled: Story = {
+    parameters: { featureFlags: [] },
+}
 export const Running: Story = {
     decorators: [mswDecorator(trialMocks.runningMocks)],
 }

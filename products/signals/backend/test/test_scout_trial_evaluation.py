@@ -52,6 +52,7 @@ from products.signals.backend.scout_harness.trial_evaluation import (
     run_evaluation_run,
 )
 from products.signals.backend.scout_harness.trial_evaluation_types import (
+    TrialCriterionVerdict,
     TrialEvaluationRequest,
     TrialEvaluationVariant,
     TrialEvidenceSource,
@@ -59,7 +60,12 @@ from products.signals.backend.scout_harness.trial_evaluation_types import (
     TrialRunJudgment,
 )
 from products.signals.backend.scout_harness.trial_judge import TrialJudgeExecutionError, parse_trial_judgment
-from products.signals.backend.scout_harness.trial_launch import ScoutTrialLaunchError, TrialContext, TrialLaunch
+from products.signals.backend.scout_harness.trial_launch import (
+    ScoutTrialLaunchError,
+    ScoutTrialsDisabled,
+    TrialContext,
+    TrialLaunch,
+)
 from products.signals.backend.scout_harness.trial_result import TrialWorkflowStatus, export_trial_result
 from products.signals.backend.scout_harness.trial_rubrics import SavedScoutRubricReader
 from products.signals.backend.scout_harness.trial_state import ScoutTrialStore, TrialReport
@@ -125,6 +131,9 @@ class TestScoutTrialEvaluationValidation(SimpleTestCase):
 class TestScoutTrialEvaluation(BaseTest):
     def setUp(self) -> None:
         super().setUp()
+        self.trials_flag = self.enterContext(
+            patch("products.signals.backend.scout_harness.trial_launch.feature_enabled", return_value=True)
+        )
         if self.team.id != 2:
             self.team = Team.objects.create(id=2, organization=self.organization, name="Internal example")
         self.enterContext(team_scope(self.team.id, canonical=True))
@@ -748,6 +757,46 @@ class TestScoutTrialEvaluation(BaseTest):
         self.user.save(update_fields=["is_staff"])
         assert finish_trial_evaluation(self.team.id, snapshot.evaluation_id).runs[0].status == "judge_error"
 
+    @parameterized.expand(["before_start", "during_judging"])
+    def test_flag_disable_preserves_unstarted_attempts_and_active_results(self, timing: str) -> None:
+        snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
+        saved = dict(self.documents)
+        judgment = TrialRunJudgment(
+            launch_id=self.launch.id,
+            variant_id=self.request.baseline_variant_id,
+            status="judged",
+            summary="Synthetic judgment completed.",
+            criteria=[
+                TrialCriterionVerdict(
+                    criterion_id=criterion.id,
+                    verdict="unknown",
+                    reason="Synthetic evidence is insufficient.",
+                    confidence="low",
+                )
+                for criterion in snapshot.criteria
+            ],
+        )
+
+        async def judge(*args: object) -> TrialRunJudgment:
+            self.trials_flag.return_value = False
+            return judgment
+
+        with patch(f"{JUDGE_MODULE}.judge_trial_run", side_effect=judge) as paid_judge:
+            if timing == "before_start":
+                self.trials_flag.return_value = False
+                with self.assertRaises(ScoutTrialsDisabled):
+                    async_to_sync(run_evaluation_run)(self.team.id, snapshot.evaluation_id, self.launch.id)
+                assert self.documents == saved
+                paid_judge.assert_not_called()
+                self.trials_flag.return_value = True
+            async_to_sync(run_evaluation_run)(self.team.id, snapshot.evaluation_id, self.launch.id)
+            async_to_sync(run_evaluation_run)(self.team.id, snapshot.evaluation_id, self.launch.id)
+        paid_judge.assert_called_once()
+        assert self.trials_flag.return_value is False
+        report = finish_trial_evaluation(self.team.id, snapshot.evaluation_id)
+        assert report.runs[0].status == "judged"
+        assert read_trial_evaluation_report(snapshot) == report
+
     @parameterized.expand([(False, None), (True, None), (False, "failed"), (False, "cancelled"), (False, "skipped")])
     def test_automatic_comparison_waits_for_task_teardown_and_keeps_its_launch_rubric(
         self, manual_first: bool, excluded_status: Literal["failed", "cancelled", "skipped"] | None
@@ -925,8 +974,10 @@ class TestScoutTrialEvaluation(BaseTest):
 
 
 class TestScoutTrialEvaluationWorkflow(SimpleTestCase):
-    @parameterized.expand([False, True])
-    async def test_bounds_concurrency_and_finalizes_after_one_activity_fails(self, grouped: bool) -> None:
+    @parameterized.expand([(False, False), (True, False), (True, True)])
+    async def test_bounds_concurrency_and_finalizes_after_one_activity_fails(
+        self, grouped: bool, disabled: bool
+    ) -> None:
         inputs = TrialEvaluationInput(team_id=2, evaluation_id=str(uuid4()))
         launch_ids = [str(uuid4()) for _ in range(7)]
         reached_limit = asyncio.Event()
@@ -956,7 +1007,7 @@ class TestScoutTrialEvaluationWorkflow(SimpleTestCase):
             active -= 1
             completed.add(payload.launch_id)
             if payload.launch_id == launch_ids[0]:
-                raise ActivityError(
+                error = ActivityError(
                     "Synthetic worker interruption",
                     scheduled_event_id=1,
                     started_event_id=2,
@@ -965,6 +1016,9 @@ class TestScoutTrialEvaluationWorkflow(SimpleTestCase):
                     activity_id="scoring",
                     retry_state=None,
                 )
+                if disabled:
+                    raise error from ApplicationError("Scout trials are disabled.", type="ScoutTrialsDisabled")
+                raise error
             return None
 
         with (
@@ -977,9 +1031,14 @@ class TestScoutTrialEvaluationWorkflow(SimpleTestCase):
                 assert active == 3
             finally:
                 release.set()
-            assert await task == inputs.evaluation_id
+            if disabled:
+                with self.assertRaisesMessage(ApplicationError, "Resume when they are enabled"):
+                    await task
+            else:
+                assert await task == inputs.evaluation_id
         assert highest_active == 3
-        assert finalized
+        assert completed == set(launch_ids)
+        assert finalized is not disabled
 
     def test_new_evaluation_allows_all_bounded_judging_waves(self) -> None:
         client = AsyncMock()
