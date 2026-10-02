@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconExternal } from '@posthog/icons'
+import { IconCheckCircle, IconExternal, IconHide } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
@@ -8,8 +8,11 @@ import { urls } from 'scenes/urls'
 import { ReportChart } from 'products/signals/frontend/inbox/components/detail/ReportChart'
 import { ReportChartsContext } from 'products/signals/frontend/inbox/components/detail/reportChartsContext'
 import { ReportSummaryBody } from 'products/signals/frontend/inbox/components/detail/ReportSummaryBody'
+import { canResolveReport, hasOpenImplementationPr } from 'products/signals/frontend/inbox/utils/reportActions'
 
+import { itemStateLabel } from './todayBriefingItems'
 import { TodayIcon } from './TodayIcon'
+import { TodayReportVerdict, todayLogic } from './todayLogic'
 import { TodayReportEvidence } from './TodayReportEvidence'
 import { todayReportLogic } from './todayReportLogic'
 import { TodayReportPrompts } from './TodayReportPrompts'
@@ -19,9 +22,18 @@ import { reportIcon, reportMeta, reportSource, reportTitle } from './todaySignal
 
 export function TodayReportPage({ reportId }: { reportId: string }): JSX.Element {
     const logic = todayReportLogic({ reportId })
-    const { currentReport, reportFailed, fullReportLoading, chartPlacements, chartsById, trailingCharts, reportUrl } =
-        useValues(logic)
+    const {
+        currentReport,
+        reportFailed,
+        fullReportLoading,
+        chartPlacements,
+        chartsById,
+        trailingCharts,
+        reportUrl,
+        reportState,
+    } = useValues(logic)
     const { loadFullReport } = useActions(logic)
+    const { requestReportVerdict } = useActions(todayLogic)
     const sampleDisabledReason = isSampleReportId(reportId) ? 'This is a sample report.' : undefined
 
     if (!currentReport) {
@@ -55,6 +67,18 @@ export function TodayReportPage({ reportId }: { reportId: string }): JSX.Element
         )
     }
 
+    const stateLabel = itemStateLabel({ state: reportState })
+    const giveVerdict = (verdict: TodayReportVerdict): void =>
+        requestReportVerdict(
+            {
+                reportId: currentReport.id,
+                title: reportTitle(currentReport),
+                hasOpenPullRequest: hasOpenImplementationPr(currentReport),
+            },
+            verdict,
+            'report_page'
+        )
+
     return (
         <div
             className="TodayReport Today__page"
@@ -69,6 +93,9 @@ export function TodayReportPage({ reportId }: { reportId: string }): JSX.Element
                     </span>
                     <span>{reportMeta(currentReport)}</span>
                     {currentReport.priority && <LemonTag type="muted">{currentReport.priority}</LemonTag>}
+                    {stateLabel && (
+                        <LemonTag type={reportState === 'done' ? 'success' : 'muted'}>{stateLabel}</LemonTag>
+                    )}
                 </div>
                 <h1 className="TodayReport__heading">{reportTitle(currentReport)}</h1>
                 <div className="flex flex-wrap gap-2 mt-4">
@@ -94,6 +121,35 @@ export function TodayReportPage({ reportId }: { reportId: string }): JSX.Element
                     >
                         Open in Inbox
                     </LemonButton>
+                    {!stateLabel && (
+                        <>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconCheckCircle />}
+                                onClick={() => giveVerdict('resolve')}
+                                disabledReason={
+                                    sampleDisabledReason ??
+                                    (canResolveReport(currentReport)
+                                        ? undefined
+                                        : 'You can resolve a report only after the agent finishes its research.')
+                                }
+                                data-attr="today-report-resolve"
+                            >
+                                Resolve
+                            </LemonButton>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconHide />}
+                                onClick={() => giveVerdict('dismiss')}
+                                disabledReason={sampleDisabledReason}
+                                data-attr="today-report-dismiss"
+                            >
+                                Dismiss
+                            </LemonButton>
+                        </>
+                    )}
                 </div>
                 <ReportChartsContext.Provider value={chartsById}>
                     <div className="TodayReport__body">
