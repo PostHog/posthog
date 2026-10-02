@@ -13,7 +13,7 @@ from posthog.temporal.ai_observability.evaluation_errors import (
     status_reason_detail_for_terminal_user_error,
     truncate_error_detail,
 )
-from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io
+from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io, hydrate_event_reference
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult, build_skipped_evaluation_result
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.metrics import increment_user_errors
@@ -425,4 +425,6 @@ async def run_hog_eval_for_event(evaluation: dict[str, Any], event_data: dict[st
 @temporalio.activity.defn
 async def execute_hog_eval_activity(evaluation: dict[str, Any], event_data: dict[str, Any]) -> EvaluationActivityResult:
     """Execute Hog code to evaluate the target event."""
+    # A pre-patch history replays through this activity, and can now hand it a reference.
+    event_data = await database_sync_to_async(hydrate_event_reference, thread_sensitive=False)(event_data)
     return await run_hog_eval_for_event(evaluation, event_data)
