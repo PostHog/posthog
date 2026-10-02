@@ -17,10 +17,13 @@ export function ArtifactObjectEmbed({ url, title }: { url: string; title: string
                     <Spinner />
                 </div>
             )}
+            {/* The page is the app's own, so it keeps its origin, scripts, forms and new tabs. The sandbox
+                still stops it navigating the task page away. */}
             <iframe
                 name={EMBEDDED_PAGE_FRAME_NAME}
                 src={url}
                 title={title}
+                sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals"
                 className={cn('size-full border-0', !loaded && 'invisible')}
                 onLoad={() => setLoaded(true)}
             />
