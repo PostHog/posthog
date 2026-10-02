@@ -139,7 +139,7 @@ class ConversionPeopleQuery(MarketingAnalyticsTableQueryRunner):
         return people
 
     def people(
-        self, goal_id: str, group: str, source: str, campaign_id: str | None, search: str, offset: int, limit: int
+        self, goal_id: str, group: str, source: str, campaign_id: str | None, search: str, after: str | None, limit: int
     ) -> ConversionPeopleResponse:
         try:
             query = self.people_query(goal_id, group, source, campaign_id)
@@ -147,9 +147,11 @@ class ConversionPeopleQuery(MarketingAnalyticsTableQueryRunner):
             handle_not_ready(team=self.team, query=not_ready.query or self.query)
             return {"results": [], "has_more": False, "preparing": True}
 
-        paginator = HogQLHasMorePaginator(limit=limit, offset=offset)
+        paginator = HogQLHasMorePaginator(limit=limit)
         strategy = PersonStrategy(team=self.team, query=ActorsQuery(search=search), paginator=paginator, user=self.user)
         conditions = strategy.filter_conditions()
+        if after is not None:
+            conditions.append(parse_expr("persons.id > toUUID({after})", {"after": ast.Constant(value=after)}))
         names = [
             parse_expr("nullIf(toString({property}), '')", {"property": ast.Field(chain=["properties", name])})
             for name in (self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES)

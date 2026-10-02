@@ -124,7 +124,7 @@ class TestMarketingQuerySettings(BaseTest):
         with patch.object(paginators, "execute_hogql_query", _capture):
             with self.assertRaises(_Stop):
                 runner.people(
-                    goal_id=GOAL_ID, group="spring", source="google", campaign_id=None, search="", offset=0, limit=10
+                    goal_id=GOAL_ID, group="spring", source="google", campaign_id=None, search="", after=None, limit=10
                 )
 
         settings = captured.get("settings")

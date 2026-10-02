@@ -1,12 +1,13 @@
 import './MarketingAnalyticsTableStyleOverride.scss'
 
 import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
-import { useMemo, useState } from 'react'
+import { useId, useMemo, useState } from 'react'
 
 import { IconGear, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
 import { ColumnFeature } from '~/queries/nodes/DataTable/DataTable'
@@ -28,8 +29,11 @@ import { webAnalyticsDataTableQueryContext } from '~/scenes/web-analytics/tiles/
 import { InsightLogicProps } from '~/types'
 
 import { ConversionPeopleModal } from 'products/marketing_analytics/frontend/ConversionPeopleModal'
-import { conversionPeopleRequest } from 'products/marketing_analytics/frontend/conversionPeopleRequest'
-import { ConversionPeopleRequestApi } from 'products/marketing_analytics/frontend/generated/api.schemas'
+import {
+    conversionPeopleRequest,
+    conversionPeopleTableQuery,
+    restoreConversionPeopleColumns,
+} from 'products/marketing_analytics/frontend/conversionPeopleRequest'
 
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
@@ -54,16 +58,27 @@ export const MarketingAnalyticsTable = ({
     insightProps,
     attachTo,
 }: MarketingAnalyticsTableProps): JSX.Element => {
-    const { setQuery } = useActions(marketingAnalyticsTableLogic)
+    const { setQuery, setConversionPeople } = useActions(marketingAnalyticsTableLogic)
+    const { conversionPeople } = useValues(marketingAnalyticsTableLogic)
+    const { currentTeamId } = useValues(teamLogic)
+    const tableId = useId()
+    const tableKey = `${currentTeamId}:${tableId}`
     const { showColumnConfigModal, setDrillDownLevel } = useActions(marketingAnalyticsLogic)
     const { drillDownLevel, nativeSourcesHierarchyStatus } = useValues(marketingAnalyticsLogic)
     const hasExtendedDrillDown = useFeatureFlag('MARKETING_ANALYTICS_EXTENDED_DRILL_DOWN')
     const hasConversionPeople = useFeatureFlag('MARKETING_ANALYTICS_CONVERSION_PEOPLE')
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
-    const { notReady: precomputeNotReady, computedAt } = useMarketingAnalyticsPrecompute(query.source, insightProps)
 
     const [searchTerm, setSearchTerm] = useState('')
-    const [people, setPeople] = useState<{ request: ConversionPeopleRequestApi; goalName: string } | null>(null)
+    const people = conversionPeople?.tableKey === tableKey ? conversionPeople : null
+    const tableQuery = useMemo(
+        () => conversionPeopleTableQuery(query, !!hasConversionPeople && !isSharedView()),
+        [query, hasConversionPeople]
+    )
+    const { notReady: precomputeNotReady, computedAt } = useMarketingAnalyticsPrecompute(
+        tableQuery.source,
+        insightProps
+    )
 
     const validationWarnings = useMemo(() => validateConversionGoals(conversion_goals), [conversion_goals])
 
@@ -140,7 +155,13 @@ export const MarketingAnalyticsTable = ({
                                         className="[&_.cursor-default]:cursor-pointer"
                                         data-attr="marketing-analytics-conversion-people"
                                         tooltip="View people attributed to these conversions"
-                                        onClick={() => setPeople({ request, goalName: goal.conversion_goal_name })}
+                                        onClick={() =>
+                                            setConversionPeople({
+                                                tableKey,
+                                                request,
+                                                goalName: goal.conversion_goal_name,
+                                            })
+                                        }
                                     >
                                         {cell}
                                     </LemonButton>
@@ -155,12 +176,12 @@ export const MarketingAnalyticsTable = ({
                 )
             })(),
         }),
-        [insightProps, query.source, searchTerm, conversion_goals, hasConversionPeople]
+        [insightProps, query.source, searchTerm, conversion_goals, hasConversionPeople, tableKey, setConversionPeople]
     )
 
     return (
         <div className="bg-surface-primary">
-            {people && <ConversionPeopleModal {...people} onClose={() => setPeople(null)} />}
+            {people && <ConversionPeopleModal {...people} onClose={() => setConversionPeople(null)} />}
             <div className="p-4 border-b border-border bg-bg-light">
                 <div className="flex flex-wrap gap-4 justify-between items-center">
                     <div className="flex items-center gap-2">
@@ -268,10 +289,12 @@ export const MarketingAnalyticsTable = ({
                 <div className="relative marketing-analytics-table-container">
                     <Query
                         attachTo={attachTo}
-                        query={query}
+                        query={tableQuery}
                         readOnly={false}
                         context={marketingAnalyticsContext}
-                        setQuery={setQuery}
+                        setQuery={(updated) =>
+                            setQuery(tableQuery === query ? updated : restoreConversionPeopleColumns(updated, query))
+                        }
                     />
                 </div>
             )}

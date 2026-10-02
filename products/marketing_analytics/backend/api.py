@@ -1135,8 +1135,8 @@ class ConversionPeopleRequestSerializer(serializers.Serializer):
     search = serializers.CharField(
         default="", allow_blank=True, max_length=200, help_text="Search by person name, email, or ID."
     )
-    offset = serializers.IntegerField(
-        default=0, min_value=0, max_value=10000, help_text="The number of people to skip."
+    after = serializers.UUIDField(
+        required=False, help_text="The last person ID returned by the previous page. Omit for the first page."
     )
     limit = serializers.IntegerField(
         default=50, min_value=1, max_value=100, help_text="The maximum number of people to return."
@@ -1181,7 +1181,7 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             source=data["source_name"],
             campaign_id=data.get("campaign_id"),
             search=data["search"],
-            offset=data["offset"],
+            after=str(data["after"]) if data.get("after") else None,
             limit=data["limit"],
         )
         return Response(ConversionPeopleResponseSerializer(result).data)

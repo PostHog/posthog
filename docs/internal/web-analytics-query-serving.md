@@ -205,10 +205,13 @@ Reset to defaults clears the custom selection, sorting, and pins for later visit
 Behind `marketing-analytics-conversion-people`, positive custom conversion cells open a Marketing analytics-owned people list in Ad performance and the legacy dashboard.
 The product endpoint reuses the table's attribution query and campaign mappings to resolve the selected row, then searches and paginates distinct people in ClickHouse.
 It preserves the current period, filters, and conversion goal; a person with multiple conversions appears once.
+Hidden grouping columns remain available as row keys without changing the saved column selection.
+Pagination uses the last person ID as a cursor, so large lists do not stop at an offset limit.
 Ad and ad group rows and shared dashboards do not expose the action.
 Missing attribution precomputes return a retryable preparing state, not an empty cached result.
 The recordings action opens the existing person's Recordings tab; it does not restrict recordings to the exact conversion session or table date range.
 This flow does not change the shared persons modal, query registry, or query cache.
+Precomputed conversions can omit a person merged into another profile until the precompute refreshes.
 
 ## Marketing metric chart
 

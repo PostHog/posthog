@@ -81,7 +81,7 @@ export const conversionPeopleLogic = kea<conversionPeopleLogicType>([
                         response = await api.marketingAnalyticsConversionPeopleCreate(String(values.currentTeamId), {
                             ...props.request,
                             search: values.search,
-                            offset: append ? values.page.results.length : 0,
+                            after: append ? values.page.results.at(-1)?.id : undefined,
                             limit: 50,
                         })
                     } catch {

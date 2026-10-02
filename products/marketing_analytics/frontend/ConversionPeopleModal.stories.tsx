@@ -18,7 +18,7 @@ const meta: Meta<typeof ConversionPeopleModal> = {
         },
         onClose: () => {},
     },
-    parameters: { testOptions: { waitForSelector: '.LemonModal' } },
+    parameters: { testOptions: { waitForSelector: '.LemonModal', snapshotTargetSelector: '.LemonModal' } },
 }
 export default meta
 type Story = StoryObj<typeof meta>

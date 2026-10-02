@@ -83,7 +83,7 @@ class TestConversionPeople(ClickhouseTestMixin, APIBaseTest):
         table = MarketingAnalyticsTableQueryRunner(query=self.source, team=self.team, user=self.user).calculate()
         self.assertTrue(table.results)
         result = ConversionPeopleQuery(query=self.source, team=self.team, user=self.user).people(
-            "purchase", group, source, None, "", 0, 50
+            "purchase", group, source, None, "", None, 50
         )
         self.assertEqual(len(result["results"]), count)
         self.assertFalse(result["has_more"])
@@ -117,10 +117,13 @@ class TestConversionPeople(ClickhouseTestMixin, APIBaseTest):
             first = self.client.post(url, payload, format="json")
         self.assertEqual(first.status_code, 200, first.content)
         self.assertTrue(first.json()["has_more"])
-        second = self.client.post(url, {**payload, "offset": 1}, format="json")
+        second = self.client.post(url, {**payload, "after": first.json()["results"][-1]["id"]}, format="json")
         self.assertEqual(second.status_code, 200, second.content)
         self.assertFalse(second.json()["has_more"])
         self.assertNotEqual(first.json()["results"][0]["id"], second.json()["results"][0]["id"])
+        exhausted = self.client.post(url, {**payload, "after": second.json()["results"][-1]["id"]}, format="json")
+        self.assertEqual(exhausted.json()["results"], [])
+        self.assertFalse(exhausted.json()["has_more"])
         searched = self.client.post(url, {**payload, "search": "alex@"}, format="json")
         self.assertEqual([p["name"] for p in searched.json()["results"]], ["alex@example.com"])
         padded = self.client.post(url, {**payload, "group": "winter-sale ", "limit": 50}, format="json")
@@ -134,7 +137,7 @@ class TestConversionPeople(ClickhouseTestMixin, APIBaseTest):
         config.save()
         for group, expected in [("Winter campaign", 2), ("winter-sale", 0)]:
             result = ConversionPeopleQuery(query=self.source, team=self.team, user=self.user).people(
-                "purchase", group, "google", None, "", 0, 50
+                "purchase", group, "google", None, "", None, 50
             )
             self.assertEqual(len(result["results"]), expected)
 
@@ -145,11 +148,11 @@ class TestConversionPeople(ClickhouseTestMixin, APIBaseTest):
             patch("products.marketing_analytics.backend.services.conversion_people.handle_not_ready") as warm,
         ):
             self.assertEqual(
-                runner.people("purchase", "winter-sale", "google", None, "", 0, 50),
+                runner.people("purchase", "winter-sale", "google", None, "", None, 50),
                 {"results": [], "has_more": False, "preparing": True},
             )
             warm.assert_called_once_with(team=self.team, query=self.source)
-        result = runner.people("purchase", "winter-sale", "google", None, "", 0, 50)
+        result = runner.people("purchase", "winter-sale", "google", None, "", None, 50)
         self.assertEqual(len(result["results"]), 2)
         self.assertFalse(result["preparing"])
 
@@ -209,6 +212,6 @@ class TestWarehouseConversionPeople(ClickhouseTestMixin, APIBaseTest):
         )
         with time_machine.travel("2023-02-01T12:00:00Z", tick=False):
             result = ConversionPeopleQuery(query=source, team=self.team, user=self.user).people(
-                "warehouse", "summer_sale", "google", None, "", 0, 50
+                "warehouse", "summer_sale", "google", None, "", None, 50
             )
         self.assertEqual([person["name"] for person in result["results"]], ["dw@example.com"])

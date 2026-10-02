@@ -26,8 +26,8 @@ describe('conversionPeopleLogic', () => {
                     const body = (await request.json()) as ConversionPeopleRequestApi
                     requests.push(body)
                     return {
-                        results: body.offset || body.search ? [second] : [first],
-                        has_more: !body.offset && !body.search,
+                        results: body.after || body.search ? [second] : [first],
+                        has_more: !body.after && !body.search,
                         preparing: false,
                     }
                 },
@@ -44,11 +44,12 @@ describe('conversionPeopleLogic', () => {
         await expectLogic(logic, () => logic.actions.loadPeople({ append: true }))
             .toFinishAllListeners()
             .toMatchValues({ page: partial({ results: [first, second] }) })
-        expect(requests[1]).toMatchObject({ ...request, offset: 1 })
+        expect(requests[1]).toMatchObject({ ...request, after: first.id })
         await expectLogic(logic, () => logic.actions.setSearch('sam'))
             .toFinishAllListeners()
             .toMatchValues({ page: partial({ results: [second], has_more: false }) })
-        expect(requests[2]).toMatchObject({ ...request, offset: 0, search: 'sam' })
+        expect(requests[2]).toMatchObject({ ...request, search: 'sam' })
+        expect(requests[2]).not.toHaveProperty('after')
     })
 
     it.each([false, true])('preserves loaded pages and retries failures (append: %s)', async (append) => {

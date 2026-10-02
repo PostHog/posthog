@@ -22,6 +22,8 @@ import {
 } from '~/queries/schema/schema-general'
 import { DataWarehouseSettingsTab, ExternalDataSource } from '~/types'
 
+import { ConversionPeopleSelection } from 'products/marketing_analytics/frontend/conversionPeopleRequest'
+
 import { marketingAnalyticsLogic } from './marketingAnalyticsLogic'
 import { createMarketingAnalyticsOrderBy, goalSumsAProperty, isDraftConversionGoalColumn } from './utils'
 
@@ -85,6 +87,7 @@ export interface marketingAnalyticsTableLogicValues {
     drillDownLevel: MarketingAnalyticsDrillDownLevel // marketingAnalyticsLogic
     _query: DataTableNode | null
     columnConfiguration: ColumnConfiguration | null
+    conversionPeople: ConversionPeopleSelection | null
     defaultColumns: string[]
     query: DataTableNode | null
     sortedColumns: string[]
@@ -97,6 +100,9 @@ export interface marketingAnalyticsTableLogicActions {
     } // marketingAnalyticsLogic
     setColumnConfiguration: (columnConfiguration: ColumnConfiguration) => {
         columnConfiguration: ColumnConfiguration
+    }
+    setConversionPeople: (selection: ConversionPeopleSelection | null) => {
+        selection: ConversionPeopleSelection | null
     }
     setQuery: (query: DataTableNode) => {
         query: DataTableNode
@@ -135,10 +141,15 @@ export const marketingAnalyticsTableLogic = kea<marketingAnalyticsTableLogicType
         actions: [marketingAnalyticsLogic, ['setDraftConversionGoal']],
     })),
     actions({
+        setConversionPeople: (selection: ConversionPeopleSelection | null) => ({ selection }),
         setQuery: (query: DataTableNode) => ({ query }),
         setColumnConfiguration: (columnConfiguration: ColumnConfiguration) => ({ columnConfiguration }),
     }),
     reducers(() => ({
+        conversionPeople: [
+            null as ConversionPeopleSelection | null,
+            { setConversionPeople: (_, { selection }) => selection, setQuery: () => null },
+        ],
         columnConfiguration: [
             null as ColumnConfiguration | null,
             buildTeamScopedPersistenceConfig(),

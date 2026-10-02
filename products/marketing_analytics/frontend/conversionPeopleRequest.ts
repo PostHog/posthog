@@ -1,4 +1,5 @@
 import {
+    DataTableNode,
     MARKETING_ANALYTICS_DRILL_DOWN_CONFIG,
     MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsItem,
@@ -6,6 +7,60 @@ import {
 } from '~/queries/schema/schema-general'
 
 import { ConversionPeopleRequestApi } from './generated/api.schemas'
+
+export interface ConversionPeopleSelection {
+    tableKey: string
+    request: ConversionPeopleRequestApi
+    goalName: string
+}
+
+function rowColumns(source: MarketingAnalyticsTableQuery): string[] {
+    const level = source.drillDownLevel ?? MarketingAnalyticsDrillDownLevel.Campaign
+    if (level === MarketingAnalyticsDrillDownLevel.Ad || level === MarketingAnalyticsDrillDownLevel.AdGroup) {
+        return []
+    }
+    const columns = [MARKETING_ANALYTICS_DRILL_DOWN_CONFIG[level].columnAlias]
+    if (
+        level === MarketingAnalyticsDrillDownLevel.Campaign ||
+        level === MarketingAnalyticsDrillDownLevel.ChannelSource
+    ) {
+        columns.push('Source')
+    }
+    if (level === MarketingAnalyticsDrillDownLevel.Campaign && !source.compareFilter?.compare) {
+        columns.push('ID')
+    }
+    return columns
+}
+
+export function conversionPeopleTableQuery(query: DataTableNode, enabled: boolean): DataTableNode {
+    const source = query.source as MarketingAnalyticsTableQuery
+    if (!enabled || !source.select?.length) {
+        return query
+    }
+    const hidden = rowColumns(source).filter((column) => !source.select?.includes(column))
+    if (!hidden.length) {
+        return query
+    }
+    return {
+        ...query,
+        source: { ...source, select: [...source.select, ...hidden] },
+        hiddenColumns: [...(query.hiddenColumns ?? []), ...hidden],
+    }
+}
+
+export function restoreConversionPeopleColumns(updated: DataTableNode, original: DataTableNode): DataTableNode {
+    const source = original.source as MarketingAnalyticsTableQuery
+    if (!source.select?.length) {
+        return updated
+    }
+    const hidden = rowColumns(source).filter((column) => !source.select?.includes(column))
+    const updatedSource = updated.source as MarketingAnalyticsTableQuery
+    return {
+        ...updated,
+        source: { ...updatedSource, select: updatedSource.select?.filter((column) => !hidden.includes(column)) },
+        hiddenColumns: original.hiddenColumns,
+    }
+}
 
 function rowValue(record: unknown, column: string): string | undefined {
     if (!Array.isArray(record)) {

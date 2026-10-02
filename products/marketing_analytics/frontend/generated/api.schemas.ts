@@ -1946,12 +1946,8 @@ export interface ConversionPeopleRequestApi {
      * @maxLength 200
      */
     search?: string
-    /**
-     * The number of people to skip.
-     * @minimum 0
-     * @maximum 10000
-     */
-    offset?: number
+    /** The last person ID returned by the previous page. Omit for the first page. */
+    after?: string
     /**
      * The maximum number of people to return.
      * @minimum 1
