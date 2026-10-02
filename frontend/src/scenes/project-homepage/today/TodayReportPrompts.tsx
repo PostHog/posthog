@@ -1,5 +1,5 @@
 import { useActions } from 'kea'
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 
 import { IconSparkles } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -16,30 +16,19 @@ import { todayLogic } from './todayLogic'
 import { isSampleReportId } from './todaySampleReports'
 import { reportPrompts } from './todaySignalReports'
 
-/** Prompts that fill the composer, which opens PostHog AI with the report as context. */
+/** Prompts and a composer that open PostHog AI with the report as context. A prompt sends at once. */
 export function TodayReportPrompts({ report }: { report: SignalReport }): JSX.Element {
     const { askAi } = useActions(todayLogic)
-    const textAreaRef = useRef<HTMLTextAreaElement>(null)
     const [draft, setDraft] = useState('')
-    const [pickedPrompt, setPickedPrompt] = useState<string | null>(null)
     const prompts = reportPrompts(report)
     const disabledReason = isSampleReportId(report.id)
         ? 'Sample reports can’t start a chat. Turn off sample reports to ask about a real one.'
         : undefined
 
-    const pickPrompt = (prompt: string): void => {
-        setDraft(prompt)
-        setPickedPrompt(prompt)
-        textAreaRef.current?.focus()
-    }
-
-    const submit = (): void => {
-        const question = draft.trim()
+    const ask = (question: string, source: InboxQuestionSource): void => {
         if (!question || disabledReason) {
             return
         }
-        const source: InboxQuestionSource =
-            pickedPrompt === null ? 'typed' : pickedPrompt === question ? 'suggested' : 'edited_suggestion'
         captureInboxReportAction({
             report,
             actionType: 'discuss',
@@ -47,8 +36,6 @@ export function TodayReportPrompts({ report }: { report: SignalReport }): JSX.El
             extra: discussQuestionProperties({ source, suggestionCount: prompts.length }),
         })
         askAi(question, 'report_page', report)
-        setDraft('')
-        setPickedPrompt(null)
     }
 
     return (
@@ -61,7 +48,8 @@ export function TodayReportPrompts({ report }: { report: SignalReport }): JSX.El
                         type="secondary"
                         size="small"
                         icon={<IconSparkles />}
-                        onClick={() => pickPrompt(prompt)}
+                        onClick={() => ask(prompt, 'suggested')}
+                        disabledReason={disabledReason}
                         data-attr="today-report-prompt"
                     >
                         {prompt}
@@ -70,19 +58,16 @@ export function TodayReportPrompts({ report }: { report: SignalReport }): JSX.El
             </div>
             <Composer.Root
                 value={draft}
-                onChange={(value) => {
-                    setDraft(value)
-                    if (!value) {
-                        setPickedPrompt(null)
-                    }
+                onChange={setDraft}
+                onSubmit={() => {
+                    ask(draft.trim(), 'typed')
+                    setDraft('')
                 }}
-                onSubmit={submit}
                 disabledReason={disabledReason}
-                textAreaRef={textAreaRef}
             >
                 <Composer.Frame>
                     <Composer.Field>
-                        <Composer.Placeholder>Ask a question, or pick a prompt above</Composer.Placeholder>
+                        <Composer.Placeholder>Or ask your own question</Composer.Placeholder>
                         <Composer.Textarea data-attr="today-report-prompt-input" />
                     </Composer.Field>
                 </Composer.Frame>
