@@ -111,6 +111,7 @@ class TestDisplayNames:
     @parameterized.expand(
         [
             ("amazon_ads", "Amazon Ads"),
+            ("rokt_ads", "Rokt Ads"),
             ("apple_ads", "Apple Ads"),
             ("openai_ads", "OpenAI Ads"),
             ("google_ads", "Google Ads"),
@@ -152,6 +153,7 @@ class TestStructuralInvariants:
     def test_only_credential_based_integrations_lack_an_oauth_kind(self) -> None:
         assert set(NativeMarketingSource) - set(OAUTH_KIND_BY_NATIVE) == {
             NativeMarketingSource.AMAZON_ADS,
+            NativeMarketingSource.ROKT_ADS,
             NativeMarketingSource.APPLE_SEARCH_ADS,
             NativeMarketingSource.OPEN_AI_ADS,
         }
@@ -163,6 +165,7 @@ class TestNativeSourceFeatureFlags:
             (source, flag, enabled)
             for source, flag in [
                 ("AmazonAds", "marketing-analytics-amazon-ads"),
+                ("RoktAds", "marketing-analytics-rokt-ads"),
                 ("AppleSearchAds", "marketing-analytics-apple-ads"),
                 ("OpenAIAds", "marketing-analytics-openai-ads"),
             ]

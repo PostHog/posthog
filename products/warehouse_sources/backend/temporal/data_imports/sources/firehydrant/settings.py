@@ -27,6 +27,9 @@ class FireHydrantEndpointConfig:
     page_size: int = PAGE_SIZE
     # Read by the shared fan-out builder; every FireHydrant endpoint is full refresh, so it stays None.
     default_incremental_field: Optional[str] = None
+    # JSON path the rows live under. Nearly every endpoint uses the paginated `data` envelope;
+    # /v1/services/{service_id}/dependencies answers with a named array instead.
+    data_selector: str = "data"
 
 
 # Endpoint catalog. Paths are the FireHydrant v1 REST collection endpoints (verified against the
@@ -105,6 +108,51 @@ FIREHYDRANT_ENDPOINTS: dict[str, FireHydrantEndpointConfig] = {
             resolve_field="id",
             include_from_parent=["id"],
             parent_field_renames={"id": "team_id"},
+        ),
+    ),
+    # IncidentEventEntity carries no created_at; occurred_at is the (immutable) time the timeline
+    # entry happened, so it is the stable field to partition on.
+    "incident_events": FireHydrantEndpointConfig(
+        path="/v1/incidents/{incident_id}/events",
+        partition_key="occurred_at",
+        primary_keys=["incident_id", "id"],
+        fanout=DependentEndpointConfig(
+            parent_name="incidents",
+            resolve_param="incident_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "incident_id"},
+        ),
+    ),
+    "incident_role_assignments": FireHydrantEndpointConfig(
+        path="/v1/incidents/{incident_id}/role_assignments",
+        partition_key="created_at",
+        primary_keys=["incident_id", "id"],
+        fanout=DependentEndpointConfig(
+            parent_name="incidents",
+            resolve_param="incident_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "incident_id"},
+        ),
+    ),
+    # Dependency edges are shared between the two services they join, so the same edge id comes back
+    # under both endpoints; the parent service is what makes each row unique.
+    "service_dependencies": FireHydrantEndpointConfig(
+        path="/v1/services/{service_id}/dependencies",
+        partition_key="created_at",
+        primary_keys=["service_id", "id"],
+        data_selector="service_dependencies",
+        fanout=DependentEndpointConfig(
+            parent_name="services",
+            resolve_param="service_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "service_id"},
+            # `flatten` collapses the parent/child arrays into `service_dependencies`; each row keeps
+            # a `type` saying which direction the edge runs. Sent as a lowercase string because the
+            # API rejects Python's `True` repr.
+            child_params={"flatten": "true"},
         ),
     ),
 }

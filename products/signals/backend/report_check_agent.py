@@ -163,8 +163,9 @@ def build_check_run_note(check: SignalReportCheck, config: AgentCheckConfig) -> 
     lines += [
         "",
         f"Finish by calling `scout-check-record-result` with check_id `{check.id}` and an outcome of "
-        "`passed` (the expectation still holds), `failed` (it does not), or `errored` (you could not "
-        "establish either). That call is the only thing that closes the check.",
+        "`passed` (the evidence meets the bar and the expectation holds), `failed` (it meets the bar "
+        "and the expectation does not hold), `inconclusive` with a `reason` (the evidence cannot settle "
+        "it), or `errored` (a tool or model call failed). That call is the only thing that closes the check.",
     ]
     return "\n".join(lines)
 
@@ -363,6 +364,7 @@ def run_agent_check(check: SignalReportCheck, *, now: datetime | None = None) ->
             team_id=canonical_team_id,
             skill_name=skill_name,
             run_note=build_check_run_note(check, config),
+            check_id=str(check.id),
         )
     except WorkflowAlreadyStartedError:
         # Another check on the same lane is still being answered. Theirs finishes, ours goes next

@@ -220,7 +220,7 @@ describe("AuthService", () => {
     );
   };
 
-  function createService(): AuthService {
+  function createService(extraFetchOrigins: string[] = []): AuthService {
     return new AuthService(
       preferencePort,
       sessionPort,
@@ -230,6 +230,7 @@ describe("AuthService", () => {
       mockPowerManager as unknown as IPowerManager,
       mockLogger,
       null,
+      extraFetchOrigins,
     );
   }
 
@@ -451,6 +452,133 @@ describe("AuthService", () => {
       expect(response.ok).toBe(refreshes);
     },
   );
+
+  it("sends the bearer to an extra origin the host binds", async () => {
+    service.shutdown();
+    service = createService(["http://127.0.0.1:8787"]);
+    service.init();
+    seedStoredSession({ selectedProjectId: 42 });
+    stubAuthFetch();
+    oauthFlow.refreshToken.mockResolvedValue(mockTokenResponse());
+    await service.initialize();
+    vi.mocked(fetch).mockResolvedValueOnce(new Response("ok"));
+
+    const response = await service.authenticatedFetch(
+      fetch,
+      "http://127.0.0.1:8787/mcp",
+    );
+
+    expect(response.status).toBe(200);
+  });
+
+  it("refuses to attach the bearer to an origin outside the allowlist", async () => {
+    seedStoredSession({ selectedProjectId: 42 });
+    stubAuthFetch();
+    oauthFlow.refreshToken.mockResolvedValue(mockTokenResponse());
+    await service.initialize();
+    vi.mocked(fetch).mockClear();
+
+    await expect(
+      service.authenticatedFetch(fetch, "https://evil.example/steal?q=1"),
+    ).rejects.toThrow(
+      /^Refusing to send PostHog credentials to https:\/\/evil\.example$/,
+    );
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("checks the origin of a Request input", async () => {
+    seedStoredSession({ selectedProjectId: 42 });
+    stubAuthFetch();
+    oauthFlow.refreshToken.mockResolvedValue(mockTokenResponse());
+    await service.initialize();
+    vi.mocked(fetch).mockClear();
+
+    await expect(
+      service.authenticatedFetch(
+        fetch,
+        new Request("https://evil.example/steal"),
+      ),
+    ).rejects.toThrow(/^Refusing to send PostHog credentials/);
+    expect(fetch).not.toHaveBeenCalled();
+
+    vi.mocked(fetch).mockResolvedValueOnce(new Response("ok"));
+    const response = await service.authenticatedFetch(
+      fetch,
+      new Request("https://mcp.posthog.com/mcp"),
+    );
+    expect(response.status).toBe(200);
+  });
+
+  it.each([
+    "https://gateway.us.posthog.com/posthog_code/v1/messages",
+    "https://mcp.posthog.com/mcp",
+  ])("still sends the bearer to %s", async (url) => {
+    seedStoredSession({ selectedProjectId: 42 });
+    stubAuthFetch();
+    oauthFlow.refreshToken.mockResolvedValue(mockTokenResponse());
+    await service.initialize();
+    vi.mocked(fetch).mockResolvedValueOnce(new Response("ok"));
+
+    const response = await service.authenticatedFetch(fetch, url);
+
+    expect(response.status).toBe(200);
+  });
+
+  it("applies a desktop access denial reported by another endpoint", async () => {
+    seedStoredSession({ selectedProjectId: 42 });
+    stubAuthFetch();
+    oauthFlow.refreshToken.mockResolvedValue(mockTokenResponse());
+    await service.initialize();
+
+    service.reportDesktopAccessBlocked(99, {
+      allowed: false,
+      reason: "startup_plan",
+    });
+    expect(service.getState().desktopAccess.status).not.toBe("blocked");
+    service.reportDesktopAccessBlocked(42, {
+      allowed: false,
+      reason: "startup_plan",
+    });
+
+    expect(service.getState().desktopAccess).toEqual({
+      projectId: 42,
+      status: "blocked",
+      reason: "startup_plan",
+    });
+  });
+
+  it("changes the session epoch on a sign-in over a live session only", async () => {
+    seedStoredSession({ selectedProjectId: 42 });
+    stubAuthFetch();
+    oauthFlow.refreshToken.mockResolvedValue(mockTokenResponse());
+    await service.initialize();
+    const first = service.getSessionEpoch();
+    expect(first).not.toBeNull();
+
+    await service.refreshAccessToken();
+    expect(service.getSessionEpoch()).toBe(first);
+
+    let finishFlow: (value: unknown) => void = () => undefined;
+    oauthFlow.startFlow.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finishFlow = resolve;
+      }),
+    );
+    const pending = service.login("us");
+    await service.refreshAccessToken().catch(() => undefined);
+    expect(service.getSessionEpoch()).toBe(first);
+    finishFlow(mockTokenResponse());
+    await pending;
+    expect(service.getSessionEpoch()).not.toBe(first);
+    const second = service.getSessionEpoch();
+
+    oauthFlow.startFlow.mockResolvedValue(mockTokenResponse());
+    await service.login("us");
+    expect(service.getSessionEpoch()).not.toBe(second);
+
+    await service.logout();
+    expect(service.getSessionEpoch()).toBeNull();
+  });
 
   it("requires scope reauthentication when the stored scope version is stale", async () => {
     seedStoredSession({

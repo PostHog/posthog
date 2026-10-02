@@ -21,6 +21,7 @@ from temporalio.client import (
 )
 
 from posthog.cloud_utils import is_cloud
+from posthog.scheduling.jitter import deterministic_offset
 from posthog.slo.types import SloArea, SloConfig, SloOperation
 from posthog.temporal.ai.checkpoint_compaction.schedule import (
     create_checkpoint_compaction_schedule,
@@ -124,6 +125,7 @@ from products.replay_vision.backend.temporal.estimates import create_replay_visi
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
     create_replay_vision_gemini_cleanup_sweep_schedule,
 )
+from products.replay_vision.backend.temporal.jev_watch_rank import create_replay_vision_jev_watch_rank_schedule
 from products.replay_vision.backend.temporal.read_meter import create_replay_vision_read_meter_schedule
 from products.replay_vision.backend.temporal.reconciler import create_replay_vision_reconciler_schedule
 from products.replay_vision.backend.temporal.search_suggestions import create_replay_vision_search_suggestions_schedule
@@ -136,6 +138,7 @@ from products.signals.backend.temporal.agentic.schedule import (
     create_scout_suggestions_coordinator_schedule,
     create_signals_scout_coordinator_schedule,
 )
+from products.today.backend.facade.temporal import create_today_briefing_schedule
 from products.web_analytics.backend.temporal.digest_notification.types import WADigestNotificationInput
 from products.web_analytics.backend.temporal.weekly_digest.types import WAWeeklyDigestInput
 
@@ -223,7 +226,10 @@ async def create_upgrade_queries_schedule(client: Client):
             id="upgrade-queries-schedule",
             task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
         ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(hours=6))]),
+        spec=ScheduleSpec(
+            intervals=[ScheduleIntervalSpec(every=timedelta(hours=6), offset=timedelta(minutes=2))],
+            jitter=timedelta(minutes=30),
+        ),
     )
 
     if await a_schedule_exists(client, "upgrade-queries-schedule"):
@@ -582,7 +588,10 @@ async def create_ducklake_compaction_schedule(client: Client):
                 initial_interval=timedelta(minutes=5),
             ),
         ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(hours=1))]),
+        spec=ScheduleSpec(
+            intervals=[ScheduleIntervalSpec(every=timedelta(hours=1), offset=timedelta(minutes=2))],
+            jitter=timedelta(minutes=10),
+        ),
     )
 
     if await a_schedule_exists(client, "ducklake-compaction-schedule"):
@@ -636,10 +645,10 @@ async def create_purge_deleted_recording_metadata_schedule(client: Client):
         )
 
 
-async def create_replay_count_metrics_schedule(client: Client):
+async def create_replay_count_metrics_schedule(client: Client) -> None:
     """Create or update the schedule for the replay count metrics workflow.
 
-    This schedule runs hourly at minute 0, matching the previous Celery schedule.
+    This schedule runs hourly at minute zero to preserve adjacent one-hour metric windows.
     """
     replay_count_metrics_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
@@ -763,7 +772,14 @@ async def create_run_usage_reports_schedule(client: Client):
             task_queue=settings.BILLING_TASK_QUEUE,
             retry_policy=common.RetryPolicy(maximum_attempts=1),
         ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(minutes=30))]),
+        spec=ScheduleSpec(
+            intervals=[
+                ScheduleIntervalSpec(
+                    every=timedelta(minutes=30),
+                    offset=deterministic_offset("run-usage-reports-schedule", timedelta(minutes=30)),
+                )
+            ]
+        ),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
 
@@ -786,7 +802,7 @@ async def create_finalize_usage_reports_schedule(client: Client):
     the numbers are final for that date.
     02:45 leaves ~2.75 hours for ingestion lag after midnight and stays ahead
     of the legacy Celery run at 03:45 UTC. The intraday schedule now runs
-    every 30 minutes, so this slot sits between the 02:30 and 03:00 intraday
+    every 30 minutes, so this slot sits between two intraday
     runs rather than clearing them by an hour, and the two schedules' SKIP
     policies don't see each other. A brief overlap is harmless: every run
     writes under its own `{date}/{run_id}` S3 prefix, and the finalizer
@@ -885,7 +901,10 @@ async def create_error_tracking_recommendations_refresh_schedule(client: Client)
             task_queue=settings.ERROR_TRACKING_TASK_QUEUE,
             retry_policy=common.RetryPolicy(maximum_attempts=1),
         ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(hours=1))]),
+        spec=ScheduleSpec(
+            intervals=[ScheduleIntervalSpec(every=timedelta(hours=1), offset=timedelta(minutes=2))],
+            jitter=timedelta(minutes=10),
+        ),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
 
@@ -952,6 +971,7 @@ schedules = [
     create_run_investigation_safety_net_schedule,
     create_cleanup_alert_checks_schedule,
     create_autoresearch_daily_schedule,
+    create_today_briefing_schedule,
     create_signals_scout_coordinator_schedule,
     create_inbox_ranking_scoring_schedule,
     create_scout_suggestions_coordinator_schedule,
@@ -965,6 +985,7 @@ schedules = [
     create_replay_vision_search_suggestions_schedule,
     create_vision_alert_check_schedule,
     create_replay_vision_read_meter_schedule,
+    create_replay_vision_jev_watch_rank_schedule,
     create_github_job_logs_coordinator_schedule,
     create_review_hog_finding_outcomes_schedule,
     create_ci_signals_coordinator_schedule,

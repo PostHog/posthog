@@ -196,6 +196,7 @@ export interface webAnalyticsLogicValues {
     currentFiltersConfig: WebAnalyticsFiltersConfig
     dateFilter: DateFilterState
     deviceTab: string
+    exportAllDisabledReason: string | null
     filters: {
         compareFilter: CompareFilter
         conversionGoal: WebAnalyticsConversionGoal | null
@@ -226,6 +227,7 @@ export interface webAnalyticsLogicValues {
     isFocusModeActive: boolean
     isGreaterThanMd: boolean
     isPathCleaningEnabled: boolean
+    marketingCrossSellDismissed: boolean
     pathTab: string
     preZoomDateFilter: {
         dateFrom: string | null
@@ -353,6 +355,9 @@ export interface webAnalyticsLogicActions {
         value: true
     }
     dismissFocusModeOnboarding: () => {
+        value: true
+    }
+    dismissMarketingCrossSell: () => {
         value: true
     }
     enterFocusMode: () => {
@@ -660,6 +665,7 @@ export interface webAnalyticsLogicMeta {
             shouldFilterTestAccounts: boolean
         ) => InsightVizNode<TrendsQuery>
         showFocusMode: (featureFlags: FeatureFlagsSet, productTab: ProductTab) => boolean
+        exportAllDisabledReason: (productTab: ProductTab) => string | null
         hasSavedFocusMode: (focusModeConcerns: WebAnalyticsConcern[]) => boolean
         hasSeenFocusModeOnboarding: (user: UserType | null, currentTeam: TeamPublicType | TeamType | null) => boolean
         shouldAutoOpenFocusModeOnboarding: (
@@ -830,6 +836,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
         setWebVitalsTab: (tab: WebVitalsMetric) => ({ tab }),
         setTileVisualization: (tileId: TileId, visualization: TileVisualizationOption) => ({ tileId, visualization }),
         setTileVisibility: (tileId: TileId, visible: boolean) => ({ tileId, visible }),
+        dismissMarketingCrossSell: true,
         setHiddenTiles: (hiddenTiles: TileId[]) => ({ hiddenTiles }),
         resetTileVisibility: () => true,
         openFocusModeModal: (onboarding: boolean = false) => ({ onboarding }),
@@ -1121,6 +1128,11 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                         [tileId]: visualization,
                     }),
                 },
+            ],
+            marketingCrossSellDismissed: [
+                false,
+                buildTeamScopedPersistenceConfig(),
+                { dismissMarketingCrossSell: () => true },
             ],
             hiddenTiles: [
                 [] as TileId[],
@@ -1681,6 +1693,13 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
             (s) => [s.featureFlags, s.productTab],
             (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet, productTab: ProductTab): boolean =>
                 featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FOCUS_MODE] === 'test' && productTab === ProductTab.ANALYTICS,
+        ],
+        exportAllDisabledReason: [
+            (s) => [s.productTab],
+            (productTab: ProductTab): string | null =>
+                productTab === ProductTab.ANALYTICS || productTab === ProductTab.WEB_VITALS
+                    ? null
+                    : 'Switch to the Web analytics or Web vitals tab to export as CSV',
         ],
         hasSavedFocusMode: [
             (s) => [s.focusModeConcerns],

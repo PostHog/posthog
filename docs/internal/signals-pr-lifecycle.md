@@ -22,6 +22,26 @@ A `part_of` link written on a step that already closed runs the check as well, b
 It continues up a plan of plans, and skips a plan that is waiting on a replacement.
 It also skips a plan that carries its own open, draft, or unknown PR, because that plan's own work decides its status.
 
+## Follow-up measurement timing
+
+Metric follow-up checks wait until their full trailing query window contains only post-resolution data. The configured soak is an independent minimum wait. Reopening a report clears the measurement anchor; resolving it again starts a new window. Legacy active metric checks without an anchor start their window at the next coordinator tick and recalculate expiry from the remaining schedule, capped at 90 days from that tick. Legacy rows do not distinguish supplied expiries from defaults, so both follow this re-arming policy. Checks with an existing anchor retain their expiry. A window that cannot finish before expiry records an inconclusive result instead of scheduling an unreachable run. Agent checks keep their soak-based schedule.
+
+New metric checks validate numeric goals and baselines against their metric kind, format, unit, and query. Existing check configurations remain readable.
+
+## Follow-up check editing
+
+Approval records a person's quality signal without changing the check schedule. Only open checks can be approved. Approval advances the check's update timestamp so older list responses cannot undo it on screen; retries preserve the original approval and timestamp. Atomic metric replacement cancels the old check and creates an unapproved replacement, preserving recurring runs and the configured soak, including zero minutes. Replacement cannot override the soak. Creation and replacement share schedule validation: the full metric schedule, including its soak and measurement window, must finish before the 90-day horizon. Invalid replacements leave the old check running. A replacement rejects a check moved by a concurrent report merge; reload the report and retry on the survivor. Units cannot contain null characters or unpaired Unicode surrogates. The requester must have access to the replacement query.
+
+Custom HogQL aggregations are parsed before a metric or check is authored. Invalid syntax returns a validation error; a rejected replacement keeps the original check and its activity history intact.
+
+Research captures the open checks' versions before starting. If any check changes before its result is stored, that pass leaves the checks alone. Research that does not review existing checks also preserves person-selected and approved checks.
+
+The `inbox-report-checks-replace` MCP tool requires `task:write` and `query:read`. Query-specific event, action, and cohort permissions still apply. The `signals-report-checks-replace` rollout flag hides the tool unless enabled. Keep it disabled until the replacement API is deployed in every region. This gate is separate from the Expected impact display flag.
+
+## Proposed impact measurement
+
+The organization authoring flag lets research propose up to six active `impact_measurement_plan` artefacts for measurable outcomes. Each bounded query, goal, aggregation grain, and decision rule lives in an artefact, not in the report's observation metrics. Authoring rejects query filters and conversion goals whose shape the report access policy cannot check, including HogQL property filters. It also omits an observation metric when its query has an unsupported filter; research keeps that evidence in report prose when no readable structured query exists. A readable observation remains without a plan when only the eligibility query is unsupported. Individual resource grants, token scopes, and property restrictions still apply when someone reads a report. A minimum-data rule also needs an eligibility query for qualifying opportunities. A later research pass reviews the current plans against new evidence. It preserves unchanged plans, appends an unapproved version for a material revision, or appends a retired version when the outcome is no longer relevant or measurable. A plan changed by a person during research takes precedence over that pass. Earlier versions remain for review. The report's "Keep an eye on this for me" action activates current proposals when the display flag is on. Activation appends a new version and does not schedule a check or change the report state. The approval action currently accepts an authenticated person; the artefact schema does not require a person as its approver.
+
 ## Repository selection
 
 The shared repository selection prompt asks the agent to check the sources in the supplied context before choosing a repository.
@@ -32,6 +52,8 @@ This is prompt guidance, not an enforced access control, and it does not validat
 ## Reviewer notifications
 
 Research suggests reviewers from relevant commit authors and recent code activity. It also checks the finding's relevant paths against `owners.yaml` and the connected repository's CODEOWNERS. When they disagree, the `owners.yaml` owner comes first and a routable CODEOWNERS owner follows. A human edit to the report's reviewer list stays in place on later research runs. Missing ownership files or paths leave the existing author-based suggestions unchanged. Scout-authored reports use their own reviewer selection guidance.
+
+When a project member adds a reviewer, the report shows "Added by" and that member's name as the reason above the reviewer. The name comes from the authenticated author of the artefact that added the reviewer, not from the editable reason. If the author is unavailable, the report shows the generic "Added by teammate" badge instead.
 
 Slack notifications for a ready report include only reviewers who have access to the report's project when delivery starts.
 The same access rule applies when a reviewer is added later.

@@ -5,8 +5,6 @@ import pytest
 import aioboto3
 import pytest_asyncio
 
-from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export
-
 from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
 from products.batch_exports.backend.temporal.destinations.constants import (
     COMPRESSION_EXTENSIONS,
@@ -14,6 +12,7 @@ from products.batch_exports.backend.temporal.destinations.constants import (
 )
 from products.batch_exports.backend.temporal.destinations.s3_batch_export import SUPPORTED_COMPRESSIONS
 from products.batch_exports.backend.tests.temporal.destinations.s3.utils import run_s3_batch_export_workflow
+from products.batch_exports.backend.tests.temporal.utils.models import acreate_batch_export, adelete_batch_export
 from products.batch_exports.backend.tests.temporal.utils.s3 import delete_all_from_s3
 
 pytestmark = [

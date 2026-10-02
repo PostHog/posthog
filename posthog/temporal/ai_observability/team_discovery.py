@@ -209,8 +209,9 @@ async def get_team_ids_for_ai_observability(inputs: TeamDiscoveryInput | None = 
 
             # Guaranteed teams first: the coordinator processes teams in this order and
             # may exhaust its run budget before reaching the tail, so allowlisted teams
-            # must never sit behind the sampled set.
-            discovered = sorted(guaranteed - skip) + sorted(sampled)
+            # must never sit behind the sampled set. The sampled set keeps its random
+            # order, so a run that stops early skips different teams each hour.
+            discovered = sorted(guaranteed - skip) + sampled
             discovery_context = {
                 "ai_event_teams_count": len(ai_event_teams),
                 "remaining_count": len(remaining),

@@ -12,6 +12,7 @@ from uuid import UUID
 from django.conf import settings
 from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
 from django.utils.html import escape
+from django.utils.http import content_disposition_header
 
 import pydantic
 import requests as http_requests
@@ -20,7 +21,6 @@ import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
-from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import (
     APIException,
@@ -44,7 +44,7 @@ from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import ServerTimingsGathered
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.event_usage import groups
 from posthog.middleware import is_read_only_impersonation
 from posthog.models import User
@@ -155,6 +155,8 @@ from products.tasks.backend.presentation.serializers import (
     TaskPinRequestSerializer,
     TaskPinResponseSerializer,
     TaskPresenceBeaconRequestSerializer,
+    TaskPullRequestTitlesRequestSerializer,
+    TaskPullRequestTitlesSerializer,
     TaskRepositoriesResponseSerializer,
     TaskRunAnalysisActivityRequestSerializer,
     TaskRunAnalysisActivityResponseSerializer,
@@ -219,6 +221,7 @@ from products.tasks.backend.presentation.serializers import (
     WarmTaskResumeResponseSerializer,
     WizardCloudRunSerializer,
 )
+from products.tasks.backend.presentation.task_review_serializers import TaskReviewQuerySerializer, TaskReviewSerializer
 
 from ee.hogai.utils.aio import async_to_sync
 
@@ -572,13 +575,26 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         return Response(TaskSearchResultSerializer(results, many=True).data)
 
+    @validated_request(
+        query_serializer=TaskReviewQuerySerializer, responses={200: OpenApiResponse(response=TaskReviewSerializer)}
+    )
+    @action(detail=True, methods=["get"], required_scopes=["task:read"])
+    def review(self, request, pk=None, **kwargs):
+        task = tasks_facade.get_task_detail(pk, self.team_id, self._user_id())
+        if task is None:
+            raise NotFound()
+        result = tasks_facade.task_review(
+            self.team_id, str(task.id), request.user.id, request.validated_query_data["page"]
+        )
+        return Response(TaskReviewSerializer(result).data)
+
     @extend_schema(
         responses={200: OpenApiResponse(response=TaskSerializer, description="Task")},
         summary="Get task",
         description="Retrieve a single task by ID.",
     )
     def retrieve(self, request, pk=None, **kwargs):
-        bypass_visibility = _can_bypass_visibility(request, self.team_id)
+        bypass_visibility = is_sandbox_agent_request(request, pk) or _can_bypass_visibility(request, self.team_id)
         task = tasks_facade.get_task_detail(pk, self.team_id, self._user_id(), bypass_visibility=bypass_visibility)
         if task is None:
             raise NotFound()
@@ -632,6 +648,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             page = tasks_facade.list_task_comments(
                 team_id=self.team_id,
                 task_id=task_id,
+                user_id=self._user_id(),
                 artifact_id=params.validated_data.get("artifact_id"),
                 include_resolved=params.validated_data["include_resolved"],
                 limit=params.validated_data["limit"],
@@ -662,6 +679,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             comment = tasks_facade.retrieve_task_comment(
                 team_id=self.team_id,
                 task_id=task_id,
+                user_id=self._user_id(),
                 comment_id=parsed_comment_id,
                 limit=params.validated_data["limit"],
                 cursor=params.validated_data.get("cursor"),
@@ -1094,6 +1112,24 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(TaskSummarySerializer(summaries, many=True).data)
 
     @validated_request(
+        request_serializer=TaskPullRequestTitlesRequestSerializer,
+        responses={200: OpenApiResponse(response=TaskPullRequestTitlesSerializer)},
+        summary="Fetch pull request titles for tasks",
+        description="Returns the GitHub titles of the pull requests that the latest run of each task opened.",
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="pull_request_titles",
+        pagination_class=None,
+        required_scopes=["task:read"],
+        filter_backends=[],
+    )
+    def pull_request_titles(self, request, **kwargs):
+        titles = tasks_facade.get_pull_request_titles(self.team_id, request.user.id, request.validated_data["ids"])
+        return Response(TaskPullRequestTitlesSerializer({"titles": titles}).data)
+
+    @validated_request(
         query_serializer=RepositoryReadinessQuerySerializer,
         responses={
             200: OpenApiResponse(
@@ -1264,7 +1300,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @validated_request(
         request_serializer=TaskRunCreateRequestSerializer,
         responses={
-            200: OpenApiResponse(response=TaskRunResponseSerializer, description="Task with updated latest run"),
+            200: OpenApiResponse(
+                response=TaskRunResponseSerializer,
+                description="The refreshed task, plus the created run under the top-level `run` key",
+            ),
             400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid task run payload"),
             402: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
@@ -1295,7 +1334,13 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ),
         },
         summary="Run task",
-        description="Create a new task run and kick off the workflow.",
+        description=(
+            "Create a new task run and kick off the workflow. The response is the refreshed task "
+            "with the created run under the top-level `run` key: read `run.id` for anything "
+            "run-scoped, such as the run's stream and command endpoints. The top-level `id` is "
+            "the task's, and `latest_run` mirrors `run` only as long as nothing newer starts — "
+            "reading either of those as the created run is deprecated."
+        ),
         include_serializer_context=True,
     )
     @action(detail=True, methods=["post"], url_path="run", required_scopes=["task:write"])
@@ -1339,7 +1384,12 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 pk,
                 self.team_id,
                 self._user_id(),
-                validated_data=dict(request.validated_data),
+                validated_data={
+                    **request.validated_data,
+                    "client_platform": "mobile"
+                    if request.headers.get("X-PostHog-Client-Platform") == "mobile"
+                    else None,
+                },
                 **(
                     {"warm_retry_token": request.headers["X-PostHog-Warm-Retry"]}
                     if "X-PostHog-Warm-Retry" in request.headers
@@ -1357,7 +1407,23 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         response_data = TaskSerializer(result.task).data
         if result.run_error:
             response_data["run_error"] = result.run_error
+        response_data["run"] = self._created_run_payload(result, response_data, task_id=pk)
         return Response(response_data)
+
+    def _created_run_payload(self, result, response_data: dict, *, task_id) -> dict | None:
+        """The run the ``run`` action created or activated, as a serialized run detail.
+
+        Usually this is exactly the refreshed task's ``latest_run``, so reuse that payload
+        (including its inherited-PR backfill). A concurrent run creation can race past it, in
+        which case the run named by the facade is fetched directly.
+        """
+        if result.run_id is None:
+            return None
+        latest_run = response_data.get("latest_run")
+        if latest_run and str(latest_run.get("id")) == str(result.run_id):
+            return latest_run
+        run = tasks_facade.get_task_run_detail(result.run_id, task_id, self.team_id, user_id=self._user_id())
+        return TaskRunDetailSerializer(run).data if run is not None else None
 
     def _agent_run_enabled(self, request) -> bool:
         return _agent_run_enabled(request, self.team)
@@ -3101,7 +3167,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ),
             400: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
-                description="Invalid command or no active sandbox",
+                description="Invalid command — fatal, do not retry. (Legacy exception: interactive PostHog "
+                "Desktop grants still receive the transient `sandbox_not_ready` condition as a 400 for every "
+                "method except `credential_response`, because shipped Desktop builds branch on that status; "
+                "API callers always get it as a 503.)",
             ),
             403: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
@@ -3110,7 +3179,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             404: OpenApiResponse(description="Task run not found"),
             409: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
-                description="Task run workflow has ended; permission_target_ended for an ended approval target",
+                description="Final, do not retry. Task run workflow has ended; `permission_target_ended` for an "
+                "ended approval target; `run_ended` when the run is completed, failed, or cancelled and its "
+                "sandbox is cleaned up — unlike `sandbox_not_ready`, nothing will ever come up",
             ),
             429: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
@@ -3119,17 +3190,24 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             502: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Agent server unreachable"),
             503: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
-                description="agent_session_not_ready: approval rejected before execution while the agent starts; "
-                "or PostHog Desktop access could not be verified",
+                description="Transient, retry after `Retry-After` until the request you are answering expires. "
+                "Code `sandbox_not_ready`: the run is still live but its sandbox's command channel is not "
+                "reachable yet — the usual answer to a command sent as soon as the run asks for one, such as a "
+                "credential_response (a 409 `run_ended` ends that loop). Code `agent_session_not_ready`: approval "
+                "rejected before execution while the agent starts. Or PostHog Desktop access could not be verified.",
             ),
         },
         summary="Send command to task run",
         description="Queue user_message JSON-RPC commands through the task workflow and forward sandbox control "
         "commands to the agent server. Supports user_message, cancel, close, permission_response, "
         "set_config_option, mcp_response, side_question, native Pi RPC commands, and Pi queue operations. "
-        "Permission responses return 503 agent_session_not_ready only when rejected before execution; "
-        "clients may retry that code within a bounded startup wait. HTTP 200 preserves JSON-RPC errors; "
-        "permission acceptance requires result.resolved=true.",
+        "Retry loop: a 503 is transient (sandbox_not_ready means the command arrived before the live "
+        "run's command channel came up; agent_session_not_ready means an approval was rejected before "
+        "execution while the agent starts) — retry it until the request you are answering expires. "
+        "A 502 (agent server unreachable) or 504 (agent server timed out) means delivery is unknown; "
+        "retry only when the command method is safe to retry. A 409 run_ended is final: the run is over "
+        "and its sandbox is gone. "
+        "HTTP 200 preserves JSON-RPC errors; permission acceptance requires result.resolved=true.",
         strict_request_validation=True,
     )
     @action(
@@ -3324,15 +3402,45 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 )
 
         if not connection.sandbox_url:
+            if connection.run_is_terminal:
+                # A completed, failed, or cancelled run's sandbox is cleaned up and never comes
+                # back, so this refusal must be final — a retryable status here would tell a
+                # client to poll a dead run until its own deadline. 409 matches this endpoint's
+                # other "the run is over" refusals; the distinct code lets a client tell "stop"
+                # from the transient `sandbox_not_ready` below.
+                return Response(
+                    TaskRunErrorResponseSerializer(
+                        {"code": "run_ended", "error": "This task run has ended and its sandbox is gone"}
+                    ).data,
+                    status=status.HTTP_409_CONFLICT,
+                )
+            not_ready_body = TaskRunErrorResponseSerializer(
+                {
+                    "type": "runtime_unavailable",
+                    "code": "sandbox_not_ready",
+                    "error": "No active sandbox for this task run",
+                }
+            ).data
+            # Shipped PostHog Desktop builds recognise this condition only as a 400
+            # (isNoActiveSandboxError gates its startup wait-and-retry on that status), so an
+            # interactive Desktop grant keeps the legacy status. Current Desktop accepts either;
+            # drop this carve-out once pre-503 builds age out.
+            # Desktop's credential relay retries a 503 and gives up on a 400, so it gets the 503.
+            if (
+                method != "credential_response"
+                and get_task_client_provenance(request) is tasks_facade.TaskClientProvenance.POSTHOG_DESKTOP
+            ):
+                return Response(not_ready_body, status=status.HTTP_400_BAD_REQUEST)
+            # 503, not 400, for everyone else: the sandbox registers its command channel a
+            # moment after it starts emitting events, so a command sent promptly — a
+            # credential_response answering the sandbox's own credential_request being the
+            # canonical case — reliably arrives here first. That is a transient server-side
+            # condition, and returning it as a 400 made correctly-behaving clients (which treat
+            # 4xx as fatal) give up with most of the request's expiry window still left.
             return Response(
-                TaskRunErrorResponseSerializer(
-                    {
-                        "type": "runtime_unavailable",
-                        "code": "sandbox_not_ready",
-                        "error": "No active sandbox for this task run",
-                    }
-                ).data,
-                status=status.HTTP_400_BAD_REQUEST,
+                not_ready_body,
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                headers={"Retry-After": "2"},
             )
 
         if not self._is_valid_sandbox_url(connection.sandbox_url):
@@ -4080,7 +4188,7 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
     http_method_names = ["get", "post", "head", "options"]
-    # The artifact registry is small and bounded per task; the response is a plain list.
+    # The artifact registry is small and bounded per task, so the list returns one unpaginated envelope.
     pagination_class = None
     # Fallback for drf-spectacular introspection only; every action declares its own
     # request/response schema via @validated_request.
@@ -4109,7 +4217,7 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
     def _ensure_task_accessible(self) -> str:
         """Gate access to the parent task, mirroring ``TaskRunViewSet._ensure_task_accessible``."""
         task_id = self._task_id()
-        is_read = self.action in ("list", "retrieve")
+        is_read = self.action in ("list", "retrieve", "version_content")
         bypass_visibility = is_read and _can_bypass_visibility(self.request, self.team_id)
         if not tasks_facade.task_accessible_for_run_view(
             task_id,
@@ -4403,6 +4511,57 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             return Response(TaskRunErrorResponseSerializer({"error": error}).data, status=status.HTTP_400_BAD_REQUEST)
         serializer = TaskRunLivingArtifactResponseSerializer(artifact)
         return Response(serializer.data)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "version",
+                OpenApiTypes.INT,
+                OpenApiParameter.PATH,
+                description="Version number of the living artifact, as listed in its versions.",
+            )
+        ],
+        responses={
+            (200, "application/octet-stream"): OpenApiResponse(
+                response=OpenApiTypes.BINARY,
+                description="Version content, with the content type the version was saved with",
+            ),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Unable to read the version"),
+            404: OpenApiResponse(description="Living artifact or version not found, or the version keeps no content"),
+        },
+        summary="Download one version of a living artifact",
+        description=(
+            "Streams the content of one living artifact version from the app origin. Slack file versions return "
+            "their stored file. Slack canvas and message versions return their text."
+        ),
+        operation_id="tasks_runs_living_artifacts_version_content",
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path=r"versions/(?P<version>[0-9]+)",
+        required_scopes=["task:read"],
+    )
+    def version_content(self, request, pk=None, version=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        content, error = tasks_facade.read_task_run_living_artifact_version(
+            self._run_id(), task_id, self.team_id, artifact_id=str(pk), version=int(str(version))
+        )
+        if error == "read_failed":
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "Unable to read this version"}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if content is None:
+            raise NotFound()
+        response = HttpResponse(content.content, content_type=content.content_type)
+        response["Cache-Control"] = "no-cache"
+        # Agent-written HTML or SVG must not render as a page on the app origin, so the browser always saves it.
+        response["Content-Disposition"] = (
+            content_disposition_header(as_attachment=True, filename=os.path.basename(content.name) or "artifact")
+            or "attachment"
+        )
+        return response
 
 
 @extend_schema(tags=["tasks"])

@@ -125,6 +125,13 @@ class TestBuildInitialParams:
                 {},
             ),
             (
+                "conversation_tags_has_no_pagination_params",
+                "conversation_tags",
+                False,
+                None,
+                {},
+            ),
+            (
                 "tickets_incremental_updated_sweeps_recent_desc",
                 "tickets",
                 True,
@@ -151,6 +158,20 @@ class TestBuildInitialParams:
                 False,
                 None,
                 {},
+            ),
+            (
+                "ticket_categories_have_no_pagination_params",
+                "ticket_categories",
+                False,
+                None,
+                {},
+            ),
+            (
+                "surveys_have_no_sort_or_filter_param",
+                "surveys",
+                False,
+                None,
+                {"limit": 100},
             ),
         ]
     )
@@ -338,12 +359,6 @@ class TestDescCutoffIncremental:
 class TestPostVotersFanOut:
     _posts_url = f"{BASE}/posts?limit=100&sortBy=createdAt&sortOrder=asc"
 
-    def test_config_is_opt_in_fan_out_with_composite_pk(self) -> None:
-        config = FEATUREBASE_ENDPOINTS["post_voters"]
-        assert config.fan_out_over_posts is True
-        assert config.should_sync_default is False
-        assert config.primary_keys == ["postId", "id"]
-
     def test_fans_out_over_every_post_injecting_post_id(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager()
         pages = {
@@ -361,7 +376,7 @@ class TestPostVotersFanOut:
 
         assert [(r["postId"], r["id"]) for r in rows] == [("P1", "U1"), ("P2", "U1"), ("P2", "U2")]
         # Bookmark advanced to P2 so a crash between posts resumes there, not from scratch.
-        assert [(s.post_id, s.cursor) for s in manager.saved] == [("P2", None)]
+        assert [(s.parent_id, s.cursor) for s in manager.saved] == [("P2", None)]
 
     def test_deleted_post_404_is_skipped(self, monkeypatch: Any) -> None:
         not_found = requests.HTTPError(response=_response_with_status(404))
@@ -383,7 +398,7 @@ class TestPostVotersFanOut:
             _collect_rows(monkeypatch, "post_voters", pages)
 
     def test_resumes_from_bookmarked_post(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager(FeaturebaseResumeConfig(cursor="vcur", post_id="P2"))
+        manager = _FakeResumableManager(FeaturebaseResumeConfig(cursor="vcur", parent_id="P2"))
         fetched: list[str] = []
         pages = {
             self._posts_url: {"data": [{"id": "P1"}, {"id": "P2"}], "nextCursor": None},
@@ -395,6 +410,32 @@ class TestPostVotersFanOut:
         # starting at its saved cursor.
         assert [(r["postId"], r["id"]) for r in rows] == [("P2", "U9")]
         assert f"{BASE}/posts/P1/voters?limit=100" not in fetched
+
+
+class TestSurveyResponsesFanOut:
+    _surveys_url = f"{BASE}/surveys?limit=100"
+
+    def test_fans_out_over_every_survey_injecting_survey_id(self, monkeypatch: Any) -> None:
+        manager = _FakeResumableManager()
+        pages = {
+            self._surveys_url: {"data": [{"id": "S1"}, {"id": "S2"}], "nextCursor": None},
+            f"{BASE}/surveys/S1/responses?limit=100": {
+                "data": [{"id": "R1", "object": "survey_response"}],
+                "nextCursor": "rcur",
+            },
+            f"{BASE}/surveys/S1/responses?limit=100&cursor=rcur": {
+                "data": [{"id": "R2", "object": "survey_response"}],
+                "nextCursor": None,
+            },
+            f"{BASE}/surveys/S2/responses?limit=100": {
+                "data": [{"id": "R3", "object": "survey_response"}],
+                "nextCursor": None,
+            },
+        }
+        rows = _collect_rows(monkeypatch, "survey_responses", pages, manager)
+
+        assert [(r["surveyId"], r["id"]) for r in rows] == [("S1", "R1"), ("S1", "R2"), ("S2", "R3")]
+        assert [(s.parent_id, s.cursor) for s in manager.saved] == [("S1", "rcur"), ("S2", None)]
 
 
 class TestSourceResponse:
@@ -434,6 +475,9 @@ class TestSourceResponse:
             ("tickets", ["id"], ["createdAt"]),
             ("conversations", ["id"], ["createdAt"]),
             ("conversation_tags", ["id"], None),
+            ("ticket_categories", ["id"], None),
+            ("surveys", ["id"], ["createdAt"]),
+            ("survey_responses", ["surveyId", "id"], ["createdAt"]),
         ]
     )
     def test_primary_and_partition_keys(

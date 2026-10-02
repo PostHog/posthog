@@ -33,6 +33,11 @@ _ANNOUNCEMENT_STATUS_CHOICES = [
     ("failed", "Failed"),
 ]
 
+_ANNOUNCEMENT_SEND_AS_CHOICES = [
+    ("bot", "SupportHog"),
+    ("user", "The person who created it"),
+]
+
 _DELIVERY_STATUS_CHOICES = [
     ("pending", "Pending"),
     ("sent", "Sent"),
@@ -88,6 +93,16 @@ class AnnouncementSerializer(DataclassSerializer):
         choices=_ANNOUNCEMENT_STATUS_CHOICES,
         help_text="Overall status: pending, sending, sent, partially_failed, or failed.",
     )
+    send_as = serializers.ChoiceField(
+        choices=_ANNOUNCEMENT_SEND_AS_CHOICES,
+        default="bot",
+        help_text="Slack identity the message is posted under: 'bot' posts as SupportHog, 'user' posts under the "
+        "Slack name and avatar of the person sending it (matched by their PostHog email).",
+    )
+    sender_display_name = serializers.CharField(
+        read_only=True,
+        help_text="Slack display name the message was posted under when send_as is 'user'; empty otherwise.",
+    )
     total_channels = serializers.IntegerField(read_only=True, help_text="Number of channels this announcement targets.")
     sent_count = serializers.IntegerField(
         read_only=True, help_text="Number of channels the message was successfully delivered to."
@@ -118,6 +133,8 @@ class AnnouncementSerializer(DataclassSerializer):
             "short_id",
             "message",
             "status",
+            "send_as",
+            "sender_display_name",
             "total_channels",
             "sent_count",
             "failed_count",
@@ -178,13 +195,18 @@ class AnnouncementViewSet(
                 user=cast(User, request.user),
                 message=data.message,
                 channels=data.channels,
+                send_as=data.send_as,
             )
         except AnnouncementValidationError as e:
             raise serializers.ValidationError(e.detail)
         report_user_action(
             request.user,
             "customer analytics announcement created",
-            {"id": str(announcement.id), "channel_count": announcement.total_channels},
+            {
+                "id": str(announcement.id),
+                "channel_count": announcement.total_channels,
+                "send_as": announcement.send_as,
+            },
             team=self.team,
             request=request,
         )

@@ -11,10 +11,10 @@ source configures on the shared platform, rather than one product's own table.
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import UUIDTModel
+from posthog.models.utils import UUIDModel
 
 
-class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDTModel):
+class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDModel):
     """What to evaluate, how often, and against what bound.
 
     Evaluation-level state lives here rather than on `PlatformAlert`, because a failed check
@@ -74,7 +74,7 @@ class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDTModel):
         ]
 
 
-class PlatformAlert(TeamScopedRootMixin, UUIDTModel):
+class PlatformAlert(TeamScopedRootMixin, UUIDModel):
     """Runtime state for one instance of a configuration.
 
     `grouping_key` is empty until a source groups its results. The unique constraint is what
@@ -95,6 +95,10 @@ class PlatformAlert(TeamScopedRootMixin, UUIDTModel):
     state = models.CharField(max_length=32, choices=State.choices, default=State.NOT_FIRING, db_default="not_firing")
     last_notified_at = models.DateTimeField(null=True, blank=True)
     snooze_until = models.DateTimeField(null=True, blank=True)
+    # Identifies one firing, from the transition into FIRING to the transition out. A timestamp
+    # rather than an opaque id, because `last_notified_at >= firing_started_at` is then how a
+    # reader knows whether this firing was ever announced.
+    firing_started_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         constraints = [

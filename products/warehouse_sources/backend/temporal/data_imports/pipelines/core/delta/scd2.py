@@ -14,7 +14,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.evolution import evolve_delta_schema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
+    DELTA_TABLE_PROPERTIES,
     delta_merge_spill_kwargs,
+    ensure_table_properties,
     execute_with_conflict_retry,
 )
 
@@ -126,6 +128,7 @@ class Scd2DeltaWriter:
                 table_uri=delta_uri,
                 schema=data.schema,
                 storage_options=storage_options,
+                configuration=DELTA_TABLE_PROPERTIES,
             )
 
         await asyncio.to_thread(
@@ -139,4 +142,6 @@ class Scd2DeltaWriter:
 
         delta_table = await self._table.get_delta_table()
         assert delta_table is not None
+
+        await ensure_table_properties(delta_table, self._logger)
         return delta_table
