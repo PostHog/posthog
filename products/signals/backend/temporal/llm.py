@@ -185,8 +185,9 @@ async def call_llm(
         messages.append({"role": "assistant", "content": "{"})
 
     # A cached system prompt is billed at about a tenth of the input price on every call after the
-    # first. Only a prompt above the model's cache minimum (1,024 tokens on Sonnet 5) and on a hot
-    # path pays for the cache write, so a call site opts in rather than every stage paying it.
+    # first. Only a prompt above the model's cache minimum (512 tokens on Sonnet 5.5, 1,024 on
+    # Sonnet 5) and on a hot path pays for the cache write, so a call site opts in rather than
+    # every stage paying it.
     system: str | list[TextBlockParam] = system_prompt
     if cache_system_prompt:
         system = [{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}]
