@@ -15,6 +15,7 @@ import posthog from 'posthog-js'
 import { lemonToast as sharedLemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -4003,9 +4004,9 @@ describe('a flag in config version 2', () => {
     })
 
     it('offers no tab that rewrites or copies the document', () => {
-        expect(logic.values.availableTabs).not.toEqual(
-            expect.arrayContaining([FeatureFlagsTab.PROJECTS, FeatureFlagsTab.SCHEDULE, FeatureFlagsTab.TESTING])
-        )
+        for (const tab of [FeatureFlagsTab.PROJECTS, FeatureFlagsTab.SCHEDULE, FeatureFlagsTab.TESTING]) {
+            expect(logic.values.availableTabs).not.toContain(tab)
+        }
         expect(logic.values.availableTabs).toEqual(
             expect.arrayContaining([FeatureFlagsTab.OVERVIEW, FeatureFlagsTab.USAGE, FeatureFlagsTab.HISTORY])
         )
@@ -4024,9 +4025,11 @@ describe('a flag in config version 2', () => {
                 [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/7/`]: () => [200, changedElsewhere],
             },
         })
+        const detail = 'This feature flag has changed since version 3'
         const update = jest
             .spyOn(api, 'update')
-            .mockRejectedValueOnce({ status: 409, data: { detail: 'This feature flag has changed since version 3' } })
+            .mockRejectedValueOnce(new ApiError(undefined, 409, undefined, { detail }))
+        const approvalWarning = jest.spyOn(sharedLemonToast, 'warning').mockReturnValue('toast-id')
 
         logic.actions.updateFeatureFlagActive(true)
         await expectLogic(logic)
@@ -4034,6 +4037,9 @@ describe('a flag in config version 2', () => {
             .toFinishAllListeners()
 
         expect(update).toHaveBeenCalledTimes(1)
+        expect(lemonToast.error).toHaveBeenCalledWith(detail)
+        // The approval handler treats every 409 as a change request, so the stale branch must return before it.
+        expect(approvalWarning).not.toHaveBeenCalled()
         expect(logic.values.featureFlag).toMatchObject({
             name: 'Renamed elsewhere',
             version: 4,
@@ -4043,9 +4049,11 @@ describe('a flag in config version 2', () => {
     })
 
     it('carries the row version when toggling active and when archiving', async () => {
-        const update = jest
-            .spyOn(api, 'update')
-            .mockImplementation(async (_url, payload) => ({ ...V2_FLAG, ...(payload as object) }))
+        const update = jest.spyOn(api, 'update').mockImplementation(async (_url, payload: any) => ({
+            ...V2_FLAG,
+            ...payload,
+            version: payload.version + 1,
+        }))
 
         logic.actions.updateFeatureFlagActive(true)
         await expectLogic(logic).toDispatchActions(['updateFeatureFlagActiveSuccess'])
@@ -4059,7 +4067,7 @@ describe('a flag in config version 2', () => {
         expect(update).toHaveBeenLastCalledWith(expect.stringContaining('/feature_flags/7'), {
             archived: true,
             active: false,
-            version: 3,
+            version: 4,
         })
     })
 
@@ -4141,5 +4149,70 @@ describe('a flag in config version 2', () => {
             .toFinishAllListeners()
 
         expect(logic.values.rowVersionToken).toEqual({ version: 5 })
+    })
+
+    it.each([
+        ['tags', () => logic.actions.saveTagsInline(['checkout'])],
+        ['description', () => logic.actions.saveDescriptionInline('Checkout redesign')],
+    ])('keeps a v1 flag on its loaded row version after an inline %s save', async (_, save) => {
+        // A v1 full save sends the loaded version, and a stale one makes the server drop the fields this page did not change.
+        const V1_FLAG = { ...V2_FLAG, filters: { groups: [] } }
+        logic.actions.setFeatureFlag(V1_FLAG)
+        logic.actions.setOriginalFeatureFlag(V1_FLAG)
+        jest.spyOn(api, 'update').mockImplementation(async (_url, payload) => ({
+            ...V1_FLAG,
+            ...(payload as object),
+            version: 4,
+        }))
+
+        save()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.featureFlag.version).toBe(3)
+        expect(logic.values.originalFeatureFlag?.version).toBe(3)
+    })
+
+    it('sends a tag save made while another is in flight with the version that save returned', async () => {
+        const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+        const firstResponse = deferred()
+        const update = jest.spyOn(api, 'update').mockImplementation(async (_url, payload: any) => {
+            if (update.mock.calls.length === 1) {
+                await firstResponse.promise
+            }
+            return { ...V2_FLAG, ...payload, version: payload.version + 1 }
+        })
+
+        logic.actions.saveTagsInline(['checkout'])
+        await wait(300)
+        expect(update).toHaveBeenCalledTimes(1)
+        // The second save passes its debounce while the first request is still open.
+        logic.actions.saveTagsInline(['checkout', 'pricing'])
+        await wait(300)
+        firstResponse.resolve()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(update.mock.calls.map(([, payload]) => payload)).toEqual([
+            { tags: ['checkout'], version: 3 },
+            { tags: ['checkout', 'pricing'], version: 4 },
+        ])
+        expect(logic.values.featureFlag).toMatchObject({ tags: ['checkout', 'pricing'], version: 5 })
+        expect(lemonToast.error).not.toHaveBeenCalled()
+    })
+
+    it('starts a blank flag when a duplicate link names this flag', async () => {
+        defaultReleaseConditionsLogic.actions.loadDefaultReleaseConditionsSuccess({
+            enabled: false,
+            default_groups: [],
+        })
+        router.actions.push(`${urls.featureFlag('new')}?sourceId=7`)
+        const newLogic = featureFlagLogic({ id: 'new' })
+        newLogic.mount()
+        await expectLogic(newLogic).toFinishAllListeners()
+
+        expect(lemonToast.error).toHaveBeenCalledWith("This flag's configuration format can't be duplicated yet.")
+        expect(newLogic.values.configFormat).toBe('v1')
+        expect(newLogic.values.featureFlag.key).toBe('')
+        expect(router.values.searchParams.sourceId).toBeUndefined()
+        newLogic.unmount()
     })
 })

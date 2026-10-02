@@ -78,12 +78,16 @@ import {
     PropertyOperator,
 } from '~/types'
 
+import {
+    ARCHIVE_UNAVAILABLE_DISABLED_REASON,
+    canArchiveFeatureFlag,
+    featureFlagConfigFormatLabel,
+} from 'products/feature_flags/frontend/featureFlagConfigFormat'
 import { FeatureFlagStaleBanner } from 'products/feature_flags/frontend/FeatureFlagStaleBanner'
 import { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM, useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { featureFlagContextItems } from './featureFlagAiContext'
 import { openFeatureFlagArchiveDialog } from './featureFlagArchiveDialog'
-import { ARCHIVE_UNAVAILABLE_DISABLED_REASON, featureFlagConfigFormatLabel } from './featureFlagConfigFormat'
 import { openFeatureFlagDeleteDialog } from './featureFlagDeleteDialog'
 import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
 import { ExperimentsTab } from './FeatureFlagExperimentsTab'
@@ -385,16 +389,14 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 Create cohort
                             </ButtonPrimitive>
                         )}
-                        {isV1Config && (
-                            <ButtonPrimitive
-                                menuItem
-                                data-attr={`${RESOURCE_TYPE}-create-survey`}
-                                onClick={() => handleGetFeedback()}
-                            >
-                                <IconPlusSmall />
-                                Create survey
-                            </ButtonPrimitive>
-                        )}
+                        <ButtonPrimitive
+                            menuItem
+                            data-attr={`${RESOURCE_TYPE}-create-survey`}
+                            onClick={() => handleGetFeedback()}
+                        >
+                            <IconPlusSmall />
+                            Create survey
+                        </ButtonPrimitive>
                     </ScenePanelActionsSection>
                     <ScenePanelDivider />
                     <ScenePanelActionsSection>
@@ -423,7 +425,9 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                             ...(disabledReason ? { [disabledReason]: true } : {}),
                                             "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator.":
                                                 !featureFlag.can_edit,
-                                            [ARCHIVE_UNAVAILABLE_DISABLED_REASON]: !isV1Config,
+                                            [ARCHIVE_UNAVAILABLE_DISABLED_REASON]: !canArchiveFeatureFlag(
+                                                featureFlag.filters
+                                            ),
                                             'Updating…': featureFlagActiveUpdateLoading,
                                         }}
                                     >
@@ -549,16 +553,14 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                             Cohort
                                         </SceneMenuBarItem>
                                     )}
-                                    {isV1Config && (
-                                        <SceneMenuBarItem
-                                            opensFloatingUi
-                                            onClick={() => handleGetFeedback()}
-                                            data-attr={`${RESOURCE_TYPE}-menubar-create-survey`}
-                                        >
-                                            <IconPlusSmall />
-                                            Survey
-                                        </SceneMenuBarItem>
-                                    )}
+                                    <SceneMenuBarItem
+                                        opensFloatingUi
+                                        onClick={() => handleGetFeedback()}
+                                        data-attr={`${RESOURCE_TYPE}-menubar-create-survey`}
+                                    >
+                                        <IconPlusSmall />
+                                        Survey
+                                    </SceneMenuBarItem>
                                 </SceneMenuBarSubMenu>
                                 <SceneMenuBarSeparator />
                                 <SceneMenuBarFileItems dataAttrKey={RESOURCE_TYPE} />

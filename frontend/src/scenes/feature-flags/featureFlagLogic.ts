@@ -5,6 +5,7 @@ import {
     afterMount,
     beforeUnmount,
     connect,
+    isBreakpoint,
     kea,
     key,
     listeners,
@@ -88,6 +89,14 @@ import {
 } from '~/types'
 
 import { NEW_EARLY_ACCESS_FEATURE } from 'products/early_access_features/frontend/earlyAccessFeatureLogic'
+import {
+    FeatureFlagConfigFormat,
+    STALE_ROW_VERSION_RELOADED_MESSAGE,
+    featureFlagConfigFormat,
+    isStaleRowVersionError,
+    isV1FeatureFlagConfig,
+    rowVersionToken,
+} from 'products/feature_flags/frontend/featureFlagConfigFormat'
 import { TEMPLATE_NAMES } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 import {
     featureFlagsCopyFlagsCreate,
@@ -125,13 +134,6 @@ import { defaultReleaseConditionsLogic, resolveDefaultReleaseConditions } from '
 import type { DefaultReleaseConditionsResponse } from './defaultReleaseConditionsLogic'
 import { uniformAggregationGroupTypeIndex } from './defaultReleaseConditionsUtils'
 import { FeatureFlagArchivedSource, reportFeatureFlagArchived } from './featureFlagArchiveDialog'
-import {
-    FeatureFlagConfigFormat,
-    featureFlagConfigFormat,
-    isStaleRowVersionError,
-    isV1FeatureFlagConfig,
-    rowVersionToken,
-} from './featureFlagConfigFormat'
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { FlagIntent } from './featureFlagIntentWarningLogic'
 import {
@@ -837,7 +839,7 @@ function reloadIfStaleRowVersion(token: { version?: number }, error: any, reload
     if (!isStaleRowVersionError(token, error)) {
         return false
     }
-    lemonToast.error(error?.detail || 'This flag changed elsewhere and has been reloaded.')
+    lemonToast.error(error?.detail || STALE_ROW_VERSION_RELOADED_MESSAGE)
     reload()
     return true
 }
@@ -3021,9 +3023,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             loadFeatureFlag: async () => {
                 const sourceId = router.values.searchParams.sourceId
 
-                if (props.id === 'new' && sourceId) {
-                    // Used when "duplicating a feature flag". This populates the form with the source flag's data.
-                    const sourceFlag = await api.featureFlags.get(sourceId)
+                // Used when "duplicating a feature flag". This populates the form with the source flag's data.
+                const sourceFlag = props.id === 'new' && sourceId ? await api.featureFlags.get(sourceId) : null
+                if (sourceFlag && !isV1FeatureFlagConfig(sourceFlag.filters)) {
+                    // The form edits only v1 documents, so a duplicate link to another version starts a blank flag.
+                    lemonToast.error("This flag's configuration format can't be duplicated yet.")
+                    router.actions.replace(router.values.location.pathname)
+                } else if (sourceFlag) {
                     // But first, remove fields that we don't want to duplicate
                     const {
                         id,
@@ -3630,7 +3636,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             loadFeatureFlagStatusFailure: () => null,
         },
     }),
-    listeners(({ actions, values, props, sharedListeners }) => ({
+    listeners(({ actions, values, props, sharedListeners, cache }) => ({
         loadCopyDependencyRequirements: async (_, breakpoint): Promise<void> => {
             const { copyDestinationProject, currentOrganizationId, currentProjectId, featureFlag } = values
 
@@ -4466,7 +4472,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     name,
                     ...values.rowVersionToken,
                 })
-                const persisted = { name: savedFlag.name, version: savedFlag.version }
+                // A v1 page keeps its loaded version, so the server's stale-write merge still guards a later full save.
+                const persisted = { name: savedFlag.name, ...rowVersionToken(savedFlag) }
                 actions.setFeatureFlag({ ...flag, ...persisted })
                 if (values.originalFeatureFlag) {
                     actions.setOriginalFeatureFlag({ ...values.originalFeatureFlag, ...persisted })
@@ -4475,7 +4482,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 lemonToast.success('Description saved')
             } catch (error: any) {
                 if (!reloadIfStaleRowVersion(values.rowVersionToken, error, actions.refreshFeatureFlag)) {
-                    lemonToast.error('Failed to save description')
+                    lemonToast.error(error?.detail || 'Failed to save description')
                 }
             }
         },
@@ -4501,26 +4508,38 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             // can land out-of-order and stomp the latest local state when their responses
             // resolve.
             await breakpoint(250)
+            // A v2 write must carry the version the previous write returned, so wait for a save still in flight.
+            await cache.tagSaveInFlight?.catch(() => null)
+            breakpoint()
 
             try {
                 // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsPartialUpdate() from 'products/feature_flags/frontend/generated/api' instead.
-                const savedFlag = await api.update(`api/projects/${values.currentProjectId}/feature_flags/${flag.id}`, {
+                const request = api.update(`api/projects/${values.currentProjectId}/feature_flags/${flag.id}`, {
                     tags,
                     ...values.rowVersionToken,
                 })
+                cache.tagSaveInFlight = request
+                const savedFlag = await request
+                // Store the bumped row version before the breakpoint, because a newer call's write needs it.
+                const savedVersion = rowVersionToken(savedFlag)
+                if (savedVersion.version !== undefined) {
+                    actions.setFeatureFlag({ ...values.featureFlag, ...savedVersion })
+                    if (values.originalFeatureFlag) {
+                        actions.setOriginalFeatureFlag({ ...values.originalFeatureFlag, ...savedVersion })
+                    }
+                }
                 // If the listener has been invoked again since this await started, bail out
                 // — the newer call owns reconciliation.
                 breakpoint()
 
-                // Reconcile with server only if the *set* of tags differs (e.g. server-side
-                // normalization added/removed a tag). Avoid blindly overwriting — the
-                // server may return tags in a different order which would re-shuffle chips.
+                // Keep the local tags when the server returns the same set, because the server may reorder them
+                // and that would reshuffle the chips. Take the server's tags when the set differs, e.g. after
+                // server-side normalization.
                 const localSet = new Set(tags)
                 const serverTags = savedFlag.tags ?? []
                 const serverSet = new Set(serverTags)
                 const setsEqual = localSet.size === serverSet.size && tags.every((t) => serverSet.has(t))
-                // The write bumped the row version; a page left on the old one has its next write refused as stale.
-                const persisted = { tags: setsEqual ? tags : serverTags, version: savedFlag.version }
+                const persisted = { tags: setsEqual ? tags : serverTags }
                 actions.setFeatureFlag({ ...values.featureFlag, ...persisted })
                 if (values.originalFeatureFlag) {
                     actions.setOriginalFeatureFlag({ ...values.originalFeatureFlag, ...persisted })
@@ -4528,14 +4547,15 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.updateFlag({ ...values.featureFlag, ...persisted })
             } catch (error: any) {
                 // Re-throw breakpoint cancellation so kea swallows it silently.
-                if (error?.isBreakpoint) {
+                if (isBreakpoint(error)) {
                     throw error
                 }
-                actions.setFeatureFlag({ ...flag, tags: previousTags })
+                // Roll back the tags only: the page may hold a newer row version than when this call started.
+                actions.setFeatureFlag({ ...values.featureFlag, tags: previousTags })
                 if (values.originalFeatureFlag) {
                     actions.setOriginalFeatureFlag({ ...values.originalFeatureFlag, tags: previousTags })
                 }
-                actions.updateFlag({ ...flag, tags: previousTags })
+                actions.updateFlag({ ...values.featureFlag, tags: previousTags })
                 // The server explains rule failures such as a project that requires tags, so show
                 // its message rather than a generic one the user cannot act on.
                 if (!reloadIfStaleRowVersion(values.rowVersionToken, error, actions.refreshFeatureFlag)) {

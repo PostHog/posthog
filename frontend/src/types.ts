@@ -4463,7 +4463,10 @@ export interface FeatureFlagFilters {
     super_groups?: FeatureFlagGroupType[] | null
 }
 
-/** The v1 keys, declared absent on every other version, so a reader that dereferences one must narrow first. */
+/**
+ * Declares the v1 keys absent on other versions, so optional reads compile on the union and return undefined for them.
+ * Narrow with `isV1FeatureFlagConfig` to use the v1 shape.
+ */
 interface WithoutFeatureFlagFiltersKeys {
     groups?: never
     multivariate?: never

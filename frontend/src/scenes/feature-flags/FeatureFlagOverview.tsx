@@ -13,19 +13,20 @@ import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagL
 
 import { AccessControlLevel, AccessControlResourceType, FeatureFlagEvaluationRuntime, FeatureFlagType } from '~/types'
 
-import { EditableOverviewSection } from './EditableOverviewSection'
 import {
     UNSUPPORTED_CONFIG_DISABLED_REASON,
     featureFlagConfigFormat,
     isRulesV2FeatureFlagConfig,
     isV1FeatureFlagConfig,
-} from './featureFlagConfigFormat'
-import { FeatureFlagConfigReadonlyNotice } from './FeatureFlagConfigReadonlyNotice'
+} from 'products/feature_flags/frontend/featureFlagConfigFormat'
+import { FeatureFlagConfigReadonlyNotice } from 'products/feature_flags/frontend/FeatureFlagConfigReadonlyNotice'
+import { FeatureFlagRulesV2Readonly } from 'products/feature_flags/frontend/FeatureFlagRulesV2Readonly'
+
+import { EditableOverviewSection } from './EditableOverviewSection'
 import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
 import { FeatureFlagInstructions } from './FeatureFlagInstructions'
 import { featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagReleaseConditionsReadonly } from './FeatureFlagReleaseConditionsReadonly'
-import { FeatureFlagRulesV2Readonly } from './FeatureFlagRulesV2Readonly'
 import { FeatureFlagVariantsSection } from './FeatureFlagVariantsSection'
 import { JSONEditorInput } from './JSONEditorInput'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'

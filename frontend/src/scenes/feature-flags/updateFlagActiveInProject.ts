@@ -6,10 +6,9 @@ import { dispatchChangeRequestCreated } from 'scenes/approvals/utils'
 
 import { FeatureFlagConfig } from '~/types'
 
+import { isV1FeatureFlagConfig, rowVersionToken } from 'products/feature_flags/frontend/featureFlagConfigFormat'
 import { featureFlagsPartialUpdate, featureFlagsRetrieve } from 'products/feature_flags/frontend/generated/api'
 import type { FeatureFlagApi } from 'products/feature_flags/frontend/generated/api.schemas'
-
-import { isV1FeatureFlagConfig, rowVersionToken } from './featureFlagConfigFormat'
 
 /** Key for the per-row in-flight maps shared by the Projects tab toggles. */
 export function flagToggleKey(teamId: number, flagId: number): string {

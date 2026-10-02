@@ -5,7 +5,6 @@ import posthog from 'posthog-js'
 import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { getAppContext } from 'lib/utils/getAppContext'
-import { isV1FeatureFlagConfig } from 'scenes/feature-flags/featureFlagConfigFormat'
 import {
     MAX_ITERATION_COUNT,
     NEW_SURVEY,
@@ -44,6 +43,8 @@ import {
     SurveyStats,
     SurveyType,
 } from '~/types'
+
+import { isV1FeatureFlagConfig } from 'products/feature_flags/frontend/featureFlagConfigFormat'
 
 const sanitizeConfig = { ADD_ATTR: ['target'] }
 

@@ -4,7 +4,7 @@ import { LemonDialog } from '@posthog/lemon-ui'
 
 import { FeatureFlagConfig } from '~/types'
 
-import { isV1FeatureFlagConfig } from './featureFlagConfigFormat'
+import { canArchiveFeatureFlag } from 'products/feature_flags/frontend/featureFlagConfigFormat'
 
 export type FeatureFlagDisableDialogSource = 'feature-flags-list' | 'feature-flag-detail'
 
@@ -22,8 +22,7 @@ const ROLLBACK_DESCRIPTION = 'This flag will be immediately rolled back from the
 /**
  * Opens the disable confirmation dialog for a feature flag. "Disable only" is the primary action;
  * "Disable and archive" sits alongside it as a destructive secondary, so the more destructive
- * option reads as destructive and isn't the default click. Only a v1 document offers archive:
- * the server refuses `archived` on every other config version.
+ * option reads as destructive and isn't the default click.
  */
 export function openFeatureFlagDisableDialog({
     source,
@@ -37,7 +36,7 @@ export function openFeatureFlagDisableDialog({
     onDisableAndArchive: () => void
 }): void {
     posthog.capture('feature flag disable confirmation shown', { source })
-    const offerArchive = isV1FeatureFlagConfig(filters)
+    const offerArchive = canArchiveFeatureFlag(filters)
 
     const selectDisable = (): void => {
         reportFeatureFlagDisableDialogOptionSelected(source, 'disable')
