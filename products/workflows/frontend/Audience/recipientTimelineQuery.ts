@@ -1,7 +1,7 @@
 import { HogQLQueryString, hogql } from '~/queries/utils'
 
 export const RECIPIENT_TIMELINE_DAYS = 30
-const RECIPIENT_TIMELINE_LIMIT = 100
+export const RECIPIENT_TIMELINE_LIMIT = 100
 
 export type RecipientTimelineRow = [
     event: string,
