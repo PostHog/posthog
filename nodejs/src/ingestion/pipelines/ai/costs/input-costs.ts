@@ -178,8 +178,8 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
     // Audio/image input tokens are reported by providers (OpenAI, Gemini) as a subset
     // of the total input token count. We bill them separately at modality rates and
     // subtract them from the text pool to avoid double-counting at the prompt rate.
-    // For audio, split further into cached / uncached so cached audio bills at the
-    // (typically much cheaper) audio-cache rate.
+    // Split cached audio and images from their uncached portions. Cached audio
+    // has its own rate; cached images use the standard cache-read rate.
     const uncachedAudioInputTokens = audioInputTokens - cachedAudioInputTokens
     const uncachedImageInputTokens = imageInputTokens - cachedImageInputTokens
     const audioInputCost = computeAudioInputCost(event, cost, uncachedAudioInputTokens)
