@@ -82,7 +82,6 @@ const meta: Meta<typeof Harness> = {
       DESKTOP_SOURCE,
       MOBILE_SOURCE,
       WEB_SOURCE,
-      "posthog_ai",
       "slack",
       "error_tracking",
       "support_queue",

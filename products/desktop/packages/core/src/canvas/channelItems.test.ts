@@ -229,6 +229,7 @@ describe("buildChannelItems", () => {
     ["a legacy manual session", "user_created", undefined, DESKTOP_SOURCE],
     ["a Mobile session", "user_created", "posthog_mobile", MOBILE_SOURCE],
     ["a Web session", "user_created", "posthog_web", WEB_SOURCE],
+    ["a PostHog AI session", "posthog_ai", undefined, WEB_SOURCE],
   ] as const)(
     "maps %s to its source",
     (_label, originProduct, clientProvenance, expected) => {
