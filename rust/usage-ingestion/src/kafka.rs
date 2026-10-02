@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use common_kafka::kafka_producer::KafkaContext;
 use common_liveness::SyncLivenessReporter;
@@ -227,50 +227,6 @@ impl KafkaUsageIngestion {
         )
         .increment(1);
         Ok(())
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-pub async fn run_supervised(
-    config: &ClientConfig,
-    input_topic: &str,
-    dead_letter_producer: FutureProducer<KafkaContext>,
-    dead_letter_topic: &str,
-    service: Arc<UsageIngestionService>,
-    batch: KafkaBatchConfig,
-    max_backoff: Duration,
-    liveness: impl SyncLivenessReporter + Clone + 'static,
-) {
-    let mut backoff = Duration::from_secs(1).min(max_backoff);
-    loop {
-        let started = Instant::now();
-        let result = match KafkaUsageIngestion::new(
-            config,
-            input_topic,
-            dead_letter_producer.clone(),
-            dead_letter_topic.to_string(),
-            Arc::clone(&service),
-            batch,
-            liveness.clone(),
-        ) {
-            Ok(transport) => transport.run().await,
-            Err(error) => Err(error),
-        };
-
-        liveness.report_unhealthy();
-
-        tracing::error!(
-            error = %result.expect_err("the Kafka consumer only exits on failure"),
-            retry_in_ms = backoff.as_millis(),
-            "usage ingestion Kafka consumer failed; restarting it"
-        );
-        metrics::counter!("usage_ingestion_kafka_restarts_total").increment(1);
-
-        if started.elapsed() >= max_backoff {
-            backoff = Duration::from_secs(1).min(max_backoff);
-        }
-        tokio::time::sleep(backoff).await;
-        backoff = backoff.saturating_mul(2).min(max_backoff);
     }
 }
 
