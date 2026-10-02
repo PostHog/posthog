@@ -144,8 +144,8 @@ export function SQLEditor({
             queryPaneMinHeight,
             biEditorResizerProps: {
                 containerRef: biEditorRef,
-                logicKey: 'bi-editor-pane',
-                placement: 'bottom' as const,
+                logicKey: 'bi-editor-side-pane',
+                placement: 'right' as const,
                 persistent: true,
                 persistPrefix: 'v1',
             },
