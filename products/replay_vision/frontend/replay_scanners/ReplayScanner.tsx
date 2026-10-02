@@ -150,17 +150,7 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                     },
                     {
                         key: ReplayScannerTab.Calibration,
-                        label:
-                            activationVariant === 'badge' && shouldNudgeCalibration ? (
-                                <>
-                                    Calibration{' '}
-                                    <LemonTag type="highlight" size="small" className="ml-1">
-                                        Not rated
-                                    </LemonTag>
-                                </>
-                            ) : (
-                                'Calibration'
-                            ),
+                        label: 'Calibration',
                         content: <ScannerCalibrationTab scannerId={scannerId} />,
                     },
                     {

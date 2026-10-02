@@ -7,7 +7,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { visionScannersObservationsStatsRetrieve } from '../generated/api'
 
-export type CalibrationActivationVariant = 'control' | 'badge' | 'prompt'
+export type CalibrationActivationVariant = 'control' | 'prompt'
 
 export interface CalibrationActivationLogicProps {
     scannerId: string
@@ -88,7 +88,7 @@ export const calibrationActivationLogic = kea<calibrationActivationLogicType>([
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): CalibrationActivationVariant => {
                 const value = featureFlags[FEATURE_FLAGS.REPLAY_VISION_CALIBRATION_ACTIVATION]
-                return value === 'badge' || value === 'prompt' ? value : 'control'
+                return value === 'prompt' ? 'prompt' : 'control'
             },
         ],
         // Both counts come from one all-time response, so they cannot disagree about the window. Only a

@@ -1365,18 +1365,6 @@ const neverRatedStats = {
     labels: { ...summarizerStats.labels, up_total: 0, down_total: 0 },
 }
 
-export const ScannerCalibrationActivationBadge: StoryObj = {
-    parameters: {
-        pageUrl: urls.replayVision(summarizerScanner.id),
-        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_CALIBRATION_ACTIVATION]: 'badge' },
-    },
-    decorators: [
-        mswDecorator({
-            get: { '/api/projects/:team_id/vision/scanners/:id/observations/stats/': neverRatedStats },
-        }),
-    ],
-}
-
 export const ScannerCalibrationActivationPrompt: StoryObj = {
     parameters: {
         pageUrl: urls.replayVision(summarizerScanner.id),

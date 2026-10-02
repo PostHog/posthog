@@ -50,15 +50,16 @@ describe('calibrationActivationLogic', () => {
         await expectLogic(logic).toMatchValues({ variant: 'control' })
         expect(statsRequests).toBe(0)
 
-        setFlag('badge')
+        setFlag('prompt')
 
-        await expectLogic(logic).toMatchValues({ variant: 'badge' })
+        await expectLogic(logic).toMatchValues({ variant: 'prompt' })
         await expectLogic(logic).toFinishAllListeners()
         expect(statsRequests).toBe(1)
     })
 
-    it('does not fetch the rating count for the control arm', async () => {
-        setFlag(false)
+    // A client can still hold a cached value of the removed `badge` variant.
+    it.each([false, 'badge'])('does not fetch the rating count for the control arm (flag %p)', async (flag) => {
+        setFlag(flag)
         logic = calibrationActivationLogic({ scannerId: 'sid' })
         logic.mount()
 
@@ -78,7 +79,7 @@ describe('calibrationActivationLogic', () => {
 
     it('leaves a rated scanner alone', async () => {
         ratings = { up: 3, down: 1, succeeded: 12 }
-        setFlag('badge')
+        setFlag('prompt')
         logic = calibrationActivationLogic({ scannerId: 'sid' })
         logic.mount()
 
@@ -88,7 +89,7 @@ describe('calibrationActivationLogic', () => {
     it('fetches the count once when the flag is already resolved at mount', async () => {
         // `subscriptions` fires at mount when the flag is already in hand, so this pins that the one
         // mount costs one request rather than none.
-        setFlag('badge')
+        setFlag('prompt')
         logic = calibrationActivationLogic({ scannerId: 'sid' })
         logic.mount()
 
@@ -98,12 +99,14 @@ describe('calibrationActivationLogic', () => {
 
     it('does not refetch when the variant changes again', async () => {
         // A flag payload can resolve more than once in a session, and the count does not change with
-        // the arm, so a second variant only costs a request without the guard.
-        setFlag('badge')
+        // the arm, so a second resolution only costs a request without the guard.
+        setFlag('prompt')
         logic = calibrationActivationLogic({ scannerId: 'sid' })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
+        setFlag(false)
+        await expectLogic(logic).toMatchValues({ variant: 'control' })
         setFlag('prompt')
 
         await expectLogic(logic).toMatchValues({ variant: 'prompt' }).toFinishAllListeners()
