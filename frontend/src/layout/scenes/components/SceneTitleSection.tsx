@@ -315,6 +315,7 @@ function LemonSceneTitleSection({
                                         </>
                                     }
                                 />
+                                {forceEdit && nameSuffix}
                             </>
                         )}
                     </div>

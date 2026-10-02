@@ -61943,6 +61943,22 @@ export namespace Schemas {
      */
     export type MCPToolResponseStructuredContent = {[key: string]: JsonValue} | null;
 
+    /**
+     * Failure category for MCP analytics.
+     */
+    export type MCPToolResponseErrorType = typeof MCPToolResponseErrorType[keyof typeof MCPToolResponseErrorType] | null;
+
+
+    export const MCPToolResponseErrorType = {
+      Validation: 'validation',
+      Permission: 'permission',
+      Timeout: 'timeout',
+      MemoryLimit: 'memory_limit',
+      RateLimited: 'rate_limited',
+      Api5xx: 'api_5xx',
+      Internal: 'internal',
+    } as const;
+
     export interface MCPToolResponse {
       /** Formatted tool output for the model. */
       content: string;
@@ -61950,6 +61966,8 @@ export namespace Schemas {
       structured_content?: MCPToolResponseStructuredContent;
       /** Whether the tool completed successfully. */
       success: boolean;
+      /** Failure category for MCP analytics. */
+      error_type?: MCPToolResponseErrorType;
     }
 
     /**

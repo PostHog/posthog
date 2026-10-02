@@ -68,6 +68,7 @@ export function TodayHomeSidebar(): JSX.Element {
         showPersonalBriefing,
         personalBriefing,
         teamReportPreviews,
+        reportStateOverrides,
     } = useValues(todayLogic)
     const { reportOpened, setHoveredReportId } = useActions(todayLogic)
 
@@ -116,12 +117,16 @@ export function TodayHomeSidebar(): JSX.Element {
                             <TodayPreviewTrigger key={report.id} payload={teamReportPreviews.sidebar[report.id]}>
                                 <TodayNavItem
                                     title={reportTitle(report)}
-                                    meta={reportMeta(report)}
+                                    meta={
+                                        itemStateLabel({ state: reportStateOverrides[report.id] ?? 'open' }) ??
+                                        reportMeta(report)
+                                    }
                                     color={reportSource(report).color}
                                     icon={<TodayIcon icon={reportIcon(report)} />}
                                     to={urls.todayReport(report.id)}
                                     active={hoveredReportId === report.id}
                                     current={reportId === report.id}
+                                    state={reportStateOverrides[report.id]}
                                     dataAttr="today-nav-report"
                                     onClick={() => reportOpened(report, 'sidebar')}
                                     onHoverChange={(hovered) => setHoveredReportId(hovered ? report.id : null)}
