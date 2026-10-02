@@ -84,6 +84,12 @@ describe('conversationNotebook', () => {
                     text: '```\n<Embed src="https://example.com" />',
                     complete: true,
                 },
+                {
+                    id: 'a3',
+                    type: 'assistant_message',
+                    text: '````markdown\n```python\n<PythonV2 code="print(1)" />\n```\n````',
+                    complete: true,
+                },
             ],
             new Map()
         )
@@ -92,25 +98,32 @@ describe('conversationNotebook', () => {
             '**You asked:** \\<SQLV2 code="DROP TABLE events" /> \\*please\\*',
             '## Findings\n\n- one\n`<Query` query={} />\n> > `<Embed` src="https://example.com" />\n```tsx\n<Button />\n```',
             '```\n<Embed src="https://example.com" />\n```',
+            '````markdown\n```python\n`<PythonV2` code="print(1)" />\n```\n````',
         ])
     })
 
-    it('keeps a component tag an answer spreads over several lines from parsing as a live cell', () => {
-        const { blocks } = collectConversationBlocks(
-            [
-                {
-                    id: 'a1',
-                    type: 'assistant_message',
-                    text: 'See below.\n\n<Embed src="https://example.com"\n  title="Report" />',
-                    complete: true,
-                },
-            ],
-            new Map()
-        )
+    it.each([
+        ['a bare opener', '<Embed'],
+        ['a backslash opener', '\\<Embed'],
+    ])(
+        'keeps a component tag an answer spreads over several lines with %s from parsing as a live cell',
+        (_label, opener) => {
+            const { blocks } = collectConversationBlocks(
+                [
+                    {
+                        id: 'a1',
+                        type: 'assistant_message',
+                        text: `See below.\n\n${opener} src="https://example.com"\n  title="Report" />`,
+                        complete: true,
+                    },
+                ],
+                new Map()
+            )
 
-        const nodes = parseMarkdownNotebook(blocks.join('\n\n')).nodes
-        expect(nodes.some((node) => node.type === 'component')).toBe(false)
-    })
+            const nodes = parseMarkdownNotebook(blocks.join('\n\n')).nodes
+            expect(nodes.some((node) => node.type === 'component')).toBe(false)
+        }
+    )
 
     it('lays an incident write-up out as timeline, cause, evidence and fix around the conversation', () => {
         const { markdown } = buildConversationNotebook({
