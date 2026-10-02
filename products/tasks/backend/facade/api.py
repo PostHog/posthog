@@ -66,7 +66,6 @@ from products.posthog_ai.backend.task_ownership import (
     soft_delete_conversations_for_task,
 )
 from products.tasks.backend.constants import (
-    AGENT_NOTIFY_USER_FEATURE_FLAG,
     AGENT_OTEL_TELEMETRY_STATE_KEY,
     AGENT_PEER_MESSAGING_FEATURE_FLAG,
     ANALYSIS_TARGET_IMAGE_ID_STATE_KEY,
@@ -86,6 +85,7 @@ from products.tasks.backend.constants import (
     RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS,
     SANDBOX_REPOSITORIES_ROOT,
     SERVER_OWNED_RESUME_STATE_KEYS,
+    SLACK_APP_REMOTE_CONTROL_FEATURE_FLAG,
     SUBSCRIPTION_PLAN_NAMES,
     TASK_ANALYSIS_ACTIVITIES_STATE_KEY,
     TASK_ANALYSIS_FEATURE_FLAG,
@@ -312,7 +312,7 @@ __all__ = [
     "list_sandbox_custom_images",
     "list_sandbox_environments",
     "sandbox_custom_images_enabled",
-    "agent_notify_user_enabled",
+    "slack_app_remote_control_enabled",
     "agent_peer_messaging_enabled",
     "list_task_run_living_artifacts",
     "list_task_run_peers",
@@ -321,6 +321,7 @@ __all__ = [
     "list_tasks",
     "list_workflow_last_runs",
     "notify_task_run_owner",
+    "queue_slack_mirror_of_user_message",
     "pi_cloud_runtime_enabled",
     "prepare_task_run_artifact_uploads",
     "prepare_task_staged_artifacts",
@@ -5083,13 +5084,13 @@ def signal_task_run_user_message(
 # --- Agent notifications to the task owner (docs: logic/services/task_run_user_notification.py) ---
 
 
-def agent_notify_user_enabled(team: Team, user: User) -> bool:
+def slack_app_remote_control_enabled(team: Team, user: User) -> bool:
     distinct_id = user.distinct_id or f"user_{user.id}"
     organization_id = str(team.organization_id)
     try:
         return bool(
             posthoganalytics.feature_enabled(
-                AGENT_NOTIFY_USER_FEATURE_FLAG,
+                SLACK_APP_REMOTE_CONTROL_FEATURE_FLAG,
                 distinct_id,
                 groups={"organization": organization_id},
                 group_properties={"organization": {"id": organization_id}},
@@ -5098,7 +5099,7 @@ def agent_notify_user_enabled(team: Team, user: User) -> bool:
             )
         )
     except Exception:
-        logger.exception("agent notify user flag check failed; treating as disabled")
+        logger.exception("slack app remote control flag check failed; treating as disabled")
         return False
 
 
@@ -5110,6 +5111,7 @@ def notify_task_run_owner(
     channel: contracts.UserNotificationChannel,
     reason: contracts.UserNotificationReason,
     message: str,
+    remote_control: bool | None = None,
 ) -> contracts.UserNotificationResultDTO | None:
     """Send the agent's message to the task owner. ``None`` when the run is not found."""
     from products.tasks.backend.logic.services.task_run_user_notification import (  # noqa: PLC0415 — keep Slack deps off the api import path
@@ -5119,7 +5121,36 @@ def notify_task_run_owner(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
-    return notify_task_owner(task_run=run, channel=channel, reason=reason, message=message)
+    return notify_task_owner(
+        task_run=run, channel=channel, reason=reason, message=message, remote_control=remote_control
+    )
+
+
+def queue_slack_mirror_of_user_message(
+    run_id: str | UUID, team_id: int, *, actor_user_id: int | None, content: object
+) -> None:
+    """Post a message the user sent from PostHog Code into the run's Slack mirror, when it has one.
+
+    Best-effort and off the request path. A run without a Slack DM thread costs one indexed lookup.
+    """
+    from products.slack_app.backend.models import (  # noqa: PLC0415 — cross-product import kept off the api import path
+        SlackThreadTaskMapping,
+    )
+    from products.tasks.backend.tasks.tasks import (  # noqa: PLC0415 — the Celery module imports this facade
+        mirror_task_run_user_message_to_slack,
+    )
+
+    if not isinstance(content, str) or not content.strip():
+        return
+    if not SlackThreadTaskMapping.objects.filter(
+        team_id=team_id, task_run_id=UUID(str(run_id)), conversation_type=SlackThreadTaskMapping.ConversationType.IM
+    ).exists():
+        return
+    transaction.on_commit(
+        lambda: mirror_task_run_user_message_to_slack.delay(
+            team_id=team_id, task_run_id=str(run_id), actor_user_id=actor_user_id, content=content
+        )
+    )
 
 
 # --- Agent peer messaging (docs: logic/services/peer_messages.py) ---

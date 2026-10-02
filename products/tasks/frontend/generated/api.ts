@@ -2210,7 +2210,7 @@ export const getTasksRunsNotifyUserCreateUrl = (projectId: string, taskId: strin
 }
 
 /**
- * Send a message from this run's agent to the task owner, for example a progress update they asked for or a question that blocks the work. The recipient is always the task creator. On Slack the message is a DM, and a reply in its thread continues the task when `replies_continue_task` is true.
+ * Send a message from this run's agent to the task owner, for example a progress update they asked for or a question that blocks the work. The recipient is always the task creator. On Slack the message is a DM. With `remote_control`, the DM thread controls the task: replies reach the task, and answers and PostHog Code messages post there.
  * @summary Notify the task owner
  */
 export const tasksRunsNotifyUserCreate = async (

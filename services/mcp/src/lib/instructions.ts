@@ -223,6 +223,7 @@ export class ToolDomainExtractor {
         'launch',
         'migrate',
         'move',
+        'notify',
         'patch',
         'pause',
         'publish',

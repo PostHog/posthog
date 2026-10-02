@@ -1013,7 +1013,7 @@ class UserNotificationResultDTO:
 
     result: UserNotificationOutcome
     detail: str
-    replies_continue_task: bool = False
+    remote_control_active: bool = False
 
 
 @dataclass(frozen=True)

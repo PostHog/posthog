@@ -90,25 +90,30 @@ Workflow summaries are visible only to the task owner or its authorized sandbox 
 Shared workflow stream events always set `task_summary` to `null`.
 Other task streams include the effective summary.
 
-## Owner notifications
+## Owner notifications and remote control
 
 `POST /api/projects/{team_id}/tasks/{task_id}/runs/{run_id}/notify_user/` sends a message from the run's agent to the task owner.
-Send `channel` (only `slack`), `reason` (`update`, `needs_input` or `done`) and a `message` of up to 2,000 characters.
+Send `channel` (only `slack`), `reason` (`update`, `needs_input` or `done`), a `message` of up to 2,000 characters, and an optional `remote_control`.
 The recipient is always the task creator, and only the creator's own runs can call the endpoint.
-The `tasks-agent-notify-user` feature flag gates the endpoint and the tool.
+The `slack-app-remote-control` feature flag gates the endpoint and the `tasks-runs-owner-notify` MCP tool.
 A task-bound sandbox token can notify only for its own task.
-The response `result` is `sent`, `throttled` or `not_sent`, with a `detail` for the agent.
+The response `result` is `sent`, `throttled` or `not_sent`, with a `detail` for the agent and `remote_control_active`.
 A run can send one notification every 30 seconds. A notification that is not sent does not start that wait.
 
-On Slack, PostHog finds the owner through their linked Slack account, or else by their email in the project's Slack workspace.
-The first notification of a task opens a DM thread and binds it to the run, as a Slack-started task's thread is bound.
-A reply in that thread reaches the agent as a user message, or resumes the task when the run has ended.
-The agent's answers then post into the thread.
-Later notifications of the same task reply in that thread and mention the owner.
-A run that a Slack channel thread drives keeps that thread. Its notifications are plain DMs, and `replies_continue_task` is false.
+PostHog finds the owner in Slack through their linked Slack account, or else by their email in the project's Slack workspace.
+Without `remote_control`, the message is a plain DM, or a reply in the remote control thread when remote control is on.
 
-Cloud agent runs send notifications through the `notify_user` local tool, called as `mcp__posthog-code-tools__notify_user`.
-The tool shows only when the flag is on for the run, through `POSTHOG_AGENT_NOTIFY_USER` in the sandbox.
+`remote_control: true` turns on remote control from Slack:
+
+- The DM opens a thread, and `SlackThreadTaskMapping` binds it to the run, as a Slack-started task's thread is bound.
+- A reply in the thread reaches the agent as a user message, or resumes the task when the run has ended.
+- The agent's final answer of each turn posts into the thread.
+- Messages the owner sends from PostHog Code post into the thread too.
+- `Task.create_run` moves the binding to each new run, so the owner can continue from either place.
+- A task that a Slack channel thread drives keeps that thread, and the call returns `not_sent`.
+
+`remote_control: false` posts the message into the thread and removes the binding.
+Remote control works for cloud runs. A local run cannot receive a reply from Slack.
 
 ## MCP tools
 

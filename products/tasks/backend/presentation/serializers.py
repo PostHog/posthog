@@ -2209,6 +2209,17 @@ class TaskRunNotifyUserRequestSerializer(serializers.Serializer):
             "PostHog adds the task title and a link."
         ),
     )
+    remote_control = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "Remote control from the chosen channel. Set true when the user asks to continue, mirror or remote "
+            "control the task in Slack: the DM opens a thread where replies reach the task, and answers and "
+            "PostHog Code messages show. Set false when the user asks to stop. Leave it out for a plain "
+            "notification, which keeps the current state."
+        ),
+    )
 
 
 class TaskRunNotifyUserResponseSerializer(serializers.Serializer):
@@ -2220,8 +2231,11 @@ class TaskRunNotifyUserResponseSerializer(serializers.Serializer):
         ),
     )
     detail = serializers.CharField(help_text="Explanation of the result, written for the agent.")
-    replies_continue_task = serializers.BooleanField(
-        help_text="Whether a reply to the notification reaches this task as a new user message."
+    remote_control_active = serializers.BooleanField(
+        help_text=(
+            "Whether remote control is on after this call: replies in the owner's Slack DM thread reach the "
+            "task, and the agent's answers post there."
+        )
     )
 
 

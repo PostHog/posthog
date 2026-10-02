@@ -103081,6 +103081,11 @@ export namespace Schemas {
          * @maxLength 2000
          */
       message: string;
+      /**
+         * Remote control from the chosen channel. Set true when the user asks to continue, mirror or remote control the task in Slack: the DM opens a thread where replies reach the task, and answers and PostHog Code messages show. Set false when the user asks to stop. Leave it out for a plain notification, which keeps the current state.
+         * @nullable
+         */
+      remote_control?: boolean | null;
     }
 
     /**
@@ -103106,8 +103111,8 @@ export namespace Schemas {
       result: UserNotificationOutcomeEnum;
       /** Explanation of the result, written for the agent. */
       detail: string;
-      /** Whether a reply to the notification reaches this task as a new user message. */
-      replies_continue_task: boolean;
+      /** Whether remote control is on after this call: replies in the owner's Slack DM thread reach the task, and the agent's answers post there. */
+      remote_control_active: boolean;
     }
 
     /**

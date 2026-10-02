@@ -888,8 +888,24 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 state=state,
                 branch=branch,
             )
+            from products.tasks.backend.logic.services.task_run_user_notification import (  # noqa: PLC0415 — the service imports this module
+                move_remote_control_to_run,
+            )
+
+            remote_control_moved = move_remote_control_to_run(task=task, task_run=task_run)
 
             def emit_created_events() -> None:
+                if remote_control_moved and not state.get("slack_mention_workflow_id"):
+                    from products.tasks.backend.facade.api import (  # noqa: PLC0415 — the facade imports this module
+                        queue_slack_mirror_of_user_message,
+                    )
+
+                    queue_slack_mirror_of_user_message(
+                        task_run.id,
+                        task.team_id,
+                        actor_user_id=acting_user_id,
+                        content=state.get("pending_user_message"),
+                    )
                 task_run.publish_stream_state_event()
                 observe_task_run_created(task_run)
                 task.capture_event(

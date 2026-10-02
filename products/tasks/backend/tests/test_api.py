@@ -12896,6 +12896,34 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         )
 
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
+    def test_command_user_message_is_mirrored_into_the_slack_dm_thread(self, _mock_signal_followup):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED, state={})
+        integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T123")
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=integration,
+            slack_workspace_id="T123",
+            channel="D-owner",
+            thread_ts="100.1",
+            task=task,
+            task_run=run,
+            mentioning_slack_user_id="U-owner",
+            conversation_type=SlackThreadTaskMapping.ConversationType.IM,
+        )
+
+        with (
+            patch("products.tasks.backend.logic.services.task_run_user_notification.SlackIntegration") as slack,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.post(self._command_url(task, run), self._make_user_message(), format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        post = slack.return_value.client.chat_postMessage.call_args.kwargs
+        self.assertEqual((post["channel"], post["thread_ts"]), ("D-owner", "100.1"))
+        self.assertIn("Hello agent", post["text"])
+
+    @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
     def test_command_signals_user_message_artifact_ids(self, mock_signal_followup):
         task = self.create_task()
         run = self._create_run_with_sandbox(task)
@@ -16711,7 +16739,7 @@ class TestTaskRunNotifyUserAPI(BaseTaskAPITest):
         return task, run
 
     def _set_notify_flag(self, enabled: bool) -> None:
-        enabled_flags = {"tasks", "tasks-agent-notify-user"} if enabled else {"tasks"}
+        enabled_flags = {"tasks", "slack-app-remote-control"} if enabled else {"tasks"}
         self.mock_feature_flag.side_effect = lambda flag_name, *_args, **_kwargs: flag_name in enabled_flags
 
     def _notify(self, task: Task, run: TaskRun):

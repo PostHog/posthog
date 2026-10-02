@@ -632,7 +632,6 @@ def _invoke_start_agent_server(
             rtk_enabled=ctx.rtk_enabled,
             benjamin_enabled=ctx.benjamin_enabled,
             peer_messaging=ctx.peer_messaging_enabled,
-            notify_user=ctx.notify_user_enabled,
             claude_model_access=ctx.model_access.access_for("claude"),
             codex_model_access=ctx.model_access.access_for("codex"),
             codex_run_token=params.codex_run_token,

@@ -4,7 +4,6 @@ import { finishTool } from "./tools/finish";
 import { ghStackTool } from "./tools/gh-stack";
 import { listAgentsTool } from "./tools/list-agents";
 import { listReposTool } from "./tools/list-repos";
-import { notifyUserTool } from "./tools/notify-user";
 import { reportActivityTool } from "./tools/report-activity";
 import { sendAgentMessageTool } from "./tools/send-agent-message";
 import { showActionsTool } from "./tools/show-actions";
@@ -39,7 +38,6 @@ export const LOCAL_TOOLS: LocalTool[] = [
   finishTool,
   listAgentsTool,
   sendAgentMessageTool,
-  notifyUserTool,
 ];
 
 /** Tools whose gate passes for the given context — the set to actually expose. */

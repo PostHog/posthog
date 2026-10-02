@@ -898,9 +898,24 @@ tools:
     tasks-runs-living-artifacts-version-content:
         operation: tasks_runs_living_artifacts_version_content
         enabled: false
-    tasks-runs-notify-user-create:
+    tasks-runs-owner-notify:
         operation: tasks_runs_notify_user_create
-        enabled: false
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Notify the task owner
+        description: >
+            Send the owner of a task a Slack DM from the PostHog app. Use it when the user asks for updates, asks you to
+            DM them when you are done or blocked, or asks to continue, mirror or remote control the task in Slack.
+            Set `remote_control: true` for remote control: the DM opens a thread where replies reach the task, and
+            your answers and the user's PostHog Code messages post there. Set it to false when the user asks to stop.
+            In a PostHog Code cloud run, the task id and run id are in the POSTHOG_TASK_ID and POSTHOG_TASK_RUN_ID
+            environment variables. Do not use it to narrate routine progress.
+        feature_flag: slack-app-remote-control
     tasks-runs-partial-update:
         operation: tasks_runs_partial_update
         enabled: false

@@ -43,8 +43,8 @@ REASONING_EFFORTS = model_catalog.REASONING_EFFORTS
 # runtime, so the effective audience is teams with both this flag and
 # PI_CLOUD_RUNTIME_FEATURE_FLAG enabled.
 AGENT_PEER_MESSAGING_FEATURE_FLAG = "tasks-agent-peer-messaging"
-# Gates the notify_user agent tool, which messages the task owner outside PostHog Code.
-AGENT_NOTIFY_USER_FEATURE_FLAG = "tasks-agent-notify-user"
+# Gates notify_user and Slack remote control, where the task owner continues a task from a DM thread.
+SLACK_APP_REMOTE_CONTROL_FEATURE_FLAG = "slack-app-remote-control"
 TASK_ANALYSIS_FEATURE_FLAG = "posthog-code-task-analysis"
 
 ANALYSIS_TARGET_TASK_ID_STATE_KEY = "analysis_target_task_id"

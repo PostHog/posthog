@@ -3064,9 +3064,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 TaskRunErrorResponseSerializer({"error": "Only the task creator's runs can notify them"}).data,
                 status=status.HTTP_403_FORBIDDEN,
             )
-        if not tasks_facade.agent_notify_user_enabled(self.team, user):
+        if not tasks_facade.slack_app_remote_control_enabled(self.team, user):
             return Response(
-                TaskRunErrorResponseSerializer({"error": "Agent notifications are not enabled for this team"}).data,
+                TaskRunErrorResponseSerializer({"error": "Slack remote control is not enabled for this team"}).data,
                 status=status.HTTP_403_FORBIDDEN,
             )
         return None
@@ -3089,8 +3089,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         description=(
             "Send a message from this run's agent to the task owner, for example a progress update they "
             "asked for or a question that blocks the work. The recipient is always the task creator. On "
-            "Slack the message is a DM, and a reply in its thread continues the task when "
-            "`replies_continue_task` is true."
+            "Slack the message is a DM. With `remote_control`, the DM thread controls the task: replies reach "
+            "the task, and answers and PostHog Code messages post there."
         ),
         strict_request_validation=True,
     )
@@ -3106,6 +3106,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             channel=UserNotificationChannel(request.validated_data["channel"]),
             reason=UserNotificationReason(request.validated_data["reason"]),
             message=request.validated_data["message"],
+            remote_control=request.validated_data.get("remote_control"),
         )
         if result is None:
             raise NotFound()
@@ -3411,6 +3412,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 tasks_facade.update_task_run_state(pk, remove_keys=["await_user_message"])
             except Exception:
                 logger.warning("Failed to clear await_user_message for task run %s", pk)
+            try:
+                tasks_facade.queue_slack_mirror_of_user_message(
+                    pk, self.team_id, actor_user_id=request.user.id, content=command_params.get("content")
+                )
+            except Exception:
+                logger.warning("Failed to mirror user message to Slack for task run %s", pk)
 
             response_payload: dict[str, Any] = {
                 "jsonrpc": request.validated_data["jsonrpc"],

@@ -3350,7 +3350,7 @@ export const TasksRunsCommandCreateBody = /* @__PURE__ */ zod
     .describe('JSON-RPC request to send a command to the agent server in the sandbox.')
 
 /**
- * Send a message from this run's agent to the task owner, for example a progress update they asked for or a question that blocks the work. The recipient is always the task creator. On Slack the message is a DM, and a reply in its thread continues the task when `replies_continue_task` is true.
+ * Send a message from this run's agent to the task owner, for example a progress update they asked for or a question that blocks the work. The recipient is always the task creator. On Slack the message is a DM. With `remote_control`, the DM thread controls the task: replies reach the task, and answers and PostHog Code messages post there.
  * @summary Notify the task owner
  */
 export const tasksRunsNotifyUserCreateBodyChannelDefault = `slack`
@@ -3376,6 +3376,12 @@ export const TasksRunsNotifyUserCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(tasksRunsNotifyUserCreateBodyMessageMax)
         .describe('Plain-text message for the task owner (max 2000 chars). PostHog adds the task title and a link.'),
+    remote_control: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'Remote control from the chosen channel. Set true when the user asks to continue, mirror or remote control the task in Slack: the DM opens a thread where replies reach the task, and answers and PostHog Code messages show. Set false when the user asks to stop. Leave it out for a plain notification, which keeps the current state.'
+        ),
 })
 
 /**

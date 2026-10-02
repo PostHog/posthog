@@ -774,7 +774,6 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       persistence: meta.persistence,
       baseBranch: meta.baseBranch,
       peerMessaging: process.env.POSTHOG_AGENT_PEER_MESSAGING === "1",
-      notifyUser: process.env.POSTHOG_AGENT_NOTIFY_USER === "1",
       taskOriginProduct: meta.taskOriginProduct,
       endRunWhenDone: meta.endRunWhenDone === true,
     };

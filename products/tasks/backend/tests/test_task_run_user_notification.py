@@ -13,7 +13,10 @@ from products.tasks.backend.facade.contracts import (
     UserNotificationOutcome,
     UserNotificationReason,
 )
-from products.tasks.backend.logic.services.task_run_user_notification import notify_task_owner
+from products.tasks.backend.logic.services.task_run_user_notification import (
+    mirror_user_message_to_slack,
+    notify_task_owner,
+)
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.redis import get_tasks_cache
 
@@ -43,52 +46,112 @@ class TestTaskRunUserNotification(BaseTest):
         )
         self.task_run = self._new_run()
 
-        client_patch = patch("products.tasks.backend.logic.services.slack_dm_recipient.SlackIntegration")
-        self.addCleanup(client_patch.stop)
         self.slack_client = MagicMock()
         self.slack_client.chat_postMessage.return_value = {"ok": True, "channel": "D-owner", "ts": "100.1"}
-        client_patch.start().return_value.client = self.slack_client
+        for module in ("slack_dm_recipient", "task_run_user_notification"):
+            client_patch = patch(f"products.tasks.backend.logic.services.{module}.SlackIntegration")
+            self.addCleanup(client_patch.stop)
+            client_patch.start().return_value.client = self.slack_client
 
     def _new_run(self) -> TaskRun:
         return TaskRun.objects.create(
             task=self.task, team=self.team, status=TaskRun.Status.IN_PROGRESS, environment=TaskRun.Environment.CLOUD
         )
 
-    def _notify(self, run: TaskRun | None = None, message: str = "Tests pass. I opened the PR."):
+    def _notify(
+        self,
+        run: TaskRun | None = None,
+        message: str = "Tests pass. I opened the PR.",
+        remote_control: bool | None = None,
+    ):
+        get_tasks_cache().clear()
         return notify_task_owner(
             task_run=run or self.task_run,
             channel=UserNotificationChannel.SLACK,
             reason=UserNotificationReason.UPDATE,
             message=message,
+            remote_control=remote_control,
         )
 
     def _post_kwargs(self, call_index: int = -1) -> dict:
         return self.slack_client.chat_postMessage.call_args_list[call_index].kwargs
 
-    def test_first_notification_opens_a_dm_thread_that_continues_the_task(self):
+    def _footer(self) -> str | None:
+        blocks = self._post_kwargs()["attachments"][0]["blocks"]
+        return blocks[1]["elements"][0]["text"] if len(blocks) > 1 else None
+
+    def test_a_plain_notification_does_not_turn_on_remote_control(self):
         result = self._notify()
 
         assert result.result == UserNotificationOutcome.SENT
-        assert result.replies_continue_task is True
+        assert result.remote_control_active is False
         assert self._post_kwargs()["channel"] == "U-owner"
-        assert self._post_kwargs()["thread_ts"] is None
+        assert not SlackThreadTaskMapping.objects.filter(task=self.task).exists()
+
+    def test_remote_control_opens_a_dm_thread_bound_to_the_run(self):
+        result = self._notify(remote_control=True)
+
+        assert result.remote_control_active is True
+        assert self._post_kwargs()["channel"] == "U-owner"
+        assert "Remote control is on" in (self._footer() or "")
         mapping = SlackThreadTaskMapping.objects.get(task_run=self.task_run)
         assert (mapping.channel, mapping.thread_ts, mapping.conversation_type) == ("D-owner", "100.1", "im")
         assert mapping.mentioning_slack_user_id == "U-owner"
 
-    def test_later_notifications_reply_in_the_owner_thread_and_follow_the_newest_run(self):
-        self._notify()
-        get_tasks_cache().clear()
-        later_run = self._new_run()
+    def test_a_new_run_takes_over_remote_control_and_its_first_message_is_mirrored(self):
+        self._notify(remote_control=True)
 
-        result = self._notify(run=later_run)
+        with self.captureOnCommitCallbacks(execute=True):
+            later_run = self.task.create_run(
+                extra_state={"pending_user_message": "Also <!here> fix the flaky test"}, acting_user_id=self.user.id
+            )
 
-        assert result.replies_continue_task is True
+        assert SlackThreadTaskMapping.objects.get(task=self.task).task_run_id == later_run.id
+        kwargs = self._post_kwargs()
+        assert (kwargs["channel"], kwargs["thread_ts"]) == ("D-owner", "100.1")
+        assert "in PostHog Code" in kwargs["text"]
+        assert "Also &lt;!here&gt; fix the flaky test" in kwargs["text"]
+
+        self._notify(run=later_run)
+
         kwargs = self._post_kwargs()
         assert (kwargs["channel"], kwargs["thread_ts"]) == ("D-owner", "100.1")
         assert kwargs["text"].startswith("<@U-owner>")
-        mapping = SlackThreadTaskMapping.objects.get(task=self.task)
-        assert mapping.task_run_id == later_run.id
+
+    def test_a_slack_started_dm_task_is_not_echoed_back_into_its_thread(self):
+        self.task.origin_product = Task.OriginProduct.SLACK
+        self.task.save()
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=self.integration,
+            slack_workspace_id=SLACK_WORKSPACE_ID,
+            channel="D-owner",
+            thread_ts="50.1",
+            task=self.task,
+            task_run=self.task_run,
+            mentioning_slack_user_id="U-owner",
+            conversation_type=SlackThreadTaskMapping.ConversationType.IM,
+        )
+
+        mirror_user_message_to_slack(
+            team_id=self.team.id, task_run_id=str(self.task_run.id), actor_user_id=self.user.id, content="hi"
+        )
+        later_run = self.task.create_run()
+
+        self.slack_client.chat_postMessage.assert_not_called()
+        assert SlackThreadTaskMapping.objects.get(task=self.task).task_run_id == self.task_run.id
+        assert later_run.id != self.task_run.id
+
+    def test_remote_control_false_turns_it_off(self):
+        self._notify(remote_control=True)
+
+        result = self._notify(remote_control=False)
+
+        assert result.result == UserNotificationOutcome.SENT
+        assert result.remote_control_active is False
+        assert self._post_kwargs()["thread_ts"] == "100.1"
+        assert "Remote control is off" in (self._footer() or "")
+        assert not SlackThreadTaskMapping.objects.filter(task=self.task).exists()
 
     def test_a_run_driven_by_a_channel_thread_keeps_that_thread(self):
         SlackThreadTaskMapping.objects.create(
@@ -103,14 +166,13 @@ class TestTaskRunUserNotification(BaseTest):
             conversation_type=SlackThreadTaskMapping.ConversationType.PUBLIC_CHANNEL,
         )
 
-        result = self._notify()
+        result = self._notify(remote_control=True)
 
-        assert result.result == UserNotificationOutcome.SENT
-        assert result.replies_continue_task is False
-        assert self._post_kwargs()["channel"] == "U-owner"
-        assert list(
-            SlackThreadTaskMapping.objects.filter(task_run=self.task_run).values_list("channel", flat=True)
-        ) == ["C-general"]
+        assert result.result == UserNotificationOutcome.NOT_SENT
+        self.slack_client.chat_postMessage.assert_not_called()
+        assert list(SlackThreadTaskMapping.objects.filter(task=self.task).values_list("channel", flat=True)) == [
+            "C-general"
+        ]
 
     def test_agent_text_cannot_ping_or_disguise_links(self):
         self._notify(message="<!channel> see <https://evil.example.com|the docs>")
@@ -132,7 +194,12 @@ class TestTaskRunUserNotification(BaseTest):
             "products.tasks.backend.logic.services.slack_dm_recipient.lookup_slack_user_id_by_email", return_value=None
         ):
             first = self._notify()
-            second = self._notify()
+            second = notify_task_owner(
+                task_run=self.task_run,
+                channel=UserNotificationChannel.SLACK,
+                reason=UserNotificationReason.UPDATE,
+                message="again",
+            )
 
         assert first.result == UserNotificationOutcome.NOT_SENT
         assert second.result == UserNotificationOutcome.NOT_SENT
@@ -141,7 +208,12 @@ class TestTaskRunUserNotification(BaseTest):
     def test_a_second_notification_inside_the_cooldown_is_throttled(self):
         self._notify()
 
-        result = self._notify()
+        result = notify_task_owner(
+            task_run=self.task_run,
+            channel=UserNotificationChannel.SLACK,
+            reason=UserNotificationReason.UPDATE,
+            message="again",
+        )
 
         assert result.result == UserNotificationOutcome.THROTTLED
         assert self.slack_client.chat_postMessage.call_count == 1

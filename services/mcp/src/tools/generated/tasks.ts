@@ -1021,6 +1021,42 @@ const tasksRunsList = (): ToolBase<
     },
 })
 
+const TasksRunsOwnerNotifySchema = () => {
+    const TasksRunsNotifyUserCreateBody = orvalSchemas.TasksRunsNotifyUserCreateBody()
+    const TasksRunsNotifyUserCreateParams = orvalSchemas.TasksRunsNotifyUserCreateParams()
+    return TasksRunsNotifyUserCreateParams.omit({ project_id: true }).extend(TasksRunsNotifyUserCreateBody.shape)
+}
+
+const tasksRunsOwnerNotify = (): ToolBase<
+    ReturnType<typeof TasksRunsOwnerNotifySchema>,
+    Schemas.TaskRunNotifyUserResponse
+> => ({
+    name: 'tasks-runs-owner-notify',
+    schema: TasksRunsOwnerNotifySchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof TasksRunsOwnerNotifySchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.channel !== undefined) {
+            body['channel'] = params.channel
+        }
+        if (params.reason !== undefined) {
+            body['reason'] = params.reason
+        }
+        if (params.message !== undefined) {
+            body['message'] = params.message
+        }
+        if (params.remote_control !== undefined) {
+            body['remote_control'] = params.remote_control
+        }
+        const result = await context.api.request<Schemas.TaskRunNotifyUserResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/${encodeURIComponent(String(params.task_id))}/runs/${encodeURIComponent(String(params.id))}/notify_user/`,
+            body,
+        })
+        return result
+    },
+})
+
 const TasksRunsRetrieveSchema = () => {
     const TasksRunsRetrieveParams = orvalSchemas.TasksRunsRetrieveParams()
     return TasksRunsRetrieveParams.omit({ project_id: true })
@@ -1107,6 +1143,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'tasks-retrieve': tasksRetrieve,
     'tasks-run-create': tasksRunCreate,
     'tasks-runs-list': tasksRunsList,
+    'tasks-runs-owner-notify': tasksRunsOwnerNotify,
     'tasks-runs-retrieve': tasksRunsRetrieve,
     'tasks-runs-session-logs-retrieve': tasksRunsSessionLogsRetrieve,
 }
