@@ -1,6 +1,4 @@
-import { resetContext } from 'kea'
-import { disposablesPlugin } from 'kea-disposables'
-import { expectLogic, partial, testUtilsPlugin } from 'kea-test-utils'
+import { expectLogic, partial } from 'kea-test-utils'
 
 import { uuid } from 'lib/utils/dom'
 
@@ -27,10 +25,6 @@ describe('stepDelayLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
-
-        resetContext({
-            plugins: [testUtilsPlugin, disposablesPlugin],
-        })
 
         wfLogic = workflowLogic({ id: 'new' })
         wfLogic.mount()

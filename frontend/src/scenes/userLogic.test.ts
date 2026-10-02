@@ -46,11 +46,11 @@ describe('userLogic', () => {
         it.each([undefined, '/api/agentic/authorize?state=example-state'])(
             'clears drafts without removing preferences when logging out to %s',
             (nextUrl) => {
-                let submittedNext: FormDataEntryValue | null = null
+                let submittedNext: string | null = null
                 const submit = jest
                     .spyOn(HTMLFormElement.prototype, 'submit')
                     .mockImplementation(function (this: HTMLFormElement) {
-                        submittedNext = new FormData(this).get('next')
+                        submittedNext = this.querySelector<HTMLInputElement>('input[name="next"]')?.value ?? null
                         this.remove()
                     })
                 for (const teamId of [1, 2]) {
