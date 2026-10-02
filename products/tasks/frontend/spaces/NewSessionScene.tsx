@@ -17,19 +17,10 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
-import { EmbeddedTaskComposer } from 'products/posthog_ai/frontend/api/runner'
-
 import { newSessionSceneLogic } from './newSessionSceneLogic'
 import { NewSessionSpaceSelect } from './NewSessionSpaceSelect'
-import { SPACE_COMPOSER_OVERRIDE } from './spaceSceneLogic'
-
-// The repository picker and the input frame at their loaded sizes, so the page does not jump when the chunk lands.
-const COMPOSER_SKELETON = (
-    <div className="flex flex-col gap-2">
-        <Skeleton className="h-8 w-36" />
-        <Skeleton className="h-36 w-full rounded-lg" />
-    </div>
-)
+import { SpaceTaskComposer } from './SpaceTaskComposer'
+import { SpaceTaskComposerSkeleton } from './SpaceTaskComposerSkeleton'
 
 export const scene: SceneExport = {
     component: NewSessionScene,
@@ -90,18 +81,19 @@ export function NewSessionScene(): JSX.Element {
                             </span>
                         </Heading>
                         {resolving ? (
-                            COMPOSER_SKELETON
+                            <SpaceTaskComposerSkeleton />
                         ) : (
-                            // Each space gets its own composer, so it starts on that space's repository.
-                            <EmbeddedTaskComposer
-                                key={space?.id ?? 'none'}
-                                panelId={`new-session-${space?.id ?? 'none'}`}
-                                channelId={space?.id}
-                                initialRepositoryConfig={composerRepositoryConfig}
-                                composerOverride={SPACE_COMPOSER_OVERRIDE}
-                                onTaskCreated={sessionStarted}
-                                fallback={COMPOSER_SKELETON}
-                            />
+                            space && (
+                                // Each space gets its own composer, so it starts on that space's repository.
+                                <div data-attr="today-new-session-composer">
+                                    <SpaceTaskComposer
+                                        space={space}
+                                        panelId={`new-session-${space.id}`}
+                                        repositoryConfig={composerRepositoryConfig}
+                                        onTaskCreated={sessionStarted}
+                                    />
+                                </div>
+                            )
                         )}
                     </>
                 )}

@@ -167,7 +167,7 @@ export function TodaySpacesSidebar(): JSX.Element {
                     data-attr="today-spaces-new-chat"
                 >
                     <IconPlus />
-                    New chat
+                    New session
                 </Button>
                 <div className="mt-6 flex min-h-0 flex-1 flex-col overflow-hidden px-1" ref={layout.measureRefs.area}>
                     {hasPinned && (
@@ -220,7 +220,7 @@ export function TodaySpacesSidebar(): JSX.Element {
                             loadError('Recent sessions didn’t load.', loadRecentTasks, 'today-recent-retry')
                         ) : recentState === 'empty' ? (
                             <Text size="xs" variant="muted" className="px-2 py-1">
-                                Sessions and chats you open show up here. Start one with New chat.
+                                Sessions and chats you open show up here. Start one with New session.
                             </Text>
                         ) : recentState === 'no-matches' ? (
                             notice(

@@ -100,13 +100,6 @@ export function spaceComposerPanelId(spaceId: string): string {
     return `space-${spaceId}`
 }
 
-export const SPACE_COMPOSER_OVERRIDE: EmbeddedTaskComposerProps['composerOverride'] = {
-    placeholder: 'What do you want to ship?',
-    hideSuggestions: true,
-    hideRecentTasks: true,
-    hideOnboardingReplay: true,
-}
-
 /** A new session starts on the space's first repository. */
 export function spaceComposerRepositoryConfig(space: ChannelDTOApi | null): SpaceComposerRepositoryConfig {
     return space?.repositories.length
