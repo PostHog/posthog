@@ -13,10 +13,9 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.conf import settings
 from django.core.cache import cache
-from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.db import IntegrityError, models, transaction
-from django.db.models import Exists, OuterRef, Q, QuerySet, Subquery
+from django.db.models import Q, QuerySet
 from django.db.models.expressions import RawSQL
 from django.http import Http404, HttpResponse
 from django.utils import timezone
@@ -113,7 +112,13 @@ from products.tasks.backend.facade.workflow_tasks import (
     resolve_connectors,
     validate_skill_names,
 )
-from products.workflows.backend.facade.api import create_batch_job
+from products.workflows.backend.facade.batch_jobs import (
+    create_batch_job,
+    get_batch_job,
+    hog_flow_ids_with_broadcast_status,
+    list_batch_jobs,
+    set_batch_job_status,
+)
 from products.workflows.backend.facade.blast_radius import (
     SUPPORTED_DEDUPE_KEYS,
     get_account_audience_ids_page,
@@ -124,7 +129,7 @@ from products.workflows.backend.facade.blast_radius import (
     is_account_audience,
     parse_account_audience_filters,
 )
-from products.workflows.backend.facade.contracts import StaffPausedError
+from products.workflows.backend.facade.contracts import StaffPausedError, WorkflowBatchJobNotFound
 from products.workflows.backend.facade.email_health import (
     fetch_aws_tenant_reputation,
     fetch_email_totals_by_source,
@@ -135,6 +140,7 @@ from products.workflows.backend.facade.email_health import (
     resume_email_sending,
     team_email_sending_allowance,
 )
+from products.workflows.backend.facade.enums import HogFlowBatchJobState
 from products.workflows.backend.facade.secrets import (
     TemplateCache,
     mask_derived_trigger,
@@ -912,6 +918,14 @@ class InternalBlastRadiusPersonsSerializer(serializers.Serializer):
         help_text="Cursor for the next call, or null when this page is the last.",
     )
     has_more = serializers.BooleanField(help_text="Whether another page may follow.")
+
+
+class InternalBatchJobStatusSerializer(serializers.Serializer):
+    """Response contract for the internal batch job status write, read by the Node batch resolver."""
+
+    id = serializers.CharField(help_text="Batch job id.")
+    status = serializers.CharField(help_text="Status of the batch job after the call.")
+    no_op = serializers.BooleanField(help_text="True when the job was already terminal and nothing changed.")
 
 
 class InternalAccountAudienceSerializer(serializers.Serializer):
@@ -4102,52 +4116,6 @@ def annotate_broadcast_shape(queryset: QuerySet) -> QuerySet:
 BROADCAST_STATUSES = ("draft", "scheduled", "sending", "sent", "failed", "archived")
 
 
-def filter_by_broadcast_status(queryset: QuerySet, statuses: set[str]) -> QuerySet:
-    # The status a sender sees on a broadcast, derived the way the broadcasts UI derives it: from the
-    # latest run and whether a schedule still has sends to come.
-    latest_run_status = (
-        HogFlowBatchJob.objects.filter(team_id=OuterRef("team_id"), hog_flow_id=OuterRef("pk"))
-        .order_by("-created_at")
-        .values("status")[:1]
-    )
-    queryset = queryset.annotate(
-        _latest_run_status=Subquery(latest_run_status),
-        _has_pending_schedule=Exists(
-            HogFlowSchedule.objects.filter(
-                team_id=OuterRef("team_id"), hog_flow_id=OuterRef("pk"), status=HogFlowSchedule.Status.ACTIVE
-            )
-        ),
-    )
-    live = Q(status=HogFlow.State.ACTIVE)
-    # Only a wizard launch always leaves a schedule or a run. An opened workflow can wait for an API send.
-    nothing_to_come = Q(_latest_run_status__isnull=True, _has_pending_schedule=False)
-    unfinished_launch = nothing_to_come & Q(origin_product="broadcasts")
-    running = [HogFlowBatchJob.State.WAITING, HogFlowBatchJob.State.QUEUED, HogFlowBatchJob.State.ACTIVE]
-    conditions = {
-        "draft": Q(status=HogFlow.State.DRAFT),
-        "archived": Q(status=HogFlow.State.ARCHIVED),
-        "sending": live & Q(_latest_run_status__in=running),
-        "sent": live & Q(_latest_run_status=HogFlowBatchJob.State.COMPLETED, _has_pending_schedule=False),
-        "scheduled": live
-        & (
-            (
-                Q(_has_pending_schedule=True)
-                & (Q(_latest_run_status__isnull=True) | Q(_latest_run_status=HogFlowBatchJob.State.COMPLETED))
-            )
-            | (nothing_to_come & ~Q(origin_product="broadcasts"))
-        ),
-        "failed": live
-        & (
-            Q(_latest_run_status__in=[HogFlowBatchJob.State.FAILED, HogFlowBatchJob.State.CANCELLED])
-            | unfinished_launch
-        ),
-    }
-    combined = Q()
-    for broadcast_status in statuses:
-        combined |= conditions[broadcast_status]
-    return queryset.filter(combined)
-
-
 class HogFlowFilterSet(FilterSet):
     # A producer's work list, so an agent need not read every workflow to find the few it may look at.
     optimization_enabled = BooleanFilter(
@@ -4504,7 +4472,9 @@ class HogFlowViewSet(
                     raise exceptions.ValidationError(
                         {"broadcast_status": f"Must be one or more of: {', '.join(BROADCAST_STATUSES)}"}
                     )
-                queryset = filter_by_broadcast_status(queryset, requested_statuses)
+                queryset = queryset.filter(
+                    id__in=hog_flow_ids_with_broadcast_status(team_id=self.team_id, statuses=requested_statuses)
+                )
 
             # `?type=loop` and `?type=broadcast` return the same rows, but Desktop's Loops list sends
             # this param and ships on its own release cadence, so installed builds keep sending it.
@@ -6507,7 +6477,7 @@ class HogFlowViewSet(
             self._report_workflow_action("hog_flow_batch_job_created", hog_flow, {"batch_job_id": str(batch_job.id)})
             return Response(HogFlowBatchJobSerializer(batch_job).data)
         else:
-            batch_jobs = HogFlowBatchJob.objects.filter(hog_flow=hog_flow, team=self.team).order_by("-created_at")
+            batch_jobs = list_batch_jobs(team_id=self.team_id, hog_flow_id=hog_flow.id)
             serializer = HogFlowBatchJobSerializer(batch_jobs, many=True)
             return Response(serializer.data)
 
@@ -6536,16 +6506,18 @@ class HogFlowViewSet(
         hog_flow = self.get_object()
 
         try:
-            batch_job = HogFlowBatchJob.objects.get(id=kwargs["batch_job_id"], hog_flow=hog_flow, team_id=self.team_id)
-        except (HogFlowBatchJob.DoesNotExist, DjangoValidationError, ValueError):
-            # DjangoValidationError fires when the id is not a parseable UUID — surface
-            # as 404 rather than a 500 reported to error tracking.
+            batch_job = get_batch_job(
+                team_id=self.team_id, hog_flow_id=hog_flow.id, batch_job_id=kwargs["batch_job_id"]
+            )
+        except WorkflowBatchJobNotFound:
+            # An id that is not a parseable UUID lands here too, as a 404 rather than a 500
+            # reported to error tracking.
             raise exceptions.NotFound("Batch job not found")
 
         non_terminal = {
-            HogFlowBatchJob.State.WAITING,
-            HogFlowBatchJob.State.QUEUED,
-            HogFlowBatchJob.State.ACTIVE,
+            HogFlowBatchJobState.WAITING,
+            HogFlowBatchJobState.QUEUED,
+            HogFlowBatchJobState.ACTIVE,
         }
         if batch_job.status not in non_terminal:
             return Response({"status": batch_job.status, "marked": 0, "remaining": 0, "done": True})
@@ -6571,13 +6543,15 @@ class HogFlowViewSet(
 
         if data["done"]:
             # Conditional so a completion that landed mid-cancel wins over the flip; the
-            # resolver's own terminal write absorbs the reverse race. `.update()` bypasses
-            # auto_now, so stamp updated_at explicitly.
-            HogFlowBatchJob.objects.filter(id=batch_job.id, status__in=non_terminal).update(
-                status=HogFlowBatchJob.State.CANCELLED, updated_at=timezone.now()
+            # resolver's own terminal write absorbs the reverse race.
+            set_batch_job_status(
+                team_id=self.team_id,
+                batch_job_id=batch_job.id,
+                status=HogFlowBatchJobState.CANCELLED,
+                from_statuses=non_terminal,
             )
 
-        batch_job.refresh_from_db()
+        batch_job = get_batch_job(team_id=self.team_id, hog_flow_id=hog_flow.id, batch_job_id=str(batch_job.id))
         self._report_workflow_action(
             "hog_flow_batch_job_cancel_requested",
             hog_flow,
@@ -6895,7 +6869,6 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         """
         from django.db import transaction  # noqa: PLC0415
 
-        from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob  # noqa: PLC0415
         from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule  # noqa: PLC0415
         from products.workflows.backend.utils.rrule_utils import compute_next_occurrences  # noqa: PLC0415
 
@@ -7061,8 +7034,6 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
         Accepts: { status: "completed" | "failed" }
         """
-        from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob  # noqa: PLC0415
-
         if request.method != "PUT":
             return Response({"error": "Method not allowed"}, status=405)
 
@@ -7072,45 +7043,45 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
             return Response({"error": "Team not found"}, status=404)
 
         new_status = request.data.get("status")
-        if new_status not in (HogFlowBatchJob.State.COMPLETED, HogFlowBatchJob.State.FAILED):
+        if new_status not in (HogFlowBatchJobState.COMPLETED, HogFlowBatchJobState.FAILED):
             return Response(
                 {"error": "status must be one of: completed, failed"},
                 status=400,
             )
 
         try:
-            batch_job = HogFlowBatchJob.objects.get(id=batch_job_id, team=team)
-        except (HogFlowBatchJob.DoesNotExist, DjangoValidationError, ValueError):
-            # `DjangoValidationError` fires when `batch_job_id` is not a parseable
-            # UUID (UUIDField rejects it before the lookup). `ValueError` is a
-            # belt-and-suspenders catch for str→int / str→UUID edge cases on
-            # other backends. Either way, surface as 404, not 500.
+            batch_job = get_batch_job(team_id=team.id, batch_job_id=batch_job_id)
+        except WorkflowBatchJobNotFound:
+            # An unparseable `batch_job_id` lands here too: surface as 404, not 500.
             return Response({"error": "Batch job not found"}, status=404)
 
         terminal_states = {
-            HogFlowBatchJob.State.COMPLETED,
-            HogFlowBatchJob.State.FAILED,
-            HogFlowBatchJob.State.CANCELLED,
+            HogFlowBatchJobState.COMPLETED,
+            HogFlowBatchJobState.FAILED,
+            HogFlowBatchJobState.CANCELLED,
         }
         if batch_job.status in terminal_states:
             # Idempotent no-op: already in a terminal state.
             return Response(
-                {
-                    "id": str(batch_job.id),
-                    "status": batch_job.status,
-                    "no_op": True,
-                }
+                InternalBatchJobStatusSerializer(
+                    {
+                        "id": str(batch_job.id),
+                        "status": batch_job.status,
+                        "no_op": True,
+                    }
+                ).data
             )
 
         try:
-            batch_job.status = new_status
-            batch_job.save(update_fields=["status", "updated_at"])
+            set_batch_job_status(team_id=team.id, batch_job_id=batch_job.id, status=HogFlowBatchJobState(new_status))
             return Response(
-                {
-                    "id": str(batch_job.id),
-                    "status": batch_job.status,
-                    "no_op": False,
-                }
+                InternalBatchJobStatusSerializer(
+                    {
+                        "id": str(batch_job.id),
+                        "status": new_status,
+                        "no_op": False,
+                    }
+                ).data
             )
         except Exception as e:
             logger.exception(
