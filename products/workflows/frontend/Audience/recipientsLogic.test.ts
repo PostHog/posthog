@@ -77,14 +77,16 @@ describe('recipientsLogic', () => {
         jest.restoreAllMocks()
     })
 
-    it('sends only the last search typed within the debounce window', async () => {
+    it('sends and links only the last search typed within the debounce window', async () => {
         await mountLogic()
         jest.useFakeTimers()
 
         logic.actions.setSearchValue(textSearch('ja'))
         logic.actions.setSearchValue(textSearch('jam'))
         logic.actions.setSearchValue(textSearch('jamie'))
+        expect(router.values.searchParams.q).toBeUndefined()
         jest.advanceTimersByTime(SEARCH_DEBOUNCE_MS)
+        expect(router.values.searchParams.q).toBe('jamie')
         jest.useRealTimers()
         await expectLogic(logic).toDispatchActions(['loadAudienceRecipientsSuccess'])
 

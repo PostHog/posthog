@@ -113,6 +113,25 @@ describe('AudienceRecipients', () => {
         expect(pills()).toEqual(['Suppressed: Bounces', 'Person: No person'])
     })
 
+    it('keeps a search that reads like a number', async () => {
+        startAt(urls.audience('recipients'))
+        const user = userEvent.setup()
+
+        await user.click(input())
+        await user.keyboard('007')
+
+        await waitFor(() => expect(requests.at(-1)?.searchParams.get('search')).toBe('007'))
+        expect(input()).toHaveValue('007')
+        expect(requests.map((request) => request.searchParams.get('search'))).not.toContain('7')
+    })
+
+    it('rewrites a hand-written link to the filter the API reads', async () => {
+        startAt(`${urls.audience('recipients')}?q=suppressed:bounce`)
+
+        await waitFor(() => expect(router.values.searchParams.q).toBe('suppressed:BOUNCE'))
+        expect(requests.map((request) => request.searchParams.getAll('filter'))).toEqual([['suppressed:BOUNCE']])
+    })
+
     it('names the filter the API rejects instead of offering a retry', async () => {
         useMocks({
             get: {
