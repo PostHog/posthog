@@ -2338,8 +2338,10 @@ ticket_assignment_lazy_join: LazyJoin = LazyJoin(
 support_tickets: PostgresTable = PostgresTable(
     name="support_tickets",
     postgres_table_name="posthog_conversations_ticket",
+    # A deleted ticket waits for its purge, and its content must not stay readable until then.
+    predicates=[parse_expr("_deleted_at IS NULL")],
     access_scope="ticket",
-    description="Customer support tickets/conversations; one row per ticket, with channel, status, and message counts.",
+    description="Customer support tickets/conversations; one row per ticket, with channel, status, and message counts (deleted tickets are excluded).",
     fields={
         "id": StringDatabaseField(name="id", description="Ticket UUID."),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -2410,6 +2412,7 @@ support_tickets: PostgresTable = PostgresTable(
         ),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the ticket was opened."),
         "updated_at": DateTimeDatabaseField(name="updated_at", description="When the ticket was last updated."),
+        "_deleted_at": DateTimeDatabaseField(name="deleted_at", nullable=True, hidden=True),
         "tags": ticket_tags_lazy_join,
         "assignee": ticket_assignment_lazy_join,
     },

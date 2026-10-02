@@ -59,6 +59,11 @@ def resolve_attachment_content_type(content: bytes, declared_content_type: str) 
     return sniff_image_content_type(content)
 
 
+# Marks files that a support channel re-hosted. Ticket cleanup deletes only these, because a
+# team file can also have no created_by (its uploader was removed) and can be linked from a message.
+CONVERSATIONS_ATTACHMENT_MEDIA_PURPOSE = "conversations_attachment"
+
+
 def save_file_to_uploaded_media(
     team: Team,
     file_name: str,
@@ -89,6 +94,7 @@ def save_file_to_uploaded_media(
         file_name=file_name,
         content_type=content_type,
         created_by=None,
+        purpose=CONVERSATIONS_ATTACHMENT_MEDIA_PURPOSE,
     )
     try:
         save_content_to_object_storage(uploaded_media, content)
@@ -186,7 +192,9 @@ def discard_rehosted_attachments(team: Team, attachments: list[dict[str, Any]]) 
     }
     if not media_ids:
         return
-    for media in UploadedMedia.objects.filter(team_id=team.id, id__in=media_ids, created_by__isnull=True):
+    for media in UploadedMedia.objects.filter(
+        team_id=team.id, id__in=media_ids, purpose=CONVERSATIONS_ATTACHMENT_MEDIA_PURPOSE
+    ):
         if media.media_location:
             try:
                 object_storage.delete(media.media_location)

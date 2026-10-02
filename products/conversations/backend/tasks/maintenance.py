@@ -35,6 +35,7 @@ from products.conversations.backend.models import (
 )
 from products.conversations.backend.models.constants import Status
 from products.conversations.backend.models.ticket import TICKET_HARD_DELETE_AFTER, Ticket
+from products.conversations.backend.services.attachments import CONVERSATIONS_ATTACHMENT_MEDIA_PURPOSE
 
 logger = structlog.get_logger(__name__)
 
@@ -140,13 +141,15 @@ def _comment_media_ids(comments: list[Comment]) -> set[str]:
 def _ticket_owned_media(*, team_id: int, ticket_id: str, media_ids: set[str]) -> list[UploadedMedia]:
     """Media that this ticket's comments reference and nothing else can claim.
 
-    Inbound channels re-host customer files with no created_by. A person's own upload
-    has created_by set and can be linked from anywhere, so a ticket comment that names
-    it must not delete it. Media that another comment also references stays too.
+    Only files that a support channel re-hosted are candidates. Any other team file can be
+    linked from a message, so a ticket comment that names it must not delete it. A re-hosted
+    file that another comment also references stays too.
     """
     if not media_ids:
         return []
-    candidates = list(UploadedMedia.objects.filter(team_id=team_id, id__in=media_ids, created_by__isnull=True))
+    candidates = list(
+        UploadedMedia.objects.filter(team_id=team_id, id__in=media_ids, purpose=CONVERSATIONS_ATTACHMENT_MEDIA_PURPOSE)
+    )
     if not candidates:
         return []
     mentions_candidate = Q()
