@@ -100,6 +100,19 @@ describe('AudienceRecipients', () => {
         await waitFor(() => expect(suggestions()).toEqual(['All marketing', 'Newsletter']))
     })
 
+    it('sends the API value for a value typed in any case', async () => {
+        startAt(urls.audience('recipients'))
+        const user = userEvent.setup()
+
+        await user.click(input())
+        await user.keyboard('suppressed:bounce person:NONE ')
+
+        await waitFor(() =>
+            expect(requests.at(-1)?.searchParams.getAll('filter')).toEqual(['suppressed:BOUNCE', 'person:none'])
+        )
+        expect(pills()).toEqual(['Suppressed: Bounces', 'Person: No person'])
+    })
+
     it('sends each pill as its own filter from the first page, and restores the pills from the URL', async () => {
         const capture = jest.spyOn(posthog, 'capture')
         startAt(urls.audience('recipients'))
