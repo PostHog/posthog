@@ -1144,7 +1144,7 @@ def social_create_user(
 
     report_user_signed_up(
         user,
-        is_instance_first_user=User.objects.count() == 1,
+        is_instance_first_user=not User.objects.exclude(pk=user.pk).exists(),
         is_organization_first_user=not from_invite,
         new_onboarding_enabled=False,
         backend_processor=backend_processor,
