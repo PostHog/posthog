@@ -1,6 +1,9 @@
 import { useActions, useValues } from 'kea'
 
+import { IconCheck } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
+
+import { IconBlank } from 'lib/lemon-ui/icons'
 
 import { MCP_DASHBOARD_CARDS } from './dashboardCards'
 import { mcpDashboardCardsLogic } from './mcpDashboardCardsLogic'
@@ -16,7 +19,7 @@ export function DashboardCardsMenu(): JSX.Element {
                 ...MCP_DASHBOARD_CARDS.map(({ id, label }) => ({
                     label,
                     onClick: () => toggleCard(id),
-                    active: isCardVisible(id),
+                    icon: isCardVisible(id) ? <IconCheck /> : <IconBlank />,
                     'data-attr': `mcp-dashboard-card-${id}`,
                 })),
                 ...(hiddenCount > 0
