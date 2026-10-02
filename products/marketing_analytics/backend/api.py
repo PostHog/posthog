@@ -20,7 +20,7 @@ from pydantic import (
 )
 from rest_framework import serializers, status
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied, Throttled
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -43,12 +43,25 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import validated_request
 from posthog.api.project import capture_team_config_diff
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.clickhouse.client.limit import (
+    ConcurrencyLimitExceeded,
+    get_api_team_rate_limiter,
+    get_app_org_rate_limiter,
+    get_org_app_concurrency_limit,
+)
+from posthog.clickhouse.query_tagging import (
+    Feature,
+    Product,
+    get_query_tag_value,
+    is_api_key_access_method,
+    tag_queries,
+)
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import DEFAULT_CURRENCY, Team
 from posthog.models.team.team_marketing_analytics_config import TeamMarketingAnalyticsConfig
 from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
+from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 
 from products.marketing_analytics.backend.hogql_queries.adapters.base import ExternalConfig, QueryContext
 from products.marketing_analytics.backend.hogql_queries.adapters.factory import MarketingSourceFactory
@@ -1167,7 +1180,12 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         request_serializer=ConversionRecordingsRequestSerializer,
         responses={200: ConversionRecordingsResponseSerializer},
     )
-    @action(methods=["POST"], detail=False, required_scopes=["marketing_analytics:read", "session_recording:read"])
+    @action(
+        methods=["POST"],
+        detail=False,
+        required_scopes=["marketing_analytics:read", "session_recording:read"],
+        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
+    )
     def conversion_recordings(self, request: Request, *args: object, **kwargs: object) -> Response:
         data = request.validated_data
         tag_queries(
@@ -1176,18 +1194,34 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             feature=Feature.QUERY,
             client_query_id=str(data["client_query_id"]),
         )
-        result = ConversionRecordingsQuery(
+        runner = ConversionRecordingsQuery(
             query=MarketingAnalyticsTableQuery.model_validate(data["source"]),
             team=self.team,
             user=cast(User, request.user),
-        ).sessions(
-            goal_id=data["goal_id"],
-            group=data["group"],
-            source=data["source_name"],
-            campaign_id=data.get("campaign_id"),
-            after=str(data["after"]) if data.get("after") else None,
-            limit=data["limit"],
         )
+        is_api = is_api_key_access_method(get_query_tag_value("access_method"))
+        try:
+            with (
+                get_api_team_rate_limiter().run(
+                    team_id=self.team_id, is_api=is_api, limit=runner.get_api_queries_concurrency_limit()
+                ),
+                get_app_org_rate_limiter().run(
+                    org_id=self.team.organization_id,
+                    team_id=self.team_id,
+                    is_api=is_api,
+                    limit=get_org_app_concurrency_limit(self.team.organization_id),
+                ),
+            ):
+                result = runner.sessions(
+                    goal_id=data["goal_id"],
+                    group=data["group"],
+                    source=data["source_name"],
+                    campaign_id=data.get("campaign_id"),
+                    after=str(data["after"]) if data.get("after") else None,
+                    limit=data["limit"],
+                )
+        except ConcurrencyLimitExceeded as error:
+            raise Throttled(detail="Too many queries are running. Try again in a moment.") from error
         return Response(ConversionRecordingsResponseSerializer(result).data)
 
     @validated_request(

@@ -67,8 +67,10 @@ class ConversionRecordingsQuery(MarketingAnalyticsTableQueryRunner):
         ]
         if level in (MarketingAnalyticsDrillDownLevel.CAMPAIGN, MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE):
             row_conditions.append(parse_expr("Source = {source}", {"source": ast.Constant(value=source)}))
-        if level == MarketingAnalyticsDrillDownLevel.CAMPAIGN and campaign_id is not None:
-            row_conditions.append(parse_expr("ID = {id}", {"id": ast.Constant(value=campaign_id)}))
+        if level == MarketingAnalyticsDrillDownLevel.CAMPAIGN and not (
+            self.query.compareFilter and self.query.compareFilter.compare
+        ):
+            row_conditions.append(parse_expr("ID = {id}", {"id": ast.Constant(value=campaign_id or "-")}))
         selected_keys = ast.SelectQuery(
             select=[ast.Tuple(exprs=[ast.Field(chain=[f"_conversion_{field}"]) for field in key_fields])],
             select_from=ast.JoinExpr(table=table, alias="table_rows"),
@@ -90,7 +92,6 @@ class ConversionRecordingsQuery(MarketingAnalyticsTableQueryRunner):
             col for col in conversions.select if isinstance(col, ast.Alias) and col.alias in grouping_fields
         ]
         conversions.group_by = None
-        conversions.distinct = True
         session_id = (
             ast.Field(chain=["session_id"])
             if processor.uses_attribution_pipeline

@@ -202,19 +202,7 @@ Reset to defaults clears the custom selection, sorting, and pins for later visit
 
 ### Conversion recordings
 
-Behind `marketing-analytics-conversion-recordings`, positive event and action conversion cells open the existing Replay playlist in Ad performance and the legacy dashboard.
-The product endpoint reuses the table's attribution query and campaign mappings to resolve the selected row, then paginates distinct conversion session IDs in ClickHouse.
-It preserves the current period, filters, and conversion goal, and uses the session of the conversion event, not the attributed touchpoint.
-Multiple conversions in one session produce one session ID.
-Hidden grouping columns remain available as row keys without changing the saved column selection.
-Pagination uses the last session ID as a cursor, so large lists do not stop at an offset limit.
-Ad and ad group rows, warehouse goals, and shared dashboards do not expose the action.
-Missing attribution precomputes return a retryable preparing state, not an empty cached result.
-Failed requests show the query ID used in ClickHouse query logs and a retry action; each attempt uses a new ID.
-Replay receives the selected session IDs and handles recording availability, permissions, and playback.
-Conversions without session IDs have no replay, and a session may have no recording because it was not recorded or has expired.
-The playlist does not apply an additional start-date or minimum-duration filter, because a conversion session can start before the selected conversion period.
-There is no intermediate people list, and the shared Replay components, query registry, and query cache are unchanged.
+See [Marketing analytics conversion recordings](../../products/marketing_analytics/CONVERSION_RECORDINGS.md) for row selection, session attribution, and replay behavior.
 
 ## Marketing metric chart
 

@@ -11,7 +11,7 @@ import {
     restoreConversionRecordingsColumns,
 } from './conversionRecordingsRequest'
 
-describe('conversion people row selection', () => {
+describe('conversion recordings row selection', () => {
     const source: MarketingAnalyticsTableQuery = {
         kind: NodeKind.MarketingAnalyticsTableQuery,
         properties: [],
@@ -51,23 +51,34 @@ describe('conversion people row selection', () => {
         })
     })
 
-    it('does not split comparison rows by campaign ID', () => {
+    it.each([
+        [false, 'campaign-id', 'campaign-id'],
+        [false, null, '-'],
+        [false, '', '-'],
+        [true, 'campaign-id', undefined],
+        [true, null, undefined],
+    ])('selects the campaign ID %s/%s without splitting comparison rows', (compare, id, expected) => {
         const prepared = conversionRecordingsTableQuery(
-            { ...query, source: { ...source, compareFilter: { compare: true } } },
+            { ...query, source: { ...source, compareFilter: { compare } } },
             true
         )
-        expect((prepared.source as MarketingAnalyticsTableQuery).select).toEqual(['Purchases', 'Campaign', 'Source'])
+        expect((prepared.source as MarketingAnalyticsTableQuery).select).toEqual([
+            'Purchases',
+            'Campaign',
+            'Source',
+            ...(compare ? [] : ['ID']),
+        ])
         expect(
             conversionRecordingsRequest(
                 prepared.source as MarketingAnalyticsTableQuery,
                 [
                     { key: 'Campaign', value: 'winter-sale' },
                     { key: 'Source', value: 'google' },
-                    { key: 'ID', value: 'campaign-id' },
+                    { key: 'ID', value: id },
                 ],
                 'purchase'
             )?.campaign_id
-        ).toBeUndefined()
+        ).toBe(expected)
     })
 
     it.each([false, true])('leaves complete queries unchanged (enabled: %s)', (enabled) => {

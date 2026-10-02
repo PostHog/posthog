@@ -93,7 +93,7 @@ export function conversionRecordingsRequest(
         source_name: needsSource ? sourceName : '',
         campaign_id:
             level === MarketingAnalyticsDrillDownLevel.Campaign && !source.compareFilter?.compare
-                ? rowValue(record, 'ID')
+                ? rowValue(record, 'ID') || '-'
                 : undefined,
     }
 }

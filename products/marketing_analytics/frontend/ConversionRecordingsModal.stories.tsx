@@ -8,7 +8,7 @@ import { recordings } from 'scenes/session-recordings/__mocks__/recordings'
 import { useStorybookMocks } from '~/mocks/browser'
 
 import { ConversionRecordingsModal } from './ConversionRecordingsModal'
-import { ConversionRecordingsResponseApi } from './generated/api.schemas'
+import { ConversionRecordingsRequestApi, ConversionRecordingsResponseApi } from './generated/api.schemas'
 
 const meta: Meta<typeof ConversionRecordingsModal> = {
     title: 'Marketing Analytics/Conversion recordings',
@@ -41,7 +41,14 @@ export const WithRecordings: Story = {
     render: (args) => {
         useStorybookMocks({
             post: {
-                '/api/projects/:team_id/marketing_analytics/conversion_recordings/': sessions,
+                '/api/projects/:team_id/marketing_analytics/conversion_recordings/': async ({ request }) => {
+                    const { after } = (await request.json()) as ConversionRecordingsRequestApi
+                    return {
+                        ...sessions,
+                        session_ids: after ? sessions.session_ids.slice(1) : sessions.session_ids.slice(0, 1),
+                        has_more: !after,
+                    }
+                },
                 '/api/environments/:team_id/query/:kind': async ({ request }) => {
                     const body = (await request.json()) as { query: { kind: string } }
                     return body.query.kind === 'EventsQuery'
@@ -53,7 +60,10 @@ export const WithRecordings: Story = {
                 },
             },
             get: {
-                '/api/environments/:team_id/session_recordings': { has_next: false, results: recordings, version: 1 },
+                '/api/environments/:team_id/session_recordings': ({ request }) => {
+                    const ids = JSON.parse(new URL(request.url).searchParams.get('session_ids') || '[]') as string[]
+                    return { has_next: false, results: recordings.filter(({ id }) => ids.includes(id)), version: 1 }
+                },
                 '/api/environments/:team_id/session_recordings/:id': ({ params }) => ({
                     ...recordingMetaJson,
                     id: params.id,

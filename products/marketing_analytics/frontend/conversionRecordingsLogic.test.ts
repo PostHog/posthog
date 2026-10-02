@@ -37,22 +37,24 @@ describe('conversionRecordingsLogic', () => {
     })
     afterEach(() => logic.unmount())
 
-    it('appends sessions and starts over when reloading', async () => {
+    it('replaces the session page and navigates back with the matching cursor', async () => {
         await expectLogic(logic, () => {
             logic.mount()
         }).toFinishAllListeners()
         expect(requests[0].client_query_id).toEqual(expect.any(String))
-        await expectLogic(logic, () => logic.actions.loadSessions({ append: true }))
+        await expectLogic(logic, () => logic.actions.loadSessions({ pageIndex: 1 }))
             .toFinishAllListeners()
-            .toMatchValues({ page: partial({ session_ids: [first, second] }) })
+            .toMatchValues({ page: partial({ session_ids: [second], pageIndex: 1, has_more: false }) })
         expect(requests[1]).toMatchObject({ ...request, after: first })
-        await expectLogic(logic, () => logic.actions.loadSessions({}))
+        await expectLogic(logic, () => logic.actions.loadSessions({ pageIndex: 0 }))
             .toFinishAllListeners()
-            .toMatchValues({ page: partial({ session_ids: [first], has_more: true }) })
+            .toMatchValues({ page: partial({ session_ids: [first], has_more: true, pageIndex: 0 }) })
         expect(requests[2]).not.toHaveProperty('after')
+        await expectLogic(logic, () => logic.actions.loadSessions({ pageIndex: 1 })).toFinishAllListeners()
+        expect(requests[3].after).toBe(first)
     })
 
-    it.each([false, true])('preserves loaded pages and retries failures (append: %s)', async (append) => {
+    it.each(['failed', 'preparing'] as const)('preserves the current page and retries the %s page', async (state) => {
         await expectLogic(logic, () => {
             logic.mount()
         }).toFinishAllListeners()
@@ -60,36 +62,39 @@ describe('conversionRecordingsLogic', () => {
             post: {
                 '/api/projects/:team_id/marketing_analytics/conversion_recordings/': async ({ request }) => {
                     requests.push((await request.json()) as ConversionRecordingsRequestApi)
-                    return [500, { detail: 'Failed' }]
+                    return state === 'failed'
+                        ? [500, { detail: 'Failed' }]
+                        : { session_ids: [], has_more: false, preparing: true }
                 },
             },
         })
         await expectLogic(logic, () => {
-            logic.actions.loadSessions({ append })
+            logic.actions.loadSessions({ pageIndex: 1 })
         })
             .toFinishAllListeners()
             .toMatchValues({
-                page: partial({ failed: true, session_ids: append ? [first] : [], has_more: append }),
+                page: partial({ preparing: state === 'preparing', session_ids: [first], has_more: true, pageIndex: 0 }),
                 pageLoading: false,
             })
         expect(logic.values.page.queryId).toBe(requests.at(-1)?.client_query_id)
         expect(logic.values.page.queryId).not.toBe(requests[0].client_query_id)
+        expect(logic.values.page.errorMessage).toBe(state === 'failed' ? 'Failed' : undefined)
         useMocks({
             post: {
-                '/api/projects/:team_id/marketing_analytics/conversion_recordings/': {
-                    session_ids: [second],
-                    preparing: false,
-                    has_more: false,
+                '/api/projects/:team_id/marketing_analytics/conversion_recordings/': async ({ request }) => {
+                    requests.push((await request.json()) as ConversionRecordingsRequestApi)
+                    return { session_ids: [second], preparing: false, has_more: false }
                 },
             },
         })
-        await expectLogic(logic, () => logic.actions.loadSessions({ append: logic.values.page.has_more }))
+        await expectLogic(logic, () => logic.actions.loadSessions({ pageIndex: logic.values.page.retryPage }))
             .toFinishAllListeners()
             .toMatchValues({
-                page: partial({ session_ids: append ? [first, second] : [second], preparing: false }),
+                page: partial({ session_ids: [second], preparing: false, pageIndex: 1 }),
                 pageLoading: false,
             })
-        expect(logic.values.page.failed).toBeUndefined()
+        expect(logic.values.page.errorMessage).toBeUndefined()
         expect(logic.values.page.queryId).toBeUndefined()
+        expect(requests.at(-1)?.after).toBe(first)
     })
 })

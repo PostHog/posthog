@@ -1,4 +1,6 @@
+from datetime import UTC, datetime
 from pathlib import Path
+from uuid import uuid4
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
@@ -7,14 +9,22 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import AttributionMode, DateRange, MarketingAnalyticsDrillDownLevel, MarketingAnalyticsTableQuery
+from posthog.schema import (
+    AttributionMode,
+    CompareFilter,
+    DateRange,
+    MarketingAnalyticsDrillDownLevel,
+    MarketingAnalyticsTableQuery,
+)
 
 from posthog.clickhouse.client.execute import sync_execute, validated_client_query_id
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.preaggregation.marketing_conversions_sql import TRUNCATE_MARKETING_CONVERSIONS_TABLE_SQL
 from posthog.clickhouse.preaggregation.marketing_touchpoints_sql import TRUNCATE_MARKETING_TOUCHPOINTS_TABLE_SQL
 from posthog.clickhouse.query_tagging import get_query_tag_value, tags_context
 
 from products.actions.backend.models.action import Action
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.marketing_analytics.backend.hogql_queries.errors import MarketingPrecomputeNotReady
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner import (
@@ -164,6 +174,12 @@ class TestConversionRecordings(ClickhouseTestMixin, APIBaseTest):
             with self.subTest(invalid_fields=invalid_fields):
                 invalid = self.client.post(url, {**payload, **invalid_fields}, format="json")
                 self.assertEqual(invalid.status_code, 400)
+        for limiter in ("get_app_org_rate_limiter", "get_api_team_rate_limiter"):
+            with self.subTest(limiter=limiter), patch(f"products.marketing_analytics.backend.api.{limiter}") as mock:
+                mock.return_value.run.side_effect = ConcurrencyLimitExceeded("internal limiter detail")
+                throttled = self.client.post(url, payload, format="json")
+                self.assertEqual(throttled.status_code, 429)
+                self.assertNotIn("internal limiter detail", throttled.json()["detail"])
 
     def test_campaign_mapping_and_missing_row(self) -> None:
         config = self.team.marketing_analytics_config
@@ -179,6 +195,24 @@ class TestConversionRecordings(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(len(result["session_ids"]), expected)
 
+        config.campaign_field_preferences = {"GoogleAds": {"match_field": "campaign_id"}}
+        config.campaign_name_mappings = {"GoogleAds": {"mapped-id": ["winter-sale"]}}
+        config.save()
+        for compare, campaign_id, expected in [
+            (False, None, 0),
+            (False, "", 0),
+            (False, "-", 0),
+            (False, "mapped-id", 2),
+            (True, None, 2),
+            (True, "mapped-id", 2),
+        ]:
+            with self.subTest(compare=compare, campaign_id=campaign_id):
+                self.source.compareFilter = CompareFilter(compare=compare)
+                result = ConversionRecordingsQuery(query=self.source, team=self.team, user=self.user).sessions(
+                    "purchase", "winter-sale", "google", campaign_id, None, 50
+                )
+                self.assertEqual(len(result["session_ids"]), expected)
+
     def test_cold_precompute_is_retryable(self) -> None:
         runner = ConversionRecordingsQuery(query=self.source, team=self.team, user=self.user)
         with (
@@ -193,6 +227,46 @@ class TestConversionRecordings(ClickhouseTestMixin, APIBaseTest):
         result = runner.sessions("purchase", "winter-sale", "google", None, None, 50)
         self.assertEqual(len(result["session_ids"]), 2)
         self.assertFalse(result["preparing"])
+
+    def test_precomputed_session_metadata_does_not_split_the_table_conversion(self) -> None:
+        job_ids = [uuid4(), uuid4()]
+        person_id = uuid4()
+        session_ids = ["01994530-9000-7000-8000-000000000051", "01994530-9000-7000-8000-000000000052"]
+        self.addCleanup(sync_execute, TRUNCATE_MARKETING_CONVERSIONS_TABLE_SQL())
+        sync_execute(
+            "INSERT INTO sharded_marketing_conversions_preaggregated "
+            "(team_id, job_id, person_id, conversion_timestamp, conversion_math_value, session_id, "
+            "campaign_name, source_name, computed_at, expires_at) VALUES",
+            [
+                (
+                    self.team.pk,
+                    job_id,
+                    person_id,
+                    datetime(2026, 9, 16, 11, tzinfo=UTC),
+                    1,
+                    session_ids[index],
+                    "winter-sale",
+                    "google",
+                    datetime(2026, 9, 20, index, tzinfo=UTC),
+                    datetime(2100, 1, 1, tzinfo=UTC),
+                )
+                for index, job_id in enumerate(job_ids)
+            ],
+        )
+        table_runner = MarketingAnalyticsTableQueryRunner(query=self.source, team=self.team, user=self.user)
+        table_runner.config.conversion_goal_precomputation_enabled = True
+        recordings_runner = ConversionRecordingsQuery(query=self.source, team=self.team, user=self.user)
+        recordings_runner.config.conversion_goal_precomputation_enabled = True
+        with patch(
+            "products.marketing_analytics.backend.hogql_queries.conversion_goal_processor.marketing_ensure_precomputed",
+            return_value=LazyComputationResult(ready=True, job_ids=job_ids),
+        ):
+            table = table_runner.calculate()
+            assert table.columns is not None
+            self.assertEqual(len(table.results), 1)
+            self.assertEqual(table.results[0][table.columns.index("Purchases")].value, 1)
+            result = recordings_runner.sessions("purchase", "winter-sale", "google", None, None, 50)
+        self.assertEqual(result["session_ids"], [session_ids[1]])
 
     @parameterized.expand(
         [
@@ -265,9 +339,15 @@ class TestConversionRecordings(ClickhouseTestMixin, APIBaseTest):
         runner.config.conversion_goal_precomputation_enabled = precompute
         runner.config.attribution_mode = mode
         runner.config.attribution_window_days = window_days
-        with patch(
-            "products.marketing_analytics.backend.hogql_queries.marketing_lazy_precompute.is_background_warming_request",
-            return_value=True,
+        with (
+            patch(
+                "products.marketing_analytics.backend.hogql_queries.marketing_lazy_precompute.is_background_warming_request",
+                return_value=True,
+            ),
+            patch(
+                "products.analytics_platform.backend.lazy_computation.lazy_computation_executor._get_ch_expires_at",
+                return_value=datetime(2100, 1, 1, tzinfo=UTC),
+            ),
         ):
             result = runner.sessions("purchase", "later-sale", "google", None, None, 50)
         self.assertEqual(

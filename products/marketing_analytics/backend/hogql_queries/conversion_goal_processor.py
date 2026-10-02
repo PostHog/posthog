@@ -25,6 +25,7 @@ from posthog.hogql.database.schema.channel_type import ChannelTypeExprs, create_
 from posthog.hogql.database.schema.exchange_rate import convert_currency_call
 from posthog.hogql.database.schema.persons import REVENUE_ANALYTICS_VIRTUAL_PROPERTIES
 from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.dataclasses import frozen
@@ -858,8 +859,6 @@ class ConversionGoalProcessor:
             self._build_conversion_timestamps_array(conversion_event),
             self._build_conversion_math_values_array(conversion_event),
         ]
-        if self.include_session_ids:
-            select_columns.append(self._build_conversion_session_ids_array(conversion_event))
         for field in TRACKED_FIELDS:
             select_columns.append(
                 self._build_conversion_utm_array(
@@ -963,17 +962,7 @@ class ConversionGoalProcessor:
             select_columns.append(
                 ast.Alias(
                     alias="conversion_session_ids",
-                    expr=ast.Call(
-                        name="groupArrayIf",
-                        args=[
-                            ast.Field(chain=["session_id"]),
-                            ast.CompareOperation(
-                                left=ast.Call(name="toUnixTimestamp", args=[ast.Field(chain=["conversion_timestamp"])]),
-                                op=ast.CompareOperationOp.Gt,
-                                right=ast.Constant(value=0),
-                            ),
-                        ],
-                    ),
+                    expr=parse_expr("groupArrayIf(session_id, toUnixTimestamp(conversion_timestamp) > 0)"),
                 )
             )
         deduped_rows = self._build_distinct_preagg_rows(
@@ -983,13 +972,18 @@ class ConversionGoalProcessor:
                 ast.Field(chain=["person_id"]),
                 ast.Field(chain=["conversion_timestamp"]),
                 ast.Field(chain=["conversion_math_value"]),
-                *([ast.Field(chain=["session_id"])] if self.include_session_ids else []),
                 *[ast.Field(chain=[field.attributed_name]) for field in TRACKED_FIELDS],
             ],
             date_from=date_from,
             date_to=date_to,
             timestamp_column="conversion_timestamp",
         )
+        if self.include_session_ids:
+            deduped_rows.distinct = False
+            deduped_rows.group_by = list(deduped_rows.select)
+            deduped_rows.select.append(
+                ast.Alias(alias="session_id", expr=parse_expr("argMax(session_id, (computed_at, session_id))"))
+            )
 
         return ast.SelectQuery(
             select=select_columns,
@@ -1309,29 +1303,10 @@ class ConversionGoalProcessor:
         # Keep empty IDs so session IDs stay aligned with the conversion timestamps.
         return ast.Alias(
             alias="conversion_session_ids",
-            expr=ast.Call(
-                name="groupArrayIf",
-                args=[
-                    ast.Call(
-                        name="toString",
-                        args=[
-                            ast.Call(
-                                name="ifNull",
-                                args=[ast.Field(chain=["events", "properties", "$session_id"]), ast.Constant(value="")],
-                            )
-                        ],
-                    ),
-                    ast.And(
-                        exprs=[
-                            self._build_conversion_event_condition(conversion_event),
-                            ast.CompareOperation(
-                                left=ast.Call(name="toUnixTimestamp", args=[ast.Field(chain=["events", "timestamp"])]),
-                                op=ast.CompareOperationOp.Gt,
-                                right=ast.Constant(value=0),
-                            ),
-                        ]
-                    ),
-                ],
+            expr=parse_expr(
+                "groupArrayIf(toString(ifNull(events.properties.$session_id, '')), "
+                "{conversion} AND toUnixTimestamp(events.timestamp) > 0)",
+                {"conversion": self._build_conversion_event_condition(conversion_event)},
             ),
         )
 
@@ -1606,9 +1581,7 @@ class ConversionGoalProcessor:
             select_columns.append(
                 ast.Alias(
                     alias="session_id",
-                    expr=ast.ArrayAccess(
-                        array=ast.Field(chain=["conversion_session_ids"]), property=ast.Field(chain=["i"])
-                    ),
+                    expr=parse_expr("conversion_session_ids[i]"),
                 )
             )
         for field in TRACKED_FIELDS:
@@ -1793,9 +1766,7 @@ class ConversionGoalProcessor:
             select_columns.append(
                 ast.Alias(
                     alias="session_id",
-                    expr=ast.ArrayAccess(
-                        array=ast.Field(chain=["conversion_session_ids"]), property=ast.Field(chain=["i"])
-                    ),
+                    expr=parse_expr("conversion_session_ids[i]"),
                 )
             )
         for field in TRACKED_FIELDS:
