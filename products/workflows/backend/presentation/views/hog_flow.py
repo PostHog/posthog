@@ -47,7 +47,7 @@ from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr
 
-from posthog.api.app_metrics2 import AppMetricsMixin, fetch_app_metric_totals, fetch_app_metric_totals_by_source
+from posthog.api.app_metrics2 import AppMetricsMixin, fetch_app_metric_totals_by_source
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.hog_invocation_cancel import (
     HogInvocationCancelRequestSerializer,
@@ -132,6 +132,10 @@ from products.workflows.backend.facade.blast_radius import (
 from products.workflows.backend.facade.contracts import (
     StaffPausedError,
     WorkflowBatchJobNotFound,
+    WorkflowDraftChanged,
+    WorkflowDraftExists,
+    WorkflowRevisionNotFound,
+    WorkflowRevisionSummary,
     WorkflowScheduleNotFound,
 )
 from products.workflows.backend.facade.email_health import (
@@ -145,6 +149,14 @@ from products.workflows.backend.facade.email_health import (
     team_email_sending_allowance,
 )
 from products.workflows.backend.facade.enums import HogFlowBatchJobState, HogFlowScheduleStatus
+from products.workflows.backend.facade.proposals import (
+    UNAVAILABLE_GUARDRAILS,
+    is_optimization_enabled,
+    set_optimization_enabled,
+    unstage_workflow_proposals,
+    version_outcome,
+)
+from products.workflows.backend.facade.revisions import count_revisions, get_revision, list_revisions, restore_revision
 from products.workflows.backend.facade.schedules import (
     compute_next_occurrences,
     create_schedule,
@@ -177,17 +189,6 @@ from products.workflows.backend.facade.validation import (
     is_duration,
     is_signed_duration,
 )
-from products.workflows.backend.metrics import (
-    GUARDRAIL_LABELS,
-    GUARDRAIL_METRICS,
-    HOG_FLOW_VERSION_APP_SOURCE,
-    MIN_EVIDENCE_SAMPLE,
-    TARGET_CLICK_METRIC,
-    TARGET_OPEN_METRIC,
-    TARGET_SEND_METRIC,
-    TARGET_UNTRACKED_METRIC,
-    UNAVAILABLE_GUARDRAILS,
-)
 from products.workflows.backend.models.hog_flow.hog_flow import (
     BILLABLE_ACTION_TYPES,
     MESSAGING_ACTION_TYPES,
@@ -198,7 +199,6 @@ from products.workflows.backend.models.hog_flow.hog_flow import (
     WORKFLOW_SAFE_INTERNAL_EVENTS,
     HogFlow,
 )
-from products.workflows.backend.models.hog_flow_optimization import HogFlowOptimization
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.models.workflow_proposal import WorkflowProposal
 from products.workflows.backend.presentation.views.action_redirects import compute_action_redirects
@@ -3491,21 +3491,19 @@ class HogFlowPublishResponseSerializer(serializers.Serializer):
     )
 
 
-class HogFlowRevisionBasicSerializer(serializers.ModelSerializer):
+class HogFlowRevisionBasicSerializer(serializers.Serializer):
+    version = serializers.IntegerField(read_only=True, help_text="Workflow version this snapshot was published as.")
+    created_at = serializers.DateTimeField(read_only=True, help_text="When this version was published.")
     # allow_null: the first tracked write bootstraps a snapshot of the pre-existing live content,
     # which has no author.
     created_by = UserBasicSerializer(read_only=True, allow_null=True)
 
-    class Meta:
-        model = HogFlowRevision
-        fields = ["version", "created_at", "created_by"]
-        read_only_fields = fields
-
 
 class HogFlowRevisionSerializer(HogFlowRevisionBasicSerializer):
-    class Meta(HogFlowRevisionBasicSerializer.Meta):
-        fields = [*HogFlowRevisionBasicSerializer.Meta.fields, "content"]
-        read_only_fields = fields
+    content = serializers.JSONField(
+        read_only=True,
+        help_text="Full snapshot of the workflow's content fields (actions, edges, trigger, etc.) at this version.",
+    )
 
 
 class HogFlowRevisionRestoreRequestSerializer(serializers.Serializer):
@@ -4036,21 +4034,6 @@ def _leaf(item: Any, path: tuple[str, ...]) -> Any:
     return _ABSENT if item is None else item
 
 
-def unstage_workflow_proposals(hog_flow: HogFlow) -> None:
-    """Put every approved suggestion back in the queue, because the draft it was approved into is
-    about to be replaced.
-
-    Approved means one thing here: this suggestion is what sits in the draft. Discarding the draft,
-    restoring a revision, approving a different suggestion or editing over it all replace that
-    draft, and publish reads approved as "this is what shipped", so it must not record one against
-    a version that never carried it. A suggestion whose change survives the replacement comes back
-    to the queue too, which costs a person one more approval rather than a wrong history entry.
-    """
-    WorkflowProposal.objects.filter(hog_flow=hog_flow, status=WorkflowProposal.Status.APPROVED).update(
-        status=WorkflowProposal.Status.SUGGESTED, resolved_at=None, resolved_by=None
-    )
-
-
 class CommaSeparatedListFilter(BaseInFilter, CharFilter):
     pass
 
@@ -4147,6 +4130,19 @@ class HogFlowFilterSet(FilterSet):
         if not value:
             return queryset.exclude(optimization__enabled=True)
         return queryset.filter(optimization__enabled=True).exclude(status=HogFlow.State.ARCHIVED)
+
+
+class _RevisionPages:
+    """Lets LimitOffsetPagination page revisions in the database, as it did over a queryset."""
+
+    def __init__(self, hog_flow_id: uuid_mod.UUID) -> None:
+        self.hog_flow_id = hog_flow_id
+
+    def count(self) -> int:
+        return count_revisions(self.hog_flow_id)
+
+    def __getitem__(self, page: slice) -> list[WorkflowRevisionSummary]:
+        return list_revisions(self.hog_flow_id, offset=page.start or 0, limit=page.stop - (page.start or 0))
 
 
 class HogFlowPagination(LimitOffsetPagination):
@@ -4835,7 +4831,7 @@ class HogFlowViewSet(
                     bump = self._stage_revision_bump(serializer.instance, before_update, serializer.validated_data)
                 if clears_staged_draft:
                     serializer.save(draft=None, draft_updated_at=None, draft_encrypted_inputs=None)
-                    unstage_workflow_proposals(serializer.instance)
+                    unstage_workflow_proposals(serializer.instance.pk)
                 else:
                     serializer.save()
                 if bump:
@@ -4952,7 +4948,7 @@ class HogFlowViewSet(
         instance.save(update_fields=["draft", "draft_updated_at", "draft_encrypted_inputs"])
 
         # An edit over an approved draft may undo the suggestion, and publish reads approved as shipped.
-        unstage_workflow_proposals(instance)
+        unstage_workflow_proposals(instance.pk)
 
     @extend_schema(request=HogFlowGraphUpdateSerializer, responses={200: HogFlowSerializer})
     @action(detail=True, methods=["PATCH"])
@@ -5375,7 +5371,7 @@ class HogFlowViewSet(
             locked.draft = None
             locked.draft_updated_at = None
             locked.draft_encrypted_inputs = None
-            unstage_workflow_proposals(locked)
+            unstage_workflow_proposals(locked.pk)
             # updated_at (auto_now) is deliberately bumped: without a fresh live stamp the
             # resource_edited broadcast carries the old updated_at — older than the draft stamp
             # concurrent editors loaded, so they'd ignore the discard, and their next draft save
@@ -5397,8 +5393,7 @@ class HogFlowViewSet(
         # Version history: one snapshot per live-content change, newest first. Content is fetched
         # per-version via the detail endpoint — the list stays light.
         instance = self.get_object()
-        queryset = HogFlowRevision.objects.filter(hog_flow=instance).order_by("-version").select_related("created_by")
-        page = self.paginate_queryset(queryset)
+        page = self.paginate_queryset(cast(Sequence[Any], _RevisionPages(instance.pk)))
         return self.get_paginated_response(HogFlowRevisionBasicSerializer(page, many=True).data)
 
     @extend_schema(
@@ -5408,9 +5403,8 @@ class HogFlowViewSet(
     @action(detail=True, methods=["GET"], url_path=r"revisions/(?P<version>\d+)")
     def revision_detail(self, request: Request, version: Optional[str] = None, *args, **kwargs):
         instance = self.get_object()
-        try:
-            revision = HogFlowRevision.objects.get(hog_flow=instance, version=int(version or 0))
-        except HogFlowRevision.DoesNotExist:
+        revision = get_revision(hog_flow_id=instance.pk, version=int(version or 0))
+        if revision is None:
             raise exceptions.NotFound("No such revision for this workflow.")
         return Response(HogFlowRevisionSerializer(revision).data)
 
@@ -5430,39 +5424,26 @@ class HogFlowViewSet(
         param_serializer.is_valid(raise_exception=True)
 
         instance = self.get_object()
-        with transaction.atomic():
-            # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
-            locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
-            try:
-                revision = HogFlowRevision.objects.get(hog_flow_id=locked.pk, version=int(version or 0))
-            except HogFlowRevision.DoesNotExist:
-                raise exceptions.NotFound("No such revision for this workflow.")
-            if locked.draft and not param_serializer.validated_data["overwrite"]:
-                raise DraftExistsError()
-            # Overwrite fencing: the client confirms against the draft stamp it saw. A draft staged
-            # or edited between the confirmation dialog and this call carries a different stamp, and
-            # overwriting it would lose unpublished content that no revision snapshots.
-            expected_draft_updated_at = param_serializer.validated_data.get("expected_draft_updated_at")
-            if (
-                locked.draft
-                and expected_draft_updated_at is not None
-                and locked.draft_updated_at != expected_draft_updated_at
-            ):
-                raise StaleWorkflowUpdateError()
-            # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
-            before_update = HogFlow.objects.get(pk=instance.pk)
-            locked.draft = dict(revision.content)
-            locked.draft_updated_at = timezone.now()
-            unstage_workflow_proposals(locked)
-            # Revision snapshots carry no secrets (they're stripped before snapshotting), so the
-            # restored draft re-attaches from the live encrypted_inputs on the follow-up publish.
-            # Clear any stale draft secrets from a prior draft so they can't bleed into this one.
-            locked.draft_encrypted_inputs = None
-            locked.save(update_fields=["draft", "draft_updated_at", "draft_encrypted_inputs"])
+        restored_version = int(version or 0)
+        try:
+            restore_revision(
+                hog_flow_id=instance.pk,
+                version=restored_version,
+                overwrite=param_serializer.validated_data["overwrite"],
+                expected_draft_updated_at=param_serializer.validated_data.get("expected_draft_updated_at"),
+            )
+        except WorkflowRevisionNotFound:
+            raise exceptions.NotFound("No such revision for this workflow.")
+        except WorkflowDraftExists:
+            raise DraftExistsError()
+        except WorkflowDraftChanged:
+            raise StaleWorkflowUpdateError()
+        # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance)
+        locked = HogFlow.objects.get(pk=instance.pk)
 
-        log_activity_from_viewset(self, locked, activity="revision_restored", name=locked.name, previous=before_update)
+        log_activity_from_viewset(self, locked, activity="revision_restored", name=locked.name, previous=instance)
         self._emit_resource_edited(locked)
-        self._report_workflow_action("hog_flow_revision_restored", locked, {"version": revision.version})
+        self._report_workflow_action("hog_flow_revision_restored", locked, {"version": restored_version})
 
         return Response(self.get_serializer(locked).data)
 
@@ -5538,7 +5519,7 @@ class HogFlowViewSet(
             return Response(WorkflowProposalSerializer(retry_of).data, status=status.HTTP_200_OK)
 
         # Reading the queue stays open while the flag is on; the workflow's opt-in only gates producing a new one.
-        if not HogFlowOptimization.objects.filter(hog_flow=instance, enabled=True).exists():
+        if not is_optimization_enabled(instance.pk):
             raise WorkflowNotOptimisedError()
 
         live_content = snapshot_flow_content(instance)
@@ -5675,7 +5656,7 @@ class HogFlowViewSet(
             locked.save(update_fields=["draft", "draft_updated_at", "draft_encrypted_inputs"])
 
             # The new draft replaces what was staged; an earlier approval stays only if the draft still carries it.
-            unstage_workflow_proposals(locked)
+            unstage_workflow_proposals(locked.pk)
 
             locked_proposal.status = WorkflowProposal.Status.APPROVED
             locked_proposal.resolved_at = timezone.now()
@@ -5723,53 +5704,24 @@ class HogFlowViewSet(
             WorkflowProposalOutcomeSerializer(
                 {
                     "window": window,
-                    "before": self._version_outcome(instance, proposal.base_version, after_date, proposal.step_id),
-                    "after": self._version_outcome(instance, proposal.applied_version, after_date, proposal.step_id),
+                    "before": version_outcome(
+                        team_id=self.team_id,
+                        hog_flow_id=instance.pk,
+                        version=proposal.base_version,
+                        after=after_date,
+                        step_id=proposal.step_id,
+                    ),
+                    "after": version_outcome(
+                        team_id=self.team_id,
+                        hog_flow_id=instance.pk,
+                        version=proposal.applied_version,
+                        after=after_date,
+                        step_id=proposal.step_id,
+                    ),
                     "unavailable_guardrails": list(UNAVAILABLE_GUARDRAILS),
                 }
             ).data
         )
-
-    def _version_outcome(
-        self, hog_flow: HogFlow, version: Optional[int], after: Any, step_id: Optional[str] = None
-    ) -> Optional[dict]:
-        if version is None:
-            return None
-        # Scoped to the step the suggestion names; several email steps would otherwise share one denominator.
-        totals = fetch_app_metric_totals(
-            team_id=self.team_id,
-            app_source=HOG_FLOW_VERSION_APP_SOURCE,
-            app_source_id=f"{hog_flow.id}/{version}",
-            breakdown_by="name",
-            after=after,
-            instance_id=step_id or None,
-            name=[
-                TARGET_SEND_METRIC,
-                TARGET_OPEN_METRIC,
-                TARGET_CLICK_METRIC,
-                TARGET_UNTRACKED_METRIC,
-                *GUARDRAIL_METRICS,
-            ],
-        ).totals
-        sends = int(totals.get(TARGET_SEND_METRIC, 0))
-        # Untracked sends can never record an open, so opens read against tracked sends; guardrails keep every send.
-        tracked_sends = max(0, sends - int(totals.get(TARGET_UNTRACKED_METRIC, 0)))
-
-        def rate(count: int, label: str, denominator: int) -> dict:
-            return {
-                "metric": label,
-                "value": (count / denominator) if denominator else None,
-                "n": denominator,
-                "below_minimum_sample": denominator < MIN_EVIDENCE_SAMPLE,
-            }
-
-        return {
-            "version": version,
-            "target": rate(int(totals.get(TARGET_OPEN_METRIC, 0)), "email open rate", tracked_sends),
-            # Same denominator as opens: a send with tracking off can record neither.
-            "click_through": rate(int(totals.get(TARGET_CLICK_METRIC, 0)), "click rate", tracked_sends),
-            "guardrails": [rate(int(totals.get(name, 0)), GUARDRAIL_LABELS[name], sends) for name in GUARDRAIL_METRICS],
-        }
 
     @extend_schema(
         parameters=[
@@ -5815,33 +5767,11 @@ class HogFlowViewSet(
         self._require_self_optimising_enabled()
         instance = self.get_object()
 
-        row = HogFlowOptimization.objects.filter(hog_flow=instance).first()
-
         if request.method == "POST":
             param_serializer = HogFlowOptimizationSerializer(data=request.data)
             param_serializer.is_valid(raise_exception=True)
             enabled = param_serializer.validated_data["enabled"]
-            if row is None:
-                # Turning it off for a workflow nobody turned on is a no-op, not a row saying "no".
-                changed = enabled
-                if enabled:
-                    # get_or_create rather than create: two first-time enables race, and the loser of
-                    # the one-to-one constraint would answer 500 for a workflow that is now on.
-                    # nosemgrep: idor-lookup-without-team - team scope is enforced by TeamScopedManager
-                    row, created = HogFlowOptimization.objects.get_or_create(
-                        hog_flow=instance, defaults={"enabled": True}
-                    )
-                    changed = created or not row.enabled
-                    if not created and not row.enabled:
-                        row.enabled = True
-                        row.save(update_fields=["enabled"])
-            else:
-                # Off keeps the row: how many tried this and stopped is a rollout question.
-                changed = row.enabled != enabled
-                if changed:
-                    row.enabled = enabled
-                    row.save(update_fields=["enabled"])
-
+            changed = set_optimization_enabled(hog_flow_id=instance.pk, enabled=enabled)
             if changed:
                 log_activity_from_viewset(
                     self,
@@ -5852,8 +5782,10 @@ class HogFlowViewSet(
                 self._report_workflow_action(
                     "hog_flow_optimization_enabled" if enabled else "hog_flow_optimization_disabled", instance
                 )
+        else:
+            enabled = is_optimization_enabled(instance.pk)
 
-        return Response(HogFlowOptimizationSerializer({"enabled": row is not None and row.enabled}).data)
+        return Response(HogFlowOptimizationSerializer({"enabled": enabled}).data)
 
     @extend_schema(request=HogFlowInvocationSerializer, responses={200: _FallbackSerializer})
     @action(detail=True, methods=["POST"])

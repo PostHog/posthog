@@ -319,8 +319,10 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
 
     def _final_answer(self) -> str:
         # A trace id that differs from this turn's means the text is a late answer of an earlier turn.
+        # A turn that the agent starts after a background task ends with no trace id, and the agent
+        # server sends no final text for it, so a final text with a trace id is an earlier answer too.
         final_trace, turn_trace = _trace_key(self._final_text_trace_id), _trace_key(self._trace_id)
-        stale = bool(final_trace and turn_trace and final_trace != turn_trace)
+        stale = bool(final_trace and final_trace != turn_trace)
         if self._final_text and not stale:
             return self._final_text
         return (self._narrative if self._narrative.strip() else self._last_burst).strip()
