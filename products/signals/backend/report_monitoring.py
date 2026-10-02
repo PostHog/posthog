@@ -1,4 +1,5 @@
 from django.db import transaction
+from django.db.models import Q
 
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import SignalReport, SignalReportCheck
@@ -31,7 +32,11 @@ def resolve_verified_monitoring_report(*, team_id: int, report_id: str) -> bool:
         checks = list(
             SignalReportCheck.objects.for_team(team_id)
             .using("default")
-            .filter(report_id=report_id, measurement_start_at__gte=report.monitoring_started_at)
+            .filter(report_id=report_id)
+            # A pending check has no measurement start until it is armed, but it still owes runs to this period.
+            .filter(
+                Q(status=SignalReportCheck.Status.PENDING) | Q(measurement_start_at__gte=report.monitoring_started_at)
+            )
             .exclude(status=SignalReportCheck.Status.CANCELLED)
             .values_list("status", "runs_remaining")
         )
