@@ -54,7 +54,7 @@ MAX_EVENTS_PER_WINDOW = 5000
 MAX_EVENTS_PER_BATCH = 100_000
 
 _TOGGLE_KINDS = frozenset({LogsAlertEvent.Kind.ENABLE, LogsAlertEvent.Kind.DISABLE})
-_CHAIN_FIELDS = ("id", "alert_id", "kind", "created_at", "state_before")
+_CHAIN_FIELDS = ("id", "alert_id", "kind", "created_at", "state_before", "state_after")
 
 
 def _mute_gates_notification_only(check: PlatformCheck, verdict: SourceVerdict) -> bool:
@@ -225,6 +225,8 @@ def _verdict_at(
     # rather than the check. None means the state still holds.
     observed_at = boundary.created_at if boundary is not None else None
     evidence_id = str(boundary.id) if boundary is not None else None
+    # The first transition *into* the state this check decided, not merely the next one.
+    caught_up = next((event for event in after if event.state_after == check.state), None)
 
     def verdict(coverage: SourceCoverage, *, suppressed_by: SuppressionReason | None = None) -> SourceVerdict:
         return SourceVerdict(
@@ -232,6 +234,7 @@ def _verdict_at(
             state=state,
             suppressed_by=suppressed_by,
             observed_at=observed_at,
+            caught_up_at=caught_up.created_at if caught_up is not None else None,
             evidence_id=evidence_id,
         )
 
