@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
-import { IconChevronDown, IconChevronRight, IconCollapse, IconExpand, IconEye } from '@posthog/icons'
+import { IconChevronDown, IconChevronRight, IconEye } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSwitch, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
@@ -243,13 +243,10 @@ function FocusPane({
     onRetry: () => void
     retrying: boolean
 }): JSX.Element {
-    const [textOpenFor, setTextOpenFor] = useState<string | null>(null)
-    const showText = textOpenFor === observation.id
     const { height: contentHeight, ref: contentRef } = useResizeObserver<HTMLDivElement>({ box: 'border-box' })
     const isSummary = isSummaryObservation(observation)
     const reasoning = observation.status === 'succeeded' && !isSummary ? readReasoning(observation) : null
     const hasText = observation.status === 'succeeded' && (isSummary || reasoning !== null)
-    const textLabel = isSummary ? 'summary' : 'reasoning'
     return (
         <div
             className="overflow-hidden transition-[height] duration-200 ease-in-out border-t bg-surface-primary"
@@ -288,27 +285,7 @@ function FocusPane({
                     </div>
                 )}
                 <div className="flex flex-col gap-2 px-2 py-2">
-                    <div className="flex items-center gap-2">
-                        {hasText && (
-                            <LemonButton
-                                size="xsmall"
-                                type="tertiary"
-                                sideIcon={showText ? <IconCollapse /> : <IconExpand />}
-                                onClick={() => setTextOpenFor(showText ? null : observation.id)}
-                                data-attr="vision-run-text-toggle"
-                            >
-                                {showText ? `Hide ${textLabel}` : `Show ${textLabel}`}
-                            </LemonButton>
-                        )}
-                        <Link
-                            data-attr="vision-observation-open-from-sidebar"
-                            to={urls.replayVisionObservation(observation.id)}
-                            className="text-xs ml-auto"
-                        >
-                            View details
-                        </Link>
-                    </div>
-                    {hasText && showText && (
+                    {hasText && (
                         <div className="text-sm">
                             {isSummary ? (
                                 <ObservationPrimaryOutput
@@ -327,6 +304,13 @@ function FocusPane({
                             )}
                         </div>
                     )}
+                    <Link
+                        data-attr="vision-observation-open-from-sidebar"
+                        to={urls.replayVisionObservation(observation.id)}
+                        className="text-xs self-end"
+                    >
+                        View details
+                    </Link>
                 </div>
             </div>
         </div>
