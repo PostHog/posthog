@@ -68,7 +68,7 @@
             "category": "Data",
             "iconType": "business_knowledge",
             "type": null,
-            "intents": ["business_knowledge"]
+            "intents": ["conversations"]
         },
         {
             "path": "Web scripts",

@@ -10,9 +10,11 @@ import {
   DESKTOP_SOURCE,
   type EnvironmentFilter,
   type KindFilter,
+  MOBILE_SOURCE,
   type PinnedFilter,
   type SourceFilter,
   sameSources,
+  WEB_SOURCE,
 } from "@posthog/core/canvas/channelItems";
 import {
   Button,
@@ -94,6 +96,8 @@ const SORT_OPTIONS: readonly Option<ChannelItemSort>[] = [
 
 const SOURCE_LABELS: Record<string, string> = {
   [DESKTOP_SOURCE]: "Desktop",
+  [MOBILE_SOURCE]: "Mobile",
+  [WEB_SOURCE]: "Web",
   hogdesk: "HogDesk",
   mcp_analytics: "MCP analytics",
   posthog_ai: "PostHog AI",

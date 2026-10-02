@@ -810,6 +810,9 @@ importers:
       '@posthog/agent':
         specifier: link:../../../../packages/agent/packages/agent
         version: link:../../../../packages/agent/packages/agent
+      '@posthog/api-client':
+        specifier: workspace:*
+        version: link:../../packages/api-client
       '@posthog/core':
         specifier: workspace:*
         version: link:../../packages/core

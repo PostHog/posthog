@@ -233,6 +233,7 @@ class TaskDetailDTO:
     channel: UUID | None = None
     slack_thread_references: list[SlackThreadReferenceDTO] = Field(default_factory=list)
     origin_key: str | None = None
+    client_provenance: str | None = None
 
 
 @dataclass(frozen=True)

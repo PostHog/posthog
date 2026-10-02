@@ -70,4 +70,27 @@ describe("sidebarStore", () => {
     expect(channelItemFilters).not.toHaveProperty("source");
     localStorage.removeItem("sidebar-storage");
   });
+
+  it("rehydration maps the old Desktop source to its provenance", async () => {
+    localStorage.setItem(
+      "sidebar-storage",
+      JSON.stringify({
+        state: {
+          channelItemFilters: {
+            ...DEFAULT_CHANNEL_ITEM_FILTERS,
+            sources: ["user_created", "slack"],
+          },
+        },
+        version: 2,
+      }),
+    );
+
+    await useSidebarStore.persist.rehydrate();
+
+    expect(useSidebarStore.getState().channelItemFilters.sources).toEqual([
+      DESKTOP_SOURCE,
+      "slack",
+    ]);
+    localStorage.removeItem("sidebar-storage");
+  });
 });

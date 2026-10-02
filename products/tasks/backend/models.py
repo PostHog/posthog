@@ -330,6 +330,13 @@ PR_READY_EMAIL_PR_URL_STATE_KEY = "pr_ready_email_pr_url"
 
 class TaskClientProvenance(models.TextChoices):
     POSTHOG_DESKTOP = "posthog_desktop", "PostHog Desktop"
+    POSTHOG_MOBILE = "posthog_mobile", "PostHog Mobile"
+    POSTHOG_WEB = "posthog_web", "PostHog Web"
+
+
+def task_client_provenance_choices() -> list[tuple[str, str | Promise]]:
+    # Callable so growing the enum doesn't generate a no-op migration.
+    return list(TaskClientProvenance.choices)
 
 
 def task_origin_product_choices() -> list[tuple[str, str | Promise]]:
@@ -415,7 +422,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
     origin_product = models.CharField(max_length=20, choices=task_origin_product_choices)
     client_provenance = models.CharField(
         max_length=32,
-        choices=TaskClientProvenance,
+        choices=task_client_provenance_choices,
         null=True,
         blank=True,
         editable=False,
@@ -2161,7 +2168,7 @@ class Loop(ModelActivityMixin, TeamScopedRootMixin):
     )
     client_provenance = models.CharField(
         max_length=32,
-        choices=TaskClientProvenance,
+        choices=task_client_provenance_choices,
         null=True,
         blank=True,
         editable=False,
@@ -3702,7 +3709,7 @@ class SandboxSession(TeamScopedRootMixin, UUIDModel):
     )
     client_provenance = models.CharField(
         max_length=32,
-        choices=TaskClientProvenance,
+        choices=task_client_provenance_choices,
         null=True,
         blank=True,
         editable=False,
