@@ -191,6 +191,7 @@ def create_tile(
         dashboard = live.select_for_update().first()
         if dashboard is None:
             raise contracts.DashboardNotFoundError()
+        _assert_can_change(organization_id, dashboard, user)
         if (
             CrossProjectDashboardTile.objects.filter(dashboard=dashboard, deleted=False).count()
             >= MAX_TILES_PER_DASHBOARD
