@@ -43,7 +43,7 @@ class InvalidGenesysCloudRegionError(ValueError):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class GenesysCloudResumeConfig:
     # Analytics endpoints: start of the next window to read (ISO 8601).
     window_start: Optional[str] = None
