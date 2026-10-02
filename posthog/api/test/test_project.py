@@ -4,6 +4,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.db import DatabaseError
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -1042,6 +1043,52 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             for change in (log.detail or {}).get("changes") or []
         ]
         self.assertNotIn("conversations_enabled", logged_fields)
+
+    @parameterized.expand(
+        [
+            (TeamSerializer, "saved"),
+            (ProjectBackwardCompatSerializer, "saved"),
+            (TeamSerializer, "save_fails"),
+            (ProjectBackwardCompatSerializer, "save_fails"),
+        ]
+    )
+    def test_conversations_patch_with_other_team_fields_saves_the_team_once(
+        self, serializer_class: type, outcome: str
+    ) -> None:
+        self.team.conversations_settings = {"widget_color": "#123456"}
+        self.team.capture_console_log_opt_in = False
+        self.team.save()
+        payload = {"conversations_settings": {"widget_color": "#654321"}, "capture_console_log_opt_in": True}
+        request = APIRequestFactory().patch("/", payload, format="json")
+        request.user = self.user
+        serializer = serializer_class(context={"request": request, "view": None})
+        instance = self.team if serializer_class is TeamSerializer else self.project
+
+        real_save = Team.save
+
+        def save_that_fails_on_other_fields(team: Team, *args: Any, **kwargs: Any) -> None:
+            if "capture_console_log_opt_in" in (kwargs.get("update_fields") or []):
+                raise DatabaseError("simulated failure")
+            real_save(team, *args, **kwargs)
+
+        if outcome == "save_fails":
+            with (
+                patch.object(Team, "save", autospec=True, side_effect=save_that_fails_on_other_fields),
+                self.assertRaises(DatabaseError),
+            ):
+                serializer.update(instance, payload)
+            self.team.refresh_from_db()
+            self.assertEqual(self.team.conversations_settings, {"widget_color": "#123456"})
+            self.assertFalse(self.team.capture_console_log_opt_in)
+            return
+
+        with capture_db_queries() as queries:
+            serializer.update(instance, payload)
+        team_saves = [q["sql"] for q in queries.captured_queries if q["sql"].startswith('UPDATE "posthog_team"')]
+        self.assertEqual(len(team_saves), 1, [sql[:120] for sql in team_saves])
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.conversations_settings, {"widget_color": "#654321"})
+        self.assertTrue(self.team.capture_console_log_opt_in)
 
     def test_generate_conversations_public_token(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
