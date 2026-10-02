@@ -287,8 +287,10 @@ class TestMessageRecipients(ClickhouseTestMixin, NonAtomicAPIBaseTest):
         self._person("reachable@example.com")
         self._person(None, distinct_id="anonymous-1")
         self._person(None, distinct_id="anonymous-2", name="No Email")
+        self._person("", distinct_id="blank-email")
+        self._person("   ", distinct_id="whitespace-email")
 
         response = self.client.get(f"/api/projects/{self.team.id}/messaging_recipients/coverage/")
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {"persons_without_email": 2}
+        assert response.json() == {"persons_without_email": 4}
