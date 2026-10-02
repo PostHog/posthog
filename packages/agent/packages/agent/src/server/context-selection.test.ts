@@ -20,7 +20,6 @@ function fixture() {
       mode: "treatment",
       reason: "selected",
     }),
-    recordContextSelectionReceipt: vi.fn().mockResolvedValue(undefined),
   };
   const report = vi.fn();
   const selector = new ContextSelection(
@@ -43,69 +42,18 @@ describe("cloud context selection", () => {
     expect(send).toHaveBeenCalledWith(prompt);
   });
 
-  it("archives the actual enriched prompt before sending and records the actual trace", async () => {
-    const { api, selector, send } = fixture();
+  it("adds hidden context before model dispatch without mutating the input", async () => {
+    const { selector, send } = fixture();
     await selector.dispatch("r", "m", prompt, send);
-    const submitted = send.mock.calls[0][0];
-    expect(submitted).toHaveLength(2);
+    expect(send.mock.calls[0][0]).toEqual([
+      ...prompt,
+      {
+        type: "text",
+        text: "retrieved definition",
+        _meta: { ui: { hidden: true } },
+      },
+    ]);
     expect(prompt).toHaveLength(1);
-    expect(api.recordContextSelectionReceipt.mock.calls[0][0]).toMatchObject({
-      status: "dispatching",
-      prompt: submitted,
-      context_included: true,
-    });
-    expect(api.recordContextSelectionReceipt.mock.calls[1][0]).toMatchObject({
-      status: "completed",
-      trace_id: "actual-turn",
-      prompt: submitted,
-    });
-    expect(
-      api.recordContextSelectionReceipt.mock.invocationCallOrder[0],
-    ).toBeLessThan(send.mock.invocationCallOrder[0]);
-  });
-
-  it("records the gateway-stamped trace when the adapter omits a turn trace", async () => {
-    const { api, selector, send } = fixture();
-    send.mockResolvedValue({ stopReason: "end_turn" });
-    await selector.dispatch(
-      "r",
-      "m",
-      prompt,
-      send,
-      prompt,
-      "stamped-run-trace",
-    );
-    expect(api.recordContextSelectionReceipt.mock.calls[1][0]).toMatchObject({
-      status: "completed",
-      trace_id: "stamped-run-trace",
-    });
-  });
-
-  it("prefers the adapter's turn trace over the gateway session trace", async () => {
-    const { api, selector, send } = fixture();
-    await selector.dispatch(
-      "r",
-      "m",
-      prompt,
-      send,
-      prompt,
-      "stamped-run-trace",
-    );
-    expect(api.recordContextSelectionReceipt.mock.calls[1][0]).toMatchObject({
-      trace_id: "actual-turn",
-    });
-  });
-
-  it("does not inject when delivery evidence cannot be persisted", async () => {
-    const { api, selector, send, report } = fixture();
-    api.recordContextSelectionReceipt.mockRejectedValue(
-      new Error("unavailable"),
-    );
-    await selector.dispatch("r", "m", prompt, send);
-    expect(send).toHaveBeenCalledWith(prompt);
-    expect(report).toHaveBeenCalledWith(
-      expect.objectContaining({ event: "receipt_failed" }),
-    );
   });
 
   it("leaves prompts unchanged on selection failure", async () => {
@@ -118,7 +66,7 @@ describe("cloud context selection", () => {
     );
   });
 
-  it("captures control and shadow turns without injecting context", async () => {
+  it("leaves shadow turns unchanged", async () => {
     const { api, selector, send } = fixture();
     api.prepareContextSelection.mockResolvedValue({
       selection_id: "s",
@@ -127,9 +75,6 @@ describe("cloud context selection", () => {
     });
     await selector.dispatch("r", "m", prompt, send);
     expect(send).toHaveBeenCalledWith(prompt);
-    expect(
-      api.recordContextSelectionReceipt.mock.calls[1][0].context_included,
-    ).toBe(false);
   });
 
   it("keeps bounded user and assistant history for follow-ups", async () => {
@@ -152,14 +97,11 @@ describe("cloud context selection", () => {
     ).toBeLessThanOrEqual(12_000);
   });
 
-  it("records adapter errors and preserves the original failure", async () => {
-    const { api, selector, send } = fixture();
+  it("preserves adapter failures", async () => {
+    const { selector, send } = fixture();
     const error = new Error("adapter failed");
     send.mockRejectedValue(error);
     await expect(selector.dispatch("r", "m", prompt, send)).rejects.toBe(error);
-    expect(
-      api.recordContextSelectionReceipt.mock.calls.at(-1)?.[0].status,
-    ).toBe("failed");
   });
   it("keeps restored history separate from the current request", async () => {
     const { api, selector, send } = fixture();
@@ -194,20 +136,6 @@ describe("cloud context selection", () => {
     expect(api.prepareContextSelection.mock.calls[2][0].history).not.toContain(
       "previous answer",
     );
-  });
-
-  it("uses a new delivery ID when a context receipt times out before baseline dispatch", async () => {
-    const { api, selector, send } = fixture();
-    api.recordContextSelectionReceipt.mockRejectedValueOnce(
-      new Error("timeout after persistence"),
-    );
-    await selector.dispatch("r", "m", prompt, send);
-    const [enriched, baseline, completed] =
-      api.recordContextSelectionReceipt.mock.calls.map(([receipt]) => receipt);
-    expect(enriched.delivery_id).not.toBe(baseline.delivery_id);
-    expect(completed.delivery_id).toBe(baseline.delivery_id);
-    expect(baseline.prompt).toEqual(prompt);
-    expect(completed.context_included).toBe(false);
   });
 
   it("rejects unexpected context on a control response at the API boundary", () => {

@@ -1632,7 +1632,6 @@ export class AgentServer {
                     return result;
                   },
                   prompt,
-                  this.stampedRunTraceId,
                 );
               };
               const runTurn = () => {
@@ -2846,7 +2845,6 @@ export class AgentServer {
                 return session.clientConnection.prompt({ ...attempt, prompt });
               },
               request.prompt,
-              this.stampedRunTraceId,
             )
           : await session.clientConnection.prompt(attempt);
         if (this.session !== originatingSession) {

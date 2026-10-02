@@ -6,10 +6,7 @@ import type {
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import { PostHogAPIClient } from "../posthog-api";
-import {
-  type ContextDelivery,
-  ContextSelection,
-} from "../server/context-selection";
+import { ContextSelection } from "../server/context-selection";
 import { readPersistedPiQueue } from "./queue-persistence";
 
 export interface PiContextSelectionConfig {
@@ -48,13 +45,6 @@ export function observeContextSelectionFallback(
   input.prependListener("data", onData);
 }
 
-interface PiContextInput {
-  format: "pi_context";
-  messages: AgentMessage[];
-  system_prompt: string;
-  model: { id: string; provider: string } | null;
-}
-
 function hash(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
@@ -75,14 +65,6 @@ export class PiContextSelection {
   // Pi messages have no request ID, so uncertain text stays excluded for this process.
   private readonly blocked = new Set<string>();
   private readonly exposed = new Map<string, AgentMessage | null>();
-  private active:
-    | {
-        key: string;
-        turnIndex: number | undefined;
-        delivery: ContextDelivery<PiContextInput>;
-      }
-    | undefined;
-  private currentTurnIndex: number | undefined;
 
   constructor(
     config: PiContextSelectionConfig,
@@ -111,13 +93,7 @@ export class PiContextSelection {
     this.extension = {
       name: "posthog-context-selection",
       factory: (pi) => {
-        pi.on("agent_start", async () => {
-          this.currentTurnIndex = undefined;
-        });
-        pi.on("turn_start", async (event) => {
-          this.currentTurnIndex = event.turnIndex;
-        });
-        pi.on("context", async (event, ctx) => {
+        pi.on("context", async (event) => {
           try {
             const latest = event.messages.findLast(
               (message) => message.role === "user",
@@ -128,14 +104,6 @@ export class PiContextSelection {
             const userText = messageText(latest);
             const fresh = !this.exposed.has(key);
             if (fresh) {
-              const previous = this.active;
-              if (previous && previous.key !== key) {
-                this.active = undefined;
-                await previous.delivery.finish(
-                  { stopReason: "superseded" },
-                  true,
-                );
-              }
               this.exposed.set(key, null);
             }
             const index =
@@ -156,52 +124,29 @@ export class PiContextSelection {
                 .join("\n")
                 .slice(-12_000);
               const baseline = this.withExposures(event.messages);
-              const delivery = await selector.preparePrompt<PiContextInput>({
+              const messages = await selector.preparePrompt<AgentMessage[]>({
                 runId: config.runId,
                 messageId: input.id,
-                prompt: {
-                  format: "pi_context",
-                  messages: baseline,
-                  system_prompt: ctx.getSystemPrompt(),
-                  model: ctx.model
-                    ? { id: ctx.model.id, provider: ctx.model.provider }
-                    : null,
-                },
+                prompt: baseline,
                 userText,
                 restoredHistory: history,
                 historySource: "runtime",
-                inject: (input, context) => ({
-                  ...input,
-                  messages: [
-                    ...input.messages,
-                    {
-                      role: "custom",
-                      customType: "posthog_context_selection",
-                      content: context,
-                      display: false,
-                      timestamp: latest.timestamp,
-                    },
-                  ],
-                }),
+                inject: (messages, context) => [
+                  ...messages,
+                  {
+                    role: "custom",
+                    customType: "posthog_context_selection",
+                    content: context,
+                    display: false,
+                    timestamp: latest.timestamp,
+                  },
+                ],
               });
-              if (this.disabled) {
-                await delivery.finish(
-                  { stopReason: "selection_disabled" },
-                  true,
-                );
-                return { messages: baseline };
-              }
-              this.active = {
-                key,
-                turnIndex: this.currentTurnIndex,
-                delivery,
-              };
+              if (this.disabled) return { messages: baseline };
               const injected =
-                delivery.prompt.messages.length > baseline.length
-                  ? delivery.prompt.messages.at(-1)
-                  : undefined;
+                messages.length > baseline.length ? messages.at(-1) : undefined;
               if (injected) this.exposed.set(key, injected);
-              return { messages: delivery.prompt.messages };
+              return { messages: messages };
             }
             return { messages: this.withExposures(event.messages) };
           } catch (error) {
@@ -211,38 +156,6 @@ export class PiContextSelection {
             });
             return { messages: event.messages };
           }
-        });
-        pi.on("turn_end", async (event) => {
-          if (
-            this.active?.turnIndex !== undefined &&
-            this.active.turnIndex !== event.turnIndex
-          )
-            return;
-          const delivery = this.active?.delivery;
-          this.active = undefined;
-          if (!delivery || event.message.role !== "assistant") return;
-          const message = event.message;
-          await delivery.finish(
-            {
-              stopReason: message.stopReason,
-              usage: {
-                scope: "pi_model_turn",
-                model: message.model,
-                provider: message.provider,
-                ...message.usage,
-              },
-            },
-            message.stopReason === "error" || message.stopReason === "aborted",
-          );
-        });
-        pi.on("agent_settled", async () => {
-          if (!this.active) return;
-          const delivery = this.active.delivery;
-          this.active = undefined;
-          await delivery.finish(
-            { stopReason: "settled_without_model_result" },
-            true,
-          );
         });
       },
     };

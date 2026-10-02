@@ -112,7 +112,6 @@ export class PostHogAPIClient {
     history: string;
     history_source: string;
     runtime_version: string;
-    baseline: string;
   }): Promise<ContextSelectionResponse> {
     const response = await this.apiRequest<unknown>(
       `/api/projects/${this.getTeamId()}/context_layer/selection/prepare/`,
@@ -123,32 +122,6 @@ export class PostHogAPIClient {
       },
     );
     return contextSelectionResponseSchema.parse(response);
-  }
-
-  async recordContextSelectionReceipt(input: {
-    run_id: string;
-    selection_id: string;
-    delivery_id: string;
-    status: "dispatching" | "completed" | "failed";
-    context_included: boolean;
-    prompt_hash: string;
-    prompt: unknown;
-    usage: unknown;
-    adapter_elapsed_ms?: number;
-    stop_reason: string;
-    trace_id?: string;
-  }): Promise<void> {
-    await this.apiRequest(
-      `/api/projects/${this.getTeamId()}/context_layer/selection/receipt/`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          ...input,
-          prompt: JSON.stringify(input.prompt),
-        }),
-        signal: AbortSignal.timeout(2_000),
-      },
-    );
   }
 
   async getApiKey(forceRefresh = false): Promise<string> {

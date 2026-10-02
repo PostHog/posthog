@@ -1,11 +1,6 @@
-import { createHash, randomUUID } from "node:crypto";
 import type { ContentBlock, PromptResponse } from "@agentclientprotocol/sdk";
 import type { PostHogAPIClient } from "../posthog-api";
 import { hiddenTextBlock } from "./cloud-prompt";
-
-function hash(value: unknown): string {
-  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
-}
 
 function isHidden(block: ContentBlock): boolean {
   const ui = block._meta?.ui;
@@ -21,17 +16,6 @@ function text(prompt: ContentBlock[]): string {
   return prompt
     .flatMap((block) => (block.type === "text" ? [block.text] : []))
     .join("\n");
-}
-
-export interface ContextOutcome {
-  stopReason: string;
-  usage?: unknown;
-  _meta?: { traceId?: unknown } | null;
-}
-
-export interface ContextDelivery<Prompt> {
-  prompt: Prompt;
-  finish(result?: ContextOutcome, failed?: boolean): Promise<void>;
 }
 
 /** One instance per cloud process. Only actual human turns prepare context. */
@@ -54,30 +38,22 @@ export class ContextSelection {
     prompt: ContentBlock[],
     send: (blocks: ContentBlock[]) => Promise<PromptResponse>,
     humanPrompt = prompt,
-    gatewayTraceId?: string | null,
   ): Promise<PromptResponse> {
     if (!this.enabled || !messageId) return send(prompt);
-    const delivery = await this.preparePrompt({
+    const submitted = await this.preparePrompt({
       runId,
       messageId,
       prompt,
-      gatewayTraceId,
       userText: text(humanPrompt.filter((block) => !isHidden(block))),
       restoredHistory: text(humanPrompt.filter(isHidden)),
       inject: (blocks, context) => [...blocks, hiddenTextBlock(context)],
     });
-    try {
-      const result = await send(delivery.prompt);
-      await delivery.finish(result);
-      this.recordUser(
-        runId,
-        text(humanPrompt.filter((block) => !isHidden(block))),
-      );
-      return result;
-    } catch (error) {
-      await delivery.finish(undefined, true);
-      throw error;
-    }
+    const result = await send(submitted);
+    this.recordUser(
+      runId,
+      text(humanPrompt.filter((block) => !isHidden(block))),
+    );
+    return result;
   }
 
   async preparePrompt<Prompt>({
@@ -87,7 +63,6 @@ export class ContextSelection {
     userText,
     restoredHistory = "",
     historySource = "resume_prompt",
-    gatewayTraceId,
     inject,
   }: {
     runId: string;
@@ -96,10 +71,9 @@ export class ContextSelection {
     userText: string;
     restoredHistory?: string;
     historySource?: "runtime" | "resume_prompt";
-    gatewayTraceId?: string | null;
     inject: (prompt: Prompt, context: string) => Prompt;
-  }): Promise<ContextDelivery<Prompt>> {
-    if (!this.enabled || !messageId) return { prompt, finish: async () => {} };
+  }): Promise<Prompt> {
+    if (!this.enabled || !messageId) return prompt;
     let prepared:
       | Awaited<ReturnType<PostHogAPIClient["prepareContextSelection"]>>
       | undefined;
@@ -116,7 +90,6 @@ export class ContextSelection {
         prompt_char_count: userText.length,
         history,
         history_source: this.history ? "runtime" : historySource,
-        baseline: hash(prompt),
         runtime_version: this.runtimeVersion,
       });
     } catch {
@@ -125,61 +98,8 @@ export class ContextSelection {
         run_id: runId,
         message_id: messageId,
       });
-      // Selection is optional. An unavailable evidence store must never produce an injection.
     }
-    let submitted = prepared?.context
-      ? inject(prompt, prepared.context)
-      : prompt;
-    let deliveryId = randomUUID();
-    let sentAt: number | undefined;
-    const receipt = async (
-      status: "dispatching" | "completed" | "failed",
-      result?: ContextOutcome,
-    ): Promise<boolean> => {
-      if (!prepared?.selection_id) return true;
-      try {
-        await this.api.recordContextSelectionReceipt({
-          run_id: runId,
-          selection_id: prepared.selection_id,
-          delivery_id: deliveryId,
-          status,
-          context_included: submitted !== prompt,
-          prompt_hash: hash(submitted),
-          prompt: submitted,
-          stop_reason: result?.stopReason ?? "",
-          adapter_elapsed_ms:
-            sentAt === undefined ? undefined : performance.now() - sentAt,
-          usage: result && "usage" in result ? result.usage : null,
-          trace_id:
-            typeof result?._meta?.traceId === "string"
-              ? result._meta.traceId
-              : (gatewayTraceId ?? ""),
-        });
-        return true;
-      } catch {
-        this.report({
-          event: "receipt_failed",
-          status,
-          run_id: runId,
-          message_id: messageId,
-          selection_id: prepared.selection_id,
-          context_included: submitted !== prompt,
-        });
-        return false;
-      }
-    };
-    if (!(await receipt("dispatching"))) {
-      submitted = prompt;
-      deliveryId = randomUUID();
-      await receipt("dispatching");
-    }
-    sentAt = performance.now();
-    return {
-      prompt: submitted,
-      finish: async (result, failed = false) => {
-        await receipt(failed ? "failed" : "completed", result);
-      },
-    };
+    return prepared?.context ? inject(prompt, prepared.context) : prompt;
   }
 
   recordUser(runId: string, text: string): void {

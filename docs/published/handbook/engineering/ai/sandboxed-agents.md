@@ -685,49 +685,31 @@ or stream echo, and never submits the message again.
 
 ## Context selection experiment
 
-Cloud Claude, Codex, and Pi runs started from PostHog AI web or Slack can opt into `phai-context-selection`.
-The flag must return `shadow`, `control`, or `treatment`; boolean enablement does not enroll a run.
-Assignment uses the task ID and persists across its runs. Turning the flag off stops selection on the next human turn.
-Runs booted while disabled require a new run to enroll. Desktop, steering during a running turn, compaction, and autonomous continuations are outside this experiment.
+Staff in `CONTEXT_SELECTION_ALLOWED_TEAM_IDS` can receive hidden organizational context on human prompts in web and Slack cloud runs.
+The `phai-context-selection` flag selects `control`, `shadow`, or `treatment` using the task ID.
+Other flag values disable selection. Local runs and other runtime adapters skip it.
 
-The default `CONTEXT_SELECTION_ALLOWED_TEAM_IDS` is empty. Configure only projects containing synthetic or PostHog-owned data; the current actor must also be staff.
-Selection uses the existing `build_system_one_client` helper, `AI_GATEWAY_URL` and `AI_GATEWAY_API_KEY` configuration, and the same `HOGQL_PROMPT_JEV_MODEL` setting as the Jev tool.
-It adds no provider routing or fallback configuration. Evidence retains the requested model and the actual model returned by System One.
+Before a human prompt reaches Claude or Codex, the sandbox calls the task-bound selection endpoint.
+Pi selects at its native context hook after a queued human prompt leaves the queue.
+Autonomous continuations, steering, and slash commands do not trigger selection.
 
-Skill descriptions and Data Catalog metadata use a project projection in the existing Django cache.
-A cache miss schedules a Celery refresh and skips the current turn. Projections refresh after two minutes and expire after ten minutes.
-Each source pool is capped at 2,000 records, with truncation recorded. Versioned projections of project-shared metadata are archived before serving, so skills and semantic retrieval can be replayed after cache expiry. Weighted token matching shortlists sources separately, then current source rows and permissions are checked before scoring and dispatch.
-Customized shared-resource access is conservatively excluded, including object-restricted skills. Full skill bodies remain available through the existing tools.
-Business Knowledge uses its existing safe hybrid search, with a bounded worker pool; a timeout can leave one search running but cannot create an unbounded queue.
-Selection checks a three-second budget across projection, scoring, and validation. The complete preparation handler, including authorization and evidence writes, has a 3.5-second response deadline; receipt handling has a 1.5-second deadline. The client allows five seconds for preparation and two seconds per receipt, including network overhead. These calls add to turn latency. Slow synchronous dependencies can continue after a response deadline, but a shared pool admits at most four handlers with no queue; exhaustion skips selection. Context is never delivered on a timeout. Source checks run before acquiring the receipt row lock.
+System One first checks whether organizational context could help, using the request and bounded conversation history.
+When the gate passes, the selector searches current team skills and semantic catalog rows directly, alongside business knowledge hybrid search.
+There is no separate projection or refresh job. Candidate counts are bounded per source.
+OAuth scopes, current actor permissions, and shared-context access checks constrain retrieval.
+System One reranks candidates concurrently. Sources are checked again before rendering in case definitions or access changed during scoring.
+At most five references and 8,000 characters survive into a hidden context block, identified by `selection_id`.
+Retrieved content is data to verify through existing tools, rather than instructions or approval.
 
-The experiment gate skips at probability 0.30 or below. Candidates need 0.70 or above, and the rendered bundle is limited to five records and 8,000 characters.
-Shadow runs select and archive without injection; controls archive the baseline without selection.
-A retry of an already recorded message does not repeat selection and proceeds without newly injected context. Each actual adapter attempt has a separate receipt, including retries that replace the user prompt with a continuation. Runtime selection history is reset when the run changes.
-Pi user messages do not carry the request ID used by selection. If identical messages are waiting, Pi sends them without selected context rather than assign either message an uncertain ID. It also skips selection for queued messages restored after a Pi process restart, and for later messages with the same text in that process. Failed command cleanup blocks matching text from later selection. A new message marks an unfinished Pi delivery as failed before starting another delivery.
-ACP receipts prefer the adapter's turn trace. When the adapter omits it, they retain the trace already stamped on gateway requests, which can cover the whole run; no trace is inferred from a run ID alone.
-A failed receipt write removes context before dispatch. Preparation and receipt failures also emit diagnostics into the existing run logs.
-Startup eligibility errors disable selection and let the run continue. Pi input registration, blocking, or cleanup failures disable selection for the rest of the process and preserve normal prompt, follow-up, and steering delivery. The fallback marker travels with the native command, so discarding uncertain registrations does not depend on the IPC bookkeeping channel recovering.
+Control skips retrieval. Shadow records the selected bundle without injecting it. Treatment injects the bundle.
+Selection has a three-second budget by default. Saturation, timeout, and selection failures leave the ordinary prompt flow available.
 
-Selection records retain authorized candidate snapshots, source revisions, projection identity, deduplicated model request descriptors and normalized responses, decisions, stage timings, rendered context, bounded request/history, and relevant run configuration.
-Input and candidate snapshots, immutable question definitions, model, and request hashes allow reconstruction of each model request without duplicating prompt/history per candidate.
-Receipts include exact submitted ACP prompt blocks or native Pi context messages, system prompt, and model (up to 256 KiB), stored as their exact JSON serialization, a server-verified SHA-256 hash, adapter status, reported usage, and the actual turn trace when available.
-Pi registers human message IDs before sending their native commands, persists queued registrations in the native session, and selects when those messages reach the model. The context extension supplies hidden reference messages without changing the visible user prompt. Native commands, unregistered inputs, and steering do not run selection. Skill/template expansion that changes the registered text prevents a match and skips selection.
-Pi receipts finish on the first native model turn after selection, with `pi_model_turn` usage scope; RPC acknowledgments never count as completion. Subsequent trajectory remains in native session and task logs. Missing trace IDs remain explicit gaps. In-process tool continuations retain already-exposed context; a resumed process does not reconstruct those temporary context messages and selects again only for newly registered human input.
-
-Terminal receipts require a matching dispatch receipt with the same prompt and context claim. The server verifies that a claimed injection is present as the appended context block. These are runtime-reported observations, not independent proof of provider acceptance. A dispatching receipt alone does not prove adapter acceptance. Terminal receipt failures remain unknown; task/run joins remain usable without a trace ID.
-Provider responses completing after the deadline are not collected. Their candidates are marked timed out. The source search is lexical plus Business Knowledge hybrid retrieval, not the prototype's SQLite FTS implementation.
-
-Records expire after 90 days; projection snapshots expire 91 days after their last refresh; a daily Celery task deletes them. Assignment survives until task deletion. Evidence is private and never exposed as a normal chat artifact.
-Task-run logs have a separate default 30-day retention. Export complete trajectories before the earliest referenced run log expires (and before task deletion); the 90-day selection window does not extend log retention. Operators can export a task:
-
-```sh
-python manage.py export_context_selections --team-id TEAM_ID --task-id TASK_UUID > context-evidence.json
-```
-
-The export includes every persisted run log for the task, without the default resume-depth limit or lossy event parsing. Missing, malformed, and nonterminal logs are marked explicitly.
-It is a persisted-log dataset, not a complete provider-native transcript: tools or native sessions may have their own truncation, and existing log retention still applies.
-Feedback is joined later using web `run_id` or Slack `task_run_id`, with `task_id` and `$ai_trace_id` where available. Do not interpret absent feedback as a negative result.
+A best-effort `Context selection` LLM span records the outcome, scores, retrieval time, and exact bounded bundle.
+Its `selection_id`, `task_id`, `task_run_id`, and `message_id` connect it to System One calls and the hidden marker in downstream model input.
+This span describes prepared context; it does not confirm model acceptance or use.
+Offline evals can check downstream inputs, outputs, and tool calls through the existing LLM traces.
+Existing trace retention and truncation apply, so absent output or context does not prove the agent ignored it.
+No dedicated evidence tables, prompt archive, or dispatch receipts are required, and telemetry failure does not block injection.
 
 ## Local development
 

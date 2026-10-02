@@ -1,62 +1,49 @@
-import json
 import time
-import hashlib
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from threading import BoundedSemaphore, Event
+from threading import Barrier, BoundedSemaphore, Event
 from types import SimpleNamespace
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.contrib.postgres.search import SearchVector
 from django.db import DatabaseError
 from django.test import SimpleTestCase, override_settings
 
 import httpx
 from parameterized import parameterized
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 
+from posthog.llm.system_one import JsonValue, NoulAnswer, Question, SystemOneResult
 from posthog.models.organization import Organization
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.context_layer.backend.facade.api import context_selection_enabled_for_run
-from products.context_layer.backend.models import (
-    ContextSelectionAttempt,
-    ContextSelectionSearchDocument,
-    ContextSelectionSearchState,
-)
 from products.context_layer.backend.selection_execution import SelectionUnavailable, bounded_request
-from products.context_layer.backend.selection_export import selection_gaps
-from products.context_layer.backend.selection_model import (
-    GATE,
-    RELEVANCE,
-    Judgment,
-    SelectionJudge,
-    model_request,
-    request_descriptor,
-)
-from products.context_layer.backend.selection_receipts import merge_receipt, validate_exposure
+from products.context_layer.backend.selection_model import SelectionJudge
 from products.context_layer.backend.selection_search import render
-from products.context_layer.backend.selection_service import _select, prepare, selection_mode
-from products.context_layer.backend.selection_sources import refresh_projection, search_projection
+from products.context_layer.backend.selection_service import prepare, selection_mode
+from products.context_layer.backend.selection_sources import search_sources
 from products.context_layer.backend.selection_types import (
     MAX_CONTEXT_CHARS,
     Candidate,
+    PreparedContext,
     SelectionInput,
     SourceKind,
-    digest,
 )
-from products.context_layer.backend.selection_views import ContextSelectionViewSet, PrepareSerializer, ReceiptSerializer
+from products.context_layer.backend.selection_views import ContextSelectionViewSet, PrepareSerializer
+from products.data_catalog.backend.facade import api as catalog
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.models import Task, TaskRun
 
 
-def candidate(id: str, kind: SourceKind = "skill", **kwargs) -> Candidate:
+def candidate(id: str, kind: SourceKind = "skill", *, document_id: str = "") -> Candidate:
     return Candidate(
         id=id,
         kind=kind,
@@ -65,7 +52,7 @@ def candidate(id: str, kind: SourceKind = "skill", **kwargs) -> Candidate:
         revision="1",
         status="source",
         reference="source",
-        **kwargs,
+        document_id=document_id,
     )
 
 
@@ -104,66 +91,6 @@ class TestSelectionSearch(SimpleTestCase):
         result = render([(malicious, 0.9)])
         self.assertEqual(result.context.count("</posthog_context_suggestions>"), 1)
         self.assertIn("\\u003c", result.context)
-
-    def test_export_distinguishes_dispatch_from_confirmed_completion(self) -> None:
-        attempt = ContextSelectionAttempt(status="selected", receipt={"d": {"status": "dispatching"}})
-        self.assertEqual(selection_gaps(attempt), ["delivery_outcome_unknown"])
-        attempt.receipt = {"d": {"status": "completed", "trace_id": "", "usage": None}}
-        self.assertEqual(selection_gaps(attempt), ["missing_turn_trace", "missing_usage"])
-
-
-class TestProjectionSearch(BaseTest):
-    def test_refresh_replaces_changed_search_content(self) -> None:
-        skill = LLMSkill.objects.create(team=self.team, name="guide", description="activation process", body="guide")
-        with team_scope(self.team.id):
-            first = refresh_projection(self.team.id)
-            _, matches = search_projection(self.team.id, "activation", {"skill"})
-            self.assertEqual([candidate.id for candidate in matches], [str(skill.id)])
-
-            skill.description = "retention process"
-            skill.save(update_fields=["description"])
-            second = refresh_projection(self.team.id)
-            _, old_matches = search_projection(self.team.id, "activation", {"skill"})
-            _, new_matches = search_projection(self.team.id, "retention", {"skill"})
-
-        self.assertNotEqual(first["version"], second["version"])
-        self.assertEqual(old_matches, [])
-        self.assertEqual([candidate.id for candidate in new_matches], [str(skill.id)])
-
-    def test_search_returns_only_matching_source_kinds(self) -> None:
-        with team_scope(self.team.id):
-            ContextSelectionSearchState.objects.create(
-                team=self.team,
-                version="v1",
-                archive_id=uuid4(),
-                built_at=self.team.created_at,
-                refresh_seconds=1,
-            )
-            ContextSelectionSearchDocument.objects.bulk_create(
-                [
-                    ContextSelectionSearchDocument(
-                        team=self.team,
-                        source_kind=kind,
-                        source_id=source_id,
-                        title=title,
-                        text="A user activates their account",
-                        revision="v1",
-                        status="source",
-                        reference="source",
-                    )
-                    for kind, source_id, title in (
-                        ("skill", "skill-1", "Activation procedure"),
-                        ("metric", "metric-1", "Activation rate"),
-                    )
-                ]
-            )
-            ContextSelectionSearchDocument.objects.update(
-                search_vector=SearchVector("title", weight="A", config="english")
-                + SearchVector("text", weight="B", config="english")
-            )
-            metadata, candidates = search_projection(self.team.id, "activation", {"metric"})
-        self.assertEqual(metadata["version"], "v1")
-        self.assertEqual([candidate.id for candidate in candidates], ["metric-1"])
 
 
 @override_settings(CONTEXT_SELECTION_ALLOWED_TEAM_IDS=[42], CONTEXT_SELECTION_TIMEOUT_SECONDS=3)
@@ -208,98 +135,19 @@ class TestSelectionOrchestration(SimpleTestCase):
     def test_kill_switch_disables_existing_conversation(self, flag) -> None:
         self.assertEqual(selection_mode(self.task_run, self.actor), "disabled")
 
-    @patch("products.context_layer.backend.selection_service.SelectionJudge")
-    @patch("products.context_layer.backend.selection_service.ContextSelectionAttempt.save")
-    @patch("products.context_layer.backend.selection_service.search_projection", return_value=(None, []))
-    def test_unbuilt_search_index_omits_catalog(self, search, save, judge) -> None:
-        judge.return_value.judge.return_value = Judgment(probability=0.9, evidence={})
-        attempt = ContextSelectionAttempt(evidence={"calls": [], "omitted_sources": {}}, context="", status="preparing")
-        _select(
-            attempt,
-            self.task_run,
-            self.actor,
-            SelectionInput(message_id="m", prompt="activation"),
-            {"llm_skill:read"},
-            time.monotonic(),
-        )
-        self.assertEqual(attempt.status, "empty")
-        self.assertEqual(attempt.evidence["omitted_sources"]["projection"], "not_built")
-        self.assertEqual(judge.return_value.judge.call_count, 1)
-
-    @patch("products.context_layer.backend.selection_service.SelectionJudge")
-    @patch("products.context_layer.backend.selection_service.validate_candidates")
-    @patch("products.context_layer.backend.selection_service.ContextSelectionAttempt.save")
-    @patch("products.context_layer.backend.selection_service.search_projection")
-    def test_revoked_source_is_dropped_after_scoring(self, search, save, validate, judge) -> None:
-        record = candidate("1")
-        search.return_value = (
-            {"version": "v1", "created_at": 1, "capped_sources": [], "archive_id": "archive", "refresh_seconds": 0},
-            [record],
-        )
-        validate.side_effect = [[record], []]
-        judge.return_value.judge.return_value = Judgment(probability=0.9, evidence={"response": "test"})
-        attempt = ContextSelectionAttempt(evidence={"calls": [], "omitted_sources": {}}, context="", status="preparing")
-        _select(
-            attempt,
-            self.task_run,
-            self.actor,
-            SelectionInput(message_id="m", prompt="activation"),
-            {"llm_skill:read"},
-            time.monotonic(),
-        )
-        self.assertEqual(attempt.status, "empty")
-        self.assertEqual(attempt.context, "")
-        self.assertEqual(len(attempt.evidence["calls"]), 2)
-
-    def test_input_and_receipt_have_hard_size_limits(self) -> None:
-        serializer = PrepareSerializer(
-            data={"run_id": "00000000-0000-0000-0000-000000000001", "message_id": "m", "prompt": "x" * 20_001}
-        )
+    def test_prompt_length_is_bounded_at_the_endpoint(self) -> None:
+        serializer = PrepareSerializer(data={"run_id": str(uuid4()), "message_id": "m", "prompt": "x" * 20_001})
         self.assertFalse(serializer.is_valid())
-        with self.assertRaisesMessage(Exception, "too large"):
-            ReceiptSerializer().validate_prompt(json.dumps([{"text": "x" * 262_144}]))
 
-    def test_duplicate_delivery_never_runs_selection_again(self) -> None:
-        attempt = ContextSelectionAttempt(mode="treatment", context="old context")
+    def test_control_does_not_call_the_model(self) -> None:
         with (
-            patch("products.context_layer.backend.selection_service.selection_mode", return_value="treatment"),
-            patch("products.context_layer.backend.selection_service.transaction.atomic"),
-            patch(
-                "products.context_layer.backend.selection_service.ContextSelectionAssignment.objects.get_or_create",
-                return_value=(SimpleNamespace(mode="treatment"), False),
-            ),
-            patch(
-                "products.context_layer.backend.selection_service.ContextSelectionAttempt.objects.get_or_create",
-                return_value=(attempt, False),
-            ),
-            patch("products.context_layer.backend.selection_service._select") as select,
+            patch("products.context_layer.backend.selection_service.get_feature_flag_or_none", return_value="control"),
+            patch("products.context_layer.backend.selection_service.ph_background_capture") as capture,
         ):
-            result = prepare(self.task_run, self.actor, SelectionInput(message_id="m", prompt="changed retry"), set())
-            self.assertEqual(result.context, "")
-            self.assertEqual(result.reason, "duplicate")
-            select.assert_not_called()
-
-    def test_capture_failure_cannot_return_selected_context(self) -> None:
-        attempt = ContextSelectionAttempt(mode="treatment")
-        with (
-            patch("products.context_layer.backend.selection_service.selection_mode", return_value="treatment"),
-            patch("products.context_layer.backend.selection_service.transaction.atomic"),
-            patch(
-                "products.context_layer.backend.selection_service.ContextSelectionAssignment.objects.get_or_create",
-                return_value=(SimpleNamespace(mode="treatment"), True),
-            ),
-            patch(
-                "products.context_layer.backend.selection_service.ContextSelectionAttempt.objects.get_or_create",
-                return_value=(attempt, True),
-            ),
-            patch(
-                "products.context_layer.backend.selection_service._select",
-                side_effect=lambda attempt, *args: setattr(attempt, "context", "new context"),
-            ),
-            patch.object(attempt, "save", side_effect=[None, RuntimeError("storage unavailable")]),
-            self.assertRaisesMessage(RuntimeError, "storage unavailable"),
-        ):
-            prepare(self.task_run, self.actor, SelectionInput(message_id="m", prompt="activation"), set())
+            result = prepare(self.task_run, self.actor, SelectionInput(message_id="m", prompt="activation"), set())
+        self.assertEqual(result.context, "")
+        self.assertEqual(result.reason, "control")
+        self.assertEqual(capture.return_value.call_args.kwargs["properties"]["$ai_output_state"]["reason"], "control")
 
 
 class TestSelectionPermissions(SimpleTestCase):
@@ -335,89 +183,146 @@ class TestSelectionPermissions(SimpleTestCase):
             with self.assertRaises(PermissionDenied):
                 view._run(request, run_id)
 
-    def test_failed_model_call_keeps_request_evidence(self) -> None:
-        with (
-            override_settings(
-                HOGQL_PROMPT_JEV_MODEL="test-model",
-                AI_GATEWAY_URL="https://ai-gateway.example.com/v1",
-                AI_GATEWAY_API_KEY="phs_test",
-            ),
-            patch("httpx.Client.post", side_effect=httpx.ReadTimeout("test timeout")),
-        ):
-            result = SelectionJudge("selection", "actor", time.monotonic() + 3).judge("activation", "")
-            self.assertIsNone(result.probability)
-            self.assertEqual(result.evidence["error_type"], "SystemOneRequestFailed")
-            self.assertEqual(result.evidence["request_hash"], request_descriptor("activation", "")["request_hash"])
-            self.assertNotIn("request", result.evidence)
 
-
-class TestSelectionReceipts(SimpleTestCase):
-    def receipt(self, prompt, status="dispatching", included=True) -> dict:
-        serialized = json.dumps(prompt, ensure_ascii=False, separators=(",", ":"))
-        return {
-            "run_id": uuid4(),
-            "selection_id": uuid4(),
-            "delivery_id": uuid4(),
-            "prompt": serialized,
-            "prompt_hash": hashlib.sha256(serialized.encode()).hexdigest(),
-            "status": status,
-            "context_included": included,
-        }
-
-    @parameterized.expand([("acp",), ("pi",)])
-    def test_receipt_verifies_exact_json_hash_and_current_injection(self, runtime) -> None:
-        context = "definition: café 🦔"
-        prompt = (
-            [{"type": "text", "text": context, "_meta": {"ui": {"hidden": True}}}]
-            if runtime == "acp"
-            else {
-                "format": "pi_context",
-                "messages": [{"role": "custom", "customType": "posthog_context_selection", "content": context}],
-            }
+class TestLiveSelection(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save(update_fields=["is_staff"])
+        self.task_run = TaskRun(
+            team=self.team, task=Task(id=uuid4(), team=self.team, origin_product="posthog_ai"), environment="cloud"
         )
-        data = self.receipt(prompt)
-        serializer = ReceiptSerializer(data=data)
-        self.assertTrue(serializer.is_valid(), serializer.errors)
-        attempt = ContextSelectionAttempt(mode="treatment", status="selected", context=context)
-        validate_exposure(attempt, serializer.validated_data)
-        with self.assertRaises(ValidationError):
-            validate_exposure(attempt, {**data, "context_included": False})
-        with self.assertRaises(ValidationError):
-            validate_exposure(attempt, self.receipt([]))
-        bad = ReceiptSerializer(data={**data, "prompt_hash": "0" * 64})
-        self.assertFalse(bad.is_valid())
 
-    @parameterized.expand([("completed",), ("failed",)])
-    def test_terminal_receipt_requires_unchanged_dispatch(self, status) -> None:
-        data = self.receipt([], included=False)
-        terminal = {**data, "status": status}
-        with self.assertRaises(ValidationError):
-            merge_receipt({}, terminal)
-        receipts = merge_receipt({}, data)
-        with self.assertRaises(ValidationError):
-            merge_receipt(receipts, {**terminal, "prompt": "[1]"})
-        completed = merge_receipt(receipts, terminal)
-        self.assertEqual(completed[str(data["delivery_id"])]["status"], status)
-        self.assertEqual(merge_receipt(completed, terminal), completed)
+    def select(
+        self, *, mode: str = "treatment", probability: float = 0.9, decide: Callable[..., SystemOneResult] | None = None
+    ) -> PreparedContext:
+        with (
+            override_settings(CONTEXT_SELECTION_ALLOWED_TEAM_IDS=[self.team.id], CONTEXT_SELECTION_TIMEOUT_SECONDS=10),
+            team_scope(self.team.id),
+            patch("products.context_layer.backend.selection_service.get_feature_flag_or_none", return_value=mode),
+            patch("products.context_layer.backend.selection_model.build_system_one_client") as client,
+        ):
+            client.return_value.decide.return_value = SystemOneResult(
+                model="test", answers={"useful": NoulAnswer(probability=probability)}, input_tokens=1
+            )
+            client.return_value.decide.side_effect = decide
+            return prepare(
+                self.task_run, self.user, SelectionInput(message_id="m", prompt="activation"), {"llm_skill:read"}
+            )
 
-    def test_model_requests_can_be_rebuilt_without_repeated_input(self) -> None:
-        record = candidate("1")
-        prompt, history = "user request", "prior message"
-        for c in (None, record):
-            descriptor = request_descriptor(prompt, history, c)
-            state: dict = {"user_request": prompt, "history": history}
-            request: dict = {
-                "model": model_request(prompt, history, c)["model"],
-                "state": state,
-                "questions": {"useful": (RELEVANCE if c else GATE).to_json()},
-            }
-            if c:
-                state["candidate"] = c.as_json()
-            self.assertEqual(digest(request), descriptor["request_hash"])
-            self.assertNotIn(prompt, json.dumps(descriptor))
+    def test_live_search_sees_edits_and_deletions_without_refresh(self) -> None:
+        skill = LLMSkill.objects.create(team=self.team, name="guide", description="activation process", body="guide")
+        with team_scope(self.team.id):
+            self.assertEqual(
+                [c.id for c in search_sources(self.team, self.user, "activation", {"llm_skill:read"})], [str(skill.id)]
+            )
+            skill.description = "retention process"
+            skill.save(update_fields=["description"])
+            self.assertEqual(search_sources(self.team, self.user, "activation", {"llm_skill:read"}), [])
+            self.assertEqual(
+                [c.id for c in search_sources(self.team, self.user, "retention", {"llm_skill:read"})], [str(skill.id)]
+            )
+            skill.deleted = True
+            skill.save(update_fields=["deleted"])
+            self.assertEqual(search_sources(self.team, self.user, "retention", {"llm_skill:read"}), [])
+
+    def test_search_respects_team_scopes_and_shared_access(self) -> None:
+        skill = LLMSkill.objects.create(team=self.team, name="activation", description="activation", body="guide")
+        other = self.organization.teams.create(name="Other")
+        LLMSkill.objects.create(team=other, name="foreign", description="activation", body="guide")
+        with team_scope(self.team.id):
+            self.assertEqual(search_sources(self.team, self.user, "activation", set()), [])
+            self.assertEqual(
+                [c.id for c in search_sources(self.team, self.user, "activation", {"llm_skill:read"})], [str(skill.id)]
+            )
+            AccessControl.objects.create(
+                team=self.team, resource="llm_skill", resource_id=str(skill.id), access_level="none"
+            )
+            self.assertEqual(search_sources(self.team, self.user, "activation", {"llm_skill:read"}), [])
+
+    def test_catalog_search_reads_current_definitions_and_marks_drift(self) -> None:
+        metric = catalog.Metric.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="onboarding_rate",
+            description="Defined company metric",
+            definition={"kind": "HogQLQuery", "query": "SELECT count() FROM events WHERE event = 'activation'"},
+            source_insight_short_id="missing",
+        )
+        with team_scope(self.team.id):
+            results = search_sources(self.team, self.user, "activation", {"data_catalog:read"})
+        self.assertEqual([c.id for c in results], [str(metric.id)])
+        self.assertEqual(results[0].status, "drifted")
+        self.assertIn("activation", results[0].text)
+        with team_scope(self.team.id):
+            catalog.Metric.objects.for_team(self.team.id).filter(id=metric.id).update(deleted=True)
+            self.assertEqual(search_sources(self.team, self.user, "activation", {"data_catalog:read"}), [])
+
+    def test_capture_failure_does_not_suppress_selected_context(self) -> None:
+        skill = LLMSkill.objects.create(
+            team=self.team, name="activation", description="activation process", body="guide"
+        )
+        with patch(
+            "products.context_layer.backend.selection_service.ph_background_capture",
+            side_effect=RuntimeError("offline"),
+        ):
+            result = self.select()
+        self.assertEqual(result.reason, "selected")
+        self.assertIn(str(skill.id), result.context)
+        self.assertIn(result.selection_id, result.context)
+
+    @parameterized.expand([("shadow",), ("treatment",)])
+    def test_selection_span_contains_bounded_context_and_correlation(self, mode: str) -> None:
+        skill = LLMSkill.objects.create(
+            team=self.team, name="activation", description="activation process", body="guide"
+        )
+        with patch("products.context_layer.backend.selection_service.ph_background_capture") as capture:
+            result = self.select(mode=mode)
+        event = capture.return_value.call_args.kwargs
+        self.assertEqual(event["event"], "$ai_span")
+        self.assertEqual(event["properties"]["message_id"], "m")
+        self.assertEqual(event["properties"]["task_run_id"], str(self.task_run.id))
+        output = event["properties"]["$ai_output_state"]
+        self.assertIn(str(skill.id), output["context"])
+        self.assertLessEqual(len(output["context"]), MAX_CONTEXT_CHARS)
+        self.assertEqual(bool(result.context), mode == "treatment")
+
+    def test_candidates_are_reranked_in_parallel(self) -> None:
+        for name in ("activation guide", "activation checklist"):
+            LLMSkill.objects.create(team=self.team, name=name, description="activation process", body="guide")
+        barrier = Barrier(2)
+
+        def decide(*, state: JsonValue, questions: dict[str, Question]) -> SystemOneResult:
+            if isinstance(state, dict) and "candidate" in state:
+                barrier.wait(timeout=5)
+            return SystemOneResult(model="test", answers={"useful": NoulAnswer(probability=0.9)}, input_tokens=1)
+
+        with patch("products.context_layer.backend.selection_service.ph_background_capture"):
+            result = self.select(decide=decide)
+        self.assertEqual(result.reason, "selected")
+        self.assertIn("activation guide", result.context)
+        self.assertIn("activation checklist", result.context)
+
+    def test_gate_skip_and_model_failure_leave_prompt_without_context(self) -> None:
+        with (
+            patch("products.context_layer.backend.selection_service.ph_background_capture"),
+            patch("httpx.Client.post", side_effect=httpx.ReadTimeout("offline")),
+        ):
+            self.assertEqual(self.select(probability=0.1).reason, "gate_skipped")
+            with (
+                override_settings(CONTEXT_SELECTION_ALLOWED_TEAM_IDS=[self.team.id]),
+                patch(
+                    "products.context_layer.backend.selection_service.get_feature_flag_or_none",
+                    return_value="treatment",
+                ),
+            ):
+                result = prepare(
+                    self.task_run, self.user, SelectionInput(message_id="m", prompt="activation"), {"llm_skill:read"}
+                )
+        self.assertEqual(result.context, "")
+        self.assertEqual(result.reason, "gate_error")
 
 
-class TestSelectionBudget(SimpleTestCase):
+class TestSelectionDeadline(SimpleTestCase):
     def test_timed_out_work_keeps_its_capacity_slot_until_finished(self) -> None:
         release, started = Event(), Event()
         with ThreadPoolExecutor(max_workers=1) as executor:
@@ -447,22 +352,15 @@ class TestSelectionBudget(SimpleTestCase):
                 finally:
                     release.set()
 
-    def test_expired_selection_skips_projection_and_validation(self) -> None:
-        attempt = ContextSelectionAttempt(evidence={})
-        with (
-            patch("products.context_layer.backend.selection_service.time.monotonic", return_value=10),
-            override_settings(CONTEXT_SELECTION_TIMEOUT_SECONDS=3),
-            self.assertRaises(TimeoutError),
-        ):
-            _select(attempt, TaskRun(), User(), SelectionInput(message_id="m", prompt="request"), set(), 0)
 
-    @override_settings(
-        CLOUD_DEPLOYMENT="US",
-        HOGQL_PROMPT_JEV_MODEL="posthog/hogference/test-decision-model",
-        AI_GATEWAY_URL="https://ai-gateway.example.com/v1",
-        AI_GATEWAY_API_KEY="phs_test",
-    )
-    def test_cloud_selection_uses_gateway_and_preserves_request_evidence(self) -> None:
+@override_settings(
+    CLOUD_DEPLOYMENT="US",
+    HOGQL_PROMPT_JEV_MODEL="posthog/hogference/test-decision-model",
+    AI_GATEWAY_URL="https://ai-gateway.example.com/v1",
+    AI_GATEWAY_API_KEY="phs_test",
+)
+class TestSelectionGateway(SimpleTestCase):
+    def test_gateway_call_carries_selection_and_turn_correlation(self) -> None:
         with patch(
             "httpx.Client.post",
             return_value=httpx.Response(
@@ -474,8 +372,13 @@ class TestSelectionBudget(SimpleTestCase):
                 },
             ),
         ) as post:
-            result = SelectionJudge("selection", "actor", time.monotonic() + 60).judge("request", "history")
-        self.assertEqual(result.probability, 0.9)
+            probability = SelectionJudge(
+                "selection", "actor", time.monotonic() + 60, {"task_run_id": "run", "message_id": "m"}
+            ).judge("request", "history")
+        self.assertEqual(probability, 0.9)
         self.assertIn("ai-gateway.example.com", post.call_args.args[0])
-        self.assertEqual(post.call_args.kwargs["json"]["model"], "posthog/hogference/test-decision-model")
-        self.assertEqual(result.evidence["response"]["input_tokens"], 12)
+        self.assertEqual(post.call_args.kwargs["json"]["state"], {"user_request": "request", "history": "history"})
+        headers = post.call_args.kwargs["headers"]
+        self.assertIn("selection", str(headers))
+        self.assertIn("task_run_id", str(headers))
+        self.assertIn("message_id", str(headers))

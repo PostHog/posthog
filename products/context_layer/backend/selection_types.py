@@ -1,13 +1,14 @@
 import json
 import hashlib
-from dataclasses import asdict
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from posthog.dataclasses import frozen
 
+if TYPE_CHECKING:
+    from posthog.llm.system_one import JsonValue
+
 SourceKind = Literal["skill", "metric", "certification", "relationship", "business_knowledge"]
-Mode = Literal["shadow", "control", "treatment"]
-CONFIG_VERSION = "context-selection-v2"
+CONFIG_VERSION = "context-selection-v3"
 MAX_PROMPT_CHARS = 20_000
 MAX_HISTORY_CHARS = 12_000
 MAX_CONTEXT_CHARS = 8_000
@@ -39,8 +40,18 @@ class Candidate:
     document_id: str = ""
     tables: tuple[str, ...] = ()
 
-    def as_json(self) -> dict:
-        return {**asdict(self), "tables": list(self.tables)}
+    def as_json(self) -> dict[str, JsonValue]:
+        return {
+            "id": self.id,
+            "kind": self.kind,
+            "title": self.title,
+            "text": self.text,
+            "revision": self.revision,
+            "status": self.status,
+            "reference": self.reference,
+            "document_id": self.document_id,
+            "tables": list(self.tables),
+        }
 
 
 @frozen
@@ -48,7 +59,6 @@ class SelectionInput:
     message_id: str
     prompt: str
     history: str = ""
-    baseline: str = ""
     prompt_char_count: int = 0
     history_source: str = "unknown"
     runtime_version: str = "unknown"

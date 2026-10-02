@@ -1,15 +1,9 @@
 import json
-import time
 from dataclasses import replace
-from datetime import timedelta
-from typing import cast
 from uuid import UUID
 
 from django.contrib.postgres.search import SearchQuery, SearchRank, SearchVector
-from django.db import transaction
-from django.db.models import CharField, Exists, F, OuterRef
-from django.db.models.functions import Cast
-from django.utils import timezone
+from django.db.models import Model, QuerySet
 
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.schema.information_schema import references_denied_table
@@ -24,11 +18,6 @@ from products.business_knowledge.backend.logic import (
     KnowledgeSearchResult,
     get_chunks_by_ids,
     search_knowledge_for_team,
-)
-from products.context_layer.backend.models import (
-    ContextSelectionProjection,
-    ContextSelectionSearchDocument,
-    ContextSelectionSearchState,
 )
 from products.context_layer.backend.selection_search import tokens
 from products.context_layer.backend.selection_types import SOURCE_LIMITS, Candidate, SourceKind, digest
@@ -81,128 +70,50 @@ def make_record(kind: SourceKind, row: object) -> Candidate:
     )
 
 
-def refresh_projection(team_id: int) -> dict:
-    started = time.monotonic()
-    team = Team.objects.get(id=team_id)
-    with transaction.atomic():
-        ContextSelectionSearchState.objects.get_or_create(
-            team=team,
-            defaults={"version": "", "archive_id": UUID(int=0), "built_at": timezone.now(), "refresh_seconds": 0},
-        )
-        state = ContextSelectionSearchState.objects.select_for_update().get(team=team)
-        groups = {
-            "skill": LLMSkill.objects.filter(team=team, deleted=False, is_latest=True, category="").only(
-                "id", "name", "description", "version"
-            ),
-            "metric": catalog.metrics_for_team(team),
-            "certification": catalog.certifications_for_team(team).select_related("table", "saved_query"),
-            "relationship": catalog.relationships_for_team(team),
-        }
-        restrictions = AccessControl.objects.filter(team=team)
-        if restrictions.filter(resource="llm_skill", resource_id__isnull=True).exists():
-            groups["skill"] = groups["skill"].none()
-        else:
-            groups["skill"] = (
-                groups["skill"]
-                .alias(
-                    restricted=Exists(
-                        restrictions.filter(resource="llm_skill", resource_id=Cast(OuterRef("id"), CharField()))
-                    )
-                )
-                .filter(restricted=False)
-            )
-        if restrictions.filter(
-            resource__in=["data_catalog", "warehouse_table", "external_data_source", "insight"]
-        ).exists():
-            for kind in ("metric", "certification", "relationship"):
-                groups[kind] = groups[kind].none()
-        records: list[dict] = []
-        for kind, queryset in groups.items():
-            records.extend(make_record(cast(SourceKind, kind), row).as_json() for row in queryset.order_by("id"))
-        projection = {
-            "version": digest(records),
-            "created_at": time.time(),
-            "records": records,
-            "refresh_seconds": time.monotonic() - started,
-        }
-        archive, created = ContextSelectionProjection.objects.get_or_create(
-            team=team,
-            version=projection["version"],
-            defaults={"payload": projection, "expires_at": timezone.now() + timedelta(days=91)},
-        )
-        if not created:
-            ContextSelectionProjection.objects.filter(id=archive.id).update(
-                expires_at=timezone.now() + timedelta(days=91)
-            )
-        if state.version != projection["version"]:
-            ContextSelectionSearchDocument.objects.filter(team=team).delete()
-            ContextSelectionSearchDocument.objects.bulk_create(
-                [
-                    ContextSelectionSearchDocument(
-                        team=team,
-                        source_kind=record["kind"],
-                        source_id=record["id"],
-                        title=record["title"],
-                        text=record["text"],
-                        revision=record["revision"],
-                        status=record["status"],
-                        reference=record["reference"],
-                        tables=record["tables"],
-                    )
-                    for record in records
-                ],
-                batch_size=500,
-            )
-            ContextSelectionSearchDocument.objects.filter(team=team).update(
-                search_vector=SearchVector("title", weight="A", config="english")
-                + SearchVector("text", weight="B", config="english")
-            )
-        state.version = projection["version"]
-        state.archive_id = archive.id
-        state.built_at = timezone.now()
-        state.refresh_seconds = time.monotonic() - started
-        state.save(update_fields=["version", "archive_id", "built_at", "refresh_seconds"])
-        projection["archive_id"] = str(archive.id)
-        return projection
-
-
-def search_projection(team_id: int, prompt: str, allowed_kinds: set[str]) -> tuple[dict | None, list[Candidate]]:
-    state = ContextSelectionSearchState.objects.filter(team_id=team_id).first()
-    if state is None:
-        return None, []
-    metadata = {
-        "version": state.version,
-        "created_at": state.built_at.timestamp(),
-        "archive_id": str(state.archive_id),
-        "refresh_seconds": state.refresh_seconds,
-    }
-    terms = tokens(prompt)[:60]
+def search_sources(team: Team, user: User, prompt: str, scopes: set[str]) -> list[Candidate]:
+    terms = list(dict.fromkeys(tokens(prompt)))[:60]
     if not terms:
-        return metadata, []
+        return []
     query = SearchQuery(" | ".join(terms), config="english", search_type="raw")
-    candidates = []
-    for kind in ("skill", "metric", "certification", "relationship"):
-        if kind not in allowed_kinds:
-            continue
-        rows = (
-            ContextSelectionSearchDocument.objects.filter(team_id=team_id, source_kind=kind, search_vector=query)
-            .annotate(rank=SearchRank(F("search_vector"), query))
-            .order_by("-rank", "source_id")[: SOURCE_LIMITS[cast(SourceKind, kind)]]
+    candidates: list[Candidate] = []
+    if "llm_skill:read" in scopes:
+        skills = LLMSkill.objects.filter(team=team, deleted=False, is_latest=True, category="").only(
+            "id", "team_id", "name", "description", "version"
+        )
+        candidates.extend(search_rows("skill", skills, query, ("name", "description", "body")))
+    if "data_catalog:read" in scopes:
+        candidates.extend(
+            search_rows("metric", catalog.metrics_for_team(team), query, ("name", "description", "definition"))
         )
         candidates.extend(
-            Candidate(
-                id=row.source_id,
-                kind=cast(SourceKind, kind),
-                title=row.title,
-                text=row.text,
-                revision=row.revision,
-                status=row.status,
-                reference=row.reference,
-                tables=tuple(row.tables),
+            search_rows(
+                "certification",
+                catalog.certifications_for_team(team).select_related("table", "saved_query"),
+                query,
+                ("table__name", "saved_query__name", "notes"),
             )
-            for row in rows
         )
-    return metadata, candidates
+        candidates.extend(
+            search_rows(
+                "relationship",
+                catalog.relationships_for_team(team),
+                query,
+                ("source_table_name", "joining_table_name", "reasoning"),
+            )
+        )
+    return validate_candidates(team, user, candidates)
+
+
+def search_rows[T: Model](
+    kind: SourceKind, rows: QuerySet[T], query: SearchQuery, fields: tuple[str, ...]
+) -> list[Candidate]:
+    vector = SearchVector(*fields, config="english")
+    matches = (
+        rows.annotate(selection_rank=SearchRank(vector, query))
+        .filter(selection_rank__gt=0)
+        .order_by("-selection_rank", "id")[: SOURCE_LIMITS[kind]]
+    )
+    return [make_record(kind, row) for row in matches]
 
 
 def validate_candidates(team: Team, user: User, candidates: list[Candidate]) -> list[Candidate]:

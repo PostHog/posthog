@@ -12,7 +12,7 @@ export const contextSelectionResponseSchema = z
       !value.context ||
       (value.mode === "treatment" && Boolean(value.selection_id)),
     {
-      message: "Only an archived treatment selection may supply context",
+      message: "Only a treatment selection may supply context",
     },
   );
 

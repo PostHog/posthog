@@ -86,7 +86,6 @@ COMMITS_PATH_ENV_VAR = "POSTHOG_CONTEXT_LAYER_COMMITS_PATH"
 
 __all__ = [
     "context_selection_enabled_for_run",
-    "export_context_selections",
     "DREAM_AI_STAGE",
     "WikiPageProposalDTO",
     "apply_page_proposal",
@@ -181,12 +180,6 @@ def get_sandbox_mount(organization_id: uuid.UUID | str) -> ContextLayerMount | N
     except store.ContextLayerStoreError:
         return None
     return ContextLayerMount(bundle_url=export.url, head_sha=export.head_sha)
-
-
-def export_context_selections(team_id: int, task_id: uuid.UUID) -> dict:
-    from products.context_layer.backend.selection_export import export_selections  # noqa: PLC0415
-
-    return export_selections(team_id, task_id)
 
 
 def context_selection_enabled_for_run(team_id: int, run_id: uuid.UUID, actor: User | None) -> bool:

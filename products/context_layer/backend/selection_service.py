@@ -1,41 +1,37 @@
 import time
 from concurrent.futures import ThreadPoolExecutor, wait
-from dataclasses import asdict
-from datetime import timedelta
 from threading import BoundedSemaphore
+from uuid import uuid4
 
 from django.conf import settings
-from django.db import close_old_connections, transaction
-from django.utils import timezone
+from django.db import close_old_connections
+
+import structlog
 
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.ph_client import get_feature_flag_or_none
+from posthog.ph_client import get_feature_flag_or_none, ph_background_capture
 
-from products.context_layer.backend.models import ContextSelectionAssignment, ContextSelectionAttempt
-from products.context_layer.backend.selection_model import GATE, RELEVANCE, SelectionJudge, request_descriptor
+from products.context_layer.backend.selection_model import SelectionJudge
 from products.context_layer.backend.selection_search import render
 from products.context_layer.backend.selection_sources import (
     search_business_knowledge,
-    search_projection,
+    search_sources,
     validate_candidates,
 )
 from products.context_layer.backend.selection_types import (
     CONFIG_VERSION,
     GATE_THRESHOLD,
-    MAX_CONTEXT_CHARS,
-    MAX_ITEMS,
-    RELEVANCE_THRESHOLD,
-    SOURCE_LIMITS,
     Candidate,
     PreparedContext,
     SelectionInput,
-    digest,
 )
 from products.tasks.backend.models import Task, TaskRun
 
-# No unbounded executor queue: a busy process skips selection instead of accumulating work.
+logger = structlog.get_logger(__name__)
+
+# Busy processes skip optional context rather than accumulate unbounded work.
 _EXECUTOR = ThreadPoolExecutor(max_workers=8, thread_name_prefix="context-selection")
 _CAPACITY = BoundedSemaphore(64)
 _SEARCH_CAPACITY = BoundedSemaphore(1)
@@ -77,193 +73,133 @@ def selection_mode(run: TaskRun, actor: User) -> str:
     return str(value) if value in ("shadow", "control", "treatment") else "disabled"
 
 
-def prepare(run: TaskRun, actor: User, selection: SelectionInput, scopes: set[str]) -> PreparedContext:
-    started = time.monotonic()
-    mode = selection_mode(run, actor)
-    if mode == "disabled":
-        return PreparedContext()
-    check_deadline(started + settings.CONTEXT_SELECTION_TIMEOUT_SECONDS)
-    fingerprint = digest(asdict(selection))
-    with transaction.atomic():
-        assignment, _ = ContextSelectionAssignment.objects.get_or_create(
-            task_id=run.task_id,
-            defaults={"team_id": run.team_id, "mode": mode},
-        )
-        mode = assignment.mode
-        attempt, created = ContextSelectionAttempt.objects.get_or_create(
-            run=run,
-            message_id=selection.message_id,
-            defaults={
-                "team_id": run.team_id,
-                "actor": actor,
-                "input_hash": fingerprint,
-                "mode": mode,
-                "expires_at": timezone.now() + timedelta(days=90),
-            },
-        )
-    if not created:
-        # Never replay prepared context across actor changes, source revocations, or changed input.
-        # A retry proceeds without context, and its receipt records that actual exposure.
-        return PreparedContext(selection_id=str(attempt.id), mode=mode, reason="duplicate")
-    evidence = {
-        "schema_version": 2,
-        "request_format": {
-            "state_fields": ["user_request", "history", "candidate"],
-            "answer_key": "useful",
-            "questions": {"gate": GATE.to_json(), "relevance": RELEVANCE.to_json()},
-        },
-        "config_version": CONFIG_VERSION,
-        "configuration": {
-            "gate_threshold": GATE_THRESHOLD,
-            "relevance_threshold": RELEVANCE_THRESHOLD,
-            "max_context_chars": MAX_CONTEXT_CHARS,
-            "max_items": MAX_ITEMS,
-            "source_limits": SOURCE_LIMITS,
-            "timeout_seconds": settings.CONTEXT_SELECTION_TIMEOUT_SECONDS,
-        },
-        "input": asdict(selection),
-        "task_id": str(run.task_id),
-        "run_id": str(run.id),
-        "actor_id": actor.id,
-        "origin": run.task.origin_product,
-        "model": settings.HOGQL_PROMPT_JEV_MODEL,
-        "provider": "gateway",
-        "input_hash": fingerprint,
-        "history_completeness": "bounded_runtime_history",
-        "calls": [],
-        "omitted_sources": {},
-        "knowledge_search": {
-            "method": "search_knowledge_for_team",
-            "limit": 8,
-            "corpus_revision": None,
-            "historical_replay": False,
-        },
-        "runtime": "pi" if run.task.runtime == Task.Runtime.PI else (run.state or {}).get("runtime_adapter", "claude"),
-        "agent_configuration": {key: (run.state or {}).get(key) for key in ("model", "systemPrompt", "store_skills")},
-        "baseline_reference": {"run_id": str(run.id), "storage": "task_run_logs", "default_retention_days": 30},
-    }
-    attempt.evidence = evidence
-    attempt.save(update_fields=["evidence"])
-    try:
-        if not selection.prompt.strip():
-            attempt.status = "no_text"
-        elif mode == "control":
-            attempt.status = "control"
-        else:
-            _select(attempt, run, actor, selection, scopes, started)
-    except Exception as error:
-        attempt.context = ""
-        attempt.status = "error"
-        evidence["error_type"] = type(error).__name__
-    evidence["elapsed_seconds"] = time.monotonic() - started
-    attempt.save(update_fields=["evidence", "context", "status"])
-    # A failed evidence write must fail the request before a prompt can receive context.
-    return PreparedContext(
-        selection_id=str(attempt.id),
-        mode=mode,
-        reason=attempt.status,
-        context=attempt.context if mode == "treatment" else "",
-    )
-
-
 def check_deadline(deadline: float) -> None:
     if time.monotonic() >= deadline:
         raise TimeoutError("selector_deadline")
 
 
+def prepare(run: TaskRun, actor: User, selection: SelectionInput, scopes: set[str]) -> PreparedContext:
+    started = time.monotonic()
+    selection_id = str(uuid4())
+    mode = "disabled"
+    context = ""
+    reason = "disabled"
+    properties = {
+        "task_id": str(run.task_id),
+        "task_run_id": str(run.id),
+        "run_id": str(run.id),
+        "message_id": selection.message_id,
+    }
+    observation: dict[str, object] = {}
+    try:
+        mode = selection_mode(run, actor)
+        if mode == "disabled":
+            return PreparedContext()
+        deadline = started + settings.CONTEXT_SELECTION_TIMEOUT_SECONDS
+        if not selection.prompt.strip():
+            reason = "no_text"
+        elif mode == "control":
+            reason = "control"
+        else:
+            context, reason = _select(run, actor, selection, scopes, selection_id, deadline, properties, observation)
+    except Exception as error:
+        context, reason = "", "error"
+        observation["error_type"] = type(error).__name__
+    try:
+        ph_background_capture()(
+            distinct_id=str(actor.distinct_id),
+            event="$ai_span",
+            properties={
+                **properties,
+                "$ai_trace_id": selection_id,
+                "$ai_span_id": selection_id,
+                "$ai_span_name": "Context selection",
+                "$ai_product": "posthog_ai",
+                "$ai_latency": time.monotonic() - started,
+                "$ai_input_state": {"prompt": selection.prompt, "history": selection.history},
+                "$ai_output_state": {**observation, "context": context, "mode": mode, "reason": reason},
+                "ai_stage": "context_selection",
+                "selection_id": selection_id,
+                "config_version": CONFIG_VERSION,
+                "team_id": run.team_id,
+                "runtime_version": selection.runtime_version,
+                "history_source": selection.history_source,
+                "prompt_char_count": selection.prompt_char_count,
+            },
+        )
+    except Exception:
+        logger.exception("context_selection_capture_failed", selection_id=selection_id)
+    return PreparedContext(
+        selection_id=selection_id, mode=mode, reason=reason, context=context if mode == "treatment" else ""
+    )
+
+
 def _select(
-    attempt: ContextSelectionAttempt,
     run: TaskRun,
     actor: User,
     selection: SelectionInput,
     scopes: set[str],
-    started: float,
-) -> None:
-    evidence = attempt.evidence
-    deadline = started + settings.CONTEXT_SELECTION_TIMEOUT_SECONDS
+    selection_id: str,
+    deadline: float,
+    properties: dict[str, str],
+    observation: dict[str, object],
+) -> tuple[str, str]:
     check_deadline(deadline)
-    evidence["timings"] = {}
-    judge = SelectionJudge(str(attempt.id), str(actor.distinct_id), deadline)
-    evidence["planned_requests"] = [request_descriptor(selection.prompt, selection.history)]
-    attempt.save(update_fields=["evidence"])
+    judge = SelectionJudge(selection_id, str(actor.distinct_id), deadline, properties)
     gate = judge.judge(selection.prompt, selection.history)
-    evidence["calls"].append(gate.evidence)
-    if gate.probability is None:
-        attempt.status = "gate_error"
-        return
-    if gate.probability <= GATE_THRESHOLD:
-        attempt.status = "gate_skipped"
-        return
-    allowed_kinds = set()
-    if "llm_skill:read" in scopes:
-        allowed_kinds.add("skill")
-    if "data_catalog:read" in scopes:
-        allowed_kinds.update(("metric", "certification", "relationship"))
-    phase_started = time.monotonic()
-    projection, shortlisted = search_projection(run.team_id, selection.prompt + "\n" + selection.history, allowed_kinds)
-    evidence["timings"]["retrieval_seconds"] = time.monotonic() - phase_started
-    if projection is None:
-        evidence["omitted_sources"]["projection"] = "not_built"
-    else:
-        evidence["projection"] = projection
-    phase_started = time.monotonic()
-    check_deadline(deadline)
-    candidates = validate_candidates(run.team, actor, shortlisted)
-    check_deadline(deadline)
-    evidence["timings"]["validation_seconds"] = time.monotonic() - phase_started
-    evidence["retrieval"] = {
-        "algorithm": "postgres_fts_v1",
-        "shortlist_ids": [c.id for c in shortlisted],
-        "candidates": [c.as_json() for c in candidates],
-        "filtered_ids": [c.id for c in shortlisted if c.id not in {v.id for v in candidates}],
-    }
-    phase_started = time.monotonic()
+    observation["gate_probability"] = gate
+    if gate is None:
+        return "", "gate_error"
+    if gate <= GATE_THRESHOLD:
+        return "", "gate_skipped"
+    started = time.monotonic()
+    knowledge = None
     if "business_knowledge:read" in scopes and _SEARCH_CAPACITY.acquire(blocking=False):
-        search = _SEARCH_EXECUTOR.submit(_search, run.team, actor, selection.prompt)
-        search.add_done_callback(lambda _: _SEARCH_CAPACITY.release())
         try:
-            knowledge = search.result(timeout=max(0, deadline - time.monotonic()))
-            candidates.extend(knowledge)
-            evidence["retrieval"]["candidates"].extend(c.as_json() for c in knowledge)
-        except Exception as error:
-            evidence["omitted_sources"]["business_knowledge"] = type(error).__name__
-            search.cancel()
-    else:
-        evidence["omitted_sources"]["business_knowledge"] = "scope_or_capacity"
-    evidence["timings"]["knowledge_seconds"] = time.monotonic() - phase_started
-    evidence["planned_requests"].extend(request_descriptor(selection.prompt, selection.history, c) for c in candidates)
-    attempt.save(update_fields=["evidence"])
+            knowledge = _SEARCH_EXECUTOR.submit(_search, run.team, actor, selection.prompt)
+        except Exception:
+            _SEARCH_CAPACITY.release()
+            raise
+        knowledge.add_done_callback(lambda _: _SEARCH_CAPACITY.release())
+    try:
+        candidates = search_sources(run.team, actor, selection.prompt + "\n" + selection.history, scopes)
+        if knowledge is not None:
+            try:
+                candidates.extend(knowledge.result(timeout=max(0, deadline - time.monotonic())))
+            except Exception as error:
+                observation["knowledge_error"] = type(error).__name__
+    finally:
+        if knowledge is not None:
+            knowledge.cancel()
+    observation["retrieval_seconds"] = time.monotonic() - started
+    observation["candidate_count"] = len(candidates)
+    check_deadline(deadline)
     pending = {}
     for candidate in candidates:
         if not _CAPACITY.acquire(blocking=False):
-            evidence.setdefault("capacity_skipped_ids", []).append(candidate.id)
             continue
-        future = _EXECUTOR.submit(judge.judge, selection.prompt, selection.history, candidate)
+        try:
+            future = _EXECUTOR.submit(judge.judge, selection.prompt, selection.history, candidate)
+        except Exception:
+            _CAPACITY.release()
+            raise
         future.add_done_callback(lambda _: _CAPACITY.release())
         pending[future] = candidate
     done, unfinished = wait(pending, timeout=max(0, deadline - time.monotonic()))
-    scored = []
+    scored: list[tuple[Candidate, float]] = []
     for future in done:
-        candidate = pending[future]
-        try:
-            judgment = future.result()
-            evidence["calls"].append(judgment.evidence)
-            if judgment.probability is not None:
-                scored.append((candidate, judgment.probability))
-        except Exception as error:
-            evidence["calls"].append({"candidate_id": candidate.id, "error_type": type(error).__name__})
-    evidence["timed_out_ids"] = [pending[future].id for future in unfinished]
+        probability = future.result()
+        if probability is not None:
+            scored.append((pending[future], probability))
+    observation["unscored_count"] = len(candidates) - len(scored)
     for future in unfinished:
         future.cancel()
     check_deadline(deadline)
-    # Recheck current rows after external scoring. A changed definition requires a new judgment.
-    current = {c.id: c for c in validate_candidates(run.team, actor, [c for c, _ in scored])}
+    # Definitions and access can change while the external scorer runs.
+    current = {(c.kind, c.id): c for c in validate_candidates(run.team, actor, [c for c, _ in scored])}
+    scored = [(c, score) for c, score in scored if current.get((c.kind, c.id)) == c]
     check_deadline(deadline)
-    scored = [(c, score) for c, score in scored if current.get(c.id) == c]
-    rendered = render(scored)
-    attempt.context = rendered.context
-    evidence["decisions"] = rendered.decisions
-    evidence["selected_ids"] = rendered.selected_ids
-    evidence["rendered_context"] = attempt.context
-    evidence["rendered_context_hash"] = digest(attempt.context)
-    attempt.status = "selected" if rendered.selected_ids else "empty"
+    rendered = render(scored, selection_id)
+    observation["decisions"] = rendered.decisions
+    observation["selected_ids"] = rendered.selected_ids
+    return rendered.context, "selected" if rendered.selected_ids else "empty"

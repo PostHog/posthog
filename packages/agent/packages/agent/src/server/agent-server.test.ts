@@ -2227,7 +2227,7 @@ describe("AgentServer HTTP Mode", () => {
       };
     }
 
-    it("archives each actual retry prompt independently", async () => {
+    it("prepares context again for each upstream retry", async () => {
       vi.useFakeTimers();
       try {
         const prompt = vi
@@ -2247,9 +2247,8 @@ describe("AgentServer HTTP Mode", () => {
               selection_id: "selection",
               context: "",
               mode: "treatment",
-              reason: "duplicate",
+              reason: "empty",
             }),
-          recordContextSelectionReceipt: vi.fn().mockResolvedValue(undefined),
         };
         testServer.contextSelection = new ContextSelection(
           api as unknown as PostHogAPIClient,
@@ -2265,23 +2264,15 @@ describe("AgentServer HTTP Mode", () => {
         );
         await vi.advanceTimersByTimeAsync(5_000);
         await result;
-        const receipts = api.recordContextSelectionReceipt.mock.calls.map(
-          ([value]) => value,
-        );
-        expect(receipts.map((r) => r.status)).toEqual([
-          "dispatching",
-          "failed",
-          "dispatching",
-          "completed",
+        expect(api.prepareContextSelection).toHaveBeenCalledTimes(2);
+        expect(prompt.mock.calls[0][0].prompt).toHaveLength(2);
+        expect(prompt.mock.calls[1][0].prompt).toEqual([
+          expect.objectContaining({ _meta: { ui: { hidden: true } } }),
         ]);
-        expect(receipts[0].delivery_id).not.toBe(receipts[2].delivery_id);
-        expect(receipts[0].context_included).toBe(true);
-        expect(receipts[2].context_included).toBe(false);
-        expect(receipts[0].prompt).toEqual(prompt.mock.calls[0][0].prompt);
-        expect(receipts[2].prompt).toEqual(prompt.mock.calls[1][0].prompt);
-        expect(receipts[2].prompt[0].text).toContain(
-          "interrupted by a transient connection error",
-        );
+        expect(api.prepareContextSelection.mock.calls[1][0]).toMatchObject({
+          message_id: "human-message",
+          prompt: "Define activation",
+        });
       } finally {
         vi.useRealTimers();
       }

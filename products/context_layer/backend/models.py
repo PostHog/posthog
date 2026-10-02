@@ -1,5 +1,3 @@
-from django.contrib.postgres.indexes import GinIndex
-from django.contrib.postgres.search import SearchVectorField
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
@@ -61,69 +59,3 @@ class WikiPageProposal(TeamScopedRootMixin):
 
     class Meta:
         indexes = [models.Index(fields=["created_by", "-created_at"], name="wiki_proposal_author_created")]
-
-
-class ContextSelectionAssignment(TeamScopedRootMixin):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    task = models.OneToOneField(
-        "tasks.Task", on_delete=models.CASCADE, db_constraint=False, related_name="context_selection_assignment"
-    )
-    mode = models.CharField(max_length=16)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-
-class ContextSelectionAttempt(TeamScopedRootMixin):
-    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    run = models.ForeignKey("tasks.TaskRun", on_delete=models.CASCADE, related_name="context_selections")
-    actor = models.ForeignKey("posthog.User", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    message_id = models.CharField(max_length=128)
-    input_hash = models.CharField(max_length=64)
-    mode = models.CharField(max_length=16)
-    status = models.CharField(max_length=32, default="preparing")
-    context = models.TextField(default="")
-    evidence = models.JSONField(default=dict)
-    receipt = models.JSONField(default=dict)
-    created_at = models.DateTimeField(auto_now_add=True)
-    expires_at = models.DateTimeField(db_index=True)
-
-    class Meta:
-        constraints = [models.UniqueConstraint(fields=["run", "message_id"], name="context_selection_run_message")]
-
-
-class ContextSelectionProjection(TeamScopedRootMixin):
-    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    version = models.CharField(max_length=64)
-    payload = models.JSONField()
-    expires_at = models.DateTimeField(db_index=True)
-
-    class Meta:
-        constraints = [models.UniqueConstraint(fields=["team", "version"], name="context_projection_team_version")]
-
-
-class ContextSelectionSearchState(TeamScopedRootMixin):
-    team = models.OneToOneField("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    version = models.CharField(max_length=64)
-    archive_id = models.UUIDField()
-    built_at = models.DateTimeField()
-    refresh_seconds = models.FloatField()
-
-
-class ContextSelectionSearchDocument(TeamScopedRootMixin):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    source_kind = models.CharField(max_length=32)
-    source_id = models.CharField(max_length=64)
-    title = models.TextField()
-    text = models.TextField()
-    revision = models.CharField(max_length=128)
-    status = models.CharField(max_length=64)
-    reference = models.TextField()
-    tables = models.JSONField(default=list)
-    search_vector = SearchVectorField(null=True)
-
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(fields=["team", "source_kind", "source_id"], name="context_search_source")
-        ]
-        indexes = [GinIndex(fields=["search_vector"], name="context_search_vector_gin")]
