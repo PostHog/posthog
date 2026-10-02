@@ -86,11 +86,11 @@ export function TodayHomeSidebar(): JSX.Element {
                 variant="primary"
                 size="lg"
                 className="w-full"
-                render={<LinkPrimitive to={urls.ai()} />}
+                render={<LinkPrimitive to={urls.taskNewSession()} />}
                 data-attr="today-new-chat"
             >
                 <IconPlus />
-                New chat
+                New session
             </Button>
             <div className="TodayPane__scroll">
                 <div className="TodayPane__heading Today__label">Today</div>
