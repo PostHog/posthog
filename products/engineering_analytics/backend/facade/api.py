@@ -88,6 +88,10 @@ def _authorized_source(
     prefers the source connected for that repo, so a team with one source per repository reads the
     right one. Raises ``GitHubSourceNotConnectedError`` / ``ValueError`` (bad source_id).
     """
+    if user_access_control is not None:
+        # A read by a person or an agent keeps the stored views rebuilding. A system read does not,
+        # or the scheduled signals sweep would keep them rebuilding with nobody reading.
+        logic.mark_in_use(team.pk)
     return logic.CuratedGitHubSource.for_team(
         team, source_id=source_id, repo=repo, user_access_control=user_access_control, query_limit=query_limit
     )

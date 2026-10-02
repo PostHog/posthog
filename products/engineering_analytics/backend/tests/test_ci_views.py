@@ -24,6 +24,8 @@ from products.engineering_analytics.backend.logic.sources import (
 from products.engineering_analytics.backend.logic.views import (
     ci_failures,
     ci_job_history,
+    ci_jobs,
+    ci_runs,
     depot_ci,
     job_costs,
     pr_friction,
@@ -402,7 +404,7 @@ class TestExpectedWarehouseViews(BaseTest):
             ("no_answer_adds_no_view", None, None, False),
         ]
     )
-    def test_friction_view_needs_the_pull_request_snapshot_and_the_flag(
+    def test_materialized_views_need_the_flag(
         self, _name: str, flag: bool | None, existing_view: str | None, expected: bool
     ) -> None:
         self._qualifying_source(with_pull_requests=True)
@@ -423,4 +425,5 @@ class TestExpectedWarehouseViews(BaseTest):
         with patch("posthoganalytics.feature_enabled", return_value=flag):
             materialized = {view.name: view.materialized for view in get_expected_warehouse_views(self.team)}
         per_job = {job_costs.VIEW_NAME: False, ci_job_history.VIEW_NAME: False, ci_failures.VIEW_NAME: False}
-        assert materialized == ({**per_job, pr_friction.VIEW_NAME: True} if expected else per_job)
+        stored = {ci_runs.VIEW_NAME: True, ci_jobs.VIEW_NAME: True, pr_friction.VIEW_NAME: True}
+        assert materialized == ({**per_job, **stored} if expected else per_job)

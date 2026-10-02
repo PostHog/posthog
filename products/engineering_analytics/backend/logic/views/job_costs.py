@@ -135,15 +135,26 @@ _RUN_PASSTHROUGH: tuple[tuple[str, str], ...] = (
     ("run_head_branch", "r.head_branch"),
 )
 
+# The jobs builder's columns that the cost view does not expose. The stored jobs view carries them,
+# so one table serves a read of job rows as well as a read of job costs. ``job_head_branch`` is the
+# job's own branch: ``head_branch`` falls back to the run's.
+_JOB_PASSTHROUGH: tuple[tuple[str, str], ...] = (
+    ("id", "j.id"),
+    ("head_sha", "j.head_sha"),
+    ("labels", "j.labels"),
+    ("provisioning_seconds", "j.provisioning_seconds"),
+    ("job_head_branch", "j.head_branch"),
+)
 
-def _run_passthrough_defs() -> str:
-    """ "<expr> AS <alias>" for each run pass-through — the innermost join layer that first reads them."""
-    return "".join(f",\n                    {expr} AS {alias}" for alias, expr in _RUN_PASSTHROUGH)
+
+def _passthrough_defs(columns: tuple[tuple[str, str], ...]) -> str:
+    """ "<expr> AS <alias>" for each pass-through — the innermost join layer that first reads them."""
+    return "".join(f",\n                    {expr} AS {alias}" for alias, expr in columns)
 
 
-def _run_passthrough_aliases() -> str:
-    """Bare aliases for each run pass-through — re-projected by every layer above the join."""
-    return "".join(f",\n            {alias}" for alias, _ in _RUN_PASSTHROUGH)
+def _passthrough_aliases(columns: tuple[tuple[str, str], ...]) -> str:
+    """Bare aliases for each pass-through — re-projected by every layer above the join."""
+    return "".join(f",\n            {alias}" for alias, _ in columns)
 
 
 def build_query(
@@ -151,6 +162,7 @@ def build_query(
     jobs_table: workflow_jobs.JobsTable,
     runs_table: str,
     include_run_columns: bool = False,
+    include_job_columns: bool = False,
     created_floor: bool = False,
 ) -> str:
     """The per-job cost SELECT for one GitHub source: curated jobs LEFT JOIN curated runs.
@@ -168,7 +180,8 @@ def build_query(
     layer derives ``multiplier`` / ``billable_seconds`` / ``estimated_cost_usd``.
 
     ``include_run_columns`` threads the ``_RUN_PASSTHROUGH`` run columns through every layer — used
-    only by the endpoint cost queries; the public view omits them.
+    only by the endpoint cost queries; the public view omits them. ``include_job_columns`` does the
+    same for ``_JOB_PASSTHROUGH``, for the stored jobs view.
 
     ``created_floor`` threads the jobs builder's raw-string scan floor (its ``{job_created_floor}``
     placeholder, which the caller must register) down to the jobs scan. Every windowed cost query
@@ -187,8 +200,9 @@ def build_query(
     labels_array = "JSONExtract(labels, 'Array(String)')"
     billed_seconds = render_billed_elapsed_seconds("j.duration_seconds", "j.provisioning_seconds")
 
-    inner_run_columns = _run_passthrough_defs() if include_run_columns else ""
-    run_columns = _run_passthrough_aliases() if include_run_columns else ""
+    passthrough = (_RUN_PASSTHROUGH if include_run_columns else ()) + (_JOB_PASSTHROUGH if include_job_columns else ())
+    inner_run_columns = _passthrough_defs(passthrough)
+    run_columns = _passthrough_aliases(passthrough)
 
     return f"""
         SELECT

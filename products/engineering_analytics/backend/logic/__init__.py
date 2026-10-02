@@ -54,6 +54,7 @@ from products.engineering_analytics.backend.logic.quarantine import (
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource as CuratedGitHubSource
 from products.engineering_analytics.backend.logic.sources import build_github_sources as build_github_sources
+from products.engineering_analytics.backend.logic.stored_views import mark_in_use as mark_in_use
 from products.engineering_analytics.backend.logic.suite_health import (
     build_broken_tests as build_broken_tests,
     build_flaky_tests as build_flaky_tests,
