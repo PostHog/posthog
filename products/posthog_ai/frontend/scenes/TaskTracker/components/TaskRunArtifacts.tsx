@@ -12,6 +12,7 @@ import {
     IconExpand45,
     IconExternal,
     IconLock,
+    IconPencil,
     IconShare,
     IconHide,
 } from '@posthog/icons'
@@ -88,6 +89,8 @@ import {
     postHogObjectRef,
 } from '../taskRunArtifacts'
 import { FullPageSource, artifactDownloadUrl, taskRunArtifactsLogic } from '../taskRunArtifactsLogic'
+import { ArtifactEditor } from './ArtifactEditor'
+import { ArtifactEditToolbar } from './ArtifactEditToolbar'
 import { ArtifactIcon } from './ArtifactIcon'
 import { ArtifactImageViewer } from './ArtifactImageViewer'
 
@@ -473,7 +476,7 @@ function fileMeta(file: ArtifactFile): string {
 }
 
 function ArtifactNav({ taskId }: { taskId: string }): JSX.Element {
-    const { files, selectedFile } = useValues(taskRunArtifactsLogic({ taskId }))
+    const { files, selectedFile, isEditing } = useValues(taskRunArtifactsLogic({ taskId }))
     const { selectArtifact } = useActions(taskRunArtifactsLogic({ taskId }))
     // Cited PostHog objects sit under their own label, after the files.
     const objects = files.filter((file) => !!postHogObjectRef(file.latest))
@@ -508,7 +511,7 @@ function ArtifactNav({ taskId }: { taskId: string }): JSX.Element {
                 )}
                 // Item drops a `role` prop, so the option role goes on the rendered element.
                 // eslint-disable-next-line react/forbid-elements
-                render={<button type="button" role="option" />}
+                render={<button type="button" role="option" disabled={isEditing} aria-disabled={isEditing} />}
                 onClick={() => selectArtifact(file.key)}
                 data-attr="task-artifact-nav-item"
             >
@@ -532,6 +535,11 @@ function ArtifactNav({ taskId }: { taskId: string }): JSX.Element {
                     {files.length - objects.length}
                 </Text>
             </div>
+            {isEditing && (
+                <Text size="xs" variant="muted" className="border-b border-border px-3 py-2">
+                    Save or cancel your changes to open another file.
+                </Text>
+            )}
             <div
                 role="listbox"
                 aria-label="Files"
@@ -696,10 +704,17 @@ function ArtifactToolbar({
     expanded: boolean
     onExpandedChange: (expanded: boolean, source: FullPageSource) => void
 }): JSX.Element {
-    const { files, selectedFile, selectedIndex, selectedText, currentProjectId, dismissalPending } = useValues(
-        taskRunArtifactsLogic({ taskId })
-    )
-    const { stepArtifact, downloadArtifact, reportObjectOpened, dismissFile } = useActions(
+    const {
+        files,
+        selectedFile,
+        selectedIndex,
+        selectedText,
+        currentProjectId,
+        selectedEditableKind,
+        editDisabledReason,
+        dismissalPending,
+    } = useValues(taskRunArtifactsLogic({ taskId }))
+    const { stepArtifact, downloadArtifact, reportObjectOpened, startEditing, dismissFile } = useActions(
         taskRunArtifactsLogic({ taskId })
     )
     const kind = artifactPreviewKind(artifact)
@@ -764,6 +779,16 @@ function ArtifactToolbar({
                             Source
                         </ToggleGroupItem>
                     </ToggleGroup>
+                )}
+                {selectedEditableKind && (
+                    <IconAction
+                        label="Edit"
+                        disabledReason={editDisabledReason ?? undefined}
+                        onClick={() => startEditing()}
+                        dataAttr="task-artifact-edit"
+                    >
+                        <IconPencil className="size-4" />
+                    </IconAction>
                 )}
                 {isTextPreview(kind) && <CopySourceAction text={selectedText?.text ?? null} />}
                 {/* The file list replaces these once there is room for it. */}
@@ -839,7 +864,10 @@ function ArtifactToolbar({
 }
 
 function PreviewSurface({ taskId, mode }: { taskId: string; mode: PreviewMode }): JSX.Element {
-    const { selectedKind } = useValues(taskRunArtifactsLogic({ taskId }))
+    const { selectedKind, isEditing } = useValues(taskRunArtifactsLogic({ taskId }))
+    if (isEditing) {
+        return <ArtifactEditor taskId={taskId} />
+    }
     const fills =
         mode === 'rendered' &&
         (selectedKind === 'html' ||
@@ -854,7 +882,7 @@ function PreviewSurface({ taskId, mode }: { taskId: string; mode: PreviewMode })
 }
 
 function ArtifactsWorkspace({ taskId }: { taskId: string }): JSX.Element {
-    const { files, selectedArtifact } = useValues(taskRunArtifactsLogic({ taskId }))
+    const { files, selectedArtifact, isEditing } = useValues(taskRunArtifactsLogic({ taskId }))
     const { setActiveTab, reportFullPageOpened } = useActions(taskRunArtifactsLogic({ taskId }))
     const [mode, setMode] = useState<PreviewMode>('rendered')
     const [expanded, setExpanded] = useState(false)
@@ -880,7 +908,8 @@ function ArtifactsWorkspace({ taskId }: { taskId: string }): JSX.Element {
         [expanded, selectedArtifact]
     )
 
-    if (files.length === 0 || !selectedArtifact) {
+    // A dismissal while editing can empty the list, and the editor must stay to keep the draft.
+    if (!isEditing && (files.length === 0 || !selectedArtifact)) {
         return (
             <Empty className="flex-1">
                 <EmptyHeader>
@@ -901,16 +930,30 @@ function ArtifactsWorkspace({ taskId }: { taskId: string }): JSX.Element {
             </Empty>
         )
     }
-    const toolbar = (
-        <ArtifactToolbar
-            taskId={taskId}
-            artifact={selectedArtifact}
-            mode={mode}
-            onModeChange={setMode}
-            expanded={expanded}
-            onExpandedChange={changeExpanded}
-        />
-    )
+    const toolbar =
+        selectedArtifact && !isEditing ? (
+            <ArtifactToolbar
+                taskId={taskId}
+                artifact={selectedArtifact}
+                mode={mode}
+                onModeChange={setMode}
+                expanded={expanded}
+                onExpandedChange={changeExpanded}
+            />
+        ) : (
+            <ArtifactEditToolbar
+                taskId={taskId}
+                expandAction={
+                    <IconAction
+                        label={expanded ? 'Exit full page' : 'Open full page'}
+                        onClick={() => changeExpanded(!expanded, 'button')}
+                        dataAttr={expanded ? 'task-artifact-collapse' : 'task-artifact-expand'}
+                    >
+                        {expanded ? <IconCollapse45 className="size-4" /> : <IconExpand45 className="size-4" />}
+                    </IconAction>
+                }
+            />
+        )
     return (
         <div className="flex min-h-0 flex-1">
             <ArtifactNav taskId={taskId} />
@@ -929,7 +972,7 @@ function ArtifactsWorkspace({ taskId }: { taskId: string }): JSX.Element {
                     showCloseButton={false}
                     className="inset-0 flex h-dvh max-h-none w-screen max-w-none translate-none flex-col gap-0 rounded-none p-0 shadow-none"
                 >
-                    <DialogTitle className="sr-only">{selectedArtifact.name}</DialogTitle>
+                    <DialogTitle className="sr-only">{selectedArtifact?.name ?? 'Artifact'}</DialogTitle>
                     {/* The toolbar hides parts by container width, so the dialog gets its own container. */}
                     <div className="@container/main-content flex min-h-0 flex-1 flex-col">
                         {toolbar}

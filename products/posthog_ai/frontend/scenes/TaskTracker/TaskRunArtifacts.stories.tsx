@@ -266,6 +266,28 @@ const CONTENT_BY_PATH: Record<string, string> = {
     'tasks/artifacts/artifact-csv': WEEKS_CSV,
 }
 
+const EDITED_REPORT_MARKDOWN = `${REPORT_MARKDOWN}
+## Owner
+
+Ada owns the fix. The A/B test starts on Monday.
+`
+
+// A version the agent writes while the story's user edits the report.
+const REPORT_NEWER_VERSION: TaskRunArtifactResponseApi = {
+    id: 'artifact-report-v4',
+    name: REPORT_FILE_NAME,
+    type: 'output',
+    source: 'agent_output',
+    size: 7168,
+    content_type: 'text/markdown',
+    storage_path: 'tasks/artifacts/artifact-report-v4',
+    uploaded_at: '2026-09-28T18:24:00Z',
+    uploaded_by: 'agent',
+}
+
+// The conflict story sets this when it presses Save, so the run read after that holds the newer version.
+let newerReportArrived = false
+
 function mockRun(artifacts: TaskRunArtifactResponseApi[], id = RUN_ID): TaskRun {
     return {
         id,
@@ -428,16 +450,27 @@ function TodayWebLayout({ children }: { children: ReactNode }): JSX.Element {
     )
 }
 
+/** Opens the file in the editor once its text loads, types `draft`, and with `save` presses Save. */
+interface StoryEdit {
+    draft: string
+    save?: boolean
+}
+
 function StoryPage({
     tab = 'artifacts',
     fileName,
     versionId,
+    edit,
 }: {
     tab?: TaskRunTab
     fileName?: string
     versionId?: string
+    edit?: StoryEdit
 }): JSX.Element {
-    const { setActiveTab, selectArtifact, selectVersion } = useActions(taskRunArtifactsLogic({ taskId: TASK_ID }))
+    const { setActiveTab, selectArtifact, selectVersion, startEditing, setEditDraft, saveEdit } = useActions(
+        taskRunArtifactsLogic({ taskId: TASK_ID })
+    )
+    const { selectedText, isEditing } = useValues(taskRunArtifactsLogic({ taskId: TASK_ID }))
     useEffect(() => {
         if (fileName) {
             selectArtifact(fileName)
@@ -447,6 +480,18 @@ function StoryPage({
         }
         setActiveTab(tab)
     }, [tab, fileName, versionId, setActiveTab, selectArtifact, selectVersion])
+    const textLoaded = typeof selectedText?.text === 'string'
+    useEffect(() => {
+        if (!edit || !textLoaded || isEditing) {
+            return
+        }
+        startEditing()
+        setEditDraft(edit.draft)
+        if (edit.save) {
+            newerReportArrived = true
+            saveEdit()
+        }
+    }, [edit, textLoaded, isEditing, startEditing, setEditDraft, saveEdit])
     return (
         <TodayWebLayout>
             <TaskDetailPage taskId={TASK_ID} isMobile={false} />
@@ -614,6 +659,32 @@ export const LivingArtifact: Story = {
 export const LivingSlackFile: Story = {
     parameters: { msw: { mocks: livingMocks() } },
     render: () => <StoryPage fileName="living-doc-trial-chart" />,
+}
+
+export const EditingMarkdown: Story = {
+    render: () => <StoryPage fileName={REPORT_FILE_NAME} edit={{ draft: EDITED_REPORT_MARKDOWN }} />,
+}
+
+function conflictMocks(): ReturnType<typeof taskMocks> {
+    const mocks = taskMocks(ARTIFACTS)
+    return {
+        get: {
+            ...mocks.get,
+            [`/api/projects/:team_id/tasks/${TASK_ID}/runs/${RUN_ID}/`]: () => [
+                200,
+                mockRun(newerReportArrived ? [REPORT_NEWER_VERSION, ...ARTIFACTS] : ARTIFACTS),
+            ],
+        },
+        post: mocks.post,
+    }
+}
+
+export const SaveConflict: Story = {
+    parameters: { msw: { mocks: conflictMocks() } },
+    beforeEach: () => {
+        newerReportArrived = false
+    },
+    render: () => <StoryPage fileName={REPORT_FILE_NAME} edit={{ draft: EDITED_REPORT_MARKDOWN, save: true }} />,
 }
 
 export const ResumedTask: Story = {
