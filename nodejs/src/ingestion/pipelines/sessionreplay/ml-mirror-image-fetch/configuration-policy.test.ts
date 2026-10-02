@@ -379,8 +379,8 @@ describe('HttpConfigurationFetcher', () => {
     it.each([
         [404, 'absent', 'absent'],
         [410, 'absent', 'absent'],
-        [401, 'refused', 'refused'],
-        [403, 'refused', 'refused'],
+        [401, 'refused', 'http_401'],
+        [403, 'refused', 'http_403'],
         [429, 'unreachable', 'http_429'],
         [500, 'unreachable', 'http_5xx'],
         [204, 'unreachable', 'unexpected_status'],
