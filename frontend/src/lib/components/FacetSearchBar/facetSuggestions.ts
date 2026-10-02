@@ -97,8 +97,11 @@ function matchesPartial(facet: AnyFacet, option: FacetValueOption, partial: stri
 }
 
 function splitLastToken(input: string): { rest: string; token: string } {
-    const match = input.match(/^([\s\S]*?)(\S*)$/)
-    return { rest: match?.[1] ?? '', token: match?.[2] ?? '' }
+    let start = input.length
+    while (start > 0 && !/\s/.test(input[start - 1])) {
+        start--
+    }
+    return { rest: input.slice(0, start), token: input.slice(start) }
 }
 
 function message(id: string, label: string): FacetSuggestion[] {
@@ -107,12 +110,15 @@ function message(id: string, label: string): FacetSuggestion[] {
 
 type IsChosen = (filter: FacetFilter) => boolean
 
-/** Rows match client facet values in any case, so a pill holds its value in any case too. */
+/** Rows match client facet values in any case, so two client pills that differ only by case are the same pill. */
+export function pillIdentity(data: SuggestionContext['data']): (filter: FacetFilter) => string {
+    return (filter) => facetFilterKey(data ? { ...filter, value: filter.value.toLowerCase() } : filter)
+}
+
 function chosenFilters({ data, filters }: SuggestionContext): IsChosen {
-    const keyOf = (filter: FacetFilter): string =>
-        facetFilterKey(data ? { ...filter, value: filter.value.toLowerCase() } : filter)
-    const chosen = new Set(filters.map(keyOf))
-    return (filter) => chosen.has(keyOf(filter))
+    const identity = pillIdentity(data)
+    const chosen = new Set(filters.map(identity))
+    return (filter) => chosen.has(identity(filter))
 }
 
 function loadFailedMessage(reason: string | undefined): string {
@@ -169,9 +175,11 @@ function crossFacetValueSuggestions(
 ): FacetSuggestion[] {
     const listValues = createValueLister(context)
     const matches: FacetSuggestion[] = []
+    const unfinished: FacetValuesState[] = []
     for (const facet of sortFacets(context.facets)) {
         const state = listValues(facet, token.rest, token.search)
         if (state.status !== 'loaded') {
+            unfinished.push(state)
             continue
         }
         for (const option of state.options) {
@@ -189,7 +197,15 @@ function crossFacetValueSuggestions(
             })
         }
     }
-    return matches.slice(0, MAX_CROSS_FACET_SUGGESTIONS)
+    return [...matches.slice(0, MAX_CROSS_FACET_SUGGESTIONS), ...unfinishedLoadMessage(unfinished)]
+}
+
+function unfinishedLoadMessage(states: FacetValuesState[]): FacetSuggestion[] {
+    if (states.some((state) => state.status === 'loading')) {
+        return message('loading', 'Loading values…')
+    }
+    const failed = states.find((state) => state.status === 'error')
+    return failed?.status === 'error' ? message('error', loadFailedMessage(failed.reason)) : []
 }
 
 export function buildSuggestions(

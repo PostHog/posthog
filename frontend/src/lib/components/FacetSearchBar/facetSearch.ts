@@ -76,6 +76,7 @@ export function facetFilterKey(filter: FacetFilter): string {
 const TOKEN = /(^|\s)(-?)([\w-]+):(?:"((?:[^"\\]|\\.)*)"|([^\s"]+)(?=\s|$))/g
 const TOKEN_FOLLOWED_BY_SPACE = /(^|\s)(-?)([\w-]+):(?:"((?:[^"\\]|\\.)*)"|([^\s"]+)(?=\s))/g
 const DRAFT_TOKEN = /(^|\s)(-?)([\w-]+):(?:"((?:[^"\\]|\\.)*)"?|(\S*))$/
+const UNCLOSED_QUOTED_TOKEN = /(^|\s)-?[\w-]+:"(?:[^"\\]|\\.)*$/
 
 function unescapeFacetValue(quoted: string): string {
     return quoted.replace(/\\(.)/g, '$1')
@@ -92,24 +93,29 @@ export function extractFacetFilters(
 ): { filters: FacetFilter[]; remaining: string } {
     const filters: FacetFilter[] = []
     const seen = new Set<string>()
-    const remaining = input.replace(
-        untilEnd ? TOKEN : TOKEN_FOLLOWED_BY_SPACE,
-        (token: string, lead: string, minus: string, key: string, quoted?: string, bare?: string) => {
-            const facet = findFacet(facets, key)
-            const value = quoted !== undefined ? unescapeFacetValue(quoted) : bare
-            if (!facet || value === undefined) {
-                return token
+    const openQuote = input.match(UNCLOSED_QUOTED_TOKEN)
+    const quotedStart = openQuote?.index !== undefined ? openQuote.index + openQuote[1].length : input.length
+    const remaining = input
+        .slice(0, quotedStart)
+        .replace(
+            untilEnd ? TOKEN : TOKEN_FOLLOWED_BY_SPACE,
+            (token: string, lead: string, minus: string, key: string, quoted?: string, bare?: string) => {
+                const facet = findFacet(facets, key)
+                const value = quoted !== undefined ? unescapeFacetValue(quoted) : bare
+                if (!facet || value === undefined) {
+                    return token
+                }
+                const filter = { facet: facet.key, value, negated: minus === '-' }
+                const filterKey = facetFilterKey(filter)
+                if (!seen.has(filterKey)) {
+                    seen.add(filterKey)
+                    filters.push(filter)
+                }
+                return lead
             }
-            const filter = { facet: facet.key, value, negated: minus === '-' }
-            const filterKey = facetFilterKey(filter)
-            if (!seen.has(filterKey)) {
-                seen.add(filterKey)
-                filters.push(filter)
-            }
-            return lead
-        }
-    )
-    return { filters, remaining: remaining.replace(/\s{2,}/g, ' ').replace(/^\s+/, '') }
+        )
+    const stillQuoting = input.slice(quotedStart)
+    return { filters, remaining: `${remaining.replace(/\s{2,}/g, ' ')}${stillQuoting}`.replace(/^\s+/, '') }
 }
 
 export interface FacetDraft {

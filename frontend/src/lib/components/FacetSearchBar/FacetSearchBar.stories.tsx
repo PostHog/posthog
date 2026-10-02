@@ -97,6 +97,10 @@ const loadTeamsAfterDelay = async (search: string): Promise<FacetValueOption[]> 
 
 const neverLoads = (): Promise<FacetValueOption[]> => new Promise(() => {})
 
+const failsToLoad = async (): Promise<FacetValueOption[]> => {
+    throw new Error('You do not have access to teams.')
+}
+
 interface ConsumerProps {
     initial: FacetSearchValue
     narrow?: boolean
@@ -173,6 +177,14 @@ const typeInto = async (canvasElement: HTMLElement, text: string): Promise<void>
     }
 }
 
+const waitForElement = async (selector: string): Promise<void> => {
+    await waitFor(() => {
+        if (!document.querySelector(selector)) {
+            throw new Error(`${selector} has not rendered yet`)
+        }
+    })
+}
+
 const NO_FILTERS: FacetSearchValue = { filters: [], text: '' }
 
 export const ClientMode: ClientStory = {
@@ -223,6 +235,12 @@ export const ClientModePillsOnOneRowNarrow: ClientStory = {
     play: async ({ canvasElement }) => typeInto(canvasElement, 'invoice'),
 }
 
+export const ClientModeNoMatchingValues: ClientStory = {
+    render: (args) => <ClientModeConsumer {...args} />,
+    args: { initial: NO_FILTERS },
+    play: async ({ canvasElement }) => typeInto(canvasElement, 'status:zzz'),
+}
+
 export const ServerMode: ServerStory = {
     render: (args) => <ServerModeConsumer {...args} />,
     args: {
@@ -235,6 +253,7 @@ export const ServerMode: ServerStory = {
             text: 'acme',
         },
     },
+    play: async () => waitForElement('[aria-label="Remove filter Team is not: Platform"]'),
 }
 
 export const ServerModeSuppliedValues: ServerStory = {
@@ -254,9 +273,18 @@ export const ServerModeLoadedValuesNarrow: ServerStory = {
     args: { narrow: true, loadTeams: loadTeamsAfterDelay, initial: NO_FILTERS },
     play: async ({ canvasElement }) => {
         await typeInto(canvasElement, 'team:')
+        await waitForElement('[role="option"]')
+    },
+}
+
+export const ServerModeLoadFailed: ServerStory = {
+    render: (args) => <ServerModeConsumer {...args} />,
+    args: { loadTeams: failsToLoad, initial: NO_FILTERS },
+    play: async ({ canvasElement }) => {
+        await typeInto(canvasElement, 'team:')
         await waitFor(() => {
-            if (!document.querySelector('[role="option"]')) {
-                throw new Error('Team values have not loaded yet')
+            if (!document.querySelector('[role="status"]')?.textContent?.includes("Couldn't load values")) {
+                throw new Error('The load error has not shown yet')
             }
         })
     },

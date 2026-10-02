@@ -199,9 +199,50 @@ describe('FacetSearchBar', () => {
         it('stops offering a value once a pill holds it in any case', async () => {
             const user = setup()
             await user.click(input())
-            await user.keyboard('status:Draft status:')
+            await user.keyboard('status:Draft status:draft status:')
             expect(pills()).toEqual(['Status: Draft'])
             expect(suggestions()).toEqual(['Active (1)', 'Archived (1)'])
+        })
+
+        it('keeps a facet token typed inside an open quote as part of the quoted value', async () => {
+            const user = setup()
+            await user.click(input())
+            await user.keyboard('sends:"See status:open now" ')
+            expect(pills()).toEqual(['Sends: See status:open now'])
+        })
+
+        it('highlights the option under the pointer, so Enter picks it', async () => {
+            const user = setup()
+            await user.click(input())
+            await user.keyboard('status:')
+            await user.hover(document.querySelectorAll('[role="option"]')[1])
+            await user.keyboard('{Enter}')
+            expect(pills()).toEqual(['Status: Active'])
+        })
+
+        it('keeps Tab picking a filter after a click inside the open input', async () => {
+            const user = setup()
+            await user.click(input())
+            await user.keyboard('sta')
+            await user.click(input())
+            await user.keyboard('{Tab}')
+            expect(input()).toHaveValue('status:')
+        })
+
+        it('lets Enter submit a surrounding form while the popover is closed', async () => {
+            const onSubmit = jest.fn((event: React.FormEvent) => event.preventDefault())
+            render(
+                <form onSubmit={onSubmit}>
+                    <ClientConsumer url="" />
+                </form>
+            )
+            const user = userEvent.setup()
+            await user.click(input())
+            await user.keyboard('renew{Enter}')
+            expect(onSubmit).not.toHaveBeenCalled()
+
+            await user.keyboard('{Enter}')
+            expect(onSubmit).toHaveBeenCalledTimes(1)
         })
 
         it('recounts open suggestions when the rows change', async () => {
@@ -252,7 +293,7 @@ describe('FacetSearchBar', () => {
             expect(document.querySelector('[role="option"][aria-selected="true"]')).toHaveTextContent(
                 'Search for "sta"'
             )
-            expect(shown('facet-search-bar-hints')).toContain('Tab or → to pick status:')
+            expect(shown('facet-search-bar-hints')).toContain('⇥→ to pick status:')
 
             await user.keyboard('{Tab}')
             expect(input()).toHaveValue('status:')
@@ -393,7 +434,7 @@ describe('FacetSearchBar', () => {
             expect(listbox()).toBeNull()
             expect(document.querySelector('[role="status"]')).toHaveTextContent(new RegExp(`^${expected}$`))
             expect(input()).not.toHaveAttribute('aria-activedescendant')
-            expect(shown('facet-search-bar-hints')).toEqual('Esc to close')
+            expect(shown('facet-search-bar-hints')).toEqual('esc to close')
         })
 
         it('exposes the combobox and points it at the highlighted option', async () => {
@@ -461,6 +502,29 @@ describe('FacetSearchBar', () => {
             await user.click(input())
             await user.paste('gro')
             await waitFor(() => expect(suggestions()).toEqual(['Search for "gro"', 'Team: Growth']))
+        })
+
+        it('says when values for a word typed without a facet are loading or failed, next to the search row', async () => {
+            const teams = deferred<FacetValueOption[]>()
+            const loadValues = jest
+                .fn<Promise<FacetValueOption[]>, [string]>()
+                .mockReturnValueOnce(teams.promise)
+                .mockRejectedValue(new Error('You are offline.'))
+            render(<ServerConsumer facets={[{ key: 'team', label: 'Team', description: 'Owner', loadValues }]} />)
+            const user = userEvent.setup()
+            await user.click(input())
+            await user.paste('gr')
+            await waitFor(() => expect(loadValues).toHaveBeenCalledWith('gr'))
+            expect(document.querySelector('[role="status"]')).toHaveTextContent('Loading values…')
+            expect(suggestions()).toEqual(['Search for "gr"'])
+
+            await user.paste('o')
+            await waitFor(() =>
+                expect(document.querySelector('[role="status"]')).toHaveTextContent(
+                    "Couldn't load values: You are offline. Type again to retry."
+                )
+            )
+            expect(suggestions()).toEqual(['Search for "gro"'])
         })
 
         it('says when loading values failed, and loads again on the next keystroke', async () => {
@@ -543,6 +607,45 @@ describe('FacetSearchBar', () => {
             rerender(<ServerConsumer facets={teamFacet(async () => [{ value: 'new', label: 'New project team' }])} />)
             oldTeams.resolve([{ value: 'old', label: 'Old project team' }])
             await waitFor(() => expect(suggestions()).toEqual(['New project team']))
+        })
+
+        it('keeps the newest load when a loader comes back while its older load is in flight', async () => {
+            const oldTeams = deferred<FacetValueOption[]>()
+            const loadTeams = jest
+                .fn<Promise<FacetValueOption[]>, [string]>()
+                .mockReturnValueOnce(oldTeams.promise)
+                .mockResolvedValue([{ value: 'new', label: 'New project team' }])
+            const teamFacet = (loadValues: LoadFacetValues): ServerFacet[] => [
+                { key: 'team', label: 'Team', description: 'Owner', loadValues },
+            ]
+            const { rerender } = render(<ServerConsumer facets={teamFacet(loadTeams)} />)
+            const user = userEvent.setup()
+            await user.click(input())
+            await user.paste('team:')
+            await waitFor(() => expect(loadTeams).toHaveBeenCalledTimes(1))
+
+            rerender(<ServerConsumer facets={teamFacet(async () => [])} />)
+            rerender(<ServerConsumer facets={teamFacet(loadTeams)} />)
+            await waitFor(() => expect(suggestions()).toEqual(['New project team']))
+
+            await act(async () => {
+                oldTeams.resolve([{ value: 'old', label: 'Old project team' }])
+                await oldTeams.promise
+            })
+            expect(suggestions()).toEqual(['New project team'])
+        })
+
+        it('shows each loaded value once', async () => {
+            const loadValues = async (): Promise<FacetValueOption[]> => [
+                { value: 'a', label: 'Alpha' },
+                { value: 'a', label: 'Alpha' },
+                { value: 'b', label: 'Beta' },
+            ]
+            render(<ServerConsumer facets={[{ key: 'team', label: 'Team', description: 'Owner', loadValues }]} />)
+            const user = userEvent.setup()
+            await user.click(input())
+            await user.paste('team:')
+            await waitFor(() => expect(suggestions()).toEqual(['Alpha', 'Beta']))
         })
 
         it('loads values again for a facet that comes back while its last load was in flight', async () => {

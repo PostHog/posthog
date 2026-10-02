@@ -5,6 +5,8 @@ import { useEffect, useRef } from 'react'
 import { IconSearch } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSnack, Popover, PopoverReferenceContext } from '@posthog/lemon-ui'
 
+import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
+
 import { ClientFacet, FacetSearchRows, FacetSearchValue, ServerFacet, facetFilterKey } from './facetSearch'
 import { facetSearchBarLogic } from './facetSearchBarLogic'
 import { pillLabel } from './facetSuggestions'
@@ -45,12 +47,23 @@ export function FacetSearchBar<TRow>({
     dataAttr,
 }: FacetSearchBarProps<TRow>): JSX.Element {
     const logic = facetSearchBarLogic({ id: dataAttr, facets, data: data ?? null, value, onChange })
-    const { input, open, suggestions, highlightedIndex, highlightedSuggestion, tabTarget, title, hints, valueLabels } =
-        useValues(logic)
+    const {
+        input,
+        open,
+        options,
+        statusMessage,
+        highlightedIndex,
+        highlightedSuggestion,
+        tabTarget,
+        title,
+        hints,
+        valueLabels,
+    } = useValues(logic)
     const {
         setInput,
         setOpen,
         moveHighlight,
+        setHighlightedIndex,
         applySuggestion,
         applyHighlighted,
         applyTabTarget,
@@ -59,10 +72,9 @@ export function FacetSearchBar<TRow>({
     } = useActions(logic)
 
     const inputRef = useRef<HTMLInputElement>(null)
-    const message = suggestions.find((suggestion) => suggestion.kind === 'message')
     const listboxId = `${dataAttr}-listbox`
     const optionId = (index: number): string => `${listboxId}-option-${index}`
-    const expanded = open && suggestions.length > 0
+    const expanded = open && (options.length > 0 || !!statusMessage)
     const activeOptionId = expanded && highlightedSuggestion ? optionId(highlightedIndex) : undefined
 
     useEffect(() => {
@@ -88,11 +100,9 @@ export function FacetSearchBar<TRow>({
         } else if (event.key === 'ArrowUp') {
             event.preventDefault()
             moveHighlight(-1)
-        } else if (event.key === 'Enter') {
+        } else if (event.key === 'Enter' && expanded) {
             event.preventDefault()
-            if (open) {
-                applyHighlighted()
-            }
+            applyHighlighted()
         } else if (
             ((event.key === 'Tab' && !event.shiftKey) || (event.key === 'ArrowRight' && caretAtEnd)) &&
             open &&
@@ -113,12 +123,9 @@ export function FacetSearchBar<TRow>({
         // Pressing anywhere in the popover (scrollbar, title, hint row) keeps the focus, and so the popover, in the input.
         <div className="w-96 max-w-full" onMouseDown={(event) => event.preventDefault()}>
             <div className="px-2 py-1 text-xs font-semibold text-secondary">{title}</div>
-            <div role="status" aria-live="polite" className={clsx(message && 'px-2 py-1 text-secondary')}>
-                {message?.label}
-            </div>
-            {!message && (
+            {options.length > 0 && (
                 <div role="listbox" id={listboxId} aria-label={title} className="max-h-96 overflow-y-auto">
-                    {suggestions.map((suggestion, index) => (
+                    {options.map((suggestion, index) => (
                         <LemonButton
                             key={suggestion.id}
                             id={optionId(index)}
@@ -130,6 +137,7 @@ export function FacetSearchBar<TRow>({
                             fullWidth
                             size="small"
                             onClick={() => applySuggestion(suggestion)}
+                            onMouseEnter={() => setHighlightedIndex(index)}
                         >
                             <span className="flex items-center gap-2 w-full min-w-0">
                                 <span
@@ -154,12 +162,18 @@ export function FacetSearchBar<TRow>({
                     ))}
                 </div>
             )}
+            <div role="status" aria-live="polite" className={clsx(statusMessage && 'px-2 py-1 text-secondary')}>
+                {statusMessage}
+            </div>
             <div
                 data-attr="facet-search-bar-hints"
                 className="flex flex-wrap gap-x-3 px-2 pt-1 mt-1 border-t text-xs text-secondary"
             >
-                {hints.map((hint) => (
-                    <span key={hint}>{hint}</span>
+                {hints.map(({ keys, action }) => (
+                    <span key={keys.join('+')}>
+                        <KeyboardShortcut {...Object.fromEntries(keys.map((key) => [key, true]))} preserveOrder />{' '}
+                        {action}
+                    </span>
                 ))}
             </div>
         </div>
@@ -177,7 +191,7 @@ export function FacetSearchBar<TRow>({
                     aria-label={placeholder}
                     aria-autocomplete="list"
                     aria-expanded={expanded}
-                    aria-controls={expanded && !message ? listboxId : undefined}
+                    aria-controls={expanded && options.length > 0 ? listboxId : undefined}
                     aria-activedescendant={activeOptionId}
                     className="h-auto min-h-10 flex-wrap gap-y-1 py-1 [&_input]:min-w-40"
                     value={input}
@@ -186,7 +200,7 @@ export function FacetSearchBar<TRow>({
                     onKeyDown={onKeyDown}
                     inputRef={inputRef}
                     onFocus={() => setOpen(true)}
-                    onClick={() => setOpen(true)}
+                    onClick={() => !open && setOpen(true)}
                     onBlur={() => setOpen(false)}
                     prefix={
                         <>
