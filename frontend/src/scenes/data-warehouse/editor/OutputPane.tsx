@@ -1314,7 +1314,7 @@ const Content = ({
         if (!response && !responseLoading && !insightLoading) {
             return (
                 <div
-                    className="flex flex-1 flex-col justify-center items-center border-t gap-4 p-4"
+                    className="flex min-w-0 flex-1 flex-col justify-center items-center border-t gap-4 p-4"
                     data-attr="sql-editor-output-pane-empty-state"
                 >
                     <span className="text-secondary">

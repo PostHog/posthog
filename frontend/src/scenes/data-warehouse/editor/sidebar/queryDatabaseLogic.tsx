@@ -583,7 +583,7 @@ const formatTraversalChain = (chain?: (string | number)[]): string | null => {
     return chain.map((segment) => String(segment)).join('.')
 }
 
-const resolveFieldTraverserTarget = (
+export const resolveFieldTraverserTarget = (
     tableName: string,
     field: DatabaseSchemaField,
     tableLookup?: TableLookup,
@@ -592,6 +592,12 @@ const resolveFieldTraverserTarget = (
     if (!field.chain || !tableLookup) {
         return null
     }
+
+    const traversalKey = JSON.stringify([tableName, field.chain])
+    if (visitedChains.has(traversalKey)) {
+        return null
+    }
+    visitedChains.add(traversalKey)
 
     const baseTable = tableLookup[tableName]
     if (!baseTable) {

@@ -32,6 +32,7 @@ import { initKeaTests } from '~/test/init'
 import { ChartDisplayType, InsightShortId, InsightModel } from '~/types'
 
 import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
+import { biConnectionsLogic } from 'products/data_warehouse/frontend/bi/biConnectionsLogic'
 import { sqlEditorDraftStorage } from 'products/data_warehouse/frontend/sqlEditorDraftStorage'
 
 import { BI_EDITOR_EVENTS } from './bi/biEditorAnalytics'
@@ -2605,6 +2606,66 @@ describe('sqlEditorLogic', () => {
                 expect.objectContaining({ name: 'event', expression: 'event' }),
             ])
             expect(biLogic.values.dataPaneFieldsError).toBe(false)
+            biLogic.unmount()
+        })
+
+        it('loads connected fields on expansion and keeps their paths rooted in the worksheet', async () => {
+            await expectLogic(databaseLogic).toFinishAllListeners()
+            const biLogic = biEditorLogic({ tabId: TAB_ID })
+            biLogic.mount()
+            biLogic.actions.restoreState({ editorView: BIEditorView.BI, config })
+            databaseLogic.actions.loadDatabaseSuccess({
+                tables: {
+                    events: {
+                        id: 'events',
+                        name: 'events',
+                        type: 'posthog',
+                        fields: {
+                            person: {
+                                name: 'person',
+                                type: 'lazy_table',
+                                table: 'persons',
+                                hogql_value: 'person',
+                                schema_valid: true,
+                            },
+                        },
+                    },
+                    persons: { id: 'persons', name: 'persons', type: 'posthog', fields: {} },
+                },
+                joins: [],
+            })
+            databaseLogic.actions.setDatabaseFieldsComplete(false)
+            const connections = biConnectionsLogic({ tabId: TAB_ID })
+            connections.mount()
+            expect(connections.values.connections[0]).toMatchObject({ expanded: false, state: 'loading' })
+            expect(databaseLogic.values.tableFieldsStatus.persons).toBeUndefined()
+
+            queryEndpointMock.mockReturnValue([
+                200,
+                {
+                    tables: {
+                        persons: {
+                            id: 'persons',
+                            name: 'persons',
+                            type: 'posthog',
+                            fields: {
+                                email: { name: 'email', type: 'string', hogql_value: 'email', schema_valid: true },
+                            },
+                        },
+                    },
+                    joins: [],
+                },
+            ])
+            useMocks({ post: { '/api/environments/:team_id/query/DatabaseSchemaQuery/': queryEndpointMock } })
+            await expectLogic(databaseLogic, () =>
+                connections.actions.toggleConnection('["person"]', 'persons')
+            ).toDispatchActions(['hydrateTableFieldsSuccess'])
+            expect(connections.values.connections[0].fields.dimensions).toEqual([
+                expect.objectContaining({ name: 'person.email', expression: 'person.email', source: config.source }),
+            ])
+            biLogic.actions.setDataSource({ table: 'persons' })
+            expect(connections.values.connections).toEqual([])
+            connections.unmount()
             biLogic.unmount()
         })
 
