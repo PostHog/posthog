@@ -65,6 +65,7 @@ function makeConfig(overrides: Partial<SignalScoutConfigApi> = {}): SignalScoutC
         enabled: true,
         status: 'active',
         pause_reason: null,
+        managed_by: 'team',
         emit: true,
         run_interval_minutes: 1440,
         run_cron_schedule: '0 9 * * *',
@@ -80,6 +81,7 @@ function makeConfig(overrides: Partial<SignalScoutConfigApi> = {}): SignalScoutC
         source_product: 'replay_vision',
         source_id: SCANNER_ID,
         created_at: '2026-08-01T00:00:00Z',
+        updated_at: '2026-08-01T00:00:00Z',
         ...overrides,
     } as SignalScoutConfigApi
 }

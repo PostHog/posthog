@@ -192,6 +192,7 @@ describe('AIObservabilitySelfDriving', () => {
                     insight: 10,
                     insight_short_id: 'insight-cost',
                     insight_display_name: 'AI cost by model',
+                    llm_detector_available: null,
                     name: 'Unexpected AI cost',
                     subscribed_users: [],
                     threshold: {
@@ -222,6 +223,7 @@ describe('AIObservabilitySelfDriving', () => {
                     insight: 11,
                     insight_short_id: 'insight-errors',
                     insight_display_name: 'AI errors by model',
+                    llm_detector_available: null,
                     name: 'Unexpected error rate',
                     subscribed_users: [],
                     threshold: {

@@ -22,7 +22,7 @@ from products.tasks.backend.logic.services.ai_run_defaults import (
     update_user_ai_run_preferences,
     validate_ai_run_preferences,
 )
-from products.tasks.backend.models import Task, TeamTasksConfig, UserTasksConfig
+from products.tasks.backend.models import Task, TaskRun, TeamTasksConfig, UserTasksConfig
 from products.tasks.backend.presentation.serializers import TaskRunCreateRequestSerializer
 
 FACADE = "products.tasks.backend.facade.api"
@@ -437,6 +437,45 @@ class TestRunTaskWarmMatchingUnderDefaults(APIBaseTest):
         warm_run.refresh_from_db()
         assert "await_user_message" not in warm_run.state
 
+    def test_default_carrying_warm_run_is_activated_by_a_continue_from_an_import_run(self):
+        update_team_ai_run_preferences(self.team.id, **TEAM_TRIPLE)
+        task = Task.objects.create(
+            team=self.team,
+            title="",
+            description="",
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+            created_by=self.user,
+        )
+        import_run = task.create_run(mode="interactive", extra_state={"imported_from": "conversation"})
+        import_run.status = TaskRun.Status.COMPLETED
+        import_run.save(update_fields=["status"])
+        warm_run = task.create_run(
+            mode="interactive",
+            extra_state={
+                "await_user_message": True,
+                "resume_from_run_id": str(import_run.id),
+                "initial_permission_mode": "default",
+            },
+        )
+        assert warm_run.state["model"] == "claude-opus-4-8"
+
+        with patch(f"{FACADE}.signal_task_run_user_message", return_value=True):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={
+                    "mode": "interactive",
+                    "resume_from_run_id": str(import_run.id),
+                    "pending_user_message": "go",
+                },
+            )
+
+        assert result is not None and result.error is None
+        assert task.runs.count() == 2
+        warm_run.refresh_from_db()
+        assert "await_user_message" not in warm_run.state
+
 
 class TestTasksConfigAPI(APIBaseTest):
     def setUp(self) -> None:
@@ -447,7 +486,7 @@ class TestTasksConfigAPI(APIBaseTest):
     def test_team_config_round_trip(self):
         response = self.client.get(f"/api/projects/{self.team.id}/tasks/config/")
         assert response.status_code == 200
-        assert response.json() == {"ai_run_preferences": EMPTY_PREFERENCES}
+        assert response.json() == {"ai_run_preferences": EMPTY_PREFERENCES, "agent_instructions": ""}
 
         response = self.client.post(f"/api/projects/{self.team.id}/tasks/config/", TEAM_TRIPLE)
         assert response.status_code == 200
@@ -494,18 +533,19 @@ class TestTasksConfigAPI(APIBaseTest):
         self.client.post(f"/api/projects/{self.team.id}/tasks/config/", TEAM_TRIPLE)
         response = self.client.post(f"/api/projects/{self.team.id}/tasks/config/", EMPTY_PREFERENCES)
         assert response.status_code == 200
-        assert response.json() == {"ai_run_preferences": EMPTY_PREFERENCES}
+        assert response.json() == {"ai_run_preferences": EMPTY_PREFERENCES, "agent_instructions": ""}
         assert self.client.get(f"/api/projects/{self.team.id}/tasks/config/").json() == {
-            "ai_run_preferences": EMPTY_PREFERENCES
+            "ai_run_preferences": EMPTY_PREFERENCES,
+            "agent_instructions": "",
         }
 
     def test_unauthenticated_requests_are_rejected(self):
         self.client.logout()
         for path in ("config", "@me/config"):
             url = f"/api/projects/{self.team.id}/tasks/{path}/"
-            # 403, not 401: DRF's SessionAuthentication denies without a WWW-Authenticate challenge.
-            assert self.client.get(url).status_code == 403
-            assert self.client.post(url, TEAM_TRIPLE).status_code == 403
+            # 401, not 403: PostHog's SessionAuthentication sets a WWW-Authenticate challenge.
+            assert self.client.get(url).status_code == 401
+            assert self.client.post(url, TEAM_TRIPLE).status_code == 401
 
     def test_an_outsider_cannot_reach_another_projects_config(self):
         outsider = User.objects.create_and_join(Organization.objects.create(name="other"), "out@posthog.com", None)

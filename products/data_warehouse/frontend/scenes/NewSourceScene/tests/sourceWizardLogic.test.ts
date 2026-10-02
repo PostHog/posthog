@@ -1,7 +1,14 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { captureMarketingCrossSellClick, getMarketingCrossSellAttribution } from 'lib/marketingCrossSell'
 
+import { ProductIntentContext, ProductKey, WebStatsBreakdown } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import type { ExternalDataSourceSyncSchema, IncrementalField } from '~/types'
 
@@ -36,6 +43,159 @@ function buildSourceConfig(overrides: Partial<SourceConfigResponseApi>): SourceC
 describe('sourceWizardLogic', () => {
     beforeEach(() => {
         initKeaTests()
+    })
+
+    it.each<{
+        name: SourceConfigResponseApi['name']
+        category: SourceConfigResponseApi['category']
+        marketingIntent: boolean
+    }>([
+        { name: 'AdRoll', category: 'Advertising', marketingIntent: true },
+        { name: 'AppLovin', category: 'Advertising', marketingIntent: true },
+        { name: 'Outbrain', category: 'Advertising', marketingIntent: true },
+        { name: 'Taboola', category: 'Advertising', marketingIntent: true },
+        { name: 'AmazonAds', category: 'Advertising', marketingIntent: true },
+        { name: 'AppleSearchAds', category: 'Advertising', marketingIntent: true },
+        { name: 'OpenAIAds', category: 'Advertising', marketingIntent: true },
+        { name: 'RoktAds', category: 'Advertising', marketingIntent: true },
+        { name: 'MetaAds', category: 'Advertising', marketingIntent: true },
+        { name: 'MetaAds', category: null, marketingIntent: false },
+        { name: 'BigQuery', category: 'Databases', marketingIntent: false },
+        { name: 'Postgres', category: 'Databases', marketingIntent: false },
+        { name: 'Hubspot', category: 'CRM', marketingIntent: false },
+        { name: 'Mailchimp', category: 'Marketing & email', marketingIntent: false },
+    ])('records expected intents for $name ($category)', async ({ name, category, marketingIntent }) => {
+        const source = buildSourceConfig({ name, category })
+        const updateIntent = jest.spyOn(api.productIntents, 'update').mockResolvedValue(MOCK_DEFAULT_TEAM)
+        const logic = sourceWizardLogic({ availableSources: { [name]: source } })
+        const unmount = logic.mount()
+
+        try {
+            await expectLogic(logic, () => {
+                logic.actions.selectConnector(source)
+            }).toFinishAllListeners()
+
+            expect(updateIntent.mock.calls.map(([intent]) => intent)).toEqual([
+                {
+                    product_type: ProductKey.DATA_WAREHOUSE,
+                    intent_context: ProductIntentContext.SELECTED_CONNECTOR,
+                },
+                ...(marketingIntent
+                    ? [
+                          {
+                              product_type: ProductKey.MARKETING_ANALYTICS,
+                              intent_context: ProductIntentContext.MARKETING_ANALYTICS_ADS_INTEGRATION_VISITED,
+                          },
+                      ]
+                    : []),
+            ])
+        } finally {
+            unmount()
+            updateIntent.mockRestore()
+        }
+    })
+
+    describe('marketing cross-sell conversions', () => {
+        beforeEach(() => {
+            sessionStorage.clear()
+            jest.spyOn(posthog, 'get_distinct_id').mockReturnValue('test-user')
+            jest.spyOn(posthog, 'capture').mockClear()
+            jest.spyOn(api.productIntents, 'update').mockResolvedValue(MOCK_DEFAULT_TEAM)
+            featureFlagLogic.mount()
+        })
+        afterEach(() => {
+            sessionStorage.clear()
+            jest.restoreAllMocks()
+        })
+
+        it.each([
+            { enabled: true, category: 'Advertising', attributed: true },
+            { enabled: false, category: 'Advertising', attributed: false },
+            { enabled: true, category: 'Databases', attributed: false },
+        ] as const)(
+            'attributes success only for eligible sources: $enabled / $category',
+            async ({ enabled, category, attributed }) => {
+                featureFlagLogic.actions.setFeatureFlags([], {
+                    [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING_CROSS_SELL]: enabled,
+                })
+                const source = buildSourceConfig({
+                    name: category === 'Advertising' ? 'GoogleAds' : 'Postgres',
+                    category,
+                })
+                const logic = sourceWizardLogic({
+                    availableSources: { [source.name]: source },
+                    onComplete: jest.fn(),
+                    requiredTables: [],
+                })
+                const unmount = logic.mount()
+                jest.spyOn(api.externalDataSources, 'create').mockResolvedValue({ id: 'test-ad-source' } as Awaited<
+                    ReturnType<typeof api.externalDataSources.create>
+                >)
+                try {
+                    await expectLogic(logic, () => logic.actions.selectConnector(source)).toFinishAllListeners()
+                    captureMarketingCrossSellClick(MOCK_DEFAULT_TEAM.id, WebStatsBreakdown.InitialChannelType, false)
+                    const attribution = getMarketingCrossSellAttribution(MOCK_DEFAULT_TEAM.id)!
+                    await expectLogic(logic, () => logic.actions.createSource()).toFinishAllListeners()
+                    const conversions = jest
+                        .mocked(posthog.capture)
+                        .mock.calls.filter(([name]) => name === 'web analytics marketing cross sell source created')
+                    expect(conversions).toEqual(
+                        attributed
+                            ? [
+                                  [
+                                      'web analytics marketing cross sell source created',
+                                      expect.objectContaining({
+                                          cross_sell_id: attribution.cross_sell_id,
+                                          source_id: 'test-ad-source',
+                                          source_type: 'GoogleAds',
+                                      }),
+                                  ],
+                              ]
+                            : []
+                    )
+                } finally {
+                    unmount()
+                }
+            }
+        )
+
+        it('retains attribution after failure and records conversion after a successful retry', async () => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING_CROSS_SELL]: true })
+            const source = buildSourceConfig({ name: 'GoogleAds', category: 'Advertising' })
+            const logic = sourceWizardLogic({
+                availableSources: { GoogleAds: source },
+                onComplete: jest.fn(),
+                requiredTables: [],
+            })
+            const unmount = logic.mount()
+            jest.spyOn(api.externalDataSources, 'create')
+                .mockRejectedValueOnce({ status: 400, message: 'Invalid credentials' })
+                .mockResolvedValueOnce({ id: 'test-ad-source' } as Awaited<
+                    ReturnType<typeof api.externalDataSources.create>
+                >)
+            try {
+                await expectLogic(logic, () => logic.actions.selectConnector(source)).toFinishAllListeners()
+                captureMarketingCrossSellClick(MOCK_DEFAULT_TEAM.id, WebStatsBreakdown.InitialUTMCampaign, false)
+                const attribution = getMarketingCrossSellAttribution(MOCK_DEFAULT_TEAM.id)!
+                await expectLogic(logic, () => logic.actions.createSource()).toFinishAllListeners()
+                expect(posthog.capture).not.toHaveBeenCalledWith(
+                    'web analytics marketing cross sell source created',
+                    expect.anything()
+                )
+                expect(getMarketingCrossSellAttribution(MOCK_DEFAULT_TEAM.id)).toEqual(attribution)
+                await expectLogic(logic, () => logic.actions.createSource()).toFinishAllListeners()
+                expect(posthog.capture).toHaveBeenCalledWith(
+                    'web analytics marketing cross sell source created',
+                    expect.objectContaining({
+                        cross_sell_id: attribution.cross_sell_id,
+                        source_id: 'test-ad-source',
+                    })
+                )
+                expect(getMarketingCrossSellAttribution(MOCK_DEFAULT_TEAM.id)).toBeNull()
+            } finally {
+                unmount()
+            }
+        })
     })
 
     it('shares a single wizard instance across references with the same props', () => {
@@ -107,8 +267,15 @@ describe('sourceWizardLogic', () => {
             // DRF answers an unhandled 500 with a fixed placeholder detail. Surfacing it told the
             // user nothing, and it masked the 5xx branch below.
             const message = resolveConnectErrorMessage({ detail: 'A server error occurred.', status: 500 })
-            expect(message).toContain('check your connection details')
+            expect(message).toContain('the details you entered')
             expect(message).not.toContain('A server error occurred.')
+        })
+
+        it('keeps the 5xx guidance free of causes only database sources have', () => {
+            // Every source shares this branch, so wording aimed at a database sent users of
+            // API-backed sources looking for a schema and a host they never configured.
+            const message = resolveConnectErrorMessage({ status: 504 })
+            expect(message).not.toMatch(/database|schema/i)
         })
 
         it('never returns undefined for a 4xx with no message body', () => {
@@ -1297,6 +1464,57 @@ describe('sourceWizardLogic', () => {
             try {
                 expect(logic.values.databaseSchema[0].sync_type).toBe('incremental')
                 expect(logic.values.databaseSchema[0].incremental_field).toBe('date_of_birth')
+            } finally {
+                unmount()
+            }
+        })
+    })
+
+    describe('connectError', () => {
+        const stripeSource = buildSourceConfig({ name: 'Stripe' })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('keeps a rejected connection message until the next attempt', async () => {
+            jest.spyOn(api.externalDataSources, 'database_schema').mockRejectedValue({
+                status: 400,
+                data: { message: 'Your API key is invalid or expired.' },
+            })
+
+            const logic = sourceWizardLogic({ availableSources: { Stripe: stripeSource } })
+            const unmount = logic.mount()
+
+            try {
+                logic.actions.selectConnector(stripeSource)
+                await expectLogic(logic, () => logic.actions.getDatabaseSchemas()).toFinishAllListeners()
+                expect(logic.values.connectError).toBe('Your API key is invalid or expired.')
+
+                jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue([])
+                await expectLogic(logic, () => logic.actions.getDatabaseSchemas()).toFinishAllListeners()
+                expect(logic.values.connectError).toBeNull()
+            } finally {
+                unmount()
+            }
+        })
+
+        it('drops the message when another source is picked', async () => {
+            jest.spyOn(api.externalDataSources, 'database_schema').mockRejectedValue({
+                status: 400,
+                data: { message: 'Your API key is invalid or expired.' },
+            })
+
+            const logic = sourceWizardLogic({ availableSources: { Stripe: stripeSource } })
+            const unmount = logic.mount()
+
+            try {
+                logic.actions.selectConnector(stripeSource)
+                await expectLogic(logic, () => logic.actions.getDatabaseSchemas()).toFinishAllListeners()
+                expect(logic.values.connectError).toBe('Your API key is invalid or expired.')
+
+                logic.actions.selectConnector(null)
+                expect(logic.values.connectError).toBeNull()
             } finally {
                 unmount()
             }

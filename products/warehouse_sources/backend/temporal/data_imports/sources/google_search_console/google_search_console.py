@@ -116,6 +116,19 @@ class GoogleSearchConsoleResumeConfig:
     start_row: int  # next startRow within current_date
 
 
+SEARCH_CONSOLE_UI_PREFIX = "https://search.google.com/"
+
+
+def is_search_console_ui_url(site: str) -> bool:
+    """True when the value addresses Search Console itself rather than one of the account's properties.
+
+    ``normalize_site_url`` lifts the property out of a UI URL that carries a ``resource_id``.
+    Whatever is left on ``search.google.com`` names no property and never will, so no amount of
+    re-checking account access can make it validate.
+    """
+    return site.strip().lower().startswith(SEARCH_CONSOLE_UI_PREFIX)
+
+
 def normalize_site_url(raw: str) -> str:
     """Coerce a user-entered property URL toward Google's canonical form.
 
@@ -130,7 +143,7 @@ def normalize_site_url(raw: str) -> str:
     site = raw.strip()
 
     # The Search Console UI URL carries the property in its `resource_id` query param.
-    if site.startswith("https://search.google.com/"):
+    if is_search_console_ui_url(site):
         resource_id = parse_qs(urlparse(site).query).get("resource_id")
         if resource_id:
             site = resource_id[0].strip()

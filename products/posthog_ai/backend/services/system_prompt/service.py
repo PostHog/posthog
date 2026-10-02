@@ -7,7 +7,7 @@ layer in ``prompt.py`` on top. To get suffix (not override) behavior, the value 
 keeps Claude Code's preset and appends our text (plus its own ``APPENDED_INSTRUCTIONS``), whereas a
 bare string would replace the preset entirely. Project context, groups, billing, and core memory are
 reachable via the PostHog MCP server, so they are not duplicated here; per-turn context is delivered
-separately via the ``<posthog_context>`` wrapper.
+separately in the ``<posthog_trusted_context>`` / ``<posthog_untrusted_context>`` blocks.
 
 The metric catalog is inspected through its MCP tools at the moment it is needed, so this service
 does not embed a partial catalog snapshot in a Run's system prompt.

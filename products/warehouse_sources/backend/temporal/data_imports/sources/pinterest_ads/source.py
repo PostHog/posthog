@@ -69,6 +69,22 @@ class PinterestAdsSource(ResumableSource[PinterestAdsSourceConfig, PinterestAdsR
             "404 Client Error": "Pinterest Ads resource not found. Please check your ad account ID.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `build_session` mounts the shared tracked transport, whose adapter already retries
+        # GET requests on these statuses in-process (see DEFAULT_RETRY in
+        # sources/common/http/transport.py) before `raise_for_status()` can raise. A plain
+        # `requests.HTTPError` only reaches `_make_request` once that budget is exhausted, so
+        # Pinterest is rate-limiting us (429) or briefly unavailable (5xx) — both transient and
+        # self-recovering. Let Temporal retry the whole activity instead of reporting this as an
+        # unclassified error every run.
+        return {
+            "429 Client Error",
+            "500 Server Error",
+            "502 Server Error",
+            "503 Server Error",
+            "504 Server Error",
+        }
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(

@@ -19,6 +19,7 @@ import { navPanelAdvertisementLogic } from './NavPanelAdvertisementLogic'
 export const NAV_PANEL_CARD_TYPE = {
     BROADCAST: 'broadcast',
     PRODUCT_PUSH: 'product_push',
+    STARRED_SETUP: 'starred_setup',
 } as const
 
 export interface BroadcastPayload {
@@ -178,7 +179,9 @@ export function AdvertisementCard({
     )
 
     return (
-        <div className="overflow-hidden rounded border bg-surface-primary text-xs shadow-sm transition-shadow hover:shadow-md">
+        // The gap to the nav footer's buttons belongs to the card, not the footer, so it goes away
+        // with the card when there is nothing to advertise.
+        <div className="mb-2 overflow-hidden rounded border bg-surface-primary text-xs shadow-sm transition-shadow hover:shadow-md">
             {hero ? (
                 <ProductHogHero hero={hero} title={title} text={text} topRight={dismissButton} />
             ) : (

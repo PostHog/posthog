@@ -17,9 +17,12 @@ from unittest import mock
 from unittest.case import skip
 from unittest.mock import ANY, PropertyMock, patch
 
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
+from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 from rest_framework import status
 
@@ -50,10 +53,13 @@ from posthog.hogql.query import execute_hogql_query
 from posthog import settings
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.insight_result import InsightResult
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import AvailableFeature
-from posthog.exceptions import ClickHouseQueryTimeOut
+from posthog.errors import wrap_clickhouse_query_error
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut
 from posthog.hogql_queries.query_runner import SHARED_FORCE_BLOCKING_STALENESS_WINDOW, ExecutionMode
 from posthog.models import Filter, OrganizationMembership, SharingConfiguration, Team, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.project import Project
 from posthog.query_scan.findings import build_warning
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
@@ -66,6 +72,7 @@ from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscr
 from products.dashboards.backend.facade.access import DashboardAccessMethod
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
+from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 from products.product_analytics.backend.models.insight import InsightViewed
 
@@ -834,24 +841,31 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             f"({unsaved_no_dashboard.short_id}) must be excluded."
         )
 
-    def test_search_filter_does_not_duplicate_insights_with_multiple_matching_tags(self) -> None:
+    @parameterized.expand(
+        [
+            ("search", "search=needle"),
+            ("tags filter", 'tags=["needle-tag-a", "needle-tag-b", "needle-tag-c"]'),
+        ]
+    )
+    def test_list_does_not_duplicate_insights_with_multiple_matching_tags(self, _name: str, query: str) -> None:
         from posthog.models.tag import Tag
-        from posthog.models.tagged_item import TaggedItem
 
         insight = Insight.objects.create(
             short_id="search-tg", name="needle", team=self.team, filters={"events": [{"id": "$pageview"}]}
         )
         for tag_name in ("needle-tag-a", "needle-tag-b", "needle-tag-c"):
             tag = Tag.objects.create(name=tag_name, team=self.team)
-            TaggedItem.objects.create(insight=insight, tag=tag)
+            insight.tagged_items.create(tag=tag)
 
-        response = self.client.get(f"/api/projects/{self.team.id}/insights/?search=needle")
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?{query}")
         assert response.status_code == status.HTTP_200_OK
-        matching_short_ids = [r["short_id"] for r in response.json()["results"] if r["short_id"] == insight.short_id]
+        body = response.json()
+        matching_short_ids = [r["short_id"] for r in body["results"] if r["short_id"] == insight.short_id]
         assert len(matching_short_ids) == 1, (
-            f"search=needle must return the insight once even though three tags + the name match it; "
+            f"?{query} must return the insight once even though three tags match it; "
             f"got {len(matching_short_ids)} copies."
         )
+        assert body["count"] == 1, f"?{query} must count the insight once; got {body['count']}."
 
     @parameterized.expand(
         [
@@ -996,6 +1010,31 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         result_ids = [r["id"] for r in response.json()["results"]]
         assert result_ids.index(newer.id) < result_ids.index(older.id), (
             "explicit order=-id should override relevance ranking and put newer insight first"
+        )
+
+    def test_list_without_order_sorts_by_last_modified_at_descending(self):
+        now = timezone.now()
+        older = Insight.objects.create(
+            name="older",
+            team=self.team,
+            filters={"events": [{"id": "$pageview"}]},
+            order=1,
+            last_modified_at=now - timedelta(days=2),
+        )
+        newer = Insight.objects.create(
+            name="newer",
+            team=self.team,
+            filters={"events": [{"id": "$pageview"}]},
+            order=2,
+            last_modified_at=now - timedelta(days=1),
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/")
+        assert response.status_code == status.HTTP_200_OK
+        result_ids = [r["id"] for r in response.json()["results"]]
+
+        assert result_ids.index(newer.id) < result_ids.index(older.id), (
+            "the default list order must be newest-modified first, not the vestigial `order` column"
         )
 
     def test_list_filter_by_search_hides_similar_matches_when_exact_matches_exist(self):
@@ -3065,14 +3104,55 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_soft_delete_causes_404(self) -> None:
         insight_id, _ = self.dashboard_api.create_insight({"name": "to be deleted"})
         self.dashboard_api.get_insight(insight_id=insight_id, expected_status=status.HTTP_200_OK)
+        subscription = Subscription.objects.create(
+            team=self.team, insight_id=insight_id, start_date=timezone.now(), frequency="daily"
+        )
+        unrelated = Subscription.objects.create(team=self.team, start_date=timezone.now(), frequency="daily")
+        deleted_subscription = Subscription.objects.create(
+            team=self.team, insight_id=insight_id, start_date=timezone.now(), frequency="daily", deleted=True
+        )
+        delivery = SubscriptionDelivery.objects.create(
+            team=self.team, subscription=subscription, idempotency_key="insight-delete-test", status="completed"
+        )
 
         update_response = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight_id}", {"deleted": True})
         self.assertEqual(update_response.status_code, status.HTTP_200_OK)
 
         self.dashboard_api.get_insight(insight_id=insight_id, expected_status=status.HTTP_404_NOT_FOUND)
 
+        self.assertFalse(Subscription.objects.filter(pk=subscription.pk).exists())
+        deletion_log = ActivityLog.objects.get(
+            team_id=self.team.id, scope="Subscription", item_id=str(subscription.pk), activity="deleted"
+        )
+        self.assertEqual(deletion_log.user_id, self.user.id)
+        unrelated.refresh_from_db()
+        self.assertFalse(unrelated.deleted)
+
+        self.assertFalse(Subscription.objects.filter(pk=deleted_subscription.pk).exists())
+        self.assertFalse(SubscriptionDelivery.objects.filter(pk=delivery.pk).exists())
+
+    def test_soft_delete_locks_the_insight_before_removing_its_alerts(self) -> None:
+        insight_id, _ = self.dashboard_api.create_insight({"name": "to be deleted"})
+        AlertConfiguration.objects.create(team=self.team, insight_id=insight_id, name="alert")
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight_id}", {"deleted": True})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        sql = [query["sql"] for query in queries.captured_queries]
+        lock_index = next(
+            i for i, q in enumerate(sql) if q.startswith('SELECT "posthog_dashboarditem"') and "FOR NO KEY UPDATE" in q
+        )
+        delete_index = next(
+            i for i, q in enumerate(sql) if q.startswith("DELETE") and "posthog_alertconfiguration" in q
+        )
+        self.assertLess(lock_index, delete_index)
+
     def test_soft_delete_can_be_reversed_by_patch(self) -> None:
         insight_id, _ = self.dashboard_api.create_insight({"name": "an insight"})
+        subscription = Subscription.objects.create(
+            team=self.team, insight_id=insight_id, start_date=timezone.now(), frequency="daily"
+        )
 
         self.client.patch(
             f"/api/projects/{self.team.id}/insights/{insight_id}",
@@ -3115,6 +3195,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "field": "deleted",
             "type": "Insight",
         }
+
+        self.assertFalse(Subscription.objects.filter(pk=subscription.pk).exists())
 
     def test_soft_delete_cannot_be_reversed_for_another_team(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other team")
@@ -4111,30 +4193,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
 
 class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
-    @parameterized.expand(
-        [
-            ("ExposedCHQueryError", "NO_COMMON_TYPE error from ClickHouse", None),
-            ("ExposedHogQLError", "Invalid HogQL syntax", "hogql_error"),
-            ("HogVMException", "Global variable not found: variables", None),
-        ]
-    )
-    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
-    def test_retrieve_degrades_in_place_for_exposed_errors(
-        self, _name: str, error_message: str, expected_error_code: str | None, mock_calculate: mock.MagicMock
-    ) -> None:
-        from posthog.hogql.errors import ExposedHogQLError
-
-        from posthog.errors import ExposedCHQueryError
-
-        from common.hogvm.python.utils import HogVMException
-
-        error_classes: dict[str, type] = {
-            "ExposedCHQueryError": ExposedCHQueryError,
-            "ExposedHogQLError": ExposedHogQLError,
-            "HogVMException": HogVMException,
-        }
-        mock_calculate.side_effect = error_classes[_name](error_message)
-
+    def _query_status_of_a_failed_refresh(self) -> dict:
         insight = Insight.objects.create(
             team=self.team,
             query={
@@ -4148,10 +4207,67 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
         # The failure must ride on query_status so a dashboard tile renders its own error state
         # while the response as a whole succeeds.
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        query_status = response.json()["query_status"]
+        return response.json()["query_status"]
+
+    @parameterized.expand(
+        [
+            ("ExposedCHQueryError", "NO_COMMON_TYPE error from ClickHouse", None),
+            ("ExposedHogQLError", "Invalid HogQL syntax", "hogql_error"),
+            ("HogVMException", "Global variable not found: variables", None),
+            ("RuntimeError", "Unexpected calculation failure", None),
+        ]
+    )
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_retrieve_degrades_in_place_for_non_capacity_errors(
+        self, _name: str, error_message: str, expected_error_code: str | None, mock_calculate: mock.MagicMock
+    ) -> None:
+        from posthog.hogql.errors import ExposedHogQLError
+
+        from posthog.errors import ExposedCHQueryError
+
+        from common.hogvm.python.utils import HogVMException
+
+        error_classes: dict[str, type] = {
+            "ExposedCHQueryError": ExposedCHQueryError,
+            "ExposedHogQLError": ExposedHogQLError,
+            "HogVMException": HogVMException,
+            "RuntimeError": RuntimeError,
+        }
+        mock_calculate.side_effect = error_classes[_name](error_message)
+
+        query_status = self._query_status_of_a_failed_refresh()
+
         self.assertTrue(query_status["error"])
         self.assertIn(error_message, query_status["error_message"])
         self.assertEqual(query_status["error_code"], expected_error_code)
+
+    @parameterized.expand(
+        [
+            ("cluster_at_capacity", ClickHouseAtCapacity(), ClickHouseAtCapacity.default_detail),
+            (
+                "org_concurrency_limit",
+                ConcurrencyLimitExceeded("internal limiter details"),
+                "concurrency_limit_exceeded",
+            ),
+            (
+                "no_free_clickhouse_connection",
+                wrap_clickhouse_query_error(ServerException("no free connection", 203)),
+                ClickHouseAtCapacity.default_detail,
+            ),
+        ]
+    )
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_retrieve_labels_every_capacity_failure_as_rate_limited(
+        self, _name: str, error: Exception, expected_message: str, mock_calculate: mock.MagicMock
+    ) -> None:
+        mock_calculate.side_effect = error
+
+        query_status = self._query_status_of_a_failed_refresh()
+
+        # The dashboard retries on this code, so every transient capacity failure has to carry it.
+        self.assertTrue(query_status["error"])
+        self.assertEqual(query_status["error_code"], "rate_limited")
+        self.assertEqual(query_status["error_message"], expected_message)
 
 
 class TestInsightQueryScan(APIBaseTest):
@@ -4253,6 +4369,49 @@ class TestInsightQueryScan(APIBaseTest):
         self.assertNotIn("query_scan", body["query_status"])
 
 
+class TestInsightWarnings(APIBaseTest):
+    WARNING = {
+        "type": "warehouse_sync",
+        "message": "Last sync of `costs` (from DoIt) failed.",
+        "schema_name": "costs",
+        "source_id": "source-1",
+        "source_type": "DoIt",
+        "status": "Failed",
+        "table_name": "doit_costs",
+    }
+
+    @parameterized.expand([("a project member", False, [WARNING]), ("a shared link viewer", True, None)])
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_an_insight_carries_its_warehouse_sync_warnings(
+        self, _name: str, shared: bool, expected: list[dict] | None, mock_calculate: mock.MagicMock
+    ) -> None:
+        insight = Insight.objects.create(
+            team=self.team,
+            created_by=self.user,
+            query={"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "SELECT 1"}},
+        )
+        mock_calculate.return_value = InsightResult(
+            result=[],
+            last_refresh=timezone.now(),
+            cache_key="cache-key",
+            is_cached=True,
+            timezone=self.team.timezone,
+            warnings=[self.WARNING],
+        )
+        url = f"/api/projects/{self.team.id}/insights/{insight.id}/"
+        if shared:
+            sharing_configuration = SharingConfiguration.objects.create(
+                team=self.team, insight=insight, enabled=True, access_token="xyz"
+            )
+            self.client.logout()
+            url += f"?sharing_access_token={sharing_configuration.access_token}"
+
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["warnings"], expected)
+
+
 class TestInsightBulkDelete(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def _create_insight(self, name: str = "My insight") -> Insight:
         return Insight.objects.create(team=self.team, name=name, saved=True, created_by=self.user)
@@ -4281,12 +4440,24 @@ class TestInsightBulkDelete(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
         insight = self._create_insight()
         tile = DashboardTile.objects.create(insight=insight, dashboard=dashboard)
         alert = AlertConfiguration.objects.create(team=self.team, insight=insight, name="alert")
+        subscription = Subscription.objects.create(
+            team=self.team, insight_id=insight.id, start_date=timezone.now(), frequency="daily"
+        )
+        unrelated = Subscription.objects.create(team=self.team, start_date=timezone.now(), frequency="daily")
 
         response = self._bulk_delete([insight.id])
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertTrue(DashboardTile.objects_including_soft_deleted.get(id=tile.id).deleted)
         self.assertFalse(AlertConfiguration.objects.filter(id=alert.id).exists())
+
+        self.assertFalse(Subscription.objects.filter(pk=subscription.pk).exists())
+        deletion_log = ActivityLog.objects.get(
+            team_id=self.team.id, scope="Subscription", item_id=str(subscription.pk), activity="deleted"
+        )
+        self.assertEqual(deletion_log.user_id, self.user.id)
+        unrelated.refresh_from_db()
+        self.assertFalse(unrelated.deleted)
 
     def test_bulk_delete_reports_unknown_ids_as_skipped(self) -> None:
         insight = self._create_insight()

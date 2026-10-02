@@ -1,4 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { waitFor } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 
 import { App } from 'scenes/App'
 
@@ -46,6 +48,7 @@ const run: RunApi = {
     error_message: null,
     created_at: '2026-06-10T00:00:00Z',
     completed_at: '2026-06-10T00:01:00Z',
+    purpose: 'review',
     is_stale: false,
     metadata: {},
     search_match_type: null,
@@ -136,6 +139,14 @@ const masterRun: RunApi = {
     ...run,
     branch: 'master',
     pr_number: null,
+    purpose: 'observe',
+}
+
+// A merge-queue run keeps its PR number but is tracking-only, so it must not offer approval either.
+const mergeQueueRun: RunApi = {
+    ...run,
+    branch: 'trunk-merge/pr-42',
+    purpose: 'observe',
 }
 
 const emptyList = { count: 0, next: null, previous: null, results: [] }
@@ -180,4 +191,95 @@ export const TrackingOnlyMasterRun: StoryObj = {
             },
         }),
     ],
+}
+
+export const TrackingOnlyMergeQueueRun: StoryObj = {
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="visual-review-snapshot-thumbnail"]' },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/`]: mergeQueueRun,
+            },
+        }),
+    ],
+}
+
+// A removed snapshot has no current image, so "Accept change" is disabled and finalize prunes it.
+export const RemovedSnapshot: StoryObj = {
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="visual-review-snapshot-accept"]' },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/`]: {
+                    ...run,
+                    summary: { total: 1, changed: 0, new: 0, removed: 1, unchanged: 0 },
+                },
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/snapshots/`]: {
+                    count: 1,
+                    next: null,
+                    previous: null,
+                    quarantined_count: 0,
+                    results: [
+                        snapshot({
+                            id: 'snapshot-removed',
+                            identifier: 'Components/Legacy--card',
+                            result: 'removed',
+                            diff_percentage: null,
+                            diff_pixel_count: null,
+                            baseline_artifact: artifact('base_removed'),
+                        }),
+                    ],
+                },
+            },
+        }),
+    ],
+}
+
+const repeatedTolerations = {
+    count: 3,
+    next: null,
+    previous: null,
+    results: ['2026-06-02', '2026-06-05', '2026-06-08'].map((day, index) => ({
+        id: `tolerated-${index}`,
+        alternate_hash: `alt_${index}`,
+        baseline_hash: 'base_changed',
+        reason: 'human',
+        diff_percentage: 2.6,
+        created_at: `${day}T10:00:00Z`,
+        source_run_id: null,
+    })),
+}
+
+// A snapshot tolerated three times this month keeps changing. Clicking Tolerate offers a quarantine first.
+export const TolerateSuggestsQuarantine: StoryObj = {
+    parameters: {
+        // Not `fullscreen`: the runner rejects snapshotTargetSelector for fullscreen stories.
+        layout: 'padded',
+        testOptions: {
+            waitForSelector: '[data-attr="visual-review-tolerate-nudge-quarantine"]',
+            snapshotTargetSelector: '.LemonModal',
+        },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/tolerated-hashes/`]: repeatedTolerations,
+            },
+        }),
+    ],
+    play: async () => {
+        const tolerateButton = await waitFor(() => {
+            const element = document.querySelector<HTMLButtonElement>('[data-attr="visual-review-snapshot-tolerate"]')
+            // The nudge reads the tolerated hashes, so wait for the sidebar to list them.
+            if (!element || !document.body.textContent?.includes('alt_0')) {
+                throw new Error('Tolerate button or tolerated hashes not yet rendered')
+            }
+            return element
+        })
+        await userEvent.click(tolerateButton)
+    },
 }

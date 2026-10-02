@@ -1,9 +1,15 @@
+from products.signals.backend.ranking.sweep import InboxRankingScoringWorkflow, score_inbox_reports_activity
 from products.signals.backend.temporal.agentic.report import run_agentic_report_activity
 from products.signals.backend.temporal.agentic.scout_coordinator import (
     SignalsScoutCoordinatorWorkflow,
     fetch_enabled_signals_scout_runs_activity,
     run_due_signal_report_checks_activity,
     stamp_dispatched_signals_scout_runs_activity,
+)
+from products.signals.backend.temporal.agentic.scout_rubrics import (
+    GenerateScoutRubricsWorkflow,
+    fail_scout_rubrics_activity,
+    generate_scout_rubrics_activity,
 )
 from products.signals.backend.temporal.agentic.scout_scheduler import (
     RunSignalsScoutWorkflow,
@@ -89,6 +95,7 @@ from products.signals.backend.temporal.summary import (
 )
 
 WORKFLOWS = [
+    GenerateScoutRubricsWorkflow,
     BackfillErrorTrackingWorkflow,
     TeamSignalGroupingWorkflow,
     TeamSignalGroupingV2Workflow,
@@ -108,6 +115,8 @@ WORKFLOWS = [
 ]
 
 ACTIVITIES = [
+    generate_scout_rubrics_activity,
+    fail_scout_rubrics_activity,
     dispatch_inbox_slack_notifications_activity,
     get_inbox_notification_state_activity,
     send_report_github_comments_activity,
@@ -165,3 +174,7 @@ ACTIVITIES = [
     verify_match_specificity_activity,
     wait_for_signal_in_clickhouse_activity,
 ]
+
+# The temporal-worker-self-driving fleet runs these, not video-export.
+SELF_DRIVING_WORKFLOWS = [InboxRankingScoringWorkflow]
+SELF_DRIVING_ACTIVITIES = [score_inbox_reports_activity]

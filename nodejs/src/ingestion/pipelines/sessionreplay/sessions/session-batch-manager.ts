@@ -3,6 +3,7 @@ import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/
 import { SessionMetadataSink } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
 import { RecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/types'
 
+import { BlockCompression } from './block-compression'
 import { SessionBatchFileStorage } from './session-batch-file-storage'
 import { SessionBatchRecorder } from './session-batch-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'
@@ -20,6 +21,7 @@ export interface SessionBatchManagerConfig {
     consoleLogStore: SessionConsoleLogStore
     featureStore: SessionFeatureStore
     encryptor: RecordingEncryptor
+    compression?: BlockCompression // default Snappy
 }
 
 /**
@@ -65,6 +67,7 @@ export class SessionBatchManager {
     private readonly consoleLogStore: SessionConsoleLogStore
     private readonly featureStore: SessionFeatureStore
     private readonly encryptor: RecordingEncryptor
+    private readonly compression?: BlockCompression
 
     constructor(config: SessionBatchManagerConfig) {
         this.maxBatchSizeBytes = config.maxBatchSizeBytes
@@ -77,6 +80,7 @@ export class SessionBatchManager {
         this.consoleLogStore = config.consoleLogStore
         this.featureStore = config.featureStore
         this.encryptor = config.encryptor
+        this.compression = config.compression
     }
 
     public createBatch(): SessionBatchRecorder {
@@ -88,7 +92,8 @@ export class SessionBatchManager {
             this.featureStore,
             this.encryptor,
             this.maxEventsPerSessionPerBatch,
-            this.featuresRolloutPercentage
+            this.featuresRolloutPercentage,
+            this.compression
         )
     }
 

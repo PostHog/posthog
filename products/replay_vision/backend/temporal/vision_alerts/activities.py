@@ -23,6 +23,7 @@ from pydantic import BaseModel
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.client import ProduceResult
+from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.sync import database_sync_to_async
 
 from products.alerts.backend.facade.destinations import (
@@ -31,7 +32,6 @@ from products.alerts.backend.facade.destinations import (
     produce_alert_internal_event,
 )
 from products.alerts.backend.facade.scheduling import is_utc_datetime_blocked, parse_blocked_windows_tuples
-from products.replay_vision.backend.alert_destinations import escape_slack_mrkdwn
 from products.replay_vision.backend.alert_state_machine import (
     AlertCheckOutcome,
     AlertState,
@@ -59,6 +59,7 @@ from products.replay_vision.backend.models.vision_alert import (
     VisionAlertMetric,
 )
 from products.replay_vision.backend.observation_formatting import describe_output, explanation_text, plain_snippet
+from products.replay_vision.backend.prompt_questions import scanner_question
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.vision_alerts.constants import (
     CLEANUP_BATCH_SIZE,
@@ -525,13 +526,17 @@ def _direction_label(alert: VisionAlertConfiguration) -> str:
 
 
 def _base_properties(alert: VisionAlertConfiguration, now: datetime) -> dict:
+    question = scanner_question(alert.scanner)
     return {
         "alert_id": str(alert.id),
         "alert_name": alert.name,
         "team_id": alert.team_id,
         "scanner_id": str(alert.scanner_id),
         "scanner_name": alert.scanner.name,
+        # Slack templates read the escaped copy, and webhooks keep the raw scanner name.
         "scanner_name_mrkdwn": escape_slack_mrkdwn(alert.scanner.name),
+        "scanner_question": question,
+        "scanner_question_mrkdwn": escape_slack_mrkdwn(question),
         "triggered_at": now.isoformat(),
     }
 

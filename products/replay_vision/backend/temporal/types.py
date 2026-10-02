@@ -9,6 +9,7 @@ from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.session_limits import MAX_SESSION_ID_LENGTH
 from products.replay_vision.backend.temporal.scanners.base import SignalFinding
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput
+from products.replay_vision.backend.temporal.scanners.experiment import ExperimentOutput
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorOutput, MonitorVerdict
 from products.replay_vision.backend.temporal.scanners.scorer import ScorerOutput
 from products.replay_vision.backend.temporal.scanners.summarizer import SummarizerOutput
@@ -18,7 +19,7 @@ from products.replay_vision.backend.temporal.snapshots import (
 )
 
 AnyScannerOutput = Annotated[
-    ClassifierOutput | MonitorOutput | ScorerOutput | SummarizerOutput,
+    ClassifierOutput | ExperimentOutput | MonitorOutput | ScorerOutput | SummarizerOutput,
     Field(discriminator="scanner_type"),
 ]
 
@@ -36,11 +37,28 @@ class VerificationRecord(BaseModel, frozen=True):
     skipped_reason: str | None = None
 
 
+class EmittedSignal(BaseModel, frozen=True):
+    """One side-mission finding that reached the Signals product. Carries what a reader needs to name the
+    finding and what the ranking needs to weigh it, and deliberately not the finding's full description: that
+    prose quotes on-screen text, which has no place on a feed card seen out of context."""
+
+    problem_type: str
+    headline: str
+    confidence: float = Field(ge=0, le=1)
+
+
 class ScannerResult(BaseModel, frozen=True):
     """Result data of a completed observation, persisted into `ReplayObservation.scanner_result`."""
 
     model_output: AnyScannerOutput
     signals_count: int = Field(default=0, ge=0)
+    # The problem type of each signal actually emitted, in emission order and with repeats kept, so the
+    # watch feed can count the kinds of issue a row carries. Empty on non-signal rows and on old rows.
+    signal_problem_types: list[str] = Field(default_factory=list)
+    # The same signals with their headline and confidence, so the feed can name them rather than count them
+    # and can rank a weak finding below a strong one. Empty on non-signal rows and on rows scanned before
+    # this shipped; `signal_problem_types` stays because those older rows carry only it.
+    signal_summaries: list[EmittedSignal] = Field(default_factory=list)
     verification: VerificationRecord | None = None
 
 
@@ -271,6 +289,10 @@ class ScannerCallOutput(BaseModel, frozen=True):
     # Extracted from the LLM response before `finalize` so per-type output mapping can't drop them.
     signals: list[SignalFinding] = Field(default_factory=list)
     verification: VerificationRecord | None = None
+    # Video seconds the model picked for the thumbnail; None when it skipped the optional pick.
+    thumbnail_video_s: int | None = None
+    # Signal spans on the video clock, which `signals` no longer carries once they move to session time.
+    signal_video_spans: list[tuple[int, int]] = Field(default_factory=list)
 
 
 class CleanupGeminiFileInputs(BaseModel, frozen=True):

@@ -1,5 +1,5 @@
 import json
-from contextlib import AbstractContextManager
+from contextlib import AbstractContextManager, nullcontext
 from datetime import UTC, datetime
 
 import pytest
@@ -7,6 +7,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.apps import apps
+from django.db import DatabaseError
 
 from parameterized import parameterized
 
@@ -207,6 +208,35 @@ class TestScoutReportPersistence(BaseTest):
         run.refresh_from_db()
         assert run.emitted_report_ids == [result.report_id]
 
+    @parameterized.expand(
+        [
+            ("signal_delivery_fails", RuntimeError("kafka unavailable"), None, True),
+            ("run_tally_write_fails", None, DatabaseError("connection reset"), False),
+        ]
+    )
+    def test_a_committed_report_always_carries_its_authoring_run(
+        self, _name, emit_error, save_error, expect_report
+    ) -> None:
+        run = self._make_run()
+        self.emit_mock.side_effect = emit_error
+        save_patch = patch.object(SignalScoutRun, "save", side_effect=save_error) if save_error else nullcontext()
+        with save_patch, pytest.raises(type(emit_error or save_error)):
+            create_scout_report(
+                team_id=self.team.id,
+                title="Checkout API p99 latency regressed",
+                summary="The checkout endpoint p99 doubled after the 4.2 deploy.",
+                signals=[ScoutReportSignal(description="p99 doubled on /checkout", source_id="obs-1", weight=1.0)],
+                attribution=ArtefactAttribution.from_task(str(run.task_run.task_id)),
+                run=run,
+            )
+
+        report_ids = [
+            str(report_id) for report_id in SignalReport.objects.filter(team=self.team).values_list("id", flat=True)
+        ]
+        assert bool(report_ids) is expect_report
+        run.refresh_from_db()
+        assert run.emitted_report_ids == report_ids
+
     def test_create_with_reviewers_fires_linkability_telemetry(self) -> None:
         # Scout-authored reports persist reviewers here, not through the custom-agent path; without
         # this call the scout bucket silently disappears from the reviewer-linkability metric.
@@ -301,10 +331,15 @@ class TestScoutReportPersistence(BaseTest):
 
     @parameterized.expand(
         [
-            ("empty_title", "", "summary", [ScoutReportSignal(description="d", source_id="s")]),
-            ("empty_summary", "title", "  ", [ScoutReportSignal(description="d", source_id="s")]),
+            ("empty_title", "", "summary", [ScoutReportSignal(description="d", source_id="s", weight=1.0)]),
+            ("empty_summary", "title", "  ", [ScoutReportSignal(description="d", source_id="s", weight=1.0)]),
             ("no_signals", "title", "summary", []),
-            ("blank_signal_description", "title", "summary", [ScoutReportSignal(description="  ", source_id="s")]),
+            (
+                "blank_signal_description",
+                "title",
+                "summary",
+                [ScoutReportSignal(description="  ", source_id="s", weight=1.0)],
+            ),
         ]
     )
     def test_create_rejects_invalid_shape(self, _name, title, summary, signals) -> None:
@@ -324,7 +359,7 @@ class TestScoutReportPersistence(BaseTest):
             team_id=self.team.id,
             title="old title",
             summary="old summary",
-            signals=[ScoutReportSignal(description="d", source_id="s")],
+            signals=[ScoutReportSignal(description="d", source_id="s", weight=1.0)],
             attribution=ArtefactAttribution.system(),
         )
         updated = update_scout_report(
@@ -369,7 +404,7 @@ class TestScoutReportPersistence(BaseTest):
             team_id=self.team.id,
             title="t",
             summary="s",
-            signals=[ScoutReportSignal(description="d", source_id="s")],
+            signals=[ScoutReportSignal(description="d", source_id="s", weight=1.0)],
             attribution=ArtefactAttribution.system(),
         )
         before = SignalReport.objects.get(id=result.report_id).updated_at
@@ -404,7 +439,7 @@ class TestScoutReportPersistence(BaseTest):
                 team_id=self.team.id,
                 title=f"t{index}",
                 summary="s",
-                signals=[ScoutReportSignal(description="d", source_id=f"s{index}")],
+                signals=[ScoutReportSignal(description="d", source_id=f"s{index}", weight=1.0)],
                 attribution=ArtefactAttribution.system(),
             )
             for index in range(2)
@@ -425,7 +460,7 @@ class TestScoutReportPersistence(BaseTest):
                 team_id=other_team.id,
                 title="theirs",
                 summary="theirs",
-                signals=[ScoutReportSignal(description="d", source_id="s")],
+                signals=[ScoutReportSignal(description="d", source_id="s", weight=1.0)],
                 attribution=ArtefactAttribution.system(),
             )
         with pytest.raises(InvalidScoutReportError):
@@ -454,7 +489,7 @@ class TestScoutReportPersistence(BaseTest):
             team_id=self.team.id,
             title="t",
             summary="s",
-            signals=[ScoutReportSignal(description="d", source_id="obs")],
+            signals=[ScoutReportSignal(description="d", source_id="obs", weight=1.0)],
             attribution=ArtefactAttribution.system(),
             status=SignalReport.Status.PENDING_INPUT,
             safety=SafetyJudgment(choice=True, explanation=None),
@@ -509,8 +544,8 @@ class TestScoutReportPersistence(BaseTest):
                 title="t",
                 summary="s",
                 signals=[
-                    ScoutReportSignal(description="a", source_id="obs-1", document_id="dup"),
-                    ScoutReportSignal(description="b", source_id="obs-2", document_id="dup"),
+                    ScoutReportSignal(description="a", source_id="obs-1", document_id="dup", weight=1.0),
+                    ScoutReportSignal(description="b", source_id="obs-2", document_id="dup", weight=1.0),
                 ],
                 attribution=ArtefactAttribution.system(),
             )
@@ -569,7 +604,7 @@ class TestScoutReportCharts(BaseTest):
             team_id=self.team.id,
             title="Signups dropped",
             summary="Signups fell 60% on the 6th. [Daily signups](chart:signups-drop)",
-            signals=[ScoutReportSignal(description="d", source_id="obs")],
+            signals=[ScoutReportSignal(description="d", source_id="obs", weight=1.0)],
             attribution=ArtefactAttribution.system(),
             charts=charts or [],
         )
@@ -587,7 +622,7 @@ class TestScoutReportCharts(BaseTest):
             team_id=self.team.id,
             title="t",
             summary="s",
-            signals=[ScoutReportSignal(description="d", source_id="obs")],
+            signals=[ScoutReportSignal(description="d", source_id="obs", weight=1.0)],
             attribution=ArtefactAttribution.system(),
             status=SignalReport.Status.SUPPRESSED,
             charts=[self._chart("signups-drop", "Daily signups")],
@@ -688,7 +723,7 @@ class TestScoutReportCharts(BaseTest):
                 team_id=other_team.id,
                 title="theirs",
                 summary="s",
-                signals=[ScoutReportSignal(description="d", source_id="obs")],
+                signals=[ScoutReportSignal(description="d", source_id="obs", weight=1.0)],
                 attribution=ArtefactAttribution.system(),
             )
 
@@ -747,7 +782,7 @@ class TestScoutReportMetrics(BaseTest):
             team_id=self.team.id,
             title="Exceptions affect 17 users",
             summary="Seventeen users saw the same exception.",
-            signals=[ScoutReportSignal(description="same exception", source_id="obs")],
+            signals=[ScoutReportSignal(description="same exception", source_id="obs", weight=1.0)],
             attribution=ArtefactAttribution.system(),
             metrics=metrics,
         )
@@ -832,7 +867,7 @@ class TestScoutReportRepository(BaseTest):
             team_id=self.team.id,
             title="Signups dropped",
             summary="Signups fell 60% on the 6th.",
-            signals=[ScoutReportSignal(description="d", source_id="obs")],
+            signals=[ScoutReportSignal(description="d", source_id="obs", weight=1.0)],
             attribution=ArtefactAttribution.system(),
         )
         return result.report_id
@@ -908,7 +943,7 @@ class TestScoutReportSuggestedPrompts(BaseTest):
             team_id=self.team.id,
             title="Signups dropped",
             summary="Signups fell 60% on the 6th.",
-            signals=[ScoutReportSignal(description="d", source_id="obs")],
+            signals=[ScoutReportSignal(description="d", source_id="obs", weight=1.0)],
             attribution=ArtefactAttribution.system(),
             suggested_prompts=suggested_prompts or [],
         )
@@ -1008,7 +1043,7 @@ class TestScoutReportSuggestedPrompts(BaseTest):
                 team_id=other_team.id,
                 title="theirs",
                 summary="s",
-                signals=[ScoutReportSignal(description="d", source_id="obs")],
+                signals=[ScoutReportSignal(description="d", source_id="obs", weight=1.0)],
                 attribution=ArtefactAttribution.system(),
             )
 

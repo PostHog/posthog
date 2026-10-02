@@ -1,17 +1,27 @@
+import ast
 import json
+import inspect
+import tempfile
+import zoneinfo
+import importlib
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any, cast
 
 import time_machine
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.models import Organization
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team import Team
-from posthog.tasks.process_scheduled_changes import process_scheduled_changes
+from posthog.tasks.process_scheduled_changes import process_scheduled_changes, resolve_schedule_timezone
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
@@ -127,6 +137,43 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         updated_flag = FeatureFlag.objects.get(key="flag-1")
         self.assertEqual(updated_flag.filters["groups"][0], new_release_condition)
         self.assertEqual(updated_flag.filters["multivariate"]["variants"], variants)
+
+    def test_a_target_in_another_config_format_fails_without_blocking_the_batch(self) -> None:
+        v2_document = {"version": 2, "return_type": "boolean", "default_value": False, "rules": []}
+        other_format = FeatureFlag.objects.create(
+            name="other", key="other-format", active=True, filters=v2_document, team=self.team, created_by=self.user
+        )
+        v1_flag = FeatureFlag.objects.create(
+            name="v1", key="v1-flag", active=False, filters={"groups": []}, team=self.team, created_by=self.user
+        )
+        failing = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=other_format.id,
+            model_name="FeatureFlag",
+            payload={"operation": "add_release_condition", "value": {"groups": [{"properties": []}]}},
+            scheduled_at=(datetime.now(UTC) - timedelta(seconds=60)),
+        )
+        applying = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=v1_flag.id,
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": True},
+            scheduled_at=(datetime.now(UTC) - timedelta(seconds=30)),
+        )
+
+        process_scheduled_changes()
+
+        other_format.refresh_from_db()
+        v1_flag.refresh_from_db()
+        failing.refresh_from_db()
+        applying.refresh_from_db()
+        assert other_format.filters == v2_document
+        assert v1_flag.active is True
+        assert failing.failure_reason is not None
+        assert json.loads(failing.failure_reason)["error_type"] == "ConfigFormatError"
+        assert failing.executed_at is not None
+        assert applying.failure_reason is None
+        assert applying.executed_at is not None
 
     def test_schedule_feature_flag_invalid_payload(self) -> None:
         feature_flag = FeatureFlag.objects.create(
@@ -1649,7 +1696,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
                 datetime(2024, 1, 16, 9, 0, tzinfo=UTC),
             ),
             # Unknown / typo'd timezone falls back to UTC rather than raising and stalling
-            # the schedule. Exercises the ZoneInfoNotFoundError branch.
+            # the schedule.
             (
                 "invalid_timezone_falls_back_to_utc",
                 "2024-01-15T09:00:00Z",
@@ -1714,3 +1761,53 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
 
             scheduled_change.refresh_from_db()
             self.assertEqual(scheduled_change.scheduled_at, expected_next)
+
+
+@contextmanager
+def corrupt_system_tzdata() -> Iterator[None]:
+    """
+    Point the zoneinfo search path at a directory whose TZif files are corrupt.
+
+    A name that no file matches raises ZoneInfoNotFoundError and then falls back to the tzdata
+    package, so an empty directory does not reproduce the failure. The file has to exist and be
+    unreadable, which is what makes ZoneInfo raise ValueError.
+    """
+    original_tzpath = zoneinfo.TZPATH
+    with tempfile.TemporaryDirectory() as tzdir:
+        for name in ("UTC", "America/New_York"):
+            tzfile = Path(tzdir) / name
+            tzfile.parent.mkdir(parents=True, exist_ok=True)
+            tzfile.write_bytes(b"this is not a TZif file")
+        zoneinfo.reset_tzpath([tzdir])
+        zoneinfo.ZoneInfo.clear_cache()
+        try:
+            yield
+        finally:
+            zoneinfo.reset_tzpath(original_tzpath)
+            zoneinfo.ZoneInfo.clear_cache()
+
+
+class TestScheduledChangesWithoutReadableTzdata(SimpleTestCase):
+    @parameterized.expand([("unreadable_zone", "America/New_York"), ("unreadable_utc", "UTC")])
+    def test_corrupt_tzif_file_falls_back_to_utc(self, _name: str, tz_name: str) -> None:
+        with corrupt_system_tzdata():
+            self.assertEqual(resolve_schedule_timezone(tz_name), UTC)
+
+    def test_module_builds_no_zoneinfo_at_import_time(self) -> None:
+        # posthog/tasks/__init__.py imports this module, so a ZoneInfo built at module scope
+        # reads a TZif file while every management command is still starting up. One corrupt
+        # file then stops the process before it runs, the temporal worker included. Use
+        # datetime.UTC, which needs no tzdata file.
+        module = importlib.import_module(resolve_schedule_timezone.__module__)
+        module_scope = [
+            statement
+            for statement in ast.parse(inspect.getsource(module)).body
+            if not isinstance(statement, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef)
+        ]
+        zoneinfo_calls = [
+            node
+            for statement in module_scope
+            for node in ast.walk(statement)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "ZoneInfo"
+        ]
+        self.assertEqual(zoneinfo_calls, [])

@@ -20,6 +20,7 @@ from datetime import datetime
 from uuid import UUID
 
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
@@ -221,7 +222,9 @@ def _compute_unresolved(run) -> int:
     return 0
 
 
-def _to_run(run, user_basic_infos: dict[int, contracts.UserBasicInfo] | None = None) -> contracts.Run:
+def _to_run(
+    run, user_basic_infos: dict[int, contracts.UserBasicInfo] | None = None, unresolved: int | None = None
+) -> contracts.Run:
     approved_by = (user_basic_infos or {}).get(run.approved_by_id) if run.approved_by_id else None
     return contracts.Run(
         id=run.id,
@@ -239,12 +242,13 @@ def _to_run(run, user_basic_infos: dict[int, contracts.UserBasicInfo] | None = N
             new=run.new_count,
             removed=run.removed_count,
             unchanged=run.total_snapshots - run.changed_count - run.new_count - run.removed_count,
-            unresolved=_compute_unresolved(run),
+            unresolved=_compute_unresolved(run) if unresolved is None else unresolved,
             tolerated_matched=run.tolerated_match_count,
         ),
         error_message=run.error_message or None,
         created_at=run.created_at,
         completed_at=run.completed_at,
+        purpose=run.purpose,
         is_stale=run_queries.is_run_stale(run),
         superseded_by_id=run.superseded_by_id,
         approved_by=approved_by,
@@ -364,6 +368,56 @@ def get_baselines_overview(repo_id: UUID) -> contracts.BaselineOverview:
         totals=totals,
         truncated=raw.truncated,
         generated_at=raw.generated_at,
+    )
+
+
+def get_toleration_pileups(
+    repo_id: UUID,
+    *,
+    window_days: int = contracts.TOLERATION_PILEUP_WINDOW_DAYS,
+    min_tolerations: int = contracts.VARIANT_PILEUP_MIN,
+    min_automatic_tolerations: int | None = None,
+    include_quarantined: bool = True,
+    run_type: str | None = None,
+    limit: int = 100,
+) -> contracts.TolerationPileups:
+    """Snapshot identities that keep getting tolerated, biggest manual pile first.
+
+    Backs the pile-ups endpoint, which agents read. The defaults are the debt digest's rule, except
+    that quarantined identities stay in the list and are marked, so a reader sees open and muted
+    piles alike.
+    """
+    now = timezone.now()
+    quarantined_keys = quarantine.active_quarantine_keys(repo_id, now=now)
+    pileups = toleration.list_toleration_pileups(
+        repo_id,
+        now=now,
+        window_days=window_days,
+        min_intentional=min_tolerations,
+        min_automatic=min_automatic_tolerations,
+    )
+    matching = [
+        (key, counts)
+        for key, counts in pileups
+        if (include_quarantined or key not in quarantined_keys) and (run_type is None or key.run_type == run_type)
+    ]
+    return contracts.TolerationPileups(
+        entries=[
+            contracts.TolerationPileupEntry(
+                identifier=key.identifier,
+                run_type=key.run_type,
+                intentional_count=counts.intentional,
+                automatic_count=counts.automatic,
+                is_quarantined=key in quarantined_keys,
+            )
+            for key, counts in matching[:limit]
+        ],
+        window_days=window_days,
+        min_tolerations=min_tolerations,
+        min_automatic_tolerations=min_automatic_tolerations,
+        total=len(matching),
+        truncated=len(matching) > limit,
+        generated_at=now,
     )
 
 
@@ -541,39 +595,53 @@ def add_snapshots(input: contracts.AddSnapshotsInput, run_id: UUID, team_id: int
 
 
 def get_run(run_id: UUID, team_id: int | None = None) -> contracts.Run:
-    run = run_queries.get_run_with_snapshots(run_id, team_id=team_id)
+    run = run_queries.get_run(run_id, team_id=team_id)
     user_ids = {run.approved_by_id} if run.approved_by_id else set()
     user_basic_infos = _fetch_user_basic_infos(user_ids)
-    return _to_run(run, user_basic_infos)
+    return _to_run(run, user_basic_infos, unresolved=gating.count_unresolved(run))
+
+
+def get_run_scope(run_id: UUID, team_id: int) -> contracts.RunScope:
+    """The repo and run type a run belongs to, for endpoints that only need to know where to look."""
+    run = run_queries.get_run(run_id, team_id=team_id)
+    return contracts.RunScope(repo_id=run.repo_id, run_type=run.run_type)
 
 
 def get_run_snapshots(
-    run_id: UUID, team_id: int | None = None, include_quarantined: bool = True
+    run_id: UUID,
+    team_id: int | None = None,
+    include_quarantined: bool = True,
+    exclude_unchanged: bool = False,
+    snapshot_id: UUID | None = None,
+    limit: int | None = None,
+    offset: int = 0,
 ) -> contracts.RunSnapshots:
+    """One page of a run's snapshots. `limit=None` returns every match from `offset` on.
+
+    Filtering and paging stay in SQL, and only the page becomes DTOs, because each DTO
+    signs a download URL per artifact and a large run holds thousands of rows.
+    """
     if not include_quarantined and team_id is None:
         raise ValueError("team_id is required to exclude quarantined snapshots")
-    snapshots = run_queries.get_run_snapshots(run_id, team_id=team_id)
-    if not snapshots:
-        return contracts.RunSnapshots(snapshots=[], quarantined_count=0)
-    repo_id = snapshots[0].run.repo_id
-    run_type = snapshots[0].run.run_type
-    quarantined_identifiers = (
-        {q.identifier for q in quarantine.list_quarantined_identifiers(repo_id, team_id, run_type=run_type)}
-        if team_id is not None
-        else set()
-    )
-    user_ids = {s.reviewed_by_id for s in snapshots if s.reviewed_by_id}
-    user_basic_infos = _fetch_user_basic_infos(user_ids)
-    dtos: list[contracts.Snapshot] = []
+    run = run_queries.get_run(run_id, team_id=team_id)
+    snapshots = run_queries.run_snapshots(run, exclude_unchanged=exclude_unchanged, snapshot_id=snapshot_id)
+
     quarantined_count = 0
-    for s in snapshots:
-        dto = _to_snapshot(s, repo_id, user_basic_infos)
-        if dto.identifier in quarantined_identifiers:
-            quarantined_count += 1
-            if not include_quarantined:
-                continue
-        dtos.append(dto)
-    return contracts.RunSnapshots(snapshots=dtos, quarantined_count=quarantined_count)
+    if team_id is not None:
+        quarantined = quarantine.active_quarantined_identifiers(run.repo_id, team_id, run.run_type, using=snapshots.db)
+        quarantined_count = snapshots.filter(identifier__in=quarantined).count()
+        if not include_quarantined:
+            snapshots = snapshots.exclude(identifier__in=quarantined)
+
+    total_count = snapshots.count()
+    page = list(snapshots[offset : offset + limit if limit is not None else None])
+    user_ids = {s.reviewed_by_id for s in page if s.reviewed_by_id}
+    user_basic_infos = _fetch_user_basic_infos(user_ids)
+    return contracts.RunSnapshots(
+        snapshots=[_to_snapshot(s, run.repo_id, user_basic_infos) for s in page],
+        quarantined_count=quarantined_count,
+        total_count=total_count,
+    )
 
 
 def _to_history_entry(entry, repo_id: UUID) -> contracts.SnapshotHistoryEntry:
@@ -628,14 +696,19 @@ def get_tolerated_hashes(repo_id: UUID, identifier: str) -> list[contracts.Toler
     ]
 
 
-def complete_run(run_id: UUID, team_id: int | None = None) -> contracts.Run:
+def complete_run(run_id: UUID, team_id: int | None = None, check_run_id: str | None = None) -> contracts.Run:
     """
     Complete a run: detect removals, verify uploads, trigger diff processing.
     """
     if team_id is not None:
         run_queries.get_run(run_id, team_id=team_id)  # validates ownership
     run = runs.complete_run(run_id)
-    return _to_run(run)
+    # After `complete_run`, whose baseline healing saves a whole metadata dict it may have read stale.
+    if check_run_id is not None:
+        runs.record_completing_job(run_id, check_run_id)
+    # A re-run of the completing CI job lands here on a completed run, and the CLI gates on this
+    # number, so it must be the commit status verdict and not the unprefetched default of 0.
+    return _to_run(run, unresolved=gating.count_gating(run))
 
 
 def recompute_run(run_id: UUID, team_id: int | None = None) -> contracts.RecomputeResult:
@@ -796,6 +869,7 @@ def quarantine_identifier(
         source=source,
         user_id=user_id,
         team_id=team_id,
+        notify_owners=input.notify_owners,
     )
     user_basic_infos = _fetch_user_basic_infos({user_id})
     return _to_quarantined_entry(entry, user_basic_infos)

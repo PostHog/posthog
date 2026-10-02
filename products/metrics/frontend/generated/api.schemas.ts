@@ -40,12 +40,12 @@ export interface _MetricAttributeValuesResponseApi {
 export interface _MetricAttributeKeyApi {
     /** Attribute key as it appears on the team's metrics (e.g. 'env', 'k8s.pod.name'). */
     name: string
-    /** Number of distinct recent series with this attribute, based on series metadata. */
-    series_count: number
+    /** Number of distinct values for this attribute in recent data. */
+    value_count: number
 }
 
 export interface _MetricAttributeKeysResponseApi {
-    /** Distinct attribute keys (datapoint and resource attributes merged), ordered by series count descending. */
+    /** Distinct attribute keys (datapoint and resource attributes merged), ordered by distinct value count descending. */
     results: _MetricAttributeKeyApi[]
     /** Number of keys returned. */
     count: number
@@ -838,7 +838,7 @@ export interface _MetricCatalogValuesParamsApi {
 
 export type MetricsAttributeValuesRetrieveParams = {
     /**
-     * Lower bound (inclusive) of the window values are suggested from. ISO 8601. Defaults to 7 days ago.
+     * Lower bound (inclusive) of the window values are suggested from. ISO 8601. Defaults to 24 hours ago.
      * @nullable
      */
     dateFrom?: string | null
@@ -868,7 +868,7 @@ export type MetricsAttributeValuesRetrieveParams = {
 
 export type MetricsAttributesRetrieveParams = {
     /**
-     * Lower bound (inclusive) of the window keys are suggested from. ISO 8601. Defaults to 7 days ago.
+     * Lower bound (inclusive) of the window keys are suggested from. ISO 8601. Defaults to 24 hours ago.
      * @nullable
      */
     dateFrom?: string | null

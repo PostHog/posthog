@@ -1,0 +1,118 @@
+cases:
+    - name: status is active when no file sets it
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-a
+          sub/owners.yaml: |
+              version: 1
+              owners: team-b
+      expect:
+          sub/x.py:
+              owners: [team-b]
+              unowned_by_design: false
+              status: active
+              source: sub/owners.yaml
+              slack: '#team-b'
+
+    - name: each status value passes through to the resolution
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-a
+          old/owners.yaml: |
+              version: 1
+              owners: []
+              status: deprecated
+          gen/owners.yaml: |
+              version: 1
+              owners: []
+              status: generated
+          third_party/owners.yaml: |
+              version: 1
+              owners: []
+              status: vendored
+          live/owners.yaml: |
+              version: 1
+              owners: []
+              status: active
+      expect:
+          old/x.py:
+              owners: [team-a]
+              unowned_by_design: false
+              status: deprecated
+              source: owners.yaml
+              slack: '#team-a'
+          gen/x.py:
+              owners: [team-a]
+              unowned_by_design: false
+              status: generated
+              source: owners.yaml
+              slack: '#team-a'
+          third_party/x.py:
+              owners: [team-a]
+              unowned_by_design: false
+              status: vendored
+              source: owners.yaml
+              slack: '#team-a'
+          live/x.py:
+              owners: [team-a]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-a'
+
+    - name: a nearer status replaces the ancestor status
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-a
+              status: deprecated
+          sub/owners.yaml: |
+              version: 1
+              owners: []
+              status: active
+      expect:
+          sub/x.py:
+              owners: [team-a]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-a'
+          x.py:
+              owners: [team-a]
+              unowned_by_design: false
+              status: deprecated
+              source: owners.yaml
+              slack: '#team-a'
+
+    - name: a file with owners null can still set a status
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-a
+          vendor/owners.yaml: |
+              version: 1
+              owners: null
+              status: vendored
+      expect:
+          vendor/lib.py:
+              owners: []
+              unowned_by_design: true
+              status: vendored
+              source: vendor/owners.yaml
+              slack: null
+
+    - name: status applies to a path that has no owners
+      files:
+          owners.yaml: |
+              version: 1
+              owners: []
+              status: generated
+      expect:
+          x.py:
+              owners: []
+              unowned_by_design: false
+              status: generated
+              source: null
+              slack: null

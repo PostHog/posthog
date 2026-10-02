@@ -4,20 +4,17 @@ Two surfaces live here, both keyed on a SharingConfiguration access token:
 
 * ``start_call`` — called by the public interview page when the recipient clicks
   Start. Creates one Vapi web call server-side and returns only its join payload.
-* ``vapi_webhook`` — the endpoint Vapi calls during and after a call. Verification and
-  fan-out are the ingress vapi incarnation's, and the consumer it dispatches to lives in
-  ``backend/webhook_consumers.py``.
+* ``vapi_webhook`` — the endpoint Vapi calls during and after a call. The throttle,
+  verification and fan-out are the ingress vapi incarnation's, and the consumer it
+  dispatches to lives in ``backend/webhook_consumers.py``.
 """
 
 import json
-import math
 import string
 import hashlib
 from typing import Any
 
 from django.conf import settings
-from django.http import HttpRequest, HttpResponse
-from django.views.decorators.csrf import csrf_exempt
 
 import requests
 import structlog
@@ -35,13 +32,13 @@ from posthog.ingress.views import build_webhook_view
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team import Team
 from posthog.rate_limit import IPThrottle
-from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
 from ..facade.api import is_shared_interviewee_context, valid_distinct_id, valid_session_id
 from ..logic import (
     RESPONDENT_KEY_MAX_CHARS,
     RESPONDENT_NAME_MAX_CHARS,
     clean_field,
+    resolve_first_message_template,
     resolve_share,
     shared_interviewee_identifier,
 )
@@ -82,19 +79,6 @@ class InterviewStartCallIPThrottle(_RateLimitMetricsMixin, IPThrottle):
 
     scope = "user_interviews_start_call_ip"
     rate = "200/minute"
-
-
-class VapiWebhookIPThrottle(_RateLimitMetricsMixin, IPThrottle):
-    """Per-IP cap on `vapi_webhook`. Vapi calls us a small handful of times per interview
-    (status-update + end-of-call-report), but its egress is shared across all of our tenants,
-    so the bucket has to be generous enough that a noisy concurrent interview hour doesn't
-    bleed onto a normal one. 1200/min is well above legitimate aggregate volume while still
-    stopping a persistent attacker from driving HMAC-verification CPU or structured-log
-    volume from a single IP. Rejection emits `rate_limit_exceeded_total` via the parent
-    mixin so we can alert if it ever trips."""
-
-    scope = "user_interviews_vapi_webhook_ip"
-    rate = "1200/minute"
 
 
 class InterviewStartCallTokenThrottle(_RateLimitMetricsMixin):
@@ -175,20 +159,7 @@ def _normalise_topic(topic_text: str) -> str:
 
 
 def _resolve_first_message_template(team: Team) -> str:
-    try:
-        cached = get_prompt_by_name_from_cache(team, FIRST_MESSAGE_PROMPT_NAME)
-    except Exception as err:
-        logger.warning(
-            "user_interviews_first_message_prompt_lookup_failed",
-            team_id=team.id,
-            error=str(err),
-        )
-        return DEFAULT_FIRST_MESSAGE_TEMPLATE
-    if cached is not None:
-        template = cached.get("prompt")
-        if isinstance(template, str) and template.strip():
-            return template
-    return DEFAULT_FIRST_MESSAGE_TEMPLATE
+    return resolve_first_message_template(team, FIRST_MESSAGE_PROMPT_NAME, DEFAULT_FIRST_MESSAGE_TEMPLATE)
 
 
 def _build_first_message(
@@ -416,21 +387,6 @@ def start_call(request: Request, access_token: str) -> Response:
 
 
 # Built once per process: the provider holds a secret getter, and reads the secret per request.
-_vapi_ingress_view = build_webhook_view(build_vapi_provider())
-
-
-@csrf_exempt
-def vapi_webhook(request: HttpRequest) -> HttpResponse:
-    """The ingress Vapi endpoint, behind the per-IP cap this endpoint has always carried.
-
-    ingress has no throttle lane, and the endpoint is public and unauthenticated, so the cap
-    stays in front of the view rather than being dropped on the way in.
-    """
-    throttle = VapiWebhookIPThrottle()
-    if not throttle.allow_request(Request(request), None):
-        throttled = HttpResponse(status=status.HTTP_429_TOO_MANY_REQUESTS)
-        wait = throttle.wait()
-        if wait:
-            throttled["Retry-After"] = str(math.ceil(wait))
-        return throttled
-    return _vapi_ingress_view(request)
+# The per-IP cap rides on the provider's `throttle_class`, so the throttle, the 429 and its
+# `Retry-After` are the ingress lane's, the same as every other provider that caps.
+vapi_webhook = build_webhook_view(build_vapi_provider())

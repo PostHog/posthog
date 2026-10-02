@@ -2,7 +2,7 @@ import '../../panel-layout/ProjectTree/defaultTree'
 
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
 import {
@@ -17,6 +17,8 @@ import {
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { ProductSetupButton } from 'lib/components/ProductSetup'
+import { releaseStageProductForScene } from 'lib/components/ReleaseStageTag/releaseStage'
+import { ReleaseStageTag } from 'lib/components/ReleaseStageTag/ReleaseStageTag'
 import { RenderKeybind } from 'lib/components/Shortcuts/ShortcutMenu'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -33,6 +35,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { Breadcrumb, FileSystemIconColor, SidePanelTab } from '~/types'
 
@@ -71,6 +74,7 @@ export function SceneTitlePanelButton({
 
     const { featureFlags } = useValues(featureFlagLogic)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
+    const { todayRailEnabled } = useValues(todayShellLogic)
 
     // Open Info tab if scene has panel content, otherwise default to PostHog AI
     const defaultTab = scenePanelIsPresent ? SidePanelTab.Info : SidePanelTab.Max
@@ -81,7 +85,7 @@ export function SceneTitlePanelButton({
 
     return (
         <>
-            {!sceneMenuBarEnabled && (
+            {!sceneMenuBarEnabled && !todayRailEnabled && (
                 <ButtonPrimitive
                     className={cn(buttonClassName, maxButtonLabel && 'w-auto px-2')}
                     onClick={(e) => {
@@ -244,6 +248,8 @@ type SceneMainTitleProps = {
     maxButtonLabel?: string
     /** Max character length for the description field */
     descriptionMaxLength?: number
+    /** The scene whose release stage the title shows, when the title is for a scene other than the active one */
+    sceneId?: string | null
 }
 
 export function SceneTitleSection({
@@ -271,9 +277,13 @@ export function SceneTitleSection({
     maxToolProps,
     maxButtonLabel,
     descriptionMaxLength,
+    sceneId,
 }: SceneMainTitleProps): JSX.Element | null {
     const { breadcrumbs } = useValues(breadcrumbsLogic)
     const { zenMode } = useValues(navigation3000Logic)
+    const { activeSceneId } = useValues(sceneLogic)
+    const releaseStageSceneId = sceneId ?? activeSceneId
+    const releaseStageProduct = useMemo(() => releaseStageProductForScene(releaseStageSceneId), [releaseStageSceneId])
     const { showDescription } = useValues(sceneLayoutLogic)
     const { toggleShowDescription } = useActions(sceneLayoutLogic)
     const willShowBreadcrumbs = forceBackTo || breadcrumbs.length > 2
@@ -349,7 +359,7 @@ export function SceneTitleSection({
                     data-editable={canEdit}
                 >
                     <div
-                        className={cn('flex gap-1 flex-1 min-w-0', {
+                        className={cn('flex items-center gap-1 flex-1 min-w-0', {
                             '-ml-[var(--button-padding-x-base)]': willShowBreadcrumbs,
                         })}
                     >
@@ -380,6 +390,7 @@ export function SceneTitleSection({
                                     isGeneratingMetadata={isGeneratingMetadata}
                                     suffix={
                                         <>
+                                            {releaseStageProduct && <ReleaseStageTag product={releaseStageProduct} />}
                                             {nameSuffix}
                                             {hasDescription && !descriptionAlwaysVisible ? (
                                                 <ButtonPrimitive
@@ -477,6 +488,10 @@ export function SceneName({
     // the user's own edit arriving back through the form, so the render-phase
     // reconciliation below can't overwrite a keystroke that hasn't round-tripped yet.
     const latestNameRef = useRef(initialName)
+    // What the last Enter press saved, held only until the next blur. `initialName` catches up
+    // when the save round-trips, so the blur straight after Enter still sees a changed field and
+    // would save the same value a second time.
+    const savedByEnterRef = useRef<string | null>(null)
     if (initialName !== prevInitialName) {
         setPrevInitialName(initialName)
         if (initialName !== latestNameRef.current) {
@@ -519,7 +534,9 @@ export function SceneName({
         if (relatedTarget && containerRef.current && containerRef.current.contains(relatedTarget)) {
             return
         }
-        if (saveOnBlur && !isGeneratingMetadata && name !== initialName) {
+        const savedByEnter = savedByEnterRef.current
+        savedByEnterRef.current = null
+        if (saveOnBlur && !isGeneratingMetadata && name !== initialName && name !== savedByEnter) {
             debouncedOnBlurSave(name || '')
         } else if (!saveOnBlur) {
             // Commit any pending debounced change synchronously so a submit or
@@ -570,6 +587,7 @@ export function SceneName({
                                 if (e.key === 'Enter') {
                                     e.preventDefault()
                                     if (saveOnBlur && e.currentTarget.value !== initialName) {
+                                        savedByEnterRef.current = e.currentTarget.value || ''
                                         onChange?.(e.currentTarget.value || '')
                                     }
                                 }

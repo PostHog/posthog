@@ -11,7 +11,6 @@ from django.contrib.auth.models import AnonymousUser
 
 import posthoganalytics
 from opentelemetry import trace
-from rest_framework.authentication import SessionAuthentication
 
 from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.constants import POSTHOG_INTERNAL_EMAIL_SUFFIX
@@ -150,6 +149,47 @@ def report_user_logged_in(
         distinct_id=user.distinct_id,
         event="user logged in",
         properties={"social_provider": social_provider},
+        groups=groups(user.current_organization, user.current_team),
+    )
+
+
+def report_user_email_change_requested(user: User, *, verification_required: bool) -> None:
+    """Triggered when a user stages a new login email.
+
+    `verification_required` is False on an instance without email configured, where the new address
+    is written straight to the account and no code goes out.
+    """
+    if not user.distinct_id:
+        return
+
+    posthoganalytics.capture(
+        distinct_id=user.distinct_id,
+        event="user email change requested",
+        properties={
+            "verification_required": verification_required,
+            "$set": user.get_analytics_metadata(),
+        },
+        groups=groups(user.current_organization, user.current_team),
+    )
+
+
+def report_user_identity_change_refused(user: User, *, field: str, reason: str) -> None:
+    """Triggered when the API refuses to change the login email or the password.
+
+    `reason` is `token_auth` for a personal API key or OAuth token, or `stale_reauth` when the
+    session has not re-authenticated recently enough. See `UserViewSet.guard_identity_change`.
+    """
+    if not user.distinct_id:
+        return
+
+    posthoganalytics.capture(
+        distinct_id=user.distinct_id,
+        event="user identity change refused",
+        properties={
+            "field": field,
+            "reason": reason,
+            "$set": user.get_analytics_metadata(),
+        },
         groups=groups(user.current_organization, user.current_team),
     )
 
@@ -480,6 +520,10 @@ def get_event_source(request) -> EventSource:
     # DRF sets successful_authenticator during view dispatch; before that
     # (e.g. in middleware), fall back to checking the Django session cookie
     # which is available after Django's AuthenticationMiddleware runs.
+    # Call-time import: model files import this module during django.setup(), and posthog.auth
+    # pulls zxcvbn and webauthn, which no background process needs.
+    from posthog.auth import SessionAuthentication  # noqa: PLC0415 — keeps the heavy dep off the import path
+
     if isinstance(getattr(request, "successful_authenticator", None), SessionAuthentication):
         return EventSource.WEB
     if getattr(getattr(request, "session", None), "session_key", None) is not None:

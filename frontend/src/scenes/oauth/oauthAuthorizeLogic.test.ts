@@ -1,13 +1,20 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
-import { decodeParams } from 'kea-router'
+import { decodeParams, router } from 'kea-router'
 
+import { DEFAULT_OAUTH_SCOPES, getScopeGroupLabel } from 'lib/scopes'
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { AppContext } from '~/types'
 
-import { describeOAuthError, oauthAuthorizeLogic } from './oauthAuthorizeLogic'
+import {
+    describeOAuthError,
+    oauthAuthorizeLogic,
+    scopeGroupAccessLevel,
+    scopeGroupLevelTooltip,
+} from './oauthAuthorizeLogic'
 
 describe('oauthAuthorizeLogic', () => {
     let logic: ReturnType<typeof oauthAuthorizeLogic.build>
@@ -26,6 +33,7 @@ describe('oauthAuthorizeLogic', () => {
 
     afterEach(() => {
         logic.unmount()
+        delete (window as any).POSTHOG_APP_CONTEXT
     })
 
     const effectiveScopesCases: { name: string; scopes: string[]; apply?: () => void; expected: string[] }[] = [
@@ -132,6 +140,65 @@ describe('oauthAuthorizeLogic', () => {
         expect(logic.values.effectiveScopes).toEqual(['openid', 'insight:read'])
         logic.actions.setScopeAccess('feature_flag', 'write')
         expect(logic.values.effectiveScopes).toEqual(['openid', 'feature_flag:write', 'insight:read'])
+    })
+
+    const scopeSourceCases: {
+        name: string
+        urlScope?: string
+        resolution?: { scopes: string[]; was_defaulted: boolean }
+        mcpConsent?: { is_mcp_resource: boolean; scopes: string[] }
+        expected: string[]
+    }[] = [
+        {
+            name: 'prefers the resolved set over the URL',
+            urlScope: 'insight:read',
+            resolution: { scopes: ['openid', 'insight:read', 'dashboard:write'], was_defaulted: false },
+            expected: ['openid', 'insight:read', 'dashboard:write'],
+        },
+        {
+            name: 'uses the resolved set when the client sent no scope',
+            resolution: { scopes: ['openid', 'insight:write', 'query:read'], was_defaulted: true },
+            expected: ['openid', 'insight:write', 'query:read'],
+        },
+        {
+            name: 'narrows a defaulted request to the MCP set on an MCP resource',
+            resolution: { scopes: ['openid', 'insight:write', 'query:read'], was_defaulted: true },
+            mcpConsent: { is_mcp_resource: true, scopes: ['openid', 'query:read'] },
+            expected: ['openid', 'query:read'],
+        },
+        {
+            name: 'falls back to the identity scopes when the server resolved the request to nothing',
+            urlScope: 'made:up other:junk',
+            resolution: { scopes: [], was_defaulted: true },
+            expected: DEFAULT_OAUTH_SCOPES,
+        },
+        {
+            name: 'falls back to the URL when the server sent no resolution',
+            urlScope: 'insight:read',
+            expected: ['insight:read'],
+        },
+        {
+            name: 'falls back to the identity scopes when neither the server nor the URL names one',
+            expected: DEFAULT_OAUTH_SCOPES,
+        },
+    ]
+
+    it.each(scopeSourceCases)('scope source $name', ({ urlScope, resolution, mcpConsent, expected }) => {
+        window.POSTHOG_APP_CONTEXT = {
+            ...window.POSTHOG_APP_CONTEXT,
+            oauth_scope_resolution: resolution,
+            oauth_mcp_consent: mcpConsent,
+        } as AppContext
+        const params = new URLSearchParams({
+            client_id: 'test-client',
+            redirect_uri: 'https://example.com/callback',
+            response_type: 'code',
+            ...(urlScope ? { scope: urlScope } : {}),
+        })
+
+        router.actions.push(`/oauth/authorize?${params.toString()}`)
+
+        expect(logic.values.scopes).toEqual(expected)
     })
 
     const withRequiredScopes = (required_scopes: string[]): void => {
@@ -301,6 +368,23 @@ describe('oauthAuthorizeLogic', () => {
     })
 
     // Opaque client-owned params must reach the API byte-for-byte, whatever they look like.
+    it.each([
+        { name: 'the server sets no flag', flag: undefined, expected: false },
+        { name: 'the server sets the flag to false', flag: false, expected: false },
+        { name: 'the server sets the flag to true', flag: true, expected: true },
+    ])('reports access controls as $expected when $name', ({ flag, expected }) => {
+        const original = window.POSTHOG_APP_CONTEXT
+        window.POSTHOG_APP_CONTEXT = { ...original, oauth_consent_access_controls_apply: flag } as AppContext
+        try {
+            logic.unmount()
+            logic = oauthAuthorizeLogic()
+            logic.mount()
+            expect(logic.values.accessControlsApply).toBe(expected)
+        } finally {
+            window.POSTHOG_APP_CONTEXT = original
+        }
+    })
+
     describe('OAuth parameter passthrough', () => {
         const JSON_STATE = '{"flow_id":"5a8f3d48-c841-4375-b06d-5c828c86282d","provider":"posthog"}'
 
@@ -401,6 +485,63 @@ describe('oauthAuthorizeLogic', () => {
             ['a non-list field value', { state: 'Not a valid string.' }],
         ])('returns null for %s, so the caller falls back', (_name, data) => {
             expect(describeOAuthError(data)).toBeNull()
+        })
+    })
+    describe('grouping', () => {
+        it('keeps a short request flat and groups only past the threshold', () => {
+            logic.actions.setScopes(['openid', 'feature_flag:write', 'session_recording:write', 'insight:write'])
+            expect(logic.values.scopeRowsGrouped).toBe(false)
+            logic.actions.setScopes([
+                'openid',
+                ...[
+                    'insight',
+                    'dashboard',
+                    'query',
+                    'cohort',
+                    'action',
+                    'person',
+                    'survey',
+                    'experiment',
+                    'notebook',
+                    'logs',
+                    'error_tracking',
+                ].map((object) => `${object}:read`),
+            ])
+            expect(logic.values.scopeRowsGrouped).toBe(true)
+            const groups = logic.values.scopeGroups
+            expect(groups.flatMap((group) => group.rows)).toHaveLength(logic.values.adjustableScopeRows.length)
+            for (const group of groups) {
+                expect(group.rows.length).toBeGreaterThan(0)
+                expect(group.rows.map((row) => getScopeGroupLabel(row.key))).toEqual(group.rows.map(() => group.label))
+            }
+        })
+
+        it('sets every row of a group with one group action, clamped to each ceiling', () => {
+            logic.actions.setScopes(['openid', 'session_recording:write', 'session_recording_playlist:read'])
+            logic.actions.setScopeGroupAccess(['session_recording', 'session_recording_playlist'], 'none')
+            expect(logic.values.effectiveScopes).toEqual(['openid'])
+            expect(scopeGroupAccessLevel(logic.values.adjustableScopeRows)).toBe('none')
+            expect(scopeGroupLevelTooltip(logic.values.adjustableScopeRows, 'none', 'Test app')).toBeUndefined()
+            const [recordingRow, playlistRow] = logic.values.adjustableScopeRows
+            const requiredRows = [{ ...recordingRow, minLevel: 'read' as const, value: 'read' as const }, playlistRow]
+            expect(scopeGroupAccessLevel(requiredRows)).toBe('none')
+            expect(scopeGroupLevelTooltip(requiredRows, 'none', 'Test app')).toBe(
+                '1 of these permissions stays on. Test app requires it.'
+            )
+            logic.actions.setScopeGroupAccess(['session_recording', 'session_recording_playlist'], 'write')
+            expect(logic.values.effectiveScopes).toEqual([
+                'openid',
+                'session_recording:write',
+                'session_recording_playlist:read',
+            ])
+            expect(scopeGroupAccessLevel(logic.values.adjustableScopeRows)).toBe('write')
+            expect(scopeGroupLevelTooltip(logic.values.adjustableScopeRows, 'write', 'Test app')).toBe(
+                '1 of these permissions stays at read. Test app did not request write access.'
+            )
+            logic.actions.setScopeAccess('session_recording', 'read')
+            expect(scopeGroupAccessLevel(logic.values.adjustableScopeRows)).toBe('read')
+            logic.actions.setScopeAccess('session_recording_playlist', 'none')
+            expect(scopeGroupAccessLevel(logic.values.adjustableScopeRows)).toBeUndefined()
         })
     })
 })
