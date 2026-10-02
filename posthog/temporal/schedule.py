@@ -226,7 +226,10 @@ async def create_upgrade_queries_schedule(client: Client):
             id="upgrade-queries-schedule",
             task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
         ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(hours=6))]),
+        spec=ScheduleSpec(
+            intervals=[ScheduleIntervalSpec(every=timedelta(hours=6), offset=timedelta(minutes=2))],
+            jitter=timedelta(minutes=30),
+        ),
     )
 
     if await a_schedule_exists(client, "upgrade-queries-schedule"):
@@ -642,10 +645,10 @@ async def create_purge_deleted_recording_metadata_schedule(client: Client):
         )
 
 
-async def create_replay_count_metrics_schedule(client: Client):
+async def create_replay_count_metrics_schedule(client: Client) -> None:
     """Create or update the schedule for the replay count metrics workflow.
 
-    This schedule runs hourly at minute 0, matching the previous Celery schedule.
+    This schedule runs hourly at minute zero to preserve adjacent one-hour metric windows.
     """
     replay_count_metrics_schedule = Schedule(
         action=ScheduleActionStartWorkflow(

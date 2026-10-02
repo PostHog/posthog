@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions } from 'kea'
 import { ReactNode, useState } from 'react'
 
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '@posthog/quill'
@@ -7,21 +7,31 @@ import { CONTEXT_PARTS } from './todayMenuParts'
 import { useTodayPreviewMenuReport } from './todayPreviewCardContext'
 import { TodaySessionActionItems } from './TodaySessionActionItems'
 import { useTodayArchiveShortcut } from './todaySessionArchiveShortcut'
-import { TodaySessionBulkActionItems } from './TodaySessionBulkActionItems'
+import { TodayBulkSelection, TodaySessionBulkActionItems } from './TodaySessionBulkActionItems'
 import { TodaySessionSurface, todaySessionMenuLogic } from './todaySessionMenuLogic'
 import { rightClickActsOnSelection } from './todaySessionSelection'
-import { todaySessionSelectionLogic } from './todaySessionSelectionLogic'
 import { TodaySessionMenuTarget } from './todayWorkItems'
+
+const BULK_DATA_ATTR_PREFIX: Record<TodaySessionSurface, string> = {
+    sidebar: 'today-session-context-bulk',
+    feed: 'today-space-feed-context-bulk',
+}
 
 interface TodaySessionContextMenuProps {
     target: TodaySessionMenuTarget
     surface: TodaySessionSurface
+    /** The selection the row sits in. A right-click on a row inside it acts on the whole selection. */
+    selection: TodayBulkSelection
     children: ReactNode
 }
 
 /** The session's actions on right-click, like PostHog Desktop. Its dialogs belong to the owner of `target.menuId`. */
-export function TodaySessionContextMenu({ target, surface, children }: TodaySessionContextMenuProps): JSX.Element {
-    const { selectedSessionIds } = useValues(todaySessionSelectionLogic)
+export function TodaySessionContextMenu({
+    target,
+    surface,
+    selection,
+    children,
+}: TodaySessionContextMenuProps): JSX.Element {
     const { requestArchive } = useActions(todaySessionMenuLogic)
     const reportMenuOpen = useTodayPreviewMenuReport()
     const [open, setOpen] = useState(false)
@@ -29,8 +39,7 @@ export function TodaySessionContextMenu({ target, surface, children }: TodaySess
         setOpen(nextOpen)
         reportMenuOpen(nextOpen)
     }
-    // The selection lives in the sidebar, so only its rows offer the selection's actions.
-    const bulk = surface === 'sidebar' && rightClickActsOnSelection(selectedSessionIds, target.sessionId)
+    const bulk = rightClickActsOnSelection(selection.selectedSessionIds, target.sessionId)
     useTodayArchiveShortcut(open && !bulk, () => {
         setMenuOpen(false)
         requestArchive(target.sessionId, target.menuId, target.activeRunId)
@@ -42,7 +51,11 @@ export function TodaySessionContextMenu({ target, surface, children }: TodaySess
             {/* Wider for a selection, whose labels carry a count. */}
             <ContextMenuContent className={bulk ? 'w-64' : 'w-56'}>
                 {bulk ? (
-                    <TodaySessionBulkActionItems parts={CONTEXT_PARTS} dataAttrPrefix="today-session-context-bulk" />
+                    <TodaySessionBulkActionItems
+                        parts={CONTEXT_PARTS}
+                        selection={selection}
+                        dataAttrPrefix={BULK_DATA_ATTR_PREFIX[surface]}
+                    />
                 ) : (
                     <TodaySessionActionItems
                         parts={CONTEXT_PARTS}

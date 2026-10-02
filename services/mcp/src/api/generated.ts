@@ -100109,7 +100109,7 @@ export namespace Schemas {
     }
 
     export interface StaffFlagEvaluationsModeMutation {
-      /** Target flag_evaluations mode. 0 reads events, 1 reads flag_evaluations, 2 also stops writing $feature_flag_called to events. Ingestion ignores 2 until its support for 2 deploys, so 2 acts as 1 until then.
+      /** Target flag_evaluations mode. 0 reads events, 1 reads flag_evaluations, 2 also stops ingestion writing $feature_flag_called to events for the teams it writes to flag_evaluations.
        *
        * * `0` - Events
        * * `1` - Read flag evaluations
@@ -100146,6 +100146,8 @@ export namespace Schemas {
       organization_name: string;
       /** Teams of the organization. They all read the organization's mode. */
       team_count: number;
+      /** Running experiments of the organization that count exposures on $feature_flag_called. On teams in the ingestion allowlist, mode 2 stops those exposures. */
+      running_experiments_on_feature_flag_called: number;
       /** True when the write moved the organization to the target mode, or would on a dry run. */
       changed: boolean;
       /** True when the organization is above the target mode and stays there, because allow_downgrade is not set. */
@@ -100189,7 +100191,7 @@ export namespace Schemas {
       max_feature_flags_override: number | null;
       /** The flag-count limit actually enforced for this team: the override when one is set, otherwise the global MAX_FEATURE_FLAGS_PER_TEAM setting. */
       effective_max_feature_flags: number;
-      /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events, 1 and 2 read flag_evaluations. 2 is reserved for ingestion to stop writing $feature_flag_called to events. Ingestion ignores 2 until that support deploys, so 2 acts as 1 until then. This is the stored mode: while the FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS instance setting is on, an organization on 1 has its Usage tab read events anyway.
+      /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events, 1 and 2 read flag_evaluations. 2 also stops ingestion writing $feature_flag_called to events for the teams it writes to flag_evaluations. This is the stored mode: while the FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS instance setting is on, an organization on 1 has its Usage tab read events anyway.
        *
        * * `0` - Events
        * * `1` - Read flag evaluations
@@ -120956,6 +120958,10 @@ export namespace Schemas {
      */
     count_only?: boolean;
     /**
+     * ISO 8601 datetime. Keeps reports created at or after this time.
+     */
+    created_after?: string;
+    /**
      * Filter reports by whether an implementation pull request is attached. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with count_only=true to return only the filtered total.
      */
     has_implementation_pr?: boolean;
@@ -120976,7 +120982,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id. Defaults to '-is_suggested_reviewer,status,-updated_at'.
+     * Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id, ranking_pr_merged, ranking_pr_created, ranking_action, ranking_open. Defaults to '-is_suggested_reviewer,status,-updated_at'. The ranking_* fields sort by the served ranking model's probability for that outcome head, with unscored reports last in either direction. They are staff only: other users get a 400.
      */
     ordering?: string;
     /**

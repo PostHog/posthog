@@ -177,6 +177,7 @@ export type InboxQueryChange =
     | 'search'
     | 'clear'
     | 'url'
+    | 'created_window'
 
 /** Surface a scout-management event fired from. Matches the desktop values. */
 export type ScoutSurface = 'fleet_list' | 'scout_detail' | 'empty_state' | 'replay_vision_scanner'
@@ -387,13 +388,21 @@ export function captureInboxReportsImpressed(params: {
     totalCount: number | null
     hasActiveFilters: boolean
     scope: string
+    /** The sort and window the list was requested with, so model-ordered lists can be told apart in training data. */
+    sortField: string
+    sortDirection: string
+    createdWindow: string | null
 }): void {
+    const rankingSort = params.sortField.startsWith('ranking_')
     captureInboxEvent(INBOX_EVENTS.REPORTS_IMPRESSED, {
         tab: params.tab,
         list_size: params.listSize,
         total_count: params.totalCount,
         has_active_filters: params.hasActiveFilters,
         scope: params.scope,
+        sort_field: params.sortField,
+        sort_direction: params.sortDirection,
+        created_window: params.createdWindow,
         impression_count: params.reports.length,
         impressions: params.reports.map((report, index) => ({
             ...baseReportProperties(report),
@@ -403,6 +412,7 @@ export function captureInboxReportsImpressed(params: {
             signal_count: report.signal_count,
             total_weight: report.total_weight,
             is_suggested_reviewer: report.is_suggested_reviewer,
+            ...(rankingSort ? { ranking_served_key: report.ranking?.served_key ?? null } : {}),
         })),
     })
 }
@@ -685,6 +695,7 @@ export function captureInboxQueryChanged(params: {
     stateFilter: string[]
     searchQuery: string
     hasActiveFilters: boolean
+    createdWindow: string | null
 }): void {
     const search = params.searchQuery.trim()
     captureInboxEvent(INBOX_EVENTS.QUERY_CHANGED, {
@@ -700,6 +711,7 @@ export function captureInboxQueryChanged(params: {
         has_search: search.length > 0,
         search_length: search.length,
         has_active_filters: params.hasActiveFilters,
+        created_window: params.createdWindow,
     })
 }
 
