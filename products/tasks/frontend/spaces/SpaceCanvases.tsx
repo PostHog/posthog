@@ -87,7 +87,7 @@ export function SpaceCanvases({ id }: { id: string }): JSX.Element {
                 </div>
                 <div className={GRID_CLASS}>
                     {Array.from({ length: 6 }, (_, index) => (
-                        <Skeleton key={index} className="h-16 w-full rounded-xl" />
+                        <Skeleton key={index} className="h-52 w-full rounded-xl" />
                     ))}
                 </div>
             </div>
