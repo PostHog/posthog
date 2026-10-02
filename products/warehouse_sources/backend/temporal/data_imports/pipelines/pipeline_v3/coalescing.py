@@ -122,7 +122,6 @@ class CoalesceCaps:
     max_batches: int
     max_rows: int
     max_bytes: int
-    across_runs: bool
 
     @classmethod
     def from_settings(cls) -> CoalesceCaps:
@@ -130,7 +129,6 @@ class CoalesceCaps:
             max_batches=settings.DATA_WAREHOUSE_V3_COALESCE_MAX_BATCHES,
             max_rows=settings.DATA_WAREHOUSE_V3_COALESCE_MAX_ROWS,
             max_bytes=settings.DATA_WAREHOUSE_V3_COALESCE_MAX_BYTES,
-            across_runs=settings.DATA_WAREHOUSE_V3_COALESCE_ACROSS_RUNS,
         )
 
 
@@ -173,8 +171,6 @@ def join_violation(current: Sequence[CoalesceMember], candidate: CoalesceMember)
 
 def extends_set(current: Sequence[CoalesceMember], candidate: CoalesceMember, caps: CoalesceCaps) -> bool:
     if join_violation(current, candidate) is not None:
-        return False
-    if candidate.run_uuid != current[-1].run_uuid and not caps.across_runs:
         return False
     if len(current) >= caps.max_batches:
         return False
