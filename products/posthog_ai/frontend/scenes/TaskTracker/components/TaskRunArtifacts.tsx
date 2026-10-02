@@ -72,9 +72,9 @@ import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
-import { isCommentableArtifact } from '../artifactComments'
+import { isCommentableArtifact, regionAnchorAt, supportsSelectionComments } from '../artifactComments'
 import { withStrictCsp } from '../artifactHtml'
-import { TaskArtifactCommentsLogicProps } from '../taskArtifactCommentsLogic'
+import { TaskArtifactCommentsLogicProps, taskArtifactCommentsLogic } from '../taskArtifactCommentsLogic'
 import {
     ArtifactFile,
     ArtifactPreviewKind,
@@ -97,7 +97,9 @@ import { ArtifactCommentsPanel } from './ArtifactCommentsPanel'
 import { ArtifactEditor } from './ArtifactEditor'
 import { ArtifactEditToolbar } from './ArtifactEditToolbar'
 import { ArtifactIcon } from './ArtifactIcon'
+import { ArtifactImagePins } from './ArtifactImagePins'
 import { ArtifactImageViewer } from './ArtifactImageViewer'
+import { ArtifactTextAnnotations } from './ArtifactTextAnnotations'
 
 const MAX_CSV_ROWS = 500
 
@@ -253,6 +255,37 @@ function SourceView({ text }: { text: string }): JSX.Element {
     )
 }
 
+function MarkdownArticle({ text }: { text: string }): JSX.Element {
+    return (
+        <div className="px-6 py-8">
+            <article className="mx-auto max-w-3xl rounded-lg border border-border bg-card px-10 py-8 text-card-foreground">
+                <LemonMarkdown disableImages="all">{text}</LemonMarkdown>
+            </article>
+        </div>
+    )
+}
+
+function CommentableImage({
+    logicProps,
+    src,
+    alt,
+}: {
+    logicProps: TaskArtifactCommentsLogicProps
+    src: string
+    alt: string
+}): JSX.Element {
+    const { pinMode } = useValues(taskArtifactCommentsLogic(logicProps))
+    const { setPendingAnchor } = useActions(taskArtifactCommentsLogic(logicProps))
+    return (
+        <ArtifactImageViewer
+            src={src}
+            alt={alt}
+            overlay={<ArtifactImagePins logicProps={logicProps} />}
+            onPlace={pinMode ? (x, y) => setPendingAnchor(regionAnchorAt(x, y), null) : undefined}
+        />
+    )
+}
+
 function TextLoading(): JSX.Element {
     return (
         <div className="px-6 py-8">
@@ -398,9 +431,17 @@ function ArtifactPreview({ taskId, mode }: { taskId: string; mode: PreviewMode }
     if (!selectedArtifact || !selectedKind) {
         return null
     }
+    const comments = commentLogicProps(taskId, selectedArtifact, selectedKind)
     if (selectedKind === 'image') {
         const src = artifactDownloadUrl(currentProjectId, taskId, selectedArtifact)
-        return src ? <ArtifactImageViewer key={selectedArtifact.id} src={src} alt={selectedArtifact.name} /> : null
+        if (!src) {
+            return null
+        }
+        return comments ? (
+            <CommentableImage key={selectedArtifact.id} logicProps={comments} src={src} alt={selectedArtifact.name} />
+        ) : (
+            <ArtifactImageViewer key={selectedArtifact.id} src={src} alt={selectedArtifact.name} />
+        )
     }
     if (selectedKind === 'reference') {
         return <ReferencePreview taskId={taskId} artifact={selectedArtifact} />
@@ -461,6 +502,18 @@ function ArtifactPreview({ taskId, mode }: { taskId: string; mode: PreviewMode }
             </Empty>
         )
     }
+    // Desktop counts a markdown quote in the rendered page, not in the source, so only the page takes selections.
+    if (comments && supportsSelectionComments(selectedKind) && (mode === 'rendered' || selectedKind === 'text')) {
+        return (
+            <ArtifactTextAnnotations key={selectedArtifact.id} logicProps={comments}>
+                {selectedKind === 'markdown' ? (
+                    <MarkdownArticle text={selectedText.text} />
+                ) : (
+                    <SourceView text={selectedText.text} />
+                )}
+            </ArtifactTextAnnotations>
+        )
+    }
     if (mode === 'source') {
         return <SourceView text={selectedText.text} />
     }
@@ -471,13 +524,7 @@ function ArtifactPreview({ taskId, mode }: { taskId: string; mode: PreviewMode }
         return <CsvPreview text={selectedText.text} />
     }
     if (selectedKind === 'markdown') {
-        return (
-            <div className="px-6 py-8">
-                <article className="mx-auto max-w-3xl rounded-lg border border-border bg-card px-10 py-8 text-card-foreground">
-                    <LemonMarkdown disableImages="all">{selectedText.text}</LemonMarkdown>
-                </article>
-            </div>
-        )
+        return <MarkdownArticle text={selectedText.text} />
     }
     return <SourceView text={selectedText.text} />
 }
