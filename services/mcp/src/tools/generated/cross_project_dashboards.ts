@@ -30,7 +30,7 @@ const crossProjectDashboardTilesList = (): ToolBase<
                 offset: params.offset,
             },
         })
-        return await withPostHogUrl(context, result, '/')
+        return await withPostHogUrl(context, result, '/cross-project-dashboards')
     },
 })
 
@@ -41,7 +41,7 @@ const CrossProjectDashboardsGetSchema = () => {
 
 const crossProjectDashboardsGet = (): ToolBase<
     ReturnType<typeof CrossProjectDashboardsGetSchema>,
-    Schemas.CrossProjectDashboard
+    WithPostHogUrl<Schemas.CrossProjectDashboard>
 > => ({
     name: 'cross-project-dashboards-get',
     schema: CrossProjectDashboardsGetSchema(),
@@ -51,7 +51,7 @@ const crossProjectDashboardsGet = (): ToolBase<
             method: 'GET',
             path: `/api/organizations/${encodeURIComponent(String(orgId))}/cross_project_dashboards/${encodeURIComponent(String(params.id))}/`,
         })
-        return result
+        return await withPostHogUrl(context, result, `/cross-project-dashboards/${result.id}`)
     },
 })
 
@@ -76,7 +76,18 @@ const crossProjectDashboardsList = (): ToolBase<
                 offset: params.offset,
             },
         })
-        return await withPostHogUrl(context, result, '/')
+        return await withPostHogUrl(
+            context,
+            {
+                ...result,
+                results: await Promise.all(
+                    (result.results ?? []).map((item) =>
+                        withPostHogUrl(context, item, `/cross-project-dashboards/${item.id}`)
+                    )
+                ),
+            },
+            '/cross-project-dashboards'
+        )
     },
 })
 
