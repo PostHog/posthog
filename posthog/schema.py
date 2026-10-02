@@ -255,6 +255,9 @@ from posthog.schema_enums import (
     RetentionType as RetentionType,
     RoktAdsDefaultSources as RoktAdsDefaultSources,
     Scale as Scale,
+    ScanEstimatePrecision as ScanEstimatePrecision,
+    ScanEstimateSource as ScanEstimateSource,
+    ScanEstimateTimeRange as ScanEstimateTimeRange,
     SeriesColorMode as SeriesColorMode,
     SessionAttributionGroupBy as SessionAttributionGroupBy,
     SessionsV2JoinMode as SessionsV2JoinMode,
@@ -8028,6 +8031,32 @@ class SymbolStatsRow(BaseModel):
         ...,
         description=("Total wall-clock span duration in this symbol, in nanoseconds (additive across spans)."),
     )
+
+
+class TableScanEstimate(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    bytes: int | None = Field(
+        default=None,
+        description="Absent when the source does not record a size in bytes.",
+    )
+    days: float | None = Field(
+        default=None,
+        description=("Events only: length of the timestamp range the rows were scaled to, in days."),
+    )
+    events: list[str] | None = Field(
+        default=None,
+        description=("Events only: event names the estimate was narrowed to. Empty when the scan reads every event."),
+    )
+    name: str = Field(..., description="The table as the query names it.")
+    precision: ScanEstimatePrecision
+    rows: int | None = Field(
+        default=None,
+        description=("Absent when the precision is unknown, or when only the size is known."),
+    )
+    source: ScanEstimateSource
+    time_range: ScanEstimateTimeRange | None = Field(default=None, description="Events only.")
 
 
 class TableSettings(BaseModel):
@@ -20463,23 +20492,6 @@ class QueryResponseAlternative6(BaseModel):
     )
 
 
-class QueryResponseAlternative9(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    ch_table_names: list[str] | None = None
-    errors: list[HogQLNotice]
-    index_usage: list[PredicateIndexUsage] | None = Field(
-        default=None, description="One entry per property filter, in query order."
-    )
-    isUsingIndices: QueryIndexUsage | None = None
-    isValid: bool | None = None
-    notices: list[HogQLNotice]
-    query: str | None = None
-    table_names: list[str] | None = None
-    warnings: list[HogQLNotice]
-
-
 class QueryResponseAlternative11(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -25094,6 +25106,22 @@ class RevenueAnalyticsConfig(BaseModel):
     filter_test_accounts: bool | None = False
 
 
+class ScanEstimate(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    rows: int = Field(..., description="Sum of the rows of every table entry that has one.")
+    tables: list[TableScanEstimate]
+    upper_bound: bool = Field(
+        ...,
+        description=(
+            "True when the query reads at most `rows` of the tables that have a number:"
+            " an indexed filter went unmodeled, or a table is known only by its size."
+            " False when every table is measured."
+        ),
+    )
+
+
 class SessionAttributionExplorerQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -27619,6 +27647,14 @@ class HogQLMetadataResponse(BaseModel):
     isValid: bool | None = None
     notices: list[HogQLNotice]
     query: str | None = None
+    scan_estimate: ScanEstimate | None = Field(
+        default=None,
+        description=(
+            "Present when the query reads at least one table, directly or through"
+            " subqueries, CTEs, UNIONs and joins. Absent when the FROM tree cannot be"
+            " walked."
+        ),
+    )
     table_names: list[str] | None = None
     warnings: list[HogQLNotice]
 
@@ -28757,6 +28793,31 @@ class QueryResponseAlternative8(BaseModel):
             " the user can't access."
         ),
     )
+
+
+class QueryResponseAlternative9(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    ch_table_names: list[str] | None = None
+    errors: list[HogQLNotice]
+    index_usage: list[PredicateIndexUsage] | None = Field(
+        default=None, description="One entry per property filter, in query order."
+    )
+    isUsingIndices: QueryIndexUsage | None = None
+    isValid: bool | None = None
+    notices: list[HogQLNotice]
+    query: str | None = None
+    scan_estimate: ScanEstimate | None = Field(
+        default=None,
+        description=(
+            "Present when the query reads at least one table, directly or through"
+            " subqueries, CTEs, UNIONs and joins. Absent when the FROM tree cannot be"
+            " walked."
+        ),
+    )
+    table_names: list[str] | None = None
+    warnings: list[HogQLNotice]
 
 
 class QueryResponseAlternative17(BaseModel):
