@@ -1,14 +1,16 @@
 use crate::api::errors::FlagError;
 use crate::api::types::{FlagDetails, FlagValue, FlagsResponse, FromFeatureAndMatch};
 use crate::cohorts::cohort_cache_manager::CohortCacheManager;
-use crate::cohorts::cohort_models::{Cohort, CohortId, MembershipStampPolicy};
+use crate::cohorts::cohort_models::{Cohort, CohortId, CohortMembership, MembershipStampPolicy};
 use crate::cohorts::cohort_operations::{
     apply_cohort_membership_logic, evaluate_dynamic_cohorts, record_stamp_policy_divergence,
 };
 use crate::cohorts::membership::{CohortMembershipProvider, NoOpCohortMembershipProvider};
 use crate::database::{pool_names, PostgresRouter};
-use crate::flags::config_v2::Config;
-use crate::flags::evaluate_v2::{Evaluation, EvaluationContext, Evaluator, PersonProperties};
+use crate::flags::config_v2::{Config, NonV1Config};
+use crate::flags::evaluate_v2::{
+    Evaluation, EvaluationContext, EvaluationDetail, Evaluator, PersonProperties,
+};
 use crate::flags::flag_group_type_mapping::{
     GroupTypeCacheManager, GroupTypeIndex, GroupTypeMapping,
 };
@@ -106,6 +108,8 @@ pub struct FeatureFlagMatch {
     pub reason: FeatureFlagMatchReason,
     pub condition_index: Option<usize>,
     pub payload: Option<Value>,
+    /// Set only by `get_match_v2`; the v3 record is built from it.
+    pub evaluation_v2: Option<EvaluationDetail>,
 }
 
 impl FeatureFlagMatch {
@@ -126,6 +130,7 @@ impl FeatureFlagMatch {
             reason: FeatureFlagMatchReason::MissingDependency,
             condition_index: None,
             payload: None,
+            evaluation_v2: None,
         }
     }
 }
@@ -417,6 +422,8 @@ struct FlagSnapshot {
     key: String,
     id: FeatureFlagId,
     version: Option<i32>,
+    /// Keeps a v2 flag's error record labelled v2.
+    non_v1: Option<Arc<NonV1Config>>,
 }
 
 impl FlagSnapshot {
@@ -425,6 +432,7 @@ impl FlagSnapshot {
             key: flag.key.clone(),
             id: flag.id,
             version: flag.version,
+            non_v1: flag.filters.non_v1.clone(),
         }
     }
 }
@@ -825,35 +833,142 @@ impl FeatureFlagMatcher {
         // Track cohort evaluations in canonical log
         with_canonical_log(|log| log.eval.cohorts_evaluated += cohort_property_filters.len());
 
+        let (cohort_matches, errors) =
+            self.resolve_cohort_matches(cohort_property_filters, target_properties, &cohorts);
+
+        if let Some(error) = errors.into_iter().next() {
+            return Err(error);
+        }
+
+        // Apply cohort membership logic (IN|NOT_IN) to the cohort match results
+        apply_cohort_membership_logic(cohort_property_filters, &cohort_matches)
+    }
+
+    /// Resolves every cohort the given filters reference to a membership boolean, starting from
+    /// the memberships cached during `prepare_flag_evaluation_state` (static and realtime).
+    fn resolve_cohort_matches(
+        &self,
+        cohort_property_filters: &[&PropertyFilter],
+        target_properties: &HashMap<String, Value>,
+        cohorts: &[Cohort],
+    ) -> (HashMap<CohortId, bool>, Vec<FlagError>) {
         // Get cached cohort results (static + realtime, merged during prepare_flag_evaluation_state)
         let cached_matches = match self.flag_evaluation_state.get_cohort_matches() {
             Some(matches) => matches.clone(),
             None => HashMap::new(), // Happens when targeting an anonymous user with no person record
         };
 
+        Self::resolve_cohort_matches_from_cache(
+            cohort_property_filters,
+            target_properties,
+            cohorts,
+            cached_matches,
+            PropertyMatchingContext::new(self.timezone, self.use_explicit_exact_matching),
+        )
+    }
+
+    /// Evaluates any dynamic cohort the filters reference that the cache does not already cover.
+    ///
+    /// Resolution continues past a cohort that fails, and the failures come back alongside the
+    /// memberships that did resolve. A caller that must agree with the whole filter set fails on
+    /// the first error; condition analysis keeps what resolved, because a cohort left out of the
+    /// map reads as unknown rather than as a non-match. Both paths share this loop so a change to
+    /// cohort resolution cannot reach one and miss the other.
+    fn resolve_cohort_matches_from_cache(
+        cohort_property_filters: &[&PropertyFilter],
+        target_properties: &HashMap<String, Value>,
+        cohorts: &[Cohort],
+        cached_matches: HashMap<CohortId, bool>,
+        matching_context: PropertyMatchingContext,
+    ) -> (HashMap<CohortId, bool>, Vec<FlagError>) {
         let mut cohort_matches = cached_matches;
+        let mut errors = Vec::new();
 
         // For any cohorts not yet evaluated (i.e., dynamic ones), evaluate them
         for filter in cohort_property_filters {
-            let cohort_id = filter
-                .get_cohort_id()
-                .ok_or(FlagError::CohortFiltersParsingError)?;
+            let Some(cohort_id) = filter.get_cohort_id() else {
+                errors.push(FlagError::CohortFiltersParsingError);
+                continue;
+            };
 
             if !cohort_matches.contains_key(&cohort_id) {
                 let current_matches = cohort_matches.clone();
-                let match_result = evaluate_dynamic_cohorts(
+                match evaluate_dynamic_cohorts(
                     cohort_id,
                     target_properties,
-                    &cohorts,
+                    cohorts,
                     &current_matches,
-                    PropertyMatchingContext::new(self.timezone, self.use_explicit_exact_matching),
-                )?;
-                cohort_matches.insert(cohort_id, match_result);
+                    matching_context,
+                ) {
+                    Ok(match_result) => {
+                        cohort_matches.insert(cohort_id, match_result);
+                    }
+                    Err(error) => errors.push(error),
+                }
             }
         }
 
-        // Apply cohort membership logic (IN|NOT_IN) to the cohort match results
-        apply_cohort_membership_logic(cohort_property_filters, &cohort_matches)
+        (cohort_matches, errors)
+    }
+
+    /// Resolves cohort memberships for every cohort filter on the flag, for detailed condition
+    /// analysis.
+    ///
+    /// The evaluation state caches static and realtime memberships only, because
+    /// `evaluate_cohort_filters` discards the dynamic ones it resolves. Reading that cache alone
+    /// would report every dynamic cohort as a non-match.
+    fn cohort_matches_for_analysis(
+        &self,
+        flag: &FeatureFlag,
+        person_properties: Option<&HashMap<String, Value>>,
+    ) -> HashMap<CohortId, CohortMembership> {
+        let cohort_filters: Vec<&PropertyFilter> = flag
+            .filters
+            .groups
+            .iter()
+            .filter_map(|group| group.properties.as_ref())
+            .flatten()
+            .filter(|filter| filter.is_cohort())
+            .collect();
+
+        if cohort_filters.is_empty() {
+            return HashMap::new();
+        }
+
+        let Some(cohorts) = self.flag_evaluation_state.cohorts.clone() else {
+            return HashMap::new();
+        };
+
+        let target_properties = person_properties.unwrap_or(&EMPTY_PROPERTY_MAP);
+
+        // A condition can name a cohort the flags payload no longer carries, because Django omits
+        // deleted and cross-team cohorts but keeps the filters that name them. Those failures stay
+        // out of the map, so the analysis reports them as unknown instead of as a non-match.
+        let (cohort_matches, errors) =
+            self.resolve_cohort_matches(&cohort_filters, target_properties, &cohorts);
+
+        for error in errors {
+            warn!("Cohort left unresolved for condition analysis: {error:?}");
+        }
+
+        // A non-match on a behavioral or lifecycle cohort is the dynamic path's default, not a
+        // checked answer, which is why the matcher reports it as `cohort_not_evaluated`.
+        cohort_matches
+            .into_iter()
+            .map(|(cohort_id, is_member)| {
+                let membership = if is_member {
+                    CohortMembership::Member
+                } else if cohorts
+                    .iter()
+                    .any(|cohort| cohort.id == cohort_id && cohort.has_behavioral_condition())
+                {
+                    CohortMembership::UnverifiedNonMember
+                } else {
+                    CohortMembership::NonMember
+                };
+                (cohort_id, membership)
+            })
+            .collect()
     }
 
     /// Evaluates feature flags with property and hash key overrides.
@@ -1171,6 +1286,8 @@ impl FeatureFlagMatcher {
                     // filters resolve against the group rather than the person.
                     let merged_group_props =
                         self.merged_group_properties_for_flag(flag, group_property_overrides);
+                    let cohort_matches =
+                        self.cohort_matches_for_analysis(flag, merged_person_props.as_ref());
                     FlagDetails::create_with_analysis(
                         flag,
                         flag_match,
@@ -1178,6 +1295,7 @@ impl FeatureFlagMatcher {
                         merged_person_props.as_ref(),
                         Some(&merged_group_props),
                         Some(&self.flag_evaluation_state.flag_evaluation_results),
+                        Some(&cohort_matches),
                         PropertyMatchingContext::new(
                             self.timezone,
                             self.use_explicit_exact_matching,
@@ -1365,7 +1483,10 @@ impl FeatureFlagMatcher {
                     has_experiment: default_has_experiment(),
                     active: true,
                     version: snapshot.version,
-                    filters: FlagFilters::default(),
+                    filters: FlagFilters {
+                        non_v1: snapshot.non_v1,
+                        ..FlagFilters::default()
+                    },
                     team_id,
                     name: None,
                     deleted: false,
@@ -1457,6 +1578,7 @@ impl FeatureFlagMatcher {
                     reason: FeatureFlagMatchReason::SuperConditionValue,
                     condition_index: Some(0),
                     payload,
+                    evaluation_v2: None,
                 });
             }
         }
@@ -1479,6 +1601,7 @@ impl FeatureFlagMatcher {
                     reason: evaluation_reason,
                     condition_index: None,
                     payload,
+                    evaluation_v2: None,
                 });
             }
         }
@@ -1632,6 +1755,7 @@ impl FeatureFlagMatcher {
                     reason: FeatureFlagMatchReason::OutOfRolloutBound,
                     condition_index: Some(index),
                     payload: None,
+                    evaluation_v2: None,
                 });
             }
 
@@ -1664,6 +1788,7 @@ impl FeatureFlagMatcher {
                     reason: highest_match,
                     condition_index: highest_index,
                     payload,
+                    evaluation_v2: None,
                 });
             }
         }
@@ -1692,6 +1817,7 @@ impl FeatureFlagMatcher {
             reason: highest_match,
             condition_index: highest_index,
             payload: None,
+            evaluation_v2: None,
         })
     }
 
@@ -1754,6 +1880,7 @@ impl FeatureFlagMatcher {
             reason,
             condition_index,
             payload,
+            evaluation_v2: Some(evaluation.into()),
         })
     }
 
@@ -2839,16 +2966,22 @@ mod tests {
                 key: "flag_a".to_string(),
                 id: 10,
                 version: Some(3),
+                non_v1: None,
             },
             FlagSnapshot {
                 key: "flag_b".to_string(),
                 id: 20,
                 version: None,
+                non_v1: Some(Arc::new(NonV1Config {
+                    parsed_v2: None,
+                    document: serde_json::value::RawValue::from_string("{}".to_string()).unwrap(),
+                })),
             },
             FlagSnapshot {
                 key: "flag_c".to_string(),
                 id: 30,
                 version: Some(1),
+                non_v1: None,
             },
         ];
 
@@ -2872,6 +3005,8 @@ mod tests {
         assert_eq!(stub_b.key, "flag_b");
         assert_eq!(stub_b.id, 20);
         assert_eq!(stub_b.version, None);
+        assert!(!stub_b.filters.is_v1());
+        assert!(stub_a.filters.is_v1());
         assert!(matches!(
             err_b,
             Err(FlagError::InternalError {
@@ -2995,5 +3130,80 @@ mod tests {
             assert_eq!(result.get(*k), Some(&Value::String((*v).to_string())));
         }
         assert_eq!(result.len(), 1 + expected_extras.len());
+    }
+
+    #[test]
+    fn test_cohort_analysis_keeps_resolved_memberships_when_another_cohort_fails() {
+        // A flag can name a cohort the flags payload no longer carries, because Django omits
+        // deleted and cross-team cohorts but keeps the filters that name them. Resolving the set as
+        // a unit drops the memberships that did resolve along with it.
+        let cohort: Cohort = serde_json::from_value(serde_json::json!({
+            "id": 1,
+            "team_id": 1,
+            "deleted": false,
+            "is_calculating": false,
+            "is_static": false,
+            "errors_calculating": 0,
+            "groups": [],
+            "filters": {
+                "properties": {
+                    "type": "OR",
+                    "values": [{
+                        "type": "OR",
+                        "values": [{
+                            "key": "plan",
+                            "type": "person",
+                            "value": "enterprise",
+                            "operator": "exact"
+                        }]
+                    }]
+                }
+            }
+        }))
+        .unwrap();
+
+        // Cohort 999 comes first, so a resolver that stopped on the first failure would lose
+        // cohort 1 instead of reporting it.
+        let filters: Vec<PropertyFilter> = [999, 1]
+            .into_iter()
+            .map(|id| {
+                serde_json::from_value(serde_json::json!({
+                    "key": "id",
+                    "value": id,
+                    "type": "cohort",
+                    "operator": "in"
+                }))
+                .unwrap()
+            })
+            .collect();
+        let filter_refs: Vec<&PropertyFilter> = filters.iter().collect();
+
+        let target_properties =
+            HashMap::from([("plan".to_string(), Value::String("enterprise".to_string()))]);
+
+        // Cohort 999 is absent from the loaded list, so resolving it fails.
+        let (resolved, errors) = FeatureFlagMatcher::resolve_cohort_matches_from_cache(
+            &filter_refs,
+            &target_properties,
+            &[cohort],
+            HashMap::new(),
+            PropertyMatchingContext::new(Tz::UTC, false),
+        );
+
+        assert_eq!(
+            errors.len(),
+            1,
+            "the failing cohort must be reported, so the strict path can still fail on it"
+        );
+        assert_eq!(
+            resolved.get(&1),
+            Some(&true),
+            "a resolved membership must survive another cohort failing"
+        );
+        assert_eq!(
+            resolved.get(&999),
+            None,
+            "an unresolvable cohort must be absent, so analysis reads it as unknown"
+        );
     }
 }

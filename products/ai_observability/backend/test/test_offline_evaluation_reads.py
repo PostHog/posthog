@@ -183,6 +183,10 @@ class TestOfflineEvaluationReads(TestCase):
         self.assertIsNone(summaries[self.numeric_v2.id].mean)
         boolean = summaries[self.boolean.id]
         self.assertEqual((boolean.true_count, boolean.false_count, boolean.true_rate), (1, 1, 0.5))
+        self.assertEqual((boolean.pass_count, boolean.fail_count, boolean.pass_rate), (1, 1, 0.5))
+        for summary in summaries.values():
+            if summary.scorer.kind != "boolean":
+                self.assertEqual((summary.pass_count, summary.fail_count, summary.pass_rate), (None, None, None))
         self.assertEqual(
             [(category.key, category.count, category.rate) for category in summaries[self.categorical.id].categories],
             [("a", 2, 1.0), ("b", 1, 0.5), ("c", 0, 0.0)],
@@ -197,6 +201,90 @@ class TestOfflineEvaluationReads(TestCase):
             experiment.id, OfflineReadQuery(scorer_version_ids=(self.numeric.id,))
         ).results[0]
         self.assertEqual(summary, numeric)
+
+    @parameterized.expand(
+        [
+            (
+                "numeric",
+                [
+                    {"passing_rule": {"operator": "gte", "threshold": 5}},
+                    {"passing_rule": {"operator": "lte", "threshold": 5}},
+                ],
+                [0.0, 5.0, 10.0, 10.0],
+                [3, 2],
+            ),
+            (
+                "categorical",
+                [
+                    {
+                        "options": [{"key": "a", "label": "A"}, {"key": "b", "label": "B"}],
+                        "selection_mode": "multiple",
+                        "passing_rule": {"categories": ["a"]},
+                    },
+                    {
+                        "options": [{"key": "a", "label": "A"}, {"key": "b", "label": "B"}],
+                        "selection_mode": "multiple",
+                        "passing_rule": {"categories": ["a", "b"]},
+                    },
+                    {
+                        "options": [{"key": "a", "label": "A"}, {"key": "b", "label": "B"}],
+                        "selection_mode": "multiple",
+                        "passing_rule": {"categories": []},
+                    },
+                ],
+                [["a"], ["b"], ["a", "b"], ["a"]],
+                [2, 4, 0],
+            ),
+            (
+                "boolean",
+                [{"true_is_failure": False}, {"true_is_failure": True}],
+                [True, False, False, False],
+                [1, 3],
+            ),
+        ]
+    )
+    def test_passing_summaries_use_pinned_rules_and_exclude_non_scores(
+        self, kind: str, configs: list[dict[str, JSONValue]], values: list[ResultValue], pass_counts: list[int]
+    ) -> None:
+        definition = ScoreDefinition.objects.create(team=self.team, name="Configured scorer", kind=kind)
+        versions = [definition.create_new_version(config=config, created_by=None) for config in configs]
+        empty_version = definition.create_new_version(config=configs[0], created_by=None)
+        unconfigured_version = definition.create_new_version(
+            config={"true_is_failure": None} if kind == "boolean" else {**configs[0], "passing_rule": None},
+            created_by=None,
+        )
+        experiment = self._experiment()
+        items = [self._item(experiment) for _ in range(8)]
+        for version in versions:
+            for item, value in zip(items, values):
+                self._result(item, version, value)
+            for item, status in zip(items[4:7], ("error", "skipped", "not_applicable")):
+                self._result(item, version, status=status)
+        self._result(items[0], empty_version, status="error")
+        self._result(items[0], unconfigured_version, values[0])
+
+        summaries = {
+            summary.scorer.id: summary
+            for summary in self.service.list_summaries(experiment.id, OfflineReadQuery()).results
+        }
+        for version, pass_count in zip(versions, pass_counts):
+            summary = summaries[version.id]
+            self.assertEqual(
+                (summary.pass_count, summary.fail_count, summary.pass_rate),
+                (pass_count, 4 - pass_count, pass_count / 4),
+            )
+            self.assertEqual(summary.status_counts, OfflineStatusCounts(ok=4, error=1, skipped=1, not_applicable=1))
+            self.assertEqual(summary.missing_result_count, 1)
+        empty = summaries[empty_version.id]
+        self.assertEqual((empty.pass_count, empty.fail_count, empty.pass_rate), (0, 0, None))
+        unconfigured = summaries[unconfigured_version.id]
+        self.assertEqual(
+            (unconfigured.pass_count, unconfigured.fail_count, unconfigured.pass_rate),
+            (1, 0, 1.0) if kind == "boolean" else (None, None, None),
+        )
+        history = self.service.scorer_history(definition.id, OfflineReadQuery())
+        for point in history.results:
+            self.assertEqual(point.summary, summaries[point.summary.scorer.id])
 
     @parameterized.expand(
         [

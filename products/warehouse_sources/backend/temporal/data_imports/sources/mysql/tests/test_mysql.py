@@ -2261,6 +2261,18 @@ class TestMySQLSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            "(1105, 'Client requested TLS/SSL, but Doris FE MySQL SSL is disabled')",
+            "OperationalError: (1105, 'Client requested TLS/SSL, but Doris FE MySQL SSL is disabled')",
+        ],
+    )
+    def test_doris_ssl_disabled_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Doris FE SSL-disabled error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             "(3159, 'Connections using insecure transport are prohibited while --require_secure_transport=ON.')",
             "OperationalError: (3159, 'Connections using insecure transport are prohibited while "
             "--require_secure_transport=ON.')",

@@ -209,7 +209,7 @@ export interface StaffTeamConfigApi {
     max_feature_flags_override: number | null
     /** The flag-count limit actually enforced for this team: the override when one is set, otherwise the global MAX_FEATURE_FLAGS_PER_TEAM setting. */
     effective_max_feature_flags: number
-    /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events, 1 and 2 read flag_evaluations. 2 is reserved for ingestion to stop writing $feature_flag_called to events. Ingestion ignores 2 until that support deploys, so 2 acts as 1 until then. This is the stored mode: while the FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS instance setting is on, an organization on 1 has its Usage tab read events anyway.
+    /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events, 1 and 2 read flag_evaluations. 2 also stops ingestion writing $feature_flag_called to events for the teams it writes to flag_evaluations. This is the stored mode: while the FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS instance setting is on, an organization on 1 has its Usage tab read events anyway.
      *
      * * `0` - Events
      * * `1` - Read flag evaluations
@@ -244,7 +244,7 @@ export interface StaffTeamConfigMutationApi {
 }
 
 export interface StaffFlagEvaluationsModeMutationApi {
-    /** Target flag_evaluations mode. 0 reads events, 1 reads flag_evaluations, 2 also stops writing $feature_flag_called to events. Ingestion ignores 2 until its support for 2 deploys, so 2 acts as 1 until then.
+    /** Target flag_evaluations mode. 0 reads events, 1 reads flag_evaluations, 2 also stops ingestion writing $feature_flag_called to events for the teams it writes to flag_evaluations.
      *
      * * `0` - Events
      * * `1` - Read flag evaluations
@@ -281,6 +281,8 @@ export interface StaffOrganizationModeChangeApi {
     organization_name: string
     /** Teams of the organization. They all read the organization's mode. */
     team_count: number
+    /** Running experiments of the organization that count exposures on $feature_flag_called. On teams in the ingestion allowlist, mode 2 stops those exposures. */
+    running_experiments_on_feature_flag_called: number
     /** True when the write moved the organization to the target mode, or would on a dry run. */
     changed: boolean
     /** True when the organization is above the target mode and stays there, because allow_downgrade is not set. */
@@ -1479,7 +1481,7 @@ export interface FeatureFlagConditionAnalysisApi {
     /** Whether this condition matched properties but was excluded due to rollout */
     rollout_excluded: boolean
     /**
-     * Variant associated with this condition
+     * Variant associated with this condition. Empty or null when the condition has no variant override.
      * @nullable
      */
     variant: string | null

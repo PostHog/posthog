@@ -186,6 +186,8 @@ pub struct FlagsCanonicalLogLine {
     pub lib: Option<String>,
     pub lib_version: Option<String>,
     pub api_version: Option<String>,
+    /// The response shape served, such as `FlagsV2` or `FlagsV3`.
+    pub response_format: Option<&'static str>,
 
     // Populated during authentication
     pub team_id: Option<i32>,
@@ -325,6 +327,7 @@ impl Default for FlagsCanonicalLogLine {
             lib: None,
             lib_version: None,
             api_version: None,
+            response_format: None,
             team_id: None,
             distinct_id: None,
             device_id: None,
@@ -396,6 +399,7 @@ impl FlagsCanonicalLogLine {
             lib = self.lib.as_deref(),
             lib_version = self.lib_version.as_deref(),
             api_version = self.api_version.as_deref(),
+            response_format = self.response_format,
             duration_ms = duration_ms,
             http_status = self.http_status,
             flags_evaluated = self.flags_evaluated,
@@ -669,6 +673,7 @@ mod tests {
         assert!(log.lib.is_none());
         assert!(log.lib_version.is_none());
         assert!(log.api_version.is_none());
+        assert!(log.response_format.is_none());
         assert!(log.team_id.is_none());
         assert!(log.distinct_id.is_none());
         assert!(log.device_id.is_none());
@@ -717,6 +722,7 @@ mod tests {
         log.lib = Some("posthog-python".to_string());
         log.lib_version = Some("1.0.0".to_string());
         log.api_version = Some("3".to_string());
+        log.response_format = Some("FlagsV3");
         log.team_id = Some(123);
         log.distinct_id = Some("user_abc".to_string());
         log.device_id = Some("device_123".to_string());

@@ -20,6 +20,7 @@ from rest_framework.response import Response
 from posthog.hogql.errors import QueryError
 
 from posthog.constants import RETENTION_FIRST_EVER_OCCURRENCE, TREND_FILTER_TYPE_EVENTS
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
 from posthog.sync import database_sync_to_async
@@ -415,6 +416,17 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         # Verify SavedQuery is soft-deleted
         saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
         self.assertTrue(saved_query.deleted)
+
+        # The endpoint's history tab filters on the endpoint id, so both toggles must be logged there too.
+        endpoint_history = ActivityLog.objects.filter(
+            team_id=self.team.id, scope__in=["Endpoint", "EndpointVersion"], item_id=str(endpoint.id)
+        ).values_list("activity", flat=True)
+        self.assertIn("materialization_enabled", endpoint_history)
+        self.assertIn("materialization_disabled", endpoint_history)
+        model_history = ActivityLog.objects.filter(
+            team_id=self.team.id, scope="DataWarehouseSavedQuery", item_id=str(saved_query_id)
+        ).values_list("activity", flat=True)
+        self.assertIn("materialization_disabled", model_history)
 
     def test_cannot_materialize_query_with_invalid_variables(self):
         """Test that queries with invalid variable metadata cannot be materialized."""
@@ -901,8 +913,31 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             mock_inline.assert_called_once()
             mock_materialized.assert_not_called()
 
-    def test_fresh_materialized_data_uses_materialized_table(self):
+    @parameterized.expand(
+        [
+            ("eligible_query_serves_materialized", None, "materialized"),
+            # Rules can tighten after a version is materialized; the table must stop being served then.
+            # countDistinct over a range variable is one such query: a bucketed table cannot re-aggregate it.
+            (
+                "ineligible_query_serves_inline",
+                {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT countDistinct(person_id) FROM events "
+                    "WHERE timestamp >= {variables.start_ts} AND timestamp < {variables.end_ts}",
+                    "variables": {
+                        "var-1": {"variableId": "var-1", "code_name": "start_ts", "value": "2024-01-01"},
+                        "var-2": {"variableId": "var-2", "code_name": "end_ts", "value": "2024-02-01"},
+                    },
+                },
+                "inline",
+            ),
+        ]
+    )
+    def test_fresh_materialized_data_uses_materialized_table(
+        self, _name: str, ineligible_query: dict[str, Any] | None, expected_path: str
+    ) -> None:
         """Test that fresh materialized data uses the materialized table for faster execution."""
+        query = ineligible_query if ineligible_query is not None else self.sample_hogql_query
         # Create a materialized endpoint with fresh data
         now = timezone.now()
         saved_query = DataWarehouseSavedQuery.objects.create(
@@ -925,7 +960,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         endpoint = create_endpoint_with_version(
             name="fresh_data_endpoint",
             team=self.team,
-            query=self.sample_hogql_query,
+            query=query,
             created_by=self.user,
             is_active=True,
         )
@@ -950,9 +985,8 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             )
 
             self.assertEqual(response.status_code, status.HTTP_200_OK)
-            # Should use materialized table because data is fresh
-            mock_materialized.assert_called_once()
-            mock_inline.assert_not_called()
+            self.assertEqual(mock_materialized.call_count, int(expected_path == "materialized"))
+            self.assertEqual(mock_inline.call_count, int(expected_path == "inline"))
 
     @parameterized.expand(
         [

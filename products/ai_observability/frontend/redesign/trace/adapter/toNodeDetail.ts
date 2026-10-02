@@ -1,15 +1,15 @@
-import { LLMTrace, LLMTraceEvent, LLMTracePerson } from '~/queries/schema/schema-general'
+import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import { AIData } from '../../../aiObservabilityAIDataLogic'
 import { EvaluationConfig, EvaluationRun } from '../../../evaluations/types'
+import type { TraceNodeApi } from '../../../generated/api.schemas'
 import { isLLMEvent } from '../../../utils'
 import { NodeDetailProps } from '../components/NodeDetail'
-import { EvalsState, NodeContent, NodeProperties, TraceTreeNode } from '../types'
+import { EvalsState, NodeContent, NodeProperties } from '../types'
 import { resolveEventIO } from './eventIO'
 import { readNumber, readString } from './propertyReaders'
 import { TeamId } from './toAttachment'
 import { toEvalResults } from './toEvalResults'
-import { personLabel } from './toSummary'
 import { toMessageIO } from './toThread'
 import { isMessageIO } from './toThreadMessages'
 import { eventError } from './toTraceTree'
@@ -19,19 +19,19 @@ export type NodeDetailData = Omit<NodeDetailProps, 'tab' | 'onTabChange' | 'onVi
 interface NodeDetailArgs {
     trace: LLMTrace
     event: LLMTrace | LLMTraceEvent
-    node: TraceTreeNode
+    node: TraceNodeApi
     cache: Record<string, AIData | null>
-    tree: TraceTreeNode[]
+    tree: TraceNodeApi[]
     evalRuns: EvaluationRun[]
     evalRunsLoading: boolean
     evaluations: EvaluationConfig[]
     detectorEvaluationIds: string[]
     evaluationsSettled: boolean
     teamId: TeamId
-    person: LLMTracePerson | null
+    person: string | null
 }
 
-function ioContent(io: { input: unknown; output: unknown }, node: TraceTreeNode, teamId: TeamId): NodeContent {
+function ioContent(io: { input: unknown; output: unknown }, node: TraceNodeApi, teamId: TeamId): NodeContent {
     if (node.kind === 'generation' || isMessageIO(io.input, io.output)) {
         return { kind: 'messages', ...toMessageIO(io, node.id, teamId) }
     }
@@ -40,7 +40,7 @@ function ioContent(io: { input: unknown; output: unknown }, node: TraceTreeNode,
 
 function eventContent(
     event: LLMTraceEvent,
-    node: TraceTreeNode,
+    node: TraceNodeApi,
     cache: Record<string, AIData | null>,
     teamId: TeamId
 ): NodeContent {
@@ -48,7 +48,7 @@ function eventContent(
     return io.loading ? { kind: 'loading' } : ioContent(io, node, teamId)
 }
 
-function eventProperties(event: LLMTraceEvent, trace: LLMTrace, person: LLMTracePerson | null): NodeProperties {
+function eventProperties(event: LLMTraceEvent, person: string | null): NodeProperties {
     const properties = event.properties
     return {
         timestamp: event.createdAt,
@@ -57,11 +57,11 @@ function eventProperties(event: LLMTraceEvent, trace: LLMTrace, person: LLMTrace
         sessionId: readString(properties.$ai_session_id),
         promptName: readString(properties.$ai_prompt_name),
         promptVersion: readNumber(properties.$ai_prompt_version),
-        person: personLabel(trace, person),
+        person,
     }
 }
 
-function traceProperties(trace: LLMTrace, person: LLMTracePerson | null): NodeProperties {
+function traceProperties(trace: LLMTrace, person: string | null): NodeProperties {
     return {
         timestamp: trace.createdAt,
         provider: null,
@@ -69,12 +69,12 @@ function traceProperties(trace: LLMTrace, person: LLMTracePerson | null): NodePr
         sessionId: trace.aiSessionId ?? null,
         promptName: null,
         promptVersion: null,
-        person: personLabel(trace, person),
+        person,
     }
 }
 
 // Detector polarity comes from the evaluation configs, so results wait for them to avoid showing a flipped verdict.
-function evalsState(runs: EvaluationRun[], node: TraceTreeNode, args: NodeDetailArgs): EvalsState {
+function evalsState(runs: EvaluationRun[], node: TraceNodeApi, args: NodeDetailArgs): EvalsState {
     if (args.evalRunsLoading || !args.evaluationsSettled) {
         return { status: 'loading' }
     }
@@ -109,7 +109,7 @@ export function toNodeDetail(args: NodeDetailArgs): NodeDetailData {
         node,
         content: eventContent(event, node, cache, teamId),
         error: eventError(event),
-        properties: eventProperties(event, trace, person),
+        properties: eventProperties(event, person),
         evals,
         raw: { event: event.event, id: event.id, createdAt: event.createdAt, properties: event.properties },
     }

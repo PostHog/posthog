@@ -39,7 +39,7 @@ from posthog.temporal.codec_server import decode_payloads
 from posthog.web_bot_auth import http_message_signatures_directory
 
 from products.ai_observability.backend.api.personal_spend import PersonalSpendEUProxyViewSet
-from products.canvas.backend.artifacts import canvas_artifact
+from products.canvas.backend.artifacts import canvas_artifact, canvas_sandbox_document
 from products.cdp.backend.api import hog_function_template
 from products.conversations.backend.api.internal import InternalTicketView as ConversationsInternalTicketView
 from products.customer_analytics.backend.presentation.views.internal import (
@@ -360,6 +360,12 @@ urlpatterns = [
     *([path("delete_events/", playwright_setup.delete_events)] if settings.TEST else []),
     # Temporal UI decryption is needed in tests even when DEBUG is off.
     *([path("decode", decode_payloads, name="temporal_decode")] if settings.TEST and not settings.DEBUG else []),
+    # Precedes the artifact route, which would otherwise read "sandbox" as a token.
+    re_path(
+        r"^canvas-artifacts/sandbox/(?P<content_hash>[0-9a-f]{64})/index\.html$",
+        canvas_sandbox_document,
+        name="canvas-sandbox-document",
+    ),
     re_path(r"^canvas-artifacts/(?P<token>[^/]+)/(?P<artifact_path>.+)$", canvas_artifact, name="canvas-artifact"),
     # Preserve the host and query when redirecting the legacy signup URL.
     opt_slash_path("sign-up", RedirectView.as_view(url="/signup", permanent=True, query_string=True)),

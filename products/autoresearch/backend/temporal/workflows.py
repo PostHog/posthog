@@ -13,7 +13,7 @@ from __future__ import annotations
 from collections.abc import Awaitable
 from dataclasses import field
 from datetime import date, timedelta
-from typing import TYPE_CHECKING, Optional, TypeVar, cast
+from typing import Optional, TypeVar, cast
 
 import structlog
 from temporalio import activity, workflow
@@ -25,6 +25,8 @@ with workflow.unsafe.imports_passed_through():
 
     from django.db import transaction
     from django.utils import timezone as django_timezone
+
+    from posthog.models.user import User
 
     from products.actions.backend.models.action import Action
     from products.autoresearch.backend.access import has_autoresearch_access
@@ -47,9 +49,6 @@ from posthog.models.scoping import team_scope
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 
-if TYPE_CHECKING:
-    from posthog.models import User
-
 logger = structlog.get_logger(__name__)
 
 _T = TypeVar("_T")
@@ -67,6 +66,9 @@ class InferenceWorkflowInput:
     pipeline_id: str
     team_id: int
     prediction_date: str  # ISO date string, e.g. "2026-05-26"
+    # Set by a manual "Score now": the run row the API already returned, and the user who asked.
+    run_id: Optional[str] = None
+    user_id: Optional[int] = None
 
 
 @frozen
@@ -82,6 +84,8 @@ class RunInferenceInput:
     pipeline_id: str
     team_id: int
     prediction_date: str  # ISO date string
+    run_id: Optional[str] = None
+    user_id: Optional[int] = None
 
 
 @frozen
@@ -101,30 +105,37 @@ def activity_run_inference(inp: RunInferenceInput) -> RunInferenceResult:
 
     The champion is read here, not passed in, so a retry after a promotion during scoring scores
     with the new champion instead of failing again on the archived one.
+
+    A manual run (``run_id`` set) fills the row the API created, and a refusal fails that row,
+    so the caller that polls it sees the outcome.
     """
     with HeartbeaterSync(), team_scope(inp.team_id):
         pipeline = AutoresearchPipeline.objects.select_related("team__organization", "created_by").get(
             pk=inp.pipeline_id
         )
-        if pipeline.status not in _LIVE_STATUSES or _sweep_access_block(pipeline):
+        manual_run = AutoresearchRun.objects.filter(pk=inp.run_id, pipeline=pipeline).first() if inp.run_id else None
+        if inp.run_id and manual_run is None:
+            raise ApplicationError(f"Inference run {inp.run_id} does not exist", non_retryable=True)
+        if manual_run is not None:
+            # The API already applied the manual gates, so only a pause or archive since then stops it.
+            if pipeline.status in (AutoresearchPipeline.Status.PAUSED, AutoresearchPipeline.Status.ARCHIVED):
+                _fail_run(manual_run, "The pipeline was paused or archived before scoring started.")
+                return RunInferenceResult(run_id=str(manual_run.pk), rows_scored=0, status="skipped")
+        elif pipeline.status not in _LIVE_STATUSES or _sweep_access_block(pipeline):
             return RunInferenceResult(run_id="", rows_scored=0, status="skipped")
         try:
-            # A bundle champion never resolves the target, so a deleted or stepless action would
-            # otherwise score and advance last_scored_at. Manual scoring refuses it the same way.
-            build_target_condition(
-                target_event=pipeline.target_event, target_definition=pipeline.target_definition, team=pipeline.team
-            )
-        except (ValueError, Action.DoesNotExist) as exc:
-            raise ApplicationError(f"The pipeline's target cannot be resolved: {exc}", non_retryable=True)
-        model = (
-            AutoresearchModel.objects.filter(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION)
-            .order_by("-created_at")
-            .first()
-        )
-        if model is None:
-            raise ApplicationError(f"No champion model for pipeline {inp.pipeline_id}", non_retryable=True)
+            user = _manual_run_user(inp.user_id)
+            model = _champion_for_inference(pipeline)
+        except ApplicationError as exc:
+            if manual_run is not None:
+                _fail_run(manual_run, str(exc))
+            raise
         run = run_inference_for_pipeline(
-            pipeline=pipeline, model=model, prediction_date=date.fromisoformat(inp.prediction_date)
+            pipeline=pipeline,
+            model=model,
+            prediction_date=date.fromisoformat(inp.prediction_date),
+            user=user,
+            run=manual_run,
         )
     return RunInferenceResult(
         run_id=str(run.pk),
@@ -132,6 +143,47 @@ def activity_run_inference(inp: RunInferenceInput) -> RunInferenceResult:
         status=run.status,
         error=run.error or None,
     )
+
+
+def _champion_for_inference(pipeline: AutoresearchPipeline) -> AutoresearchModel:
+    try:
+        # A bundle champion never resolves the target, so a deleted or stepless action would
+        # otherwise score and advance last_scored_at. Manual scoring refuses it the same way.
+        build_target_condition(
+            target_event=pipeline.target_event, target_definition=pipeline.target_definition, team=pipeline.team
+        )
+    except (ValueError, Action.DoesNotExist) as exc:
+        raise ApplicationError(f"The pipeline's target cannot be resolved: {exc}", non_retryable=True)
+    model = (
+        AutoresearchModel.objects.filter(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION)
+        .order_by("-created_at")
+        .first()
+    )
+    if model is None:
+        raise ApplicationError(f"No champion model for pipeline {pipeline.pk}", non_retryable=True)
+    return model
+
+
+def _manual_run_user(user_id: int | None) -> User | None:
+    """The user who asked for a manual run, so HogQL applies their access and not the creator's."""
+    if user_id is None:
+        return None
+    user = User.objects.filter(pk=user_id, is_active=True).first()
+    if user is None:
+        raise ApplicationError("The user who started this run no longer exists", non_retryable=True)
+    return user
+
+
+def _fail_run(run: AutoresearchRun, error: str) -> None:
+    run.status = AutoresearchRun.Status.FAILED
+    run.error = error[:2000]
+    run.completed_at = django_timezone.now()
+    run.save(update_fields=["status", "error", "completed_at"])
+
+
+def inference_workflow_id(pipeline_id: str, prediction_date: str) -> str:
+    """One inference workflow per pipeline and date, shared by the daily sweep and manual scoring."""
+    return f"autoresearch-inference-{pipeline_id}-{prediction_date}"
 
 
 # ── Workflow ─────────────────────────────────────────────────────────────────
@@ -171,6 +223,8 @@ class AutoresearchInferenceWorkflow(PostHogWorkflow):
                 pipeline_id=inp.pipeline_id,
                 team_id=inp.team_id,
                 prediction_date=inp.prediction_date,
+                run_id=inp.run_id,
+                user_id=inp.user_id,
             ),
             start_to_close_timeout=_SCORE_ATTEMPT_TIMEOUT,
             heartbeat_timeout=_HEARTBEAT_TIMEOUT,
@@ -548,7 +602,7 @@ def _tasks_gate(pipeline: AutoresearchPipeline) -> str | None:
     """
     if blocked := _sweep_access_block(pipeline):
         return blocked
-    creator = cast("User", pipeline.created_by)
+    creator = cast(User, pipeline.created_by)
     organization = pipeline.team.organization
     team_id = pipeline.team_id
     decision = get_desktop_access_decision(creator, organization)
@@ -641,7 +695,7 @@ class AutoresearchCoordinatorWorkflow(PostHogWorkflow):
                         InferenceWorkflowInput(
                             pipeline_id=pipeline_id, team_id=pipeline.team_id, prediction_date=run_date
                         ),
-                        id=f"autoresearch-inference-{pipeline_id}-{run_date}",
+                        id=inference_workflow_id(pipeline_id, run_date),
                         execution_timeout=_INFERENCE_WORKFLOW_TIMEOUT,
                     )
                 ),
