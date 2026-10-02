@@ -4,7 +4,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, call, patch
 
 from django.apps import apps
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from rest_framework import status
@@ -65,6 +65,22 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
     def _list_url(self, **query: str) -> str:
         suffix = "&".join(f"{key}={value}" for key, value in query.items())
         return f"/api/projects/{self.team.id}/signals/reports/{'?' + suffix if suffix else ''}"
+
+    def test_manual_monitoring_waits_for_open_pull_requests(self) -> None:
+        report = self._create_report()
+        claimed = self.client.post(
+            self._claim_url(report), {"pull_requests": ["https://github.com/example/app/pull/1"]}, format="json"
+        )
+        assert claimed.status_code == status.HTTP_200_OK
+        with patch("products.signals.backend.report_content_gates.team_report_monitoring_enabled", return_value=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/signals/reports/{report.id}/state/",
+                {"state": "monitoring"},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_409_CONFLICT
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.READY
 
     @staticmethod
     def _agent_headers(name: str) -> dict[str, str]:
@@ -232,15 +248,25 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("all_closed", "closed", "closed", SignalReport.Status.SUPPRESSED),
-            ("one_merged", "merged", "closed", SignalReport.Status.RESOLVED),
-            ("all_merged", "merged", "merged", SignalReport.Status.RESOLVED),
-            ("unknown", "merged", "unknown", SignalReport.Status.READY),
-            ("draft", "merged", "draft", SignalReport.Status.READY),
+            ("all_closed", "closed", "closed", SignalReport.Status.SUPPRESSED, False),
+            ("one_merged", "merged", "closed", SignalReport.Status.RESOLVED, False),
+            ("all_merged", "merged", "merged", SignalReport.Status.RESOLVED, False),
+            ("unknown", "merged", "unknown", SignalReport.Status.READY, False),
+            ("draft", "merged", "draft", SignalReport.Status.READY, False),
+            ("monitoring", "merged", "closed", SignalReport.Status.MONITORING, True),
+            ("monitoring_waits_for_draft", "merged", "draft", SignalReport.Status.READY, True),
         ]
     )
     @patch("products.signals.backend.report_assignments.GitHubIntegration.first_for_team_repository", return_value=None)
-    def test_stack_completion_waits_for_all_prs(self, _name, first_state, last_state, expected, _integration):
+    @override_settings(DEBUG=False)
+    def test_stack_completion_waits_for_all_prs(
+        self, _name, first_state, last_state, expected, monitoring_enabled, _integration
+    ):
+        flag = patch(
+            "products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=monitoring_enabled
+        )
+        flag_mock = flag.start()
+        self.addCleanup(flag.stop)
         report = self._create_report()
         response = self.client.post(
             self._claim_url(report),
@@ -258,7 +284,9 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         )
         report.refresh_from_db()
         assert report.status == SignalReport.Status.READY
-        for _ in range(2):
+        for iteration in range(2):
+            if iteration:
+                flag_mock.return_value = False
             update_assignments_for_pull_request(
                 team_ids=[self.team.id], repository="example/sdk", pr_number=2, pr_state=last_state
             )

@@ -310,14 +310,22 @@ def sync_task_pull_request_to_assignments(
 def _apply_pr_report_state(report: SignalReport, pr_state: str | None) -> None:
     target = None
     if pr_state == SignalReportAssignment.PrState.MERGED:
-        target = SignalReport.Status.RESOLVED
+        if report.status in {SignalReport.Status.MONITORING, SignalReport.Status.RESOLVED}:
+            return
+        from products.signals.backend.report_content_gates import team_report_monitoring_enabled
+
+        target = (
+            SignalReport.Status.MONITORING
+            if team_report_monitoring_enabled(report.team_id)
+            else SignalReport.Status.RESOLVED
+        )
     elif pr_state == SignalReportAssignment.PrState.CLOSED:
         target = SignalReport.Status.SUPPRESSED
     if target is None or report.status == target:
         return
     # Resolving a report closes its own pull request, and GitHub reports that close as an unmerged
     # close. Suppressing on it would undo the resolution moments after the person made it.
-    if target == SignalReport.Status.SUPPRESSED and report.status == SignalReport.Status.RESOLVED:
+    if target == SignalReport.Status.SUPPRESSED and report.status in SignalReport.CHECK_EXECUTION_STATUSES:
         return
     try:
         updated_fields = report.transition_to(target)

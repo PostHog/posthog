@@ -16,6 +16,7 @@ a breach the same way and there is one place where "is this value out of bounds?
 from __future__ import annotations
 
 import time
+from collections.abc import Iterable
 from datetime import datetime, timedelta
 from functools import partial
 from typing import cast
@@ -340,7 +341,7 @@ def record_check_verdict(
 
     with transaction.atomic():
         report = SignalReport.objects.select_for_update().filter(id=check.report_id, team_id=check.team_id).first()
-        if report is None or report.status != SignalReport.Status.RESOLVED:
+        if report is None or report.status not in SignalReport.CHECK_EXECUTION_STATUSES:
             return
         current = (
             SignalReportCheck.objects.for_team(check.team_id)
@@ -348,7 +349,11 @@ def record_check_verdict(
             .filter(id=check.id, status=SignalReportCheck.Status.ACTIVE)
             .first()
         )
-        if current is None:
+        if (
+            current is None
+            or current.measurement_start_at != check.measurement_start_at
+            or current.dispatched_at != check.dispatched_at
+        ):
             return
         transition = _next_state(current, verdict, now)
         current.status = transition.status
@@ -383,6 +388,12 @@ def record_check_verdict(
                 "updated_at",
             ]
         )
+        if report.status == SignalReport.Status.MONITORING:
+            from products.signals.backend.report_monitoring import resolve_verified_monitoring_report
+
+            transaction.on_commit(
+                partial(resolve_verified_monitoring_report, team_id=report.team_id, report_id=str(report.id))
+            )
         SignalReportArtefact.add_log(
             team_id=current.team_id,
             report_id=str(current.report_id),
@@ -565,8 +576,45 @@ def _report_expired_checks(overdue: list[SignalReportCheck]) -> None:
         logger.exception("signals.report_check.expired_report_failed")
 
 
+def _park_checks(active: Iterable[SignalReportCheck], now: datetime) -> int:
+    parked = 0
+    for check in active:
+        soak_minutes = check.soak_minutes
+        if soak_minutes is None:
+            # A legacy retry or recurring date no longer identifies its initial soak.
+            soak_minutes = (
+                DEFAULT_CHECK_SOAK_HOURS * 60
+                if check.last_run_at is not None or check.dispatched_at is not None
+                else soak_minutes_from_gap(check.next_run_at, check.created_at)
+            )
+        parked += (
+            SignalReportCheck.objects.for_team(check.team_id)
+            .filter(id=check.id, status=SignalReportCheck.Status.ACTIVE)
+            .exclude(report__status__in=SignalReport.CHECK_EXECUTION_STATUSES)
+            .update(
+                status=SignalReportCheck.Status.PENDING,
+                soak_minutes=soak_minutes,
+                measurement_start_at=None,
+                next_run_at=now + timedelta(minutes=soak_minutes),
+                expires_at=now + MAX_CHECK_HORIZON,
+                consecutive_errors=0,
+                consecutive_inconclusive=0,
+                dispatched_at=None,
+                updated_at=now,
+            )
+        )
+    return parked
+
+
+def park_report_checks_on_reopen(*, team_id: int, report_id: str, now: datetime) -> int:
+    return _park_checks(
+        SignalReportCheck.objects.for_team(team_id).filter(report_id=report_id, status=SignalReportCheck.Status.ACTIVE),
+        now,
+    )
+
+
 def park_checks_on_unresolved_reports(now: datetime) -> int:
-    """Move active checks whose report is not resolved back to `pending`. Returns how many moved.
+    """Move active checks whose fix is not implemented back to `pending`. Returns how many moved.
 
     A check can be active on an unresolved report in three ways: a report that left `resolved`
     (reopened, archived, or restored somewhere else), a row written active before the create path
@@ -580,35 +628,12 @@ def park_checks_on_unresolved_reports(now: datetime) -> int:
     """
     active = list(
         SignalReportCheck.all_teams.filter(status=SignalReportCheck.Status.ACTIVE)
-        .exclude(report__status=SignalReport.Status.RESOLVED)
+        .exclude(report__status__in=SignalReport.CHECK_EXECUTION_STATUSES)
         .only("id", "team_id", "created_at", "next_run_at", "soak_minutes", "last_run_at", "dispatched_at")[
             :MAX_CHECK_PARKS_PER_TICK
         ]
     )
-    parked = 0
-    for check in active:
-        soak_minutes = check.soak_minutes
-        if soak_minutes is None:
-            # A legacy row's retry or recurring date no longer identifies its initial soak.
-            soak_minutes = (
-                DEFAULT_CHECK_SOAK_HOURS * 60
-                if check.last_run_at is not None or check.dispatched_at is not None
-                else soak_minutes_from_gap(check.next_run_at, check.created_at)
-            )
-        parked += (
-            SignalReportCheck.all_teams.filter(id=check.id, status=SignalReportCheck.Status.ACTIVE)
-            .exclude(report__status=SignalReport.Status.RESOLVED)
-            .update(
-                status=SignalReportCheck.Status.PENDING,
-                soak_minutes=soak_minutes,
-                measurement_start_at=None,
-                next_run_at=now + timedelta(minutes=soak_minutes),
-                expires_at=now + MAX_CHECK_HORIZON,
-                consecutive_errors=0,
-                dispatched_at=None,
-                updated_at=now,
-            )
-        )
+    parked = _park_checks(active, now)
     if parked:
         logger.info("signals.report_check.parked_on_unresolved_report", parked=parked)
     return parked
@@ -627,10 +652,10 @@ def collect_due_checks(now: datetime, *, limit: int = MAX_CHECK_RUNS_PER_TICK) -
             status=SignalReportCheck.Status.ACTIVE,
             next_run_at__lte=now,
             expires_at__gt=now,
-            # A check re-measures a fix, so it runs only while its report is resolved. The park step
+            # A check re-measures a fix, so it runs only after implementation. The park step
             # moves any other active row back to `pending`; this filter keeps a row it has not reached
             # yet out of the tick.
-            report__status=SignalReport.Status.RESOLVED,
+            report__status__in=SignalReport.CHECK_EXECUTION_STATUSES,
         )
         .select_related("report", "report__team", "team__organization")
         # Rank each team's rows against its own, then read those ranks in order, so every team's

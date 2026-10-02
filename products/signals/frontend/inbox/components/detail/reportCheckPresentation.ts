@@ -93,8 +93,8 @@ function openCheckRow(check: SignalReportCheckApi): Pick<ReportCheckRowData, 'ta
 
     if (check.status === 'pending') {
         const start = check.soak_minutes
-            ? `Starts ${soakLabel(check.soak_minutes)} after this report is resolved`
-            : 'Starts when this report is resolved'
+            ? `Starts ${soakLabel(check.soak_minutes)} after the fix is implemented`
+            : 'Starts when the fix is implemented'
         return { tag: { label: 'Waiting', type: 'muted' }, detail: joinDetail([start, lane && `${lane} runs it`]) }
     }
 
@@ -242,7 +242,7 @@ export function reportChecksMeta(checks: SignalReportCheckApi[]): string {
         return `${checks.length} · next ${scheduled[0].format('MMM D')}`
     }
     if (checks.some((check) => check.status === 'pending')) {
-        return `${checks.length} · waiting for resolve`
+        return `${checks.length} · waiting for implementation`
     }
     return `${checks.length} · all done`
 }
@@ -272,10 +272,10 @@ export function checkScheduledEntry(content: CheckScheduledContent): CheckLifecy
 
     if (content.arms_on_resolve) {
         const start = content.soak_minutes
-            ? `Starts ${soakLabel(content.soak_minutes)} after this report is resolved`
-            : 'Starts when this report is resolved'
+            ? `Starts ${soakLabel(content.soak_minutes)} after the fix is implemented`
+            : 'Starts when the fix is implemented'
         return {
-            tag: { label: 'Waiting for resolve', type: 'muted' },
+            tag: { label: 'Waiting for implementation', type: 'muted' },
             detail: joinDetail([
                 start,
                 content.kind === 'metric_threshold' ? 'Waits for a full query window' : null,

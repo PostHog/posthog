@@ -57,7 +57,7 @@ const DEFAULT_SORT_DIRECTION: InboxSortDirection = 'asc'
  * The states selected by default: the two that hold open work. The closed states (Resolved,
  * Dismissed) stay one checkbox away so the fresh inbox leads with what needs a person.
  */
-export const DEFAULT_STATE_FILTER: InboxReportSectionKey[] = ['monitoring', 'needs-decision']
+export const DEFAULT_STATE_FILTER: InboxReportSectionKey[] = ['monitoring', 'verifying', 'needs-decision']
 
 /**
  * URL value for an explicitly empty selection (every state). An absent `state` param means the
@@ -290,7 +290,7 @@ export interface inboxFiltersLogicValues {
     sortDirection: InboxSortDirection
     sortField: InboxSortField
     sourceProductFilter: string[]
-    stateFilter: ('dismissed' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved')[]
+    stateFilter: ('dismissed' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved' | 'verifying')[]
     timeWindowAvailable: boolean
     visibleStateFilter: InboxReportSectionKey[]
 }
@@ -380,7 +380,7 @@ export interface inboxFiltersLogicActions {
         source: string
     }
     toggleState: (state: InboxReportSectionKey) => {
-        state: 'dismissed' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved'
+        state: 'dismissed' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved' | 'verifying'
     }
 }
 

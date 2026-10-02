@@ -27,6 +27,7 @@ export function canResolveReport(report: SignalReport): boolean {
     return (
         report.status === SignalReportStatus.READY ||
         report.status === SignalReportStatus.PENDING_INPUT ||
+        report.status === SignalReportStatus.MONITORING ||
         report.status === SignalReportStatus.FAILED
     )
 }
