@@ -52,7 +52,6 @@ pub struct AppContext {
     // Team allowlist for the rate limiter: `None` = all teams, `Some(set)` = only
     // these. Parsed from ERROR_TRACKING_RATE_LIMITER_ENABLED_TEAM_IDS.
     pub rate_limiter_enabled_team_ids: Option<HashSet<i32>>,
-    // Parsed from ERROR_TRACKING_DROP_CODE_VARIABLES_TEAM_IDS. Empty means no team.
     pub drop_code_variables_team_ids: Arc<HashSet<i32>>,
     // Shared `(team_id, fingerprint) -> issue_id` mapping cache. Lives on AppContext so
     // it persists across requests — only the stable mapping is cached, never the Issue
@@ -257,9 +256,7 @@ fn parse_team_id_allowlist(value: &str) -> Option<HashSet<i32>> {
     )
 }
 
-/// Parse a comma-separated team-id list and reject any entry that is not a team id. An empty
-/// input gives an empty set. A typo must stop startup, because a skipped entry would leave that
-/// team out of the list with no error.
+/// A typo must stop startup, because a skipped entry would silently leave that team out.
 fn parse_strict_team_id_list(value: &str) -> Result<HashSet<i32>, UnhandledError> {
     value
         .split(',')

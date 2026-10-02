@@ -34,8 +34,7 @@ impl Stage for HttpEventPipeline {
     async fn process(self, batch: Batch<Self::Input>) -> StageResult<Self> {
         let (preprocess, postprocess) =
             create_pre_post_processing(batch.len(), Box::new(handle_result));
-        // Strip before pre-processing stores its copy of each event. `handle_result` returns
-        // that copy unchanged when processing fails, so a later strip would miss it.
+        // Strip first: pre-processing keeps this copy and returns it unchanged on failure.
         let drop_team_ids = self.app_context.drop_code_variables_team_ids.clone();
         let batch = batch.map(
             |mut event, ()| {

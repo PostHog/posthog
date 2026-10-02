@@ -21,9 +21,6 @@ pub struct AnyEvent {
 }
 
 impl AnyEvent {
-    /// Remove `code_variables` from every frame of the raw `$exception_list`. This works on the
-    /// untyped JSON so that it also covers events that later fail to parse, because those are
-    /// returned with their original properties.
     pub fn drop_code_variables(&mut self) {
         let Some(exceptions) = self
             .properties

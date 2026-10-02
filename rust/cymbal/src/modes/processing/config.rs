@@ -200,9 +200,7 @@ pub struct ProcessingConfig {
     #[envconfig(default = "")]
     pub spike_alert_enabled_team_ids: String,
 
-    // Comma separated list of team IDs whose frame code variables are dropped. Senders on old
-    // SDK versions keep attaching code variables, which can hold credentials, and we cannot
-    // upgrade those senders. If empty, code variables are kept for every team.
+    // Teams whose frame code variables are dropped, for old SDK senders we cannot upgrade.
     #[envconfig(from = "ERROR_TRACKING_DROP_CODE_VARIABLES_TEAM_IDS", default = "")]
     pub drop_code_variables_team_ids: String,
 

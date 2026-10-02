@@ -775,7 +775,6 @@ fn frames_with_code_variables(body: &SuccessResponse) -> usize {
 async fn drops_code_variables_replayed_from_stored_frames(db: PgPool) {
     let harness = TestHarness::new(db);
 
-    // Team 1 is not on the drop list yet, so its frame records are stored with code variables.
     let (status, body): (_, SuccessResponse) = harness
         .post_event_with_config(&python_event_with_code_variables(), |_| {})
         .await;

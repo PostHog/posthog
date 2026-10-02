@@ -209,9 +209,7 @@ impl<S> ExceptionEvent<S> {
         self.uuid
     }
 
-    /// Clear `code_variables` on every frame. Resolved frames need this even when the incoming
-    /// event carried none, because a stored frame record replays the variables of the event that
-    /// first resolved that frame.
+    /// Resolved frames need this even when the event sent none: stored records replay old ones.
     pub fn drop_code_variables(&mut self) {
         for exception in self.exception_list.iter_mut() {
             match &mut exception.stack {
