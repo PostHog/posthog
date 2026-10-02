@@ -694,6 +694,8 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # Scheduler-derived field; keep it out of user-facing change diffs even when another
         # field changes in the same save (signal_exclusions only governs whether the signal fires).
         "next_delivery_date",
+        # Internal record of the save-time table-access check. It is not part of the API.
+        "query_access_verified_at",
         # Context rows use a fail-closed team manager that has no scope during signal handling.
         "contexts",
         # FK to a connected Slack integration. The generic field-diff captures the related object,

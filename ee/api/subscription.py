@@ -11,6 +11,7 @@ from django.db.models import CharField, Manager, Prefetch, Q, QuerySet, Value
 from django.db.models.functions import Cast, Concat
 from django.http import HttpRequest, JsonResponse
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 
 import jwt
 import posthoganalytics
@@ -41,6 +42,7 @@ from posthog.event_usage import AnalyticsProps, get_request_analytics_properties
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.user import User
 from posthog.rate_limit import SubscriptionTestDeliveryThrottle
 from posthog.resource_limits import LimitKey, check_count_limit, get_organization_limit
 from posthog.scopes import APIScopeObject
@@ -80,6 +82,11 @@ from products.exports.backend.temporal.subscriptions.types import (
 from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team
 from products.product_analytics.backend.facade.models import Insight
 
+from ee.api.subscription_query_access import (
+    tables_blocking_subscription_write,
+    write_changes_delivery,
+    write_needs_query_access_check,
+)
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.tasks.subscriptions.auto_disable import validate_re_enable
 from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
@@ -989,7 +996,37 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
             organization = self.context["get_organization"]()
             self._validate_summary_enabled_org_limit(organization)
 
+        self._check_query_access(attrs, resource_type)
+
         return attrs
+
+    def _check_query_access(self, attrs: dict, resource_type: str) -> None:
+        if resource_type == Subscription.ResourceType.AI_PROMPT:
+            return
+        changes_delivery = write_changes_delivery(self.instance, attrs)
+        user = self.context["request"].user
+        needs_check = write_needs_query_access_check(self.instance, attrs, changes_delivery=changes_delivery)
+        # The check needs a real user, and it does not run when the write turns the subscription
+        # off. In both cases a changed target or recipient clears the record, so that the record
+        # never covers something that nobody was checked against.
+        if not needs_check or not isinstance(user, User):
+            if changes_delivery:
+                attrs["query_access_verified_at"] = None
+            return
+        blocked_names = tables_blocking_subscription_write(
+            user=user,
+            team=self.context["get_team"](),
+            user_access_control=self.context["view"].user_access_control,
+            instance=self.instance,
+            attrs=attrs,
+        )
+        if blocked_names:
+            blocked = ", ".join(f"`{name}`" for name in blocked_names)
+            raise ValidationError(
+                f"Can't save this subscription: you don't have access to {blocked}, "
+                "which its queries use. Ask an admin for access, or choose insights you can query."
+            )
+        attrs["query_access_verified_at"] = timezone.now()
 
     def _is_becoming_active_summary(self, attrs: dict) -> bool:
         pre_summary_enabled = self.instance.summary_enabled if self.instance else False
