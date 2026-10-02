@@ -8,6 +8,8 @@ import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { clearSQLEditorDrafts } from 'products/data_warehouse/frontend/sqlEditorDraftStorage'
+
 export const scene: SceneExport = {
     component: AgenticAccountMismatch,
 }
@@ -24,6 +26,7 @@ export function AgenticAccountMismatch(): JSX.Element {
     const nextUrl = state ? `/api/agentic/authorize?state=${encodeURIComponent(state)}` : null
 
     const submitLogout = (): void => {
+        clearSQLEditorDrafts()
         const form = document.createElement('form')
         form.method = 'POST'
         form.action = '/logout'
