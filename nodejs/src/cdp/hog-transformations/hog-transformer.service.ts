@@ -338,10 +338,6 @@ export class HogTransformerService implements HogTransformer {
 
         if (event.properties && restoreProtectedProperties(event.properties, protectedProperties)) {
             hogTransformationProtectedPropertyWrites.inc()
-            logger.warn('⚠️', 'Transformation wrote a protected property, reverted', {
-                team_id: event.team_id,
-                prefix: PROTECTED_PROPERTY_PREFIX,
-            })
         }
 
         return {
