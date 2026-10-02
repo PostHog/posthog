@@ -111,6 +111,11 @@ from ee.billing.quota_limiting import QuotaResource
 # entitlement are exercised with a stand-in rather than with whichever model is mid-rollout.
 GATED_MODEL_FLAG = "tasks-test-model-gate"
 
+TASK_ANALYTICS_QUERY: dict[str, Any] = {
+    "kind": "InsightVizNode",
+    "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+}
+
 
 def _grant_user_github_access(user: User, *, refresh_ttl_seconds: int = 15897600) -> UserIntegration:
     now = int(time.time())
@@ -3368,12 +3373,7 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(task.runs.count(), 1)
         mock_workflow.assert_not_called()
 
-        source.state["analytics_query_context"] = [
-            {
-                "kind": "InsightVizNode",
-                "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
-            }
-        ]
+        source.state["analytics_query_context"] = [TASK_ANALYTICS_QUERY]
         source.save(update_fields=["state"])
         allowed = self.client.post(
             f"/api/projects/@current/tasks/{task.id}/{action}/",
@@ -10803,10 +10803,7 @@ class TestTaskRunSessionLogsAPI(BaseTaskAPITest):
     @parameterized.expand([("logs",), ("session_logs",), ("task_session",), ("stream_token",), ("",)])
     def test_query_context_requires_analytics_scopes_on_every_trace_route(self, route: str) -> None:
         task = self.create_task()
-        query = {
-            "kind": "InsightVizNode",
-            "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
-        }
+        query = TASK_ANALYTICS_QUERY
         original = TaskRun.objects.create(
             task=task,
             team=self.team,
@@ -12398,10 +12395,7 @@ class TestLivingArtifactChartRequestValidation(SimpleTestCase):
 
 
 class TestTaskRunLivingArtifactChartAPI(BaseTaskAPITest):
-    CHART_QUERY: ClassVar[dict[str, Any]] = {
-        "kind": "InsightVizNode",
-        "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
-    }
+    CHART_QUERY: ClassVar[dict[str, Any]] = TASK_ANALYTICS_QUERY
     DELIVERY_URL = "https://app.dev/exporter/export-1.png?token=abc"
 
     def _post_chart(self, scopes, body):
