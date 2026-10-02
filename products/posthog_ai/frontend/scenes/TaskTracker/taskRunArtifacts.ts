@@ -64,12 +64,18 @@ export function postHogObjectRef(artifact: TaskRunArtifactResponseApi): PostHogO
 export function artifactPreviewKind(
     artifact: TaskRunArtifactResponseApi & { living?: LivingVersion }
 ): ArtifactPreviewKind {
-    if (artifact.living && !hasLivingContent(artifact.living)) {
-        return 'none'
+    if (artifact.living && artifact.living.text === null) {
+        // A stored file plays in an `img` or a `video` from its URL. Text needs a read of the body, so it downloads.
+        const kind = artifact.living.stored ? fileKind(artifact) : 'none'
+        return kind === 'image' || kind === 'video' ? kind : 'none'
     }
     if (artifact.type === 'reference') {
         return 'reference'
     }
+    return fileKind(artifact)
+}
+
+function fileKind(artifact: TaskRunArtifactResponseApi): ArtifactPreviewKind {
     const contentType = (artifact.content_type ?? '').split(';')[0].trim().toLowerCase()
     const ext = extension(artifact.name)
     if (contentType === 'text/html' || ext === 'html' || ext === 'htm') {

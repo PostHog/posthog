@@ -4,7 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 
 import type { RunArtifact } from './taskRunArtifacts'
-import { taskRunArtifactsLogic } from './taskRunArtifactsLogic'
+import { artifactDownloadUrl, taskRunArtifactsLogic } from './taskRunArtifactsLogic'
 
 const TASK_ID = 'task-123'
 
@@ -15,9 +15,6 @@ describe('taskRunArtifactsLogic', () => {
         initKeaTests()
         global.fetch = jest.fn((input: RequestInfo | URL) => {
             const url = String(input)
-            if (url.endsWith('/living_artifacts/doc-1/versions/3/')) {
-                return Promise.resolve(new Response('week,signups\n1,40', { headers: { 'Content-Type': 'text/csv' } }))
-            }
             const payload = url.endsWith('/runs/') ? { results: [] } : { id: TASK_ID }
             return Promise.resolve(
                 new Response(JSON.stringify(payload), { headers: { 'Content-Type': 'application/json' } })
@@ -60,25 +57,23 @@ describe('taskRunArtifactsLogic', () => {
         await expectLogic(logic).toMatchValues({ activeTab: 'conversation', selectedFileKey: null })
     })
 
-    it('reads a stored Slack file version through the version content endpoint', async () => {
-        const logic = taskRunArtifactsLogic({ taskId: TASK_ID })
-        logic.mount()
+    it.each([
+        [
+            'a stored Slack file version streams from its version URL',
+            true,
+            `/api/projects/1/tasks/${TASK_ID}/runs/run-1/living_artifacts/doc-1/versions/3/`,
+        ],
+        ['a living version with no stored file has no URL', false, null],
+    ])('artifactDownloadUrl: %s', (_, stored, expected) => {
         const version: RunArtifact = {
             id: 'living-doc-1-v3',
-            name: 'signups.csv',
+            name: 'signups.png',
             type: 'living',
-            content_type: 'text/csv',
+            content_type: 'image/png',
             uploaded_at: '2026-09-30T16:00:00Z',
             runId: 'run-1',
-            living: { artifactId: 'doc-1', version: 3, adapter: 'slack_file', text: null, stored: true },
+            living: { artifactId: 'doc-1', version: 3, adapter: 'slack_file', text: null, stored },
         }
-
-        await expectLogic(logic, () => logic.actions.loadArtifactText(version))
-            .toDispatchActions(['loadArtifactTextSuccess'])
-            .toMatchValues({
-                textsById: {
-                    'living-doc-1-v3': { artifactId: 'living-doc-1-v3', text: 'week,signups\n1,40', error: null },
-                },
-            })
+        expect(artifactDownloadUrl(1, TASK_ID, version)).toBe(expected)
     })
 })

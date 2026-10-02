@@ -287,8 +287,8 @@ const MAX_CHAIN_RUNS = 20
 const MAX_MEDIA_PREVIEW_BYTES = 200 * 1024 * 1024
 
 /**
- * A URL that an `img` or an `a` can use directly. The download-by-id URL redirects to a fresh presigned link.
- * A stored living version streams from the app origin. A living version that PostHog does not store has no URL.
+ * A URL that an `img`, a `video` or an `a` can use directly. The download-by-id URL redirects to a fresh
+ * presigned link. A stored living version streams from the app origin. Other living versions have no URL.
  */
 export function artifactDownloadUrl(projectId: number | null, taskId: string, artifact: RunArtifact): string | null {
     if (projectId === null || !artifact.id) {
@@ -308,25 +308,6 @@ export function artifactDownloadUrl(projectId: number | null, taskId: string, ar
     return getTasksRunsArtifactsDownloadRetrieveUrl(String(projectId), taskId, artifact.runId, artifact.id)
 }
 
-/**
- * Reads the bytes of a file from the app origin, so the read needs no CORS grant on the bucket.
- * The GET download-by-id URL redirects to object storage, so an uploaded file is read through the POST download.
- * Returns null when PostHog keeps no file for the artifact.
- */
-function fetchArtifactContent(projectId: number, taskId: string, artifact: RunArtifact): Promise<Response> | null {
-    if (artifact.living) {
-        const url = artifactDownloadUrl(projectId, taskId, artifact)
-        // nosemgrep: prefer-codegen-api -- A file download: the generated function parses the body as JSON.
-        return url ? api.getResponse(url) : null
-    }
-    if (!artifact.storage_path) {
-        return null
-    }
-    // nosemgrep: prefer-codegen-api -- A file download: the generated function parses the body as JSON.
-    return api.createResponse(getTasksRunsArtifactsDownloadCreateUrl(String(projectId), taskId, artifact.runId), {
-        storage_path: artifact.storage_path,
-    })
-}
 
 /** The standalone page puts the task in the path, an embedded runner in `?task=`. */
 function urlIsForTask(pathname: string, searchParams: Record<string, any>, taskId: string): boolean {
@@ -414,7 +395,7 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
             null as ArtifactMedia | null,
             {
                 loadArtifactMedia: async (artifact: RunArtifact): Promise<ArtifactMedia | null> => {
-                    if (values.currentProjectId === null || !artifact.id) {
+                    if (values.currentProjectId === null || !artifact.id || !artifact.storage_path) {
                         return null
                     }
                     if ((artifact.size ?? 0) > MAX_MEDIA_PREVIEW_BYTES) {
@@ -424,12 +405,16 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
                             error: 'This video is too large to play here. Download it to watch it.',
                         }
                     }
-                    const request = fetchArtifactContent(values.currentProjectId, props.taskId, artifact)
-                    if (!request) {
-                        return null
-                    }
                     try {
-                        const response = await request
+                        // nosemgrep: prefer-codegen-api -- A file download: the generated function parses the body as JSON.
+                        const response = await api.createResponse(
+                            getTasksRunsArtifactsDownloadCreateUrl(
+                                String(values.currentProjectId),
+                                props.taskId,
+                                artifact.runId
+                            ),
+                            { storage_path: artifact.storage_path }
+                        )
                         return { artifactId: artifact.id, url: URL.createObjectURL(await response.blob()), error: null }
                     } catch {
                         return {
@@ -445,15 +430,21 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
             null as ArtifactText | null,
             {
                 loadArtifactText: async (artifact: RunArtifact): Promise<ArtifactText | null> => {
-                    if (values.currentProjectId === null || !artifact.id) {
+                    if (values.currentProjectId === null || !artifact.id || !artifact.storage_path) {
                         return null
                     }
-                    const request = fetchArtifactContent(values.currentProjectId, props.taskId, artifact)
-                    if (!request) {
-                        return null
-                    }
+                    // The POST download streams the bytes from the app origin, so reading them needs no CORS
+                    // grant on the bucket. The GET variant redirects to object storage instead.
                     try {
-                        const response = await request
+                        // nosemgrep: prefer-codegen-api -- A file download: the generated function parses the body as JSON.
+                        const response = await api.createResponse(
+                            getTasksRunsArtifactsDownloadCreateUrl(
+                                String(values.currentProjectId),
+                                props.taskId,
+                                artifact.runId
+                            ),
+                            { storage_path: artifact.storage_path }
+                        )
                         return { artifactId: artifact.id, text: await response.text(), error: null }
                     } catch {
                         return {
@@ -631,7 +622,8 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
             }
             if (isTextPreview(kind) && !values.selectedText) {
                 actions.loadArtifactText(artifact)
-            } else if (kind === 'video' && !values.selectedMedia) {
+            } else if (kind === 'video' && !artifact.living && !values.selectedMedia) {
+                // A living version plays from its same-origin URL, so only an uploaded video loads into a blob.
                 actions.loadArtifactMedia(artifact)
             }
         }

@@ -248,8 +248,15 @@ function TextLoading(): JSX.Element {
 }
 
 function VideoPreview({ taskId, name }: { taskId: string; name: string }): JSX.Element {
-    const { selectedArtifact, selectedMedia, artifactMediaLoading } = useValues(taskRunArtifactsLogic({ taskId }))
+    const { selectedArtifact, selectedMedia, artifactMediaLoading, currentProjectId } = useValues(
+        taskRunArtifactsLogic({ taskId })
+    )
     const { loadArtifactMedia } = useActions(taskRunArtifactsLogic({ taskId }))
+    // A stored living version streams from the app origin, which the media-src policy allows.
+    const livingSrc = selectedArtifact?.living ? artifactDownloadUrl(currentProjectId, taskId, selectedArtifact) : null
+    if (livingSrc) {
+        return <VideoPlayer key={livingSrc} src={livingSrc} name={name} />
+    }
     if (!selectedMedia) {
         return (
             <div className="flex h-full items-center justify-center">
@@ -277,11 +284,14 @@ function VideoPreview({ taskId, name }: { taskId: string; name: string }): JSX.E
             </Empty>
         )
     }
+    return <VideoPlayer key={selectedMedia.artifactId} src={selectedMedia.url} name={name} />
+}
+
+function VideoPlayer({ src, name }: { src: string; name: string }): JSX.Element {
     return (
         <div className="flex h-full items-center justify-center p-6">
             <video
-                key={selectedMedia.artifactId}
-                src={selectedMedia.url}
+                src={src}
                 controls
                 preload="metadata"
                 aria-label={name}
