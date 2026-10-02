@@ -29,7 +29,6 @@ from psycopg.rows import dict_row
 
 BATCH_TABLE = "sourcebatch"
 STATUS_TABLE = "sourcebatchstatus"
-STATUS_VIEW = "v_latest_source_batch_status"
 LEASE_TABLE = "sourcegrouplease"
 
 # Lock order for `sourcegrouplease`: a statement that locks more than one lease row

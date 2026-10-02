@@ -30,8 +30,8 @@ All SQL lives in `core/jobs_db.py`; the polling/retry/recovery engine is `core/b
   Every status write is a single-statement dual write (`build_status_dual_write_sql`): insert the status row, then mirror `latest_state`, `latest_attempt` and `state_changed_at` onto the batch row.
   Migration `0006_sourcebatch_latest_state` added those columns plus the partial indexes `sb_claimable_idx`, `sb_run_gate_idx` and `sb_schema_busy_idx`; `0008_sourcebatch_superseded` added `superseded` and `sb_failed_changed_idx`.
   Migrations live in `products/warehouse_sources_queue/backend/migrations/`.
-  The `DISTINCT ON` view `v_latest_source_batch_status` still exists (created in `0001_initial`), but no query path reads it any more: the claim query and every sweep run off the denormalized columns, and per-batch latest-status lookups use a lateral `LIMIT 1` probe (`latest_status_lateral`).
-  The view is only useful for ad-hoc SQL when debugging by hand.
+  The claim query and every sweep run off the denormalized columns, and per-batch latest-status lookups use a lateral `LIMIT 1` probe (`latest_status_lateral`).
+  Migration `0013_drop_duckgres_status_and_status_views` dropped the old `DISTINCT ON` view `v_latest_source_batch_status`, because every read of it reduced the whole status table.
 - **Group leases** for cross-pod coordination: a row in `sourcegrouplease` keyed by `(team_id, schema_id)`, with a 300s TTL (`LEASE_TTL_SECONDS`).
   A lease is claimed via a conditional upsert inside the claim query, renewed by the consumer heartbeat, and reclaimable by any pod once it expires.
   This replaced the original session-level `pg_try_advisory_lock(namespace, hashtext(team_id:schema_id))` design: advisory-lock ownership is tied to a live server session, so it could be orphaned indefinitely on SIGKILL, pgbouncer session lingering, or node loss, wedging the whole loader fleet.
