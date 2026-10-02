@@ -246,7 +246,8 @@ const TREND_LENSES: Record<ScannerTypeEnumApi, TrendLens> = {
     classifier: {
         description: "Tracks this scanner's category mix week over week and reports real shifts.",
         metric: "each tag's share of distinct sessions",
-        seriesSelect: "arrayJoin(JSONExtract(properties.scanner_output_tags, 'Array(String)')) AS tag",
+        seriesSelect:
+            "arrayJoin(arrayConcat(JSONExtract(properties.scanner_output_tags, 'Array(String)'), JSONExtract(properties.scanner_output_tags_freeform, 'Array(String)'))) AS tag",
         seriesNote:
             "Group by `day, tag`, run a second query for each day's total distinct sessions, and divide each tag's sessions by that total for its share. A tag's raw count rises with traffic, so only its share can show it concentrating.",
         notable:
@@ -302,8 +303,9 @@ const ROOT_CAUSE_LENSES: Partial<Record<ScannerTypeEnumApi, RootCauseLens>> = {
         contrast: 'sessions at the other end of the scale',
     },
     classifier: {
-        bucket: 'the sessions carrying each problem tag. Read the prompt and the configured tag vocabulary (not freeform tags) to decide which tags describe a problem (`blocked_by_error` or `task_abandoned`, say), and take up to three of them, largest by sessions. When no tag reads as a problem, take the three largest tags',
-        bucketFilter: "has(JSONExtract(properties.scanner_output_tags, 'Array(String)'), '<tag>')",
+        bucket: 'the sessions carrying each problem tag. Read the prompt and the configured and freeform tags to decide which tags describe a problem (`blocked_by_error` or `task_abandoned`, say), and take up to three of them, largest by sessions. When no tag reads as a problem, take the three largest tags',
+        bucketFilter:
+            "has(arrayConcat(JSONExtract(properties.scanner_output_tags, 'Array(String)'), JSONExtract(properties.scanner_output_tags_freeform, 'Array(String)')), '<tag>')",
         listFilter: '`tags=<tag>`',
         contrast: 'sessions without that tag',
         shape: '- Give each tag its own section, with its causes under it, in the order of the tag sizes.',
