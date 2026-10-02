@@ -28,6 +28,8 @@ from requests.exceptions import (
     Timeout,
 )
 
+from posthog.exceptions_capture import ambient_exception_properties, exception_context
+
 from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, SNAPSHOT_KIND_DIRECTORY
 from products.tasks.backend.exceptions import (
     ProcessTaskFatalError,
@@ -732,6 +734,30 @@ class TestModalSandboxAgentServer:
         assert "--allowedDomains" not in command
         assert "agentsh exec --client-timeout 2h --timeout 2h" in command
         assert "bash /tmp/agentsh-bash-env.sh" in command
+
+    def test_setup_agentsh_failure_binds_diagnostics_for_the_activity_capture(self, mock_sandbox: Any):
+        missing_binary = "nohup: failed to run command 'agentsh': No such file or directory"
+        mock_sandbox.write_file = MagicMock(return_value=ExecutionResult(stdout="", stderr="", exit_code=0))
+        mock_sandbox.execute = MagicMock(
+            side_effect=[
+                ExecutionResult(stdout="", stderr="", exit_code=0),
+                ExecutionResult(stdout="", stderr="", exit_code=0),
+                ExecutionResult(stdout="", stderr="", exit_code=0),
+                ExecutionResult(stdout="", stderr=f"agentsh daemon failed to start\n{missing_binary}\n", exit_code=1),
+                ExecutionResult(stdout="", stderr="", exit_code=1),
+                ExecutionResult(stdout="x" * 5000 + missing_binary, stderr="", exit_code=0),
+            ]
+        )
+
+        with exception_context():
+            with pytest.raises(SandboxExecutionError, match="Failed to start agentsh daemon"):
+                mock_sandbox._setup_agentsh("/tmp/workspace", ["example.com"])
+            properties = ambient_exception_properties()
+
+        assert properties["agentsh_setup_exit_code"] == 1
+        assert properties["agentsh_setup_stderr"].endswith(missing_binary)
+        assert properties["agentsh_log_tail"].endswith(missing_binary)
+        assert len(properties["agentsh_log_tail"]) == 4000
 
     @pytest.mark.parametrize(
         ("create_pr", "expected_flag"),
