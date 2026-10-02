@@ -3,6 +3,7 @@ import posthog, { BeforeSendFn, BrowserMetricsConfig, PostHogConfig, SessionReco
 import { FEATURE_FLAGS } from 'lib/constants'
 import { isOAuthMode } from 'lib/oauth/oauthClient'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { isEmbeddedPageFrame } from 'lib/utils/embeddedPageFrame'
 import { getAppContext } from 'lib/utils/getAppContext'
 
 import { startDetachedElementTracking } from './detachedElementTracker'
@@ -121,6 +122,10 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             metrics: { network: true, serviceName: 'posthog-app', ...options.metrics },
             before_send: options.beforeSend,
             loaded: (loadedInstance) => {
+                // pinned: analytics property. A page in a frame counts its own pageviews, so analysis can filter them.
+                if (isEmbeddedPageFrame()) {
+                    loadedInstance.register({ embedded_page_frame: true })
+                }
                 if (loadedInstance.sessionRecording) {
                     loadedInstance.sessionRecording._forceAllowLocalhostNetworkCapture = true
                 }

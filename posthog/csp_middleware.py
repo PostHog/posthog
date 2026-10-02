@@ -96,9 +96,11 @@ def app_frame_ancestor_sources() -> list[str]:
     """The origins that may frame the app, as `frame-ancestors` sources.
 
     A frame the app embeds has these origins in its ancestor chain too, so its own policy must
-    admit them.
+    admit them. `'self'` lets the app show one of its own pages in a frame, such as a PostHog
+    object cited in a task's Artifacts tab. A sandboxed document has an opaque origin, so it never
+    matches `'self'`.
     """
-    sources = ["https://posthog.com", "https://preview.posthog.com"]
+    sources = ["'self'", "https://posthog.com", "https://preview.posthog.com"]
     if not (settings.DEBUG or settings.TEST) and settings.SITE_URL.endswith(".dev.posthog.dev"):
         # The posthog.com dev server frames the dev app.
         sources.append("http://localhost:8001")
