@@ -453,6 +453,7 @@ export const sceneToAccessControlResourceType: Partial<
     [Scene.Broadcasts]: AccessControlResourceType.Workflow,
     [Scene.Workflows]: AccessControlResourceType.Workflow,
     [Scene.Broadcast]: AccessControlResourceType.Workflow,
+    [Scene.WorkflowsEmailDomain]: AccessControlResourceType.Workflow,
 
     // Product Tours
     [Scene.ProductTour]: AccessControlResourceType.ProductTour,
