@@ -109,7 +109,18 @@ class TestCohortPeopleTable(ClickhouseTestMixin, APIBaseTest):
             """,
             self.team,
         ).results
+        qualified_name = execute_hogql_query(
+            f"SELECT person_id FROM posthog.cohort_membership WHERE cohort_id = {cohort.pk} ORDER BY person_id",
+            self.team,
+        ).results
 
         assert members is not None and len(members) == 2
         assert legacy_name == members
         assert both_names == members
+        assert qualified_name == members
+
+        padded_uuid_filter = execute_hogql_query(
+            f"SELECT person_id FROM cohort_membership WHERE cohort_id = {cohort.pk} AND person_id = ' {members[0][0]} '",
+            self.team,
+        ).results
+        assert padded_uuid_filter == [members[0]]

@@ -1514,7 +1514,13 @@ class Resolver(CloningVisitor):
                 node_type = ast.ColumnAliasedTableType(
                     alias=table_alias, table_type=node_table_type, alias_to_original=alias_to_original
                 )
-            elif table_alias != table_name_alias or isinstance(database_table, FunctionCallTable):
+            elif (
+                table_alias != table_name_alias
+                or isinstance(database_table, FunctionCallTable)
+                # The lazy-table pass finds an unaliased lazy table by its printed name, which a qualified
+                # name like `posthog.persons` does not match, so give it its scope key as an alias.
+                or (isinstance(database_table, LazyTable) and table_alias != database_table.to_printed_hogql())
+            ):
                 node_type = ast.TableAliasType(alias=table_alias, table_type=node_table_type)
             else:
                 node_type = node_table_type
