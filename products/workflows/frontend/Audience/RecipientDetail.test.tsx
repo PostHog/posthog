@@ -41,8 +41,14 @@ const SUPPRESSED_JAMIE: RecipientApi = {
     preferences_updated_at: '2026-09-20T08:30:00Z',
 }
 
+const TEAM_WITH_ENGAGEMENT_EVENTS: TeamType = {
+    ...MOCK_DEFAULT_TEAM,
+    workflows_config: { capture_workflows_engagement_events: true },
+}
+
 describe('recipient detail', () => {
     let lookups: (string | null)[]
+    let timelineQueries: string[]
 
     function useRecipientLookup(response: [number, unknown]): void {
         useMocks({
@@ -53,6 +59,30 @@ describe('recipient detail', () => {
                 },
                 '/api/projects/:team_id/messaging_recipients/coverage/': { persons_without_email: 0 },
                 '/api/projects/:team_id/messaging_categories/': { results: [NEWSLETTER], next: null },
+            },
+            post: {
+                '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                    timelineQueries.push(((await request.json()) as { query: { query: string } }).query.query)
+                    return [
+                        200,
+                        {
+                            results: [
+                                ['$workflows_email_unsubscribed', '2026-09-30T11:00:00Z', null, null, '$all'],
+                                [
+                                    '$workflows_email_link_clicked',
+                                    '2026-09-30T10:05:00Z',
+                                    'September news',
+                                    'https://example.com/pricing',
+                                    null,
+                                ],
+                                ['$workflows_email_opened', '2026-09-30T10:00:00Z', 'September news', null, null],
+                            ],
+                        },
+                    ]
+                },
+            },
+            patch: {
+                '/api/projects/:team_id/': () => [200, TEAM_WITH_ENGAGEMENT_EVENTS],
             },
         })
     }
@@ -71,6 +101,7 @@ describe('recipient detail', () => {
 
     beforeEach(() => {
         lookups = []
+        timelineQueries = []
         jest.spyOn(posthog, 'capture')
     })
 
@@ -105,5 +136,34 @@ describe('recipient detail', () => {
             expect.stringContaining(urls.audience())
         )
         expect(capturedEvents('audience recipient opened')).toEqual([])
+    })
+
+    it('with engagement events on, lists the email events for the address in lower case, not the person', async () => {
+        useRecipientLookup([200, { results: [SUPPRESSED_JAMIE], next_cursor: null }])
+        openRecipient(TEAM_WITH_ENGAGEMENT_EVENTS)
+
+        expect(await screen.findByText('Clicked a link')).toBeInTheDocument()
+        expect(screen.getByText('Opened')).toBeInTheDocument()
+        expect(screen.getByText('Unsubscribed')).toBeInTheDocument()
+        expect(screen.getByText('https://example.com/pricing')).toBeInTheDocument()
+        expect(screen.getByText(/follows the address, not a person/)).toBeInTheDocument()
+        expect(timelineQueries).toHaveLength(1)
+        expect(timelineQueries[0]).toContain("lower(properties.$email_to) = 'jamie@example.com'")
+        expect(timelineQueries[0]).toContain("lower(properties.$email) = 'jamie@example.com'")
+    })
+
+    it('with engagement events off, offers to turn them on and then shows the timeline', async () => {
+        useRecipientLookup([200, { results: [SUPPRESSED_JAMIE], next_cursor: null }])
+        openRecipient()
+
+        const turnOnButton = await screen.findByTestId('audience-turn-on-engagement-events-button')
+        expect(timelineQueries).toEqual([])
+
+        fireEvent.click(turnOnButton)
+
+        expect(await screen.findByText('Clicked a link')).toBeInTheDocument()
+        expect(capturedEvents('audience engagement events enabled')).toEqual([
+            ['audience engagement events enabled', { surface: 'recipient' }],
+        ])
     })
 })
