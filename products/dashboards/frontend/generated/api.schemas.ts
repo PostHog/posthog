@@ -3267,6 +3267,14 @@ export const FunnelLayoutApi = {
     Vertical: 'vertical',
 } as const
 
+export type StepBarLabelsApi = (typeof StepBarLabelsApi)[keyof typeof StepBarLabelsApi]
+
+export const StepBarLabelsApi = {
+    Percentage: 'percentage',
+    Count: 'count',
+    Both: 'both',
+} as const
+
 /**
  * Customizations for the appearance of result datasets.
  */
@@ -3311,6 +3319,8 @@ export interface FunnelsFilterApi {
     /** Display linear regression trend lines on the chart (only for historical trends viz) */
     showTrendLines?: boolean | null
     showValuesOnSeries?: boolean | null
+    /** What the bar labels show. Only applies to the left-to-right steps funnel. */
+    stepBarLabels?: StepBarLabelsApi | null
     useUdf?: boolean | null
 }
 
