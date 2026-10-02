@@ -1,11 +1,17 @@
 import json
 import base64
 from typing import Any, cast
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 import time_machine
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, snapshot_clickhouse_queries
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    create_person_id_override_by_distinct_id,
+    snapshot_clickhouse_queries,
+)
 from unittest import mock
 from unittest.mock import patch
 
@@ -14,6 +20,7 @@ from django.db import IntegrityError
 from django.utils.timezone import now
 
 import orjson
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.hogql import ast
@@ -1171,6 +1178,26 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
                 },
             ],
         )
+
+    @parameterized.expand([("detached", False), ("squashed", True)])
+    @time_machine.travel("2021-05-10", tick=False)
+    def test_related_groups_person_includes_detached_history(self, _name: str, squashed: bool) -> None:
+        person_uuid = self._create_related_groups_data()
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="detached-id",
+            person_id=str(person_uuid) if squashed else str(uuid4()),
+            timestamp="2021-05-05 00:00:00",
+            properties={"$group_1": "1::5"},
+        )
+        if not squashed:
+            create_person_id_override_by_distinct_id("detached-id", "1", self.team.pk, version=100)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/groups/related?id={person_uuid}")
+
+        assert response.status_code == 200
+        assert {group["group_key"] for group in response.json()} == {"0::0", "0::1", "1::2", "1::3", "1::5"}
 
     def test_related_missing_id(self):
         response = self.client.get(f"/api/projects/{self.team.id}/groups/related?group_type_index=0")

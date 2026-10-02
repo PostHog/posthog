@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import cast
 from uuid import uuid4
 
@@ -13,23 +13,17 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
-from unittest.mock import MagicMock, patch
 
-import grpc
 from parameterized import parameterized
+
+from posthog.schema import PersonsOnEventsMode
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Group
+from posthog.models.event.util import create_event
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.group.util import create_group
-from posthog.models.person.person import MAX_LIMIT_DISTINCT_IDS
-from posthog.personhog_client.fake_client import get_active_fake
-from posthog.personhog_client.proto import (
-    CONSISTENCY_LEVEL_STRONG,
-    GetDistinctIdsForPersonRequest,
-    GetDistinctIdsForPersonResponse,
-)
-from posthog.test.persons import add_distinct_id, create_group_type_mapping, create_people_bulk
+from posthog.test.persons import add_distinct_id, create_group_type_mapping
 
 from ee.clickhouse.queries.related_actors_query import RelatedActorsQuery
 
@@ -169,11 +163,25 @@ class TestRelatedGroupsQuery(BaseRelatedActorsTest):
         assert len(results) == 2
         ids = self.get_ids_from_results(results)
         assert ids == {"org:1", "instance:1"}
-        assert all("person_distinct_id_overrides" not in query for query in queries)
+        event_query = next(query for query in queries if "ARRAY JOIN" in query)
+        assert "PREWHERE" in event_query
+        assert "person_distinct_id_overrides" in event_query
 
-    def test_returns_groups_from_merged_distinct_ids(self) -> None:
-        add_distinct_id(person=self.person, distinct_id="user3", version=100)
-        create_person_id_override_by_distinct_id("user3", "user1", self.team.pk, version=100)
+    @parameterized.expand([("merged", True, False), ("detached", False, False), ("squashed", False, True)])
+    def test_returns_groups_from_historical_distinct_ids(self, _name: str, has_mapping: bool, squashed: bool) -> None:
+        if has_mapping:
+            add_distinct_id(person=self.person, distinct_id="historical-id", version=100)
+        create_event(
+            event_uuid=uuid4(),
+            team=self.team,
+            event="$pageview",
+            distinct_id="historical-id",
+            person_id=self.person.uuid if squashed else uuid4(),
+            timestamp=RECENT_DATE.replace(tzinfo=UTC),
+            properties={"$group_0": self.another_org.group_key},
+        )
+        if not squashed:
+            create_person_id_override_by_distinct_id("historical-id", "user1", self.team.pk, version=100)
 
         results = self.run_query()
 
@@ -181,88 +189,69 @@ class TestRelatedGroupsQuery(BaseRelatedActorsTest):
 
     @parameterized.expand(
         [
-            ("person_lookup", "get_persons_by_uuids", False, grpc.StatusCode.UNAVAILABLE),
-            ("distinct_id_lookup", "get_distinct_ids_for_person", False, grpc.StatusCode.DEADLINE_EXCEEDED),
-            ("identity_recheck", "get_distinct_ids_for_person", True, grpc.StatusCode.UNAVAILABLE),
+            ("overridden_away", "user1", False, set()),
+            ("superseded_candidate", "user3", False, {"org:1", "instance:1"}),
+            ("deleted_candidate", "user3", True, {"org:1", "instance:1"}),
+            ("deleted_override_away", "user1", True, {"org:1", "instance:1"}),
         ]
     )
-    def test_transient_identity_errors_use_person_id_query(
-        self, _name: str, method: str, fail_on_recheck: bool, status_code: grpc.StatusCode
+    def test_resolves_latest_override(
+        self, _name: str, distinct_id: str, is_deleted: bool, expected_groups: set[str]
     ) -> None:
-        fake = get_active_fake()
-        create_person_id_override_by_distinct_id("user3", "user1", self.team.pk, version=100)
-        error = grpc.RpcError()
-        error.code = MagicMock(return_value=status_code)
-        initial_response = fake.get_distinct_ids_for_person(
-            GetDistinctIdsForPersonRequest(team_id=self.team.pk, person_id=self.person.pk)
+        sync_execute(
+            "INSERT INTO person_distinct_id_overrides (team_id, distinct_id, person_id, version, is_deleted) VALUES",
+            [
+                (self.team.pk, distinct_id, str(self.person.uuid), 100, 0),
+                (self.team.pk, distinct_id, str(self.unrelated_person.uuid), 101, int(is_deleted)),
+            ],
         )
 
-        with patch.object(fake, method, side_effect=[initial_response, error] if fail_on_recheck else error):
-            with self.capture_select_queries() as queries:
-                results = self.run_query()
+        assert self.get_ids_from_results(self.run_query()) == expected_groups
 
-        assert self.get_ids_from_results(results) == {"org:1", "instance:1", "another-org"}
-        assert sum("person_distinct_id_overrides" in query for query in queries) == 1
+    def test_reused_distinct_id_does_not_include_other_persons_events(self) -> None:
+        create_event(
+            event_uuid=uuid4(),
+            team=self.team,
+            event="$pageview",
+            distinct_id="user1",
+            person_id=self.unrelated_person.uuid,
+            timestamp=RECENT_DATE.replace(tzinfo=UTC),
+            properties={"$group_0": self.another_org.group_key},
+        )
 
-    @parameterized.expand([("permission_denied", True), ("programming_error", False)])
-    def test_non_transient_identity_errors_propagate(self, _name: str, is_rpc_error: bool) -> None:
-        error: Exception
-        if is_rpc_error:
-            rpc_error = grpc.RpcError()
-            rpc_error.code = MagicMock(return_value=grpc.StatusCode.PERMISSION_DENIED)
-            error = rpc_error
-        else:
-            error = ValueError("invalid identity response")
+        assert self.get_ids_from_results(self.run_query()) == {"org:1", "instance:1"}
 
-        with patch.object(get_active_fake(), "get_distinct_ids_for_person", side_effect=error):
-            with self.assertRaises(type(error)) as raised:
-                self.run_query()
+    def test_override_candidates_are_not_truncated(self) -> None:
+        distinct_ids = [f"historical-{index}" for index in range(2501)]
+        sync_execute(
+            "INSERT INTO person_distinct_id_overrides (team_id, distinct_id, person_id, version) VALUES",
+            [(self.team.pk, distinct_id, str(self.person.uuid), 100) for distinct_id in distinct_ids],
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_ids[-1],
+            person_id=str(self.unrelated_person.uuid),
+            timestamp=RECENT_DATE,
+            properties={"$group_0": self.another_org.group_key},
+        )
+        flush_persons_and_events()
 
-        assert raised.exception is error
-
-    @parameterized.expand([("replica_lag", False), ("merge_after_identity_read", True)])
-    def test_returns_groups_during_identity_changes(self, _name: str, merge_after_read: bool) -> None:
-        fake = get_active_fake()
-        read_distinct_ids = fake.get_distinct_ids_for_person
-        merged = not merge_after_read
-        if merged:
-            create_person_id_override_by_distinct_id("user3", "user1", self.team.pk, version=100)
-
-        def read_with_replica_lag(request: GetDistinctIdsForPersonRequest) -> GetDistinctIdsForPersonResponse:
-            nonlocal merged
-            response = read_distinct_ids(request)
-            if merged and request.read_options.consistency == CONSISTENCY_LEVEL_STRONG:
-                response.distinct_ids.add(distinct_id="user3", version=100)
-            if not merged:
-                create_person_id_override_by_distinct_id("user3", "user1", self.team.pk, version=100)
-                merged = True
-            return response
-
-        with patch.object(fake, "get_distinct_ids_for_person", side_effect=read_with_replica_lag):
-            with self.capture_select_queries() as queries:
-                results = self.run_query()
-
-        assert self.get_ids_from_results(results) == {"org:1", "instance:1", "another-org"}
-        assert any("person_distinct_id_overrides" in query for query in queries) == merge_after_read
+        assert self.get_ids_from_results(self.run_query()) == {"org:1", "instance:1", "another-org"}
 
     @parameterized.expand(
         [
-            ("below_limit", MAX_LIMIT_DISTINCT_IDS - 1, False),
-            ("at_limit", MAX_LIMIT_DISTINCT_IDS, True),
-            ("over_limit", MAX_LIMIT_DISTINCT_IDS + 1, True),
+            (PersonsOnEventsMode.DISABLED, {"org:1", "instance:1", "another-org"}),
+            (PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS, {"org:1", "instance:1"}),
+            (PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS, {"org:1", "instance:1"}),
+            (PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED, {"org:1", "instance:1"}),
         ]
     )
-    def test_large_distinct_id_lists_do_not_omit_groups(self, _name: str, id_count: int, uses_person_id: bool) -> None:
-        distinct_ids = [f"many-ids-{index:04d}" for index in range(id_count)]
-        [self.person] = create_people_bulk([{"team": self.team, "distinct_ids": distinct_ids}])
-        self._create_group_event(distinct_ids[-1], RECENT_DATE, self.another_org)
-        flush_persons_and_events()
+    def test_uses_project_person_resolution_mode(self, mode: PersonsOnEventsMode, expected_groups: set[str]) -> None:
+        self.team.modifiers = {"personsOnEventsMode": mode}
+        add_distinct_id(person=self.person, distinct_id="user3", version=100)
 
-        with self.capture_select_queries() as queries:
-            results = self.run_query()
-
-        assert self.get_ids_from_results(results) == {"another-org"}
-        assert any("person_distinct_id_overrides" in query for query in queries) == uses_person_id
+        assert self.get_ids_from_results(self.run_query()) == expected_groups
 
     @parameterized.expand([("missing_person", False), ("no_distinct_ids", True)])
     def test_preserves_events_without_person_distinct_ids(self, _name: str, has_person: bool) -> None:

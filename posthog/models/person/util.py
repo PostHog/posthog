@@ -31,7 +31,6 @@ from posthog.models.person.sql import (
     INSERT_PERSON_SQL,
 )
 from posthog.models.utils import UUIDT
-from posthog.personhog_client import ReadConsistency, consistency_to_read_options
 from posthog.personhog_client.client import personhog_call, require_personhog_client
 from posthog.personhog_client.converters import proto_person_to_model
 from posthog.personhog_client.metrics import PERSONHOG_TEAM_MISMATCH_TOTAL, get_client_name
@@ -505,40 +504,17 @@ def get_persons_by_uuids(team_id: int, uuids: list[str], *, distinct_id_limit: i
     )
 
 
-def _distinct_ids_for_person(
-    client: PersonHogClient,
-    team_id: int,
-    person_id: int,
-    limit: int | None,
-    read_options: ReadOptions | None = None,
-) -> list[str]:
+def _distinct_ids_for_person(client: PersonHogClient, team_id: int, person_id: int, limit: int | None) -> list[str]:
     # Callers needing only person fields (not distinct_ids) pass distinct_id_limit=0 to skip the
     # per-person distinct-id fetch, which is otherwise unbounded and pulls thousands of rows for
     # merge-heavy persons. A positive limit bounds the fetch; None leaves it unbounded.
     if limit == 0:
         return []
-    request = GetDistinctIdsForPersonRequest(team_id=team_id, person_id=person_id, read_options=read_options)
+    request = GetDistinctIdsForPersonRequest(team_id=team_id, person_id=person_id)
     if limit is not None:
         request.limit = limit
     resp = client.get_distinct_ids_for_person(request)
     return [d.distinct_id for d in resp.distinct_ids]
-
-
-def get_distinct_ids_for_person(
-    team_id: int,
-    person_id: int,
-    *,
-    limit: int | None = None,
-    consistency: ReadConsistency = "eventual",
-    caller_tag: str | None = None,
-) -> list[str]:
-    return personhog_call(
-        "get_distinct_ids_for_person",
-        lambda: _distinct_ids_for_person(
-            _get_client(), team_id, person_id, limit, consistency_to_read_options(consistency)
-        ),
-        caller_tag=caller_tag,
-    )
 
 
 def _fetch_person_by_id_via_personhog(

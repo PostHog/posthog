@@ -4,12 +4,11 @@ from typing import Optional, Union, cast
 
 from django.utils.timezone import now
 
-import grpc
-
-from posthog.schema import HogQLQueryModifiers, MaterializationMode, ProductKey
+from posthog.schema import HogQLQueryModifiers, MaterializationMode, PersonsOnEventsMode, ProductKey
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, tag_queries
@@ -22,11 +21,8 @@ from posthog.hogql_queries.serialized_actors import (
 )
 from posthog.models import Team
 from posthog.models.filters.utils import validate_group_type_index
-from posthog.models.person.person import MAX_LIMIT_DISTINCT_IDS
-from posthog.models.person.util import get_distinct_ids_for_person, get_person_ids_and_uuids_by_uuids
 from posthog.models.property import GroupTypeIndex
 from posthog.personhog_client.caller_tag import personhog_caller_tag
-from posthog.personhog_client.interceptor import is_transient_rpc_error
 
 
 class RelatedActorsQuery:
@@ -48,7 +44,9 @@ class RelatedActorsQuery:
         # Treat a missing group key as the empty string (not NULL), matching the legacy raw query
         # which read the non-nullable materialized `$group_N` column directly. This keeps the
         # `(index, key)` tuples in the IN-subquery non-nullable.
-        self._modifiers = HogQLQueryModifiers(materializationMode=MaterializationMode.LEGACY_NULL_AS_STRING)
+        self._modifiers = create_default_modifiers_for_team(
+            team, HogQLQueryModifiers(materializationMode=MaterializationMode.LEGACY_NULL_AS_STRING)
+        )
 
     @property
     def is_aggregating_by_groups(self) -> bool:
@@ -118,55 +116,7 @@ class RelatedActorsQuery:
         response = execute_hogql_query(query, team=self.team, modifiers=self._modifiers)
         return [row[0] for row in response.results]
 
-    @cached_property
-    def _person_id(self) -> int | None:
-        with personhog_caller_tag("persons/related-actors"):
-            persons = get_person_ids_and_uuids_by_uuids(self.team.pk, [self.id])
-        if not persons:
-            return None
-        person_id, _ = persons[0]
-        return person_id
-
-    def _person_distinct_ids(self) -> list[str]:
-        try:
-            if self._person_id is None:
-                return []
-
-            # ClickHouse merge updates can arrive before the personhog read replica catches up.
-            distinct_ids = get_distinct_ids_for_person(
-                self.team.pk,
-                self._person_id,
-                limit=MAX_LIMIT_DISTINCT_IDS,
-                consistency="strong",
-                caller_tag="persons/related-actors",
-            )
-        except grpc.RpcError as exc:
-            if not is_transient_rpc_error(exc):
-                raise
-            # The identity lookup only selects the fast path; client retries already recorded this failure.
-            return []
-
-        # Personhog caps limited lookups at MAX_LIMIT_DISTINCT_IDS, so a full batch may be
-        # incomplete. Keep the person_id predicate in that case, and for event-only persons.
-        return distinct_ids if len(distinct_ids) < MAX_LIMIT_DISTINCT_IDS else []
-
-    def _person_filter(self, distinct_ids: list[str]) -> ast.Expr:
-        if distinct_ids:
-            # Current distinct IDs include merged history and let ClickHouse filter events
-            # before reading group keys, without joining the project's person overrides.
-            return ast.CompareOperation(
-                op=ast.CompareOperationOp.In,
-                left=ast.Field(chain=["events", "distinct_id"]),
-                right=ast.Tuple(exprs=[ast.Constant(value=distinct_id) for distinct_id in distinct_ids]),
-            )
-
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=["events", "person_id"]),
-            right=ast.Constant(value=self.id),
-        )
-
-    def _query_related_groups(self, group_type_indexes: list[int], *, force_person_id: bool = False) -> list:
+    def _query_related_groups(self, group_type_indexes: list[int]) -> list:
         if not list(group_type_indexes):
             return []
 
@@ -186,7 +136,6 @@ class RelatedActorsQuery:
             ]
         )
 
-        distinct_ids: list[str] = []
         if self.is_aggregating_by_groups:
             actor_filter: ast.Expr = ast.CompareOperation(
                 op=ast.CompareOperationOp.Eq,
@@ -194,8 +143,11 @@ class RelatedActorsQuery:
                 right=ast.Constant(value=self.id),
             )
         else:
-            distinct_ids = [] if force_person_id else self._person_distinct_ids()
-            actor_filter = self._person_filter(distinct_ids)
+            actor_filter = ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=["events", "person_id"]),
+                right=ast.Constant(value=self.id),
+            )
 
         query = parse_select(
             """
@@ -213,10 +165,35 @@ class RelatedActorsQuery:
                 "actor_filter": actor_filter,
             },
         )
+        if not self.is_aggregating_by_groups and self._modifiers.personsOnEventsMode in (
+            PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+            PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+        ):
+            assert isinstance(query, ast.SelectQuery)
+            # Detached IDs can own history without a current Personhog mapping. Include stored
+            # ownership and all override candidates; the resolved person filter rejects stale versions.
+            query.prewhere = parse_expr(
+                """
+                events.team_id = {team_id}
+                AND timestamp > {after}
+                AND timestamp < {before}
+                AND (
+                    events.event_person_id = {person_id}
+                    OR events.distinct_id IN (
+                        SELECT distinct_id
+                        FROM raw_person_distinct_id_overrides
+                        WHERE person_id = {person_id}
+                    )
+                )
+                """,
+                placeholders={
+                    "team_id": ast.Constant(value=self.team.pk),
+                    "after": ast.Constant(value=self._after),
+                    "before": ast.Constant(value=self._before),
+                    "person_id": ast.Constant(value=self.id),
+                },
+            )
         response = execute_hogql_query(query, team=self.team, modifiers=self._modifiers)
-        # A merge can commit after the initial identity read and before the event query finishes.
-        if distinct_ids and set(distinct_ids) != set(self._person_distinct_ids()):
-            return self._query_related_groups(group_type_indexes, force_person_id=True)
         results = response.results
         if not results:
             return []
