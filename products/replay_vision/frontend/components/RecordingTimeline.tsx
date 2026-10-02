@@ -137,6 +137,8 @@ export function RecordingTimeline(props: RecordingTimelineProps): JSX.Element {
                                 {timeCell}
                                 <TimelineRail
                                     dot="chapter"
+                                    first={index === 0}
+                                    last={index === rows.length - 1}
                                     passedAbove={passedAbove}
                                     passedBelow={passedBelow}
                                     isCurrent={isCurrent}
@@ -169,6 +171,29 @@ export function RecordingTimeline(props: RecordingTimelineProps): JSX.Element {
                                     </span>
                                 </button>
                             </div>
+                        ) : row.kind === 'boundary' ? (
+                            <div
+                                data-current-moment={isCurrent ? true : undefined}
+                                className={cn(rowGrid, isCurrent && 'bg-fill-highlight-50')}
+                                data-attr="vision-timeline-boundary"
+                            >
+                                {timeCell}
+                                <TimelineRail
+                                    dot="boundary"
+                                    first={index === 0}
+                                    last={index === rows.length - 1}
+                                    passedAbove={passedAbove}
+                                    passedBelow={passedBelow}
+                                    isCurrent={false}
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => onSeek(row.atMs)}
+                                    className="text-xs text-secondary text-left py-1 cursor-pointer hover:text-primary"
+                                >
+                                    {row.edge === 'start' ? 'Session start' : 'Session end'}
+                                </button>
+                            </div>
                         ) : row.kind === 'inactive' ? (
                             <div
                                 data-current-moment={isCurrent ? true : undefined}
@@ -178,6 +203,8 @@ export function RecordingTimeline(props: RecordingTimelineProps): JSX.Element {
                                 {timeCell}
                                 <TimelineRail
                                     dot="none"
+                                    first={index === 0}
+                                    last={index === rows.length - 1}
                                     passedAbove={passedAbove}
                                     passedBelow={passedBelow}
                                     isCurrent={false}
@@ -202,6 +229,8 @@ export function RecordingTimeline(props: RecordingTimelineProps): JSX.Element {
                                 {timeCell}
                                 <TimelineRail
                                     dot={row.marker.flagged ? 'flagged' : 'moment'}
+                                    first={index === 0}
+                                    last={index === rows.length - 1}
                                     passedAbove={passedAbove}
                                     passedBelow={passedBelow}
                                     isCurrent={isCurrent}

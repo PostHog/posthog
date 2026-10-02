@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconChevronDown, IconChevronRight, IconCollapse, IconExpand, IconEye } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonInput, LemonSwitch, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
@@ -22,7 +22,7 @@ import {
     scannerLabel,
 } from '../utils/observation'
 import { quotaUx } from '../utils/quotaProjection'
-import { currentRowIndex, nextTimelineStopMs } from '../utils/recordingTimeline'
+import { currentRowIndex, nextTimelineStopMs, timelineRows as buildTimelineRows } from '../utils/recordingTimeline'
 import { ScanBlock, recordingScanBlock } from '../utils/scanEligibility'
 import { visionSurfaceShown } from '../utils/visionSurface'
 import { CitedMarkdown } from './CitedMarkdown'
@@ -364,7 +364,6 @@ function ObservationsTabContent({ sessionId }: { sessionId: string }): JSX.Eleme
         observations,
         observationsLoading,
         timeline,
-        timelineRows,
         followMoments,
         summarizePending,
         retryingObservationIds,
@@ -377,7 +376,10 @@ function ObservationsTabContent({ sessionId }: { sessionId: string }): JSX.Eleme
     const timelineRef = useRef<HTMLDivElement>(null)
     const followedIndex = useRef<number | null>(null)
     // The player logic is keyed; seek the exact mounted instance, not a propless default
-    const { logicProps, sessionPlayerMetaData, currentPlayerTime } = useValues(sessionRecordingPlayerLogic)
+    const { logicProps, sessionPlayerMetaData, currentPlayerTime, sessionPlayerData } =
+        useValues(sessionRecordingPlayerLogic)
+    const durationMs = sessionPlayerData.durationMs > 0 ? sessionPlayerData.durationMs : null
+    const timelineRows = useMemo(() => buildTimelineRows(timeline, durationMs), [timeline, durationMs])
     const seekToTime = (ms: number): void => {
         sessionRecordingPlayerLogic.findMounted(logicProps)?.actions.seekToTime(ms)
     }

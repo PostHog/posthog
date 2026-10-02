@@ -39,14 +39,14 @@ const meta: Meta<typeof RecordingTimeline> = {
 }
 export default meta
 
-type Story = StoryObj<{ observations: ReplayObservationApi[]; currentTimeMs?: number }>
+type Story = StoryObj<{ observations: ReplayObservationApi[]; currentTimeMs?: number; durationMs?: number }>
 
-const render: Story['render'] = ({ observations, currentTimeMs = 0 }) => {
+const render: Story['render'] = ({ observations, currentTimeMs = 0, durationMs = 5 * MIN }) => {
     const timeline = recordingTimeline(observations)
     return (
         <RecordingTimeline
             timeline={timeline}
-            rows={timelineRows(timeline)}
+            rows={timelineRows(timeline, durationMs)}
             currentTimeMs={currentTimeMs}
             onSeek={() => {}}
             onMarkerClick={() => {}}

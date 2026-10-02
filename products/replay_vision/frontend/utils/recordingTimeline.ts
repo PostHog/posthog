@@ -59,6 +59,7 @@ export type TimelineRow =
     | { kind: 'chapter'; chapter: TimelineChapter }
     | { kind: 'inactive'; startMs: number; endMs: number }
     | { kind: 'marker'; marker: TimelineMarker; inChapter: boolean }
+    | { kind: 'boundary'; edge: 'start' | 'end'; atMs: number }
 
 // Rows are spaced by elapsed time, capped so one quiet stretch can't push the rest off screen.
 const TIMELINE_GAP_PX_PER_SECOND = 0.3
@@ -183,8 +184,15 @@ export function recordingTimeline(observations: ReplayObservationApi[]): Recordi
 }
 
 /** The rows the sidebar lists, in time order: chapters, the key moments inside them, idle gaps, and loose key moments. */
-export function timelineRows(timeline: RecordingTimeline): TimelineRow[] {
+export function timelineRows(timeline: RecordingTimeline, durationMs: number | null = null): TimelineRow[] {
     const rows: { atMs: number; order: number; row: TimelineRow }[] = []
+    // Without chapters the rail would float between a few key moments, so it gets the session's two ends.
+    if (timeline.summaryState !== 'ready') {
+        rows.push({ atMs: 0, order: -1, row: { kind: 'boundary', edge: 'start', atMs: 0 } })
+        if (durationMs !== null && durationMs > 0) {
+            rows.push({ atMs: durationMs, order: 3, row: { kind: 'boundary', edge: 'end', atMs: durationMs } })
+        }
+    }
     for (const chapter of timeline.chapters) {
         rows.push({ atMs: chapter.startMs, order: 0, row: { kind: 'chapter', chapter } })
     }
@@ -201,7 +209,16 @@ export function timelineRows(timeline: RecordingTimeline): TimelineRow[] {
 
 /** Where a row sits on the recording's clock, which the rail spaces and the player highlights by. */
 export function rowStartMs(row: TimelineRow): number {
-    return row.kind === 'chapter' ? row.chapter.startMs : row.kind === 'inactive' ? row.startMs : row.marker.timestampMs
+    switch (row.kind) {
+        case 'chapter':
+            return row.chapter.startMs
+        case 'inactive':
+            return row.startMs
+        case 'marker':
+            return row.marker.timestampMs
+        case 'boundary':
+            return row.atMs
+    }
 }
 
 /** The row the player is in: the last one that started at or before the player's position, or -1 before the first. */

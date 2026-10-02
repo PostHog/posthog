@@ -68,6 +68,30 @@ describe('recordingTimeline', () => {
         ])
     })
 
+    it.each<{ name: string; observations: ReplayObservationApi[]; durationMs: number | null; expected: string[] }>([
+        {
+            name: 'a recording without a breakdown gets its start and end around the key moments',
+            observations: [monitor('m1', 5_000)],
+            durationMs: 60_000,
+            expected: ['boundary start', 'marker', 'boundary end'],
+        },
+        {
+            name: 'an unknown length leaves out the end',
+            observations: [monitor('m1', 5_000)],
+            durationMs: null,
+            expected: ['boundary start', 'marker'],
+        },
+        {
+            name: 'a breakdown needs no boundaries',
+            observations: [summary({ chapters: [chapter(0, 10_000, 'A')] })],
+            durationMs: 60_000,
+            expected: ['chapter'],
+        },
+    ])('$name', ({ observations, durationMs, expected }) => {
+        const rows = timelineRows(recordingTimeline(observations), durationMs)
+        expect(rows.map((row) => (row.kind === 'boundary' ? `boundary ${row.edge}` : row.kind))).toEqual(expected)
+    })
+
     it('uses the newest succeeded summary', () => {
         const older = summary({ chapters: [chapter(0, 10_000, 'Old')] }, 'succeeded', '2026-10-01T09:00:00Z', 'old')
         const newer = summary({ chapters: [chapter(0, 10_000, 'New')] }, 'succeeded', '2026-10-02T09:00:00Z', 'new')
@@ -96,7 +120,9 @@ describe('recordingTimeline', () => {
                 ? `chapter ${row.chapter.title}`
                 : row.kind === 'inactive'
                   ? `inactive ${row.startMs}-${row.endMs}`
-                  : `marker ${row.marker.observationId}${row.inChapter ? ' in chapter' : ''}`
+                  : row.kind === 'marker'
+                    ? `marker ${row.marker.observationId}${row.inChapter ? ' in chapter' : ''}`
+                    : `boundary ${row.edge}`
         )
         expect(rows).toEqual([
             'chapter Browses',
