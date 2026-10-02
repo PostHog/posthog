@@ -13,8 +13,9 @@ describe('viewsLogic', () => {
         const logic = viewsLogic()
         logic.mount()
 
-        const items: ViewItem[] = Array.from({ length: 120 }, (_, index) => ({
-            type: index < 60 ? 'dashboard' : 'canvas',
+        const types = ['canvas', 'dashboard', 'notebook'] as const
+        const items: ViewItem[] = Array.from({ length: 180 }, (_, index) => ({
+            type: types[index % types.length],
             id: String(index),
             name: `View ${index}`,
             href: `/views/${index}`,
@@ -27,13 +28,15 @@ describe('viewsLogic', () => {
         }))
         logic.actions.receiveViews({ items, failedTypes: [] })
         expect(logic.values.visibleViews).toHaveLength(50)
+        expect(new Set(logic.values.visibleViews.map((view) => view.type))).toEqual(new Set(types))
         expect(logic.values.hasMoreViews).toBe(true)
 
         logic.actions.showMoreViews()
         expect(logic.values.visibleViews).toHaveLength(100)
 
-        logic.actions.setTypeFilter('dashboard')
+        logic.actions.setTypeFilter('notebook')
         expect(logic.values.visibleViews).toHaveLength(50)
+        expect(logic.values.visibleViews.every((view) => view.type === 'notebook')).toBe(true)
         expect(logic.values.hasMoreViews).toBe(true)
 
         logic.actions.showMoreViews()
@@ -41,6 +44,6 @@ describe('viewsLogic', () => {
         expect(logic.values.hasMoreViews).toBe(false)
 
         logic.unmount()
-        expect(posthog.capture).toHaveBeenCalledWith('views list filtered', { type: 'dashboard' })
+        expect(posthog.capture).toHaveBeenCalledWith('views list filtered', { type: 'notebook' })
     })
 })
