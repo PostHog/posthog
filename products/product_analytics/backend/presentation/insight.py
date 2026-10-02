@@ -42,6 +42,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
+from posthog.api.project_tags import MATCH_MODES
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.sharing_publish_gate import blocked_access_for_user, is_publicly_shared
@@ -284,7 +285,6 @@ class DashboardIdsField(serializers.ListField):
 
 
 INCLUDE_DASHBOARDS_PARAM = "include_dashboards"
-TAGS_MATCH_MODES = ("any", "all")
 
 DEPRECATED_DASHBOARDS_FIELD_USED_COUNTER = Counter(
     "posthog_api_insight_deprecated_dashboards_field_used_total",
@@ -1768,7 +1768,7 @@ Background calculation can be tracked using the `query_status` response field.""
             OpenApiParameter(
                 name="tags_match",
                 type=OpenApiTypes.STR,
-                enum=list(TAGS_MATCH_MODES),
+                enum=list(MATCH_MODES),
                 description="How to combine the `tags` filter. `any` (the default) returns insights with at least one listed tag. `all` returns insights with every listed tag.",
             ),
         ]
@@ -2146,17 +2146,14 @@ class InsightViewSet(
                 if tags_filter:
                     tags_list = json.loads(tags_filter)
                     tags_match = request.GET.get("tags_match", "any")
-                    if tags_match not in TAGS_MATCH_MODES:
-                        raise ValidationError({"tags_match": f"Must be one of: {', '.join(TAGS_MATCH_MODES)}."})
+                    if tags_match not in MATCH_MODES:
+                        raise ValidationError({"tags_match": f"Must be one of: {', '.join(MATCH_MODES)}."})
                     if tags_list:
                         # A semi-join returns one row per insight, so the list needs no
                         # `.distinct()` sort over the wide insight JSON columns.
-                        if tags_match == "all":
-                            for tag_name in tags_list:
-                                matching_tag = TaggedItem.objects.matching_outer(Insight).filter(tag__name=tag_name)
-                                queryset = queryset.filter(Exists(matching_tag))
-                        else:
-                            matching_tags = TaggedItem.objects.matching_outer(Insight).filter(tag__name__in=tags_list)
+                        tag_groups = [[name] for name in set(tags_list)] if tags_match == "all" else [tags_list]
+                        for names in tag_groups:
+                            matching_tags = TaggedItem.objects.matching_outer(Insight).filter(tag__name__in=names)
                             queryset = queryset.filter(Exists(matching_tags))
             elif key == "created_by":
                 created_by_filter = request.GET["created_by"]
