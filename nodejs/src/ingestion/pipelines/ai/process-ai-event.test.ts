@@ -549,6 +549,22 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.038905, 7)
         })
 
+        it('ignores invalid object-form Gemini text tokens before costing image output', () => {
+            event.properties!.$ai_model = 'gemini-2.5-flash-image'
+            event.properties!.$ai_provider = 'google'
+            event.properties!.$ai_input_tokens = 600
+            event.properties!.$ai_output_tokens = 1300
+            event.properties!.$ai_usage = {
+                candidatesTokensDetails: { textTokens: -5, imageTokens: 1290 },
+            }
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_text_output_tokens).toBeUndefined()
+            expect(result.properties!.$ai_image_output_tokens).toBe(1290)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.038725, 6)
+        })
+
         it('does not bill a negative Interactions text token count', () => {
             event.properties!.$ai_model = 'gemini-3-flash-preview'
             event.properties!.$ai_provider = 'gemini'

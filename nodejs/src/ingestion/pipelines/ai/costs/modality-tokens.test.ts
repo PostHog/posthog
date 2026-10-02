@@ -38,10 +38,12 @@ describe('extractModalityTokens()', () => {
 
         it.each([
             { tokens: -5, expected: undefined },
+            { tokens: 1.5, expected: undefined },
+            { tokens: Number.MAX_SAFE_INTEGER + 1, expected: undefined },
             { tokens: Number.POSITIVE_INFINITY, expected: undefined },
             { tokens: Number.NaN, expected: undefined },
             { tokens: 0, expected: 0 },
-        ])('accepts only finite nonnegative Interactions token counts ($tokens)', ({ tokens, expected }) => {
+        ])('accepts only nonnegative safe integer Interactions token counts ($tokens)', ({ tokens, expected }) => {
             const event = createAIEvent({
                 $ai_usage: {
                     input_tokens_by_modality: [{ modality: 'text', tokens }],
@@ -91,6 +93,28 @@ describe('extractModalityTokens()', () => {
 
             expect(result.properties['$ai_image_output_tokens']).toBe(1290)
             expect(result.properties['$ai_text_output_tokens']).toBe(10)
+            expect(result.properties['$ai_usage']).toBeUndefined()
+        })
+
+        it.each([
+            { tokens: -5, expected: undefined },
+            { tokens: 1.5, expected: undefined },
+            { tokens: Number.MAX_SAFE_INTEGER + 1, expected: undefined },
+            { tokens: Number.POSITIVE_INFINITY, expected: undefined },
+            { tokens: Number.NaN, expected: undefined },
+            { tokens: 0, expected: 0 },
+        ])('accepts only nonnegative safe integer object-form text tokens ($tokens)', ({ tokens, expected }) => {
+            const event = createAIEvent({
+                $ai_usage: {
+                    promptTokensDetails: { textTokens: tokens },
+                    candidatesTokensDetails: { textTokens: tokens },
+                },
+            })
+
+            const result = extractModalityTokens(event)
+
+            expect(result.properties['$ai_text_input_tokens']).toBe(expected)
+            expect(result.properties['$ai_text_output_tokens']).toBe(expected)
             expect(result.properties['$ai_usage']).toBeUndefined()
         })
 
