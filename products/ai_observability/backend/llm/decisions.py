@@ -182,7 +182,8 @@ class DecisionClient:
         if status == 413 or (status == 422 and is_context_window_error_message(response.text)):
             raise ContextWindowExceededError("This input exceeds the endpoint's size limit. Reduce the input.")
         raise DecisionRequestRejectedError(
-            "The endpoint rejected the evaluation request. Check the model and criteria."
+            "The endpoint rejected the evaluation request. "
+            "Check that the model supports this evaluation's output type and criteria."
         )
 
     @staticmethod

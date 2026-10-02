@@ -215,6 +215,9 @@ class TestOpenRouterNonChatModels:
                 {
                     "typesafe/jev-1.13",
                     "~typesafe/jev-latest",
+                    "respan/span-01",
+                    "respan/span-01-lite",
+                    "respan/span-01-lite:free",
                     "example/new-decision-model",
                     "respan/example-future-model",
                 }

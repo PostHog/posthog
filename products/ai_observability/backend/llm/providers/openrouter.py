@@ -27,15 +27,6 @@ logger = logging.getLogger(__name__)
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENROUTER_DECISIONS_BASE_URL = "https://openrouter.ai/api/alpha"
 
-# These models reject Choice and Score questions despite advertising the decisions modality.
-UNSUPPORTED_DECISION_MODELS = frozenset(
-    {
-        "respan/span-01",
-        "respan/span-01-lite",
-        "respan/span-01-lite:free",
-    }
-)
-
 # For App Attribution
 OPENROUTER_HEADERS = {
     "HTTP-Referer": "https://posthog.com",
@@ -87,11 +78,7 @@ def _non_chat_model_ids() -> frozenset[str] | None:
 def decision_model_ids() -> frozenset[str] | None:
     models = _non_chat_models()
     return (
-        frozenset(
-            model
-            for model, modalities in models.items()
-            if "decisions" in modalities and model not in UNSUPPORTED_DECISION_MODELS
-        )
+        frozenset(model for model, modalities in models.items() if "decisions" in modalities)
         if models is not None
         else None
     )
