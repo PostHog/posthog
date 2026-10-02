@@ -50,7 +50,9 @@ class TestUnevaluableFiltersAsValidationErrors(SimpleTestCase):
         err = wrap_clickhouse_query_error(ServerException(f"DB::Exception: {raw}", code=code))
         with self.assertRaises(ValidationError) as ctx, unevaluable_filters_as_validation_errors():
             raise err
-        self.assertEqual(ctx.exception.detail["filters"], expected)
+        detail = ctx.exception.detail
+        assert isinstance(detail, dict)
+        self.assertEqual(detail["filters"], expected)
 
     def test_other_internal_clickhouse_errors_stay_server_faults(self):
         # Only the deterministic cannot-parse-value codes are the caller's input; anything else
