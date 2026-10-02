@@ -33,6 +33,7 @@ from posthog.test.fixtures import create_app_metric2
 from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade.contracts import WorkflowLastRunDTO
@@ -5342,6 +5343,80 @@ class TestHogFlowAPI(APIBaseTest):
         serializer.is_valid()
 
         assert "type" not in serializer.errors
+
+
+class TestHogFlowVersionedMetrics(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.flow = HogFlow.objects.create(team=self.team, name="Versioned flow")
+
+    def _seed(self, app_source: str, app_source_id: str, succeeded: int) -> None:
+        create_app_metric2(
+            team_id=self.team.pk,
+            app_source=app_source,
+            app_source_id=app_source_id,
+            metric_kind="success",
+            metric_name="succeeded",
+            count=succeeded,
+        )
+
+    def _succeeded(self, response) -> int:
+        return sum(sum(series["values"]) for series in response.json()["series"] if series["name"] == "success")
+
+    def test_a_version_reads_only_its_own_series(self):
+        self._seed("hog_flow_version", f"{self.flow.id}/1", succeeded=3)
+        self._seed("hog_flow_version", f"{self.flow.id}/2", succeeded=5)
+        self._seed("hog_flow", str(self.flow.id), succeeded=7)
+        base = f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}"
+
+        version_one = self.client.get(f"{base}/metrics/version?version=1")
+        version_two = self.client.get(f"{base}/metrics/version?version=2")
+        whole = self.client.get(f"{base}/metrics")
+
+        assert version_one.status_code == 200, version_one.json()
+        assert self._succeeded(version_one) == 3
+        assert self._succeeded(version_two) == 5
+        # The unversioned read keys batch runs on the run, so it is its own series rather than a sum.
+        assert self._succeeded(whole) == 7
+
+    def test_a_personal_api_key_can_read_one_version(self):
+        # The scout reads this over MCP with a scoped token, so the action has to be a declared read
+        # action; an action missing from that list refuses the key rather than the scope.
+        self._seed("hog_flow_version", f"{self.flow.id}/1", succeeded=3)
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="scout", user=self.user, secure_value=hash_key_value(key), scopes=["hog_flow:read"]
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}/metrics/version?version=1",
+            headers={"authorization": f"Bearer {key}"},
+        )
+
+        assert response.status_code == 200, response.json()
+        assert self._succeeded(response) == 3
+
+    def test_the_version_is_required(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}/metrics/version")
+
+        assert response.status_code == 400, response.json()
+        assert "version" in str(response.json())
+
+    @parameterized.expand([("metrics/totals",), ("metrics",)])
+    def test_a_hog_function_still_reads_its_own_metrics(self, path: str):
+        function = HogFunction.objects.create(team=self.team, name="fn", type="destination", hog="return event")
+        create_app_metric2(
+            team_id=self.team.id,
+            app_source="hog_function",
+            app_source_id=str(function.id),
+            metric_kind="success",
+            metric_name="succeeded",
+            count=3,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{function.id}/{path}")
+
+        assert response.status_code == 200, response.json()
 
 
 class TestHogFlowGlobalStats(ClickhouseTestMixin, APIBaseTest):

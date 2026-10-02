@@ -60,6 +60,7 @@ export interface workflowProposalsLogicActions {
     approveProposal: (proposalId: string) => {
         proposalId: string
     }
+    clearOutcomes: () => {}
     confirmApproveProposal: (
         proposalId: string,
         expectedDraftUpdatedAt: string | null
@@ -215,6 +216,7 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
             action,
         }),
         loadOutcome: (proposalId: string) => ({ proposalId }),
+        clearOutcomes: () => ({}),
         setLastSeen: (version: number | null, draftStamp: string | null) => ({ version, draftStamp }),
         setOptimizationUnreadable: (unreadable: boolean) => ({ unreadable }),
         setOptimizationEnabled: (enabled: boolean) => ({ enabled }),
@@ -277,6 +279,7 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
             {} as Record<string, WorkflowProposalOutcomeApi>,
             {
                 setOutcome: (state, { proposalId, outcome }) => ({ ...state, [proposalId]: outcome }),
+                clearOutcomes: () => ({}),
             },
         ],
     }),
@@ -501,6 +504,8 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
                 return
             }
             actions.setLastSeen(version, draftStamp)
+            // The reload below skips a proposal that already has an outcome, so the stale one goes first.
+            actions.clearOutcomes()
             actions.loadProposals()
             actions.loadApplied()
         },
