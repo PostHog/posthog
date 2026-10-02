@@ -352,7 +352,9 @@ def update_workflow(
     if not route_to_draft:
         _reschedule_timing_edits(team_id, before_update, instance)
         paused = _pause_schedules_on_audience_change(before_update, instance)
-    return WorkflowWriteResult(previous=field_values(before_update), schedules_paused=paused)
+    return WorkflowWriteResult(
+        previous=field_values(before_update), current=field_values(instance), schedules_paused=paused
+    )
 
 
 def edit_workflow_content(
@@ -410,7 +412,10 @@ def edit_workflow_content(
         _reschedule_timing_edits(team_id, before_update, locked)
         paused = _pause_schedules_on_audience_change(before_update, locked)
     return WorkflowWriteResult(
-        previous=field_values(before_update), routed_to_draft=route_to_draft, schedules_paused=paused
+        previous=field_values(before_update),
+        current=field_values(locked),
+        routed_to_draft=route_to_draft,
+        schedules_paused=paused,
     )
 
 
@@ -454,7 +459,9 @@ def publish_draft(
 
     _reschedule_timing_edits(team_id, before_update, locked)
     paused = _pause_schedules_on_audience_change(before_update, locked)
-    return WorkflowWriteResult(previous=field_values(before_update), schedules_paused=paused)
+    return WorkflowWriteResult(
+        previous=field_values(before_update), current=field_values(locked), schedules_paused=paused
+    )
 
 
 def discard_draft(*, team_id: int, hog_flow_id: UUID) -> WorkflowWriteResult:
@@ -472,4 +479,4 @@ def discard_draft(*, team_id: int, hog_flow_id: UUID) -> WorkflowWriteResult:
         # would pass the staleness guard (which falls back to the live stamp once the draft is
         # gone) and silently resurrect the discarded draft.
         locked.save(update_fields=["draft", "draft_updated_at", "draft_encrypted_inputs", "updated_at"])
-    return WorkflowWriteResult(previous=field_values(before_update))
+    return WorkflowWriteResult(previous=field_values(before_update), current=field_values(locked))

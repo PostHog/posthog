@@ -4889,6 +4889,37 @@ class TestHogFlowAPI(APIBaseTest):
         assert name_change["before"] == original_name
         assert name_change["after"] == new_name
 
+    def test_update_activity_excludes_a_write_committed_after_the_lock_releases(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-webhook",
+                "inputs": {"url": {"value": "https://example.com"}},
+            }
+        )
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        flow_id = response.json()["id"]
+        original_name = response.json()["name"]
+
+        def update_then_concurrent_rename(**kwargs):
+            result = update_workflow(**kwargs)
+            HogFlow.objects.filter(pk=flow_id).update(name="Renamed elsewhere")
+            return result
+
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.update_workflow",
+            side_effect=update_then_concurrent_rename,
+        ):
+            update_response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"description": "New description"}
+            )
+        assert update_response.status_code == status.HTTP_200_OK, update_response.json()
+        assert update_response.json()["name"] == original_name
+
+        latest = self._get_hog_flow_activity(flow_id)[0]
+        assert latest["detail"]["name"] == original_name
+        assert {change["field"] for change in latest["detail"]["changes"]} == {"description"}
+
     def test_hog_flow_draft_allows_incomplete_actions(self):
         trigger_action = {
             "id": "trigger_node",

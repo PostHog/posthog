@@ -4615,7 +4615,7 @@ class HogFlowViewSet(
             )
         except WorkflowStale:
             raise StaleWorkflowUpdateError()
-        serializer.instance.refresh_from_db()
+        self._apply_written_state(serializer.instance, result)
         before_update = HogFlow(**result.previous)
 
         self._report_schedules_paused(result, serializer.instance)
@@ -4646,6 +4646,13 @@ class HogFlowViewSet(
 
     def _actor_id(self) -> Optional[int]:
         return self.request.user.id if self.request.user.is_authenticated else None
+
+    @staticmethod
+    def _apply_written_state(instance: HogFlow, result: WorkflowWriteResult) -> None:
+        # Not refresh_from_db: a write that another request commits after this lock releases must not
+        # appear in this request's activity diff, events or response.
+        for attname, value in result.current.items():
+            setattr(instance, attname, value)
 
     def _report_schedules_paused(self, result: WorkflowWriteResult, instance: HogFlow) -> None:
         if result.schedules_paused:
@@ -4695,7 +4702,7 @@ class HogFlowViewSet(
             )
         except WorkflowStale:
             raise StaleWorkflowUpdateError()
-        instance.refresh_from_db()
+        self._apply_written_state(instance, result)
 
         self._report_schedules_paused(result, instance)
         # Explicit "updated" (the action name "graph" isn't in ACTIVITY_TYPES, which would fall back to
@@ -4766,7 +4773,7 @@ class HogFlowViewSet(
             )
         except WorkflowStale:
             raise StaleWorkflowUpdateError()
-        instance.refresh_from_db()
+        self._apply_written_state(instance, result)
 
         log_activity_from_viewset(
             self, instance, activity="updated", name=instance.name, previous=HogFlow(**result.previous)
@@ -4935,7 +4942,7 @@ class HogFlowViewSet(
             raise exceptions.ValidationError("This workflow has no staged draft to publish.")
         except WorkflowStale:
             raise StaleWorkflowUpdateError()
-        instance.refresh_from_db()
+        self._apply_written_state(instance, result)
         locked = instance
 
         self._report_schedules_paused(result, locked)
@@ -4961,7 +4968,7 @@ class HogFlowViewSet(
     def discard_draft(self, request: Request, *args, **kwargs):
         instance = self.get_object()
         result = discard_draft(team_id=self.team_id, hog_flow_id=instance.pk)
-        instance.refresh_from_db()
+        self._apply_written_state(instance, result)
 
         log_activity_from_viewset(
             self, instance, activity="draft_discarded", name=instance.name, previous=HogFlow(**result.previous)
@@ -5024,8 +5031,8 @@ class HogFlowViewSet(
             raise DraftExistsError()
         except WorkflowDraftChanged:
             raise StaleWorkflowUpdateError()
-        # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance)
-        locked = HogFlow.objects.get(pk=instance.pk)
+        self._apply_written_state(instance, result)
+        locked = instance
 
         log_activity_from_viewset(
             self, locked, activity="revision_restored", name=locked.name, previous=HogFlow(**result.previous)

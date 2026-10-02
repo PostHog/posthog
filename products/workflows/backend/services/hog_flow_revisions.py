@@ -77,4 +77,4 @@ def restore_revision(
         # Clear any stale draft secrets from a prior draft so they can't bleed into this one.
         locked.draft_encrypted_inputs = None
         locked.save(update_fields=["draft", "draft_updated_at", "draft_encrypted_inputs"])
-    return WorkflowWriteResult(previous=previous)
+    return WorkflowWriteResult(previous=previous, current=field_values(locked))
