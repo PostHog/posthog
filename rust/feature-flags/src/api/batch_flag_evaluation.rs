@@ -17,8 +17,8 @@
 //!   series as live `/flags`, so a large cohort run dominates those on its pod.
 //! - The matcher always runs with `skip_writes(true)`: experience-continuity hash key
 //!   overrides are read but never written.
-//! - The matcher runs with `ignore_variants_in_dependency_check(true)`: a dependent of a
-//!   failed flag fails only when that flag could change whether the dependent is enabled.
+//! - The matcher treats the target as enabled-only (`with_enabled_only_flag_keys`): a failed
+//!   dependency fails the target only when it could change whether the target is enabled.
 //! - Flags are always read fresh from Postgres (never the hypercache) so the
 //!   `expected_version` optimistic-lock check is meaningful.
 //!
@@ -626,8 +626,8 @@ async fn handle_batch_flag_evaluation(
             // Read-only: experience-continuity overrides are consulted but never written.
             .with_skip_writes(true)
             // A person joins the cohort on `enabled` alone. A failed dependency that could change
-            // only the variant must not drop that person.
-            .with_ignore_variants_in_dependency_check(true)
+            // only the target's variant must not drop that person.
+            .with_enabled_only_flag_keys(HashSet::from([target_key.clone()]))
             .with_timezone(team_timezone);
 
             let flag_list = flag_list.clone();

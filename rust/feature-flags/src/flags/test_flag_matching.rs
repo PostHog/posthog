@@ -1347,8 +1347,19 @@ mod tests {
     #[case::batch_endpoint(true)]
     #[tokio::test]
     async fn test_flags_depending_on_a_failed_flag_fail_only_when_their_answer_needs_it(
-        #[case] ignore_variants: bool,
+        #[case] batch_endpoint: bool,
     ) {
+        let enabled_only_flag_keys = if batch_endpoint {
+            HashSet::from(
+                [
+                    "dependent_with_pinned_variant_flag",
+                    "dependent_on_pinned_variant_dependency_flag",
+                ]
+                .map(String::from),
+            )
+        } else {
+            HashSet::new()
+        };
         let failing_db = setup_invalid_pg_client().await;
         let router = PostgresRouter::new(
             failing_db.clone(),
@@ -1365,7 +1376,7 @@ mod tests {
             empty_group_type_cache(),
             None,
         )
-        .with_ignore_variants_in_dependency_check(ignore_variants);
+        .with_enabled_only_flag_keys(enabled_only_flag_keys);
 
         let rollout_flag = mock!(FeatureFlag, id: 1, key: "rollout_flag".mock_into());
         let person_flag = mock!(FeatureFlag,
@@ -1442,10 +1453,8 @@ mod tests {
             ],
             ..Default::default()
         };
-        let dependent_with_pinned_variant_flag = mock!(FeatureFlag,
-            id: 9,
-            key: "dependent_with_pinned_variant_flag".mock_into(),
-            filters: mock!(FlagFilters,
+        let pinned_test_then_control = || {
+            mock!(FlagFilters,
                 groups: vec![
                     mock!(FlagPropertyGroup,
                         properties: Some(vec![dep_filter(person_flag.id, FlagValue::Boolean(true))]),
@@ -1455,6 +1464,21 @@ mod tests {
                 ],
                 multivariate: Some(control_for_everyone())
             )
+        };
+        let dependent_with_pinned_variant_flag = mock!(FeatureFlag,
+            id: 9,
+            key: "dependent_with_pinned_variant_flag".mock_into(),
+            filters: pinned_test_then_control()
+        );
+        let pinned_variant_dependency_flag = mock!(FeatureFlag,
+            id: 17,
+            key: "pinned_variant_dependency_flag".mock_into(),
+            filters: pinned_test_then_control()
+        );
+        let dependent_on_pinned_variant_dependency_flag = mock!(FeatureFlag,
+            id: 18,
+            key: "dependent_on_pinned_variant_dependency_flag".mock_into(),
+            filters: dep_filter(pinned_variant_dependency_flag.id, FlagValue::String("control".to_string())).mock_into()
         );
         let dependent_with_same_pinned_variant_flag = mock!(FeatureFlag,
             id: 11,
@@ -1555,6 +1579,8 @@ mod tests {
             dependent_on_variant_flag,
             dependent_with_hashed_variant_flag,
             dependent_with_conflicting_filters_flag,
+            pinned_variant_dependency_flag,
+            dependent_on_pinned_variant_dependency_flag,
         ]);
         // Preloaded cohorts keep the cohort definitions lookup off the failing pool.
         flags.cohorts = Some(Arc::from(Vec::new()));
@@ -1593,8 +1619,10 @@ mod tests {
             "dependent_with_early_exit_flag",
             "dependent_stopping_early_flag",
             "dependent_on_variant_flag",
+            "pinned_variant_dependency_flag",
+            "dependent_on_pinned_variant_dependency_flag",
         ];
-        if ignore_variants {
+        if batch_endpoint {
             settled.push((
                 "dependent_with_pinned_variant_flag",
                 FlagValue::String("control".to_string()),
