@@ -372,7 +372,8 @@ describe("runNotice between calls", () => {
     });
 
     expect(new Set(words).size).toBe(3);
-    for (const word of words) expect(THINKING_ACTIVITIES).toContain(word);
+    const known = THINKING_ACTIVITIES.map((activity) => `${activity}…`);
+    for (const word of words) expect(known).toContain(word);
   });
 });
 
