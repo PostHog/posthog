@@ -641,7 +641,7 @@ export const AutoresearchResolveTemplateCreateBody = /* @__PURE__ */ zod.object(
             '\* `likely_active_soon` - Likely Active Soon\n\* `at_risk_of_inactivity` - At Risk Of Inactivity\n\* `return_after_first_use` - Return After First Use\n\* `feature_adoption` - Feature Adoption\n\* `repeat_key_behavior` - Repeat Key Behavior'
         )
         .describe(
-            'Template to resolve. Use autoresearch-templates-list to see all available templates with descriptions. Required.\n\n\* `likely_active_soon` - Likely Active Soon\n\* `at_risk_of_inactivity` - At Risk Of Inactivity\n\* `return_after_first_use` - Return After First Use\n\* `feature_adoption` - Feature Adoption\n\* `repeat_key_behavior` - Repeat Key Behavior'
+            'Template to resolve. The templates endpoint lists each one with its description. Required.\n\n\* `likely_active_soon` - Likely Active Soon\n\* `at_risk_of_inactivity` - At Risk Of Inactivity\n\* `return_after_first_use` - Return After First Use\n\* `feature_adoption` - Feature Adoption\n\* `repeat_key_behavior` - Repeat Key Behavior'
         ),
     target_event: zod
         .string()
@@ -658,7 +658,7 @@ export const AutoresearchResolveTemplateCreateBody = /* @__PURE__ */ zod.object(
 })
 
 /**
- * Validate a proposed pipeline's target event and population before creating it. Returns volume estimates, base rate, and any warnings. Creation does not enforce the result: 'population_too_large' and 'horizon_exceeds_lookback' mean a training run would fail, and the other 'error' codes mean the data is too thin for a reliable model. Call this before autoresearch-create.
+ * Validate a proposed pipeline's target event and population before creating it. Returns volume estimates, base rate, and any warnings. Creation does not enforce the result: 'horizon_exceeds_lookback' and an 'error' 'population_too_large' mean a run would fail, and the other 'error' codes mean the data is too thin for a reliable model. Call this before autoresearch-create.
  * @summary Validate a pipeline definition
  */
 export const autoresearchValidateCreateBodyTargetEventDefault = ``

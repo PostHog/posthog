@@ -9,6 +9,7 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import {
     AnyDataWarehouseNode,
     AnyEntityNode,
+    Breakdown,
     CachedNewExperimentQueryResponse,
     EventsNode,
     ExperimentEventExposureConfig,
@@ -31,6 +32,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isNodeWithSource, isTrendsQuery, isValidQueryForExperiment } from '~/queries/utils'
 import {
+    BreakdownAttributionType,
     ChartDisplayType,
     Experiment,
     ExperimentMetricGoal,
@@ -970,42 +972,6 @@ export function getEventCountQuery(metric: ExperimentMetric, filterTestAccounts:
 }
 
 /**
- * Initialize ordering arrays for metrics if they're null
- * Returns a new experiment object with initialized ordering arrays
- */
-export function initializeMetricOrdering(experiment: Experiment): Experiment {
-    const newExperiment = { ...experiment }
-
-    // Initialize primary_metrics_ordered_uuids if it's null
-    if (newExperiment.primary_metrics_ordered_uuids === null) {
-        const primaryMetrics = newExperiment.metrics || []
-        const sharedPrimaryMetrics = (newExperiment.saved_metrics || []).filter(
-            (sharedMetric: any) => sharedMetric.metadata.type === 'primary'
-        )
-
-        const allMetrics = [...primaryMetrics, ...sharedPrimaryMetrics]
-        newExperiment.primary_metrics_ordered_uuids = allMetrics
-            .map((metric: any) => metric.uuid || metric.query?.uuid)
-            .filter(Boolean)
-    }
-
-    // Initialize secondary_metrics_ordered_uuids if it's null
-    if (newExperiment.secondary_metrics_ordered_uuids === null) {
-        const secondaryMetrics = newExperiment.metrics_secondary || []
-        const sharedSecondaryMetrics = (newExperiment.saved_metrics || []).filter(
-            (sharedMetric: any) => sharedMetric.metadata.type === 'secondary'
-        )
-
-        const allMetrics = [...secondaryMetrics, ...sharedSecondaryMetrics]
-        newExperiment.secondary_metrics_ordered_uuids = allMetrics
-            .map((metric: any) => metric.uuid || metric.query?.uuid)
-            .filter(Boolean)
-    }
-
-    return newExperiment
-}
-
-/**
  * Returns metric indices in display order. Metrics whose UUID appears in
  * orderedUuids come first (in that order), followed by any remaining metrics
  * in their original array position. Each entry is the original index into the
@@ -1051,27 +1017,61 @@ export function getDisplayOrderedIndices(
     return ordered
 }
 
+export type ExperimentSavedMetric = {
+    id: number
+    experiment: number
+    saved_metric: number
+    metadata: {
+        type: 'primary' | 'secondary'
+        breakdowns?: Breakdown[]
+        breakdownAttributionType?: BreakdownAttributionType
+        breakdownAttributionValue?: number
+        breakdown_limit?: number
+    }
+    created_at: string
+    query: ExperimentMetric
+    name: string
+}
+
 /**
- * Reshape a saved/shared metric into the inline ExperimentMetric shape, merging the
- * per-experiment link metadata (breakdown attribution, breakdowns) into the query.
+ * The effective definition of a shared metric on one experiment: the saved query with the link overrides
+ * applied. The backend calculates and fingerprints the same definition with `resolve_saved_metric_definition`
+ * in products/experiments/backend/metric_resolution.py, so a change here must change it there too,
+ * or the results the page queries and the stored results describe different metrics.
  */
-function enrichSharedMetric(sharedMetric: Experiment['saved_metrics'][number]): ExperimentMetric {
+export function resolveSharedMetric({
+    query,
+    metadata,
+}: Pick<ExperimentSavedMetric, 'query' | 'metadata'>): ExperimentMetric {
+    const breakdowns = metadata?.breakdowns || []
+    const hasBreakdowns = breakdowns.length > 0
     return {
-        ...sharedMetric.query,
+        ...query,
+        ...(hasBreakdowns &&
+            query?.metric_type === ExperimentMetricType.FUNNEL &&
+            metadata?.breakdownAttributionType != null && {
+                breakdownAttributionType: metadata.breakdownAttributionType,
+                breakdownAttributionValue: metadata.breakdownAttributionValue ?? undefined,
+            }),
+        breakdownFilter: {
+            ...query?.breakdownFilter,
+            breakdowns,
+            ...(hasBreakdowns && metadata?.breakdown_limit != null && { breakdown_limit: metadata.breakdown_limit }),
+        },
+    } as ExperimentMetric
+}
+
+export const sharedMetricsToExperimentMetrics = (
+    sharedMetrics: ExperimentSavedMetric[] | undefined,
+    type: 'primary' | 'secondary'
+): ExperimentMetric[] => (sharedMetrics || []).filter(({ metadata }) => metadata.type === type).map(resolveSharedMetric)
+
+function enrichSharedMetric(sharedMetric: ExperimentSavedMetric): ExperimentMetric {
+    return {
+        ...resolveSharedMetric(sharedMetric),
         name: sharedMetric.name,
         sharedMetricId: sharedMetric.saved_metric,
         isSharedMetric: true,
-        ...(sharedMetric.metadata?.breakdownAttributionType !== undefined && {
-            breakdownAttributionType: sharedMetric.metadata.breakdownAttributionType,
-            breakdownAttributionValue: sharedMetric.metadata.breakdownAttributionValue,
-        }),
-        breakdownFilter: {
-            ...sharedMetric.query?.breakdownFilter,
-            breakdowns: sharedMetric.metadata?.breakdowns || [],
-            ...(sharedMetric.metadata?.breakdown_limit !== undefined && {
-                breakdown_limit: sharedMetric.metadata.breakdown_limit,
-            }),
-        },
     } as ExperimentMetric
 }
 

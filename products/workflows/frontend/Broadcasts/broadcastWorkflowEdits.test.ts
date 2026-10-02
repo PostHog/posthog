@@ -62,7 +62,9 @@ describe('broadcast edits to broadcast-shaped workflows', () => {
         ['a recurring broadcast between runs', 'active', ['active'], ['completed'], undefined, true],
         ['a broadcast whose schedule was paused', 'active', ['paused'], [], undefined, true],
         ['a broadcast sent right away', 'active', [], ['completed'], undefined, false],
+        ['a broadcast whose launch never finished', 'active', [], [], undefined, true],
         ['a one-time broadcast that already sent', 'active', ['completed'], ['completed'], undefined, false],
+        ['a one-time schedule that never started a run', 'active', ['completed'], [], undefined, true],
         [
             'a workflow with a sent one-time schedule and another',
             'active',
@@ -118,5 +120,28 @@ describe('broadcast edits to broadcast-shaped workflows', () => {
         expect(payload.actions[1].on_error).toBe('continue')
         expect(payload.actions[1].config.inputs.extra).toEqual({ value: 1 })
         expect(payload.actions[1].config.inputs.email.value.subject).toBe('New subject')
+    })
+
+    it.each([
+        ['a new broadcast', null],
+        ['a workflow shaped like a broadcast', { origin_product: null, actions: [trigger(), email(), exit], edges }],
+    ])('saves the message category and tracking onto the email step of %s', (_, existing) => {
+        const payload = buildBroadcastPayload({
+            name: 'Newsletter',
+            audienceProperties: [],
+            goalEnabled: false,
+            conversion: DEFAULT_BROADCAST_CONVERSION,
+            email: DEFAULT_BROADCAST_EMAIL,
+            emailRateLimit: null,
+            emailSettings: { messageCategoryId: 'cat-1', messageCategoryType: 'marketing', trackingEnabled: false },
+            broadcast: existing as unknown as HogFlowApi | null,
+        })
+
+        const emailStep = payload.actions.find((action: any) => action.type === 'function_email')
+        expect(emailStep.config).toMatchObject({
+            message_category_id: 'cat-1',
+            message_category_type: 'marketing',
+            tracking_enabled: false,
+        })
     })
 })

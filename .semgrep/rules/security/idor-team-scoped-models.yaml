@@ -61,6 +61,7 @@ rules:
                               |AccountRelationshipControl
                               |AccountRelationshipDefinition
                               |AccountTrackRuleRun
+                              |AccountView
                               |Action
                               |AEOCitationCheck
                               |AEOPrompt
@@ -115,6 +116,7 @@ rules:
                               |CohortBackfillRun
                               |CohortBackfillRunCohort
                               |Comment
+                              |ContentAutopilotOpportunity
                               |ContentAutopilotProposal
                               |ContentAutopilotRun
                               |ContentAutopilotSiteProfile
@@ -134,6 +136,7 @@ rules:
                               |CustomPropertySyncRun
                               |CustomPropertyValue
                               |DAG
+                              |DailyBriefing
                               |Dashboard
                               |DashboardTemplate
                               |DashboardWidget
@@ -235,6 +238,7 @@ rules:
                               |HealthIssue
                               |HogFlow
                               |HogFlowBatchJob
+                              |HogFlowOptimization
                               |HogFlowRevision
                               |HogFlowSchedule
                               |HogFlowTemplate
@@ -251,6 +255,8 @@ rules:
                               |KnowledgeGapSuggestion
                               |KnowledgeLearningRun
                               |KnowledgeSource
+                              |PlaygroundChat
+                              |PlaygroundTurn
                               |Link
                               |LiveDebuggerBreakpoint
                               |LogsAlertConfiguration
@@ -316,8 +322,10 @@ rules:
                               |ProjectSecretAPIKey
                               |PropertyAccessControl
                               |PullRequestAudience
+                              |QuarantineLiftRequest
                               |QuarantinedIdentifier
                               |QueryTabState
+                              |QueueJob
                               |QuickFilter
                               |QuickFilterContext
                               |ReplayObservation
@@ -368,6 +376,7 @@ rules:
                               |SignalScoutNote
                               |SignalScoutStructuredOutput
                               |SignalScoutSuggestionSet
+                              |SignalScoutBackgroundBand
                               |SignalScratchpad
                               |SignalProjectProfile
                               |SingleSessionSummary
@@ -498,6 +507,7 @@ rules:
                         |AccountRelationshipControl
                         |AccountRelationshipDefinition
                         |AccountTrackRuleRun
+                        |AccountView
                         |Action
                         |AgentApplication
                         |AgentArtifact
@@ -550,6 +560,7 @@ rules:
                         |CohortBackfillRun
                         |CohortBackfillRunCohort
                         |Comment
+                        |ContentAutopilotOpportunity
                         |ContentAutopilotProposal
                         |ContentAutopilotRun
                         |ContentAutopilotSiteProfile
@@ -569,6 +580,7 @@ rules:
                         |CustomPropertySyncRun
                         |CustomPropertyValue
                         |DAG
+                        |DailyBriefing
                         |Dashboard
                         |DashboardTemplate
                         |DashboardWidget
@@ -667,6 +679,7 @@ rules:
                         |HealthIssue
                         |HogFlow
                         |HogFlowBatchJob
+                        |HogFlowOptimization
                         |HogFlowRevision
                         |HogFlowSchedule
                         |HogFlowTemplate
@@ -683,6 +696,8 @@ rules:
                         |KnowledgeGapSuggestion
                         |KnowledgeLearningRun
                         |KnowledgeSource
+                        |PlaygroundChat
+                        |PlaygroundTurn
                         |Link
                         |LiveDebuggerBreakpoint
                         |Loop
@@ -741,8 +756,10 @@ rules:
                         |ProjectSecretAPIKey
                         |PropertyAccessControl
                         |PullRequestAudience
+                        |QuarantineLiftRequest
                         |QuarantinedIdentifier
                         |QueryTabState
+                        |QueueJob
                         |QuickFilter
                         |QuickFilterContext
                         |ReplayObservation
@@ -793,6 +810,7 @@ rules:
                         |SignalScoutNote
                         |SignalScoutStructuredOutput
                         |SignalScoutSuggestionSet
+                        |SignalScoutBackgroundBand
                         |SignalScratchpad
                         |SignalProjectProfile
                         |SingleSessionSummary
@@ -961,6 +979,7 @@ rules:
                               |OrganizationMembership
                               |OrganizationMemberNotificationLock
                               |OrganizationDomain
+                              |OrganizationFeatureFlagsConfig
                               |OrganizationIntegration
                               |OrganizationInvite
                               |Plugin
@@ -1037,6 +1056,7 @@ rules:
                         |OrganizationMembership
                         |OrganizationMemberNotificationLock
                         |OrganizationDomain
+                        |OrganizationFeatureFlagsConfig
                         |OrganizationIntegration
                         |OrganizationInvite
                         |Plugin

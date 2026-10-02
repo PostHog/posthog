@@ -38,6 +38,15 @@ class CanvasSummary:
 
 
 @dataclass(frozen=True)
+class CanvasOwnerActivity:
+    """When a person last changed a canvas they own in a channel."""
+
+    channel_id: UUID
+    created_by_id: int
+    last_active: datetime
+
+
+@dataclass(frozen=True)
 class CanvasGenerationState:
     current_source_version_id: UUID | None
     artifact_url: str | None

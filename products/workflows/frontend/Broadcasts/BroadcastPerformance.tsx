@@ -7,12 +7,16 @@ import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 
 import { EmailLinksTable } from '../Workflows/EmailLinksTable'
 import { BroadcastPerformanceLogicProps, broadcastPerformanceLogic } from './broadcastPerformanceLogic'
+import { BroadcastSendActivity } from './BroadcastSendActivity'
 
 function share(part: number, whole: number): string {
     return whole > 0 ? percentage(part / whole, 1) : '-'
 }
 
-export function BroadcastPerformance(props: BroadcastPerformanceLogicProps): JSX.Element {
+export function BroadcastPerformance({
+    hasGoal = false,
+    ...props
+}: BroadcastPerformanceLogicProps & { hasGoal?: boolean }): JSX.Element {
     const logic = broadcastPerformanceLogic(props)
     const { stats, totalsLoading, totalsFailed, links, linksLoading } = useValues(logic)
     const { loadTotals } = useActions(logic)
@@ -42,6 +46,7 @@ export function BroadcastPerformance(props: BroadcastPerformanceLogicProps): JSX
         { label: 'Opened', part: stats.opened, whole: stats.trackedSends },
         { label: 'Clicked', part: stats.clicked, whole: stats.trackedSends },
         { label: 'Clicked to opened', part: stats.clicked, whole: stats.opened },
+        ...(hasGoal ? [{ label: 'Converted', part: stats.converted, whole: stats.sent }] : []),
     ]
 
     return (
@@ -69,8 +74,13 @@ export function BroadcastPerformance(props: BroadcastPerformanceLogicProps): JSX
                         <LemonProgress percent={whole > 0 ? (part / whole) * 100 : 0} size="large" />
                     </div>
                 ))}
-                <span className="text-xs text-muted">Opens and clicks are counted against sends with tracking on.</span>
+                <span className="text-xs text-muted">
+                    Opens and clicks are counted against sends with tracking on.
+                    {hasGoal ? ' Conversions are counted against all sends.' : ''}
+                </span>
             </div>
+
+            <BroadcastSendActivity {...props} />
 
             <div className="flex flex-col gap-2">
                 <h3 className="m-0 text-sm font-semibold">Top clicked links</h3>

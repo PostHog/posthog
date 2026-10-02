@@ -144,11 +144,21 @@ class TestMaterializeData(TeamScopedTestMixin, BaseTest):
     def test_training_data_splits_folds_and_extracts_feature_cols(self):
         pipeline = self._pipeline()
         with (
-            patch.object(sandbox_inference, "count_training_anchors", return_value=len(_TRAINING_ROWS)),
-            patch.object(sandbox_inference, "_materialize_rows", return_value=_TRAINING_ROWS),
+            patch.object(
+                sandbox_inference,
+                "run_hogql",
+                side_effect=[
+                    HogQLResult(columns=["eligible", "positives"], rows=[[len(_TRAINING_ROWS), 2]]),
+                    HogQLResult(columns=list(_TRAINING_ROWS[0]), rows=[list(r.values()) for r in _TRAINING_ROWS]),
+                    HogQLResult(columns=["eligible", "positives"], rows=[[len(_TRAINING_ROWS), 2]]),
+                ],
+            ) as run_hogql,
         ):
             data = materialize_training_data(team=self.team, pipeline=pipeline, feature_sql="SELECT 1 FROM {anchors}")
 
+        sample_query, features_query, count_query = (call.kwargs["query"] for call in run_hogql.call_args_list)
+        assert all("now()" not in query.query for query in (sample_query, features_query, count_query))
+        assert sample_query.values["anchor_ts"] == features_query.values["anchor_ts"] == count_query.values["anchor_ts"]
         assert data.feature_cols == ["events_total", "pageviews"]
         assert [r["distinct_id"] for r in data.train_rows] == ["p1", "p2"]
         assert [r["distinct_id"] for r in data.holdout_rows] == ["p3"]

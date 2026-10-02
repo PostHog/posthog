@@ -78,6 +78,7 @@ function ScannerPicker({
                 <div className="w-80">
                     <div className="p-1 border-b">
                         <LemonInput
+                            data-attr="vision-observations-tab-search"
                             type="search"
                             size="small"
                             placeholder="Search scanners…"
@@ -92,7 +93,12 @@ function ScannerPicker({
                                 <Spinner /> Loading scanners…
                             </div>
                         ) : scanners.length === 0 ? (
-                            <Link to={urls.replayVision()} target="_blank" className="block px-2 py-3 text-sm">
+                            <Link
+                                data-attr="vision-observations-open-scanners"
+                                to={urls.replayVision()}
+                                target="_blank"
+                                className="block px-2 py-3 text-sm"
+                            >
                                 No scanners yet — create one
                             </Link>
                         ) : filteredScanners.length === 0 ? (
@@ -150,17 +156,15 @@ function defaultFocus(observations: ReplayObservationApi[]): ReplayObservationAp
 function ObservationRuns({
     sessionId,
     observations,
-    seekbarMarks,
     onSeek,
 }: {
     sessionId: string
     observations: ReplayObservationApi[]
-    seekbarMarks: ObservationSeekbarMark[]
     onSeek: (timestampMs: number) => void
 }): JSX.Element | null {
     const logic = observationsDockLogic({ sessionId })
     const { focusedObservationId, followMoments, retryingObservationIds } = useValues(logic)
-    const { focusObservation, setFollowMoments, retryObservation } = useActions(logic)
+    const { focusObservation, retryObservation } = useActions(logic)
     const { currentPlayerTime } = useValues(sessionRecordingPlayerLogic)
     const paneRef = useRef<HTMLDivElement>(null)
     const followedMs = useRef<number | null>(null)
@@ -169,8 +173,9 @@ function ObservationRuns({
         [observations]
     )
     const focused = observations.find((o) => o.id === focusedObservationId) ?? defaultFocus(observations)
-    const currentIndex = currentMarkIndex(seekbarMarks, currentPlayerTime)
-    const currentMs = currentIndex >= 0 ? seekbarMarks[currentIndex].timestampMs : null
+    const focusedMarks = focused ? (marksByRun.get(focused.id) ?? []) : []
+    const currentIndex = currentMarkIndex(focusedMarks, currentPlayerTime)
+    const currentMs = currentIndex >= 0 ? focusedMarks[currentIndex].timestampMs : null
 
     useEffect(() => {
         if (!followMoments) {
@@ -180,18 +185,9 @@ function ObservationRuns({
         if (currentMs === null || followedMs.current === currentMs) {
             return
         }
-        const owns = (o: ReplayObservationApi): boolean =>
-            marksByRun.get(o.id)?.some((m) => m.timestampMs === currentMs) ?? false
-        if (focused && !owns(focused)) {
-            const owner = observations.find(owns)
-            if (owner) {
-                focusObservation(owner.id)
-                return
-            }
-        }
         followedMs.current = currentMs
         paneRef.current?.querySelector<HTMLElement>(CURRENT_MOMENT_SELECTOR)?.scrollIntoView({ block: 'nearest' })
-    }, [currentMs, followMoments, focused, observations, marksByRun, focusObservation])
+    }, [currentMs, followMoments])
 
     if (observations.length === 0) {
         return null
@@ -237,10 +233,7 @@ function ObservationRuns({
                                         </Tooltip>
                                     ) : undefined
                                 }
-                                onClick={() => {
-                                    focusObservation(observation.id)
-                                    setFollowMoments(false)
-                                }}
+                                onClick={() => focusObservation(observation.id)}
                                 data-attr="vision-run-row"
                             >
                                 <span className="flex items-center gap-2 min-w-0 w-full font-normal">
@@ -398,7 +391,11 @@ const FocusPane = forwardRef<
                                 {showText ? `Hide ${textLabel}` : `Show ${textLabel}`}
                             </LemonButton>
                         )}
-                        <Link to={urls.replayVisionObservation(observation.id)} className="text-xs ml-auto">
+                        <Link
+                            data-attr="vision-observation-open-from-sidebar"
+                            to={urls.replayVisionObservation(observation.id)}
+                            className="text-xs ml-auto"
+                        >
                             View details
                         </Link>
                     </div>
@@ -512,12 +509,7 @@ function ObservationsTabContent({ sessionId }: { sessionId: string }): JSX.Eleme
                             </div>
                         )}
                     </div>
-                    <ObservationRuns
-                        sessionId={sessionId}
-                        observations={observations}
-                        seekbarMarks={seekbarMarks}
-                        onSeek={seekToTime}
-                    />
+                    <ObservationRuns sessionId={sessionId} observations={observations} onSeek={seekToTime} />
                 </>
             )}
         </div>

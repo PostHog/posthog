@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from unittest.mock import patch
 
@@ -16,6 +16,7 @@ from posthog.models.personal_api_key import hash_key_value
 from posthog.models.scoping import team_scope
 from posthog.models.utils import generate_random_token_personal
 
+from products.canvas.backend.facade import testing as canvas_testing
 from products.tasks.backend.exceptions import ComputeBillingLimitError
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.onboarding_canvas import TeachingCanvas
@@ -565,6 +566,48 @@ class ChannelsAPITestCase(TestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertEqual({m["id"] for m in response.json()}, {creator.id, self.other_user.id})
+
+    def test_contributors_list_task_and_canvas_owners_in_visible_channels(self):
+        public_id = self.client.post(self._channels_url(), {"name": "growth"}).json()["id"]
+        private_id = self._create_private_channel()["id"]
+        third = User.objects.create_user(email="third@example.com", first_name="Cy", password="password")
+        now = django_timezone.now()
+
+        def task(channel_id: str, owner: User, minutes_ago: int, **extra) -> None:
+            Task.objects.create(
+                team=self.team,
+                created_by=owner,
+                channel_id=channel_id,
+                title="t",
+                description="d",
+                origin_product=Task.OriginProduct.USER_CREATED,
+                last_activity_at=now - timedelta(minutes=minutes_ago),
+                **extra,
+            )
+
+        task(public_id, self.user, 30)
+        task(public_id, self.user, 90, archived=True)
+        task(public_id, third, 5, deleted=True)
+        task(private_id, self.user, 1)
+        canvas_testing.create_canvas(
+            team_id=self.team.id, channel_id=UUID(public_id), name="Board", created_by_id=self.other_user.id
+        )
+        canvas_testing.create_canvas(
+            team_id=self.team.id, channel_id=UUID(public_id), name="Gone", created_by_id=third.id, deleted=True
+        )
+
+        response = self.client.get(f"{self._channels_url()}contributors/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(
+            {row["channel"]: [person["id"] for person in row["people"]] for row in response.json()},
+            {public_id: [self.other_user.id, self.user.id], private_id: [self.user.id]},
+        )
+
+        other_client = APIClient()
+        other_client.force_authenticate(self.other_user)
+        self.assertEqual(
+            [row["channel"] for row in other_client.get(f"{self._channels_url()}contributors/").json()], [public_id]
+        )
 
     def test_deleting_github_integration_clears_channel_repositories(self):
         integration = Integration.objects.create(team=self.team, kind="github", integration_id="1", config={})

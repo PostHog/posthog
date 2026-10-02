@@ -136,7 +136,6 @@ export interface SearchItem {
     lastViewedAt?: string | null
     groupNoun?: string | null
     itemType?: string | null
-    tags?: string[]
     searchKeywords?: string[]
     record?: Record<string, unknown>
     rank?: number | null // PostgreSQL full-text search rank (from unified search API)
@@ -195,6 +194,7 @@ export interface SettingsSectionSummary {
         titleString: string | null
         descriptionString: string | null
         keywords?: string[]
+        flag?: SettingSection['flag']
     }[]
 }
 
@@ -923,7 +923,6 @@ export const searchLogic = kea<searchLogicType>([
                     productCategory: product.category || null,
                     href: product.href || PLACEHOLDER_HREF,
                     itemType: product.iconType || product.type || null,
-                    tags: product.tags,
                     searchKeywords: productSearchKeywords[product.path],
                     lastViewedAt: product.sceneKey ? (sceneLogViewsByRef[product.sceneKey] ?? null) : null,
                     disabledReason: getProductAccessDisabledReason(product),
@@ -942,7 +941,6 @@ export const searchLogic = kea<searchLogicType>([
                     href: urls.activity(ActivityTab.ExploreEvents),
                     icon: <IconClock />,
                     itemType: null,
-                    tags: undefined,
                     lastViewedAt: sceneLogViewsByRef['Activity'] ?? null,
                     record: {
                         type: 'activity',
@@ -986,7 +984,7 @@ export const searchLogic = kea<searchLogicType>([
                 })
 
                 const categorySearchKeywords: Record<string, string[]> = {
-                    Pipeline: ['data pipelines', 'data pipeline'],
+                    CDP: ['data pipelines', 'data pipeline', 'pipeline'],
                 }
 
                 // Synonyms people search for that don't appear in the item name.
@@ -1003,7 +1001,6 @@ export const searchLogic = kea<searchLogicType>([
                     productCategory: item.category || null,
                     href: item.href || PLACEHOLDER_HREF,
                     itemType: item.iconType || item.type || null,
-                    tags: item.tags,
                     searchKeywords: [
                         ...(item.category ? (categorySearchKeywords[item.category] ?? []) : []),
                         ...(pathSearchKeywords[item.path] ?? []),
@@ -1076,7 +1073,6 @@ export const searchLogic = kea<searchLogicType>([
                         productCategory: item.category || null,
                         href: item.href || PLACEHOLDER_HREF,
                         itemType: item.iconType || item.type || null,
-                        tags: item.tags,
                         record: {
                             type: item.type || item.iconType,
                             iconType: item.iconType,
@@ -1126,7 +1122,6 @@ export const searchLogic = kea<searchLogicType>([
                     productCategory: item.category || null,
                     href: item.href || PLACEHOLDER_HREF,
                     itemType: item.iconType || item.type || null,
-                    tags: item.tags,
                     lastViewedAt: item.sceneKey ? (sceneLogViewsByRef[item.sceneKey] ?? null) : null,
                     record: {
                         type: item.type || item.iconType,
@@ -1412,12 +1407,6 @@ export const searchLogic = kea<searchLogicType>([
                         section.level === 'environment' ? section.id.replace('environment-', 'project-') : section.id
                     ) as SettingSectionId
 
-                    // Skip duplicate project sections (environment sections take priority)
-                    if (seenSectionIds.has(effectiveSectionId)) {
-                        continue
-                    }
-                    seenSectionIds.add(effectiveSectionId)
-
                     // Filter by feature flag if required
                     if (section.flag) {
                         if (!checkFlag(section.flag as Pick<Setting, 'flag'>['flag'])) {
@@ -1425,13 +1414,19 @@ export const searchLogic = kea<searchLogicType>([
                         }
                     }
 
+                    // Skip duplicate project sections (environment sections take priority)
+                    if (seenSectionIds.has(effectiveSectionId)) {
+                        continue
+                    }
+                    seenSectionIds.add(effectiveSectionId)
+
                     // Create a search item for each settings section
                     const levelPrefix = toSentenceCase(effectiveLevel)
 
                     const searchTerms = [
                         ...(section.keywords ?? []),
                         ...section.settings
-                            .filter((setting) => setting.hasTitle)
+                            .filter((setting) => setting.hasTitle && checkFlag(setting.flag))
                             .flatMap((setting) => [
                                 toSentenceCase(setting.id.replace(/[-]/g, ' ')),
                                 ...(setting.titleString ? [setting.titleString] : []),
@@ -1941,6 +1936,7 @@ export const searchLogic = kea<searchLogicType>([
                                 setting.searchDescription ??
                                 (typeof setting.description === 'string' ? setting.description : null),
                             keywords: setting.keywords,
+                            flag: setting.flag,
                         })),
                     }))
                 )
