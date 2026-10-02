@@ -1,9 +1,8 @@
-import asyncio
-
 import pytest
 from unittest.mock import MagicMock, patch
 
 import redis
+import temporalio.exceptions
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     LOCK_TTL_SECONDS,
@@ -62,11 +61,11 @@ class TestAcquireV3PipelineLock:
         self, mock_ctx: MagicMock, mock_capture: MagicMock
     ) -> None:
         mock_redis = MagicMock()
-        mock_redis.set.side_effect = asyncio.CancelledError()
+        mock_redis.set.side_effect = temporalio.exceptions.CancelledError()
         mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_redis)
         mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
 
-        with pytest.raises(asyncio.CancelledError):
+        with pytest.raises(temporalio.exceptions.CancelledError):
             acquire_v3_pipeline_lock(1, "s-1", "tok-1")
         mock_capture.assert_not_called()
 
@@ -148,11 +147,11 @@ class TestReleaseV3PipelineLock:
         self, mock_ctx: MagicMock, mock_capture: MagicMock
     ) -> None:
         mock_redis = MagicMock()
-        mock_redis.eval.side_effect = asyncio.CancelledError()
+        mock_redis.eval.side_effect = temporalio.exceptions.CancelledError()
         mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_redis)
         mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
 
-        with pytest.raises(asyncio.CancelledError):
+        with pytest.raises(temporalio.exceptions.CancelledError):
             release_v3_pipeline_lock(1, "s-1", "tok-1")
         mock_capture.assert_not_called()
 
@@ -187,10 +186,10 @@ class TestGetRedisClient:
         self, mock_get_client: MagicMock, mock_capture: MagicMock
     ) -> None:
         mock_redis = MagicMock()
-        mock_redis.ping.side_effect = asyncio.CancelledError()
+        mock_redis.ping.side_effect = temporalio.exceptions.CancelledError()
         mock_get_client.return_value = mock_redis
 
-        with pytest.raises(asyncio.CancelledError):
+        with pytest.raises(temporalio.exceptions.CancelledError):
             with _get_redis_client():
                 pass
         mock_capture.assert_not_called()
