@@ -11,8 +11,6 @@ export function formatRankingLift(lift: number): string {
     return oneDecimal >= 10 ? `${Math.round(lift)}x` : `${oneDecimal.toFixed(1)}x`
 }
 
-const LIFT_BAR_DECADES = 1
-
 /**
  * Bar width in percent for a lift on a log scale. 1x sits at 50%, and the bar clamps at 0.1x and 10x,
  * so a lift and its inverse sit at equal distances from the center.
@@ -21,6 +19,6 @@ export function rankingLiftBarPercent(lift: number): number {
     if (!(lift > 0)) {
         return 0
     }
-    const position = (Math.log10(lift) + LIFT_BAR_DECADES) / (2 * LIFT_BAR_DECADES)
+    const position = (Math.log10(lift) + 1) / 2
     return Math.min(1, Math.max(0, position)) * 100
 }
