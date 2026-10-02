@@ -1329,6 +1329,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     const recordingIds = pinnedRecordings.filter((x) => typeof x === 'string') as string[]
 
                     if (recordingIds.length) {
+                        // nosemgrep: prefer-codegen-api-namespaced-replay
                         const fetchedRecordings = await api.recordings.list({
                             kind: NodeKind.RecordingsQuery,
                             session_ids: recordingIds,
