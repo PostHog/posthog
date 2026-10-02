@@ -10,6 +10,7 @@ from products.experiments.backend.replay_context import (
 )
 from products.experiments.backend.replay_linkage import (
     ACTIVATION_LIVE_SCAN_MAX_MEMORY_BYTES,
+    COHORT_NOT_CALCULATED_MESSAGE,
     EXPOSURES_STILL_COMPUTING_MESSAGE,
     IN_SESSION_EVIDENCE_SCAN_MAX_MEMORY_BYTES,
     ExperimentExposureLinkage,
@@ -24,6 +25,7 @@ from products.experiments.backend.replay_linkage import (
 
 __all__ = [
     "ACTIVATION_LIVE_SCAN_MAX_MEMORY_BYTES",
+    "COHORT_NOT_CALCULATED_MESSAGE",
     "EXPOSURES_STILL_COMPUTING_MESSAGE",
     "IN_SESSION_EVIDENCE_SCAN_MAX_MEMORY_BYTES",
     "ExperimentExposureLinkage",

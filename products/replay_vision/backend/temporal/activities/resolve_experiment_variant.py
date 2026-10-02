@@ -44,6 +44,7 @@ def _resolve(inputs: ResolveExperimentVariantInputs) -> ResolveExperimentVariant
     from rest_framework.exceptions import ValidationError as DRFValidationError  # noqa: PLC0415
 
     from products.experiments.backend.facade.replay import (  # noqa: PLC0415
+        COHORT_NOT_CALCULATED_MESSAGE,
         EXPOSURES_STILL_COMPUTING_MESSAGE,
         experiment_prompt_context,
         resolve_exposure_linkage,
@@ -53,7 +54,7 @@ def _resolve(inputs: ResolveExperimentVariantInputs) -> ResolveExperimentVariant
 
     observation = (
         ReplayObservation.objects.filter(pk=inputs.observation_id, team_id=inputs.team_id)
-        .select_related("scanner__created_by")
+        .select_related("scanner__created_by", "backfill__created_by")
         .first()
     )
     if observation is None:
@@ -69,9 +70,8 @@ def _resolve(inputs: ResolveExperimentVariantInputs) -> ResolveExperimentVariant
 
     team = Team.objects.get(pk=inputs.team_id)
     try:
-        # The same object-level check every other exposure read runs, as the principal this scan
-        # acts for: whoever triggered it, else the scanner's creator (the principal the sweep's
-        # candidate query already authorized).
+        # The same object-level check every other exposure read runs, as the principal the
+        # candidate enumeration for this scan authorized as (see `_principal`).
         validate_experiment_exposure_access(team, _principal(observation), experiment_id)
         linkage = resolve_exposure_linkage(
             team,
@@ -85,10 +85,18 @@ def _resolve(inputs: ResolveExperimentVariantInputs) -> ResolveExperimentVariant
             kind=IneligibleSessionKind.EXPERIMENT_UNRESOLVED,
         ) from exc
     except DRFValidationError as exc:
-        if EXPOSURES_STILL_COMPUTING_MESSAGE in str(exc.detail):
-            # Transient: the precomputation finishes on its own, so the retry policy owns this
-            # rather than the session being failed for good.
-            raise ScannerFailureError(EXPOSURES_STILL_COMPUTING_MESSAGE, kind=FailureKind.INFRA_TRANSIENT) from exc
+        transient = next(
+            (
+                message
+                for message in (EXPOSURES_STILL_COMPUTING_MESSAGE, COHORT_NOT_CALCULATED_MESSAGE)
+                if message in str(exc.detail)
+            ),
+            None,
+        )
+        if transient is not None:
+            # Transient: the precomputation or cohort calculation finishes on its own, so the retry
+            # policy owns this rather than the session being failed for good.
+            raise ScannerFailureError(transient, kind=FailureKind.INFRA_TRANSIENT) from exc
         raise IneligibleSessionError(
             f"The experiment's exposed population can't be resolved: {exc.detail}",
             kind=IneligibleSessionKind.EXPERIMENT_UNRESOLVED,
@@ -130,8 +138,16 @@ def _resolve(inputs: ResolveExperimentVariantInputs) -> ResolveExperimentVariant
 
 
 def _principal(observation: ReplayObservation) -> User | None:
+    """Whoever triggered the scan, else the backfill's launcher, else the scanner's creator.
+
+    Each is the principal that scan's candidates were enumerated as, so the variant lookup never
+    authorizes as someone the enumeration did not check. A backfill whose launcher is gone does not
+    fall back to the scanner's creator. None means nobody can be authorized, and the check refuses.
+    """
     if observation.triggered_by_user_id is not None:
         triggering_user = User.objects.filter(pk=observation.triggered_by_user_id).first()
         if triggering_user is not None:
             return triggering_user
+    if observation.backfill_id is not None:
+        return observation.backfill.created_by if observation.backfill is not None else None
     return observation.scanner.created_by if observation.scanner is not None else None

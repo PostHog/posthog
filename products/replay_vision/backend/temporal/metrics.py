@@ -124,7 +124,8 @@ REPLAY_VISION_SWEEP_OUTCOMES = Counter(
     "Sweep tick outcomes: throttled at an in-flight cap, capped by the scanner's own credit limit "
     "(settled spend, which skips the window for good, or in-flight reservations, which preserve the "
     "watermark), skipped because its experiment is paused, ended, or archived (experiment_over), disabled "
-    "because its experiment was deleted (experiment_deleted), no candidates, or "
+    "because its experiment was deleted (experiment_deleted), skipped because an experiment scanner has "
+    "no creator to authorize as (no_principal), no candidates, or "
     "candidates found",
     ["outcome"],
 )

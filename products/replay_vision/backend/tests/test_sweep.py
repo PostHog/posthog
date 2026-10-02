@@ -177,6 +177,22 @@ class TestFindScannerCandidatesActivity:
         result = find_scanner_candidates_activity(FindScannerCandidatesInputs(scanner_id=uuid.uuid4(), team_id=999))
         assert result == FindScannerCandidatesOutput(candidates=[], saturated=False)
 
+    def test_an_experiment_scanner_without_a_creator_skips_before_any_read(self) -> None:
+        # Every exposure read and every scan's variant lookup refuse a userless principal, so a tick
+        # that queried or dispatched anyway could only produce refusals.
+        scanner = _make_scanner(scanner_type=ScannerType.EXPERIMENT, created_by=None)
+        experiment = create_experiment(scanner.team, "orphan-flag", launched=True, variants=["control", "test"])
+        scanner.scanner_config = {"prompt": "p", "experiment_id": experiment.id}
+        scanner.save()
+
+        with _patched_queries() as (fast_query, deep_query):
+            result = find_scanner_candidates_activity(
+                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+            )
+
+        assert result.candidates == [] and result.swept_through is None
+        assert not fast_query.called and not deep_query.called
+
     @parameterized.expand([("paused",), ("ended",), ("archived",), ("deleted",)])
     def test_an_experiment_that_is_not_running_stops_the_sweep(self, state: str) -> None:
         # Paused, ended, and archived experiments come back (resume, or reset and relaunch), and a

@@ -146,6 +146,13 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
             candidates=[], saturated=False, swept_through=horizon, deep_swept_through=horizon
         )
 
+    if scanner.scanner_type == ScannerType.EXPERIMENT and scanner.created_by is None:
+        # The exposure filter runs as the creator and refuses a userless caller, as each scan's
+        # variant lookup does. Skip before any read instead of building a query that can only be
+        # refused. The watermark holds, like any other skipped tick.
+        record_sweep_outcome("no_principal")
+        return FindScannerCandidatesOutput(candidates=[], saturated=False)
+
     try:
         query = scanner.targeted_recordings_query()
     except ValidationError as exc:

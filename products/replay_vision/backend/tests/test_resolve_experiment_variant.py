@@ -5,12 +5,15 @@ import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.test.persons import create_person
 
 from products.replay_vision.backend.error_kinds import IneligibleSessionKind
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
+from products.replay_vision.backend.models.replay_scanner_backfill import ReplayScannerBackfill
 from products.replay_vision.backend.temporal.activities.resolve_experiment_variant import _resolve
 from products.replay_vision.backend.temporal.errors import FailureKind, IneligibleSessionError, ScannerFailureError
 from products.replay_vision.backend.temporal.types import ResolveExperimentVariantInputs
@@ -50,9 +53,15 @@ class TestResolveExperimentVariant(ClickhouseTestMixin, BaseTest):
             created_by=self.user,
         )
 
-    def _inputs(self, scanner: ReplayScanner, session_id: str) -> ResolveExperimentVariantInputs:
+    def _inputs(
+        self, scanner: ReplayScanner, session_id: str, *, backfill: ReplayScannerBackfill | None = None
+    ) -> ResolveExperimentVariantInputs:
         observation = ReplayObservation.objects.create(
-            scanner=scanner, team=self.team, session_id=session_id, scanner_snapshot=snapshot_for(scanner)
+            scanner=scanner,
+            team=self.team,
+            session_id=session_id,
+            scanner_snapshot=snapshot_for(scanner),
+            backfill=backfill,
         )
         return ResolveExperimentVariantInputs(
             observation_id=observation.id, team_id=self.team.pk, session_id=session_id
@@ -131,35 +140,71 @@ class TestResolveExperimentVariant(ClickhouseTestMixin, BaseTest):
             _resolve(self._inputs(scanner, session_id))
         assert excinfo.value.kind == IneligibleSessionKind.NOT_EXPOSED
 
-    def test_a_scan_without_a_principal_is_unresolved(self) -> None:
-        # The access check refuses userless callers, same as every other exposure read; a scanner
-        # whose creator was deleted has no principal to authorize as.
+    @parameterized.expand(
+        [
+            # (scanner has a creator, backfill launcher: None = not a backfill, False = launcher gone)
+            ("scanner_creator_gone", False, None, False),
+            # The backfill enumerated its candidates as its launcher, so its scans authorize the same way.
+            ("backfill_launcher_authorizes", False, True, True),
+            # A gone launcher must not borrow the scanner creator's access the enumeration never checked.
+            ("no_fallback_from_a_gone_launcher", True, False, False),
+        ]
+    )
+    def test_a_scan_authorizes_as_the_principal_its_candidates_were_enumerated_as(
+        self, name: str, scanner_creator: bool, backfill_launcher: bool | None, resolves: bool
+    ) -> None:
         experiment = _launched_experiment(self, "checkout-flag", ["control", "test"])
         scanner = self._scanner(experiment.pk)
-        scanner.created_by = None
-        scanner.save()
-        session_id = self._session("no-principal-user", "test")
+        if not scanner_creator:
+            scanner.created_by = None
+            scanner.save()
+        backfill = (
+            None
+            if backfill_launcher is None
+            else ReplayScannerBackfill.objects.for_team(self.team.pk).create(
+                scanner=scanner,
+                team=self.team,
+                window_start=BASE_TIME - timedelta(days=1),
+                window_end=BASE_TIME + timedelta(days=1),
+                scanner_snapshot=snapshot_for(scanner),
+                credits_per_observation=1,
+                total_count=1,
+                created_by=self.user if backfill_launcher else None,
+            )
+        )
+        # Distinct per case: ClickHouse rows outlive each test's transaction.
+        session_id = self._session(f"principal-{name}", "test")
         flush_persons_and_events()
 
-        with pytest.raises(IneligibleSessionError) as excinfo:
-            _resolve(self._inputs(scanner, session_id))
-        assert excinfo.value.kind == IneligibleSessionKind.EXPERIMENT_UNRESOLVED
+        if resolves:
+            assert _resolve(self._inputs(scanner, session_id, backfill=backfill)).experiment_variant == "test"
+        else:
+            with pytest.raises(IneligibleSessionError) as excinfo:
+                _resolve(self._inputs(scanner, session_id, backfill=backfill))
+            assert excinfo.value.kind == IneligibleSessionKind.EXPERIMENT_UNRESOLVED
 
-    def test_exposures_still_computing_is_retryable_not_terminal(self) -> None:
-        # The precomputation finishes on its own; failing the session for good would drop it.
+    @parameterized.expand(
+        [
+            ("exposures_still_computing", "EXPOSURES_STILL_COMPUTING_MESSAGE"),
+            ("cohort_calculating", "COHORT_NOT_CALCULATED_MESSAGE"),
+        ]
+    )
+    def test_a_transient_linkage_state_is_retryable_not_terminal(self, name: str, message_name: str) -> None:
+        # Both finish on their own, and the unique (scanner, session) row means a session failed for
+        # good is never picked up again.
         from rest_framework.exceptions import ValidationError as DRFValidationError
 
-        from products.experiments.backend.facade.replay import EXPOSURES_STILL_COMPUTING_MESSAGE
+        from products.experiments.backend.facade import replay as experiments_replay
 
         experiment = _launched_experiment(self, "checkout-flag", ["control", "test"])
         scanner = self._scanner(experiment.pk)
-        session_id = self._session("computing-user", "test")
+        session_id = self._session(f"transient-{name}", "test")
         flush_persons_and_events()
 
         with (
             patch(
                 "products.experiments.backend.facade.replay.resolve_exposure_linkage",
-                side_effect=DRFValidationError(EXPOSURES_STILL_COMPUTING_MESSAGE),
+                side_effect=DRFValidationError(getattr(experiments_replay, message_name)),
             ),
             pytest.raises(ScannerFailureError) as excinfo,
         ):

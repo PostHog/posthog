@@ -23,7 +23,7 @@ class IneligibleSessionKind(StrEnum):
     # multiple-variant. Decided before any model call, so it costs no credits.
     NOT_EXPOSED = "not_exposed"
     # An experiment scanner whose experiment cannot answer for its exposed population right now
-    # (deleted, a removed flag or variant, or exposures still computing). The sweep disables the
+    # (deleted, a removed flag or variant, or no principal with access). The sweep disables the
     # scanner when the experiment is gone for good; this covers the scans already in flight.
     EXPERIMENT_UNRESOLVED = "experiment_unresolved"
 
