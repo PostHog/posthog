@@ -35,6 +35,7 @@ import { useAutoplayMenuItems, useHideRecordingsMenuItems, useTimestampFormatMen
 import {
     DELETE_CONFIRMATION_TEXT,
     MAX_SELECTED_RECORDINGS,
+    RecordingSort,
     preferredRecordingsSortStorage,
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
@@ -65,8 +66,6 @@ function getLabel(filters: RecordingUniversalFilters): string {
     return SortingKeyToLabel[order_field as keyof typeof SortingKeyToLabel]
 }
 
-type RecordingSort = { order: NonNullable<RecordingUniversalFilters['order']>; order_direction: 'ASC' | 'DESC' }
-
 /** The analytics payload for a sort change, or null when the sort is unchanged so we don't log no-op switches. */
 export function getSortChangedEvent(
     filters: RecordingUniversalFilters,
@@ -87,19 +86,12 @@ export function getRecommendedFilterChange(enabled: boolean): Partial<RecordingU
     return { recommended_only: enabled }
 }
 
-function sortFiltersFor(filters: RecordingUniversalFilters, isCollection: boolean): RecordingUniversalFilters {
-    return isCollection && filters.order === 'surfacing_score'
-        ? { ...filters, order: 'start_time', order_direction: 'DESC' }
-        : filters
-}
-
 function useSortMenuItems(
     filters: RecordingUniversalFilters,
-    setFilters: (filters: Partial<RecordingUniversalFilters>) => void,
-    isCollection: boolean
+    setFilters: (filters: Partial<RecordingUniversalFilters>) => void
 ): LemonMenuItem[] {
-    const showRelevanceSort = useFeatureFlag('REPLAY_PLAYLIST_SURFACING_SCORE') && !isCollection
-    filters = sortFiltersFor(filters, isCollection)
+    const { canSortByRelevance: showRelevanceSort, listSort } = useValues(sessionRecordingsPlaylistLogic)
+    filters = { ...filters, ...listSort }
 
     const changeSort = (sort: RecordingSort): void => {
         const sortChangedEvent = getSortChangedEvent(filters, sort)
@@ -209,16 +201,15 @@ function useSortMenuItems(
 function SortedBy({
     filters,
     setFilters,
-    isCollection,
     disabledReason,
 }: {
     filters: RecordingUniversalFilters
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
-    isCollection: boolean
     disabledReason?: string
 }): JSX.Element {
-    const items = useSortMenuItems(filters, setFilters, isCollection)
-    filters = sortFiltersFor(filters, isCollection)
+    const { listSort } = useValues(sessionRecordingsPlaylistLogic)
+    const items = useSortMenuItems(filters, setFilters)
+    filters = { ...filters, ...listSort }
 
     return (
         <SettingsMenu
@@ -245,10 +236,9 @@ function SortedBy({
 
 function useRecommendedOnlyToggle(
     filters: RecordingUniversalFilters,
-    setFilters: (filters: Partial<RecordingUniversalFilters>) => void,
-    isCollection: boolean
+    setFilters: (filters: Partial<RecordingUniversalFilters>) => void
 ): { enabled: boolean; checked: boolean; toggle: (checked: boolean) => void } {
-    const enabled = useFeatureFlag('REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT', 'test') && !isCollection
+    const { canFilterByRelevance: enabled } = useValues(sessionRecordingsPlaylistLogic)
     const checked = !!filters.recommended_only
     const toggle = (checked: boolean): void => {
         posthog.capture('session recording recommended filter changed', { enabled: checked })
@@ -259,10 +249,9 @@ function useRecommendedOnlyToggle(
 
 function useRecommendedOnlyMenuItem(
     filters: RecordingUniversalFilters,
-    setFilters: (filters: Partial<RecordingUniversalFilters>) => void,
-    isCollection: boolean
+    setFilters: (filters: Partial<RecordingUniversalFilters>) => void
 ): LemonMenuItem | null {
-    const { enabled, checked, toggle } = useRecommendedOnlyToggle(filters, setFilters, isCollection)
+    const { enabled, checked, toggle } = useRecommendedOnlyToggle(filters, setFilters)
     if (!enabled) {
         return null
     }
@@ -278,16 +267,14 @@ function useRecommendedOnlyMenuItem(
 function ListViewMenu({
     filters,
     setFilters,
-    isCollection,
     disabledReason,
 }: {
     filters: RecordingUniversalFilters
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
-    isCollection: boolean
     disabledReason?: string
 }): JSX.Element {
-    const sortItems = useSortMenuItems(filters, setFilters, isCollection)
-    const recommendedItem = useRecommendedOnlyMenuItem(filters, setFilters, isCollection)
+    const sortItems = useSortMenuItems(filters, setFilters)
+    const recommendedItem = useRecommendedOnlyMenuItem(filters, setFilters)
     const hideItems = useHideRecordingsMenuItems()
     const timestampItems = useTimestampFormatMenuItems()
 
@@ -314,13 +301,11 @@ function ListViewMenu({
 function RecommendedOnlyFilter({
     filters,
     setFilters,
-    isCollection,
 }: {
     filters: RecordingUniversalFilters
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
-    isCollection: boolean
 }): JSX.Element | null {
-    const { enabled, checked, toggle } = useRecommendedOnlyToggle(filters, setFilters, isCollection)
+    const { enabled, checked, toggle } = useRecommendedOnlyToggle(filters, setFilters)
     if (!enabled) {
         return null
     }
@@ -637,7 +622,6 @@ export function SessionRecordingsPlaylistTopSettings({
 }): JSX.Element {
     const autoplayItems = useAutoplayMenuItems()
     const consolidatedControls = useFeatureFlag('REPLAY_CONSOLIDATED_CONTROLS')
-    const isCollection = type === 'collection'
     const {
         selectedRecordingsIds,
         otherRecordings,
@@ -739,11 +723,10 @@ export function SessionRecordingsPlaylistTopSettings({
                             <SortedBy
                                 filters={filters}
                                 setFilters={setFilters}
-                                isCollection={isCollection}
                                 disabledReason={recordings.length === 0 ? 'No recordings' : undefined}
                             />
                         </span>
-                        <RecommendedOnlyFilter filters={filters} setFilters={setFilters} isCollection={isCollection} />
+                        <RecommendedOnlyFilter filters={filters} setFilters={setFilters} />
                     </>
                 ) : null}
             </div>
@@ -759,7 +742,6 @@ export function SessionRecordingsPlaylistTopSettings({
                     <ListViewMenu
                         filters={filters}
                         setFilters={setFilters}
-                        isCollection={isCollection}
                         disabledReason={recordings.length === 0 ? 'No recordings' : undefined}
                     />
                 )}
