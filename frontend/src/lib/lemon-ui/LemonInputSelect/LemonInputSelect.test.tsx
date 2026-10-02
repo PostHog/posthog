@@ -299,6 +299,26 @@ describe('LemonInputSelect', () => {
         expect(onChange).toHaveBeenCalledWith([])
     })
 
+    it.each([
+        { case: 'clears the value when the user empties the input', clearInput: true, expected: [[]] },
+        { case: 'keeps the value when the user leaves the input unchanged', clearInput: false, expected: [] },
+    ])('single-select mode: blur $case', async ({ clearInput, expected }) => {
+        const onChange = jest.fn()
+
+        const { container } = render(
+            <LemonInputSelect<string> mode="single" value={['(?=bad)']} onChange={onChange} allowCustomValues />
+        )
+
+        const input = await openDropdown(container)
+        expect(input).toHaveValue('(?=bad)')
+        if (clearInput) {
+            await userEvent.clear(input)
+        }
+        await userEvent.click(document.body)
+
+        expect(onChange.mock.calls).toEqual(expected.map((value) => [value]))
+    })
+
     it('single-select mode: focusing with a selected option still shows every option', async () => {
         // Regression: for option-backed single selects the option key is an opaque id (e.g. a UUID).
         // Focusing must not seed the input with that key, which would filter the dropdown down to the

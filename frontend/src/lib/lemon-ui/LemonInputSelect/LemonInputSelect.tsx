@@ -551,6 +551,16 @@ export function LemonInputSelect<T = string>({
         }
         if (hasCustomValue && !blurringForSelectionRef.current) {
             _onActionItem(inputValue.trim(), null)
+        } else if (
+            mode === 'single' &&
+            allowCustomValues &&
+            values.length > 0 &&
+            !inputValue.trim() &&
+            !blurringForSelectionRef.current
+        ) {
+            // _onFocus seeds the input with the current value, so an empty input here means the user deleted it
+            setInputValue('')
+            onChange?.([])
         } else {
             setInputValue('')
         }

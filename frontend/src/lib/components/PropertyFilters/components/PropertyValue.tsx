@@ -62,6 +62,8 @@ export interface PropertyValueProps {
     forceSingleSelect?: boolean
     validationError?: string | null
     showInlineValidationErrors?: boolean
+    /** Called with the uncommitted input text while the user edits, and with null when the input loses focus. */
+    onDraftChange?: (draft: string | null) => void
     /**
      * Statically known value suggestions. When set, no values are fetched from the API,
      * which matters for properties whose values can't be sourced from the events table
@@ -92,6 +94,7 @@ export function PropertyValue({
     forceSingleSelect = false,
     validationError = null,
     showInlineValidationErrors = false,
+    onDraftChange,
     staticValues = null,
     propertyTypeOverride,
 }: PropertyValueProps): JSX.Element {
@@ -504,7 +507,11 @@ export function PropertyValue({
                     }
                     isMultiSelect ? setValue(trimmedVal) : setValue(trimmedVal[0])
                 }}
-                onInputChange={onSearchTextChange}
+                onInputChange={(newInput) => {
+                    onDraftChange?.(newInput)
+                    onSearchTextChange(newInput)
+                }}
+                onBlur={() => onDraftChange?.(null)}
                 placeholder={placeholder}
                 size={size}
                 disableCommaSplitting={isUserAgentProperty}
