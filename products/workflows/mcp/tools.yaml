@@ -607,3 +607,4 @@ tools:
             unversioned read in workflows-stats keys batch and broadcast runs on the run rather than the workflow, so it
             is not the sum of the versions - compare versions with each other, not with it. Set instance_id to the step
             you are reading, or several steps share one denominator.
+        feature_flag: self-optimising-workflows
