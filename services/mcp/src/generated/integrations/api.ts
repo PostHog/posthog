@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 9 enabled ops
+ * PostHog API - MCP 10 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -143,6 +143,28 @@ export const IntegrationsChannelsRetrieveQueryParams = () => zod.object({
         .string()
         .default(integrationsChannelsRetrieveQuerySearchDefault)
         .describe('Optional case-insensitive channel name or ID search query.'),
+})
+
+/**
+ * Read the setup progress of an email sender's domain from SES and public DNS without changing either. Poll this until verified is true. Marks the domain's senders as verified once SES verifies the domain.
+ * @summary Get email sending domain status
+ */
+export const IntegrationsEmailStatusRetrieveParams = () => zod.object({
+    id: zod.number().describe('A unique integer value identifying this integration.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const integrationsEmailStatusRetrieveQueryRefreshDefault = false
+
+export const IntegrationsEmailStatusRetrieveQueryParams = () => zod.object({
+    refresh: zod
+        .boolean()
+        .default(integrationsEmailStatusRetrieveQueryRefreshDefault)
+        .describe('Skip the 10 second status cache and read SES and DNS again. Use it after changing DNS records.'),
 })
 
 export const IntegrationsGithubReposRetrieveParams = () => zod.object({

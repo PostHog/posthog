@@ -2,12 +2,15 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
+
 from posthog.api.integration import IntegrationViewSet
 from posthog.models.integration import EmailIntegration, Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
 from products.workflows.backend.providers import SESProvider
+from products.workflows.backend.providers.ses import AWS_ACCOUNT_ID_CACHE_KEY
 
 
 class TestEmailIntegrationCrossTenantStaleVerification(BaseTest):
@@ -159,12 +162,14 @@ class TestEmailIntegrationCrossTenantStaleVerification(BaseTest):
         integration_b.refresh_from_db()
         assert integration_b.config.get("verified") is False
 
-    def test_aws_account_id_is_cached_per_provider(self):
-        provider = self._build_ses_provider()
-        provider.sts_client.get_caller_identity.reset_mock()
+    def test_aws_account_id_is_looked_up_once_across_providers(self):
+        cache.delete(AWS_ACCOUNT_ID_CACHE_KEY)
+        providers = [self._build_ses_provider(), self._build_ses_provider()]
+        for provider in providers:
+            provider.sts_client.get_caller_identity.reset_mock()
 
-        for _ in range(5):
+        for provider in providers:
             provider._identity_arn("partner.com")
             provider._identity_arn("other.com")
 
-        assert provider.sts_client.get_caller_identity.call_count == 1
+        assert sum(provider.sts_client.get_caller_identity.call_count for provider in providers) == 1

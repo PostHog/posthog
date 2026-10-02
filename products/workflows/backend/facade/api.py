@@ -9,6 +9,7 @@ from posthog.ingress.contracts import WebhookDelivery
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.workflows.backend.facade.contracts import (
+    EmailDomainCheck,
     EmailDomainDnsRecord,
     EmailDomainVerification,
     RecentWorkflow,
@@ -294,6 +295,20 @@ def verify_ses_email_domain(domain: str, *, mail_from_subdomain: str, team_id: i
     from products.workflows.backend import providers  # noqa: PLC0415
 
     return providers.SESProvider().verify_email_domain(domain, mail_from_subdomain=mail_from_subdomain, team_id=team_id)
+
+
+def get_ses_email_domain_status(domain: str, *, mail_from_subdomain: str, team_id: int) -> EmailDomainCheck:
+    from products.workflows.backend import providers  # noqa: PLC0415
+
+    return providers.SESProvider().get_email_domain_status(
+        domain, mail_from_subdomain=mail_from_subdomain, team_id=team_id
+    )
+
+
+def get_maildev_email_domain_status(domain: str, *, mail_from_subdomain: str) -> EmailDomainCheck:
+    from products.workflows.backend import providers  # noqa: PLC0415
+
+    return providers.maildev_email_domain_status(domain, mail_from_subdomain=mail_from_subdomain)
 
 
 def delete_ses_identity(identity: str) -> None:

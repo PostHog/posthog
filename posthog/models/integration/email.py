@@ -1,15 +1,21 @@
 """Native email-sending integration (SES / maildev) and its cleanup signal."""
 
+from collections.abc import Callable
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db import models, transaction
 from django.dispatch import receiver
+from django.utils import timezone
 
 from disposable_email_domains import blocklist as disposable_email_domains_list
 from free_email_domains import whitelist as free_email_domains_list
 from rest_framework.exceptions import ValidationError
 
+from posthog.dataclasses import frozen
+from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
@@ -17,7 +23,16 @@ from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from . import model
 
 if TYPE_CHECKING:
-    from products.workflows.backend.facade.contracts import EmailDomainVerification
+    from products.workflows.backend.facade.contracts import EmailDomainCheck, EmailDomainVerification
+
+EMAIL_DOMAIN_STATUS_CACHE_SECONDS = 10
+
+
+@frozen
+class EmailDomainStatusReport:
+    check: "EmailDomainCheck"
+    verified: bool
+    checked_at: datetime
 
 
 class EmailIntegration:
@@ -122,7 +137,7 @@ class EmailIntegration:
 
         return self.integration
 
-    def verify(self) -> "EmailDomainVerification":
+    def verify(self, *, on_domain_verified: Callable[[], None] | None = None) -> "EmailDomainVerification":
         domain = self.integration.config.get("domain")
         provider = self.integration.config.get("provider", "ses")
         mail_from_subdomain = self.integration.config.get("mail_from_subdomain", "feedback")
@@ -150,22 +165,77 @@ class EmailIntegration:
             raise ValueError(f"Invalid provider: {provider}")
 
         if verification_result.get("status") == "success":
-            # We can validate all other integrations with the same domain and provider
-            all_integrations_for_domain = model.Integration.objects.filter(
-                team_id=self.integration.team_id,
-                kind="email",
-                config__domain=domain,
-                config__provider=provider,
-            )
-            for integration in all_integrations_for_domain:
-                integration.config["verified"] = True
-                integration.save()
-
-            reload_integrations_on_workers(
-                self.integration.team_id, [integration.id for integration in all_integrations_for_domain]
-            )
+            self._mark_domain_verified(on_domain_verified)
 
         return verification_result
+
+    def status(self, *, refresh: bool, on_domain_verified: Callable[[], None] | None = None) -> EmailDomainStatusReport:
+        cache_key = f"email_domain_status:{self.integration.id}"
+        if not refresh and (cached := cache.get(cache_key)) is not None:
+            return cached
+
+        check = self._check_domain()
+        if check.is_verified and not self.integration.config.get("verified"):
+            self._mark_domain_verified(on_domain_verified)
+
+        report = EmailDomainStatusReport(
+            check=check, verified=bool(self.integration.config.get("verified")), checked_at=timezone.now()
+        )
+        if check.every_dns_lookup_answered:
+            cache.set(cache_key, report, EMAIL_DOMAIN_STATUS_CACHE_SECONDS)
+        return report
+
+    def _check_domain(self) -> "EmailDomainCheck":
+        domain = self.integration.config["domain"]
+        mail_from_subdomain = self.integration.config.get("mail_from_subdomain", "feedback")
+        provider = self.integration.config.get("provider", "ses")
+
+        if provider == "ses":
+            from products.workflows.backend.facade.api import (
+                get_ses_email_domain_status,  # noqa: PLC0415 — keeps the workflows facade off the model import path
+            )
+
+            return get_ses_email_domain_status(
+                domain, mail_from_subdomain=mail_from_subdomain, team_id=self.integration.team_id
+            )
+        if provider == "maildev":
+            from products.workflows.backend.facade.api import (
+                get_maildev_email_domain_status,  # noqa: PLC0415 — keeps the workflows facade off the model import path
+            )
+
+            return get_maildev_email_domain_status(domain, mail_from_subdomain=mail_from_subdomain)
+        raise ValueError(f"Invalid provider: {provider}")
+
+    def _mark_domain_verified(self, on_domain_verified: Callable[[], None] | None) -> None:
+        with transaction.atomic():
+            senders = list(
+                model.Integration.objects.select_for_update()
+                .filter(
+                    team_id=self.integration.team_id,
+                    kind="email",
+                    config__domain=self.integration.config.get("domain"),
+                    config__provider=self.integration.config.get("provider", "ses"),
+                )
+                .order_by("id")
+            )
+            unverified_senders = [sender for sender in senders if not sender.config.get("verified")]
+            for sender in unverified_senders:
+                sender.config["verified"] = True
+                sender.save()
+
+        self.integration.config["verified"] = True
+        # A sender added to a domain that is already verified joins it, so only the first verification counts.
+        if on_domain_verified and len(unverified_senders) == len(senders):
+            on_domain_verified()
+        self._reload_senders_on_workers(senders)
+
+    # Workers also refresh integrations on their own schedule, so a failed reload only delays sending.
+    # Failing the request instead would hide a verification that is already saved.
+    def _reload_senders_on_workers(self, senders: list[model.Integration]) -> None:
+        try:
+            reload_integrations_on_workers(self.integration.team_id, [sender.id for sender in senders])
+        except Exception as error:
+            capture_exception(error, {"team_id": self.integration.team_id})
 
 
 @receiver(models.signals.post_delete, sender=model.Integration)

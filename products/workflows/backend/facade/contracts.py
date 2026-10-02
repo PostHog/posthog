@@ -7,6 +7,12 @@ from uuid import UUID
 from posthog.dataclasses import frozen
 
 from products.workflows.backend.facade.enums import (
+    EmailDomainSetupRecordKind,
+    EmailDomainSetupRecordStatus,
+    EmailDomainSetupRecordType,
+    EmailDomainSetupStatus,
+    EmailDomainSetupStepKey,
+    EmailDomainSetupStepState,
     HogFlowBatchJobState,
     HogFlowScheduleStatus,
     HogFlowTemplateExitCondition,
@@ -311,6 +317,40 @@ class EmailDomainDnsRecord(TypedDict):
 class EmailDomainVerification(TypedDict):
     status: EmailDomainVerificationStatus
     dnsRecords: list[EmailDomainDnsRecord]
+
+
+@frozen
+class EmailDomainStatusRecord:
+    kind: EmailDomainSetupRecordKind
+    hostname: str
+    type: EmailDomainSetupRecordType
+    value: str
+    priority: int | None = None
+    status: EmailDomainSetupRecordStatus = EmailDomainSetupRecordStatus.PENDING
+
+
+@frozen
+class EmailDomainStatusStep:
+    key: EmailDomainSetupStepKey
+    state: EmailDomainSetupStepState
+
+
+@frozen
+class EmailDomainCheck:
+    """What the email provider and public DNS report for a sending domain, read without changing either."""
+
+    status: EmailDomainSetupStatus
+    steps: tuple[EmailDomainStatusStep, ...]
+    records: tuple[EmailDomainStatusRecord, ...]
+    every_dns_lookup_answered: bool = True
+
+    @property
+    def is_verified(self) -> bool:
+        return self.status == EmailDomainSetupStatus.VERIFIED
+
+
+class EmailProviderUnavailableError(Exception):
+    """The email provider could not be reached or refused the read, so the domain's state is unknown."""
 
 
 class TwilioPhoneNumber(TypedDict):

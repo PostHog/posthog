@@ -123,6 +123,7 @@ class TestSESProvider(TestCase):
 
     @patch("products.workflows.backend.providers.ses.boto3.client")
     def test_create_email_domain_invalid_domain(self, mock_boto_client):
+        mock_boto_client.return_value.get_caller_identity.return_value = {"Account": "123456789012"}
         with override_settings(
             SES_ACCESS_KEY_ID="test_access_key", SES_SECRET_ACCESS_KEY="test_secret_key", SES_REGION="us-east-1"
         ):

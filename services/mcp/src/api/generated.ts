@@ -37776,6 +37776,170 @@ export namespace Schemas {
     }
 
     /**
+     * * `verification` - Domain ownership
+     * * `dkim` - DKIM signing
+     * * `spf` - SPF
+     * * `mail_from_mx` - MAIL FROM MX
+     * * `mail_from_spf` - MAIL FROM SPF
+     * * `dmarc` - DMARC
+     */
+    export type EmailDomainSetupRecordKindEnum = typeof EmailDomainSetupRecordKindEnum[keyof typeof EmailDomainSetupRecordKindEnum];
+
+
+    export const EmailDomainSetupRecordKindEnum = {
+      Verification: 'verification',
+      Dkim: 'dkim',
+      Spf: 'spf',
+      MailFromMx: 'mail_from_mx',
+      MailFromSpf: 'mail_from_spf',
+      Dmarc: 'dmarc',
+    } as const;
+
+    /**
+     * * `pending` - Not found yet
+     * * `found` - Found in DNS
+     * * `verified` - Verified
+     */
+    export type EmailDomainSetupRecordStatusEnum = typeof EmailDomainSetupRecordStatusEnum[keyof typeof EmailDomainSetupRecordStatusEnum];
+
+
+    export const EmailDomainSetupRecordStatusEnum = {
+      Pending: 'pending',
+      Found: 'found',
+      Verified: 'verified',
+    } as const;
+
+    /**
+     * * `TXT` - TXT
+     * * `CNAME` - CNAME
+     * * `MX` - MX
+     */
+    export type EmailDomainSetupRecordTypeEnum = typeof EmailDomainSetupRecordTypeEnum[keyof typeof EmailDomainSetupRecordTypeEnum];
+
+
+    export const EmailDomainSetupRecordTypeEnum = {
+      Txt: 'TXT',
+      Cname: 'CNAME',
+      Mx: 'MX',
+    } as const;
+
+    /**
+     * * `not_started` - Not started
+     * * `pending` - Waiting for DNS records
+     * * `records_found` - Records found, waiting for verification
+     * * `verified` - Verified
+     * * `temporary_failure` - Temporary failure
+     * * `failed` - Failed
+     */
+    export type EmailDomainSetupStatusEnum = typeof EmailDomainSetupStatusEnum[keyof typeof EmailDomainSetupStatusEnum];
+
+
+    export const EmailDomainSetupStatusEnum = {
+      NotStarted: 'not_started',
+      Pending: 'pending',
+      RecordsFound: 'records_found',
+      Verified: 'verified',
+      TemporaryFailure: 'temporary_failure',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * * `domain_added` - Domain added
+     * * `records_found` - DNS records found
+     * * `verified` - Verified
+     */
+    export type EmailDomainSetupStepKeyEnum = typeof EmailDomainSetupStepKeyEnum[keyof typeof EmailDomainSetupStepKeyEnum];
+
+
+    export const EmailDomainSetupStepKeyEnum = {
+      DomainAdded: 'domain_added',
+      RecordsFound: 'records_found',
+      Verified: 'verified',
+    } as const;
+
+    /**
+     * * `done` - Done
+     * * `pending` - Pending
+     * * `failed` - Failed
+     */
+    export type EmailDomainSetupStepStateEnum = typeof EmailDomainSetupStepStateEnum[keyof typeof EmailDomainSetupStepStateEnum];
+
+
+    export const EmailDomainSetupStepStateEnum = {
+      Done: 'done',
+      Pending: 'pending',
+      Failed: 'failed',
+    } as const;
+
+    export interface EmailDomainStatusStep {
+      /** The setup step: domain_added (SES knows the domain), records_found (every DNS record is published), verified (SES verified the domain and the sender can send).
+       *
+       * * `domain_added` - Domain added
+       * * `records_found` - DNS records found
+       * * `verified` - Verified */
+      key: EmailDomainSetupStepKeyEnum;
+      /** Progress of this step.
+       *
+       * * `done` - Done
+       * * `pending` - Pending
+       * * `failed` - Failed */
+      state: EmailDomainSetupStepStateEnum;
+    }
+
+    export interface EmailDomainStatusRecord {
+      /** What the record does: verification proves domain ownership, dkim signs email, spf and mail_from_spf list SES as an allowed sender, mail_from_mx routes bounces, dmarc sets the policy for unauthenticated mail.
+       *
+       * * `verification` - Domain ownership
+       * * `dkim` - DKIM signing
+       * * `spf` - SPF
+       * * `mail_from_mx` - MAIL FROM MX
+       * * `mail_from_spf` - MAIL FROM SPF
+       * * `dmarc` - DMARC */
+      kind: EmailDomainSetupRecordKindEnum;
+      /** Full DNS name to create the record at, including the domain. */
+      hostname: string;
+      /** DNS record type.
+       *
+       * * `TXT` - TXT
+       * * `CNAME` - CNAME
+       * * `MX` - MX */
+      type: EmailDomainSetupRecordTypeEnum;
+      /** Value to publish. For an SPF record, add the include to an existing SPF record instead of creating a second one. For DMARC, any existing v=DMARC1 record counts. */
+      value: string;
+      /**
+         * MX priority. Null for other record types.
+         * @nullable
+         */
+      priority: number | null;
+      /** pending: not found in DNS yet. found: published in DNS, SES has not confirmed it yet. verified: SES confirmed the record, or for DMARC a v=DMARC1 record exists.
+       *
+       * * `pending` - Not found yet
+       * * `found` - Found in DNS
+       * * `verified` - Verified */
+      status: EmailDomainSetupRecordStatusEnum;
+    }
+
+    export interface EmailDomainStatus {
+      /** Overall setup status. records_found means every record is published and SES has not confirmed yet. temporary_failure means SES could not see the records, usually because DNS changes have not spread yet. failed means SES gave up after 72 hours; start verification again.
+       *
+       * * `not_started` - Not started
+       * * `pending` - Waiting for DNS records
+       * * `records_found` - Records found, waiting for verification
+       * * `verified` - Verified
+       * * `temporary_failure` - Temporary failure
+       * * `failed` - Failed */
+      status: EmailDomainSetupStatusEnum;
+      /** Whether the sender can send email. Set once SES verifies the domain. */
+      verified: boolean;
+      /** When SES and DNS were read. Responses are cached for 10 seconds unless refresh is set. */
+      checked_at: string;
+      /** The three setup steps, in order. */
+      steps: EmailDomainStatusStep[];
+      /** DNS records to publish at the domain's DNS host, with the status of each. Empty when status is not_started. */
+      records: EmailDomainStatusRecord[];
+    }
+
+    /**
      * How much workflow email this project may send, and how much of that it has used.
      */
     export interface EmailSendingAllowance {
@@ -121942,6 +122106,13 @@ export namespace Schemas {
      * Optional case-insensitive channel name or ID search query.
      */
     search?: string;
+    };
+
+    export type IntegrationsEmailStatusRetrieveParams = {
+    /**
+     * Skip the 10 second status cache and read SES and DNS again. Use it after changing DNS records.
+     */
+    refresh?: boolean;
     };
 
     export type IntegrationsGithubAssigneesRetrieveParams = {

@@ -54,3 +54,45 @@ class WorkflowProposalStatus(LabeledStrEnum):
     APPROVED = "approved", "Approved"
     REJECTED = "rejected", "Rejected"
     APPLIED = "applied", "Applied"
+
+
+class EmailDomainSetupStatus(LabeledStrEnum):
+    NOT_STARTED = "not_started", "Not started"
+    PENDING = "pending", "Waiting for DNS records"
+    RECORDS_FOUND = "records_found", "Records found, waiting for verification"
+    VERIFIED = "verified", "Verified"
+    TEMPORARY_FAILURE = "temporary_failure", "Temporary failure"
+    FAILED = "failed", "Failed"
+
+
+class EmailDomainSetupRecordKind(LabeledStrEnum):
+    VERIFICATION = "verification", "Domain ownership"
+    DKIM = "dkim", "DKIM signing"
+    SPF = "spf", "SPF"
+    MAIL_FROM_MX = "mail_from_mx", "MAIL FROM MX"
+    MAIL_FROM_SPF = "mail_from_spf", "MAIL FROM SPF"
+    DMARC = "dmarc", "DMARC"
+
+
+class EmailDomainSetupRecordType(LabeledStrEnum):
+    TXT = "TXT", "TXT"
+    CNAME = "CNAME", "CNAME"
+    MX = "MX", "MX"
+
+
+class EmailDomainSetupRecordStatus(LabeledStrEnum):
+    PENDING = "pending", "Not found yet"
+    FOUND = "found", "Found in DNS"
+    VERIFIED = "verified", "Verified"
+
+
+class EmailDomainSetupStepKey(LabeledStrEnum):
+    DOMAIN_ADDED = "domain_added", "Domain added"
+    RECORDS_FOUND = "records_found", "DNS records found"
+    VERIFIED = "verified", "Verified"
+
+
+class EmailDomainSetupStepState(LabeledStrEnum):
+    DONE = "done", "Done"
+    PENDING = "pending", "Pending"
+    FAILED = "failed", "Failed"

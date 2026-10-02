@@ -20,7 +20,7 @@ import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from django_redis.cache import RedisCache
 from django_redis.exceptions import ConnectionInterrupted
-from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_serializer
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field, extend_schema_serializer
 from prometheus_client import Counter
 from redis.exceptions import RedisError
 from rest_framework import mixins, serializers, status, viewsets
@@ -45,10 +45,15 @@ from posthog.api.github_callback.types import (
     github_app_install_url,
     is_valid_github_installation_id,
 )
+from posthog.api.integration_email_status_serializers import (
+    EmailDomainStatusQuerySerializer,
+    EmailDomainStatusSerializer,
+)
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
-from posthog.auth import SessionAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.domain_connect import discover_domain_connect, extract_root_domain_and_host, get_available_providers
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.event_usage import report_user_action
@@ -129,6 +134,7 @@ from products.slack_app.backend.services.slack_auth import SLACK_AUTH_FAILURE_CO
 from products.tasks.backend.facade.api import get_in_progress_runs_for_github_integration
 from products.tasks.backend.facade.contracts import InProgressGithubRunsDTO
 from products.workflows.backend.facade.api import get_active_workflows_using_integration
+from products.workflows.backend.facade.contracts import EmailProviderUnavailableError
 
 logger = structlog.get_logger(__name__)
 
@@ -143,6 +149,13 @@ stripe_marketplace_install_counter = Counter(
 )
 
 GITHUB_REPOSITORY_NAME_RE = re.compile(r"[A-Za-z0-9_.\-]+")
+
+
+class EmailProviderUnavailable(APIException):
+    # A stable code lets the setup page keep polling through an outage instead of treating it as a broken sender.
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "email_provider_unavailable"
+    default_detail = "Couldn't reach the email provider to check this domain. Try again in a moment."
 
 
 class SlackIntegrationInactiveError(APIException):
@@ -1476,6 +1489,7 @@ class IntegrationViewSet(
         "anthropic_managed_agents",
         "anthropic_managed_agent_environments",
         "anthropic_managed_agent_vaults",
+        "email_status",
     ]
     scope_object_write_actions = [
         "create",
@@ -2633,9 +2647,57 @@ class IntegrationViewSet(
 
     @action(methods=["POST"], detail=True, url_path="email/verify")
     def email_verify(self, request, **kwargs):
-        email = EmailIntegration(self.get_object())
-        verification_result = email.verify()
+        instance = self.get_object()
+        email = EmailIntegration(instance)
+        verification_result = email.verify(
+            on_domain_verified=lambda: self._report_email_domain_verified(request, instance)
+        )
         return Response(verification_result)
+
+    @validated_request(
+        query_serializer=EmailDomainStatusQuerySerializer,
+        responses={
+            200: EmailDomainStatusSerializer,
+            503: OpenApiResponse(
+                description="The email provider could not be reached. The error code is email_provider_unavailable. "
+                "Nothing changed, so poll again."
+            ),
+        },
+        summary="Get email sending domain status",
+        description="Read the setup progress of an email sender's domain from SES and public DNS without "
+        "changing either. Poll this until verified is true. Marks the domain's senders as verified once SES "
+        "verifies the domain.",
+    )
+    @action(methods=["GET"], detail=True, url_path="email/status")
+    def email_status(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        instance = self.get_object()
+        if instance.kind != "email":
+            raise ValidationError("email/status is only supported for email integrations")
+        try:
+            report = EmailIntegration(instance).status(
+                refresh=request.validated_query_data["refresh"],
+                on_domain_verified=lambda: self._report_email_domain_verified(request, instance),
+            )
+        except EmailProviderUnavailableError as error:
+            raise EmailProviderUnavailable() from error
+        return Response(EmailDomainStatusSerializer(report).data)
+
+    def _report_email_domain_verified(self, request: Request, instance: Integration) -> None:
+        report_user_action(
+            request.user,
+            "email domain verified",
+            {
+                "method": self._email_domain_setup_method(request, instance),
+                "seconds_since_created": int((timezone.now() - instance.created_at).total_seconds()),
+            },
+            team=self.team,
+        )
+
+    @staticmethod
+    def _email_domain_setup_method(request: Request, instance: Integration) -> str:
+        if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication | OAuthAccessTokenAuthentication):
+            return "agent"
+        return instance.config.get("setup_method", "manual")
 
     @extend_schema(responses={200: IntegrationSerializer})
     @action(methods=["PATCH"], detail=True, url_path="email")
