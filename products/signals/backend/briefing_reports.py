@@ -5,7 +5,8 @@ served ranking model. The Today briefing and the inbox `for_you` list share this
 """
 
 import re
-from collections.abc import Sequence
+from bisect import bisect_left
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from enum import StrEnum
 from typing import Any
@@ -40,6 +41,7 @@ _SUMMARY_LIMIT = 300
 # The hover card shows more of the summary than the briefing writer reads.
 SUMMARY_LEAD_LIMIT = 450
 PR_MERGED_HEAD = "pr_merged"
+ACTION_HEAD = "action"
 DISMISS_WRONG_HEAD = "dismiss_wrong"
 # A report the model expects to be dismissed as wrong at this many times the head's base rate is
 # left out. The rule only applies to a model that saved a classification threshold for the head,
@@ -132,10 +134,11 @@ class _ServedScores:
     """The readable heads of a report's latest served score that the briefing ranks on."""
 
     pr_merged: float | None
+    action: float | None
     dismiss_wrong_lift: float | None
 
 
-_NO_SCORES = _ServedScores(pr_merged=None, dismiss_wrong_lift=None)
+_NO_SCORES = _ServedScores(pr_merged=None, action=None, dismiss_wrong_lift=None)
 
 
 def _json_object_content() -> Q:
@@ -241,6 +244,7 @@ def _served_scores(heads: dict[str, Any] | None) -> _ServedScores:
         return _NO_SCORES
     return _ServedScores(
         pr_merged=scores.get(PR_MERGED_HEAD) if PR_MERGED_HEAD in readable else None,
+        action=scores.get(ACTION_HEAD) if ACTION_HEAD in readable else None,
         dismiss_wrong_lift=lifts.get(DISMISS_WRONG_HEAD) if DISMISS_WRONG_HEAD in readable else None,
     )
 
@@ -287,17 +291,11 @@ class _BriefingCandidate:
     scores: _ServedScores
 
 
-def _briefing_order(candidate: _BriefingCandidate) -> tuple[float, ...]:
-    """P0 first, then the higher chance of a merged PR, then priority, then newest. A report without
-    a score follows the scored ones, so with no scores at all the order falls back to priority."""
-    merge_chance = candidate.scores.pr_merged
-    return (
-        0 if candidate.priority == "P0" else 1,
-        0 if merge_chance is not None else 1,
-        -(merge_chance or 0.0),
-        _PRIORITY_ORDER.get(candidate.priority or "", 5),
-        -candidate.updated_at.timestamp(),
-    )
+def _percentile_ranks(values: Mapping[str, float]) -> dict[str, float]:
+    """Each value's share of the other values below it, from 0 for the lowest to 1 for the highest."""
+    ordered = sorted(values.values())
+    denominator = max(len(ordered) - 1, 1)
+    return {key: bisect_left(ordered, value) / denominator for key, value in values.items()}
 
 
 def _likely_dismissed_as_wrong(candidate: _BriefingCandidate) -> bool:
@@ -307,12 +305,34 @@ def _likely_dismissed_as_wrong(candidate: _BriefingCandidate) -> bool:
 
 
 def _briefing_pick(candidates: Sequence[_BriefingCandidate], limit: int | None) -> list[_BriefingCandidate]:
-    """The candidates in `_briefing_order`, without the ones likely dismissed as wrong.
+    """The candidates in one order, without the ones likely dismissed as wrong.
+
+    P0 first. Then by the higher of two percentile ranks among the candidates: the chance of a
+    merged PR, and the chance that someone acts on the report (creates a PR or starts a discussion).
+    A report that needs a decision rather than code has a low merge chance, so the action chance
+    lets it rank too. The heads are not calibrated to each other, so they are compared by rank,
+    not by value. Ties go to the higher sum of the two ranks, then priority, then newest. A report
+    with neither score follows the scored ones.
 
     The order does not depend on `limit` or on the relation, so the top N reports are always the
     first N of the same list.
     """
-    ranked = sorted((c for c in candidates if not _likely_dismissed_as_wrong(c)), key=_briefing_order)
+    kept = [c for c in candidates if not _likely_dismissed_as_wrong(c)]
+    merge_ranks = _percentile_ranks({c.report_id: c.scores.pr_merged for c in kept if c.scores.pr_merged is not None})
+    action_ranks = _percentile_ranks({c.report_id: c.scores.action for c in kept if c.scores.action is not None})
+
+    def order(candidate: _BriefingCandidate) -> tuple[float, ...]:
+        ranks = [r[candidate.report_id] for r in (merge_ranks, action_ranks) if candidate.report_id in r]
+        return (
+            0 if candidate.priority == "P0" else 1,
+            0 if ranks else 1,
+            -max(ranks, default=0.0),
+            -sum(ranks),
+            _PRIORITY_ORDER.get(candidate.priority or "", 5),
+            -candidate.updated_at.timestamp(),
+        )
+
+    ranked = sorted(kept, key=order)
     return ranked if limit is None else ranked[:limit]
 
 

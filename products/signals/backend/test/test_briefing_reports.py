@@ -203,7 +203,7 @@ class TestReportsForBriefing(BaseTest):
         assert (top.title, top.relation) == ("Report 5", BriefingReportRelation.SUGGESTED_REVIEWER)
 
 
-_Spec = tuple[str, BriefingReportRelation, str | None, float | None, float | None]
+_Spec = tuple[str, BriefingReportRelation, str | None, float | None, float | None, float | None]
 WAITING = BriefingReportRelation.WAITING_FOR_YOU
 REVIEW = BriefingReportRelation.SUGGESTED_REVIEWER
 
@@ -215,9 +215,9 @@ def _candidates(specs: list[_Spec]) -> list[_BriefingCandidate]:
             relation=relation,
             priority=priority,
             updated_at=datetime(2026, 9, 29, tzinfo=UTC),
-            scores=_ServedScores(pr_merged=pr_merged, dismiss_wrong_lift=dismiss_wrong_lift),
+            scores=_ServedScores(pr_merged=pr_merged, action=action, dismiss_wrong_lift=dismiss_wrong_lift),
         )
-        for report_id, relation, priority, pr_merged, dismiss_wrong_lift in specs
+        for report_id, relation, priority, pr_merged, action, dismiss_wrong_lift in specs
     ]
 
 
@@ -227,33 +227,49 @@ class TestBriefingPick(SimpleTestCase):
             (
                 "merge chance decides across relations",
                 [
-                    ("w1", WAITING, "P1", 0.02, None),
-                    ("s1", REVIEW, "P3", 0.4, None),
-                    ("c1", BriefingReportRelation.CLAIMED, "P3", 0.1, None),
+                    ("w1", WAITING, "P1", 0.02, None, None),
+                    ("s1", REVIEW, "P3", 0.4, None, None),
+                    ("c1", BriefingReportRelation.CLAIMED, "P3", 0.1, None, None),
                 ],
                 ["s1", "c1", "w1"],
             ),
             (
+                "a high action chance ranks a report with a low merge chance",
+                [
+                    ("merge", REVIEW, "P3", 0.3, 0.1, None),
+                    ("middle", REVIEW, "P3", 0.2, 0.2, None),
+                    ("act", WAITING, "P2", 0.01, 0.9, None),
+                ],
+                ["act", "merge", "middle"],
+            ),
+            (
+                "the two heads compare by rank, not by value",
+                [
+                    ("merge", REVIEW, "P3", 0.05, 0.001, None),
+                    ("act", REVIEW, "P2", 0.01, 0.5, None),
+                    ("low", REVIEW, "P3", 0.02, 0.2, None),
+                ],
+                ["act", "merge", "low"],
+            ),
+            (
                 "P0 comes first",
-                [("s1", REVIEW, "P1", 0.9, None), ("u1", BriefingReportRelation.URGENT_UNOWNED, "P0", 0.01, None)],
+                [
+                    ("s1", REVIEW, "P1", 0.9, 0.9, None),
+                    ("u1", BriefingReportRelation.URGENT_UNOWNED, "P0", 0.01, None, None),
+                ],
                 ["u1", "s1"],
             ),
             (
-                "merge chance beats priority",
-                [("a", REVIEW, "P2", 0.8, None), ("b", REVIEW, "P1", 0.2, None)],
-                ["a", "b"],
-            ),
-            (
                 "unscored reports follow scored ones",
-                [("a", REVIEW, "P1", None, None), ("b", REVIEW, "P3", 0.1, None)],
+                [("a", REVIEW, "P1", None, None, None), ("b", REVIEW, "P3", None, 0.1, None)],
                 ["b", "a"],
             ),
             (
                 "a report likely dismissed as wrong is hidden unless it is P0",
                 [
-                    ("s1", REVIEW, "P2", 0.9, 5.0),
-                    ("s2", REVIEW, "P2", 0.1, 1.0),
-                    ("u1", BriefingReportRelation.URGENT_UNOWNED, "P0", 0.1, 5.0),
+                    ("s1", REVIEW, "P2", 0.9, None, 5.0),
+                    ("s2", REVIEW, "P2", 0.1, None, 1.0),
+                    ("u1", BriefingReportRelation.URGENT_UNOWNED, "P0", 0.1, None, 5.0),
                 ],
                 ["u1", "s2"],
             ),
@@ -265,11 +281,11 @@ class TestBriefingPick(SimpleTestCase):
     def test_the_top_n_is_always_the_first_n_of_the_same_list(self) -> None:
         candidates = _candidates(
             [
-                ("w1", WAITING, "P2", 0.05, None),
-                ("w2", WAITING, "P3", None, None),
-                ("s1", REVIEW, "P3", 0.3, None),
-                ("s2", REVIEW, "P1", 0.2, None),
-                ("c1", BriefingReportRelation.CLAIMED, "P4", 0.25, None),
+                ("w1", WAITING, "P2", 0.05, 0.6, None),
+                ("w2", WAITING, "P3", None, None, None),
+                ("s1", REVIEW, "P3", 0.3, 0.1, None),
+                ("s2", REVIEW, "P1", 0.2, None, None),
+                ("c1", BriefingReportRelation.CLAIMED, "P4", 0.25, 0.3, None),
             ]
         )
         full = [c.report_id for c in _briefing_pick(candidates, limit=None)]
