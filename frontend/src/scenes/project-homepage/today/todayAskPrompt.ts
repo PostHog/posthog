@@ -3,7 +3,6 @@ import { urls } from 'scenes/urls'
 import {
     NO_CHECKOUT_INSTRUCTIONS,
     REPORT_DISCUSSION_STATE_INSTRUCTIONS,
-    isActionCapableReport,
 } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 import type { BriefingApi } from 'products/today/frontend/generated/api.schemas'
@@ -16,7 +15,8 @@ export const WALK_THROUGH_QUESTION = 'Walk me through my Today briefing and tell
 export type TodayAskContext =
     | { kind: 'briefing'; briefing: BriefingApi }
     | { kind: 'reports'; reports: SignalReport[] }
-    | { kind: 'report'; report: SignalReport }
+    /** `canAct` comes from the report's current server state. It is false when that state is unknown. */
+    | { kind: 'report'; report: SignalReport; canAct: boolean }
     | { kind: 'none' }
 
 // Briefing item URLs from the API already start with `/project/<id>`, but Today's own report pages do not.
@@ -65,7 +65,7 @@ function reportsContext(reports: SignalReport[]): string[] {
     ]
 }
 
-function reportContext(report: SignalReport): string[] {
+function reportContext(report: SignalReport, canAct: boolean): string[] {
     return [
         `- Report: ${markdownLink(report.title ?? 'Untitled report', urls.inboxReport('reports', report.id))}`,
         ...(report.priority ? [`- Priority: ${report.priority}`] : []),
@@ -75,7 +75,7 @@ function reportContext(report: SignalReport): string[] {
         'The report link ends with the report id. Use that id with the inbox MCP tools.',
         '',
         // Same split as the Inbox discussion prompt: a report with no work left to do only gets answers.
-        ...(isActionCapableReport(report)
+        ...(canAct
             ? [
                   'If my message is a question, answer it. If it asks for action, carry the action out and summarize ' +
                       'what you did.',
@@ -101,7 +101,7 @@ function contextLines(context: Exclude<TodayAskContext, { kind: 'none' }>): stri
         case 'reports':
             return reportsContext(context.reports)
         case 'report':
-            return reportContext(context.report)
+            return reportContext(context.report, context.canAct)
     }
 }
 

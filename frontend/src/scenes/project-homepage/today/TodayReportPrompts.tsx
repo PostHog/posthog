@@ -1,4 +1,4 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconSparkles } from '@posthog/icons'
@@ -18,6 +18,7 @@ import { reportPrompts } from './todaySignalReports'
 
 /** Prompts and a composer that open PostHog AI with the report as context. A prompt sends at once. */
 export function TodayReportPrompts({ report }: { report: SignalReport }): JSX.Element {
+    const { askingAi } = useValues(todayLogic)
     const { askAi } = useActions(todayLogic)
     const [draft, setDraft] = useState('')
     const prompts = reportPrompts(report)
@@ -26,7 +27,7 @@ export function TodayReportPrompts({ report }: { report: SignalReport }): JSX.El
         : undefined
 
     const ask = (question: string, source: InboxQuestionSource): void => {
-        if (!question || disabledReason) {
+        if (!question || disabledReason || askingAi) {
             return
         }
         captureInboxReportAction({
@@ -49,7 +50,7 @@ export function TodayReportPrompts({ report }: { report: SignalReport }): JSX.El
                         size="small"
                         icon={<IconSparkles />}
                         onClick={() => ask(prompt, 'suggested')}
-                        disabledReason={disabledReason}
+                        disabledReason={disabledReason ?? (askingAi ? 'Opening PostHog AI…' : undefined)}
                         data-attr="today-report-prompt"
                     >
                         {prompt}
@@ -64,6 +65,8 @@ export function TodayReportPrompts({ report }: { report: SignalReport }): JSX.El
                     setDraft('')
                 }}
                 disabledReason={disabledReason}
+                loading={askingAi}
+                disabled={askingAi}
             >
                 <Composer.Frame>
                     <Composer.Field>
