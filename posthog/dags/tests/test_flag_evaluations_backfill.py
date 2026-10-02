@@ -93,7 +93,8 @@ def copied(event: SourceEvent) -> StoredRow:
 
 INSIDE_RECENT = flag_called("inside_recent", TEAM_ONE, timedelta(days=2, hours=12))
 INSIDE_TEAM_THREE = flag_called("inside_team_three", TEAM_THREE, timedelta(days=30))
-# An old call that reached events two hours ago. That is before the consumer-lag cutoff, so the job copies it.
+# The default one-hour lag limit and the five-minute delivery timeout put the cutoff 65 minutes before the check.
+# A row that reached events two hours ago is older than the cutoff, so the job copies it.
 INSIDE_OLD = replace(flag_called("inside_old", TEAM_TWO, timedelta(days=60)), reached_events_age=timedelta(hours=2))
 ALREADY_FORKED = flag_called("already_forked", TEAM_ONE, timedelta(days=5))
 # An import dated inside the window that reached events just before the consumer-lag check. Its fork row
