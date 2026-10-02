@@ -929,6 +929,9 @@ export interface WorkflowsConfig {
     // Null uses the product default.
     workflow_task_rate_limit_per_day?: number | null
     workflow_task_team_rate_limit_per_day?: number | null
+    // Null on either disables the marketing frequency cap.
+    marketing_frequency_cap_max_messages?: number | null
+    marketing_frequency_cap_window_days?: number | null
 }
 
 export interface FeatureFlagPolicyConfig {

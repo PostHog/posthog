@@ -2,6 +2,9 @@ import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { createExampleInvocation } from '~/cdp/_tests/fixtures'
 import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
+import { defaultConfig } from '~/common/config/config'
+import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
+import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { logger } from '~/common/utils/logger'
@@ -10,6 +13,7 @@ import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
+import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
 import { RecipientPreferencesService } from './recipient-preferences.service'
 import { RecipientTokensService } from './recipient-tokens.service'
@@ -653,6 +657,107 @@ describe('RecipientPreferencesService', () => {
                 expect(result).toBeNull()
                 expect(mockRecipientsManagerGet).not.toHaveBeenCalled()
             })
+        })
+    })
+
+    describe('isFrequencyCapped', () => {
+        let redis: RedisV2
+        let frequencyCap: { max_messages: number | null; window_days: number | null }
+        let teamWorkflowsConfig: TeamWorkflowsConfigService
+        let cappedService: RecipientPreferencesService
+
+        const emailAction = (
+            categoryType?: 'marketing' | 'transactional'
+        ): Extract<HogFlowAction, { type: 'function_email' }> => ({
+            id: 'email',
+            name: 'Send email',
+            description: '',
+            type: 'function_email',
+            filters: null,
+            config: {
+                template_id: 'template-email',
+                message_category_type: categoryType,
+                inputs: { email: { value: { to: { email: 'capped@example.com' } } } },
+            },
+            created_at: Date.now(),
+            updated_at: Date.now(),
+        })
+
+        beforeAll(() => {
+            // One pool for the block: RedisV2 has no close, so a pool per test would leave its connections open.
+            redis = createRedisV2PoolFromConfig({
+                connection: defaultConfig.CDP_REDIS_HOST
+                    ? {
+                          url: defaultConfig.CDP_REDIS_HOST,
+                          options: { port: defaultConfig.CDP_REDIS_PORT, password: defaultConfig.CDP_REDIS_PASSWORD },
+                      }
+                    : { url: defaultConfig.REDIS_URL },
+                poolMinSize: defaultConfig.REDIS_POOL_MIN_SIZE,
+                poolMaxSize: defaultConfig.REDIS_POOL_MAX_SIZE,
+            })
+        })
+
+        beforeEach(async () => {
+            await deleteKeysWithPrefix(redis, `@posthog/workflows-frequency-cap/${team.id}/`)
+            frequencyCap = { max_messages: 2, window_days: 7 }
+            teamWorkflowsConfig = new TeamWorkflowsConfigService(hub.postgres, hub.pubSub)
+            jest.spyOn(teamWorkflowsConfig, 'getFrequencyCap').mockImplementation(() => Promise.resolve(frequencyCap))
+            cappedService = new RecipientPreferencesService(mockRecipientsManager, mockEmailSuppressionService, {
+                teamWorkflowsConfig,
+                redis,
+            })
+        })
+
+        const sendAt = async (action: HogFlowAction, at: number): Promise<boolean> => {
+            jest.spyOn(Date, 'now').mockReturnValue(at)
+            return cappedService.isFrequencyCapped(createFunctionStepInvocation(action as any), action)
+        }
+
+        it('caps marketing sends past the limit until the window moves past the oldest send', async () => {
+            const day = 24 * 60 * 60 * 1000
+            const start = 1_800_000_000_000
+
+            expect(await sendAt(emailAction(), start)).toBe(false)
+            expect(await sendAt(emailAction(), start + day)).toBe(false)
+            expect(await sendAt(emailAction(), start + 2 * day)).toBe(true)
+            expect(await sendAt(emailAction(), start + 7 * day + 1)).toBe(false)
+        })
+
+        it('lets a re-entered step visit keep its slot and counts a later visit to the same step', async () => {
+            frequencyCap = { max_messages: 1, window_days: 7 }
+            const action = emailAction()
+            const invocation = createFunctionStepInvocation(action)
+            invocation.state.actionId = action.id
+            invocation.state.actionStepCount = 1
+            jest.spyOn(Date, 'now').mockReturnValue(1_800_000_000_000)
+
+            // The email queue runs the step a second time after the hog queue routed it there.
+            expect(await cappedService.isFrequencyCapped(invocation, action)).toBe(false)
+            expect(await cappedService.isFrequencyCapped(invocation, action)).toBe(false)
+
+            invocation.state.actionStepCount = 3
+            expect(await cappedService.isFrequencyCapped(invocation, action)).toBe(true)
+        })
+
+        it.each([
+            [
+                'the config lookup',
+                () => jest.spyOn(teamWorkflowsConfig, 'getFrequencyCap').mockRejectedValue(new Error('unavailable')),
+            ],
+            ['the Redis pool', () => jest.spyOn(redis, 'useClient').mockRejectedValue(new Error('unavailable'))],
+        ])('lets the send through when %s fails', async (_, fail) => {
+            fail()
+            expect(await sendAt(emailAction(), 1_800_000_000_000)).toBe(false)
+        })
+
+        it.each([
+            ['transactional sends', emailAction('transactional'), { max_messages: 0, window_days: 7 }],
+            ['teams with no cap', emailAction(), { max_messages: null, window_days: null }],
+        ])('never caps %s', async (_, action, cap) => {
+            frequencyCap = cap
+            for (let i = 0; i < 3; i++) {
+                expect(await sendAt(action, 1_800_000_000_000 + i)).toBe(false)
+            }
         })
     })
 
