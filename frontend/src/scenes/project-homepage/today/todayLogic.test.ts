@@ -49,12 +49,14 @@ describe('todayLogic', () => {
     let listParams: URLSearchParams | null
     let briefingResponses: [number, any][]
     let briefingCalls: number
+    let stateResponse: [number, any]
 
     beforeEach(() => {
         listResponse = [200, { results: [], count: 0 }]
         listParams = null
         briefingResponses = [[404, { detail: 'Not found.' }]]
         briefingCalls = 0
+        stateResponse = [200, {}]
         useMocks({
             get: {
                 '/api/projects/:team_id/signals/reports/for_you/': ({ request }) => {
@@ -71,6 +73,7 @@ describe('todayLogic', () => {
                     200,
                     makeBriefing({ id: 'b-next', status: 'writing' }),
                 ],
+                '/api/projects/:team_id/signals/reports/:id/state/': () => stateResponse,
             },
         })
         initKeaTests()
@@ -122,6 +125,27 @@ describe('todayLogic', () => {
         for (const text of expected) {
             expect(prompt.toLowerCase()).toContain(text.toLowerCase())
         }
+    })
+
+    it.each([
+        ['keeps a verdict the API accepts', 200, 'done'],
+        ['takes back a verdict the API refuses', 409, 'open'],
+    ])('%s', async (_, status, finalState) => {
+        briefingResponses = [[200, makeBriefing()]]
+        stateResponse = [status, { detail: 'Refused.' }]
+        const logic = todayLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.requestReportVerdict(
+            { reportId: 'a', title: 'Signup form rejects emails', hasOpenPullRequest: false },
+            'resolve',
+            'sidebar'
+        )
+        expect(logic.values.briefingItems[0].state).toEqual('done')
+
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.briefingItems[0].state).toEqual(finalState)
     })
 
     it('keeps the last briefing on screen, polls while the next is written, and stops when it is ready', async () => {

@@ -13,6 +13,8 @@ from google.auth.transport.requests import AuthorizedSession
 from google.oauth2 import service_account
 from gspread.utils import numericise_all
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.common import integration_secrets
@@ -286,8 +288,22 @@ def _get_worksheet(
     return _retry_on_transient_api_error(execute)
 
 
+@frozen
+class DiscoveredWorksheet:
+    # The normalized title, which names the schema and its table.
+    name: str
+    # The title as the spreadsheet shows it.
+    title: str
+    # The sheet id (gid). It does not change when the worksheet is renamed.
+    worksheet_id: int
+
+
 def get_schemas(config: GoogleSheetsSourceConfig) -> list[tuple[str, int]]:
     """Returns a tuple of worksheets in the form of (title, id)"""
+    return [(worksheet.name, worksheet.worksheet_id) for worksheet in get_worksheets(config)]
+
+
+def get_worksheets(config: GoogleSheetsSourceConfig) -> list[DiscoveredWorksheet]:
 
     # `open_by_url` and `worksheets()` hit the Sheets API and so are subject to the same
     # transient quota (429) and 5xx server errors as `_get_worksheet` — retry them with backoff
@@ -304,19 +320,39 @@ def get_schemas(config: GoogleSheetsSourceConfig) -> list[tuple[str, int]]:
 
     worksheets = _retry_on_transient_api_error(execute)
 
-    return [(NamingConvention.normalize_identifier(worksheet.title), worksheet.id) for worksheet in worksheets]
+    return [
+        DiscoveredWorksheet(
+            name=NamingConvention.normalize_identifier(worksheet.title),
+            title=worksheet.title,
+            worksheet_id=worksheet.id,
+        )
+        for worksheet in worksheets
+    ]
+
+
+def _resolve_worksheet_id(
+    config: GoogleSheetsSourceConfig, worksheet_name: str, worksheet_id: int | None, api_version: str
+) -> int:
+    # A renamed worksheet keeps its sheet id, so the stored id still finds it after the stored name
+    # stops matching any title. The name is the fallback for a schema stored before ids were, and for
+    # a worksheet that was deleted and then re-created under the same title.
+    if worksheet_id is not None:
+        try:
+            _get_worksheet(config.spreadsheet_url, worksheet_id, api_version)
+            return worksheet_id
+        except gspread.exceptions.WorksheetNotFound:
+            pass
+
+    selected_worksheet = [id for name, id in get_schemas(config) if name == worksheet_name]
+    if len(selected_worksheet) == 0:
+        raise Exception(f'Worksheet titled "{worksheet_name}" can\'t be found')
+    return selected_worksheet[0]
 
 
 def get_schema_incremental_fields(
     config: GoogleSheetsSourceConfig, worksheet_name: str, api_version: str = GOOGLE_SHEETS_API_VERSION_V4
 ) -> list[IncrementalField]:
-    worksheets = get_schemas(config)
-    selected_worksheet = [id for name, id in worksheets if name == worksheet_name]
-    if len(selected_worksheet) == 0:
-        raise Exception(f'Worksheet titled "{worksheet_name}" can\'t be found')
-
-    worksheet_id = selected_worksheet[0]
-
+    worksheet_id = _resolve_worksheet_id(config, worksheet_name, None, api_version)
     worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id, api_version)
 
     try:
@@ -355,14 +391,9 @@ def google_sheets_source(
     db_incremental_field_last_value: Optional[Any],
     api_version: str,
     should_use_incremental_field: bool = False,
+    worksheet_id: int | None = None,
 ) -> SourceResponse:
-    worksheets = get_schemas(config)
-    selected_worksheet = [id for name, id in worksheets if name == worksheet_name]
-    if len(selected_worksheet) == 0:
-        raise Exception(f'Worksheet titled "{worksheet_name}" can\'t be found')
-
-    worksheet_id = selected_worksheet[0]
-
+    worksheet_id = _resolve_worksheet_id(config, worksheet_name, worksheet_id, api_version)
     worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id, api_version)
 
     try:

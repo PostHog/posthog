@@ -1,5 +1,6 @@
 import json
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, NoReturn
 
 from django.conf import settings
@@ -78,6 +79,7 @@ def build_non_retryable_errors_redis_key(team_id: int, source_id: str, run_id: s
 
 
 NON_RETRYABLE_ERROR_RETRY_LIMIT = 3
+NON_RESUMABLE_HANDOFF_MAX_ATTEMPT_AGE = timedelta(minutes=10)
 
 
 UNREADABLE_JOB_INPUTS_MESSAGE = (
@@ -788,6 +790,14 @@ async def update_row_tracking_after_batch(
     await decrement_rows(team_id, schema_id, row_count)
 
 
+def _is_young_first_attempt() -> bool:
+    if not activity.in_activity():
+        return False
+
+    info = activity.info()
+    return info.attempt == 1 and datetime.now(UTC) - info.started_time < NON_RESUMABLE_HANDOFF_MAX_ATTEMPT_AGE
+
+
 def should_check_shutdown(
     schema: "ExternalDataSchema",
     resource: SourceResponse,
@@ -797,12 +807,13 @@ def should_check_shutdown(
     # Only raise if we're not running in descending order, otherwise we'll often not
     # complete the job before the incremental value can be updated. Or if the source is
     # resumable
-    # TODO: raise when we're within `x` time of the worker being forced to shutdown
+    # Let a new attempt leave a shutting-down worker before it holds the worker for hours.
+    # Limit handoffs to attempt one so full refresh keeps two attempts for retries.
     # Raising during a full reset will reset our progress back to 0 rows
     incremental_sync_raise_during_shutdown = (
         schema.should_use_incremental_field and resource.sort_mode != "desc" and not reset_pipeline
     )
-    return incremental_sync_raise_during_shutdown or source_is_resumable
+    return incremental_sync_raise_during_shutdown or source_is_resumable or _is_young_first_attempt()
 
 
 async def finalize_desc_sort_incremental_value(
