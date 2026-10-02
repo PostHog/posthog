@@ -186,6 +186,7 @@ _LABEL_COLUMNS = (
     "open_count",
     "dismissal_reason",
     "wrong_dismissal_count",
+    "fixed_count",
     "pr_created_count",
     "pr_merged_count",
     "refund_count",

@@ -17,7 +17,7 @@ The dataset keeps them for position bias and the shadow grades.
 Slack and the desktop app. Self-driving's own `task` and `system` writes are excluded, because
 they are internal operational work and not a person acting on the report.
 
-Mirrors the workspace `heads.py` (random-dev-internal, `inbox-ranking/`). Seven heads are dense
+Mirrors the workspace `heads.py` (random-dev-internal, `inbox-ranking/`). Eight heads are dense
 enough to read on the holdout. `thumbs_up` and `reviewer_fix` are the explicit human-feedback pair:
 they are rare, so they are carried for the pooled newborn grade and as scorer inputs rather than
 for a holdout AUC. The rest stay workspace-only.
@@ -83,6 +83,10 @@ def dismissed_as_wrong(frame: pd.DataFrame) -> pd.Series:
     if "dismissal_reason" not in frame:
         return pd.Series(False, index=frame.index)
     return frame["dismissal_reason"].isin(WRONG_DISMISSAL_REASONS)
+
+
+def fixed(frame: pd.DataFrame) -> pd.Series:
+    return _count(frame, "fixed_count") > 0
 
 
 def pr_created(frame: pd.DataFrame) -> pd.Series:
@@ -165,6 +169,18 @@ HEADS: tuple[Head, ...] = (
         horizon_days=14,
         min_holdout_positives=30,
         label_columns=("pr_merged_count",),
+    ),
+    # Which reports flagged a real problem that then got fixed, by anyone and on any surface? Reads
+    # only the status stream: a tracked PR merge, a hand-marked fix, or a dismissal as already
+    # fixed all count. 21 days because fixes marked by hand arrive about two weeks after birth.
+    Head(
+        name="fixed",
+        cohort=everyone,
+        label=fixed,
+        horizon_days=21,
+        min_holdout_positives=30,
+        label_columns=("fixed_count",),
+        status_labels=True,
     ),
     # Which reports drew a discuss? Cohort is every report: a discuss from Slack, the desktop app or
     # MCP often has no list impression. A subset of the action head, which is fine - each head trains

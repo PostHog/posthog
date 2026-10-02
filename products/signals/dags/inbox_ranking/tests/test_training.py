@@ -404,6 +404,13 @@ def test_dismissed_as_wrong_prefers_the_cumulative_count(frame, expected):
             [True, True, True, True],
             [True, True, True, False],
         ),
+        # fixed: cohort is everyone, label is a fix read from the status stream.
+        (
+            "fixed",
+            pd.DataFrame({"fixed_count": [1, 0, 0], "pr_merged_count": [0, 1, 0]}),
+            [True, True, True],
+            [True, False, False],
+        ),
         # discuss: cohort is everyone, so a never-impressed report counts; label is a discuss action.
         (
             "discuss",
@@ -468,6 +475,7 @@ class _ParquetS3:
     "head_name,positive_column",
     [
         ("pr_merged", "pr_merged_count"),
+        ("fixed", "fixed_count"),
         ("refund", "refund_count"),
         ("thumbs_up", "feedback_positive_count"),
         ("reviewer_fix", "reviewer_add_count"),
@@ -485,6 +493,7 @@ def test_new_head_label_columns_survive_the_load_snapshots_projection(head_name,
         column: [0]
         for column in (
             "pr_merged_count",
+            "fixed_count",
             "refund_count",
             "feedback_positive_count",
             "reviewer_add_count",
