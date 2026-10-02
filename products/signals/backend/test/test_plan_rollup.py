@@ -5,6 +5,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.db import OperationalError, connection, transaction
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -127,6 +128,29 @@ class TestPlanRollup(BaseTest):
             record_check_verdict(check, CheckVerdict(outcome="passed", explanation="The combined outcome holds."))
         parent.refresh_from_db()
         assert parent.status == SignalReport.Status.RESOLVED
+
+    def test_a_plan_with_unarmed_checks_stays_in_monitoring_when_its_last_step_resolves(self):
+        parent = self._report("plan")
+        child = self._report("step", SignalReport.Status.RESOLVED)
+        self._part_of(child, parent)
+        check = create_check(
+            report=parent,
+            title="Verify the combined outcome",
+            kind=SignalReportCheck.Kind.AGENT,
+            config={"instructions": "Confirm that all changes work together."},
+            attribution=ArtefactAttribution.system(),
+            soak_minutes=0,
+        )
+        parent.status = SignalReport.Status.MONITORING
+        parent.monitoring_started_at = timezone.now()
+        parent.save(update_fields=["status", "monitoring_started_at"])
+
+        roll_up_plan_parents(team_id=self.team.id, report_id=str(child.id))
+
+        parent.refresh_from_db()
+        check.refresh_from_db()
+        assert check.status == SignalReportCheck.Status.PENDING
+        assert parent.status == SignalReport.Status.MONITORING
 
     def test_a_merged_pull_request_on_the_last_step_closes_the_plan(self):
         parent = self._report("plan")
