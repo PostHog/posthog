@@ -6,8 +6,7 @@
     "dependencies": {
         "@posthog/products-mcp-store": "workspace:*",
         "@posthog/quill": "workspace:*",
-        "kea-disposables": "catalog:",
-        "posthog-js": "catalog:"
+        "kea-disposables": "catalog:"
     },
     "devDependencies": {
         "kea-test-utils": "catalog:",

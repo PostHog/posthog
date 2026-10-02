@@ -6,6 +6,7 @@
 // Part of the `products/posthog_ai/frontend/api/<module>` public surface. Import from here, not from deep
 // `../scenes/*` paths. See ../README.md for the tier model and ../AGENTS.md for the coupling rule.
 
+export { captureArtifactChipClicked } from '../scenes/TaskTracker/artifactChipTelemetry'
 export { ArtifactIcon } from '../scenes/TaskTracker/components/ArtifactIcon'
 export {
     artifactPreviewKind,
