@@ -69,11 +69,11 @@ class TestMessageRecipients(ClickhouseTestMixin, NonAtomicAPIBaseTest):
         flush_persons_and_events()
         return str(person.uuid)
 
-    def _send(self, recipient: str, sent_at: datetime) -> None:
+    def _send(self, recipient: str, sent_at: datetime, team: Team | None = None) -> None:
         sync_execute(
             INSERT_MESSAGE_ASSET_SQL,
             {
-                "team_id": self.team.id,
+                "team_id": (team or self.team).id,
                 "function_kind": "hog_flow",
                 "function_id": "flow",
                 "parent_run_id": "",
@@ -266,6 +266,35 @@ class TestMessageRecipients(ClickhouseTestMixin, NonAtomicAPIBaseTest):
         assert self._emails(search=search) == [folded]
         assert self._emails(email=stored.upper()) == [folded]
 
+    def test_ignores_removed_preferences_and_suppressions_that_do_not_block_sends(self) -> None:
+        MessageRecipientPreference.objects.create(
+            team=self.team, identifier="kim@example.com", preferences={"$all": "OPTED_OUT"}, deleted=True
+        )
+        MessageSuppression.objects.for_team(self.team.id).create(
+            team=self.team, identifier="kim@example.com", source="BOUNCE", suppressed=False, transient_bounce_count=1
+        )
+        self._person("kim@example.com")
+
+        [recipient] = self._list()["results"]
+
+        assert (recipient["all_marketing"], recipient["suppression"], recipient["preferences_updated_at"]) == (
+            "NO_PREFERENCE",
+            None,
+            None,
+        )
+
+    def test_counts_every_person_holding_an_address_and_previews_three(self) -> None:
+        holders = [self._person("shared@example.com", distinct_id=f"holder-{index}") for index in range(3)]
+        two_ids = _create_person(
+            team=self.team, distinct_ids=["holder-b", "holder-a"], properties={"email": "Shared@Example.com"}
+        )
+        flush_persons_and_events()
+
+        [recipient] = self._list()["results"]
+
+        assert recipient["person_count"] == 4
+        assert [person["uuid"] for person in recipient["persons"]] == sorted([*holders, str(two_ids.uuid)])[:3]
+
     def test_ignores_a_preference_row_that_is_not_a_map(self) -> None:
         self._prefer("broken@example.com", ["OPTED_OUT"])  # type: ignore[arg-type]
 
@@ -293,9 +322,10 @@ class TestMessageRecipients(ClickhouseTestMixin, NonAtomicAPIBaseTest):
         self._prefer("theirs@example.com", {}, team=other_team)
         self._suppress("theirs@example.com", team=other_team)
         self._person("theirs@example.com", team=other_team)
+        self._send("ours@example.com", datetime.now(UTC) - timedelta(days=1), team=other_team)
         self._prefer("ours@example.com", {})
 
-        assert self._emails() == ["ours@example.com"]
+        assert [(row["email"], row["last_sent_at"]) for row in self._list()["results"]] == [("ours@example.com", None)]
 
     @parameterized.expand(
         [
