@@ -19,7 +19,7 @@ MAX_PAGES_PER_LIST = 100
 TEAM_USAGE_LOOKBACK_MONTHS = 12
 
 
-@dataclass
+@dataclass(frozen=True)
 class HerokuEndpointConfig:
     name: str
     path: str  # contains a {parent_id} placeholder for fan-out endpoints
