@@ -1,4 +1,4 @@
-# Self-driving reports
+# Self-driving reports, scouts, and artifacts
 
 ## Report (`system.signal_reports`)
 
@@ -30,5 +30,94 @@ SELECT r.id, r.title, r.status, a.type, a.content, a.created_at
 FROM system.signal_reports AS r
 JOIN system.signal_report_artifacts AS a ON a.report_id = r.id
 ORDER BY a.created_at DESC
+LIMIT 20
+```
+
+## Report action (`system.signal_report_actions`)
+
+One row per report, user, and action type. Repeated actions update the count and timestamps.
+The count is approximate. This table is not an event log.
+Task read access is required. Deleted reports are excluded.
+
+{{ schema_columns('system.signal_report_actions') }}
+
+## Report check (`system.signal_report_checks`)
+
+Checks record claims about report outcomes, their schedules, and their latest verdicts.
+Task read access is required. Deleted reports are excluded.
+
+{{ schema_columns('system.signal_report_checks') }}
+
+## Report pull request (`system.signal_report_pull_requests`)
+
+Pull request records include state, review decisions, and merge timestamps.
+Join `id` to `system.signal_report_artifacts.pull_request_id`.
+Task read access is required. Only records linked to visible report artifacts are included.
+
+{{ schema_columns('system.signal_report_pull_requests') }}
+
+## Legacy report assignment (`system.signal_report_assignments`)
+
+Assignments record legacy ownership and pull request links. Current work appears in report artifacts.
+Join `report_id` to `system.signal_reports.id`.
+Task read access is required. Deleted reports are excluded.
+
+{{ schema_columns('system.signal_report_assignments') }}
+
+## Legacy report task (`system.signal_report_tasks`)
+
+These rows link reports to research or implementation tasks.
+Join `report_id` to `system.signal_reports.id`.
+Internal research tasks may be absent from `system.tasks`.
+Task read access is required. Deleted reports are excluded.
+
+{{ schema_columns('system.signal_report_tasks') }}
+
+## Scout configuration (`system.signal_scout_configs`)
+
+Scout configurations contain schedules, status, and execution settings.
+Scout read access is required for all scout tables.
+Query scout tables from the parent project environment that owns the scout data.
+
+{{ schema_columns('system.signal_scout_configs') }}
+
+## Scout run (`system.signal_scout_runs`)
+
+Runs record the skill version, summary, emitted findings, and authored or edited reports.
+Join `scout_config_id` to `system.signal_scout_configs.id`.
+Internal task runs may be absent from `system.task_runs`.
+
+{{ schema_columns('system.signal_scout_runs') }}
+
+## Scout emission (`system.signal_scout_emissions`)
+
+One row per finding emission. Repeated finding identifiers produce separate rows.
+Join `scout_run_id` to `system.signal_scout_runs.id`.
+
+{{ schema_columns('system.signal_scout_emissions') }}
+
+## Task artifact (`system.task_artifacts`)
+
+Living artifacts include files, documents, and Slack deliverables with stable version histories.
+Join `task_id` to `system.tasks.id` and `task_run_id` to `system.task_runs.id`.
+Task read access is required. Private, unfiled, and internal tasks are excluded.
+
+{{ schema_columns('system.task_artifacts') }}
+
+## Additional query examples
+
+```sql
+SELECT r.id, r.title, c.status, c.last_outcome, c.next_run_at
+FROM system.signal_reports AS r
+JOIN system.signal_report_checks AS c ON c.report_id = r.id
+ORDER BY c.next_run_at
+LIMIT 20
+```
+
+```sql
+SELECT r.id, r.skill_name, e.finding_id, e.description, e.emitted_at
+FROM system.signal_scout_runs AS r
+JOIN system.signal_scout_emissions AS e ON e.scout_run_id = r.id
+ORDER BY e.emitted_at DESC
 LIMIT 20
 ```
