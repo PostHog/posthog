@@ -25,6 +25,9 @@ const meta: Meta<typeof HeatmapsPricingNotice> = {
     component: HeatmapsPricingNotice,
     parameters: {
         featureFlags: [FEATURE_FLAGS.HEATMAPS_PRICING_NOTICE],
+        testOptions: {
+            waitForSelector: '[data-attr="heatmaps-pricing-notice-upgrade"]',
+        },
     },
 }
 export default meta
