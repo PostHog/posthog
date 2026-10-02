@@ -76,6 +76,7 @@ function TopicsMoreMenu(): JSX.Element {
             <LemonButton
                 data-attr="audience-topics-more"
                 aria-label="More topic actions"
+                tooltip="More"
                 icon={<IconEllipsis />}
                 size="small"
                 loading={preferencesUrlLoading}
