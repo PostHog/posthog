@@ -69,7 +69,7 @@ export const agentPreferencesLogic = kea<agentPreferencesLogicType>([
                     try {
                         return await tasksMeAgentPreferencesList(String(values.currentProjectId))
                     } catch {
-                        return null
+                        return values.agentPreferences
                     }
                 },
                 saveAgentPreferences: async (
