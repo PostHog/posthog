@@ -6,11 +6,15 @@ Reading a model also reads everything upstream of it, so a stamp propagates to e
 
 from collections import defaultdict
 from datetime import datetime
+from itertools import batched
 
-from django.db.models import Q
+from django.db.models import Case, DateTimeField, F, Value, When
+from django.db.models.functions import Greatest
 
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import Node
+
+UPDATE_BATCH_SIZE = 500
 
 
 def record_saved_query_demand(team_id: int, last_read_at: dict[str, datetime]) -> int:
@@ -23,11 +27,16 @@ def record_saved_query_demand(team_id: int, last_read_at: dict[str, datetime]) -
 
     nodes_by_query: dict[str, list[str]] = defaultdict(list)
     query_by_node: dict[str, str] = {}
-    for node_id, saved_query_id in Node.objects.filter(team_id=team_id, saved_query__isnull=False).values_list(
-        "id", "saved_query_id"
-    ):
-        nodes_by_query[str(saved_query_id)].append(str(node_id))
-        query_by_node[str(node_id)] = str(saved_query_id)
+    for node in Node.objects.filter(team_id=team_id).values("id", "saved_query_id", "properties"):
+        properties = node["properties"] or {}
+        # A model reached across DAGs is represented by a reference node carrying the id rather than the FK.
+        if properties.get("origin") == "cross_dag_view":
+            saved_query_id = properties.get("saved_query_id")
+        else:
+            saved_query_id = node["saved_query_id"]
+        if saved_query_id:
+            nodes_by_query[str(saved_query_id)].append(str(node["id"]))
+            query_by_node[str(node["id"])] = str(saved_query_id)
 
     upstream: dict[str, list[str]] = defaultdict(list)
     for source_id, target_id in Edge.objects.filter(team_id=team_id).values_list("source_id", "target_id"):
@@ -43,16 +52,19 @@ def record_saved_query_demand(team_id: int, last_read_at: dict[str, datetime]) -
                 continue
             demand_by_node[node_id] = read_at
             stack.extend(upstream[node_id])
-            # A saved query with nodes in several DAGs has its lineage recorded on each of them.
+            # One model can hold a node per DAG, so a read of it demands every node that stands for it.
             if (query_id := query_by_node.get(node_id)) is not None:
                 stack.extend(sibling for sibling in nodes_by_query[query_id] if sibling != node_id)
 
-    nodes_by_stamp: dict[datetime, list[str]] = defaultdict(list)
-    for node_id, read_at in demand_by_node.items():
-        nodes_by_stamp[read_at].append(node_id)
-    for read_at, node_ids in nodes_by_stamp.items():
-        Node.objects.filter(team_id=team_id, id__in=node_ids).filter(
-            Q(last_demand_at__isnull=True) | Q(last_demand_at__lt=read_at)
-        ).update(last_demand_at=read_at)
+    for batch in batched(demand_by_node, UPDATE_BATCH_SIZE, strict=False):
+        Node.objects.filter(team_id=team_id, id__in=batch).update(
+            last_demand_at=Greatest(
+                F("last_demand_at"),
+                Case(
+                    *(When(id=node_id, then=Value(demand_by_node[node_id])) for node_id in batch),
+                    output_field=DateTimeField(),
+                ),
+            )
+        )
 
     return len(demand_by_node)
