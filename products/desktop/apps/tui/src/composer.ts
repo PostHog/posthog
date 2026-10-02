@@ -61,8 +61,6 @@ export const SLASH_COMMANDS = [
   { name: "logout", description: "Sign out and clear your workspaces" },
 ];
 
-const marker = (index: number): string => `[Image #${index + 1}]`;
-
 // Faint grey, the same as the pane dividers, so the rule recedes behind the chat.
 const RULE = (text: string): string => `\u001b[2;90m${text}\u001b[22;39m`;
 
@@ -70,7 +68,9 @@ const RULE = (text: string): string => `\u001b[2;90m${text}\u001b[22;39m`;
 export class Composer {
   private readonly editor: Editor;
   private shellMode = false;
-  private images: ImageContent[] = [];
+  // Images waiting to be sent, by their marker; the numbers run on across messages.
+  private readonly images = new Map<string, ImageContent>();
+  private imageCount = 0;
 
   constructor(
     private readonly repaint: () => void,
@@ -91,10 +91,10 @@ export class Composer {
       this.editor.addToHistory(message);
       // Off before submit, since the app can put a command it could not run back with setText.
       this.shellMode = false;
-      const images = this.images.filter((_, index) =>
-        text.includes(marker(index)),
-      );
-      this.images = [];
+      const images = [...this.images]
+        .filter(([marker]) => text.includes(marker))
+        .map(([, image]) => image);
+      this.images.clear();
       submit(message, images);
     };
   }
@@ -115,8 +115,9 @@ export class Composer {
 
   // An image shows as a marker in the text; deleting the marker before sending drops the image.
   attach(image: ImageContent): void {
-    this.images.push(image);
-    this.editor.insertTextAtCursor(marker(this.images.length - 1));
+    const marker = `[Image #${++this.imageCount}]`;
+    this.images.set(marker, image);
+    this.editor.insertTextAtCursor(marker);
     this.repaint();
   }
 
@@ -125,7 +126,7 @@ export class Composer {
   }
 
   clear(): void {
-    this.images = [];
+    this.images.clear();
     this.setText("");
   }
 

@@ -247,6 +247,28 @@ describe("Composer", () => {
     expect(sent).toEqual([[text, count]]);
   });
 
+  it("keeps numbering images across messages", () => {
+    const sent: [string, number][] = [];
+    const composer = new Composer(
+      () => {},
+      (message, images) => sent.push([message, images.length]),
+    );
+    const image = {
+      type: "image" as const,
+      data: "aGk=",
+      mimeType: "image/png",
+    };
+    for (let message = 0; message < 2; message++) {
+      composer.attach(image);
+      composer.handleInput("\r");
+    }
+
+    expect(sent).toEqual([
+      ["[Image #1]", 1],
+      ["[Image #2]", 1],
+    ]);
+  });
+
   it("shows a cursor only while its pane has focus", () => {
     const composer = new Composer(
       () => {},
