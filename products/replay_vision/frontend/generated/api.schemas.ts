@@ -2453,15 +2453,6 @@ export interface VariantsWindowApi {
     last_observation_at: string | null
 }
 
-export interface VariantDigestLineApi {
-    /** The shared theme this line describes. */
-    theme_key: string
-    /** The theme as it shows up in this variant. */
-    statement: string
-    /** This variant's summaries that match the theme. */
-    count: number
-}
-
 export interface VariantReadoutApi {
     /** The variant key. */
     key: string
@@ -2479,62 +2470,8 @@ export interface VariantReadoutApi {
      * @nullable
      */
     sampling_rate: number | null
-    /**
-     * Summaries of this variant the latest synthesis counted: the denominator of its digest and difference counts. Read those counts as shares of this, not of `observations`. Null before one runs.
-     * @nullable
-     */
-    synthesis_observations: number | null
-    /**
-     * This variant's digest from the latest synthesis; null before one runs.
-     * @nullable
-     */
-    digest: VariantDigestLineApi[] | null
     /** This variant's most recent observations, newest first. */
     latest_observations: ReplayObservationApi[]
-}
-
-/**
- * Summaries matching the theme per variant, `{variant: n}`.
- */
-export type VariantDifferenceApiCounts = { [key: string]: number }
-
-export interface VariantDifferenceApi {
-    /** One thing that differs between variants. */
-    statement: string
-    /** The shared theme the statement rests on. */
-    theme_key: string
-    /** Summaries matching the theme per variant, `{variant: n}`. */
-    counts: VariantDifferenceApiCounts
-}
-
-/**
- * * `running` - Running
- * * `succeeded` - Succeeded
- * * `failed` - Failed
- */
-export type ReplayExperimentSynthesisStatusEnumApi =
-    (typeof ReplayExperimentSynthesisStatusEnumApi)[keyof typeof ReplayExperimentSynthesisStatusEnumApi]
-
-export const ReplayExperimentSynthesisStatusEnumApi = {
-    Running: 'running',
-    Succeeded: 'succeeded',
-    Failed: 'failed',
-} as const
-
-export interface VariantsSynthesisStateApi {
-    /** The latest synthesis run's state.
-     *
-     * * `running` - Running
-     * * `succeeded` - Succeeded
-     * * `failed` - Failed */
-    status: ReplayExperimentSynthesisStatusEnumApi
-    /** The scanner version that run covered. */
-    scanner_version: number
-    /**
-     * When that run finished.
-     * @nullable
-     */
-    computed_at: string | null
 }
 
 export interface ExperimentVariantsReadoutApi {
@@ -2544,15 +2481,8 @@ export interface ExperimentVariantsReadoutApi {
     window: VariantsWindowApi
     /** One entry per watched variant, plus any variant still holding observations. */
     variants: VariantReadoutApi[]
-    /**
-     * What differs between variants, from the latest synthesis of the current scanner version; null before one runs.
-     * @nullable
-     */
-    differences: VariantDifferenceApi[] | null
-    /** Succeeded observations with no attributed variant. They stay out of the synthesis. */
+    /** Succeeded observations with no attributed variant. */
     unattributed_count: number
-    /** The latest synthesis run of any state; null if none has run. */
-    synthesis: VariantsSynthesisStateApi | null
 }
 
 /**

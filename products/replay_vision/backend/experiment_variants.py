@@ -1,12 +1,10 @@
-"""The per-variant readout of an experiment scanner: counts from its observations, prose from its synthesis.
+"""The per-variant readout of an experiment scanner, counted from its observations.
 
-Counts are read from Postgres on every call, so they never lag the observations. The digests and
-differences come from the latest succeeded synthesis of the scanner's current version, and stay
-None until one exists.
+Counts are read from Postgres on every call, so they never lag the observations.
 """
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from django.db.models import Aggregate, Count, FloatField, Max, Min, Q
 from django.db.models.fields.json import KT
@@ -16,10 +14,6 @@ from django.utils import timezone
 from posthog.dataclasses import frozen
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.replay_vision.backend.models.replay_experiment_synthesis import (
-    ReplayExperimentSynthesis,
-    ReplayExperimentSynthesisStatus,
-)
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ReplayObservation,
@@ -63,37 +57,13 @@ class VariantsWindow:
 
 
 @frozen
-class VariantDigestLine:
-    theme_key: str
-    statement: str
-    count: int
-
-
-@frozen
-class VariantDifference:
-    statement: str
-    theme_key: str
-    counts: dict[str, int]
-
-
-@frozen
 class VariantReadout:
     key: str
     observations: int
     distinct_people: int
     median_session_duration_s: float | None
     sampling_rate: float | None
-    # Summaries of this variant the latest synthesis counted: the denominator of its digest and difference counts.
-    synthesis_observations: int | None
-    digest: tuple[VariantDigestLine, ...] | None
     latest_observations: tuple[ReplayObservation, ...]
-
-
-@frozen
-class VariantsSynthesisState:
-    status: str
-    scanner_version: int
-    computed_at: datetime | None
 
 
 @frozen
@@ -101,9 +71,7 @@ class ExperimentVariantsReadout:
     experiment: VariantsExperiment | None
     window: VariantsWindow
     variants: tuple[VariantReadout, ...]
-    differences: tuple[VariantDifference, ...] | None
     unattributed_count: int
-    synthesis: VariantsSynthesisState | None
 
 
 def experiment_variants_readout(
@@ -148,25 +116,6 @@ def experiment_variants_readout(
     watched = list(configured) if configured else [variant.key for variant in context.variants] if context else []
     keys = watched + sorted(key for key in stats if key not in watched)
 
-    synthesis = (
-        ReplayExperimentSynthesis.objects.for_team(scanner.team_id)
-        .filter(scanner=scanner)
-        .order_by("-created_at")
-        .first()
-    )
-    current = (
-        ReplayExperimentSynthesis.objects.for_team(scanner.team_id)
-        .filter(
-            scanner=scanner,
-            scanner_version=scanner.scanner_version,
-            status=ReplayExperimentSynthesisStatus.SUCCEEDED,
-        )
-        .order_by("-computed_at")
-        .first()
-    )
-    digests = current.digests if current is not None and isinstance(current.digests, dict) else None
-    considered = _considered(current.observations_considered) if current is not None else None
-
     variants = []
     for key in keys:
         row = stats.get(key)
@@ -182,8 +131,6 @@ def experiment_variants_readout(
                 distinct_people=row["distinct_people"] if row else 0,
                 median_session_duration_s=row["median_duration"] if row else None,
                 sampling_rate=_sampling_rate(latest[0], key) if latest else None,
-                synthesis_observations=considered.get(key, 0) if considered is not None else None,
-                digest=_digest_lines(digests.get(key)) if digests is not None else None,
                 latest_observations=latest,
             )
         )
@@ -196,15 +143,7 @@ def experiment_variants_readout(
             last_observation_at=window["last"],
         ),
         variants=tuple(variants),
-        differences=_differences(current.differences) if current is not None else None,
         unattributed_count=window["unattributed"],
-        synthesis=(
-            VariantsSynthesisState(
-                status=synthesis.status, scanner_version=synthesis.scanner_version, computed_at=synthesis.computed_at
-            )
-            if synthesis is not None
-            else None
-        ),
     )
 
 
@@ -238,34 +177,4 @@ def _experiment(
         end_date=status.end_date,
         planned_duration_days=status.planned_duration_days,
         current_day=current_day,
-    )
-
-
-def _considered(raw: Any) -> dict[str, int]:
-    if not isinstance(raw, dict):
-        return {}
-    return {str(key): int(value) for key, value in raw.items() if isinstance(value, int)}
-
-
-def _digest_lines(raw: Any) -> tuple[VariantDigestLine, ...]:
-    if not isinstance(raw, list):
-        return ()
-    return tuple(
-        VariantDigestLine(theme_key=str(line["theme_key"]), statement=str(line["statement"]), count=int(line["count"]))
-        for line in raw
-        if isinstance(line, dict) and {"theme_key", "statement", "count"} <= line.keys()
-    )
-
-
-def _differences(raw: Any) -> tuple[VariantDifference, ...]:
-    if not isinstance(raw, list):
-        return ()
-    return tuple(
-        VariantDifference(
-            statement=str(item["statement"]),
-            theme_key=str(item["theme_key"]),
-            counts={str(k): int(v) for k, v in item["counts"].items()},
-        )
-        for item in raw
-        if isinstance(item, dict) and {"statement", "theme_key"} <= item.keys() and isinstance(item.get("counts"), dict)
     )

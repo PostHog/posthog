@@ -44421,15 +44421,6 @@ export namespace Schemas {
       last_observation_at: string | null;
     }
 
-    export interface VariantDigestLine {
-      /** The shared theme this line describes. */
-      theme_key: string;
-      /** The theme as it shows up in this variant. */
-      statement: string;
-      /** This variant's summaries that match the theme. */
-      count: number;
-    }
-
     /**
      * * `configured` - Configured
      * * `inline` - Inline
@@ -44714,62 +44705,8 @@ export namespace Schemas {
          * @nullable
          */
       sampling_rate: number | null;
-      /**
-         * Summaries of this variant the latest synthesis counted: the denominator of its digest and difference counts. Read those counts as shares of this, not of `observations`. Null before one runs.
-         * @nullable
-         */
-      synthesis_observations: number | null;
-      /**
-         * This variant's digest from the latest synthesis; null before one runs.
-         * @nullable
-         */
-      digest: VariantDigestLine[] | null;
       /** This variant's most recent observations, newest first. */
       latest_observations: ReplayObservation[];
-    }
-
-    /**
-     * Summaries matching the theme per variant, `{variant: n}`.
-     */
-    export type VariantDifferenceCounts = {[key: string]: number};
-
-    export interface VariantDifference {
-      /** One thing that differs between variants. */
-      statement: string;
-      /** The shared theme the statement rests on. */
-      theme_key: string;
-      /** Summaries matching the theme per variant, `{variant: n}`. */
-      counts: VariantDifferenceCounts;
-    }
-
-    /**
-     * * `running` - Running
-     * * `succeeded` - Succeeded
-     * * `failed` - Failed
-     */
-    export type ReplayExperimentSynthesisStatusEnum = typeof ReplayExperimentSynthesisStatusEnum[keyof typeof ReplayExperimentSynthesisStatusEnum];
-
-
-    export const ReplayExperimentSynthesisStatusEnum = {
-      Running: 'running',
-      Succeeded: 'succeeded',
-      Failed: 'failed',
-    } as const;
-
-    export interface VariantsSynthesisState {
-      /** The latest synthesis run's state.
-       *
-       * * `running` - Running
-       * * `succeeded` - Succeeded
-       * * `failed` - Failed */
-      status: ReplayExperimentSynthesisStatusEnum;
-      /** The scanner version that run covered. */
-      scanner_version: number;
-      /**
-         * When that run finished.
-         * @nullable
-         */
-      computed_at: string | null;
     }
 
     export interface ExperimentVariantsReadout {
@@ -44779,15 +44716,8 @@ export namespace Schemas {
       window: VariantsWindow;
       /** One entry per watched variant, plus any variant still holding observations. */
       variants: VariantReadout[];
-      /**
-         * What differs between variants, from the latest synthesis of the current scanner version; null before one runs.
-         * @nullable
-         */
-      differences: VariantDifference[] | null;
-      /** Succeeded observations with no attributed variant. They stay out of the synthesis. */
+      /** Succeeded observations with no attributed variant. */
       unattributed_count: number;
-      /** The latest synthesis run of any state; null if none has run. */
-      synthesis: VariantsSynthesisState | null;
     }
 
     /**

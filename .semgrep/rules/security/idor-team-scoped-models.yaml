@@ -330,7 +330,6 @@ rules:
                               |QueueSchedulerState
                               |QuickFilter
                               |QuickFilterContext
-                              |ReplayExperimentSynthesis
                               |ReplayObservation
                               |ReplayObservationLabel
                               |ReplayObservationMedia
@@ -768,7 +767,6 @@ rules:
                         |QueueSchedulerState
                         |QuickFilter
                         |QuickFilterContext
-                        |ReplayExperimentSynthesis
                         |ReplayObservation
                         |ReplayObservationLabel
                         |ReplayObservationMedia

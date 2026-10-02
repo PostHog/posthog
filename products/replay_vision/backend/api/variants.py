@@ -10,7 +10,6 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.replay_vision.backend.api.observations import ReplayObservationSerializer
 from products.replay_vision.backend.experiment_variants import experiment_variants_readout
-from products.replay_vision.backend.models.replay_experiment_synthesis import ReplayExperimentSynthesisStatus
 from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.scanner_access import scanner_for_recording_derived_read
 
@@ -42,20 +41,6 @@ class VariantsWindowSerializer(serializers.Serializer):
     )
 
 
-class VariantDigestLineSerializer(serializers.Serializer):
-    theme_key = serializers.CharField(help_text="The shared theme this line describes.")
-    statement = serializers.CharField(help_text="The theme as it shows up in this variant.")
-    count = serializers.IntegerField(help_text="This variant's summaries that match the theme.")
-
-
-class VariantDifferenceSerializer(serializers.Serializer):
-    statement = serializers.CharField(help_text="One thing that differs between variants.")
-    theme_key = serializers.CharField(help_text="The shared theme the statement rests on.")
-    counts = serializers.DictField(
-        child=serializers.IntegerField(), help_text="Summaries matching the theme per variant, `{variant: n}`."
-    )
-
-
 class VariantReadoutSerializer(serializers.Serializer):
     key = serializers.CharField(help_text="The variant key.")
     observations = serializers.IntegerField(help_text="Succeeded observations attributed to this variant.")
@@ -70,27 +55,9 @@ class VariantReadoutSerializer(serializers.Serializer):
             "counts against it: balanced sampling gives a small variant a higher rate."
         ),
     )
-    synthesis_observations = serializers.IntegerField(
-        allow_null=True,
-        help_text=(
-            "Summaries of this variant the latest synthesis counted: the denominator of its digest and "
-            "difference counts. Read those counts as shares of this, not of `observations`. Null before one runs."
-        ),
-    )
-    digest = VariantDigestLineSerializer(
-        many=True, allow_null=True, help_text="This variant's digest from the latest synthesis; null before one runs."
-    )
     latest_observations = ReplayObservationSerializer(
         many=True, help_text="This variant's most recent observations, newest first."
     )
-
-
-class VariantsSynthesisStateSerializer(serializers.Serializer):
-    status = serializers.ChoiceField(
-        choices=ReplayExperimentSynthesisStatus.choices, help_text="The latest synthesis run's state."
-    )
-    scanner_version = serializers.IntegerField(help_text="The scanner version that run covered.")
-    computed_at = serializers.DateTimeField(allow_null=True, help_text="When that run finished.")
 
 
 class ExperimentVariantsReadoutSerializer(serializers.Serializer):
@@ -101,17 +68,7 @@ class ExperimentVariantsReadoutSerializer(serializers.Serializer):
     variants = VariantReadoutSerializer(
         many=True, help_text="One entry per watched variant, plus any variant still holding observations."
     )
-    differences = VariantDifferenceSerializer(
-        many=True,
-        allow_null=True,
-        help_text="What differs between variants, from the latest synthesis of the current scanner version; null before one runs.",
-    )
-    unattributed_count = serializers.IntegerField(
-        help_text="Succeeded observations with no attributed variant. They stay out of the synthesis."
-    )
-    synthesis = VariantsSynthesisStateSerializer(
-        allow_null=True, help_text="The latest synthesis run of any state; null if none has run."
-    )
+    unattributed_count = serializers.IntegerField(help_text="Succeeded observations with no attributed variant.")
 
 
 class ReplayScannerVariantsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -127,8 +84,7 @@ class ReplayScannerVariantsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         },
         description=(
             "Per-variant readout for an experiment scanner: observation counts, distinct people, median "
-            "session length and sampling rate per variant, read live, plus the digests and differences of "
-            "the latest synthesis."
+            "session length, sampling rate and latest observations per variant, read live."
         ),
     )
     def list(self, request: Request, **kwargs: Any) -> Response:
