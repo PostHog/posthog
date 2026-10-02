@@ -647,6 +647,24 @@ def test_unmapped_provider_rejection_skips_the_run_with_the_provider_message(
     assert "provider_key_state" not in result
 
 
+def test_unmapped_provider_rejection_on_a_posthog_key_still_raises() -> None:
+    with (
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as client,
+    ):
+        spec.return_value.resolve.return_value = MagicMock(
+            provider="openai", model="example-judge-v1", provider_key=None, is_byok=False
+        )
+        client.return_value.complete.side_effect = _openai_status_error(400, "Example field is not supported.")
+        with pytest.raises(openai.APIStatusError):
+            call_llm_judge(
+                evaluation={"id": "test-evaluation", "team_id": 1, "evaluation_config": {"prompt": "Polite?"}},
+                system_prompt="",
+                user_prompt="Hello!",
+                allows_na=False,
+            )
+
+
 def test_status_reason_detail_for_terminal_user_error_only_keeps_truncated_hog_errors():
     hog_spec = require_user_error_spec("hog_error")
     permission_spec = require_user_error_spec("permission_error")

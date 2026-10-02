@@ -831,7 +831,8 @@ def call_llm_judge(
 
     except Exception as e:
         rejected_status = _rejected_request_status(e)
-        if rejected_status is not None:
+        # On a PostHog key a rejection is our bug, so it falls through to error tracking below.
+        if rejected_status is not None and is_byok:
             # A single bad input and a bad configuration look the same here, so skip this run and
             # leave the evaluation and its key alone.
             increment_user_errors("request_rejected", provider=provider)
