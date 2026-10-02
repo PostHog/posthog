@@ -16,6 +16,8 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
+import { toast } from '@posthog/quill-primitives'
+
 import api from 'lib/api'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
@@ -23,6 +25,7 @@ import { urls } from 'scenes/urls'
 import {
     getTasksRunsArtifactsDownloadCreateUrl,
     getTasksRunsArtifactsDownloadRetrieveUrl,
+    tasksRunsArtifactsDismissCreate,
     tasksRunsLivingArtifactsList,
     tasksRunsRetrieve,
 } from 'products/tasks/frontend/generated/api'
@@ -56,6 +59,8 @@ export interface TaskRunArtifactsLogicProps {
 
 export type ArtifactSelectSource = 'click' | 'keyboard'
 
+export type FullPageSource = 'button' | 'keyboard'
+
 export interface ArtifactText {
     artifactId: string
     text: string | null
@@ -83,6 +88,8 @@ export interface taskRunArtifactsLogicValues {
     chainRuns: TaskRunDetailDTOApi[]
     chainRunsLoading: boolean
     commentsOpen: boolean
+    dismissalPending: boolean
+    dismissals: Record<string, boolean>
     files: ArtifactFile[]
     livingArtifacts: TaskRunLivingArtifactResponseApi[]
     livingArtifactsLoading: boolean
@@ -111,6 +118,12 @@ export interface taskRunArtifactsLogicActions {
         payload?: any
         runs: TaskRun[]
     } // taskDetailSceneLogic
+    dismissFile: (fileKey: string) => {
+        fileKey: string
+    }
+    dismissalFailed: () => {
+        value: true
+    }
     downloadArtifact: (artifact: RunArtifact) => {
         artifact: RunArtifact
     }
@@ -184,11 +197,17 @@ export interface taskRunArtifactsLogicActions {
         fileKey: string
         versionId: string | null
     }
+    reportFullPageOpened: (source: FullPageSource) => {
+        source: FullPageSource
+    }
     reportLinkCopied: () => {
         value: true
     }
     reportObjectOpened: (objectKind: string) => {
         objectKind: string
+    }
+    restoreFile: (file: ArtifactFile) => {
+        file: ArtifactFile
     }
     selectArtifact: (
         fileKey: string,
@@ -206,6 +225,15 @@ export interface taskRunArtifactsLogicActions {
     setCommentsOpen: (open: boolean) => {
         open: boolean
     }
+    setFileDismissed: (
+        artifactIds: string[],
+        dismissed: boolean,
+        selectKey: string | null
+    ) => {
+        artifactIds: string[]
+        dismissed: boolean
+        selectKey: string | null
+    }
     stepArtifact: (delta: number) => {
         delta: number
     }
@@ -215,7 +243,11 @@ export interface taskRunArtifactsLogicActions {
 export interface taskRunArtifactsLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        artifacts: (selectedRun: TaskRunDetailDTOApi | null, chainRuns: TaskRunDetailDTOApi[]) => RunArtifact[]
+        artifacts: (
+            selectedRun: TaskRunDetailDTOApi | null,
+            chainRuns: TaskRunDetailDTOApi[],
+            dismissals: Record<string, boolean>
+        ) => RunArtifact[]
         livingFiles: (livingArtifacts: TaskRunLivingArtifactResponseApi[]) => ArtifactFile[]
         files: (artifacts: RunArtifact[], livingFiles: ArtifactFile[]) => ArtifactFile[]
         selectedIndex: (files: ArtifactFile[], selectedFileKey: string | null) => number
@@ -292,6 +324,17 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
         reportLinkCopied: true,
         reportObjectOpened: (objectKind: string) => ({ objectKind }),
         setCommentsOpen: (open: boolean) => ({ open }),
+        reportFullPageOpened: (source: FullPageSource) => ({ source }),
+        // Dismissal covers every version of a file, so the whole entry leaves the list.
+        dismissFile: (fileKey: string) => ({ fileKey }),
+        restoreFile: (file: ArtifactFile) => ({ file }),
+        // `selectKey` is the entry to open after the change: a neighbor after a dismissal, the file after an undo.
+        setFileDismissed: (artifactIds: string[], dismissed: boolean, selectKey: string | null) => ({
+            artifactIds,
+            dismissed,
+            selectKey,
+        }),
+        dismissalFailed: true,
     }),
     loaders(({ props, values }) => ({
         chainRuns: [
@@ -405,7 +448,11 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
         commentsOpen: [false, { setCommentsOpen: (_, { open }) => open }],
         selectedFileKey: [
             null as string | null,
-            { selectArtifact: (_, { fileKey }) => fileKey, openFromUrl: (_, { fileKey }) => fileKey },
+            {
+                selectArtifact: (_, { fileKey }) => fileKey,
+                openFromUrl: (_, { fileKey }) => fileKey,
+                setFileDismissed: (_, { selectKey }) => selectKey,
+            },
         ],
         selectedVersionId: [
             null as string | null,
@@ -413,6 +460,26 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
                 selectArtifact: () => null,
                 selectVersion: (_, { artifactId }) => artifactId,
                 openFromUrl: (_, { versionId }) => versionId,
+                setFileDismissed: () => null,
+            },
+        ],
+        /** Artifact id to the dismissed state this page set. The run manifests can be older than the change. */
+        dismissals: [
+            {} as Record<string, boolean>,
+            {
+                setFileDismissed: (state, { artifactIds, dismissed }) => ({
+                    ...state,
+                    ...Object.fromEntries(artifactIds.map((id) => [id, dismissed])),
+                }),
+            },
+        ],
+        dismissalPending: [
+            false,
+            {
+                dismissFile: () => true,
+                restoreFile: () => true,
+                setFileDismissed: () => false,
+                dismissalFailed: () => false,
             },
         ],
         mediaById: [
@@ -432,9 +499,12 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
     }),
     selectors({
         artifacts: [
-            (s) => [s.selectedRun, s.chainRuns],
-            (selectedRun: TaskRunDetailDTOApi | null, chainRuns: TaskRunDetailDTOApi[]): RunArtifact[] =>
-                collectRunArtifacts([selectedRun, ...chainRuns]),
+            (s) => [s.selectedRun, s.chainRuns, s.dismissals],
+            (
+                selectedRun: TaskRunDetailDTOApi | null,
+                chainRuns: TaskRunDetailDTOApi[],
+                dismissals: Record<string, boolean>
+            ): RunArtifact[] => collectRunArtifacts([selectedRun, ...chainRuns], dismissals),
         ],
         livingFiles: [
             (s) => [s.livingArtifacts],
@@ -525,7 +595,7 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => {
+    listeners(({ actions, values, props }) => {
         const loadSelectedText = (): void => {
             const artifact = values.selectedArtifact
             const kind = values.selectedKind
@@ -553,6 +623,30 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
                 ...(source ? { source } : {}),
             })
         }
+        /** One request per run, because each run holds its own manifest and a file's versions can span runs. */
+        const setDismissed = async (versions: RunArtifact[], dismissed: boolean): Promise<string[]> => {
+            if (values.currentProjectId === null) {
+                throw new Error('No project')
+            }
+            const projectId = String(values.currentProjectId)
+            const idsByRun = new Map<string, string[]>()
+            for (const version of versions) {
+                if (version.id) {
+                    idsByRun.set(version.runId, [...(idsByRun.get(version.runId) ?? []), version.id])
+                }
+            }
+            await Promise.all(
+                [...idsByRun].map(([runId, ids]) =>
+                    tasksRunsArtifactsDismissCreate(projectId, props.taskId, runId, { artifact_ids: ids, dismissed })
+                )
+            )
+            return [...idsByRun.values()].flat()
+        }
+        const dismissalProperties = (file: ArtifactFile): Record<string, unknown> => ({
+            kind: artifactPreviewKind(file.latest),
+            object_kind: postHogObjectRef(file.latest)?.objectKind ?? null,
+            version_count: file.versions.length,
+        })
         return {
             setActiveTab: ({ tab }) => {
                 if (tab === 'artifacts') {
@@ -606,6 +700,50 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
                     posthog.capture('task artifact comments opened', { kind: values.selectedKind })
                 }
             },
+            reportFullPageOpened: ({ source }) => {
+                // pinned: analytics event name and properties. Renaming them breaks insights.
+                posthog.capture('task artifact full page opened', { kind: values.selectedKind, source })
+            },
+            dismissFile: async ({ fileKey }) => {
+                const { files } = values
+                const index = files.findIndex((entry) => entry.key === fileKey)
+                const file = files[index]
+                // No endpoint dismisses a living document, so the toolbar offers no dismissal for one.
+                if (!file || file.latest.living) {
+                    actions.dismissalFailed()
+                    return
+                }
+                let ids: string[]
+                try {
+                    ids = await setDismissed(file.versions, true)
+                } catch {
+                    toast.error({ title: "Couldn't dismiss the artifact. Try again." })
+                    actions.dismissalFailed()
+                    return
+                }
+                // The list keeps its place: the next entry opens, or the one before for the last entry.
+                const neighbor = files[index + 1] ?? files[index - 1] ?? null
+                actions.setFileDismissed(ids, true, neighbor?.key ?? null)
+                // pinned: analytics event name and properties. Renaming them breaks insights.
+                posthog.capture('task artifact dismissed', dismissalProperties(file))
+                toast({
+                    title: `Dismissed ${file.name}`,
+                    action: { label: 'Undo', onClick: () => actions.restoreFile(file) },
+                })
+            },
+            restoreFile: async ({ file }) => {
+                let ids: string[]
+                try {
+                    ids = await setDismissed(file.versions, false)
+                } catch {
+                    toast.error({ title: "Couldn't restore the artifact. Try again." })
+                    actions.dismissalFailed()
+                    return
+                }
+                actions.setFileDismissed(ids, false, file.key)
+                // pinned: analytics event name and properties. Renaming them breaks insights.
+                posthog.capture('task artifact restored', dismissalProperties(file))
+            },
             openFromUrl: ({ versionId }) => {
                 // pinned: analytics event name and properties. Renaming them breaks insights.
                 posthog.capture('task artifact link opened', { has_version: !!versionId })
@@ -630,7 +768,7 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
             }
             return [pathname, next, hashParams, { replace: true }]
         }
-        return { setActiveTab: syncUrl, selectArtifact: syncUrl, selectVersion: syncUrl }
+        return { setActiveTab: syncUrl, selectArtifact: syncUrl, selectVersion: syncUrl, setFileDismissed: syncUrl }
     }),
     urlToAction(({ actions, values, props }) => ({
         '*': (_, searchParams, __, { pathname }) => {
