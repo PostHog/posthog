@@ -1865,7 +1865,6 @@ class PostgresSource(
             has_batches_in_flight,
             served_lanes,
         )
-        from products.warehouse_sources.backend.temporal.data_imports.cdc.types import parse_ingest_mode
 
         if not served_lanes(schema):
             raise ValueError(
@@ -1889,13 +1888,6 @@ class PostgresSource(
                 # A change stream carries no seekable key, and `supports_resume` defaults to True.
                 supports_resume=False,
             )
-
-        if parse_ingest_mode(schema.source.job_inputs) != "buffered":
-            # Until capture converts this legacy source, its buffer holds copies of changes the legacy
-            # lane already delivered, which a read would load a second time. Conversion empties the
-            # buffer before it marks the source buffered.
-            inputs.logger.info("cdc_buffered_waiting_for_legacy_conversion", schema_name=schema.name)
-            return no_op_tick()
 
         # Defense in depth for the v3-forcing invariant: a run that resolved its pipeline version
         # before its table started streaming, or a worker one deploy behind, would consume this
@@ -2047,7 +2039,6 @@ class PostgresSource(
                 # Delta table before this read and a kept cursor would collapse it to one window.
                 is_xmin=schema.is_xmin,
                 xmin_cursor=self.get_cursor_manager(inputs) if schema.is_xmin else None,
-                byte_bounded_extraction=inputs.byte_bounded_extraction,
                 activity_attempt=inputs.activity_attempt,
                 resumable_source_manager=resumable_source_manager,
             )
