@@ -1,6 +1,5 @@
 export interface TopicVocabulary {
     topics: {
-        heading: string
         newTopic: string
         emptyStateThing: string
         emptyStateDescription: string
@@ -27,8 +26,6 @@ export interface TopicVocabulary {
         noTopics: string
     }
     unsubscribedList: {
-        heading: string
-        description: string
         dateColumn: string
         unsubscribe: string
         resubscribe: string
@@ -75,7 +72,6 @@ function forTopic(topicName: string | undefined, prefix: string): string {
 
 export const MESSAGE_CATEGORY_WORDS: TopicVocabulary = {
     topics: {
-        heading: 'Message categories',
         newTopic: 'New category',
         emptyStateThing: 'category',
         emptyStateDescription:
@@ -104,8 +100,6 @@ export const MESSAGE_CATEGORY_WORDS: TopicVocabulary = {
         noTopics: 'Configure message categories in the opt-outs section',
     },
     unsubscribedList: {
-        heading: 'Marketing opt-out list',
-        description: 'Message recipients who have opted out of all marketing messages',
         dateColumn: 'Opt-out date',
         unsubscribe: 'Add opt-out',
         resubscribe: 'Remove opt-out',
@@ -152,7 +146,6 @@ export const MESSAGE_CATEGORY_WORDS: TopicVocabulary = {
 
 export const AUDIENCE_TOPIC_WORDS: TopicVocabulary = {
     topics: {
-        heading: 'Topics',
         newTopic: 'New topic',
         emptyStateThing: 'topic',
         emptyStateDescription: 'Create your first topic, or import topics from Customer.io in the More menu.',
@@ -180,8 +173,6 @@ export const AUDIENCE_TOPIC_WORDS: TopicVocabulary = {
         noTopics: 'Create a topic in Audience first',
     },
     unsubscribedList: {
-        heading: 'Unsubscribed from all marketing',
-        description: 'Recipients who left every marketing topic at once. They still get transactional messages.',
         dateColumn: 'Unsubscribed on',
         unsubscribe: 'Unsubscribe recipient',
         resubscribe: 'Resubscribe',
