@@ -24,6 +24,7 @@ import { shortTimeAgo } from './todayWorkItems'
 export function TodayViewsSidebar(): JSX.Element {
     const {
         recentViews,
+        recentReady,
         recentItems,
         recentViewsLoading,
         recentUnavailable,
@@ -36,7 +37,7 @@ export function TodayViewsSidebar(): JSX.Element {
     const narrowed = recentQuery.trim() !== '' || recentFiltersActive
     const { location } = useValues(router)
     const path = removeProjectIdIfPresent(location.pathname)
-    const failedTypes = recentViews?.failedTypes ?? []
+    const failedTypes = recentViews.failedTypes
     const showAll = matchesPaneQuery('All views', recentQuery)
 
     const retryButton = (size: 'sm' | 'xs'): JSX.Element => (
@@ -88,7 +89,7 @@ export function TodayViewsSidebar(): JSX.Element {
                             dataAttr="today-views-all"
                         />
                     )}
-                    {!recentViews || (recentViewsLoading && !recentItems.length) ? (
+                    {recentUnavailable || !recentReady ? (
                         recentUnavailable ? (
                             <div className="TodayPane__state">
                                 <span>Your views didn’t load.</span>
@@ -111,30 +112,18 @@ export function TodayViewsSidebar(): JSX.Element {
                                 Clear filters
                             </Button>
                         </div>
-                    ) : !recentItems.length && !failedTypes.length && !recentUnavailable ? (
+                    ) : !recentItems.length && !failedTypes.length ? (
                         <div className="TodayPane__state">
                             Canvases, notebooks and dashboards you create show up here.
                         </div>
                     ) : (
                         <>
-                            {(recentUnavailable || failedTypes.length > 0) && (
+                            {failedTypes.length > 0 && (
                                 <div className="TodayPane__state">
                                     <span>
-                                        {recentUnavailable
-                                            ? 'Your views didn’t refresh.'
-                                            : `${failedTypes.map((type) => VIEW_TYPE_INFO[type].pluralLabel).join(' and ')} didn’t load.`}
+                                        {`${failedTypes.map((type) => VIEW_TYPE_INFO[type].pluralLabel).join(' and ')} didn’t load.`}
                                     </span>
                                     {retryButton('xs')}
-                                </div>
-                            )}
-                            {recentViews.truncated && (
-                                <div className="TodayPane__state">
-                                    Some views are not shown. Open All views and use search to find them.
-                                </div>
-                            )}
-                            {recentViewsLoading && (
-                                <div className="TodayPane__state" role="status">
-                                    Loading more views…
                                 </div>
                             )}
                             {recentItems.map((item) => {
