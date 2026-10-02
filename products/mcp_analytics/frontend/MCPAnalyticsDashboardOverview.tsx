@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { Children, type ReactNode } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -140,47 +141,33 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                 <section className="flex min-w-0 flex-col gap-4" data-quill>
                     <h2 className="mb-4 text-xl font-semibold text-primary">Usage</h2>
                     <div className="flex min-w-0 flex-col gap-4">
-                        {(showActivity || showToolUsage) && (
-                            <div
-                                className={cn(
-                                    'grid min-w-0 grid-cols-1 gap-4',
-                                    showActivity && showToolUsage && '@min-[64rem]/mcp-overview:grid-cols-2'
-                                )}
-                            >
-                                {showActivity && (
-                                    <ActivityChart
-                                        daily={dailyActivity}
-                                        loading={activityRowsLoading}
-                                        theme={theme}
-                                        timezone={timezone}
-                                        interval={interval}
-                                        incompleteTail={activityIncompleteTail}
-                                    />
-                                )}
-                                {showToolUsage && (
-                                    <ToolUsageChart
-                                        data={toolDailySeries}
-                                        loading={toolDailyRowsLoading}
-                                        theme={theme}
-                                        timezone={timezone}
-                                        interval={interval}
-                                    />
-                                )}
-                            </div>
-                        )}
-                        {(showHarness || showModel) && (
-                            <div
-                                className={cn(
-                                    'grid min-w-0 grid-cols-1 gap-4',
-                                    showHarness && showModel && '@min-[48rem]/mcp-overview:grid-cols-2'
-                                )}
-                            >
-                                {showHarness && (
-                                    <HarnessBarChart rows={harnessRows} loading={harnessRowsLoading} theme={theme} />
-                                )}
-                                {showModel && <ModelBarChart rows={modelRows} theme={theme} filters={queryFilters} />}
-                            </div>
-                        )}
+                        <CardRow twoColumnsClassName="@min-[64rem]/mcp-overview:grid-cols-2">
+                            {showActivity && (
+                                <ActivityChart
+                                    daily={dailyActivity}
+                                    loading={activityRowsLoading}
+                                    theme={theme}
+                                    timezone={timezone}
+                                    interval={interval}
+                                    incompleteTail={activityIncompleteTail}
+                                />
+                            )}
+                            {showToolUsage && (
+                                <ToolUsageChart
+                                    data={toolDailySeries}
+                                    loading={toolDailyRowsLoading}
+                                    theme={theme}
+                                    timezone={timezone}
+                                    interval={interval}
+                                />
+                            )}
+                        </CardRow>
+                        <CardRow twoColumnsClassName="@min-[48rem]/mcp-overview:grid-cols-2">
+                            {showHarness && (
+                                <HarnessBarChart rows={harnessRows} loading={harnessRowsLoading} theme={theme} />
+                            )}
+                            {showModel && <ModelBarChart rows={modelRows} theme={theme} filters={queryFilters} />}
+                        </CardRow>
                         {showProtocolVersion && <ProtocolVersionStrip rows={protocolVersionRows} theme={theme} />}
                     </div>
                 </section>
@@ -188,22 +175,32 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
             {showReliability && (
                 <section className="flex min-w-0 flex-col gap-4" data-quill>
                     <h2 className="mb-0 text-xl font-semibold text-primary">Reliability</h2>
-                    <div
-                        className={cn(
-                            'grid min-w-0 grid-cols-1 gap-4',
-                            showToolErrors && showNotableSessions && '@min-[64rem]/mcp-overview:grid-cols-2'
-                        )}
-                    >
+                    <CardRow twoColumnsClassName="@min-[64rem]/mcp-overview:grid-cols-2">
                         {showToolErrors && (
                             <ToolErrorRateChart rows={toolRows} loading={toolRowsLoading} theme={theme} />
                         )}
                         {showNotableSessions && (
                             <NotableSessionsTable sessions={notableSessions} loading={sessionRowsLoading} />
                         )}
-                    </div>
+                    </CardRow>
                 </section>
             )}
             {showRecentActivity && <RecentToolCallsCard filters={queryFilters} />}
         </div>
     )
+}
+
+// Pairs cards side by side, falling back to one column when a card in the pair is hidden.
+function CardRow({
+    twoColumnsClassName,
+    children,
+}: {
+    twoColumnsClassName: string
+    children: ReactNode
+}): JSX.Element | null {
+    const cards = Children.toArray(children)
+    if (cards.length === 0) {
+        return null
+    }
+    return <div className={cn('grid min-w-0 grid-cols-1 gap-4', cards.length > 1 && twoColumnsClassName)}>{cards}</div>
 }

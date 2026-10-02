@@ -25,19 +25,19 @@ describe('mcpDashboardCardsLogic', () => {
     it('shows every card by default', () => {
         mountLogic()
 
-        expectLogic(logic).toMatchValues({ hiddenCardIds: [], hiddenCards: [], hiddenCount: 0 })
+        expectLogic(logic).toMatchValues({ hiddenCardIds: [], hiddenCount: 0 })
     })
 
     it.each<{ toggles: McpDashboardCardId[]; hidden: McpDashboardCardId[] }>([
         { toggles: ['model'], hidden: ['model'] },
         { toggles: ['model', 'model'], hidden: [] },
-        { toggles: ['recent-activity', 'kpis'], hidden: ['kpis', 'recent-activity'] },
+        { toggles: ['recent-activity', 'kpis'], hidden: ['recent-activity', 'kpis'] },
     ])('toggling $toggles leaves $hidden hidden', ({ toggles, hidden }) => {
         mountLogic()
 
         toggles.forEach((id) => logic.actions.toggleCard(id))
 
-        expectLogic(logic).toMatchValues({ hiddenCards: hidden, hiddenCount: hidden.length })
+        expectLogic(logic).toMatchValues({ hiddenCardIds: hidden, hiddenCount: hidden.length })
         expect(logic.values.isCardVisible('kpis')).toBe(!hidden.includes('kpis'))
         expect(logic.values.isCardVisible('model')).toBe(!hidden.includes('model'))
     })
@@ -49,7 +49,7 @@ describe('mcpDashboardCardsLogic', () => {
 
         logic.actions.showAllCards()
 
-        expectLogic(logic).toMatchValues({ hiddenCards: [], hiddenCount: 0 })
+        expectLogic(logic).toMatchValues({ hiddenCardIds: [], hiddenCount: 0 })
     })
 
     it('reports each toggle with the resulting hidden state', () => {
@@ -78,7 +78,7 @@ describe('mcpDashboardCardsLogic', () => {
 
         mountLogic()
 
-        expectLogic(logic).toMatchValues({ hiddenCards: ['model'], hiddenCount: 1 })
+        expectLogic(logic).toMatchValues({ hiddenCount: 1 })
         expect(logic.values.isCardVisible('model')).toBe(false)
         expect(logic.values.isCardVisible('harness')).toBe(true)
     })
