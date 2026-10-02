@@ -35,13 +35,13 @@ from products.ai_observability.backend.llm.providers._diagnostics import tagged_
 from products.ai_observability.backend.llm.providers.openrouter import decision_model_ids
 
 
-def is_system_one_model(provider: str | None, model: str | None, *, require_catalogue: bool = False) -> bool:
+def is_system_one_model(provider: str | None, model: str | None) -> bool:
     if provider == "system_one":
         return True
     if provider != "openrouter" or not model:
         return False
     models = decision_model_ids()
-    if models is None and require_catalogue:
+    if models is None:
         raise ProviderConnectionError("Could not load OpenRouter model capabilities. Try again.")
     return model in (models or ())
 
