@@ -63,8 +63,7 @@ rules:
                               |AccountTrackRuleRun
                               |AccountView
                               |Action
-                              |AEOCitationCheck
-                              |AEOPrompt
+                              |ActionSelectorMatchChange
                               |AgentApplication
                               |AgentArtifact
                               |AgentIdentityCredential
@@ -509,6 +508,7 @@ rules:
                         |AccountTrackRuleRun
                         |AccountView
                         |Action
+                        |ActionSelectorMatchChange
                         |AgentApplication
                         |AgentArtifact
                         |AgentIdentityCredential

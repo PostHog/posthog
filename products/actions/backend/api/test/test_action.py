@@ -351,6 +351,36 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             }
         ]
 
+    @parameterized.expand(
+        [
+            ("the step now carries a different selector", [{"selector": ".rewritten"}]),
+            ("the step was removed", []),
+        ]
+    )
+    def test_selector_match_changes_drops_a_verdict_the_action_no_longer_matches(
+        self, _name: str, steps_json: list[dict]
+    ) -> None:
+        action = Action.objects.create(team=self.team, name="edited", steps_json=[{"selector": ".measured"}])
+        ActionSelectorMatchChange.objects.for_team(self.team.id).create(
+            team=self.team,
+            action=action,
+            step_index=0,
+            selector=".measured",
+            old_match_count=900,
+            new_match_count=120,
+            measured_at=datetime(2026, 9, 11, tzinfo=UTC),
+        )
+        action.steps_json = steps_json
+        action.save()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/actions/selector_match_changes/",
+            {"action_ids": str(action.id)},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == []
+
     @time_machine.travel("2021-12-12", tick=False)
     def test_listing_actions_is_not_nplus1(self) -> None:
         # Pre-query to cache things like instance settings
