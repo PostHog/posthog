@@ -47,7 +47,6 @@ from posthog.api.team import (
     TeamWorkflowsConfigSerializer,
     _default_data_color_theme_id,
     _format_serializer_errors,
-    conversations_settings_as_dict,
     get_or_mint_live_events_token,
     handle_experiments_config,
     handle_logs_config,
