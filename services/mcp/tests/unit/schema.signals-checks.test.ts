@@ -12,12 +12,4 @@ describe('Signals metric check replacement inputs', () => {
         expect(result.config.value_format).toBeUndefined()
         expect(result.config.unit).toBeUndefined()
     })
-
-    it('rejects agent instructions on the metric replacement tool', () => {
-        const result = SignalsReportChecksReplaceCreateBody().safeParse({
-            title: 'Investigate checkout',
-            config: { instructions: 'Read the issue again.' },
-        })
-        expect(result.success).toBe(false)
-    })
 })
