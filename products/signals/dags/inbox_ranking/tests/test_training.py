@@ -1068,7 +1068,7 @@ def test_unseen_daily_evaluations_keep_baked_events_at_each_heads_horizon(
 
 @pytest.mark.parametrize("impressions", [0, 1])
 def test_daily_evaluation_keeps_empty_and_single_class_cohorts_explicit(impressions):
-    head = HEADS_BY_NAME["action"]
+    head = HEADS_BY_NAME["discuss"]
     graded = graded_rows(
         _scores(["pending"], head_readable=[False], classification_threshold=[0.2]),
         _labels(["pending"], impression_unit_count=[impressions]),
