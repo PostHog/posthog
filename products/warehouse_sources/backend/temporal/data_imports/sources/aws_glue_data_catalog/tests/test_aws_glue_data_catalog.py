@@ -169,7 +169,7 @@ def test_body_retry_does_not_repeat_transport_retries(status: int, attempts: int
             response({"DatabaseList": []}),
         ]
         client = glue.AwsGlueClient(config(), GLUE_API_VERSION)
-        request = client.request.retry_with(wait=wait_none())
+        request = cast(Any, client.request).retry_with(wait=wait_none())
         if status == 400:
             assert request(client, "GetDatabases", {}) == {"DatabaseList": []}
         else:
