@@ -18,12 +18,12 @@ export default function ObservationBreakdown({
     onSeek: (ms: number) => void
 }): JSX.Element {
     const timeline = useMemo(() => recordingTimeline([observation]), [observation])
-    // The page has no recording length before the player loads, so the last chapter's end closes the rail.
-    const endMs = Math.max(0, ...timeline.chapters.map((c) => c.endMs))
-    const rows = useMemo(() => timelineRows(timeline, endMs), [timeline, endMs])
-    const { currentPlayerTime } = useValues(
+    const { currentPlayerTime, sessionPlayerData } = useValues(
         sessionRecordingPlayerLogic({ playerKey, sessionRecordingId: observation.session_id })
     )
+    // Unknown until the recording loads, and the rail leaves out its end until then.
+    const durationMs = sessionPlayerData.durationMs > 0 ? sessionPlayerData.durationMs : null
+    const rows = useMemo(() => timelineRows(timeline, durationMs), [timeline, durationMs])
     return (
         // Capped so a long recording scrolls inside the tab rather than stretching the column.
         <div className="-mx-2 max-h-[min(36rem,calc(100vh-20rem))] overflow-y-auto">
