@@ -156,8 +156,6 @@ describe('template function in newDashboardLogic', () => {
             jest.restoreAllMocks()
         })
 
-        // Template clicks are ignored while `isLoading` is true. Hiding the modal resets it, so it must stay true
-        // after the modal hides, or a second click during the request creates a duplicate dashboard.
         it('stays loading while the dashboard is created', async () => {
             let resolveCreate: (dashboard: Partial<DashboardType>) => void = () => {}
             jest.spyOn(api, 'create').mockImplementation(

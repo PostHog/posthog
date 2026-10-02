@@ -63,7 +63,7 @@ export function runBlankDashboardFlow(ctx: { isLoading: boolean } & BlankDashboa
     })
 }
 
-/** Closes the templates modal and opens the New dashboard gallery, where PostHog's templates are used. */
+/** Drops `templates` so the manage modal closes, and `templateFilter` so its search does not filter the gallery. */
 export function openNewDashboardGallery(): void {
     const { templates: _templates, templateFilter: _templateFilter, ...searchParams } = router.values.searchParams
     router.actions.push(urls.dashboards(), searchParams, { newDashboard: 'modal' })

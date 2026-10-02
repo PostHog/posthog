@@ -183,7 +183,6 @@ const storySecondTeam: TeamType = {
     project_id: 1002,
 }
 
-/** One organization template owned by this project, and one shared from the other project (read-only here). */
 const organizationTemplates: DashboardTemplateType[] = [
     {
         id: 'tpl-org-own',

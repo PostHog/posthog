@@ -109,6 +109,19 @@ describe('dashboardTemplatesLogic', () => {
         }
     )
 
+    it.each([
+        { filter: 'ch', expected: null },
+        { filter: 'churn', expected: 'churn' },
+    ])('treats "$filter" as search text $expected', async ({ filter, expected }) => {
+        const mounted = dashboardTemplatesLogic({ scope: 'default', templatesTabList: true })
+        logic = mounted
+        mounted.mount()
+
+        await expectLogic(mounted, () => mounted.actions.setTemplateFilter(filter)).toMatchValues({
+            searchText: expected,
+        })
+    })
+
     // The default test user is staff, so the cases above cover the staff list, official templates included.
     it("lists only this project's and the organization's templates for customers, without official ones", async () => {
         userLogic.mount()

@@ -95,6 +95,7 @@ export interface dashboardTemplatesLogicValues {
     allTemplatesLoaded: boolean
     allTemplatesLoading: boolean
     isStaffViewer: boolean
+    searchText: string | null
     templateFilter: string
     templateNameOrdering: DashboardTemplateTableOrdering
     templatesTabVisibility: DashboardTemplatesTabVisibility
@@ -135,7 +136,8 @@ export interface dashboardTemplatesLogicActions {
 export interface dashboardTemplatesLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        isStaffViewer: (user: any) => boolean
+        isStaffViewer: (user: UserType | null) => boolean
+        searchText: (templateFilter: string) => string | null
     }
 }
 
@@ -192,11 +194,15 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
         ],
     }),
     selectors({
-        /** Django `is_staff`. Until the user loads, the bootstrap context keeps staff-only UI from flickering in. */
+        /** Django `is_staff`, not the organization role. Until the user loads, read the bootstrap context so row actions are not blank. */
         isStaffViewer: [
             (s) => [s.user],
-            (user): boolean =>
+            (user: UserType | null): boolean =>
                 user != null ? Boolean(user.is_staff) : Boolean(getAppContext()?.current_user?.is_staff),
+        ],
+        searchText: [
+            (s) => [s.templateFilter],
+            (templateFilter: string): string | null => (templateFilter.length >= 3 ? templateFilter : null),
         ],
     }),
     lazyLoaders(({ props, values }) => ({
@@ -208,7 +214,8 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
                     const featuredOnly = logicProps.listQuery?.is_featured === true
                     // Curated featured list (empty dashboards) must ignore `templateFilter` synced from the URL via
                     // `urlToAction` when the templates modal or another surface leaves `?templateFilter=` on /dashboard.
-                    const useSearch = !featuredOnly && values.templateFilter.length > 2
+                    const search = featuredOnly ? null : values.searchText
+                    const useSearch = search !== null
 
                     let listScope: DashboardTemplateScope | undefined
                     if (logicProps.scope !== 'default' && logicProps.scope !== undefined) {
@@ -229,14 +236,14 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
 
                     const params: DashboardTemplateListParams = {
                         scope: listScope,
-                        search: useSearch ? values.templateFilter : undefined,
+                        search: search ?? undefined,
                         // Search results are relevance-ranked; omit ordering (see API `dangerously_get_queryset`).
                         ordering: useSearch ? undefined : values.templateNameOrdering || undefined,
                         ...logicProps.listQuery,
                     }
-                    // The templates modal is for managing templates. Customers can't manage PostHog's official ones,
-                    // which they use from the New dashboard gallery instead, so "all" means this project's and the
-                    // organization's templates. Staff manage official templates too, so they keep the full list.
+                    // Customers can't manage PostHog's templates, so their "all" list is this project's plus the
+                    // organization's. The API has no scope for that pair, so request both and merge. Staff keep the
+                    // unscoped list.
                     if (logicProps.templatesTabList && listScope === undefined && !values.isStaffViewer) {
                         const [teamPage, organizationPage] = await Promise.all([
                             api.dashboardTemplates.list({ ...params, scope: 'team' }),

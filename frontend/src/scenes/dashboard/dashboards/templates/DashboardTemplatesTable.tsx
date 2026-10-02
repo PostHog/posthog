@@ -76,6 +76,7 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
         templateNameOrdering,
         templatesTabVisibility,
         isStaffViewer: isDjangoStaffForTemplateUi,
+        searchText,
     } = useValues(templatesTableLogic)
     const { setTemplateFilter, setTemplateNameOrdering, setTemplatesTabVisibility } = useActions(templatesTableLogic)
 
@@ -473,9 +474,6 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
             },
         },
     ]
-
-    // Search only applies from three characters (see dashboardTemplatesLogic), so shorter input is not a filter yet.
-    const searchText = templateFilter.length > 2 ? templateFilter : null
 
     return (
         <>

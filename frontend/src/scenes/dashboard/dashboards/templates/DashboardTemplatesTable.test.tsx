@@ -104,12 +104,12 @@ function mountTable({
     isStaff,
     templates,
     dashboardCreationLoading = false,
-    templateFilter = '',
+    searchText = null,
 }: {
     isStaff: boolean
     templates: DashboardTemplateType[]
     dashboardCreationLoading?: boolean
-    templateFilter?: string
+    searchText?: string | null
 }): Record<string, jest.Mock> {
     // One shared action bag for every useActions() caller; the component reads disjoint keys from each.
     const actions: Record<string, jest.Mock> = {
@@ -141,7 +141,8 @@ function mountTable({
         return {
             allTemplates: templates,
             allTemplatesLoading: false,
-            templateFilter,
+            templateFilter: searchText ?? '',
+            searchText,
             templateNameOrdering: '',
             templatesTabVisibility: 'all',
             isStaffViewer: isStaff,
@@ -289,20 +290,13 @@ describe('DashboardTemplatesTable', () => {
         })
 
         it('clears the search and filter when a search matches nothing', () => {
-            const actions = mountTable({ isStaff: false, templates: [], templateFilter: 'churn' })
+            const actions = mountTable({ isStaff: false, templates: [], searchText: 'churn' })
 
             expect(screen.getByText('No templates match "churn"')).toBeInTheDocument()
             fireEvent.click(screen.getByText('Clear filters'))
 
             expect(actions.setTemplateFilter).toHaveBeenCalledWith('')
             expect(actions.setTemplatesTabVisibility).toHaveBeenCalledWith('all')
-        })
-
-        // Search only applies from three characters, so two characters still means "no templates at all".
-        it('treats a search shorter than three characters as no search', () => {
-            mountTable({ isStaff: false, templates: [], templateFilter: 'ch' })
-
-            expect(screen.getByText('No templates yet')).toBeInTheDocument()
         })
     })
 })
