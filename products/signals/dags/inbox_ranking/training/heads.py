@@ -68,7 +68,10 @@ ACTION_LABEL_COLUMNS = UI_ACTION_COLUMNS + SERVER_ACTION_COLUMNS
 
 
 def acted(frame: pd.DataFrame) -> pd.Series:
-    return pd.concat([_count(frame, column) for column in ACTION_LABEL_COLUMNS], axis=1).gt(0).any(axis=1)
+    any_action = pd.Series(False, index=frame.index)
+    for column in ACTION_LABEL_COLUMNS:
+        any_action |= _count(frame, column) > 0
+    return any_action
 
 
 def dismissed_as_wrong(frame: pd.DataFrame) -> pd.Series:
