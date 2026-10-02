@@ -548,7 +548,7 @@ Recognised image resizes on `cdn.shopify.com` and single-label `*.myshopify.com`
 **14.3** The lane never sends a credential. That covers an `Authorization` header, a proxy credential,
 the userinfo of a URL, cookies, and known credential query parameters
 
-**14.4** The lane never sends a `Referer`
+**14.4** Every image request sends `Referer: https://us.posthog.com/`. The lane never sends the URL of the page that showed the image
 
 **14.5** The lane refuses a response where `Content-Length` is over the byte limit
 
