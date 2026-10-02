@@ -107,7 +107,7 @@ export function ReportDiscussionComposer({
             actionType: 'discuss',
             surface: 'detail_pane',
             extra: discussQuestionProperties({
-                source: submitIntent === 'merge_pr' && trimmed !== MERGE_PR_REQUEST ? 'edited_suggestion' : source,
+                source: submitIntent ? (trimmed === MERGE_PR_REQUEST ? 'suggested' : 'edited_suggestion') : source,
                 suggestionCount: suggestions.length + (canMerge ? 1 : 0),
                 intent: submitIntent,
             }),
@@ -144,7 +144,7 @@ export function ReportDiscussionComposer({
                     <Composer.Root
                         value={draft}
                         onChange={changeDraft}
-                        onSubmit={() => submit(draft, intent ? 'suggested' : 'typed', intent)}
+                        onSubmit={() => submit(draft, 'typed', intent)}
                         loading={loading}
                         disabled={loading}
                         disabledReason={disabledReason}
