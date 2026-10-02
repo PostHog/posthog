@@ -119,7 +119,12 @@ class LogsCorrespondence(SourceCorrespondence):
             Team.objects.filter(id__in={team_id for team_id, _ in configurations}).values_list("id", "timezone")
         )
         instants = [check.occurred_at for group in by_alert.values() for check in group]
-        events = self._chains(set(configurations), since=min(instants), until=max(instants))
+        events = self._chains(
+            set(configurations),
+            since=min(instants),
+            until=max(instants),
+            decided_states=frozenset(check.state for group in by_alert.values() for check in group),
+        )
 
         for key, group in by_alert.items():
             configuration = configurations.get(key)
@@ -135,13 +140,14 @@ class LogsCorrespondence(SourceCorrespondence):
         return verdicts
 
     def _chains(
-        self, keys: set[tuple[int, UUID]], *, since: datetime, until: datetime
+        self, keys: set[tuple[int, UUID]], *, since: datetime, until: datetime, decided_states: frozenset[str]
     ) -> dict[UUID, list[LogsAlertEvent]]:
         """Every transition each alert made after `since`, oldest first, keyed by alert.
 
-        Bounded by the window being compared rather than by wall-clock time, plus the one later
-        transition that dates the state a check at the end of the window was in. Reading to the
-        present instead would spend the per-alert bound on transitions no check asks about.
+        Bounded by the window being compared rather than by wall-clock time, plus the few later
+        transitions a check at the end of the window needs: the next one, the next toggle, and the
+        first move into each state a check decided. Reading to the present instead would spend the
+        per-alert bound on transitions no check asks about.
 
         An alert whose chain could not be read whole is left out, so a caller cannot read a
         truncated chain as a complete one.
@@ -174,15 +180,23 @@ class LogsCorrespondence(SourceCorrespondence):
         complete = {alert_id: chain for alert_id, chain in chains.items() if alert_id not in incomplete}
         for chain in complete.values():
             chain.reverse()
-        for row in self._first_after(list(complete), team_ids, until):
-            complete[row.alert_id].append(row)
-        # `enabled` is dated by the first toggle after a check, which can sit past that first row.
-        # Without it an alert disabled after the window reads as disabled throughout it, and every
-        # check in the window becomes a disagreement.
-        for row in self._first_after(list(complete), team_ids, until, kinds=_TOGGLE_KINDS):
-            chain = complete[row.alert_id]
-            if not chain or chain[-1].id != row.id:
-                chain.append(row)
+        later = [
+            *self._first_after(list(complete), team_ids, until),
+            # `enabled` is dated by the first toggle after a check, which can sit past that first row.
+            # Without it an alert disabled after the window reads as disabled throughout it, and every
+            # check in the window becomes a disagreement.
+            *self._first_after(list(complete), team_ids, until, kinds=_TOGGLE_KINDS),
+            # `caught_up_at` is dated by the first move into the state a check decided, which can sit
+            # past both. Without it a source that reached that state in two steps reads as never.
+            *self._first_into(list(complete), team_ids, until, decided_states),
+        ]
+        for alert_id, chain in complete.items():
+            seen = {row.id for row in chain}
+            for row in later:
+                if row.alert_id == alert_id and row.id not in seen:
+                    seen.add(row.id)
+                    chain.append(row)
+            chain.sort(key=lambda row: row.created_at)
         return complete
 
     def _first_after(
@@ -193,6 +207,17 @@ class LogsCorrespondence(SourceCorrespondence):
         if kinds is not None:
             rows = rows.filter(kind__in=kinds)
         return rows.order_by("alert_id", "created_at").distinct("alert_id")
+
+    def _first_into(
+        self, alert_ids: list[UUID], team_ids: set[int], moment: datetime, states: frozenset[str]
+    ) -> QuerySet[LogsAlertEvent]:
+        """The earliest transition each alert made into each of `states` after `moment`."""
+        return (
+            self._events(alert_ids, team_ids)
+            .filter(created_at__gt=moment, state_after__in=states)
+            .order_by("alert_id", "state_after", "created_at")
+            .distinct("alert_id", "state_after")
+        )
 
     def _events(self, alert_ids: list[UUID], team_ids: set[int]) -> QuerySet[LogsAlertEvent]:
         return LogsAlertEvent.objects.filter(

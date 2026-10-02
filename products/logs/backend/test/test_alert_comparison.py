@@ -285,7 +285,17 @@ class TestLogsCorrespondence(BaseTest):
         assert verdict.coverage is SourceCoverage.EVALUATED
         assert verdict.suppressed_by is None
 
-    def test_catching_up_is_the_first_move_into_the_state_not_merely_the_next_move(self) -> None:
+    @parameterized.expand(
+        [
+            # A later check bounds the read past both transitions.
+            ("both transitions inside the window", True),
+            # The read reaches past the window only for the rows it asks for by name.
+            ("both transitions after the last check", False),
+        ]
+    )
+    def test_catching_up_is_the_first_move_into_the_state_not_merely_the_next_move(
+        self, _name: str, later_check: bool
+    ) -> None:
         # Reading only the next transition would book this lag as a genuine disagreement.
         alert = self._alert(state=LogsAlertConfiguration.State.FIRING)
         early = CHECKED_AT - timedelta(minutes=10)
@@ -301,8 +311,7 @@ class TestLogsCorrespondence(BaseTest):
             state_before=LogsAlertConfiguration.State.ERRORED,
             state_after=LogsAlertConfiguration.State.FIRING,
         )
-        # Two instants, so both transitions fall inside the window the read is bounded by.
-        checks = [self._check(alert, at=early), self._check(alert)]
+        checks = [self._check(alert, at=early), *([self._check(alert)] if later_check else [])]
 
         verdicts = LogsCorrespondence().verdicts_for(checks)
 
