@@ -29,7 +29,14 @@ DEFAULT_BATCH_SIZE = 1_000
 CODE_VARIABLES_KEY = "code_variables"
 
 
+# nosemgrep: python.django.security.audit.extends-custom-expression.extends-custom-expression
 class JSONBRemoveKey(Func):
+    """Postgres `jsonb - text`, which returns the JSON object without that key.
+
+    The template and the joiner are fixed. Callers pass a column and a `Value`, which Django sends as a
+    query parameter, so no caller-supplied text reaches the SQL.
+    """
+
     template = "%(expressions)s"
     arg_joiner = " - "
     output_field = JSONField()
