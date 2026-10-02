@@ -4083,6 +4083,7 @@ class TestChunkedRereadAfterRecoveryConflict:
         def __init__(self, rows: list[tuple[Any, ...]]):
             self._rows = rows
             self._statements = 0
+            self.limits: list[int] = []
 
         def rows_for(self, totally_ordered: bool) -> list[tuple[Any, ...]]:
             if totally_ordered:
@@ -4115,6 +4116,8 @@ class TestChunkedRereadAfterRecoveryConflict:
             if offset:
                 rows = rows[int(offset.group(1)) :]
             limit = re.search(r"LIMIT (\d+)", text)
+            if limit:
+                self._scan.limits.append(int(limit.group(1)))
             self._result = rows[: int(limit.group(1))] if limit else rows
 
         def fetchall(self):
@@ -4187,6 +4190,8 @@ class TestChunkedRereadAfterRecoveryConflict:
         pages_to_take: int | None = None,
         arrow_schema: pa.Schema | None = None,
         column_type: str = "integer",
+        chunking: _TableChunking | None = None,
+        byte_bounded_extraction: bool = False,
     ) -> list[int | str]:
         @contextmanager
         def fake_tunnel():
@@ -4209,6 +4214,7 @@ class TestChunkedRereadAfterRecoveryConflict:
         # `get_rows` inserts `_ph_xmin` ahead of the discovered columns, matching the SELECT.
         column_names = [XMIN_PROJECTED_COLUMN, "id"] if is_xmin else ["id"]
         scan = self._Scan(list(rows))
+        self.last_scan = scan
         connection = self._Connection(self._NamedCursor(rows_before_conflict, scan, column_names))
 
         module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
@@ -4223,7 +4229,10 @@ class TestChunkedRereadAfterRecoveryConflict:
             patch(f"{module}._get_primary_keys", return_value=primary_keys),
             patch(f"{module}._has_duplicate_primary_keys", return_value=has_duplicate_pks),
             patch(f"{module}._is_partitioned_table", return_value=False),
-            patch(f"{module}._get_table_chunk_size", return_value=_TableChunking(batch_rows=2, fetch_rows=2)),
+            patch(
+                f"{module}._get_table_chunk_size",
+                return_value=chunking or _TableChunking(batch_rows=2, fetch_rows=2),
+            ),
             patch(f"{module}._get_rows_to_sync", return_value=len(rows)),
             patch(f"{module}._capture_xmin_ceiling", return_value=self._XMIN_BOUNDS),
             patch(f"{module}._role_subject_to_rls", return_value=False),
@@ -4248,6 +4257,7 @@ class TestChunkedRereadAfterRecoveryConflict:
                 activity_attempt=activity_attempt,
                 resumable_source_manager=resumable_source_manager,
                 keyset_full_load_enabled=keyset_full_load_enabled,
+                byte_bounded_extraction=byte_bounded_extraction,
             )
             self.last_response = response
             pages = cast(Iterator[Any], iter(cast(Iterable[Any], response.items())))
@@ -4516,6 +4526,48 @@ class TestChunkedRereadAfterRecoveryConflict:
         # Rows at or below the checkpoint are never re-read, which is what makes a resumed load
         # append-safe: the pipeline appends after batch 0 rather than overwriting.
         assert ids and all(isinstance(row_id, int) and row_id > 2 for row_id in ids)
+
+    # One id column measures 16 bytes, so a 40-byte budget holds two rows per batch.
+    _TWO_ROW_BUDGET = 40
+
+    def test_a_seek_page_never_asks_for_more_than_the_measured_page_size(self):
+        with patch.object(batching, "EXTRACT_BATCH_MAX_BYTES", self._TWO_ROW_BUDGET):
+            ids = self._read_ids(
+                should_use_incremental_field=False,
+                rows_before_conflict=0,
+                primary_keys=["id"],
+                chunking=_TableChunking(batch_rows=6, fetch_rows=4),
+                byte_bounded_extraction=True,
+            )
+
+        assert ids == [row[0] for row in self._ROWS]
+        # A page of the 6-row batch size would hold the whole table in one statement.
+        assert self.last_scan.limits[0] == 4
+        assert max(self.last_scan.limits) == 4
+        # Once a page shows what a row weighs, a page holds no more than one batch budget.
+        assert self.last_scan.limits[-1] == 2
+
+    def test_a_batch_that_ends_inside_a_page_checkpoints_its_own_last_row(self):
+        # The first page reads rows 1 to 4, and the byte budget closes the first batch after row 2.
+        # A checkpoint on the read position would resume past rows 3 and 4, which nothing wrote.
+        manager = MagicMock()
+        manager.can_resume.return_value = False
+
+        with patch.object(batching, "EXTRACT_BATCH_MAX_BYTES", self._TWO_ROW_BUDGET):
+            ids = self._read_ids(
+                should_use_incremental_field=False,
+                rows_before_conflict=0,
+                primary_keys=["id"],
+                resumable_source_manager=manager,
+                chunking=_TableChunking(batch_rows=6, fetch_rows=4),
+                byte_bounded_extraction=True,
+                pages_to_take=2,
+            )
+
+        assert ids == [1, 2, 3, 4]
+        assert [saved.args[0] for saved in manager.save_state.call_args_list] == [
+            KeysetResumeState(last_key=2, last_keys=[2])
+        ]
 
 
 class TestCheckKeysetPagePlan:
