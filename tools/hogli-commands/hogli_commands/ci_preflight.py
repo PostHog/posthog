@@ -50,6 +50,7 @@ from hogli_commands.complexity_lint import PYTHON_SCOPE, TEST_WARN_AT, TYPESCRIP
 from hogli_commands.depot_mirrors import mirror_violations
 from hogli_commands.devenv.generator import TRACKED_MPROCS_FILES
 from hogli_commands.lockfile_merge import LOCKFILE_GLOBS, missing_resolutions
+from hogli_commands.preflight_checks import FUNCTION_CHECKS, Scope, Status
 from hogli_commands.projections import all_outputs as projection_outputs
 from hogli_commands.size_lint import SCOPE as SIZE_SCOPE
 
@@ -234,6 +235,21 @@ DIFF_CHECKS: list[DiffCheck] = [
         takes_files=True,
     ),
     DiffCheck(
+        key="frontend-format",
+        label="frontend formatting (oxfmt)",
+        # The trees and extensions `format:frontend:check` covers in CI.
+        triggers=[
+            f"{tree}/*.{ext}"
+            for tree in ("products", "frontend/src", "docs")
+            for ext in ("js", "mjs", "ts", "tsx", "json", "yaml", "yml", "css", "scss")
+        ],
+        # Mirrors lint-staged's `format:js`, which agents bypass via --no-verify.
+        verify=["pnpm", "exec", "oxfmt", "--check", "--no-error-on-unmatched-pattern"],
+        fix=["pnpm", "exec", "oxfmt", "--no-error-on-unmatched-pattern"],
+        requires=("node",),
+        takes_files=True,
+    ),
+    DiffCheck(
         key="feature-flags",
         label="FEATURE_FLAGS not alphabetically sorted",
         triggers=["frontend/src/lib/constants.tsx"],
@@ -375,8 +391,6 @@ def _capability_met(req: Requirement) -> bool:
 def _unmet(chk: DiffCheck) -> list[Requirement]:
     return [req for req in chk.requires if not _capability_met(req)]
 
-
-Status = Literal["pass", "fail", "warning", "advisory", "skipped"]
 
 # Generous: pnpm installs and migrations:check are legitimately slow, but a wedged
 # command must not hang the agent loop forever (output is captured, not streamed).
@@ -817,9 +831,22 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
             click.secho(f"   {_ICON[status]} [{chk.key}] {chk.label}", fg=_COLOR[status])
             click.echo(f"       {len(chk.matched)} file(s) · {detail}")
 
+    function_keys: list[str] = []
+    for function_check in FUNCTION_CHECKS:
+        matched = [f for f in files if matches_globs(f, function_check.triggers)]
+        if not matched:
+            continue
+        function_keys.append(function_check.key)
+        status, detail = function_check.run(Scope(files=matched, changed=files, base=base, committed_only=strict))
+        failures += status == "fail"
+        results.append({"check": function_check.key, "status": status, "files": len(matched), "detail": detail})
+        if not as_json:
+            click.secho(f"   {_ICON[status]} [{function_check.key}] {function_check.label}", fg=_COLOR[status])
+            click.echo(f"       {len(matched)} file(s) · {detail}")
+
     summary = {
         "changed_files": len(files),
-        "triggered": (["shadow-drift"] if shadow_drift_triggered else []) + [c.key for c in triggered],
+        "triggered": (["shadow-drift"] if shadow_drift_triggered else []) + [c.key for c in triggered] + function_keys,
         "failures": failures,
         "advisories": advisories,
         "mode": "fix" if do_fix else ("strict" if strict else "advisory"),
@@ -829,7 +856,7 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
     if as_json:
         click.echo(json.dumps(summary))
     else:
-        if not triggered and not shadow_drift_triggered:
+        if not triggered and not shadow_drift_triggered and not function_keys:
             click.secho("   ✓ Nothing in this diff maps to a known CI failure class.", fg="green")
         click.echo()
         click.echo(

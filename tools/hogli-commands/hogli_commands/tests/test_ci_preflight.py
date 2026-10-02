@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -10,8 +11,39 @@ from hogli.cli import cli
 from hogli.manifest import REPO_ROOT
 from hogli_commands.change_detection import matches_globs
 from hogli_commands.ci_preflight import DIFF_CHECKS, _pnpm_workspace_root, _run_workspace_scoped, _staleness_risks
+from hogli_commands.preflight_checks import FunctionCheck, Status
 
 runner = CliRunner()
+
+
+@pytest.fixture(autouse=True)
+def no_function_checks() -> Iterator[None]:
+    # The real ones shell out to node and semgrep on any changed path.
+    with patch("hogli_commands.ci_preflight.FUNCTION_CHECKS", []):
+        yield
+
+
+class TestFunctionChecks:
+    @pytest.mark.parametrize("status,expected_exit", [("fail", 1), ("warning", 0), ("skipped", 0)])
+    @patch("hogli_commands.ci_preflight._emit_telemetry")
+    @patch("hogli_commands.ci_preflight._staleness", return_value=("pass", "even with master", {}))
+    @patch("hogli_commands.ci_preflight._fetch_master")
+    @patch("hogli_commands.ci_preflight.changed_files", return_value=["frontend/snapshots.yml"])
+    def test_only_a_failed_function_check_blocks_the_push(
+        self,
+        mock_changed: MagicMock,
+        mock_fetch: MagicMock,
+        mock_stale: MagicMock,
+        mock_emit: MagicMock,
+        status: Status,
+        expected_exit: int,
+    ) -> None:
+        check = FunctionCheck(key="probe", label="probe", triggers=["frontend/*"], run=lambda scope: (status, "detail"))
+        with patch("hogli_commands.ci_preflight.FUNCTION_CHECKS", [check]):
+            result = runner.invoke(cli, ["ci:preflight", "--strict"])
+
+        assert result.exit_code == expected_exit
+        assert "[probe]" in result.output
 
 
 class TestKillSwitch:
