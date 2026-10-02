@@ -397,20 +397,24 @@ impl MergeEntrance {
     ) -> Result<(Person, bool), Status> {
         let target_did = &request.target_distinct_id;
 
-        // Eligibility applies the identified-source policy here, not just
-        // in the saga: surviving would attach the target to the source's
-        // person and settle the pair as a same-person no-op, so the saga's
-        // refusal would never run and any identify request could alias its
-        // unresolved target onto a known identified person. An ineligible
-        // source instead classifies against the birthed target, where the
-        // saga refuses it as skipped_already_identified.
-        let first_resolved = request
+        // Sources decide in request order, as one-at-a-time identifies would:
+        // the first eligible source survives if it has a person, and a
+        // personless one births the target. An identified source is skipped
+        // unless allowed, so the saga still refuses it rather than aliasing
+        // the target onto it.
+        let first_eligible = request
             .sources
             .iter()
-            .filter(|s| !is_distinct_id_illegal(&s.source_distinct_id))
-            .filter_map(|s| resolved.get(&(request.team_id, s.source_distinct_id.clone())))
-            .find(|person| request.allow_identified_sources || !person.is_identified);
-        if let Some(survivor) = first_resolved {
+            .filter(|s| {
+                !is_distinct_id_illegal(&s.source_distinct_id)
+                    && !is_distinct_id_oversized(&s.source_distinct_id)
+            })
+            .map(|s| resolved.get(&(request.team_id, s.source_distinct_id.clone())))
+            .find(|person| {
+                person.is_none_or(|p| request.allow_identified_sources || !p.is_identified)
+            })
+            .flatten();
+        if let Some(survivor) = first_eligible {
             let attached = self
                 .storage
                 .attach_distinct_ids(
