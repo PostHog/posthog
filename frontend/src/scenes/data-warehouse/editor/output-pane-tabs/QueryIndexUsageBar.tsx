@@ -5,12 +5,14 @@ import { IconInfo, IconWarning } from '@posthog/icons'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 
 import {
+    CostPlanStep,
     PredicateIndexUsage,
     PredicateQuickfix,
     ScanEstimate,
     ScanEstimateSource,
 } from '~/queries/schema/schema-general'
 
+import { QueryCostPlan } from './QueryCostPlan'
 import { QueryIndexUsageTable } from './QueryIndexUsageTable'
 import { summarizeQueryScan } from './queryScanSummary'
 import { QueryScanTablesTable } from './QueryScanTablesTable'
@@ -18,6 +20,8 @@ import { QueryScanTablesTable } from './QueryScanTablesTable'
 interface QueryIndexUsageBarProps {
     predicates: PredicateIndexUsage[]
     estimate?: ScanEstimate | null
+    /** The plan that explains the estimate. It replaces the per-table list; the filter table stays because it carries the quickfix actions. */
+    plan?: CostPlanStep[] | null
     /** A refresh is in flight, so the report still describes the SQL the server last saw. */
     refreshing?: boolean
     /** The report does not describe the text the editor holds, so its offsets would land elsewhere. */
@@ -30,6 +34,7 @@ interface QueryIndexUsageBarProps {
 export function QueryIndexUsageBar({
     predicates,
     estimate,
+    plan,
     refreshing,
     stale,
     onApplyQuickfix,
@@ -58,8 +63,10 @@ export function QueryIndexUsageBar({
         !!estimate &&
         (estimate.tables.length > 1 || estimate.tables.some((table) => table.source !== ScanEstimateSource.Events))
 
+    const hasPlan = !!plan && plan.length > 0
+
     // With nothing to expand, the header stands alone instead of opening an empty panel.
-    if (predicates.length === 0 && !showTables) {
+    if (predicates.length === 0 && !showTables && !hasPlan) {
         return (
             <div
                 className={clsx('border-b px-2 py-1.5', refreshing && 'opacity-60')}
@@ -82,7 +89,11 @@ export function QueryIndexUsageBar({
                     header,
                     content: (
                         <>
-                            {showTables && estimate ? <QueryScanTablesTable estimate={estimate} /> : null}
+                            {hasPlan && plan ? (
+                                <QueryCostPlan steps={plan} />
+                            ) : showTables && estimate ? (
+                                <QueryScanTablesTable estimate={estimate} />
+                            ) : null}
                             <QueryIndexUsageTable
                                 predicates={predicates}
                                 stale={stale}

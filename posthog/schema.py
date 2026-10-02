@@ -71,6 +71,7 @@ from posthog.schema_enums import (
     ConversionRateInputType as ConversionRateInputType,
     CoreEventCategory as CoreEventCategory,
     CorrelationType as CorrelationType,
+    CostPlanStepKind as CostPlanStepKind,
     CountPerActorMathType as CountPerActorMathType,
     CurrencyCode as CurrencyCode,
     Curve as Curve,
@@ -4968,6 +4969,28 @@ class CohortPropertyFilter(BaseModel):
     operator: PropertyOperator | None = PropertyOperator.IN_
     type: Literal["cohort"] = "cohort"
     value: int
+
+
+class CostPlanStep(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    ai_fix_prompt: str | None = Field(
+        default=None,
+        description=('Instruction for the editor\'s "Fix with AI" action, set only where rewriting the query helps.'),
+    )
+    detail: str | None = Field(
+        default=None,
+        description="The rest of the story for a reader who expands the line.",
+    )
+    fix: str | None = Field(default=None, description="Prose advice for a reader. Not replacement text.")
+    kind: CostPlanStepKind
+    message: str = Field(..., description="One line, the way an EXPLAIN prints it.")
+    rows: int | None = None
+    table: str | None = Field(
+        default=None,
+        description="The table the step reads or filters, as the query names it.",
+    )
 
 
 class CustomBotCondition(BaseModel):
@@ -25110,6 +25133,14 @@ class ScanEstimate(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    complete: bool = Field(
+        ...,
+        description=(
+            "False when the query reads a table somewhere the estimate does not follow,"
+            " such as a subquery in WHERE or in the select list, so `rows` leaves that"
+            " read out."
+        ),
+    )
     rows: int = Field(..., description="Sum of the rows of every table entry that has one.")
     tables: list[TableScanEstimate]
     upper_bound: bool = Field(
@@ -25117,7 +25148,8 @@ class ScanEstimate(BaseModel):
         description=(
             "True when the query reads at most `rows` of the tables that have a number:"
             " an indexed filter went unmodeled, or a table is known only by its size."
-            " False when every table is measured."
+            " False when every table that has a number is measured. A table with no"
+            " number is not in `rows` at all; its `precision` says so."
         ),
     )
 
@@ -27639,6 +27671,14 @@ class HogQLMetadataResponse(BaseModel):
         extra="forbid",
     )
     ch_table_names: list[str] | None = None
+    cost_plan: list[CostPlanStep] | None = Field(
+        default=None,
+        description=(
+            "The estimate and the index verdicts as one readable plan: scans in FROM"
+            " order, each with its filters, then the join. Present whenever"
+            " `scan_estimate` is."
+        ),
+    )
     errors: list[HogQLNotice]
     index_usage: list[PredicateIndexUsage] | None = Field(
         default=None, description="One entry per property filter, in query order."
@@ -27650,9 +27690,9 @@ class HogQLMetadataResponse(BaseModel):
     scan_estimate: ScanEstimate | None = Field(
         default=None,
         description=(
-            "Present when the query reads at least one table, directly or through"
-            " subqueries, CTEs, UNIONs and joins. Absent when the FROM tree cannot be"
-            " walked."
+            "Present when the estimator walked the query; `tables` is empty for a query"
+            " that reads no table. Absent when the FROM tree cannot be walked or the"
+            " estimator failed."
         ),
     )
     table_names: list[str] | None = None
@@ -28800,6 +28840,14 @@ class QueryResponseAlternative9(BaseModel):
         extra="forbid",
     )
     ch_table_names: list[str] | None = None
+    cost_plan: list[CostPlanStep] | None = Field(
+        default=None,
+        description=(
+            "The estimate and the index verdicts as one readable plan: scans in FROM"
+            " order, each with its filters, then the join. Present whenever"
+            " `scan_estimate` is."
+        ),
+    )
     errors: list[HogQLNotice]
     index_usage: list[PredicateIndexUsage] | None = Field(
         default=None, description="One entry per property filter, in query order."
@@ -28811,9 +28859,9 @@ class QueryResponseAlternative9(BaseModel):
     scan_estimate: ScanEstimate | None = Field(
         default=None,
         description=(
-            "Present when the query reads at least one table, directly or through"
-            " subqueries, CTEs, UNIONs and joins. Absent when the FROM tree cannot be"
-            " walked."
+            "Present when the estimator walked the query; `tables` is empty for a query"
+            " that reads no table. Absent when the FROM tree cannot be walked or the"
+            " estimator failed."
         ),
     )
     table_names: list[str] | None = None

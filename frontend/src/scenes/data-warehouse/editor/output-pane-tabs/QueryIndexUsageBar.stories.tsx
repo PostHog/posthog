@@ -1,6 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
 import {
+    CostPlanStep,
+    CostPlanStepKind,
     PredicateFixAction,
     PredicateIndexUsage,
     PredicateIndexVerdict,
@@ -126,6 +128,7 @@ export const RefreshingAfterAnEdit: Story = {
 const SMALL_SCAN: ScanEstimate = {
     rows: 42_000_000,
     upper_bound: false,
+    complete: true,
     tables: [
         {
             name: 'events',
@@ -141,6 +144,7 @@ const SMALL_SCAN: ScanEstimate = {
 const LARGE_OPEN_SCAN: ScanEstimate = {
     rows: 2_100_000_000,
     upper_bound: true,
+    complete: true,
     tables: [
         {
             name: 'events',
@@ -156,6 +160,7 @@ const LARGE_OPEN_SCAN: ScanEstimate = {
 const MULTI_TABLE_SCAN: ScanEstimate = {
     rows: 42_200_000,
     upper_bound: true,
+    complete: true,
     tables: [
         {
             name: 'events',
@@ -197,6 +202,55 @@ export const MultipleTables: Story = {
     render: () => (
         <div className="max-w-3xl">
             <QueryIndexUsageBar predicates={[]} estimate={MULTI_TABLE_SCAN} />
+        </div>
+    ),
+}
+
+const COST_PLAN: CostPlanStep[] = [
+    {
+        kind: CostPlanStepKind.Scan,
+        table: 'events',
+        rows: 41_000_000,
+        message: 'Scan events, about 41M rows (30 days)',
+        detail: 'Events per day for the team, scaled to the timestamp range and narrowed to $pageview.',
+    },
+    {
+        kind: CostPlanStepKind.Filter,
+        table: 'events',
+        message: 'Filter $browser = … skips almost nothing',
+        detail: "Event property '$browser' has a bloom filter index that covers this comparison. How much data it skips depends on how the values are spread across the table.",
+    },
+    {
+        kind: CostPlanStepKind.Filter,
+        table: 'events',
+        message: 'Filter duration > … index unused, reads every row',
+        detail: "Event property 'duration' is stored as String but compared as Float, so every row is converted before the filter runs and the index on 'duration' cannot skip any data.",
+        fix: "If 'duration' does not really hold a number, correct its type in data management.",
+    },
+    {
+        kind: CostPlanStepKind.Scan,
+        table: 'stripe_charges',
+        rows: 1_200_000,
+        message: 'Scan stripe_charges, up to 1.2M rows, 340.0 MB on disk',
+        detail: 'The whole table as it was last measured. How much of it the query reads is not estimated.',
+    },
+    {
+        kind: CostPlanStepKind.Scan,
+        table: 'persons',
+        message: 'Scan persons, size unknown',
+        detail: 'No statistics for this table yet, so it is not counted in the total.',
+    },
+    {
+        kind: CostPlanStepKind.Join,
+        message: 'Join 3 tables. Rows after the join are not estimated.',
+        detail: 'The estimate sums what each side reads. How many rows survive the join depends on the keys, which the planner does not model yet.',
+    },
+]
+
+export const CostPlan: Story = {
+    render: () => (
+        <div className="max-w-3xl">
+            <QueryIndexUsageBar predicates={PREDICATES.slice(0, 2)} estimate={MULTI_TABLE_SCAN} plan={COST_PLAN} />
         </div>
     ),
 }

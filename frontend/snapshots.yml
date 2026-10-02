@@ -9230,6 +9230,10 @@ snapshots:
         hash: v1.k794b7964.3e598e6645c85b66f8d99d61d246a27543a442114e59a6ceb7885665eb0b3c00.xC1QPAqJC2_Tv9MWo-5vlWwIuFrBJW0c_NlgHcqgtk4
     scenes-app-data-warehouse-materialization-run-error--failed-run--light:
         hash: v1.k794b7964.3a2c58f628b7d667f952292d9d43dcdf6d2913eb3a01a3099fa4eab32220174d.VSLYjeyt9_Q19m7xyVgHq4EThsaZ_ZWKJve8NFPH7zI
+    scenes-app-data-warehouse-query-index-usage--cost-plan--dark:
+        hash: v1.k794b7964.3e388c5b8078905896c014f1b9936a8a77710415b5e6b04aebf2251a465031e7.StOHZSnMlFiJ1QxjuZwyjamWmYt90VwURVPd5lGqFMo
+    scenes-app-data-warehouse-query-index-usage--cost-plan--light:
+        hash: v1.k794b7964.7200fdcd8745cf2688ba434da0fa0e468ae0f7387a599135d30e50cba08e0fe4.reKlcCdnUMDxWFTVpfrAuUuh0msynxHK72NgnIm5YeQ
     scenes-app-data-warehouse-query-index-usage--every-filter-indexed--dark:
         hash: v1.k794b7964.5593a848fb86d8d93d2d347b17de81b878cff3e9d69ccf976562e60bddeb71fa.-EnSwW5B20DYmE0dRl-8VfENfxJMJrMl-vWmmkJ1sG0
     scenes-app-data-warehouse-query-index-usage--every-filter-indexed--light:
@@ -9239,9 +9243,9 @@ snapshots:
     scenes-app-data-warehouse-query-index-usage--large-scan-without-filters--light:
         hash: v1.k794b7964.9c11c64e298ff6973d11619e3d90a8253aa8b27405637fab99e636550497191b.lWSYzTorqkDF9mFSlBQ_NOcP2WUtxOwjXAXmOJDmjm0
     scenes-app-data-warehouse-query-index-usage--multiple-tables--dark:
-        hash: v1.k794b7964.aa34a4984b356671239ea92fe6984aaede3e44f5413a02910c969a643d2dc27a.pHPKSFxV_2gaDiGxcAr0xS-P5D4DLZlpa7pU564K8AE
+        hash: v1.k794b7964.47c9b18c6425d0053b5d5b750edbeaa8555fbd1a9f06ec103410842c0bfd1c5f.QZz9fXmrazXA1920_uI9ZSIi9bnuMsa2c9e1-jds3cs
     scenes-app-data-warehouse-query-index-usage--multiple-tables--light:
-        hash: v1.k794b7964.ae6201854e64f77934f0d4f1388c7de13c8e5033192e5d69d1872c356883daa7.QSyRw_KlT5OR-8b-ABkfgQYtR3jK8XhUesusHNS42Tw
+        hash: v1.k794b7964.43dfe3089ca699638baeed269746b74a16f71531191a5f83a132909425677c9e.pwU72sj2h0bWMZBmGmeG4cfwbs4lvpGZzYGrRlstaBE
     scenes-app-data-warehouse-query-index-usage--refreshing-after-an-edit--dark:
         hash: v1.k794b7964.d8463b228804c60d64d51e22fcffa9273f3a5b0bef2afe568595b67b7fbf1f12.0-hQ9B45BR4xiMZcnPZcUMk0OuSZsEvkt4OB7J1XR1w
     scenes-app-data-warehouse-query-index-usage--refreshing-after-an-edit--light:
