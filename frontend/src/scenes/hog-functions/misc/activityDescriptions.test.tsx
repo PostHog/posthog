@@ -35,13 +35,14 @@ describe('hogFunctionActivityDescriber', () => {
             notification: 'A user updated the input region for the hog function: Example destination',
         },
         {
-            name: 'names the changed keys of masked inputs',
+            name: 'names the changed keys of masked inputs and skips the compiled code',
             changes: [
                 {
                     field: 'inputs',
                     before: { region: 'masked', format: 'masked' },
                     after: { region: 'changed', format: 'masked' },
                 },
+                { field: 'transpiled', before: 'masked', after: 'masked' },
             ],
             summary: 'updated input: region',
             notification: 'A user updated the input region for the hog function: Example destination',
