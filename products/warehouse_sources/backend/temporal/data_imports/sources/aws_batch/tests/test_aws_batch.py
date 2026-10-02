@@ -9,7 +9,10 @@ from unittest.mock import MagicMock, patch
 import requests
 from tenacity import wait_none
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_batch import aws_batch as transport
+from products.warehouse_sources.backend.temporal.data_imports.sources.aws_batch import (
+    aws_batch as transport,
+    source as source_module,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_batch.aws_batch import (
     AwsBatchClient,
     AwsBatchError,
@@ -57,6 +60,20 @@ def response(payload: Any, status: int = 200, headers: dict[str, str] | None = N
     result._content = json.dumps(payload).encode()
     result.headers.update(headers or {})
     return result
+
+
+def test_source_adapter_delegates_validation_and_manager_creation(config: AwsBatchSourceConfig) -> None:
+    source = AwsBatchSource()
+    inputs = MagicMock(spec=SourceInputs)
+    manager = MagicMock(spec=ResumableSourceManager)
+    with (
+        patch.object(source_module, "validate_credentials", return_value=(True, None)) as validate,
+        patch.object(source_module, "ResumableSourceManager", return_value=manager) as manager_factory,
+    ):
+        assert source.validate_credentials(config, team_id=1, schema_name="jobs") == (True, None)
+        assert source.get_resumable_source_manager(inputs) is manager
+    validate.assert_called_once_with(config, "jobs", BATCH_API_VERSION)
+    manager_factory.assert_called_once_with(inputs, AwsBatchResumeConfig)
 
 
 @pytest.mark.parametrize(
