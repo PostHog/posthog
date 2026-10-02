@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.http import HttpResponse
+from django.template.loader import render_to_string
 from django.test import RequestFactory
 
 from parameterized import parameterized
@@ -59,6 +60,16 @@ class TestGetContextForTemplate(APIBaseTest):
             )
 
         assert actual["stripe_public_key"] == "pk_test_12345"
+
+    def test_renders_one_origin_trial_meta_tag_per_token(self):
+        request = RequestFactory().get("/")
+        request.user = AnonymousUser()
+        with self.settings(ORIGIN_TRIAL_TOKENS=["tokenA+/=", "tokenB"]):
+            html = render_to_string("head.html", get_context_for_template("layout", request), request=request)
+
+        assert html.count('http-equiv="origin-trial"') == 2
+        assert '<meta http-equiv="origin-trial" content="tokenA+/=">' in html
+        assert '<meta http-equiv="origin-trial" content="tokenB">' in html
 
     @parameterized.expand(
         [

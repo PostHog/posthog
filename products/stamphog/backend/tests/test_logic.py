@@ -134,7 +134,7 @@ class RefusalSummaryTests(SimpleTestCase):
             summary = summarize_refusal(
                 gateway_root="https://ai-gateway.test",
                 token="phe_test",
-                model="claude-sonnet-5",
+                model="claude-sonnet-5-5",
                 gates=[],
                 pr={},
                 files=[],

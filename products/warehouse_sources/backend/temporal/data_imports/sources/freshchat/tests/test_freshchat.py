@@ -1,5 +1,7 @@
 import json
+from collections.abc import Callable
 from typing import Any, Optional
+from urllib.parse import urlsplit
 
 import pytest
 from unittest import mock
@@ -90,6 +92,29 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, 
     return param_snapshots
 
 
+def _wire_routed(
+    session: mock.MagicMock, handler: Callable[[str, dict[str, Any]], Response]
+) -> list[tuple[str, dict[str, Any]]]:
+    """Wire a mock session whose response is chosen by the request path.
+
+    Fan-out interleaves parent and child requests, so a fixed response list cannot express
+    "this path answers with that page". Returns the (path, params) log in call order.
+    """
+    session.headers = {}
+    calls: list[tuple[str, dict[str, Any]]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        prepared = mock.MagicMock()
+        prepared.url = request.url
+        prepared.fc_call = (urlsplit(request.url).path, dict(request.params or {}))
+        calls.append(prepared.fc_call)
+        return prepared
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = lambda prepared, **kwargs: handler(*prepared.fc_call)
+    return calls
+
+
 def _rows(source_response) -> list[dict[str, Any]]:
     return [row for page in source_response.items() for row in page]
 
@@ -140,6 +165,12 @@ class TestBuildBaseParams:
         # `GET /v2/users` rejects a filter-less request, so the created-time floor must be sent.
         params = build_base_params(FRESHCHAT_ENDPOINTS["users"])
         assert params["created_from"] == USERS_CREATED_FROM
+
+    def test_messages_endpoint_omits_the_undocumented_sort_order(self) -> None:
+        # `sort_order` is documented on the top-level list endpoints but not on the per-conversation
+        # messages endpoint, so it must not ride along there.
+        params = build_base_params(FRESHCHAT_ENDPOINTS["conversation_messages"])
+        assert params == {"items_per_page": str(PER_PAGE)}
 
     def test_non_paginated_endpoint_has_no_pagination_params(self) -> None:
         params = build_base_params(FRESHCHAT_ENDPOINTS["accounts_configuration"])
@@ -335,6 +366,133 @@ class TestGetRows:
             )
 
         assert session.send.call_args.kwargs.get("allow_redirects") is False
+
+
+class TestFanout:
+    """Freshchat exposes no top-level conversations list, so both conversation tables are reached
+    by fanning out from Users."""
+
+    @staticmethod
+    def _call(endpoint: str, session: mock.MagicMock) -> list[dict[str, Any]]:
+        return _rows(
+            freshchat_source(
+                "key", BASE_HOST, endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager()
+            )
+        )
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_user_conversations_carries_the_parent_user_id(self, MockSession) -> None:
+        session = MockSession.return_value
+        pages = {
+            "/v2/users": _page("users", [{"id": "u1"}, {"id": "u2"}], current=1, total_pages=1),
+            "/v2/users/u1/conversations": _resp({"conversations": [{"id": "c1"}]}),
+            "/v2/users/u2/conversations": _resp({"conversations": [{"id": "c2"}, {"id": "c3"}]}),
+        }
+        calls = _wire_routed(session, lambda path, params: pages[path])
+
+        rows = self._call("user_conversations", session)
+
+        # A conversation can be listed under more than one user, so the row has to name its parent
+        # — the primary key is (user_id, id).
+        assert rows == [
+            {"id": "c1", "user_id": "u1"},
+            {"id": "c2", "user_id": "u2"},
+            {"id": "c3", "user_id": "u2"},
+        ]
+        assert calls[0][1]["created_from"] == USERS_CREATED_FROM
+        # The child endpoint documents no query params; sending page-size or sort params there
+        # would be undocumented guesswork.
+        assert calls[1][1] == {}
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_user_conversations_skips_a_user_deleted_mid_sync(self, MockSession) -> None:
+        # A user removed between the Users page and this fetch must not sink the whole table.
+        session = MockSession.return_value
+        pages = {
+            "/v2/users": _page("users", [{"id": "gone"}, {"id": "u2"}], current=1, total_pages=1),
+            "/v2/users/gone/conversations": _resp({"error": "not found"}, status=404),
+            "/v2/users/u2/conversations": _resp({"conversations": [{"id": "c2"}]}),
+        }
+        _wire_routed(session, lambda path, params: pages[path])
+
+        assert self._call("user_conversations", session) == [{"id": "c2", "user_id": "u2"}]
+
+    def test_conversation_messages_is_not_resumable(self) -> None:
+        response = freshchat_source(
+            "key",
+            BASE_HOST,
+            "conversation_messages",
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=_make_manager(FreshchatResumeConfig(page=2)),
+        )
+
+        assert response.supports_resume is False
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_conversation_messages_chains_through_users_and_conversations(self, MockSession) -> None:
+        session = MockSession.return_value
+        # The messages response carries no pagination envelope, so paging has to stop on the first
+        # empty page rather than on a reported page count.
+        message_pages = {
+            "1": _resp({"messages": [{"id": "m1", "conversation_id": "c1"}]}),
+            "2": _resp({"messages": []}),
+        }
+
+        def handler(path: str, params: dict[str, Any]) -> Response:
+            if path == "/v2/users":
+                return _page("users", [{"id": "u1"}], current=1, total_pages=1)
+            if path == "/v2/users/u1/conversations":
+                return _resp({"conversations": [{"id": "c1"}]})
+            return message_pages[str(params["page"])]
+
+        calls = _wire_routed(session, handler)
+
+        rows = self._call("conversation_messages", session)
+
+        assert rows == [{"id": "m1", "conversation_id": "c1"}]
+        message_calls = [params for path, params in calls if path.endswith("/messages")]
+        assert [params["page"] for params in message_calls] == [1, 2]
+        assert message_calls[0]["items_per_page"] == str(PER_PAGE)
+        assert "sort_order" not in message_calls[0]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_conversation_messages_skips_a_conversation_deleted_mid_sync(self, MockSession) -> None:
+        # The chain skips a missing parent at both levels, so a conversation removed after the
+        # users fan-out must not sink the messages table either.
+        session = MockSession.return_value
+
+        def handler(path: str, params: dict[str, Any]) -> Response:
+            if path == "/v2/users":
+                return _page("users", [{"id": "u1"}], current=1, total_pages=1)
+            if path == "/v2/users/u1/conversations":
+                return _resp({"conversations": [{"id": "gone"}, {"id": "c2"}]})
+            if path == "/v2/conversations/gone/messages":
+                return _resp({"error": "not found"}, status=404)
+            return _resp({"messages": [{"id": "m2"}]} if params["page"] == 1 else {"messages": []})
+
+        _wire_routed(session, handler)
+
+        assert self._call("conversation_messages", session) == [{"id": "m2", "conversation_id": "c2"}]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_conversation_messages_key_column_comes_from_the_parent(self, MockSession) -> None:
+        # The message object documents `conversation_id`, but projecting it from the parent row
+        # keeps the primary-key column populated even when a response omits it.
+        session = MockSession.return_value
+        pages = {
+            "/v2/users": _page("users", [{"id": "u1"}], current=1, total_pages=1),
+            "/v2/users/u1/conversations": _resp({"conversations": [{"id": "c1"}]}),
+        }
+
+        def handler(path: str, params: dict[str, Any]) -> Response:
+            if path in pages:
+                return pages[path]
+            return _resp({"messages": [{"id": "m1"}]} if params["page"] == 1 else {"messages": []})
+
+        _wire_routed(session, handler)
+
+        assert self._call("conversation_messages", session) == [{"id": "m1", "conversation_id": "c1"}]
 
 
 class TestValidateCredentials:

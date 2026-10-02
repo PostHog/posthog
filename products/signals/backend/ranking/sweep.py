@@ -8,9 +8,11 @@ moves `updated_at` with no text change. A new vector lands only when a rendering
 Nothing reads the `ranking_score` artefacts to order the inbox yet.
 """
 
+import sys
 import time
 import uuid
 import datetime
+import resource
 from collections import defaultdict
 from collections.abc import Iterator, Sequence
 from typing import Any, cast
@@ -32,7 +34,6 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
-from products.signals.backend.artefact_schemas import RankingScore
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.ranking import scorer
 from products.signals.backend.ranking.inventory import SCORABLE_STATUSES, spine_report_filter
@@ -99,16 +100,36 @@ class ScoreInboxReportsResult:
     no_vector: int = 0
     teams: int = 0
     failed_teams: int = 0
-    # Teams not started because the time budget ran out. The next tick scores them.
+    # Teams with reports not started because the time budget ran out. The next tick scores them.
     deferred_teams: int = 0
+    deferred_reports: int = 0
     manifest_version: str | None = None
     # "disabled" or "no manifest". None when the pass ran.
     skipped_reason: str | None = None
 
 
-def _batches(items: Sequence[str]) -> Iterator[Sequence[str]]:
-    for start in range(0, len(items), _POSTGRES_BATCH_SIZE):
-        yield items[start : start + _POSTGRES_BATCH_SIZE]
+class _ScoreStamp(pydantic.BaseModel):
+    """The fields of a `ranking_score` artefact that decide if the report is due.
+
+    The full `RankingScore` copies each model's metadata onto every result, so it is tens of KB per
+    report in memory. The sweep reads the latest score of every scored report in the window, so a
+    full parse grows with the number of scored reports until it exhausts the worker.
+    """
+
+    scored_at: datetime.datetime
+    embedding_inserted_at: datetime.datetime | None = None
+    manifest_version: str
+
+
+def _batches(items: Sequence[str], size: int = _POSTGRES_BATCH_SIZE) -> Iterator[Sequence[str]]:
+    for start in range(0, len(items), size):
+        yield items[start : start + size]
+
+
+def _peak_rss_mb() -> int:
+    # The peak of the whole worker process, which other activities share, not of this pass only.
+    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return peak // (1024 * 1024) if sys.platform == "darwin" else peak // 1024
 
 
 def _utc(value: datetime.datetime) -> datetime.datetime:
@@ -160,9 +181,9 @@ def _scorable_report_teams(
     return teams
 
 
-def _latest_scores(report_ids: Sequence[str]) -> dict[str, RankingScore | None]:
-    """The latest `ranking_score` of each report that has one. A row that no longer parses is None."""
-    scores: dict[str, RankingScore | None] = {}
+def _latest_scores(report_ids: Sequence[str]) -> dict[str, _ScoreStamp | None]:
+    """The latest `ranking_score` stamp of each report that has one. A row that no longer parses is None."""
+    scores: dict[str, _ScoreStamp | None] = {}
     for batch in _batches(report_ids):
         rows = (
             SignalReportArtefact.objects.filter(
@@ -174,13 +195,13 @@ def _latest_scores(report_ids: Sequence[str]) -> dict[str, RankingScore | None]:
         )
         for report_id, content in rows:
             try:
-                scores[str(report_id)] = RankingScore.model_validate_json(content)
+                scores[str(report_id)] = _ScoreStamp.model_validate_json(content)
             except pydantic.ValidationError:
                 scores[str(report_id)] = None
     return scores
 
 
-def _is_due(score: RankingScore | None, vector_inserted_at: datetime.datetime, manifest_version: str) -> bool:
+def _is_due(score: _ScoreStamp | None, vector_inserted_at: datetime.datetime, manifest_version: str) -> bool:
     return (
         score is None
         or score.embedding_inserted_at is None
@@ -218,11 +239,13 @@ def reports_due_for_scoring(
 
 def score_inbox_reports(limit: int | None = None) -> ScoreInboxReportsResult:
     if not settings.INBOX_RANKING_SCORING_ENABLED:
+        logger.info("inbox_ranking_sweep_skipped", skipped_reason="disabled")
         return ScoreInboxReportsResult(skipped_reason="disabled")
     deadline = time.monotonic() + _TIME_BUDGET.total_seconds()
     # A served model that does not load raises here and aborts the run.
     serving = load_serving_set()
     if serving is None:
+        logger.info("inbox_ranking_sweep_skipped", skipped_reason="no manifest")
         return ScoreInboxReportsResult(skipped_reason="no manifest")
     manifest_version = serving.manifest.manifest_version
     now = timezone.now()
@@ -235,24 +258,45 @@ def score_inbox_reports(limit: int | None = None) -> ScoreInboxReportsResult:
     ids_by_team: dict[int, list[str]] = defaultdict(list)
     for candidate in candidates:
         ids_by_team[candidate.team_id].append(candidate.report_id)
+    # A pass that the worker kills logs no finish, so the start log is the only trace of it.
+    logger.info(
+        "inbox_ranking_sweep_started",
+        candidates=len(candidates),
+        teams=len(ids_by_team),
+        manifest_version=manifest_version,
+        peak_rss_mb=_peak_rss_mb(),
+    )
 
-    scored = no_vector = failed_teams = deferred_teams = 0
+    # A scorer call holds the vectors and matrices of all its reports, so one call scores at most one
+    # vector read of one team. Each call persists its scores, so a pass that stops keeps its progress.
+    chunks = [
+        (team_id, batch)
+        for team_id, report_ids in ids_by_team.items()
+        for batch in _batches(report_ids, settings.INBOX_RANKING_SCORING_BATCH_SIZE)
+    ]
+    scored = no_vector = deferred_reports = 0
+    failed: set[int] = set()
+    deferred: set[int] = set()
     with ph_scoped_capture() as capture:
-        for team_id, report_ids in ids_by_team.items():
+        for team_id, report_ids in chunks:
             if time.monotonic() >= deadline:
-                deferred_teams += 1
+                deferred.add(team_id)
+                deferred_reports += len(report_ids)
                 continue
             try:
                 outcomes = scorer.score_reports(
-                    team_id, report_ids, persist=True, now=now, serving=serving, capture=capture
+                    team_id, list(report_ids), persist=True, now=now, serving=serving, capture=capture
                 )
             except (scorer.ScoringError, ModelLoadError):
                 # A pass without a served score is worse than no pass.
                 raise
             except Exception:
                 logger.exception("inbox_ranking_sweep_team_failed", team_id=team_id)
-                failed_teams += 1
+                failed.add(team_id)
                 continue
+            finally:
+                # Send the events of each call when it ends, so a killed pass keeps the events of the scores it persisted.
+                capture.flush()
             scored += sum(1 for outcome in outcomes if outcome.score is not None)
             no_vector += sum(1 for outcome in outcomes if outcome.reason == scorer.NO_VECTOR)
 
@@ -261,8 +305,9 @@ def score_inbox_reports(limit: int | None = None) -> ScoreInboxReportsResult:
         scored=scored,
         no_vector=no_vector,
         teams=len(ids_by_team),
-        failed_teams=failed_teams,
-        deferred_teams=deferred_teams,
+        failed_teams=len(failed),
+        deferred_teams=len(deferred),
+        deferred_reports=deferred_reports,
         manifest_version=manifest_version,
     )
     logger.info(
@@ -273,7 +318,9 @@ def score_inbox_reports(limit: int | None = None) -> ScoreInboxReportsResult:
         teams=result.teams,
         failed_teams=result.failed_teams,
         deferred_teams=result.deferred_teams,
+        deferred_reports=result.deferred_reports,
         manifest_version=result.manifest_version,
+        peak_rss_mb=_peak_rss_mb(),
     )
     return result
 

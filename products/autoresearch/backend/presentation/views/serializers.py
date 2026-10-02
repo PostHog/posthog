@@ -893,6 +893,12 @@ class TrainingRunSummarySerializer(serializers.Serializer):
     distillation = serializers.CharField(
         allow_blank=True, help_text="Agent's 1–2 sentence distillation of what this run learned. Empty if not provided."
     )
+    report_notebook_short_id = serializers.CharField(
+        required=False,
+        default="",
+        allow_blank=True,
+        help_text="Short id of the report notebook the agent built for this run. Empty if there is none.",
+    )
 
 
 @extend_schema_serializer(component_name="IterationTrail")
@@ -1174,8 +1180,9 @@ class ValidationWarningSerializer(serializers.Serializer):
     # A CharField on purpose: a ChoiceField named `code` collides with another product's `code` enum in drf-spectacular.
     code = serializers.CharField(
         help_text=(
-            "Machine-readable warning code. 'population_too_large' and 'horizon_exceeds_lookback' mean a "
-            "training run would fail: fix the definition before creating. 'low_volume', 'low_positives' and "
+            "Machine-readable warning code. 'horizon_exceeds_lookback', and 'population_too_large' with severity "
+            "'error', mean a run would fail: fix the definition before creating. 'population_too_large' with "
+            "severity 'info' means training uses a sample of the population. 'low_volume', 'low_positives' and "
             "'low_negatives' mean the data is too thin for a reliable model (severity 'error', advisory). "
             "'moderate_volume', 'mostly_anonymous_population', 'extreme_imbalance' and 'near_universal' are "
             "severity 'warning'."
@@ -1238,7 +1245,7 @@ class ValidatePipelineResponseSerializer(serializers.Serializer):
     can_proceed = serializers.BooleanField(
         help_text=(
             "False when any warning has severity 'error'. Creation does not enforce it, but a definition with "
-            "'population_too_large' or 'horizon_exceeds_lookback' cannot train."
+            "an 'error' 'population_too_large' or 'horizon_exceeds_lookback' cannot train or score."
         )
     )
     requires_acknowledgement = serializers.BooleanField(
@@ -1421,6 +1428,15 @@ class CompleteTrainingRunSerializer(serializers.Serializer):
         help_text=(
             "A 1–2 sentence distillation of what this run learned — the winning signal, the key transform, the "
             "dead-ends. Stored in the run summary as the cheapest thing the next run reads. Max 2000 characters."
+        ),
+    )
+    report_notebook_short_id = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text=(
+            "Short id of the report notebook you built for this run. Stored in the run summary only if the "
+            "notebook exists in this project; an unknown id is dropped and does not fail the completion."
         ),
     )
 
@@ -1648,10 +1664,7 @@ class PopulationSpecField(serializers.JSONField):
 class ResolveTemplateRequestSerializer(serializers.Serializer):
     template_key = serializers.ChoiceField(
         choices=TEMPLATE_KEY_CHOICES,
-        help_text=(
-            "Template to resolve. Use autoresearch-templates-list to see all available templates "
-            "with descriptions. Required."
-        ),
+        help_text="Template to resolve. The templates endpoint lists each one with its description. Required.",
     )
     target_event = serializers.CharField(
         required=False,

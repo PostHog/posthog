@@ -9,6 +9,7 @@ import { ToastCloseButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrictionLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { isEmbeddedPageFrame } from 'lib/utils/embeddedPageFrame'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { WizardHandoffDialog } from 'scenes/onboarding/shared/wizard-sync/WizardHandoffDialog'
 import { WizardSyncDebugPanel } from 'scenes/onboarding/shared/wizard-sync/WizardSyncDebugPanel'
@@ -22,6 +23,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { ImpersonationNotice } from '~/layout/navigation/ImpersonationNotice'
 
+import { webmcpLogic } from 'products/webmcp/frontend/logics/webmcpLogic'
 import { WizardRunSyncFab } from 'products/wizard/frontend/runs/WizardRunSyncFab'
 
 import { sceneLogic } from './sceneLogic'
@@ -35,12 +37,35 @@ export default function AuthenticatedShell({ children }: { children: React.React
     useMountedLogic(eventIngestionRestrictionLogic)
     useMountedLogic(breadcrumbsLogic)
     useMountedLogic(globalSetupLogic)
+    useMountedLogic(webmcpLogic)
     useSetupHighlight()
 
     const { sceneConfig } = useValues(sceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const runSyncEnabled = featureFlags[FEATURE_FLAGS.WIZARD_RUN_SYNC] === 'wizard-run'
+    const toasts = (
+        <ToastContainer
+            autoClose={6000}
+            transition={Slide}
+            closeButton={<ToastCloseButton />}
+            position="bottom-right"
+            theme={isDarkModeOn ? 'dark' : 'light'}
+        />
+    )
+
+    // The page around the frame already has the command palette, shortcuts and floating buttons.
+    if (isEmbeddedPageFrame()) {
+        return (
+            <>
+                <div className="contents isolate">
+                    <Navigation sceneConfig={sceneConfig}>{children}</Navigation>
+                    <GlobalModals />
+                </div>
+                {toasts}
+            </>
+        )
+    }
 
     return (
         <>
@@ -69,13 +94,7 @@ export default function AuthenticatedShell({ children }: { children: React.React
                     <div data-attr="experiments-freeze-exposure-aa-test-variant" className="hidden" />
                 )}
             </div>
-            <ToastContainer
-                autoClose={6000}
-                transition={Slide}
-                closeButton={<ToastCloseButton />}
-                position="bottom-right"
-                theme={isDarkModeOn ? 'dark' : 'light'}
-            />
+            {toasts}
         </>
     )
 }

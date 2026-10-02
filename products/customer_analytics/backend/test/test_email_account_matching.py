@@ -348,8 +348,7 @@ class TestEmailAccountMatching(BaseTest):
                 properties={"known_emails": ["person@example.com"]},
             )
 
-        mock_schedule.assert_called_once_with(self.team.id)
-        mock_schedule.reset_mock()
+        mock_schedule.assert_not_called()
 
         with self.captureOnCommitCallbacks(execute=True):
             api.update_account(

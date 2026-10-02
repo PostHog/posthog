@@ -968,6 +968,18 @@ function buildResponseFilter(config: ToolConfig): {
 }
 
 /**
+ * When `required_when_set` is set, attach it as the `x-required-when-set` schema annotation.
+ * zod 4 copies `.meta()` keys into `toJSONSchema` output, so the advertised schema and the
+ * compact exec summary both carry it. Returns the expression unchanged otherwise.
+ */
+function withRequiredWhenSet(schemaExpr: string, config: ToolConfig): string {
+    if (!config.required_when_set || Object.keys(config.required_when_set).length === 0) {
+        return schemaExpr
+    }
+    return `(${schemaExpr}).meta({ 'x-required-when-set': ${JSON.stringify(config.required_when_set)} })`
+}
+
+/**
  * When `response.selectable` is set, emit a `.extend({ fields: ... })` clause adding an optional
  * `fields` request param constrained (via `z.enum`) to the `include` allowlist. Returns '' when the
  * tool doesn't opt in, so the schema expression is left untouched. Throws when `selectable` is set
@@ -1120,6 +1132,7 @@ function generateToolCode(
             composition.toolInputsImports.push(fn)
         }
     }
+    schemaExpr = withRequiredWhenSet(schemaExpr, config)
 
     // `param_overrides.<param>.aliases` — normalize alias keys to the canonical
     // param before validation. Outermost wrapper so the rename happens before any
@@ -1629,6 +1642,7 @@ function generateCustomSchemaToolCode(
             toolInputsImports.push(fn)
         }
     }
+    baseSchemaExpr = withRequiredWhenSet(baseSchemaExpr, config)
 
     const hasAgentNote = !!config.agent_note
     const needsWithAgentNote = hasAgentNote && !!responseType
@@ -2015,6 +2029,7 @@ function generateDefinitionsJson(
             const baseDescription = resolveDescription(toolConfig, yamlDir, opDescription)
             const baseTitle = toolConfig.title || resolved.operation.summary || name
             const baseSummary = toolConfig.title || opDescription.split('.')[0] || name
+            const toolCategory = toolConfig.category ?? category.category
             // Per-tool feature_flag wins; otherwise inherit the category-level
             // gate (lets one line gate a whole not-yet-GA product).
             const featureFlag = toolConfig.feature_flag ?? category.feature_flag
@@ -2023,6 +2038,7 @@ function generateDefinitionsJson(
             const featureFlagVariant = toolConfig.feature_flag_variant ?? category.feature_flag_variant
             // Successors are per-tool: a category gate says what retires a tool, never what replaces it.
             const supersededBy = toolConfig.superseded_by
+            const hiddenWhenFlagOn = toolConfig.hidden_when_flag_on
             const redirectHint = toolConfig.redirect_hint
 
             if (toolConfig.confirmed_action) {
@@ -2036,7 +2052,7 @@ function generateDefinitionsJson(
                         `Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. ` +
                         `The user must reply with the literal word "confirm" before you call the matching -execute tool with the hash. ` +
                         `Original action: ${baseDescription}`,
-                    category: category.category,
+                    category: toolCategory,
                     feature: category.feature,
                     summary: `${baseSummary} (prepare)`,
                     title: `${baseTitle} (prepare)`,
@@ -2052,6 +2068,7 @@ function generateDefinitionsJson(
                     ...(featureEntitlement ? { feature_entitlement: featureEntitlement } : {}),
                     ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
                     ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
+                    ...(hiddenWhenFlagOn ? { hidden_when_flag_on: hiddenWhenFlagOn } : {}),
                     ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
                     ...(redirectHint ? { redirect_hint: redirectHint } : {}),
                     ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
@@ -2062,7 +2079,7 @@ function generateDefinitionsJson(
                         `Verifies the confirmation_hash from -prepare and the literal "confirm" string typed by the user, then performs the action. ` +
                         `ONLY call this after the user has explicitly typed "confirm" in chat. ` +
                         `Original action: ${baseDescription}`,
-                    category: category.category,
+                    category: toolCategory,
                     feature: category.feature,
                     summary: `${baseSummary} (execute)`,
                     title: `${baseTitle} (execute)`,
@@ -2078,6 +2095,7 @@ function generateDefinitionsJson(
                     ...(featureEntitlement ? { feature_entitlement: featureEntitlement } : {}),
                     ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
                     ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
+                    ...(hiddenWhenFlagOn ? { hidden_when_flag_on: hiddenWhenFlagOn } : {}),
                     ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
                     ...(redirectHint ? { redirect_hint: redirectHint } : {}),
                     ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
@@ -2085,7 +2103,7 @@ function generateDefinitionsJson(
             } else {
                 definitions[name] = {
                     description: baseDescription,
-                    category: category.category,
+                    category: toolCategory,
                     feature: category.feature,
                     summary: baseSummary,
                     title: baseTitle,
@@ -2101,6 +2119,7 @@ function generateDefinitionsJson(
                     ...(featureEntitlement ? { feature_entitlement: featureEntitlement } : {}),
                     ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
                     ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
+                    ...(hiddenWhenFlagOn ? { hidden_when_flag_on: hiddenWhenFlagOn } : {}),
                     ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
                     ...(redirectHint ? { redirect_hint: redirectHint } : {}),
                     ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
@@ -2131,6 +2150,9 @@ function generateDefinitionsJson(
                     : {}),
                 ...(wrapperConfig.feature_flag_variant
                     ? { feature_flag_variant: wrapperConfig.feature_flag_variant }
+                    : {}),
+                ...(wrapperConfig.hidden_when_flag_on
+                    ? { hidden_when_flag_on: wrapperConfig.hidden_when_flag_on }
                     : {}),
                 ...(wrapperConfig.superseded_by?.length ? { superseded_by: wrapperConfig.superseded_by } : {}),
                 ...(wrapperConfig.redirect_hint ? { redirect_hint: wrapperConfig.redirect_hint } : {}),
@@ -2309,6 +2331,7 @@ function generateQueryWrapperDefinitionsJson(
             ...(toolConfig.feature_entitlement ? { feature_entitlement: toolConfig.feature_entitlement } : {}),
             ...(toolConfig.feature_flag_behavior ? { feature_flag_behavior: toolConfig.feature_flag_behavior } : {}),
             ...(toolConfig.feature_flag_variant ? { feature_flag_variant: toolConfig.feature_flag_variant } : {}),
+            ...(toolConfig.hidden_when_flag_on ? { hidden_when_flag_on: toolConfig.hidden_when_flag_on } : {}),
             ...(toolConfig.superseded_by?.length ? { superseded_by: toolConfig.superseded_by } : {}),
             ...(toolConfig.redirect_hint ? { redirect_hint: toolConfig.redirect_hint } : {}),
             ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),

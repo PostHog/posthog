@@ -155,6 +155,7 @@ export function CommentThreadCard({
   onSelect,
   onReply,
   onResolve,
+  onSendReplyToAgent,
 }: {
   threadId: string;
   /** Root first, then replies. */
@@ -175,6 +176,7 @@ export function CommentThreadCard({
   onSelect: () => void;
   onReply: (content: string, mentions: number[]) => void | Promise<void>;
   onResolve: (resolved: boolean) => void | Promise<void>;
+  onSendReplyToAgent?: (content: string) => void;
 }) {
   const [replying, setReplying] = useState(false);
   const openButtonRef = useRef<HTMLButtonElement>(null);
@@ -358,6 +360,7 @@ export function CommentThreadCard({
               submitLabel="Reply"
               autoFocus={replying}
               compact
+              onSendToAgent={onSendReplyToAgent}
             />
           </div>
         )

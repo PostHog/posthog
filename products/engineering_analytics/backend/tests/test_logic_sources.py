@@ -490,7 +490,20 @@ class TestMultiRepoGitHubResolution(BaseTest):
                 "posthog/other": [(WORKFLOW_RUNS_SCHEMA, True)],
             },
         )
-        # A Depot source joins only the repository it syncs, matched case-insensitively.
+        # A later source syncs PostHog/posthog again, with the PR snapshot.
+        with_prs = self._multi_repo_source(
+            prefix="prs",
+            legacy_repository="PostHog/posthog",
+            repos={
+                "PostHog/posthog": [
+                    (WORKFLOW_RUNS_SCHEMA, True),
+                    (WORKFLOW_JOBS_SCHEMA, True),
+                    (PULL_REQUESTS_SCHEMA, True),
+                ]
+            },
+        )
+        # A Depot source joins only the repository it syncs, matched case-insensitively, and only one
+        # entry for it: the one with the PR snapshot, which the friction view reads.
         depot = create_depot_source(self.team, prefix="ci", repository="posthog/PostHog")
         link_schema(
             self.team,
@@ -502,15 +515,21 @@ class TestMultiRepoGitHubResolution(BaseTest):
         # with no PR snapshot and the run builder's PR attribution degrades to the message suffix.
         assert set(resolve_job_source_tables(self.team)) == {
             JobSourceTables(
-                workflow_jobs="costgithub_posthog_posthog_workflow_jobs",
-                workflow_runs="costgithub_posthog_posthog_workflow_runs",
+                github_workflow_jobs="costgithub_posthog_posthog_workflow_jobs",
+                github_workflow_runs="costgithub_posthog_posthog_workflow_runs",
                 pull_requests=None,
                 source_id=str(source.id),
+            ),
+            JobSourceTables(
+                github_workflow_jobs="prsgithub_posthog_posthog_workflow_jobs",
+                github_workflow_runs="prsgithub_posthog_posthog_workflow_runs",
+                pull_requests="prsgithub_posthog_posthog_pull_requests",
+                source_id=str(with_prs.id),
                 depot_job_attempts=DepotJobAttempts(table="cidepot_job_attempts", repository="posthog/posthog"),
             ),
             JobSourceTables(
-                workflow_jobs="costgithub_posthog_posthog_com_workflow_jobs",
-                workflow_runs="costgithub_posthog_posthog_com_workflow_runs",
+                github_workflow_jobs="costgithub_posthog_posthog_com_workflow_jobs",
+                github_workflow_runs="costgithub_posthog_posthog_com_workflow_runs",
                 pull_requests=None,
                 source_id=str(source.id),
             ),

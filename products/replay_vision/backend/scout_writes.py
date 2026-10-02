@@ -14,7 +14,7 @@ from typing import Any
 
 from rest_framework.exceptions import PermissionDenied, ValidationError
 
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType, config_experiment_scope
 
 DELETE_REFUSED = "Scouts cannot delete scanners. Set `enabled: false` to stop this one."
 
@@ -96,6 +96,9 @@ def check_scout_scanner_credit_limit(
     turning_on = attrs.get("enabled") and not instance.enabled
     cost_fields = {"query", "sampling_rate", "sampling_mode", "provider", "model", "experiment_targeting"}
     changes_cost = any(field in attrs and attrs[field] != getattr(instance, field) for field in cost_fields)
+    if not changes_cost and instance.scanner_type == ScannerType.EXPERIMENT and "scanner_config" in attrs:
+        # The experiment type keeps its scope (and therefore its volume) in scanner_config.
+        changes_cost = config_experiment_scope(attrs["scanner_config"]) != instance.experiment_scope()
     changes_enabled_cost = attrs.get("enabled", instance.enabled) and changes_cost
     credit_limit = attrs.get("credit_limit", instance.credit_limit)
     if credit_limit is None:
