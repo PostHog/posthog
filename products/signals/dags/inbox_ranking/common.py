@@ -19,6 +19,8 @@ from posthog import settings
 from posthog.dags.common import JobOwners
 from posthog.storage.object_storage import ObjectStorage
 
+from products.signals.backend.models import SignalActorKind
+
 DATASET_VERSION = "v1"
 
 S3_BUCKET_ENV = "INBOX_RANKING_DATASET_S3_BUCKET"
@@ -42,7 +44,7 @@ WRONG_DISMISSAL_REASONS = ("analysis_wrong", "report_unclear", "wontfix_intentio
 # (scouts, implementation runs) and `system` is the pipeline: their claims, notes and PRs are
 # internal operational writes, far more frequent than the human ones, and say nothing about intent.
 # A null actor is a legacy or system write, so it is also excluded.
-HUMAN_ACTOR_KINDS = ("user", "agent")
+HUMAN_ACTOR_KINDS = (SignalActorKind.USER, SignalActorKind.AGENT)
 
 partition_def = dagster.DailyPartitionsDefinition(start_date="2026-04-01")
 

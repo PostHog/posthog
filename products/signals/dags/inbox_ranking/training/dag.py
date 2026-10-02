@@ -181,21 +181,17 @@ CHAMPION_FILE = "champion.json"
 METADATA_FILE = "metadata.json"
 
 # Label columns the heads read (plus the provenance inputs); everything else stays on disk.
-_LABEL_COLUMNS = tuple(
-    dict.fromkeys(
-        (
-            "impression_unit_count",
-            "open_count",
-            "dismissal_reason",
-            "wrong_dismissal_count",
-            "pr_created_count",
-            "pr_merged_count",
-            "refund_count",
-            "feedback_positive_count",
-            *ACTION_LABEL_COLUMNS,
-            *PROVENANCE_LABEL_COLUMNS,
-        )
-    )
+_LABEL_COLUMNS = (
+    "impression_unit_count",
+    "open_count",
+    "dismissal_reason",
+    "wrong_dismissal_count",
+    "pr_created_count",
+    "pr_merged_count",
+    "refund_count",
+    "feedback_positive_count",
+    *ACTION_LABEL_COLUMNS,
+    *PROVENANCE_LABEL_COLUMNS,
 )
 # Every registered feature set's columns in one read: the state snapshot is loaded once and every
 # set builds its examples from it.

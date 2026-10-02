@@ -424,9 +424,7 @@ def server_action_rows(report_ids: list[str], snapshot_end: datetime.datetime) -
     entries: dict[str, dict[str, Any]] = {}
 
     def entry(report_id: Any) -> dict[str, Any]:
-        return entries.setdefault(
-            str(report_id), {column: 0 if column.endswith("_count") else None for column in SERVER_ACTIONS_COLUMNS}
-        )
+        return entries.setdefault(str(report_id), {column: LABEL_DEFAULTS[column] for column in SERVER_ACTIONS_COLUMNS})
 
     for chunk in _chunked(report_ids):
         artefacts = (

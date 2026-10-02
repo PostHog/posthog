@@ -27,7 +27,7 @@ from products.signals.dags.inbox_ranking.dataset.dag import (
 from products.signals.dags.inbox_ranking.dataset.queries import (
     IMPRESSIONS_SQL,
     LABEL_DEFAULTS,
-    LABEL_STREAMS,
+    LABEL_STREAM_COLUMNS,
     LABELED_REPORT_IDS_SQL,
     OUTCOME_FIRST_EVENT_COLUMNS,
     SERVER_ACTIONS_COLUMNS,
@@ -270,9 +270,8 @@ def test_stream_row_width_mismatch_fails_loudly():
 
 
 def test_label_stream_columns_all_exist_in_defaults():
-    for _name, _sql, columns in LABEL_STREAMS:
+    for columns in LABEL_STREAM_COLUMNS.values():
         assert set(columns) <= set(LABEL_DEFAULTS)
-    assert set(SERVER_ACTIONS_COLUMNS) <= set(LABEL_DEFAULTS)
 
 
 def test_every_outcome_count_is_paired_with_a_first_event_timestamp():

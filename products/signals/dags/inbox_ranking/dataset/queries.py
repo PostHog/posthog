@@ -683,6 +683,12 @@ LABEL_STREAMS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("refunds", REFUNDS_SQL, REFUNDS_COLUMNS),
 )
 
+# The label columns each stream fills, the SQL streams and the Postgres one alike.
+LABEL_STREAM_COLUMNS: dict[str, tuple[str, ...]] = {
+    **{name: columns for name, _, columns in LABEL_STREAMS},
+    SERVER_ACTIONS_STREAM: SERVER_ACTIONS_COLUMNS,
+}
+
 # Every label column a report can have, with its no-events default. Streams overwrite their own
 # columns; the merge keeps counts at 0 (not null) so head derivations need no null handling.
 LABEL_DEFAULTS: dict[str, Any] = {
@@ -826,10 +832,8 @@ def merge_label_streams(
     rows with impossible ids dropped, so forged or malformed client events cannot mint label-only
     training rows."""
     merged: dict[str, dict[str, Any]] = {}
-    columns_by_stream = {name: columns for name, _, columns in LABEL_STREAMS}
-    columns_by_stream[SERVER_ACTIONS_STREAM] = SERVER_ACTIONS_COLUMNS
     for stream_name, rows in stream_rows.items():
-        columns = columns_by_stream[stream_name]
+        columns = LABEL_STREAM_COLUMNS[stream_name]
         for report_id, row in canonical_stream_rows(rows).items():
             entry = merged.setdefault(
                 report_id,
