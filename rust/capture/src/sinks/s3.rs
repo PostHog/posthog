@@ -301,6 +301,10 @@ impl PublishPrepared for S3Sink {
     /// Every event in the batch shares its buffer flush's result.
     #[instrument(skip_all)]
     async fn publish_prepared(&self, events: Vec<PreparedEvent>) -> Vec<SinkResult> {
+        // An idle buffer never flushes, so waiting on it would never return.
+        if events.is_empty() {
+            return Vec::new();
+        }
         let mut buffer = self.inner.buffer.lock().await;
         for event in &events {
             buffer.add_line(&event.payload);
@@ -403,6 +407,17 @@ mod tests {
 
         assert_eq!(from_prepared.event_bytes, from_event.event_bytes);
         assert_eq!(from_prepared.event_count, 1);
+    }
+
+    #[tokio::test]
+    async fn empty_prepared_batch_returns_without_waiting_for_a_flush() {
+        let sink = setup_test_sink().await;
+
+        let results = tokio::time::timeout(Duration::from_secs(5), sink.publish_prepared(vec![]))
+            .await
+            .expect("an empty batch must not wait on the idle buffer");
+
+        assert!(results.is_empty());
     }
 
     #[tokio::test]
