@@ -58,7 +58,7 @@ class InvalidFilterError(Exception):
 
 
 def compose_filters_clause(
-    filters: list[dict[str, str | list[str] | None]],
+    filters: list[dict[str, str | bool | list[str] | None]],
     team_id: int,
     values: dict[str, str] | None = None,
     *,

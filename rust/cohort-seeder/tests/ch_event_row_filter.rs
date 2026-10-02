@@ -13,12 +13,12 @@ use cohort_core::filters::{CohortId, TeamFilters, TeamFiltersBuilder, TeamId};
 use cohort_core::hogvm::analysis::GlobalsPlan;
 use cohort_core::hogvm::{build_behavioral_globals, evaluate_detailed, EvalOutcome, GlobalsBuild};
 use cohort_seeder::clickhouse::client::build_client;
-use cohort_seeder::clickhouse::materialized::MaterializedColumns;
 use cohort_seeder::clickhouse::sql::row_filter_sql;
 use cohort_seeder::clickhouse::ClickHouseClient;
 use cohort_seeder::config::Config;
 use cohort_seeder::domain::{
-    ActiveConditions, ConditionAnalyses, ConditionHash, EventNameSet, Lookback, PinnedCondition,
+    ActiveConditions, ColumnName, ConditionAnalyses, ConditionHash, EventNameSet, Lookback,
+    MaterializedColumns, PinnedCondition,
 };
 use envconfig::Envconfig;
 use serde::Deserialize;
@@ -174,7 +174,7 @@ async fn the_lookup_accepts_only_trim_quotes_columns_on_both_tables() {
         .await
         .expect("the lookup reads only system.columns");
     assert_eq!(
-        columns.column_for("$feature_flag"),
+        columns.column_for("$feature_flag").map(ColumnName::as_str),
         Some("mat_$feature_flag")
     );
     for refused in ["typed", "nullable", "$data_only", "absent"] {

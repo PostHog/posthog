@@ -47,27 +47,27 @@ def public_endpoint_dns() -> Iterator[None]:
 
 
 @pytest.mark.parametrize(
-    "base_url,internal,flag,enabled",
+    "base_url,flag,enabled",
     [
-        ("https://api.typesafe.ai/v1", False, True, False),
-        ("", False, True, False),
-        ("https://decisions.example.com/v1", False, True, True),
-        ("https://decisions.example.com/v1", False, False, False),
-        ("https://api.typesafe.ai/v1", False, None, False),
-        ("https://ai-gateway.us.posthog.com/v1", False, True, False),
-        ("https://ai-gateway.eu.posthog.com/v1", False, True, False),
-        ("https://AI-GATEWAY.US.POSTHOG.COM.:443/v1", False, True, False),
-        ("https://ａｉ-gateway.us.posthog.com/v1", False, True, False),
-        ("https://ai-gateway.us.posthog.com/v1", True, False, False),
-        ("https://ai-gateway.us.posthog.com/v1", True, True, True),
+        ("https://api.typesafe.ai/v1", True, False),
+        ("", True, False),
+        ("https://decisions.example.com/v1", True, True),
+        ("https://decisions.example.com/v1", False, False),
+        ("https://decisions.example.com/v1", None, False),
+        ("https://ai-gateway.us.posthog.com/v1", True, True),
+        ("https://ai-gateway.eu.posthog.com/v1", True, True),
+        ("https://AI-GATEWAY.US.POSTHOG.COM.:443/v1", True, True),
+        ("https://ａｉ-gateway.us.posthog.com/v1", True, True),
+        ("https://ai-gateway.us.posthog.com/v1", False, False),
+        ("https://ai-gateway.us.posthog.com/v1", None, False),
     ],
 )
-def test_system_one_connections_require_flag_and_reserve_posthog_gateway_for_internal_projects(
-    base_url: str, internal: bool, flag: bool | None, enabled: bool
+def test_system_one_connections_require_flag_and_supported_endpoint(
+    base_url: str, flag: bool | None, enabled: bool
 ) -> None:
     team = Team(id=1, organization_id=uuid4(), uuid=uuid4())
     with (
-        override_settings(POSTHOG_INTERNAL_ORG_IDS=[str(team.organization_id)] if internal else []),
+        override_settings(POSTHOG_INTERNAL_ORG_IDS=[]),
         patch("products.ai_observability.backend.llm.system_one.Team.objects.only") as teams,
         patch(
             "products.ai_observability.backend.llm.system_one.get_feature_flag_or_none",

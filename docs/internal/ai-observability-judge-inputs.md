@@ -47,7 +47,7 @@ Both use the project's UUID as its group key; the numeric project ID is a group 
 Deploy the ingestion and evaluation worker changes before enabling the flag.
 Projects configure a System One-compatible deployment and its authentication.
 Evaluation connections never fall back to an instance credential or gateway configuration.
-PostHog's regional AI gateway endpoints additionally require an organization in `POSTHOG_INTERNAL_ORG_IDS`; customer projects cannot use those endpoints.
+The configured endpoint authorizes the supplied credential, including connections to PostHog's regional AI gateway endpoints.
 Connection validation and every evaluation check these gates; an absent flag or failed flag lookup blocks the call.
 Turning the flag off stops subsequent runs, including queued work, without disabling the saved evaluation.
 Keep the experimental flag limited to staff projects during rollout.
