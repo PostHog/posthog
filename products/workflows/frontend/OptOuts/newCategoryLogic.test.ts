@@ -33,15 +33,18 @@ describe('newCategoryLogic', () => {
         expect(logic.values.categoryForm.key).toBe('product-updates')
     })
 
-    it('keeps a hand-typed key when the name changes afterwards', () => {
+    it.each([
+        { handTyped: ['news'], kept: 'news' },
+        { handTyped: ['news', 'product-updates'], kept: 'product-updates' },
+    ])('keeps the hand-typed key $kept when the name changes afterwards', ({ handTyped, kept }) => {
         const logic = newCategoryLogic({})
         logic.mount()
 
         typeInto(logic, 'name', 'Product updates')
-        typeInto(logic, 'key', 'news')
-        typeInto(logic, 'name', 'Product news')
+        handTyped.forEach((key) => typeInto(logic, 'key', key))
+        typeInto(logic, 'name', 'Weekly digest')
 
-        expect(logic.values.categoryForm.key).toBe('news')
+        expect(logic.values.categoryForm.key).toBe(kept)
     })
 
     it('follows the name again once the form resets for the next topic', () => {

@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { act, cleanup, render, screen, within } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import { router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -98,6 +98,17 @@ describe('the Topics tab', () => {
         expect(within(name.parentElement as HTMLElement).getByText('product-updates').tagName).toBe('CODE')
         expect(await screen.findByText('Public description: What we shipped this month')).toBeInTheDocument()
         expect(screen.queryByText(/Key:/)).not.toBeInTheDocument()
+    })
+
+    it('keeps the Customer.io import in the More menu while there are no topics yet', async () => {
+        useMocks({ get: { '/api/projects/:team_id/messaging_categories/': toPaginatedResponse([]) } })
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_AUDIENCE]: true })
+        render(<AudienceScene />)
+        await waitFor(() => expect(optOutCategoriesLogic.values.categoriesLoading).toBe(false))
+
+        expect(screen.getAllByText('New topic')).toHaveLength(1)
+        expect(screen.queryByText('Import from Customer.io')).not.toBeInTheDocument()
+        expect(screen.queryByText('Create topic')).not.toBeInTheDocument()
     })
 
     it('makes New topic the one primary action and tucks the rest into a More menu', async () => {
