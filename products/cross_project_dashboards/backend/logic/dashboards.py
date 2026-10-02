@@ -25,8 +25,10 @@ TOO_MANY_TILES = f"A dashboard holds at most {MAX_TILES_PER_DASHBOARD} tiles. Re
 AUDITED_TILE_FIELDS = ("color", "filters_overrides")
 
 
-def _tile_reference(tile: CrossProjectDashboardTile) -> dict[str, int]:
-    return {"project_id": tile.project_id, "insight_id": tile.insight_id}
+def _tile_reference(tile: CrossProjectDashboardTile) -> dict[str, str]:
+    # Any organization member can read the activity log, so the entry names the tile only. The
+    # project, the insight and the filter values stay hidden from members denied that project.
+    return {"tile_id": str(tile.id)}
 
 
 def _log_tile_change(dashboard: CrossProjectDashboard, user: User, change: Change) -> None:
@@ -279,8 +281,8 @@ def update_tile(
         if updated:
             tile.save(update_fields=[*updated, "updated_at"])
         after = {name: getattr(tile, name) for name in AUDITED_TILE_FIELDS}
-    if before != after:
-        reference = _tile_reference(tile)
+    changed = [name for name in AUDITED_TILE_FIELDS if before[name] != after[name]]
+    if changed:
         _log_tile_change(
             dashboard,
             user,
@@ -288,8 +290,7 @@ def update_tile(
                 type="CrossProjectDashboardTile",
                 action="changed",
                 field="tiles",
-                before={**reference, **before},
-                after={**reference, **after},
+                after={**_tile_reference(tile), "changed_fields": changed},
             ),
         )
     return _to_tile(tile)

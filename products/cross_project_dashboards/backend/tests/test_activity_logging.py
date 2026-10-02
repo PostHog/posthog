@@ -52,3 +52,4 @@ class TestCrossProjectDashboardActivityLogging(BaseTest):
             scope="CrossProjectDashboard", item_id=str(dashboard.id), activity="updated"
         ).order_by("created_at")
         assert [(log.detail or {})["changes"][0]["action"] for log in logs] == ["created", "changed", "deleted"]
+        assert all("project_id" not in str(log.detail) for log in logs)
