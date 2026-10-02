@@ -103,7 +103,6 @@ class TestScoutTrialComparisonWorkflow(SimpleTestCase):
             patch(f"{MODULE}.workflow.execute_activity", side_effect=execute),
             patch(f"{MODULE}.workflow.sleep", side_effect=sleep),
             patch(f"{MODULE}.workflow.now", side_effect=lambda: now),
-            patch(f"{MODULE}.workflow.patched", return_value=True),
         ):
             if times_out:
                 with self.assertRaisesMessage(ApplicationError, "scout runs did not finish"):
@@ -113,10 +112,8 @@ class TestScoutTrialComparisonWorkflow(SimpleTestCase):
                 assert await RunScoutTrialComparisonWorkflow().run(inputs) == inputs.comparison_id
                 assert prepared and finished and not failed
 
-    @parameterized.expand([(False, False, 45), (False, True, 85), (True, True, 1355)])
-    async def test_judging_wait_preserves_old_histories_and_bounds_new_workflows(
-        self, expanded_capacity: bool, grouped: bool, expected_minutes: int
-    ) -> None:
+    async def test_judging_wait_bounds_sandbox_evaluation_workflows(self) -> None:
+        expected_minutes = 2427
         inputs = TrialComparisonInput(team_id=2, comparison_id=str(uuid4()))
         now = datetime(2026, 1, 1, tzinfo=UTC)
         started = now
@@ -145,12 +142,6 @@ class TestScoutTrialComparisonWorkflow(SimpleTestCase):
             patch(f"{MODULE}.workflow.execute_activity", side_effect=execute),
             patch(f"{MODULE}.workflow.sleep", side_effect=sleep),
             patch(f"{MODULE}.workflow.now", side_effect=lambda: now),
-            patch(
-                f"{MODULE}.workflow.patched",
-                side_effect=lambda patch_id: (
-                    expanded_capacity if patch_id == "scout-trial-expanded-capacity-v1" else grouped
-                ),
-            ),
         ):
             with self.assertRaisesMessage(ApplicationError, "Judging did not finish in time"):
                 await RunScoutTrialComparisonWorkflow().run(inputs)
@@ -167,7 +158,7 @@ class TestScoutTrialComparisonWorkflow(SimpleTestCase):
             assert start_trial_comparison(2, comparison_id) == first
         for call in client.start_workflow.await_args_list:
             assert call.kwargs["id"] == first
-            assert call.kwargs["execution_timeout"] == timedelta(minutes=1420)
+            assert call.kwargs["execution_timeout"] == timedelta(minutes=2492)
             assert call.kwargs["id_conflict_policy"] == WorkflowIDConflictPolicy.USE_EXISTING
             assert call.kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY
             assert call.args[1] == TrialComparisonInput(team_id=2, comparison_id=str(comparison_id))

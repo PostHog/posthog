@@ -890,7 +890,7 @@ describe('scoutTrialsLogic', () => {
 
         const savedRequest = {
             ...request,
-            rubric_source: 'mock' as const,
+            rubric_source: 'saved' as const,
             variants: request.variants.map((variant) => ({ ...variant, label: 'Saved server label' })),
         }
         jest.mocked(signalsScoutConfigTrialEvaluationRetrieve).mockResolvedValue({

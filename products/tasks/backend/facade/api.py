@@ -227,6 +227,7 @@ __all__ = [
     "WarmRunActivationUnavailable",
     "append_imported_task_run_log",
     "append_task_run_log",
+    "attach_task_run_input_files",
     "create_imported_task",
     "create_imported_task_run",
     "get_imported_task_run",
@@ -2618,6 +2619,7 @@ def delete_sandbox_custom_image(image_id: str | UUID, team_id: int, user_id: int
 _PROTECTED_RUN_STATE_KEYS = frozenset(
     {
         "scout_trial",
+        "scout_trial_judge",
         "scout_trial_private",
         "run_source",
         "pr_base_branch",
@@ -3562,6 +3564,36 @@ def append_task_run_log(
     run.clear_echoed_followup_messages(entries)
     run.heartbeat_workflow(agent_active=_entries_show_agent_activity(entries))
     return _task_run_detail_to_dto(run)
+
+
+def attach_task_run_input_files(*, team_id: int, run_id: UUID, files: Sequence[contracts.TaskRunInputFile]) -> None:
+    """Bind trusted, already-stored inputs inside the caller's run-creation transaction.
+
+    The caller owns the objects and verifies their scope before attaching them. Keeping their
+    immutable locations avoids storage I/O while the task creation transaction is open.
+    """
+    from products.tasks.backend.logic.services.staged_artifacts import (  # noqa: PLC0415 — keep storage deps off the facade import path
+        build_task_artifact_entry,
+    )
+
+    run = TaskRun.objects.get(id=run_id, team_id=team_id, task__team_id=team_id)
+    if run.status not in {TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED} or run.artifacts:
+        raise ValueError("Input files must be attached before the task run starts.")
+    if len({file.id for file in files}) != len(files):
+        raise ValueError("Input files must have distinct identifiers.")
+    run.artifacts = [
+        build_task_artifact_entry(
+            artifact_id=file.id,
+            name=file.name,
+            artifact_type="file",
+            source="internal",
+            size=file.size_bytes,
+            content_type=file.content_type,
+            storage_path=file.storage_path,
+        )
+        for file in files
+    ]
+    run.save(update_fields=["artifacts", "updated_at"])
 
 
 def get_task_by_origin_key(team_id: int, origin_key: str) -> contracts.TaskDetailDTO | None:
@@ -6452,6 +6484,27 @@ def scout_trial_task_ids(team_id: int, *, visible_task_id: UUID | None = None) -
 
 def is_scout_trial_task(task_id: str | UUID, team_id: int) -> bool:
     return Task.objects.filter(Task.scout_experiment_q(), id=task_id, team_id=team_id).exists()
+
+
+def is_scout_trial_judge_task_run(*, team_id: int, task_id: UUID, run_id: UUID | None = None) -> bool:
+    runs = TaskRun.objects.filter(task_id=task_id, team_id=team_id, task__team_id=team_id)
+    if run_id is not None:
+        runs = runs.filter(id=run_id)
+    row = (
+        runs.filter(task__origin_product=Task.OriginProduct.SIGNALS_SCOUT, task__deleted=False)
+        .values("state", "task__origin_key", "task__created_by_id")
+        .first()
+    )
+    marker = (row["state"] or {}).get("scout_trial_judge") if row else None
+    return bool(
+        row
+        and isinstance(marker, dict)
+        and type(marker.get("version")) is int
+        and marker["version"] == 1
+        and type(marker.get("user_id")) is int
+        and marker.get("user_id") == row["task__created_by_id"]
+        and row["task__origin_key"] == f"scout-trial-judge:{marker.get('evaluation_id')}:{marker.get('launch_id')}"
+    )
 
 
 def list_pinned_task_ids(team_id: int, user_id: int, *, exclude_task_ids: Iterable[UUID] = ()) -> list[UUID]:

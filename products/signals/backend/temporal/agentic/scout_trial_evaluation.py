@@ -112,9 +112,7 @@ class RunScoutTrialEvaluationWorkflow:
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
-        judge_timeout = timedelta(
-            minutes=TRIAL_JUDGE_TIMEOUT_MINUTES if workflow.patched("scout-trial-grouped-judge-deadline-v10") else 5
-        )
+        judge_timeout = timedelta(minutes=TRIAL_JUDGE_TIMEOUT_MINUTES)
         semaphore = asyncio.Semaphore(TRIAL_JUDGE_CONCURRENCY)
 
         async def score(launch_id: str) -> bool:

@@ -629,7 +629,14 @@ class TestProvisioningBoundaries:
         assert test_task_run.state["token_cost_incomplete"] is True
 
     @pytest.mark.parametrize("origin_product", ["signals_scout", "user_created"])
-    @pytest.mark.parametrize("origin_key", ["scout-trial:11111111-1111-1111-1111-111111111111", "ordinary"])
+    @pytest.mark.parametrize(
+        "origin_key",
+        [
+            "scout-trial:11111111-1111-1111-1111-111111111111",
+            "scout-trial-judge:11111111-1111-1111-1111-111111111111:22222222-2222-2222-2222-222222222222",
+            "ordinary",
+        ],
+    )
     @override_settings(
         SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True,
     )

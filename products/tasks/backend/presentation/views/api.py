@@ -474,6 +474,19 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # request/response schema via @validated_request / @extend_schema.
     serializer_class = TaskSerializer
 
+    def dangerously_get_required_scopes(self, request: Request, view: object) -> list[str] | None:
+        if self.action == "retrieve":
+            scopes = get_authenticator_scopes(request.successful_authenticator) or []
+            task_id = _sandbox_bound_task_id(request)
+            if (
+                "scout_experiment_internal:read" in scopes
+                and task_id is not None
+                and str(task_id) == self.kwargs.get("pk")
+                and tasks_facade.is_scout_trial_judge_task_run(team_id=self.team_id, task_id=task_id)
+            ):
+                return ["scout_experiment_internal:read"]
+        return None
+
     def initial(self, request: Request, *args: object, **kwargs: object) -> None:
         super().initial(request, *args, **kwargs)
         task_id = self.kwargs.get("pk")
@@ -1756,12 +1769,45 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 return False
         return True
 
+    @staticmethod
+    def _is_judge_pending_prompt_cleanup(payload: object) -> bool:
+        if not isinstance(payload, dict) or set(payload) != {"state_remove_keys"}:
+            return False
+        keys = payload["state_remove_keys"]
+        return (
+            isinstance(keys, list)
+            and bool(keys)
+            and all(
+                isinstance(key, str)
+                and key
+                in {
+                    "pending_user_message",
+                    "pending_user_artifact_ids",
+                    "pending_user_message_id",
+                    "pending_user_message_ts",
+                }
+                for key in keys
+            )
+        )
+
     def dangerously_get_required_scopes(self, request: Request, view: object) -> list[str] | None:
-        if self.action not in {"append_log", "set_summary", "update", "partial_update"}:
+        if self.action not in {
+            "append_log",
+            "set_summary",
+            "update",
+            "partial_update",
+            "artifacts_download",
+            "retrieve",
+        }:
             return None
         scopes = get_authenticator_scopes(request.successful_authenticator) or []
-        if {"task:read", "scout_experiment_internal:read"}.issubset(scopes) and (
-            self.action in {"append_log", "set_summary"} or self._is_trial_lifecycle_update(request.data)
+        judge_cleanup = self.action in {"update", "partial_update"} and self._is_judge_pending_prompt_cleanup(
+            request.data
+        )
+        if "scout_experiment_internal:read" in scopes and (
+            self.action in {"append_log", "set_summary", "artifacts_download", "retrieve"}
+            or self._is_trial_lifecycle_update(request.data)
+            or judge_cleanup
         ):
             task_id = self._task_id()
             if _sandbox_bound_task_id(request) == UUID(task_id):
@@ -1769,12 +1815,24 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     run_id = UUID(self.kwargs["pk"])
                 except (ValueError, TypeError, KeyError):
                     raise NotFound("Task run not found")
+                if tasks_facade.is_scout_trial_judge_task_run(
+                    team_id=self.team_id, task_id=UUID(task_id), run_id=run_id
+                ):
+                    return ["scout_experiment_internal:read"]
+                if judge_cleanup:
+                    return ["task:write"]
                 from products.signals.backend.facade.api import (
                     is_scout_trial_task_run,  # noqa: PLC0415 -- keeps the scout workflow graph off ordinary API startup
                 )
 
-                if is_scout_trial_task_run(team_id=self.team_id, task_id=UUID(task_id), task_run_id=run_id):
+                if "task:read" in scopes and is_scout_trial_task_run(
+                    team_id=self.team_id, task_id=UUID(task_id), task_run_id=run_id
+                ):
                     return ["task:read", "scout_experiment_internal:read"]
+        if self.action == "artifacts_download":
+            return ["task:read"]
+        if self.action == "retrieve":
+            return None
         return ["task:write"]
 
     def get_serializer_context(self):
@@ -2782,7 +2840,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         detail=True,
         methods=["post"],
         url_path="artifacts/download",
-        required_scopes=["task:read"],
     )
     def artifacts_download(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()

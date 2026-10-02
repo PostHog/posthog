@@ -19,7 +19,6 @@ class TrialEvaluationStatus(models.TextChoices):
 
 
 class TrialRubricSource(models.TextChoices):
-    MOCK = "mock"
     SAVED = "saved"
 
 
@@ -49,7 +48,7 @@ class ScoutTrialEvaluationRequestSerializer(serializers.Serializer):
     )
     rubric_source = serializers.ChoiceField(
         choices=TrialRubricSource.choices,
-        help_text="Use saved for new evaluations. Mock is retained only for exact retries of existing evaluations.",
+        help_text="Judge every run against the scout's saved rubric, frozen when the trial starts.",
     )
 
 

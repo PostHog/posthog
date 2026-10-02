@@ -24,6 +24,14 @@ class TrialEvidenceSource(EvaluationDocument):
     text: str
 
 
+class TrialEvidenceFile(EvaluationDocument):
+    id: str = Field(min_length=1, max_length=100)
+    kind: Literal["instructions", "context", "summary", "report", "memory", "trace"]
+    filename: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]*\.(txt|jsonl)$", max_length=120)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    size_bytes: int = Field(ge=0)
+
+
 class TrialRunEvidence(EvaluationDocument):
     launch_id: UUID
     variant_id: UUID
@@ -39,6 +47,7 @@ class TrialRunEvidence(EvaluationDocument):
     skill_body_sha256: str
     input_tokens: int | None = None
     output_tokens: int | None = None
+    files: list[TrialEvidenceFile] = Field(default_factory=list)
     sources: list[TrialEvidenceSource] = Field(default_factory=list)
     limitations: list[str] = Field(default_factory=list)
 
@@ -53,7 +62,7 @@ class TrialCriterionVerdict(EvaluationDocument):
     verdict: Literal["pass", "fail", "unknown", "not_applicable"]
     reason: str = Field(min_length=1, max_length=2000)
     confidence: Literal["low", "medium", "high"]
-    evidence: list[TrialCriterionEvidence] = Field(default_factory=list, max_length=6)
+    evidence: list[TrialCriterionEvidence] = Field(max_length=6)
 
 
 class TrialJudgeVerdicts(EvaluationDocument):

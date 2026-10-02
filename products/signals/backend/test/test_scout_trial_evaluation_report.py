@@ -27,7 +27,7 @@ class TestScoutTrialEvaluationReport(SimpleTestCase):
             evaluation_id=uuid4(),
             baseline_variant_id=self.baseline.id,
             variants=[self.baseline, self.candidate],
-            rubric_source="mock",
+            rubric_source="saved",
         )
         self.snapshot = TrialEvaluationSnapshot(
             evaluation_id=request.evaluation_id,
@@ -38,7 +38,9 @@ class TestScoutTrialEvaluationReport(SimpleTestCase):
             created_at=datetime.now(UTC),
             request=request,
             request_hash="synthetic-request-hash",
-            rubric_document={"revision": 0},
+            rubric_document={"revision": 3},
+            rubric_reference_context=_reference_context(),
+            rubric_reference_generation_id=str(uuid4()),
             criteria=[
                 TrialEvaluationCriterion(
                     id="evidence",
@@ -49,7 +51,7 @@ class TestScoutTrialEvaluationReport(SimpleTestCase):
                 )
             ],
             judge_model="example-judge",
-            judge_prompt_version="1",
+            judge_prompt_version="sandbox-1",
             runs=[
                 TrialRunEvidence(
                     launch_id=launch_id,
@@ -154,17 +156,7 @@ class TestScoutTrialEvaluationReport(SimpleTestCase):
             with self.assertRaisesRegex(ValueError, "exactly one outcome"):
                 build_trial_comparison_report(self.snapshot, incomplete)
 
-    @parameterized.expand(["mock", "saved"])
-    def test_complete_repeats_show_descriptive_improvement_and_saved_provenance(self, source: str) -> None:
-        if source == "saved":
-            self.snapshot = self.snapshot.model_copy(
-                update={
-                    "request": self.snapshot.request.model_copy(update={"rubric_source": "saved"}),
-                    "rubric_document": {"revision": 3},
-                    "rubric_reference_context": _reference_context(),
-                    "rubric_reference_generation_id": str(uuid4()),
-                }
-            )
+    def test_complete_repeats_show_descriptive_improvement_and_saved_provenance(self) -> None:
         judgments = [
             self._judgment(run, "fail" if run.variant_id == self.baseline.id else "pass") for run in self.snapshot.runs
         ]
@@ -175,14 +167,13 @@ class TestScoutTrialEvaluationReport(SimpleTestCase):
         assert report.outcome is not None and report.outcome.status == "winner"
         assert report.outcome.variant_ids == [self.candidate.id]
         assert "2 of 2" in report.outcome.summary
-        assert report.rubric_source == source
-        assert report.rubric_revision == (3 if source == "saved" else 0)
-        assert any("mock default criteria" in limitation for limitation in report.limitations) == (source == "mock")
+        assert report.rubric_source == "saved"
+        assert report.rubric_revision == 3
         assert report.rubric_reference_context == self.snapshot.rubric_reference_context
         assert report.rubric_reference_generation_id == self.snapshot.rubric_reference_generation_id
         assert report.evidence == self.snapshot.runs
         assert report.criteria == self.snapshot.criteria
-        exported = report.model_dump_json(exclude_none=source == "mock")
+        exported = report.model_dump_json()
         assert TrialComparisonReport.model_validate_json(exported) == report
         historical = report.model_dump(mode="json", exclude={"outcome"})
         assert TrialComparisonReport.model_validate(historical).outcome is None

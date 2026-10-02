@@ -133,13 +133,13 @@ export const trialFixtureReport: TrialComparisonReportApi = {
         summary:
             'Candidate prompt passed 4 of 4 rubric checks; Baseline passed 3 of 4. Each variant ran twice, and every applicable check was judged.',
     },
-    rubric_source: 'mock',
-    rubric_revision: 0,
+    rubric_source: 'saved',
+    rubric_revision: 1,
     rubric_reference_context: null,
     rubric_reference_generation_id: null,
     baseline_variant_id: trialFixtureComparison.baselineVariantId,
-    judge_model: 'gpt-5.5',
-    judge_prompt_version: '1',
+    judge_model: 'gpt-6-astra',
+    judge_prompt_version: 'sandbox-1',
     criteria: [
         {
             id: 'evidence',
@@ -223,9 +223,7 @@ export const trialFixtureReport: TrialComparisonReportApi = {
             limitations: ['Tool execution traces were not available for this run.'],
         }))
     ),
-    limitations: [
-        'Live data may change between runs. The rubric is a mock input and should be reviewed before drawing conclusions.',
-    ],
+    limitations: ['Live data may change between runs. The saved rubric stays fixed across variants.'],
 }
 
 export const trialFixtureEvaluation: ScoutTrialEvaluationApi = {
@@ -236,7 +234,7 @@ export const trialFixtureEvaluation: ScoutTrialEvaluationApi = {
     request: {
         evaluation_id: trialFixtureComparison.id,
         baseline_variant_id: trialFixtureComparison.baselineVariantId,
-        rubric_source: 'mock',
+        rubric_source: 'saved',
         variants: trialFixtureComparison.groups.map((group, index) => ({
             id: group.variantId,
             label: index === 0 ? 'Baseline' : 'Candidate prompt',

@@ -472,6 +472,122 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
             scopes=scopes,
         )
 
+    def test_judge_token_can_only_read_inputs_and_record_its_own_run(self) -> None:
+        task, run = self.trial_tasks[0], self.trial_runs[0]
+        marker = {
+            "version": 1,
+            "user_id": self.user.id,
+            **{
+                key: str(uuid.uuid4())
+                for key in (
+                    "evaluation_id",
+                    "launch_id",
+                    "context_id",
+                    "source_task_id",
+                    "source_task_run_id",
+                    "source_scout_run_id",
+                )
+            },
+        }
+        task.origin_key = f"scout-trial-judge:{marker['evaluation_id']}:{marker['launch_id']}"
+        task.save(update_fields=["origin_key"])
+        run.state = {
+            "scout_trial_judge": marker,
+            "pending_user_message": "Use the attached synthetic run log",
+            "pending_user_artifact_ids": [],
+            "pending_user_message_id": str(uuid.uuid4()),
+            "pending_user_message_ts": "123456789.000000",
+        }
+        storage_path = f"tasks/{task.id}/runs/{run.id}/artifacts/run-log.jsonl"
+        run.artifacts = [
+            build_task_artifact_entry(
+                artifact_id=str(uuid.uuid4()),
+                name="run-log.jsonl",
+                storage_path=storage_path,
+                artifact_type="file",
+                source="internal",
+                size=21,
+                content_type="application/x-ndjson",
+            )
+        ]
+        run.save(update_fields=["state", "artifacts"])
+        client = self._sandbox_oauth_client(task.id, scopes="scout_experiment_internal:read")
+        base = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/"
+
+        assert client.get(f"/api/projects/@current/tasks/{task.id}/").status_code == status.HTTP_200_OK
+        assert client.get(base).status_code == status.HTTP_200_OK
+        with patch.object(object_storage, "read_bytes", return_value=b'{"tool":"synthetic"}\n'):
+            response = client.post(f"{base}artifacts/download/", {"storage_path": storage_path}, format="json")
+            assert response.status_code == status.HTTP_200_OK, response.content
+            assert (
+                client.post(
+                    f"{base}artifacts/download/", {"storage_path": "other-run/private-log.jsonl"}, format="json"
+                ).status_code
+                == status.HTTP_404_NOT_FOUND
+            )
+        with patch("products.tasks.backend.models.TaskRun.heartbeat_workflow"):
+            response = client.patch(
+                base, {"status": "in_progress", "state": {"agent_version": "test-judge"}}, format="json"
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        pending_keys = [
+            "pending_user_message",
+            "pending_user_artifact_ids",
+            "pending_user_message_id",
+            "pending_user_message_ts",
+        ]
+        assert client.patch(base, {"state_remove_keys": pending_keys}, format="json").status_code == status.HTTP_200_OK
+        assert (
+            client.patch(base, {"state_remove_keys": [*pending_keys, "scout_trial_judge"]}, format="json").status_code
+            == status.HTTP_403_FORBIDDEN
+        )
+        assert (
+            client.patch(
+                base, {"state": {"pending_user_message": "Replace the trusted prompt"}}, format="json"
+            ).status_code
+            == status.HTTP_403_FORBIDDEN
+        )
+        assert (
+            client.patch(f"{base}set_summary/", {"summary": "Saved a rubric assessment"}, format="json").status_code
+            == status.HTTP_200_OK
+        )
+        response = client.patch(
+            f"{base}set_output/",
+            {"output": {"summary": "Synthetic rubric assessment", "criteria": []}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        for path in (
+            "/api/projects/@current/tasks/",
+            f"/api/projects/@current/tasks/{self.ordinary_task.id}/",
+            f"/api/projects/@current/tasks/{self.trial_tasks[1].id}/runs/{self.trial_runs[1].id}/",
+            "/api/projects/@current/insights/",
+        ):
+            assert client.get(path).status_code == status.HTTP_403_FORBIDDEN, path
+        assert (
+            client.patch(base, {"state": {"scout_trial_judge": {}}}, format="json").status_code
+            == status.HTTP_403_FORBIDDEN
+        )
+        assert client.post(f"{base}cancel/", {}, format="json").status_code == status.HTTP_403_FORBIDDEN
+        assert (
+            client.patch(
+                f"/api/projects/@current/tasks/{self.trial_tasks[1].id}/runs/{self.trial_runs[1].id}/set_output/",
+                {"output": {"summary": "Cannot change another run"}},
+                format="json",
+            ).status_code
+            == status.HTTP_403_FORBIDDEN
+        )
+        with patch.object(tasks_facade, "resume_task_run_in_cloud") as resume:
+            assert (
+                self.client.post(f"{base}resume_in_cloud/", {}, format="json").status_code
+                == status.HTTP_400_BAD_REQUEST
+            )
+        resume.assert_not_called()
+        run.refresh_from_db()
+        assert run.state["scout_trial_judge"] == marker
+        assert all(key not in run.state for key in pending_keys)
+        assert not SignalScoutRun.objects.for_team(self.team.id).filter(task_run=run).exists()
+
     def test_trial_can_append_own_log_without_general_task_write_access(self) -> None:
         task, run = self.trial_tasks[0], self.trial_runs[0]
         client = self._trial_log_client()
@@ -9899,8 +10015,18 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    @parameterized.expand(
+        [
+            ("session", None, status.HTTP_200_OK),
+            ("read_scope", "task:read", status.HTTP_200_OK),
+            ("unrelated_scope", "query:read", status.HTTP_403_FORBIDDEN),
+            ("judge_scope", "scout_experiment_internal:read", status.HTTP_403_FORBIDDEN),
+        ]
+    )
     @patch("posthog.storage.object_storage.read_bytes")
-    def test_download_artifact_content(self, mock_read_bytes):
+    def test_download_artifact_content(
+        self, _name: str, scopes: str | None, expected_status: int, mock_read_bytes: MagicMock
+    ) -> None:
         mock_read_bytes.return_value = b"artifact bytes"
         task = self.create_task()
         storage_path = "tasks/artifacts/team_1/task_2/run_3/plan.md"
@@ -9919,13 +10045,17 @@ class TestTaskRunAPI(BaseTaskAPITest):
             ],
         )
 
-        response = self.client.post(
+        client = self._sandbox_oauth_client(task.id, scopes=scopes) if scopes is not None else self.client
+        response = client.post(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/download/",
             {"storage_path": storage_path},
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, expected_status)
+        if expected_status == status.HTTP_403_FORBIDDEN:
+            mock_read_bytes.assert_not_called()
+            return
         self.assertEqual(response.content, b"artifact bytes")
         self.assertEqual(response["Content-Type"], "text/markdown")
         self.assertIn('attachment; filename="plan.md"', response["Content-Disposition"])

@@ -4,7 +4,7 @@ import json
 import asyncio
 import hashlib
 from dataclasses import field
-from typing import Literal, TypeVar, cast
+from typing import TypeVar, cast
 from uuid import UUID
 
 from django.utils import timezone
@@ -32,6 +32,7 @@ from products.signals.backend.scout_harness.trial_evaluation_types import (
     TrialEvaluationCriterion,
     TrialEvaluationRequest,
     TrialEvaluationSnapshot,
+    TrialEvidenceFile,
     TrialEvidenceSource,
     TrialRunEvidence,
     TrialRunJudgment,
@@ -53,15 +54,12 @@ from products.signals.backend.scout_harness.trial_result import (
 )
 from products.signals.backend.scout_harness.trial_rubrics import SavedScoutRubricReader, ScoutRubricReadError
 from products.signals.backend.scout_harness.trial_state import ScoutTrialStore
+from products.signals.backend.trial_judging import JUDGE_PROMPT_VERSION as JUDGE_PROMPT_VERSION
 from products.tasks.backend.facade.api import get_task_run_log_size, get_task_run_log_urls, read_task_run_log_content
 
 MAX_EVALUATION_BYTES = MAX_TRIAL_RUNS * 512 * 1024
-MAX_TRACE_BYTES = 2 * 1024 * 1024
-MAX_EVIDENCE_CHARS = 80_000
-MAX_SOURCE_CHARS = 12_000
-MAX_EVIDENCE_SOURCES = 200
+MAX_EVIDENCE_BYTES = 128 * 1024 * 1024
 JUDGE_MODEL = "gpt-6-astra"
-JUDGE_PROMPT_VERSION = "15"
 _Document = TypeVar("_Document", bound=BaseModel)
 
 
@@ -83,50 +81,79 @@ class _VariantSettings:
     note: str = field(repr=False)
 
 
+def _evidence_key(team_id: int, evaluation_id: UUID, launch_id: UUID, file: TrialEvidenceFile) -> str:
+    return f"signals/scout-trials/{team_id}/evaluations/{evaluation_id}/evidence/{launch_id}/{file.filename}"
+
+
 class _EvidenceBuilder:
     def __init__(self) -> None:
         self.sources: list[TrialEvidenceSource] = []
         self.limitations: list[str] = []
-        self.remaining = MAX_EVIDENCE_CHARS
 
-    def add(
-        self,
-        identifier: str,
-        kind: Literal["instructions", "context", "summary", "report", "memory", "trace"],
-        text: str,
-        *,
-        max_characters: int = MAX_SOURCE_CHARS,
-    ) -> None:
-        if not text:
-            return
-        limit = min(self.remaining, MAX_SOURCE_CHARS, max_characters)
-        marker = "\n[Evidence truncated]"
-        if (len(text) > limit and limit <= len(marker)) or len(self.sources) >= MAX_EVIDENCE_SOURCES:
-            limitation = "Some evidence sources were omitted because the evidence limit was reached."
-            if limitation not in self.limitations:
-                self.limitations.append(limitation)
-            return
-        if len(text) > limit:
-            self.limitations.append(f"Evidence source {identifier} was truncated at {limit} characters.")
-            bounded = text[: limit - len(marker)] + marker
-        else:
-            bounded = text
-        self.sources.append(TrialEvidenceSource(id=identifier, kind=kind, text=bounded))
-        self.remaining -= len(bounded)
+    def freeze(self, *, team_id: int, evaluation_id: UUID, launch_id: UUID) -> list[TrialEvidenceFile]:
+        if sum(len(source.text.encode()) for source in self.sources) > MAX_EVIDENCE_BYTES:
+            raise TrialEvaluationError("The trial evidence exceeds the 128 MiB sandbox attachment limit.")
+        files: list[TrialEvidenceFile] = []
+        for source in self.sources:
+            if not source.text:
+                continue
+            file = TrialEvidenceFile(
+                id=source.id,
+                kind=source.kind,
+                filename="run-log.jsonl" if source.kind == "trace" else f"{source.id.replace(':', '-')}.txt",
+                sha256=hashlib.sha256(source.text.encode()).hexdigest(),
+                size_bytes=len(source.text.encode()),
+            )
+            key = _evidence_key(team_id, evaluation_id, launch_id, file)
+            existing = object_storage.read(key, missing_ok=True)
+            if existing is None:
+                try:
+                    object_storage.write(key, source.text, extras={"ContentType": "text/plain", "IfNoneMatch": "*"})
+                except object_storage.ObjectStorageError:
+                    existing = object_storage.read(key, missing_ok=True)
+                    if existing is None:
+                        raise
+            if existing is not None and existing != source.text:
+                raise TrialEvaluationError("The saved evidence file no longer matches this trial.")
+            files.append(file)
+        return files
 
-    def add_authored_sources(self, sources: list[TrialEvidenceSource]) -> None:
-        # Keep half for observed tool results, and share authored space across reports.
-        remaining = MAX_EVIDENCE_CHARS // 2
-        if len(sources) > MAX_EVIDENCE_SOURCES // 2:
-            sources = sources[: MAX_EVIDENCE_SOURCES // 2]
-            self.limitations.append("Some authored sources were omitted to reserve space for tool evidence.")
-        limits: dict[str, int] = {}
-        for index, source in enumerate(sorted(sources, key=lambda source: len(source.text))):
-            limit = min(len(source.text), MAX_SOURCE_CHARS, remaining // (len(sources) - index))
-            limits[source.id] = limit
-            remaining -= limit
-        for source in sources:
-            self.add(source.id, source.kind, source.text, max_characters=limits[source.id])
+
+def trial_evidence_storage_key(
+    snapshot: TrialEvaluationSnapshot, evidence: TrialRunEvidence, file: TrialEvidenceFile
+) -> str:
+    if (
+        evidence not in snapshot.runs
+        or file not in evidence.files
+        or not any(
+            variant.id == evidence.variant_id and evidence.launch_id in variant.launch_ids
+            for variant in snapshot.request.variants
+        )
+    ):
+        raise TrialEvaluationError("The saved evidence file does not belong to this trial.")
+    return _evidence_key(snapshot.team_id, snapshot.evaluation_id, evidence.launch_id, file)
+
+
+@private_capture_context()
+def read_trial_evidence_sources(
+    snapshot: TrialEvaluationSnapshot, evidence: TrialRunEvidence
+) -> list[TrialEvidenceSource]:
+    if (
+        len({file.id for file in evidence.files}) != len(evidence.files)
+        or len({file.filename for file in evidence.files}) != len(evidence.files)
+        or sum(file.size_bytes for file in evidence.files) > MAX_EVIDENCE_BYTES
+    ):
+        raise TrialEvaluationError("The saved evidence manifest is invalid.")
+    sources: list[TrialEvidenceSource] = []
+    for file in evidence.files:
+        content = object_storage.read(trial_evidence_storage_key(snapshot, evidence, file), missing_ok=True)
+        if content is None:
+            raise TrialEvaluationError("A saved evidence file is unavailable.")
+        encoded = content.encode()
+        if len(encoded) != file.size_bytes or hashlib.sha256(encoded).hexdigest() != file.sha256:
+            raise TrialEvaluationError("A saved evidence file failed its integrity check.")
+        sources.append(TrialEvidenceSource(id=file.id, kind=file.kind, text=content))
+    return sources
 
 
 def _key(team_id: int, evaluation_id: UUID, filename: str) -> str:
@@ -184,8 +211,9 @@ def _save_trial_judge_inputs(snapshot: TrialEvaluationSnapshot) -> None:
 def _read_trial_judge_input(team_id: int, evaluation_id: UUID, launch_id: UUID) -> TrialEvaluationSnapshot | None:
     snapshot = _read_document(_key(team_id, evaluation_id, f"judge-inputs/{launch_id}"), TrialEvaluationSnapshot)
     if snapshot is None:
-        # Evaluations saved before per-run inputs remain resumable from their frozen snapshot.
-        return read_trial_evaluation(team_id, evaluation_id)
+        return None
+    if snapshot.judge_prompt_version != JUDGE_PROMPT_VERSION:
+        raise TrialEvaluationError("This evaluation uses an obsolete judge. Start a new trial to assess it.")
     if (
         snapshot.team_id != team_id
         or snapshot.evaluation_id != evaluation_id
@@ -310,10 +338,6 @@ def _bound_run(launch: TrialLaunch) -> SignalScoutRun | None:
 
 
 def _add_trace(builder: _EvidenceBuilder, run: SignalScoutRun) -> None:
-    from products.signals.backend.scout_harness.trial_judge import (  # noqa: PLC0415 -- keep judge dependencies off API startup
-        evidence_sources_from_logs,
-    )
-
     try:
         urls = get_task_run_log_urls(run.task_run_id, run.task_run.task_id, run.team_id)
         if not urls or urls != [run.task_run.log_url]:
@@ -325,19 +349,18 @@ def _add_trace(builder: _EvidenceBuilder, run: SignalScoutRun) -> None:
         if size <= 0:
             builder.limitations.append("The trial trace was unavailable.")
             return
-        if size > MAX_TRACE_BYTES:
-            builder.limitations.append("The trial trace exceeded the 2 MiB read limit and was omitted.")
-            return
+        if size > MAX_EVIDENCE_BYTES:
+            raise TrialEvaluationError("The trial trace exceeds the 128 MiB sandbox attachment limit.")
         content = read_task_run_log_content(urls)
-        if len(content.encode()) > MAX_TRACE_BYTES:
-            builder.limitations.append("The trial trace exceeded the 2 MiB read limit and was omitted.")
-            return
-        trace = evidence_sources_from_logs(
-            content, max_characters=builder.remaining, max_sources=MAX_EVIDENCE_SOURCES - len(builder.sources)
-        )
-        builder.limitations.extend(trace.limitations)
-        for source in trace.sources:
-            builder.add(source.id, source.kind, source.text)
+        if not content:
+            raise TrialEvaluationNotReady(
+                "The trial trace could not be read. Retry this evaluation after storage is available."
+            )
+        if len(content.encode()) > MAX_EVIDENCE_BYTES:
+            raise TrialEvaluationError("The trial trace exceeds the 128 MiB sandbox attachment limit.")
+        builder.sources.append(TrialEvidenceSource(id="trace", kind="trace", text=content))
+    except TrialEvaluationError:
+        raise
     except Exception:
         raise TrialEvaluationNotReady(
             "The trial trace could not be read. Retry this evaluation after storage is available."
@@ -378,7 +401,9 @@ def _report_evidence(report_id: str, report: JsonValue) -> dict[str, JsonValue]:
     }
 
 
-def _run_evidence(launch: TrialLaunch, context: TrialContext, variant_id: UUID) -> TrialRunEvidence:
+def _run_evidence(
+    launch: TrialLaunch, context: TrialContext, variant_id: UUID, *, evaluation_id: UUID
+) -> TrialRunEvidence:
     run = _bound_run(launch)
     result = read_trial_result(run) if run is not None else None
     workflow = None
@@ -469,11 +494,11 @@ def _run_evidence(launch: TrialLaunch, context: TrialContext, variant_id: UUID) 
         )
     else:
         builder.limitations.append("The trial's private report and memory state was unavailable.")
-    builder.add_authored_sources(authored)
+    builder.sources.extend(authored)
     _add_trace(builder, run)
     return evidence.model_copy(
         update={
-            "sources": builder.sources,
+            "files": builder.freeze(team_id=launch.team_id, evaluation_id=evaluation_id, launch_id=launch.id),
             "limitations": list(dict.fromkeys(builder.limitations)),
             "input_tokens": _usage(result.get("token_usage"), "input_tokens"),
             "output_tokens": _usage(result.get("token_usage"), "output_tokens"),
@@ -523,12 +548,10 @@ def prepare_trial_evaluation(
         assert_evaluation_access(existing, config=config, user=user)
         if existing.request_hash != request_hash:
             raise TrialEvaluationError("This evaluation ID was already used for a different request.")
+        if existing.judge_prompt_version != JUDGE_PROMPT_VERSION:
+            raise TrialEvaluationError("This evaluation uses an obsolete judge. Start a new trial to assess it.")
         _save_trial_judge_inputs(existing)
         return existing
-    if request.rubric_source != "saved":
-        raise TrialEvaluationError(
-            "New evaluations require the scout's saved rubric. Choose saved as the rubric source."
-        )
     reserved_plan = _read_document(
         f"signals/scout-trials/{config.team_id}/comparisons/{request.evaluation_id}/plan.json", TrialComparisonPlan
     )
@@ -574,6 +597,8 @@ def prepare_trial_evaluation(
     except ScoutRubricReadError as error:
         raise TrialEvaluationError(str(error)) from error
     criteria = trial_evaluation_criteria(rubric)
+    if judge_prompt_version != JUDGE_PROMPT_VERSION:
+        raise TrialEvaluationError("This evaluation uses an obsolete judge. Start a new trial to assess it.")
     snapshot = TrialEvaluationSnapshot(
         evaluation_id=request.evaluation_id,
         team_id=config.team_id,
@@ -590,25 +615,11 @@ def prepare_trial_evaluation(
         judge_model=judge_model,
         judge_prompt_version=judge_prompt_version,
         runs=[
-            _run_evidence(launches[identifier], context, variant.id)
+            _run_evidence(launches[identifier], context, variant.id, evaluation_id=request.evaluation_id)
             for variant in request.variants
             for identifier in variant.launch_ids
         ],
     )
-    from products.signals.backend.scout_harness.trial_judge import (  # noqa: PLC0415 -- keep judge dependencies off API startup
-        TrialJudgeValidationError,
-        bound_trial_judge_evidence,
-        build_trial_judge_messages,
-    )
-
-    try:
-        snapshot = snapshot.model_copy(
-            update={"runs": [bound_trial_judge_evidence(snapshot, evidence) for evidence in snapshot.runs]}
-        )
-        for evidence in snapshot.runs:
-            build_trial_judge_messages(snapshot, evidence)
-    except TrialJudgeValidationError as error:
-        raise TrialEvaluationError(str(error)) from error
     reserve_trial_evaluation(
         TrialEvaluationReservation(
             team_id=config.team_id,

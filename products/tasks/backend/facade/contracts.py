@@ -394,6 +394,17 @@ class TaskArtifactDTO:
 
 
 @dataclass(frozen=True)
+class TaskRunInputFile:
+    """An existing server-owned object attached before a task run starts."""
+
+    id: str
+    name: str
+    storage_path: str
+    size_bytes: int
+    content_type: str
+
+
+@dataclass(frozen=True)
 class TaskCommentTargetDTO:
     id: str
     type: str

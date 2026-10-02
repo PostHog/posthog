@@ -93938,14 +93938,12 @@ export namespace Schemas {
     }
 
     /**
-     * * `mock` - Mock
      * * `saved` - Saved
      */
     export type TrialRubricSourceEnum = typeof TrialRubricSourceEnum[keyof typeof TrialRubricSourceEnum];
 
 
     export const TrialRubricSourceEnum = {
-      Mock: 'mock',
       Saved: 'saved',
     } as const;
 
@@ -93956,9 +93954,8 @@ export namespace Schemas {
       baseline_variant_id: string;
       /** Up to 20 variant groups, each with up to 20 trial runs. */
       variants: ScoutTrialEvaluationVariant[];
-      /** Use saved for new evaluations. Mock is retained only for exact retries of existing evaluations.
+      /** Judge every run against the scout's saved rubric, frozen when the trial starts.
        *
-       * * `mock` - Mock
        * * `saved` - Saved */
       rubric_source: TrialRubricSourceEnum;
     }
@@ -93997,14 +93994,6 @@ export namespace Schemas {
       variant_ids?: string[];
       summary: string;
     }
-
-    export type TrialComparisonReportRubricSourceEnum = typeof TrialComparisonReportRubricSourceEnum[keyof typeof TrialComparisonReportRubricSourceEnum];
-
-
-    export const TrialComparisonReportRubricSourceEnum = {
-      Mock: 'mock',
-      Saved: 'saved',
-    } as const;
 
     export interface TrialEvaluationCriterion {
       id: string;
@@ -94079,7 +94068,7 @@ export namespace Schemas {
       reason: string;
       confidence: ConfidenceTierEnum;
       /** @maxItems 6 */
-      evidence?: TrialCriterionEvidence[];
+      evidence: TrialCriterionEvidence[];
     }
 
     export interface TrialRunJudgment {
@@ -94107,6 +94096,24 @@ export namespace Schemas {
       Trace: 'trace',
     } as const;
 
+    export interface TrialEvidenceFile {
+      /**
+         * @minLength 1
+         * @maxLength 100
+         */
+      id: string;
+      kind: TrialEvidenceSourceKindEnum;
+      /**
+         * @maxLength 120
+         * @pattern ^[a-z0-9][a-z0-9_-]*\.(txt|jsonl)$
+         */
+      filename: string;
+      /** @pattern ^[0-9a-f]{64}$ */
+      sha256: string;
+      /** @minimum 0 */
+      size_bytes: number;
+    }
+
     export interface TrialEvidenceSource {
       id: string;
       kind: TrialEvidenceSourceKindEnum;
@@ -94128,6 +94135,7 @@ export namespace Schemas {
       skill_body_sha256: string;
       input_tokens?: number | null;
       output_tokens?: number | null;
+      files?: TrialEvidenceFile[];
       sources?: TrialEvidenceSource[];
       limitations?: string[];
     }
@@ -94140,7 +94148,7 @@ export namespace Schemas {
       completed_at: string;
       summary: string;
       outcome?: TrialComparisonOutcome | null;
-      rubric_source: TrialComparisonReportRubricSourceEnum;
+      rubric_source: 'saved';
       rubric_revision: number;
       rubric_reference_context?: ScoutRubricReferenceContext | null;
       rubric_reference_generation_id?: string | null;

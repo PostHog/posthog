@@ -34,7 +34,7 @@ export function ScoutTrialComparisonReport({
     const checks = trialCheckRows(report.criteria, versions)
     const differingChecks = checks.filter((check) => check.differs)
     const differencesOnly = filter?.evaluationId === report.evaluation_id ? filter.differencesOnly : checks.length > 5
-    const rubricLabel = report.rubric_source === 'mock' ? 'Mock rubric' : 'Saved rubric'
+    const rubricLabel = 'Saved rubric'
     const outcome = report.outcome
     const bestVersionNames = versions
         .filter(({ variant }) => outcome?.variant_ids?.includes(variant.variant_id))

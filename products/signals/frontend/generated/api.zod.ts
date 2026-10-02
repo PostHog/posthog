@@ -1515,10 +1515,10 @@ export const SignalsScoutConfigTrialEvaluationCreateBody = /* @__PURE__ */ zod.o
         )
         .describe('Up to 20 variant groups, each with up to 20 trial runs.'),
     rubric_source: zod
-        .enum(['mock', 'saved'])
-        .describe('\* `mock` - Mock\n\* `saved` - Saved')
+        .enum(['saved'])
+        .describe('\* `saved` - Saved')
         .describe(
-            'Use saved for new evaluations. Mock is retained only for exact retries of existing evaluations.\n\n\* `mock` - Mock\n\* `saved` - Saved'
+            "Judge every run against the scout's saved rubric, frozen when the trial starts.\n\n\* `saved` - Saved"
         ),
 })
 

@@ -205,11 +205,6 @@ def build_trial_comparison_report(
         runs=scored,
         evidence=snapshot.runs,
         limitations=[
-            *(
-                ["These scores use mock default criteria, not a reviewed rubric for this scout."]
-                if snapshot.request.rubric_source == "mock"
-                else []
-            ),
             "Each run scores pass verdicts divided by pass and fail verdicts. Variant scores average runs with a decisive score; unknown and not applicable verdicts are excluded.",
             "Rubric coverage is the fraction of applicable verdicts that are pass or fail. Execution failures and judge errors are listed separately.",
             "The best result describes these runs only. It does not establish statistical significance or guarantee the same result on other data.",

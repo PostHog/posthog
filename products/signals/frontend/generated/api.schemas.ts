@@ -4095,13 +4095,11 @@ export interface ScoutTrialEvaluationVariantApi {
 }
 
 /**
- * * `mock` - Mock
  * * `saved` - Saved
  */
 export type TrialRubricSourceEnumApi = (typeof TrialRubricSourceEnumApi)[keyof typeof TrialRubricSourceEnumApi]
 
 export const TrialRubricSourceEnumApi = {
-    Mock: 'mock',
     Saved: 'saved',
 } as const
 
@@ -4112,9 +4110,8 @@ export interface ScoutTrialEvaluationRequestApi {
     baseline_variant_id: string
     /** Up to 20 variant groups, each with up to 20 trial runs. */
     variants: ScoutTrialEvaluationVariantApi[]
-    /** Use saved for new evaluations. Mock is retained only for exact retries of existing evaluations.
+    /** Judge every run against the scout's saved rubric, frozen when the trial starts.
      *
-     * * `mock` - Mock
      * * `saved` - Saved */
     rubric_source: TrialRubricSourceEnumApi
 }
@@ -4153,14 +4150,6 @@ export interface TrialComparisonOutcomeApi {
     variant_ids?: string[]
     summary: string
 }
-
-export type TrialComparisonReportRubricSourceEnumApi =
-    (typeof TrialComparisonReportRubricSourceEnumApi)[keyof typeof TrialComparisonReportRubricSourceEnumApi]
-
-export const TrialComparisonReportRubricSourceEnumApi = {
-    Mock: 'mock',
-    Saved: 'saved',
-} as const
 
 export type ScoutRubricReportChannelApi = (typeof ScoutRubricReportChannelApi)[keyof typeof ScoutRubricReportChannelApi]
 
@@ -4285,7 +4274,7 @@ export interface TrialCriterionVerdictApi {
     reason: string
     confidence: ConfidenceTierEnumApi
     /** @maxItems 6 */
-    evidence?: TrialCriterionEvidenceApi[]
+    evidence: TrialCriterionEvidenceApi[]
 }
 
 export interface TrialRunJudgmentApi {
@@ -4324,6 +4313,24 @@ export const TrialEvidenceSourceKindEnumApi = {
     Trace: 'trace',
 } as const
 
+export interface TrialEvidenceFileApi {
+    /**
+     * @minLength 1
+     * @maxLength 100
+     */
+    id: string
+    kind: TrialEvidenceSourceKindEnumApi
+    /**
+     * @maxLength 120
+     * @pattern ^[a-z0-9][a-z0-9_-]*\.(txt|jsonl)$
+     */
+    filename: string
+    /** @pattern ^[0-9a-f]{64}$ */
+    sha256: string
+    /** @minimum 0 */
+    size_bytes: number
+}
+
 export interface TrialEvidenceSourceApi {
     id: string
     kind: TrialEvidenceSourceKindEnumApi
@@ -4345,6 +4352,7 @@ export interface TrialRunEvidenceApi {
     skill_body_sha256: string
     input_tokens?: number | null
     output_tokens?: number | null
+    files?: TrialEvidenceFileApi[]
     sources?: TrialEvidenceSourceApi[]
     limitations?: string[]
 }
@@ -4357,7 +4365,7 @@ export interface TrialComparisonReportApi {
     completed_at: string
     summary: string
     outcome?: TrialComparisonOutcomeApi | null
-    rubric_source: TrialComparisonReportRubricSourceEnumApi
+    rubric_source: 'saved'
     rubric_revision: number
     rubric_reference_context?: ScoutRubricReferenceContextApi | null
     rubric_reference_generation_id?: string | null

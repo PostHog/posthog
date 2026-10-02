@@ -139,11 +139,7 @@ class RunScoutTrialComparisonWorkflow:
             if workflow.now() >= deadline:
                 raise ApplicationError("The scout runs did not finish in time. Resume to check their saved results.")
             await workflow.sleep(10)
-        if workflow.patched("scout-trial-expanded-capacity-v1"):
-            judge_wait = timedelta(minutes=TRIAL_EVALUATION_TIMEOUT_MINUTES + 5)
-        else:
-            judge_wait = timedelta(minutes=85 if workflow.patched("scout-trial-grouped-judge-wait-v10") else 45)
-        deadline = workflow.now() + judge_wait
+        deadline = workflow.now() + timedelta(minutes=TRIAL_EVALUATION_TIMEOUT_MINUTES + 5)
         while not await workflow.execute_activity(
             finish_scout_trial_comparison_activity,
             inputs,

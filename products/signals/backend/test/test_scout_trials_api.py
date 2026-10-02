@@ -802,7 +802,7 @@ class TestScoutTrialLaunch(APIBaseTest):
             "evaluation_id": evaluation_id,
             "baseline_variant_id": str(uuid4()),
             "variants": [{"id": str(uuid4()), "label": "Baseline", "launch_ids": [str(uuid4())]}],
-            "rubric_source": "mock",
+            "rubric_source": "saved",
         }
         with patch(
             "products.signals.backend.temporal.agentic.scout_trial_evaluation.start_trial_evaluation"

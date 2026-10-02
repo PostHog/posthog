@@ -59,6 +59,7 @@ from products.tasks.backend.storage import append_jsonl_object
 logger = structlog.get_logger(__name__)
 
 SCOUT_TRIAL_ORIGIN_KEY_PREFIX = "scout-trial:"
+SCOUT_TRIAL_JUDGE_ORIGIN_KEY_PREFIX = "scout-trial-judge:"
 
 
 def execute_after_commit(callback: Callable[[], object]) -> None:
@@ -649,17 +650,21 @@ class Task(Taggable, DeletedMetaFields, models.Model):
     @classmethod
     def scout_experiment_q(cls, *, relation: Literal["", "task"] = "") -> models.Q:
         prefix = {"": "", "task": "task__"}[relation]
-        return models.Q(
-            **{
-                f"{prefix}origin_product": cls.OriginProduct.SIGNALS_SCOUT,
-                f"{prefix}origin_key__startswith": SCOUT_TRIAL_ORIGIN_KEY_PREFIX,
-            }
+        return models.Q(**{f"{prefix}origin_product": cls.OriginProduct.SIGNALS_SCOUT}) & (
+            models.Q(**{f"{prefix}origin_key__startswith": SCOUT_TRIAL_ORIGIN_KEY_PREFIX})
+            | models.Q(**{f"{prefix}origin_key__startswith": SCOUT_TRIAL_JUDGE_ORIGIN_KEY_PREFIX})
         )
 
     @property
     def is_scout_experiment(self) -> bool:
         return self.origin_product == self.OriginProduct.SIGNALS_SCOUT and (self.origin_key or "").startswith(
-            SCOUT_TRIAL_ORIGIN_KEY_PREFIX
+            (SCOUT_TRIAL_ORIGIN_KEY_PREFIX, SCOUT_TRIAL_JUDGE_ORIGIN_KEY_PREFIX)
+        )
+
+    @property
+    def is_scout_trial_judge(self) -> bool:
+        return self.origin_product == self.OriginProduct.SIGNALS_SCOUT and (self.origin_key or "").startswith(
+            SCOUT_TRIAL_JUDGE_ORIGIN_KEY_PREFIX
         )
 
     def capture_event(

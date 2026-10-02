@@ -422,12 +422,12 @@ class TestFacadeReadsAndMappers(TestCase):
             ),
         }
 
-    @parameterized.expand([("ordinary", False), ("scout_trial", True)])
-    def test_task_exists_and_visibility(self, _name: str, is_trial: bool) -> None:
+    @parameterized.expand([("ordinary", False), ("scout_trial", True), ("scout_judge", True, "scout-trial-judge:")])
+    def test_task_exists_and_visibility(self, _name: str, is_trial: bool, prefix: str = "scout-trial:") -> None:
         task = self._make_task(
             **{
                 "origin_product": Task.OriginProduct.SIGNALS_SCOUT,
-                "origin_key": f"scout-trial:{uuid4()}",
+                "origin_key": f"{prefix}{uuid4()}:{uuid4()}",
             }
             if is_trial
             else {}
