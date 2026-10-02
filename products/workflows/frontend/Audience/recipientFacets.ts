@@ -63,7 +63,7 @@ export function recipientFacets(topics: MessageCategoryApi[]): ServerFacet[] {
         {
             key: 'person',
             label: 'Person',
-            description: 'Whether a person holds this address',
+            description: 'Whether this address belongs to a person',
             showOnFocus: true,
             order: 5,
             values: [
