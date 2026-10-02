@@ -34,7 +34,7 @@ describe('optOutListLogic usage tracking', () => {
 
     it('captures the export once the file downloads', async () => {
         jest.spyOn(api.messaging, 'exportOptOutsCsv').mockResolvedValue(new Blob(['identifier\n']))
-        URL.createObjectURL = jest.fn(() => 'blob:opt-outs')
+        jest.spyOn(URL, 'createObjectURL').mockReturnValue('blob:opt-outs')
 
         await expectLogic(logic, () => {
             logic.actions.exportCsv()

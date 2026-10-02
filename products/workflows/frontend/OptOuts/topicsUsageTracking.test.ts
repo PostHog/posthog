@@ -24,7 +24,7 @@ const NEWSLETTER: MessageCategoryApi = {
     updated_at: '2026-01-01T00:00:00Z',
     created_by: null,
     deleted: false,
-} as MessageCategoryApi
+}
 
 async function submitTopicForm(category?: MessageCategoryApi): Promise<void> {
     const logic = newCategoryLogic({ category })
@@ -39,11 +39,11 @@ async function deleteTopic(): Promise<void> {
     ).toFinishAllListeners()
 }
 
-async function openPreferencesPage(): Promise<void> {
+async function openPreferencesPage(popup: 'opened' | 'blocked'): Promise<void> {
     jest.spyOn(messagingApi, 'messagingPreferencesGenerateLinkCreate').mockResolvedValue({
         preferences_url: 'https://example.com/preferences/abc',
-    } as Awaited<ReturnType<typeof messagingApi.messagingPreferencesGenerateLinkCreate>>)
-    jest.spyOn(window, 'open').mockImplementation(() => null)
+    })
+    jest.spyOn(window, 'open').mockReturnValue(popup === 'opened' ? window : null)
     optOutSceneLogic.mount()
     await expectLogic(optOutSceneLogic, () =>
         optOutSceneLogic.actions.openPreferencesPage('jamie@example.com')
@@ -106,9 +106,10 @@ describe('topics tab usage tracking', () => {
         { action: 'deleting a topic', act: deleteTopic, expected: [['messaging topic deleted']] },
         {
             action: 'opening the preferences page',
-            act: openPreferencesPage,
+            act: () => openPreferencesPage('opened'),
             expected: [['messaging preferences page opened']],
         },
+        { action: 'a blocked preferences page popup', act: () => openPreferencesPage('blocked'), expected: [] },
         {
             action: 'a Customer.io API import',
             act: importFromCustomerIOApi,
@@ -119,7 +120,7 @@ describe('topics tab usage tracking', () => {
             act: importFromCustomerIOCsv,
             expected: [['messaging customer.io import completed', { source: 'csv' }]],
         },
-    ])('captures one event when $action succeeds', async ({ act, expected }) => {
+    ])('after $action, captures $expected', async ({ act, expected }) => {
         await act()
 
         expect(messagingEvents()).toEqual(expected)
