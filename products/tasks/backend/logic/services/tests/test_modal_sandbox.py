@@ -740,7 +740,7 @@ class TestModalSandboxAgentServer:
         [
             (
                 1,
-                "agentsh daemon failed to start\nnohup: failed to run command 'agentsh': No such file or directory\n",
+                "p" * 1500 + "\nnohup: failed to run command 'agentsh': No such file or directory\n",
                 1,
                 None,
                 "Failed to start agentsh daemon",
@@ -785,7 +785,7 @@ class TestModalSandboxAgentServer:
 
         log_tail = str(properties["agentsh_log_tail"])
         assert properties["agentsh_setup_exit_code"] == setup_exit_code
-        assert properties["agentsh_setup_stderr"] == setup_stderr.strip()
+        assert properties["agentsh_setup_stderr"] == setup_stderr.strip()[-1000:]
         assert log_tail.endswith(log_end)
         assert len(log_tail) == 4000
 
