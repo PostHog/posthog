@@ -2606,7 +2606,7 @@
         "system_prompt_hint": "First call when investigating \"metric X looks wrong\" — magnitude, onset, which labels moved"
     },
     "cohorts-add-persons-to-static-cohort-partial-update": {
-        "description": "Add persons to a static cohort by their UUIDs. Only works for static cohorts (is_static: true).\n\nIntended for small, ad-hoc additions — pass at most ~20 person UUIDs per call. To build or grow a static cohort from a larger set, do NOT loop this tool over many UUIDs; instead create the cohort from a query ('cohorts-create' with 'is_static: true' and a 'query'), or add to an existing static cohort by setting a 'query' on it via 'cohorts-partial-update'. The server then runs the query and inserts every matching person in a single call, with no row limit.",
+        "description": "Add persons to a static cohort by their UUIDs. Only works for static cohorts (is_static: true). 'person_ids' must be person UUIDs (the 'id' column of the persons table), not distinct IDs or emails.\n\nIntended for small, ad-hoc additions — pass at most ~20 person UUIDs per call. To build or grow a static cohort from a larger set, do NOT loop this tool over many UUIDs; instead create the cohort from a query ('cohorts-create' with 'is_static: true' and a 'query'), or add to an existing static cohort by setting a 'query' on it via 'cohorts-partial-update'. The server then runs the query and inserts every matching person in a single call, with no row limit.",
         "category": "Cohorts",
         "feature": "cohorts",
         "summary": "Add persons to static cohort",

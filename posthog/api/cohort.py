@@ -505,9 +505,24 @@ logger = structlog.get_logger(__name__)
 
 class AddPersonsToStaticCohortRequestSerializer(serializers.Serializer):
     person_ids = serializers.ListField(
-        child=serializers.UUIDField(),
+        child=serializers.UUIDField(
+            error_messages={
+                "invalid": "Must be a person UUID (the `id` column of the persons table), not a distinct ID or an email."
+            }
+        ),
         required=True,
-        help_text="List of person UUIDs to add to the cohort",
+        allow_empty=False,
+        max_length=DEFAULT_COHORT_INSERT_BATCH_SIZE,
+        error_messages={
+            "max_length": (
+                "Too many person_ids. Send at most {max_length} per request. To add a larger set, set a `query` "
+                "on the static cohort instead, and the server adds every matching person."
+            )
+        },
+        help_text=(
+            "Person UUIDs to add to the cohort (the `id` column of the persons table, not distinct IDs). "
+            f"At most {DEFAULT_COHORT_INSERT_BATCH_SIZE} per request."
+        ),
     )
 
 
@@ -2032,17 +2047,21 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
     def add_persons_to_static_cohort(self, request: request.Request, **kwargs):
         cohort: Cohort = self.get_object()
         if not cohort.is_static:
-            raise ValidationError("Can only add users to static cohorts")
-        person_ids = request.data.get("person_ids", None)
-        if not isinstance(person_ids, list):
-            raise ValidationError("person_ids must be a list")
-        if len(person_ids) == 0:
-            raise ValidationError("person_ids cannot be empty")
-        if len(person_ids) > DEFAULT_COHORT_INSERT_BATCH_SIZE:
-            raise ValidationError("List size exceeds limit")
+            raise ValidationError(
+                "Can only add users to static cohorts. This cohort is dynamic, so its filters decide who is in it. "
+                "Change the filters, or create a static cohort (`is_static: true`) and add the persons to that one.",
+                code="cohort_not_static",
+            )
+        serializer = AddPersonsToStaticCohortRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        person_ids = [str(person_id) for person_id in serializer.validated_data["person_ids"]]
         uuids = validate_person_uuids_exist(self.team_id, person_ids)
         if len(uuids) == 0:
-            raise ValidationError("No valid users to add to cohort")
+            raise ValidationError(
+                "No valid users to add to cohort. None of the person_ids match a person in this project. "
+                "Use person UUIDs from the persons table (for example `SELECT id FROM persons WHERE ...`).",
+                code="no_matching_persons",
+            )
         cohort.insert_users_list_by_uuid(uuids, team_id=self.team_id)
         log_activity(
             organization_id=cast(UUIDT, self.organization_id),

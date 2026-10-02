@@ -513,7 +513,10 @@ export interface PatchedCohortApi {
 }
 
 export interface PatchedAddPersonsToStaticCohortRequestApi {
-    /** List of person UUIDs to add to the cohort */
+    /**
+     * Person UUIDs to add to the cohort (the `id` column of the persons table, not distinct IDs). At most 1000 per request.
+     * @maxItems 1000
+     */
     person_ids?: string[]
 }
 
