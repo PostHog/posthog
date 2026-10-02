@@ -224,17 +224,21 @@ class TestMessageRecipients(ClickhouseTestMixin, NonAtomicAPIBaseTest):
             ["e@example.com"],
         ]
 
-    def test_a_cursor_ending_in_a_non_breaking_space_moves_to_the_next_address(self) -> None:
-        self._person("a@example.com ", distinct_id="nbsp")
+    @parameterized.expand(
+        [
+            ("ending_in_a_non_breaking_space", "a@example.com\u00a0"),
+            ("longer_than_any_stored_identifier", f"a{'x' * 600}@example.com"),
+        ]
+    )
+    def test_the_next_cursor_and_email_lookup_accept_every_listed_address(self, _name: str, address: str) -> None:
+        self._person(address, distinct_id="first")
         self._person("b@example.com")
 
         first = self._list(limit=1)
         second = self._list(limit=1, cursor=first["next_cursor"])
 
-        assert [row["email"] for row in first["results"] + second["results"]] == [
-            "a@example.com ",
-            "b@example.com",
-        ]
+        assert [row["email"] for row in first["results"] + second["results"]] == [address, "b@example.com"]
+        assert self._emails(email=address) == [address]
 
     def test_pages_a_filtered_list_by_cursor(self) -> None:
         self._seed_facet_audience()
@@ -253,7 +257,7 @@ class TestMessageRecipients(ClickhouseTestMixin, NonAtomicAPIBaseTest):
         [
             ("non_ascii_casing", "Jürgen.MÜLLER@example.com", "jürgen.müller@example.com", "MÜLLER"),
             ("surrounding_whitespace", "\tTab@Example.com \n", "tab@example.com", "TAB@"),
-            ("non_breaking_space_is_part_of_the_address", "Nb@Example.com ", "nb@example.com ", "NB@"),
+            ("non_breaking_space_is_part_of_the_address", "Nb@Example.com\u00a0", "nb@example.com\u00a0", "NB@"),
         ]
     )
     def test_folds_an_address_the_same_way_in_list_search_and_lookup(
