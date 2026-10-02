@@ -561,6 +561,18 @@ class TestRecurrenceDispatch:
             == expected
         )
 
+    def test_a_calendar_unit_without_an_anchor_is_spread_by_the_configuration(self) -> None:
+        # 1am local on the next day in New York, then this configuration's own offset after it.
+        assert advance_schedule(
+            current_next_check_at=None,
+            check_interval_minutes=10,
+            recurrence_unit="day",
+            anchor_time=None,
+            tz_name="America/New_York",
+            now=self.DISPATCH_NOW,
+            configuration_id=ALERT_ID,
+        ) == datetime(2026, 10, 1, 5, 0, tzinfo=UTC) + alert_check_offset(CalendarInterval.DAILY, ALERT_ID)
+
     def test_a_monthly_recurrence_lands_on_the_next_month_not_the_interval(self) -> None:
         # The 1st of the next month at the anchor, which the weekly and minute paths both miss.
         assert advance_schedule(
