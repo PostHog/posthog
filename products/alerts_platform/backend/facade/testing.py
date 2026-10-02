@@ -11,7 +11,12 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from products.alerts_platform.backend.facade.contracts import PlatformAlertSnapshot, PlatformConfigurationSnapshot
+from products.alerts_platform.backend.comparison.divergence import diverging_policy_flags
+from products.alerts_platform.backend.facade.contracts import (
+    PlatformAlertSnapshot,
+    PlatformConfigurationSnapshot,
+    SourceCorrespondence,
+)
 from products.alerts_platform.backend.logic.platform_reads import instance_view
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
 
@@ -54,3 +59,15 @@ def alert_for(configuration_id: UUID, *, grouping_key: str = "") -> PlatformAler
     """The instance row a check wrote, or None when no check has written one."""
     row = PlatformAlert.objects.filter(configuration_id=configuration_id, grouping_key=grouping_key).first()
     return None if row is None else instance_view(row)
+
+
+def undeclared_policy_divergences(correspondence: SourceCorrespondence) -> frozenset[str]:
+    """The `AlertPolicy` flags on which a source's two stacks differ and it declares no divergence.
+
+    A source's own tests assert this is empty. The platform cannot list its sources, so each source
+    runs the check against itself.
+    """
+    configured = diverging_policy_flags(correspondence.production_policy, correspondence.platform_policy)
+    # Coverage rather than equality: a source may also declare a deliberate difference no flag
+    # describes, and must not be forced to invent one to hang the declaration on.
+    return configured - {divergence.policy_flag for divergence in correspondence.intentional_divergences}
