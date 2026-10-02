@@ -2016,15 +2016,15 @@ def _non_empty_staged_files(cluster: ClickhouseCluster, ctx: DeletionRequestCont
     return [path for (path,) in rows]
 
 
-def _fail_after_reingesting(month: str):
+def _fail_before_recording(step: str):
     original = _ShardStaging.finish_step
 
-    def finish_step(self: _ShardStaging, client: Client, step: str, payload: dict) -> None:
-        # The month's rows are already inserted when its progress file is written, so failing here
-        # leaves a partial reingest behind.
-        if step == f"reingested_{month}":
-            raise Exception("reingest died before recording the month")
-        original(self, client, step, payload)
+    def finish_step(self: _ShardStaging, client: Client, name: str, payload: dict) -> None:
+        # The step's work is already done when its progress file is written, so failing here leaves
+        # that work behind with no record of it.
+        if name == step:
+            raise Exception(f"died before recording {step}")
+        original(self, client, name, payload)
 
     return patch.object(_ShardStaging, "finish_step", finish_step)
 
@@ -2034,6 +2034,9 @@ def _fail_after_reingesting(month: str):
     "failure,failed_runs",
     [
         ("delete", 1),
+        # The originals are already deleted when the attempt dies, so the staged files hold the only
+        # copy. The retry must keep them rather than copy the now-empty source again.
+        ("after_delete", 1),
         ("reingest", 1),
         # The second failed attempt clears the month with the same command as the first. The clear
         # must run again, not adopt the first attempt's finished mutation.
@@ -2055,11 +2058,13 @@ def test_full_job_property_removal_fresh_run_after_failure_restores_every_row(
     run_config = {"ops": {"load_property_removal_request": {"config": {"request_id": str(request.pk)}}}}
 
     for _ in range(failed_runs):
-        inject = (
-            patch.object(LightweightDeleteMutationRunner, "__call__", side_effect=Exception("delete-originals failed"))
-            if failure == "delete"
-            else _fail_after_reingesting(months[1])
-        )
+        inject = {
+            "delete": lambda: patch.object(
+                LightweightDeleteMutationRunner, "__call__", side_effect=Exception("delete-originals failed")
+            ),
+            "after_delete": lambda: _fail_before_recording("deleted"),
+            "reingest": lambda: _fail_before_recording(f"reingested_{months[1]}"),
+        }[failure]()
         with inject:
             failed = data_deletion_request_property_removal.execute_in_process(
                 run_config=run_config, resources={"cluster": cluster}, raise_on_error=False
@@ -2165,7 +2170,7 @@ def _delete_one_event(team_id: int, event_uuid: UUID, client: Client) -> None:
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("change", ["extra_original", "swapped_original"])
+@pytest.mark.parametrize("change", ["extra_original", "swapped_original", "extra_original_after_delete_started"])
 def test_delete_refuses_when_originals_differ_from_the_staged_copy(cluster: ClickhouseCluster, change: str):
     marker = timezone.now()
     now = datetime.now()
@@ -2180,6 +2185,9 @@ def test_delete_refuses_when_originals_differ_from_the_staged_copy(cluster: Clic
     ctx = _request_context(request)
     target = next(t for t in _property_removal_targets(cluster, ctx) if not t.json_schema)
     copy_property_removal_shard(build_op_context(), cluster, target, ctx)
+    staging = _ShardStaging(request_id=ctx.request_id, target=target)
+    if change == "extra_original_after_delete_started":
+        cluster.any_host(lambda client: staging.finish_step(client, "delete_started", {"rows": 5})).result()
 
     # An original the copy never saw, inside the marker bound. Deleting it would lose it. In the
     # swapped case one staged original also disappears, so a count alone cannot tell the sets apart.
@@ -2195,13 +2203,18 @@ def test_delete_refuses_when_originals_differ_from_the_staged_copy(cluster: Clic
     cluster.any_host(partial(_insert_events_with_properties_and_inserted_at, [unseen])).result()
     if change == "swapped_original":
         cluster.any_host(partial(_delete_one_event, PROP_TEAM_ID, originals[0][2])).result()
-    expected = 6 if change == "extra_original" else 5
+    expected = 5 if change == "swapped_original" else 6
 
-    with pytest.raises(dagster.Failure, match="originals differ from the staged copy"):
+    refusal = "not in the staged copy" if change == "extra_original_after_delete_started" else "differ from the staged"
+    with pytest.raises(dagster.Failure, match=refusal):
         delete_property_removal_shard(build_op_context(), cluster, target, ctx)
     props_after = cluster.any_host(partial(_get_properties, PROP_TEAM_ID, "$pageview")).result()
     assert len(props_after) == expected
     assert all("secret" in p for p in props_after)
+    if change == "extra_original_after_delete_started":
+        # Once a delete has started the staged copy may be the only copy, so it is never discarded.
+        assert "copied" in cluster.any_host(staging.finished_steps).result()
+        return
 
     # The refusal discards the copy's progress, so the next attempt copies the current originals.
     copy_property_removal_shard(build_op_context(), cluster, target, ctx)

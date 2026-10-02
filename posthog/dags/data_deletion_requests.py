@@ -1006,7 +1006,13 @@ class _ShardStaging:
 
 
 _STEP_STRUCTURE = "step String, payload String"
-_COPIED, _DELETED, _REINGESTED, _VERIFIED = "copied", "deleted", "reingested", "verified"
+_COPIED, _DELETE_STARTED, _DELETED, _REINGESTED, _VERIFIED = (
+    "copied",
+    "delete_started",
+    "deleted",
+    "reingested",
+    "verified",
+)
 
 # Copy and reingest each move a whole request period for one shard in one query, which for a team
 # whose every event carries the property is most of that team's data on the shard.
@@ -1228,6 +1234,13 @@ def copy_property_removal_shard(
         if _COPIED in steps:
             log("skip", "copy already finished")
             return steps[_COPIED]
+        if _DELETE_STARTED in steps:
+            # A delete may have removed originals already, so the staged files are their only copy.
+            # Copying again would overwrite them with the survivors.
+            raise dagster.Failure(
+                description=f"[{target.mapping_key}] a delete started without a finished copy; refusing to copy "
+                "again over the only copy of the deleted rows. Investigate."
+            )
 
         _sync_replica(client, target, log)
         predicate = _shard_predicate(client, deletion_request, target, marker_str, hogql_compiled, log)
@@ -1323,25 +1336,53 @@ def delete_property_removal_shard(
                 fingerprint_sql, predicate.params, settings=_LONG_QUERY_SETTINGS
             )
         }
-        # The delete removes every row the predicate matches, so those rows must be exactly the staged
-        # ones. A count alone misses a different set of the same size; the uuid hash sum catches it.
-        if source != staged:
-            # Nothing is deleted yet, so copying again is safe. Discarding the copy's progress file makes
-            # the next run do that instead of failing here forever.
-            staging.discard_step(client, _COPIED)
-            raise dagster.Failure(
-                description=f"[{target.mapping_key}] originals differ from the staged copy "
-                f"(source={source}, staged={staged}). Nothing was deleted. The copy will run again on the "
-                "next attempt."
-            )
         originals = sum(rows for rows, _ in source.values())
+        # The delete removes every row the predicate matches, so every one of them must be staged. A count
+        # alone misses a different set of the same size; the uuid hash sum catches it.
+        if source != staged:
+            if _DELETE_STARTED not in steps:
+                # Nothing is deleted yet, so copying again is safe. Discarding the copy's progress file
+                # makes the next run do that instead of failing here forever.
+                staging.discard_step(client, _COPIED)
+                raise dagster.Failure(
+                    description=f"[{target.mapping_key}] originals differ from the staged copy "
+                    f"(source={source}, staged={staged}). Nothing was deleted. The copy will run again on the "
+                    "next attempt."
+                )
+            # An earlier attempt started the delete and may have removed some originals, so the staged
+            # files are the only copy of those and must stay. The survivors only have to be a subset of
+            # the staged rows. The join hashes the survivors, the smaller side, and streams the files.
+            unstaged_sql = (
+                f"SELECT count() FROM s3({staging.data_args(sorted(copied['months']))}) AS staged "
+                f"RIGHT ANTI JOIN (SELECT uuid FROM {db}.{target.table} WHERE {predicate.sql}) AS source "
+                "USING (uuid)"
+            )
+            unstaged = (
+                client.execute(unstaged_sql, predicate.params, settings=_LONG_QUERY_SETTINGS)[0][0]
+                if copied["months"]
+                else originals
+            )
+            if unstaged:
+                raise dagster.Failure(
+                    description=f"[{target.mapping_key}] {unstaged} originals are not in the staged copy, and an "
+                    "earlier attempt already started deleting. The staged copy is kept. Investigate before "
+                    "re-running."
+                )
+        elif _DELETE_STARTED not in steps:
+            # Recorded before the mutation is enqueued. From here on the copy is never discarded, because
+            # the delete may remove rows whose only other copy is staged.
+            staging.finish_step(client, _DELETE_STARTED, {"rows": originals})
 
         if originals:
+            # The server clock dates the cutoff, as it dates the mutations. A retry then enqueues its own
+            # delete instead of adopting an earlier attempt's, which may have been killed part way.
+            [[delete_since]] = client.execute("SELECT now()")
             delete_runner = LightweightDeleteMutationRunner(
                 table=target.table,
                 predicate=predicate.sql,
                 parameters=predicate.params,
                 settings={"lightweight_deletes_sync": 2, "mutations_sync": 2},
+                reuse_since=delete_since,
             )
             log("delete-originals", delete_runner.get_statement(delete_runner.get_all_commands()))
             # mutations_sync = 2 blocks on every replica of this shard; the explicit wait is a backstop.
