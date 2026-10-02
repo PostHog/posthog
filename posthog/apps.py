@@ -76,7 +76,9 @@ class PostHogConfig(AppConfig):
         }
         posthoganalytics._use_ai_lane = True  # ty: ignore[invalid-assignment]
         posthoganalytics._enable_multimodal_capture = True  # ty: ignore[invalid-assignment]
-        posthoganalytics.before_send = filter_scout_experiment_capture  # ty: ignore[invalid-assignment]
+        # Retained trial data still needs privacy when new launches are disabled.
+        if settings.SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE:
+            posthoganalytics.before_send = filter_scout_experiment_capture  # ty: ignore[invalid-assignment]
 
         # Config for the SDK's `client.metrics` API. The pinned SDK version predates
         # the metrics API and ignores this attr; once posthoganalytics is bumped to

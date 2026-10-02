@@ -1,12 +1,13 @@
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.test import SimpleTestCase, override_settings
 
 import posthoganalytics
 from parameterized import parameterized
 
 from posthog.clickhouse.query_tagging import tags_context
-from posthog.ph_client import ScopedCapture, get_client, ph_scoped_capture
+from posthog.ph_client import ScopedCapture, filter_scout_experiment_capture, get_client, ph_scoped_capture
 
 
 class TestAILaneOptIn(SimpleTestCase):
@@ -25,8 +26,7 @@ class TestAILaneOptIn(SimpleTestCase):
 
 
 class TestPrivateScoutCapture(SimpleTestCase):
-    @parameterized.expand([("module",), ("US",), ("EU",)])
-    def test_trusted_context_drops_events_before_enqueue(self, region: str) -> None:
+    def test_module_filter_matches_deployment_setting(self) -> None:
         with patch.multiple(
             posthoganalytics,
             default_client=None,
@@ -35,19 +35,18 @@ class TestPrivateScoutCapture(SimpleTestCase):
             enable_local_evaluation=False,
             enable_exception_autocapture=False,
         ):
-            client = (
-                posthoganalytics.setup()
-                if region == "module"
-                else get_client(region, disabled=False, send=False, enable_local_evaluation=False)
-            )
+            client = posthoganalytics.setup()
             assert client is not None
             try:
+                self.assertIs(
+                    client.before_send,
+                    filter_scout_experiment_capture if settings.SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE else None,
+                )
                 with tags_context(is_scout_experiment=True):
-                    self.assertIsNone(
-                        client.capture(
-                            "query executed", distinct_id="synthetic", properties={"is_scout_experiment": False}
-                        )
+                    captured = client.capture(
+                        "query executed", distinct_id="synthetic", properties={"is_scout_experiment": False}
                     )
+                    self.assertEqual(captured is None, settings.SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE)
                 with tags_context(is_scout_experiment=False):
                     self.assertIsNotNone(
                         client.capture(
@@ -57,17 +56,34 @@ class TestPrivateScoutCapture(SimpleTestCase):
             finally:
                 client.shutdown()
 
-    def test_regional_custom_filter_cannot_override_private_context(self) -> None:
+    @parameterized.expand([("US", False), ("EU", False), ("US", True), ("EU", True)])
+    @override_settings(SCOUT_LIVE_TRIALS_ENABLED=False)
+    def test_regional_capture_respects_private_deployment_setting(self, region: str, private_capture: bool) -> None:
         before_send = MagicMock(side_effect=lambda message: message)
-        client = get_client(disabled=False, send=False, enable_local_evaluation=False, before_send=before_send)
+        with override_settings(SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=private_capture):
+            client = get_client(
+                region, disabled=False, send=False, enable_local_evaluation=False, before_send=before_send
+            )
         assert client is not None
         try:
+            if not private_capture:
+                self.assertIs(client.before_send, before_send)
             with tags_context(is_scout_experiment=True):
-                self.assertIsNone(client.capture("query executed", distinct_id="synthetic"))
-            before_send.assert_not_called()
+                captured = client.capture("query executed", distinct_id="synthetic")
+            self.assertEqual(captured is None, private_capture)
+            self.assertEqual(before_send.call_count, 0 if private_capture else 1)
             with tags_context(is_scout_experiment=False):
                 self.assertIsNotNone(client.capture("query executed", distinct_id="synthetic"))
-            before_send.assert_called_once()
+            self.assertEqual(before_send.call_count, 1 if private_capture else 2)
+        finally:
+            client.shutdown()
+
+    @override_settings(SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=False)
+    def test_unconfigured_regional_client_has_no_capture_filter(self) -> None:
+        client = get_client(send=False, enable_local_evaluation=False)
+        assert client is not None
+        try:
+            self.assertIsNone(client.before_send)
         finally:
             client.shutdown()
 

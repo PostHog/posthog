@@ -216,12 +216,15 @@ def get_client(region: str = "US", **kwargs: Any):
     # under TEST, so without this a test that runs in cloud mode captures to the real
     # project. Callers can still pass `disabled` explicitly to override.
     kwargs.setdefault("disabled", bool(settings.TEST or os.environ.get("OPT_OUT_CAPTURE", False)))
-    before_send = kwargs.pop("before_send", None)
+    before_send = kwargs.get("before_send")
 
     def capture_filter(message: dict[str, Any]) -> dict[str, Any] | None:
         if filter_scout_experiment_capture(message) is None:
             return None
         return before_send(message) if before_send is not None else message
+
+    if settings.SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE:
+        kwargs["before_send"] = capture_filter
 
     return Posthog(
         api_key,
@@ -229,6 +232,5 @@ def get_client(region: str = "US", **kwargs: Any):
         super_properties={"region": region},
         _use_ai_lane=True,
         _enable_multimodal_capture=True,
-        before_send=capture_filter,
         **kwargs,
     )
