@@ -196,7 +196,7 @@ class TestQueryExecutorNode(ClickhouseTestMixin, NonAtomicBaseTest):
         msg = cast(AssistantMessage, new_state.messages[0])
         self.assertEqual(
             msg.content,
-            "There was an error running this query: Error executing query: There was an unknown error running this query: You have not glibbled the glorp before running this.",
+            "There was an error running this query: Query failed [category=error]: You have not glibbled the glorp before running this.",
         )
         self.assertEqual(msg.type, "ai")
         self.assertIsNotNone(msg.id)
@@ -243,7 +243,7 @@ class TestQueryExecutorNode(ClickhouseTestMixin, NonAtomicBaseTest):
         assert isinstance(msg, AssistantMessage)
         self.assertEqual(
             msg.content,
-            "There was an error running this query: Error executing query: This query exceeds the capabilities of our picolator. Try de-brolling its flim-flam.",
+            "There was an error running this query: Query failed [category=user_error]: This query exceeds the capabilities of our picolator. Try de-brolling its flim-flam.",
         )
         self.assertEqual(msg.type, "ai")
         self.assertIsNotNone(msg.id)

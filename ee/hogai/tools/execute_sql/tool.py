@@ -29,7 +29,7 @@ from ee.hogai.chat_agent.sql.prompts import (
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
-from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolError, MaxToolFatalError, MaxToolTransientError
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import NodePath
@@ -164,7 +164,18 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
 
         try:
             result = await insight_context.execute_and_format()
-        except MaxToolRetryableError as e:
+        except MaxToolFatalError:
+            # A fatal verdict means no rewrite helps, so the recoverable prompt below would send the
+            # model to generate a replacement query for nothing.
+            return EXECUTE_SQL_UNRECOVERABLE_ERROR_PROMPT, None
+        except MaxToolTransientError:
+            # Cluster pressure or a lost connection says nothing about the query, so the recoverable
+            # prompt below would tell the model to rewrite a correct query. The agent's tool-error
+            # handler tells the model to retry once without changes instead.
+            raise
+        except MaxToolError as e:
+            # A diagnosed failure says what broke and whether a retry helps, so it goes to the model
+            # whole. Only an undiagnosed crash falls through to the opaque prompt below.
             return format_prompt_string(EXECUTE_SQL_RECOVERABLE_ERROR_PROMPT, error=str(e)), None
         except Exception:
             return EXECUTE_SQL_UNRECOVERABLE_ERROR_PROMPT, None

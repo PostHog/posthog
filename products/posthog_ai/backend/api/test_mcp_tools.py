@@ -144,6 +144,9 @@ class TestMCPToolsAPI(APIBaseTest):
         data = response.json()
         self.assertFalse(data["success"])
         self.assertIn("internal error", data["content"].lower())
+        # An unclassified crash tells the caller nothing, so it has to leave behind an id that a
+        # human can look up in the logs and in error tracking.
+        self.assertRegex(data["content"], r"error_id=[0-9a-f-]{36}")
 
 
 class TestDocsSearchAction(APIBaseTest):
