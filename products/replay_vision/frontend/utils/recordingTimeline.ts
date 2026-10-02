@@ -187,9 +187,6 @@ export function recordingTimeline(observations: ReplayObservationApi[]): Recordi
 export function timelineRows(timeline: RecordingTimeline, durationMs: number | null = null): TimelineRow[] {
     const rows: { atMs: number; order: number; row: TimelineRow }[] = []
     rows.push({ atMs: 0, order: -1, row: { kind: 'boundary', edge: 'start', atMs: 0 } })
-    if (durationMs !== null && durationMs > 0) {
-        rows.push({ atMs: durationMs, order: 3, row: { kind: 'boundary', edge: 'end', atMs: durationMs } })
-    }
     for (const chapter of timeline.chapters) {
         rows.push({ atMs: chapter.startMs, order: 0, row: { kind: 'chapter', chapter } })
     }
@@ -199,6 +196,11 @@ export function timelineRows(timeline: RecordingTimeline, durationMs: number | n
     for (const marker of timeline.markers) {
         const inChapter = timeline.chapters.some((c) => marker.timestampMs >= c.startMs && marker.timestampMs < c.endMs)
         rows.push({ atMs: marker.timestampMs, order: 2, row: { kind: 'marker', marker, inChapter } })
+    }
+    if (durationMs !== null && durationMs > 0) {
+        // The player's length can come up short of what the scan saw, and the end must still close the rail.
+        const endMs = Math.max(durationMs, ...timeline.chapters.map((c) => c.endMs), ...rows.map((r) => r.atMs))
+        rows.push({ atMs: endMs, order: 3, row: { kind: 'boundary', edge: 'end', atMs: endMs } })
     }
     // A key moment at a chapter's first second sits under the chapter, not above it.
     return rows.sort((a, b) => a.atMs - b.atMs || a.order - b.order).map(({ row }) => row)

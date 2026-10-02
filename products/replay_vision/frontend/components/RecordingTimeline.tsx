@@ -1,7 +1,7 @@
 import { Fragment } from 'react'
 
 import { IconSparkles } from '@posthog/icons'
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 import { colonDelimitedDuration, humanFriendlyDuration } from 'lib/utils/durations'
@@ -150,11 +150,28 @@ export function RecordingTimeline(props: RecordingTimelineProps): JSX.Element {
                                     className="flex gap-2 min-w-0 text-left cursor-pointer rounded hover:bg-surface-secondary p-1 -mx-1 my-0.5"
                                     data-attr="vision-timeline-chapter"
                                 >
-                                    <ObservationThumbnail
-                                        observation={timeline.summary as ReplayObservationApi}
-                                        chapter={row.chapter.position}
-                                        className="w-20 shrink-0"
-                                    />
+                                    <Tooltip
+                                        title={
+                                            row.chapter.hasFrame ? (
+                                                <ObservationThumbnail
+                                                    observation={timeline.summary as ReplayObservationApi}
+                                                    chapter={row.chapter.position}
+                                                    className="w-128 border-0"
+                                                />
+                                            ) : undefined
+                                        }
+                                        placement="left"
+                                        delayMs={300}
+                                        containerClassName="max-w-none p-1"
+                                    >
+                                        <span className="flex shrink-0">
+                                            <ObservationThumbnail
+                                                observation={timeline.summary as ReplayObservationApi}
+                                                chapter={row.chapter.position}
+                                                className="w-20 shrink-0"
+                                            />
+                                        </span>
+                                    </Tooltip>
                                     <span className="flex flex-col min-w-0 gap-0.5">
                                         <span className="text-sm font-medium line-clamp-2">{row.chapter.title}</span>
                                         <span className="text-xs text-secondary">

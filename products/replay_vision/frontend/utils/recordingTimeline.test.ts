@@ -76,6 +76,12 @@ describe('recordingTimeline', () => {
             expected: ['boundary start', 'marker', 'boundary end'],
         },
         {
+            name: 'a recording that loads shorter than its key moments still ends after them',
+            observations: [monitor('m1', 90_000)],
+            durationMs: 60_000,
+            expected: ['boundary start', 'marker', 'boundary end'],
+        },
+        {
             name: 'an unknown length leaves out the end',
             observations: [monitor('m1', 5_000)],
             durationMs: null,
