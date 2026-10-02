@@ -51,6 +51,7 @@ import { compileMetricRules } from './metrics-rules/compile-metric-rules'
 import type { MetricRulesCache } from './metrics-rules/metric-rules-cache'
 import type { LogsMetricsEmitter } from './metrics-rules/metrics-emitter'
 import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outputs/outputs'
+import { MAX_RETENTION_DAYS } from './retention/evaluate-retention'
 import { DEFAULT_TRACES_RETENTION_DAYS } from './retention/tracing-config-cache'
 import { compileRuleSet } from './sampling/compile-rules'
 import type { SamplingRulesCache } from './sampling/sampling-rules-cache'
@@ -1522,13 +1523,17 @@ describe('LogsIngestionConsumer', () => {
         })
 
         it.each([
-            { retentionDays: 14, tierMetric: 'bytes_ingested_retention_14d', byteDays: undefined },
-            { retentionDays: 30, tierMetric: 'bytes_ingested_retention_30d', byteDays: 500 * 30 },
-            { retentionDays: 90, tierMetric: 'bytes_ingested_retention_90d', byteDays: 500 * 90 },
-            { retentionDays: 45, tierMetric: null, byteDays: 500 * 45 },
+            { retentionDays: 14, tierMetric: 'bytes_ingested_retention_14d', byteDayCounts: [] },
+            { retentionDays: 30, tierMetric: 'bytes_ingested_retention_30d', byteDayCounts: [500 * 30] },
+            {
+                retentionDays: 90,
+                tierMetric: 'bytes_ingested_retention_90d',
+                byteDayCounts: [500 * 30, 500 * 30, 500 * 30],
+            },
+            { retentionDays: 45, tierMetric: null, byteDayCounts: [500 * 30, 500 * 15] },
         ])(
-            'should emit retention_byte_days as $byteDays for $retentionDays days alongside the per-tier metric',
-            async ({ retentionDays, tierMetric, byteDays }) => {
+            'should emit one retention_byte_days row per month for $retentionDays days alongside the per-tier metric',
+            async ({ retentionDays, tierMetric, byteDayCounts }) => {
                 const usageStats = new Map([
                     [
                         team.id,
@@ -1551,7 +1556,10 @@ describe('LogsIngestionConsumer', () => {
                 const messages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
                 const parsed = messages.map((m) => parseMetricValue(m.value))
 
-                expect(parsed.find((m) => m?.metric_name === 'retention_byte_days')?.count).toBe(byteDays)
+                const byteDayRows = parsed
+                    .filter((m) => m?.metric_name === 'retention_byte_days')
+                    .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
+                expect(byteDayRows.map((m) => m.count)).toEqual(byteDayCounts)
 
                 const tierMetrics = parsed.filter((m) => m?.metric_name?.startsWith('bytes_ingested_retention_'))
                 if (tierMetric) {
@@ -1563,6 +1571,69 @@ describe('LogsIngestionConsumer', () => {
                 }
             }
         )
+
+        it('should date each retention_byte_days row at the start of its month', async () => {
+            const usageStats = new Map([
+                [
+                    team.id,
+                    {
+                        bytesReceived: 500,
+                        recordsReceived: 5,
+                        bytesAllowed: 500,
+                        recordsAllowed: 5,
+                        bytesAllowedRecords: 0,
+                        bytesDropped: 0,
+                        recordsDropped: 0,
+                        piiReplacements: 0,
+                        retentionDays: 90,
+                    },
+                ],
+            ])
+            const currentHour = DateTime.utc().startOf('hour')
+
+            await consumer['emitUsageMetrics'](usageStats)
+
+            const timestamps = getProducedKafkaMessages()
+                .filter((m) => m.topic === KAFKA_APP_METRICS_2)
+                .map((m) => parseMetricValue(m.value))
+                .filter((m) => m?.metric_name === 'retention_byte_days')
+                .map((m) => DateTime.fromFormat(m.timestamp, 'yyyy-MM-dd HH:mm:ss.u', { zone: 'utc' }))
+                .sort((a, b) => a.toMillis() - b.toMillis())
+
+            expect(timestamps).toHaveLength(3)
+            expect(timestamps.map((t) => t.diff(currentHour, 'days').days)).toEqual([0, 30, 60])
+        })
+
+        it('should keep the longest retention within ClickHouse partitions-per-insert limit', async () => {
+            // app_metrics2 is partitioned by month, and ClickHouse fails an insert block that touches
+            // more than 100 partitions by default. One flush at the maximum retention must stay well
+            // under that, with room for the current month and a block that crosses a month boundary.
+            const usageStats = new Map([
+                [
+                    team.id,
+                    {
+                        bytesReceived: 500,
+                        recordsReceived: 5,
+                        bytesAllowed: 500,
+                        recordsAllowed: 5,
+                        bytesAllowedRecords: 0,
+                        bytesDropped: 0,
+                        recordsDropped: 0,
+                        piiReplacements: 0,
+                        retentionDays: MAX_RETENTION_DAYS,
+                    },
+                ],
+            ])
+
+            await consumer['emitUsageMetrics'](usageStats)
+
+            const months = new Set(
+                getProducedKafkaMessages()
+                    .filter((m) => m.topic === KAFKA_APP_METRICS_2)
+                    .map((m) => parseMetricValue(m.value)?.timestamp.slice(0, 7))
+            )
+            expect(months.size).toBeLessThanOrEqual(95)
+        })
 
         it('should skip zero-count metrics', async () => {
             const usageStats = new Map([
@@ -1641,13 +1712,14 @@ describe('LogsIngestionConsumer', () => {
 
             const messages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
 
-            // 4 base metrics + per-tier retention + retention_byte_days per team (no dropped) = 12 total.
-            expect(messages).toHaveLength(12)
+            // 4 base metrics + per-tier retention + one retention_byte_days row per 30-day month
+            // (no dropped): 6 for the 30-day team and 8 for the 90-day team.
+            expect(messages).toHaveLength(14)
 
             const team1Messages = messages.filter((m) => parseMetricValue(m.value)?.team_id === team.id)
             const team2Messages = messages.filter((m) => parseMetricValue(m.value)?.team_id === team2.id)
             expect(team1Messages).toHaveLength(6)
-            expect(team2Messages).toHaveLength(6)
+            expect(team2Messages).toHaveLength(8)
         })
     })
 
