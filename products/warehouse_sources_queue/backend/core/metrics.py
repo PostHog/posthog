@@ -1,3 +1,4 @@
+import math
 import time
 import asyncio
 from collections.abc import Iterator
@@ -99,9 +100,9 @@ RUNS_TERMINALIZED_STALE_TOTAL = Counter(
 
 # The loader's data-freshness signal: it rises whenever loading stalls,
 # regardless of why (wedged consumers, claim-query degradation, crashloops).
-# Every pod reports the same queue-wide value, so aggregate with max().
-# livemax matches that: it stays accurate even if two consumer processes
-# briefly co-exist in one pod, where livesum would double the age.
+# One elected pod per fleet samples it (see clear_queue_sample_gauges), so
+# aggregate with max(). livemax matches that: it stays accurate even if two
+# consumer processes briefly co-exist in one pod, where livesum would double the age.
 OLDEST_UNCLAIMED_BATCH_SECONDS = Gauge(
     "warehouse_pg_queue_oldest_unclaimed_batch_seconds",
     "Age of the oldest queue batch no consumer has picked up yet, counting only batches a "
@@ -185,6 +186,31 @@ SERIALIZED_BATCHES = Gauge(
     "warehouse_pg_queue_claimable_groups. Sampled on the reconcile cadence.",
     multiprocess_mode="livemax",
 )
+
+QUEUE_SAMPLE_GAUGES: tuple[Gauge, ...] = (
+    OLDEST_UNCLAIMED_BATCH_SECONDS,
+    BLOCKED_BATCHES,
+    BACKLOGGED_GROUPS,
+    CLAIMABLE_BATCHES,
+    CLAIMABLE_GROUPS,
+    TOP_GROUPS_CLAIMABLE_SHARE,
+    SLOT_WAITING_BATCHES,
+    SERIALIZED_BATCHES,
+)
+
+
+def clear_queue_sample_gauges() -> None:
+    """Mark this pod's queue-wide gauges as "no sample" until it takes a fresh one.
+
+    Only the pod that holds the gauge slot samples the queue. A Prometheus gauge
+    exports its last value forever, so a pod that sampled in an earlier round
+    would keep exporting that old value, and max() across pods would pin it.
+    NaN is the "no value" marker: PromQL and MetricsQL max() skip it while any
+    pod has a real value.
+    """
+    for gauge in QUEUE_SAMPLE_GAUGES:
+        gauge.set(math.nan)
+
 
 # The maintenance queries (sweeps, reconcile passes, probes) shaped like the claim
 # poll: cost scales with queue state, and the 2026-08 stall came from one that had
