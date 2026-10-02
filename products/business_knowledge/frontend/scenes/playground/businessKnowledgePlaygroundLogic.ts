@@ -382,10 +382,10 @@ export const businessKnowledgePlaygroundLogic = kea<businessKnowledgePlaygroundL
                         actions.loadChats()
                     }
                     const chat = await askPlaygroundChat(chatId, question)
+                    posthog.capture('business knowledge playground question asked')
                     if (cache.disposables.isDisposed || values.chatId !== chatId) {
                         return
                     }
-                    posthog.capture('business knowledge playground question asked')
                     nextChatRequest()
                     actions.chatLoaded(chat)
                     actions.loadChats()

@@ -186,7 +186,7 @@ class SearchTool(MaxTool):
     async def _search_business_knowledge(self, query: str) -> str:
         results = await async_search_knowledge_for_team(self._team, query)
         try:
-            posthoganalytics.capture(
+            await database_sync_to_async(posthoganalytics.capture)(
                 distinct_id=str(self._team.uuid),
                 event="business knowledge searched",
                 properties={"result_count": len(results), "surface": "posthog_ai"},

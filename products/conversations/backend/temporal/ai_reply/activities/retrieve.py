@@ -37,31 +37,15 @@ def _retrieve_sync(input: RetrieveInput) -> RetrieveOutput:
     team = Team.objects.select_related("organization").get(id=input.team_id)
     all_results = []
     seen_chunk_ids: set[str] = set()
-    result_count = 0
 
     for query in input.queries:
         results = search_knowledge_for_team(team, query, limit=RETRIEVE_LIMIT)
-        result_count += len(results)
         reranked = rerank_chunks(team, query, results, top_k=RERANK_TOP_K)
         for r in reranked:
             cid = str(r.chunk_id)
             if cid not in seen_chunk_ids:
                 seen_chunk_ids.add(cid)
                 all_results.append(r)
-
-    try:
-        ph_background_capture()(
-            distinct_id=str(team.uuid),
-            event="business knowledge searched",
-            properties={
-                "surface": "support",
-                "query_count": len(input.queries),
-                "result_count": result_count,
-            },
-            groups=groups(team=team),
-        )
-    except Exception:
-        logger.warning("business_knowledge_search_capture_failed", team_id=team.id, exc_info=True)
 
     if input.widen and input.prior_citation_chunk_ids:
         for cid_str in input.prior_citation_chunk_ids[:5]:
@@ -90,4 +74,20 @@ def _retrieve_sync(input: RetrieveInput) -> RetrieveOutput:
             except Exception:
                 logger.warning("support_reply_widen_failed", chunk_id=cid_str, exc_info=True)
 
-    return RetrieveOutput(chunk_ids=[str(r.chunk_id) for r in all_results[:MAX_CHUNKS]])
+    chunk_ids = [str(r.chunk_id) for r in all_results[:MAX_CHUNKS]]
+
+    try:
+        ph_background_capture()(
+            distinct_id=str(team.uuid),
+            event="business knowledge searched",
+            properties={
+                "surface": "support",
+                "query_count": len(input.queries),
+                "result_count": len(chunk_ids),
+            },
+            groups=groups(team=team),
+        )
+    except Exception:
+        logger.warning("business_knowledge_search_capture_failed", team_id=team.id, exc_info=True)
+
+    return RetrieveOutput(chunk_ids=chunk_ids)
