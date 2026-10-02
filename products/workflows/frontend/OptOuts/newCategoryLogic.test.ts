@@ -33,10 +33,11 @@ describe('newCategoryLogic', () => {
         setAudienceFlag(true)
     })
 
-    it('slugifies the name into the key of a new topic', () => {
+    it('slugifies the name into the key of a new topic on every name edit', () => {
         const logic = newCategoryLogic({})
         logic.mount()
 
+        typeInto(logic, 'name', 'Product')
         typeInto(logic, 'name', 'Product updates')
 
         expect(logic.values.categoryForm.key).toBe('product-updates')
