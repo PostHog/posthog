@@ -1,3 +1,5 @@
+import type { Task } from "@posthog/shared/domain-types";
+import { taskKeys } from "@posthog/ui/features/tasks/taskKeys";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
@@ -54,7 +56,10 @@ describe("useChannelTaskMutations", () => {
     queryClient
       .getQueryCache()
       .getAll()
-      .filter((query) => query.state.isInvalidated)
+      .filter(
+        (query) =>
+          query.state.isInvalidated && Array.isArray(query.queryKey[0]),
+      )
       .map(
         (query) =>
           (query.queryKey[1] as { input: { channelId: string } }).input
@@ -72,6 +77,13 @@ describe("useChannelTaskMutations", () => {
     queryClient.setQueryData(listKey("source"), [{ taskId: "t1" }]);
     queryClient.setQueryData(listKey("dest"), [{ taskId: "t2" }]);
     queryClient.setQueryData(listKey("unrelated"), [{ taskId: "t3" }]);
+    queryClient.setQueryData<Task[]>(taskKeys.list(), [
+      { id: "t1", channel: "source" } as Task,
+    ]);
+    queryClient.setQueryData<Task>(taskKeys.detail("t1"), {
+      id: "t1",
+      channel: "source",
+    } as Task);
   });
 
   it("filing a task invalidates only its old and new channel", async () => {
@@ -82,6 +94,12 @@ describe("useChannelTaskMutations", () => {
     });
 
     expect(invalidatedChannels()).toEqual(["dest", "source"]);
+    expect(queryClient.getQueryData<Task[]>(taskKeys.list())?.[0].channel).toBe(
+      "dest",
+    );
+    expect(queryClient.getQueryData<Task>(taskKeys.detail("t1"))?.channel).toBe(
+      "dest",
+    );
   });
 
   it("filing a task invalidates a channel whose list is still loading", async () => {
