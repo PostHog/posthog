@@ -1,5 +1,7 @@
 import { combineUrl } from 'kea-router'
 
+import { objectKindLink } from 'lib/components/AgentObjectTags/rewriteAgentObjectTags'
+
 import type {
     TaskRunArtifactResponseApi,
     TaskRunLivingArtifactResponseApi,
@@ -47,8 +49,10 @@ export interface PostHogObjectRef {
     objectId: string
 }
 
-/** Object kinds the preview shows live, with the components their own pages use. Others show a card. */
-export const LIVE_OBJECT_KINDS: ReadonlySet<string> = new Set(['insight', 'hogql', 'dashboard', 'replay'])
+/** The app page of a cited object, which the preview shows in a frame. Null for a kind with no page, which shows a card. */
+export function objectPageUrl(ref: PostHogObjectRef, projectId: number | null): string | null {
+    return projectId === null ? null : objectKindLink(ref.objectKind, ref.objectId, `/project/${projectId}`).url
+}
 
 export function postHogObjectRef(artifact: TaskRunArtifactResponseApi): PostHogObjectRef | null {
     const metadata = artifact.metadata
@@ -99,10 +103,12 @@ function fileKind(artifact: TaskRunArtifactResponseApi): ArtifactPreviewKind {
     return 'none'
 }
 
-/** A cited object with no live embed shows only a card, so it gets no full page view. */
+/** A cited object with no page shows only a card, so it gets no full page view. */
 export function hasFullPageView(artifact: TaskRunArtifactResponseApi & { living?: LivingVersion }): boolean {
     const ref = postHogObjectRef(artifact)
-    return ref ? LIVE_OBJECT_KINDS.has(ref.objectKind) : artifactPreviewKind(artifact) !== 'reference'
+    return ref
+        ? objectKindLink(ref.objectKind, ref.objectId, '').url !== null
+        : artifactPreviewKind(artifact) !== 'reference'
 }
 
 export function isTextPreview(kind: ArtifactPreviewKind): boolean {

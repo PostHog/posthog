@@ -94,11 +94,27 @@ class InferenceRunError(Exception):
 _RESERVED_COLS = frozenset({"distinct_id", _LABEL_COL, _FOLD_COL})
 # The score columns scoring adds to a feature row, kept out of the features hash.
 _SCORE_KEYS = frozenset({"p_y", "p_y_raw"})
+# A capture error description can hold a URL and an exception repr, so the run error clips it.
+_MAX_EMIT_ERROR_DESCRIPTION_CHARS = 200
 
 
 # Namespace for deterministic prediction event UUIDs, so a retried scoring activity
 # re-emits the same UUID per (pipeline, model, date, person) instead of a duplicate.
 _PREDICTION_UUID_NAMESPACE = uuid.UUID("6f9a4a24-0e5c-4a5a-9d0e-2f6a0f0b1c3d")
+
+
+def _clip_middle(text: str, limit: int) -> str:
+    """
+    Keep both ends of ``text``. A requests transport error starts with the target host and
+    ends with the cause, such as ``[Errno 111] Connection refused``, so a head-only clip
+    makes a refused connection and a failed DNS lookup look the same.
+    """
+    if len(text) <= limit:
+        return text
+    marker = "..."
+    head = (limit - len(marker)) // 2
+    tail = limit - len(marker) - head
+    return f"{text[:head]}{marker}{text[-tail:]}"
 
 
 def _is_uuid(value: str) -> bool:
@@ -500,11 +516,16 @@ def _emit_predictions(
             error=result.error,
         )
         sample = [result.results.get(uid) for uid in result.warnings[:3]]
+        error_detail = ""
+        if result.error:
+            error_detail = f", {result.error.get('error')}"
+            if description := result.error.get("error_description"):
+                error_detail += f": {_clip_middle(str(description), _MAX_EMIT_ERROR_DESCRIPTION_CHARS)}"
         raise InferenceRunError(
             f"Prediction events were not all accepted ({len(result.dropped)} dropped, "
             f"{len(result.retried)} exhausted retries, {len(result.unaccounted)} unaccounted, "
             f"{len(result.warnings)} stored with a warning{f' e.g. {sample!r}' if sample else ''}"
-            f"{', ' + str(result.error.get('error')) if result.error else ''}); failing the run so it is retried"
+            f"{error_detail}); failing the run so it is retried"
         )
 
     return _EmitResult(
