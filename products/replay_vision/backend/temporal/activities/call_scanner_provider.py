@@ -11,6 +11,7 @@ import math
 import time
 import asyncio
 import functools
+import dataclasses
 from collections import Counter
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
@@ -88,6 +89,7 @@ from products.replay_vision.backend.temporal.scanners.base import (
     TextSegment,
 )
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierScanner
+from products.replay_vision.backend.temporal.scanners.experiment import ExperimentScanner
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorLlmResponse, MonitorScanner
 from products.replay_vision.backend.temporal.state import load_scanner_llm_inputs, load_session_network
 from products.replay_vision.backend.temporal.types import (
@@ -197,6 +199,7 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
         )
     scanner: BaseScanner = scanner_from_snapshot(snapshot)
     scanner = await _inject_known_freeform_tags(scanner, inputs)
+    scanner = await _apply_experiment_scan_context(scanner, inputs)
     video_clock = await sync_to_async(_load_video_clock)(
         inputs.team_id, inputs.exported_asset_id, llm_inputs.metadata.duration_seconds
     )
@@ -431,6 +434,50 @@ def _is_taglike(slug: str) -> bool:
         0 < len(slug) <= _KNOWN_FREEFORM_TAG_MAX_LENGTH
         and len(re.split(r"[_-]", slug)) <= _KNOWN_FREEFORM_TAG_MAX_WORDS
     )
+
+
+async def _apply_experiment_scan_context(scanner: BaseScanner, inputs: CallScannerProviderInputs) -> BaseScanner:
+    """Give an experiment scanner the variant and experiment description the workflow resolved.
+
+    Scan-time context, never persisted (see `ExperimentScanner`). A no-op for the other types.
+    When the inputs carry neither field — a prompt evaluation re-scanning a rated session, or a
+    history from before attribution shipped — the source observation's persisted attribution
+    stands in, so an evaluation tests the prompt with its experiment block rather than without.
+    Best effort there: a lookup failure must not fail the scan, and a pre-attribution row simply
+    has nothing persisted to inject."""
+    if not isinstance(scanner, ExperimentScanner):
+        return scanner
+    variant, context = inputs.experiment_variant, inputs.experiment_context
+    if variant is None and context is None:
+        try:
+            variant, context = await sync_to_async(_load_persisted_experiment_context)(
+                inputs.observation_id, inputs.team_id, scanner.experiment_id
+            )
+        except Exception:
+            logger.warning("replay_vision.call_scanner_provider.experiment_context_fallback_failed", exc_info=True)
+            return scanner
+        if variant is None and context is None:
+            return scanner
+    return scanner.model_copy(update={"experiment_context": context, "session_variant": variant})
+
+
+def _load_persisted_experiment_context(
+    observation_id: UUID, team_id: int, experiment_id: int
+) -> tuple[str | None, dict[str, Any] | None]:
+    # Deferred: the experiments replay facade pulls in the recordings query modules, which circle
+    # back into this package's importers.
+    from products.experiments.backend.facade.replay import experiment_prompt_context  # noqa: PLC0415
+
+    result = (
+        ReplayObservation.objects.filter(pk=observation_id, team_id=team_id)
+        .values_list("scanner_result", flat=True)
+        .first()
+    )
+    variant = result.get("experiment_variant") if isinstance(result, dict) else None
+    if not isinstance(variant, str):
+        return None, None
+    context = experiment_prompt_context(Team.objects.get(pk=team_id), experiment_id=experiment_id)
+    return variant, dataclasses.asdict(context) if context is not None else None
 
 
 def apply_known_freeform_tags(scanner: BaseScanner, tags: list[str]) -> BaseScanner:

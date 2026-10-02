@@ -254,8 +254,8 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 #                          person to approve or reject. Deliberately not `hog_flow:write`, which
 #                          also publishes, updates and test-sends a workflow: this scope can put
 #                          nothing in front of anyone. Creates only; a suggestion is resolved by
-#                          a person. The workflows scout declares it in its SKILL.md
-#                          (`scout-write-scopes`), so no other scout holds it unless granted.
+#                          a person. A person grants it in the scout's write access settings, the
+#                          same way as every other scope here, so no scout holds it by default.
 #
 # `annotation:write` and `alert:write` exceed the "recoverable, project-scoped" bar the other
 # scopes meet. They stay in the v1 set that #94263 puts to the team, because narrowing the set is
