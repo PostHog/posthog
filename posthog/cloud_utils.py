@@ -20,9 +20,8 @@ instance_license_cached: Optional["License"] = None
 def _run_mode() -> RunMode:
     """Resolve the run mode from `django.conf.settings`, so `override_settings` applies.
 
-    `posthog.run_mode.run_mode` reads the `posthog.settings` module instead, which is what
-    ClickHouse migrations and their `mock.patch`-based tests need. Both spell the mapping
-    with `derive_run_mode`; only the settings object they read differs.
+    `posthog.run_mode.run_mode` reads the `posthog.settings` module instead. Both spell the
+    mapping with `derive_run_mode`; only the settings object they read differs.
     """
     return derive_run_mode(settings.CLOUD_DEPLOYMENT, settings.DEBUG)
 

@@ -34,7 +34,7 @@ def events_read_table(use_new_events_schema: bool) -> str:
     so one query never mixes schemas.
     """
     # Deferred: event.sql pulls ClickHouse DDL machinery; this module is imported at django.setup().
-    from posthog.models.event.sql import DISTRIBUTED_EVENTS_JSON_TABLE  # noqa: PLC0415
+    from posthog.clickhouse.events_json import DISTRIBUTED_EVENTS_JSON_TABLE
 
     return DISTRIBUTED_EVENTS_JSON_TABLE if use_new_events_schema else "events"
 

@@ -15,7 +15,7 @@ IN_EVAL_TESTING: bool = get_from_env("IN_EVAL_TESTING", False, type_cast=str_to_
 DEBUG: bool = get_from_env("DEBUG", False, type_cast=str_to_bool)
 TEST = get_from_env(
     "TEST",
-    "test" in sys.argv or "reset_test_clickhouse_db" in sys.argv or sys.argv[0].endswith("pytest"),
+    "test" in sys.argv or sys.argv[0].endswith("pytest"),
     type_cast=str_to_bool,
 )
 # Interactive shells where startup noise — app-ready logs, third-party deprecation

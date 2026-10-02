@@ -41,7 +41,6 @@ from django.utils import timezone
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.logs.logs34 import TABLE_NAME as LOGS_LOCAL_TABLE
-from posthog.clickhouse.traces.spans import TRACE_SPANS_DISTRIBUTED_TABLE_SQL, TRACE_SPANS_TABLE_SQL
 from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.models.scoping import team_scope
@@ -1047,11 +1046,6 @@ def _seed_trace_spans(team: Team) -> int:
                         f"'{nodeid}', 1, '{ts}', '{ts}', '{ts}', 0, '{PYTEST_CI_SERVICE_NAME}', "
                         f"map({', '.join(attr_pairs)}), map({', '.join(resource_pairs)}))"
                     )
-
-    # Local dev has no traces provisioning (prod creates these on the LOGS cluster via HCL);
-    # both DDLs are CREATE TABLE IF NOT EXISTS, so this is a no-op on a stack that has them.
-    sync_execute(TRACE_SPANS_TABLE_SQL())
-    sync_execute(TRACE_SPANS_DISTRIBUTED_TABLE_SQL())
 
     # Replace only this seed's spans; a real traces table on the same dev stack is untouched.
     # ALTER DELETE (not lightweight DELETE): the table has projections, which reject the latter.

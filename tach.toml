@@ -1270,13 +1270,12 @@ from = [
 ]
 
 # isolation:permanent-interface
-# error_tracking exposes its ClickHouse DDL (sql / embedding / indexed_embedding) to core's
-# ClickHouse schema registry, conftest, the embedding worker, the hogql document_embeddings
-# system table, and frozen ClickHouse migrations. That coupling is outside the import-reroute
-# path — frozen migrations hardcode these import paths and the schema registry owns table DDL —
-# so it can never route through the facade. The marker above declares it permanent rather than a
-# legacy leak, so it does not hold the external seal open. turbo.json keeps these three modules
-# in the contract-check inputs so any change to them still re-runs the Django suite
+# error_tracking exposes its ClickHouse table names and insert SQL (sql / embedding /
+# indexed_embedding) to the embedding worker and the hogql document_embeddings system table.
+# The hogql package must import without Django set up, and the facade imports Django models,
+# so this coupling cannot route through the facade. The marker above declares it permanent
+# rather than a legacy leak, so it does not hold the external seal open. turbo.json keeps these
+# three modules in the contract-check inputs so any change to them still re-runs the Django suite
 # (IsolationChainCheck enforces that). All other core coupling now goes through backend.facade.
 
 [[interfaces]]
@@ -1287,23 +1286,6 @@ expose = [
 ]
 from = [
     "products.error_tracking",
-]
-
-# isolation:permanent-interface
-# batch_exports exposes its ClickHouse DDL (backend.sql) to ten frozen ClickHouse migrations
-# under posthog/clickhouse/migrations/, which import the view constants by dotted path. A frozen
-# migration can never be rerouted, and the module holds CREATE ... VIEW constants and nothing
-# else, so this coupling is outside the import-reroute path. The marker above declares it
-# permanent rather than a legacy leak, so it does not hold the external seal open. turbo.json
-# must keep backend/sql.py in the contract-check inputs when that narrowing lands, so a change
-# to it still re-runs the Django suite (IsolationChainCheck enforces that).
-
-[[interfaces]]
-expose = [
-    "backend\\.sql.*",
-]
-from = [
-    "products.batch_exports",
 ]
 
 [[interfaces]]
