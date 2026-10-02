@@ -31,16 +31,19 @@ class Migration(migrations.Migration):
                     "created_by",
                     models.ForeignKey(
                         blank=True,
+                        db_constraint=False,
                         null=True,
                         on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="+",
                         to=settings.AUTH_USER_MODEL,
                     ),
                 ),
                 (
                     "organization",
                     models.ForeignKey(
+                        db_constraint=False,
                         on_delete=django.db.models.deletion.CASCADE,
-                        related_name="cross_project_dashboards",
+                        related_name="+",
                         to="posthog.organization",
                     ),
                 ),
@@ -66,8 +69,10 @@ class Migration(migrations.Migration):
                     "created_by",
                     models.ForeignKey(
                         blank=True,
+                        db_constraint=False,
                         null=True,
                         on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="+",
                         to=settings.AUTH_USER_MODEL,
                     ),
                 ),
@@ -82,8 +87,9 @@ class Migration(migrations.Migration):
                 (
                     "organization",
                     models.ForeignKey(
+                        db_constraint=False,
                         on_delete=django.db.models.deletion.CASCADE,
-                        related_name="cross_project_dashboard_tiles",
+                        related_name="+",
                         to="posthog.organization",
                     ),
                 ),

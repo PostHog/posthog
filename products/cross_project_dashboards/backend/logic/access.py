@@ -9,7 +9,7 @@ from posthog.models import Team, User
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.product_analytics.backend.facade.models import Insight
+from products.product_analytics.backend.facade.api import user_can_view_insight
 
 NOT_AVAILABLE = "That insight is not available to you."
 
@@ -45,9 +45,5 @@ def assert_can_reference_insight(user: User, organization_id: UUID | str, projec
     if not user_access_control.has_project_access:
         raise serializers.ValidationError({"project_id": NOT_AVAILABLE})
 
-    insight = Insight.objects.filter(pk=insight_id, team__project_id=team.project_id).first()
-    if insight is None:
-        raise serializers.ValidationError({"insight_id": NOT_AVAILABLE})
-
-    if not user_access_control.check_access_level_for_object(insight, "viewer"):
+    if not user_can_view_insight(team=team, user=user, insight_id=insight_id):
         raise serializers.ValidationError({"insight_id": NOT_AVAILABLE})
