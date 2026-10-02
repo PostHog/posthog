@@ -9,7 +9,7 @@ import { MCP_DASHBOARD_CARDS, McpDashboardCardId } from './dashboardCards'
 import { mcpDashboardCardsLogic } from './mcpDashboardCardsLogic'
 
 export function DashboardCardsMenu({ cardsWithoutData }: { cardsWithoutData: McpDashboardCardId[] }): JSX.Element {
-    const { hiddenCount, isCardVisible } = useValues(mcpDashboardCardsLogic)
+    const { hiddenCards, isCardVisible } = useValues(mcpDashboardCardsLogic)
     const { toggleCard, showAllCards } = useActions(mcpDashboardCardsLogic)
 
     return (
@@ -25,7 +25,7 @@ export function DashboardCardsMenu({ cardsWithoutData }: { cardsWithoutData: Mcp
                         'data-attr': `mcp-dashboard-card-${id}`,
                     })),
                 },
-                hiddenCount > 0 && {
+                hiddenCards.length > 0 && {
                     items: [
                         { label: 'Show all cards', onClick: showAllCards, 'data-attr': 'mcp-dashboard-show-all-cards' },
                     ],
@@ -38,7 +38,7 @@ export function DashboardCardsMenu({ cardsWithoutData }: { cardsWithoutData: Mcp
                 className="whitespace-nowrap"
                 data-attr="mcp-dashboard-customize"
             >
-                {hiddenCount > 0 ? `${hiddenCount} hidden` : 'Customize'}
+                {hiddenCards.length > 0 ? `${hiddenCards.length} hidden` : 'Customize'}
             </LemonButton>
         </LemonMenu>
     )
