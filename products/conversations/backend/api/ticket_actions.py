@@ -11,6 +11,8 @@ import re
 import uuid
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import validate_email
 from django.db import connection, transaction
 from django.db.models.functions import Substr
 from django.utils import timezone
@@ -61,6 +63,22 @@ class TicketActionUpdateSerializer(serializers.Serializer):
     assignee = serializers.JSONField(required=False, allow_null=True)
     tags = serializers.ListField(child=serializers.CharField(max_length=200), required=False, max_length=100)
     tags_mode = serializers.ChoiceField(choices=["add", "set", "remove"], required=False, default="add")
+    cc_participants = serializers.ListField(
+        child=serializers.CharField(max_length=254, trim_whitespace=True), required=False, max_length=50
+    )
+    cc_mode = serializers.ChoiceField(choices=["add", "set", "remove"], required=False, default="add")
+
+    def validate_cc_participants(self, value: list[str]) -> list[str]:
+        # Validate here, not with a child EmailField, because index-keyed child errors fail to render.
+        invalid = []
+        for addr in value:
+            try:
+                validate_email(addr)
+            except DjangoValidationError:
+                invalid.append(addr)
+        if invalid:
+            raise serializers.ValidationError(f"Invalid email addresses: {', '.join(invalid)}")
+        return list(dict.fromkeys(addr.lower() for addr in value))
 
     def validate_sla_business_hours(self, value):
         if value is None:
@@ -367,6 +385,19 @@ def handle_ticket_get(
     return Response(payload)  # nosemgrep: api-response-must-match-schema
 
 
+def _apply_cc_mode(current: list[str], addresses: list[str], mode: str, *, requester: str | None) -> list[str]:
+    # Replies always go To the requester, so a Cc copy of the requester would deliver twice.
+    requester_lower = (requester or "").lower()
+    addresses = [addr for addr in addresses if addr != requester_lower]
+    if mode == "remove":
+        removed = set(addresses)
+        return [addr for addr in current if addr.lower() not in removed]
+    if mode == "set":
+        return addresses
+    existing = {addr.lower() for addr in current}
+    return [*current, *(addr for addr in addresses if addr not in existing)]
+
+
 def handle_ticket_patch(request: Request, team: Team, ticket_id: str | uuid.UUID) -> Response:
     """Apply a ticket update for an already-authenticated team."""
     # When a HogFlow workflow step makes the change, it forwards its identity via
@@ -505,6 +536,21 @@ def handle_ticket_patch(request: Request, team: Team, ticket_id: str | uuid.UUID
                             action="changed",
                         )
                     )
+
+    if "cc_participants" in serializer.validated_data:
+        old_cc = list(ticket.cc_participants or [])
+        new_cc = _apply_cc_mode(
+            old_cc,
+            serializer.validated_data["cc_participants"],
+            serializer.validated_data.get("cc_mode", "add"),
+            requester=ticket.email_from,
+        )
+        if new_cc != old_cc:
+            ticket.cc_participants = new_cc
+            update_fields.append("cc_participants")
+            changes.append(
+                Change(type="Ticket", field="cc_participants", before=old_cc, after=new_cc, action="changed")
+            )
 
     if update_fields:
         ticket.save(update_fields=[*update_fields, "updated_at"])

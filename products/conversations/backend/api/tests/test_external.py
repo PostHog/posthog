@@ -753,6 +753,42 @@ class TestExternalTicketAPI(BaseTest):
         tags = list(self.ticket.tagged_items.values_list("tag__name", flat=True))
         self.assertEqual(tags, ["urgent"])
 
+    # -- PATCH cc_participants ---------------------------------------------
+
+    @parameterized.expand(
+        [
+            ("add_default", {}, ["a@example.com", "owner@example.com"]),
+            ("add", {"cc_mode": "add"}, ["a@example.com", "owner@example.com"]),
+            ("set", {"cc_mode": "set"}, ["owner@example.com"]),
+            ("remove", {"cc_mode": "remove"}, ["a@example.com"]),
+        ]
+    )
+    def test_patch_cc_participants_modes(self, _name, mode, expected):
+        self.ticket.email_from = "customer@example.com"
+        self.ticket.cc_participants = ["a@example.com", "owner@example.com"] if _name == "remove" else ["a@example.com"]
+        self.ticket.save(update_fields=["email_from", "cc_participants"])
+
+        response = self.client.patch(
+            self.url,
+            {"cc_participants": ["Owner@Example.com", "customer@example.com"], **mode},
+            content_type="application/json",
+            **self._auth_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.cc_participants, expected)
+
+    def test_patch_cc_participants_rejects_invalid_email(self):
+        response = self.client.patch(
+            self.url,
+            {"cc_participants": ["not-an-email"]},
+            content_type="application/json",
+            **self._auth_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.cc_participants, [])
+
     # -- URL validation ---------------------------------------------------
 
     def test_invalid_uuid_in_url_returns_404(self):
