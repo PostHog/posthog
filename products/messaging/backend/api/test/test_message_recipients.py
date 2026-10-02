@@ -190,6 +190,7 @@ class TestMessageRecipients(ClickhouseTestMixin, NonAtomicAPIBaseTest):
             ("missing_value", {"filter": "person:"}),
             ("not_a_facet_filter", {"filter": "newsletter"}),
             ("unknown_facet_next_to_an_email", {"filter": "colour:red", "email": "jamie@example.com"}),
+            ("unknown_topic_next_to_an_email", {"filter": "subscribed:nope", "email": "jamie@example.com"}),
         ]
     )
     def test_rejects_an_unknown_filter(self, _name: str, params: dict[str, str]) -> None:
@@ -223,6 +224,18 @@ class TestMessageRecipients(ClickhouseTestMixin, NonAtomicAPIBaseTest):
             ["e@example.com"],
         ]
 
+    def test_a_cursor_ending_in_a_non_breaking_space_moves_to_the_next_address(self) -> None:
+        self._person("a@example.com ", distinct_id="nbsp")
+        self._person("b@example.com")
+
+        first = self._list(limit=1)
+        second = self._list(limit=1, cursor=first["next_cursor"])
+
+        assert [row["email"] for row in first["results"] + second["results"]] == [
+            "a@example.com ",
+            "b@example.com",
+        ]
+
     def test_pages_a_filtered_list_by_cursor(self) -> None:
         self._seed_facet_audience()
 
@@ -240,9 +253,10 @@ class TestMessageRecipients(ClickhouseTestMixin, NonAtomicAPIBaseTest):
         [
             ("non_ascii_casing", "Jürgen.MÜLLER@example.com", "jürgen.müller@example.com", "MÜLLER"),
             ("surrounding_whitespace", "\tTab@Example.com \n", "tab@example.com", "TAB@"),
+            ("non_breaking_space_is_part_of_the_address", "Nb@Example.com ", "nb@example.com ", "NB@"),
         ]
     )
-    def test_folds_an_address_the_way_python_normalizes_it(
+    def test_folds_an_address_the_same_way_in_list_search_and_lookup(
         self, _name: str, stored: str, folded: str, search: str
     ) -> None:
         self._prefer(stored, {})
@@ -263,10 +277,16 @@ class TestMessageRecipients(ClickhouseTestMixin, NonAtomicAPIBaseTest):
 
         assert self._emails(email=" JAMIE@example.com") == ["jamie@example.com"]
 
-    def test_email_of_an_unknown_address_is_not_found(self) -> None:
+    @parameterized.expand(
+        [
+            ("unknown_address", {"email": "nobody@example.com"}),
+            ("address_outside_the_filter", {"email": "jamie@example.com", "filter": "suppressed:BOUNCE"}),
+        ]
+    )
+    def test_email_without_a_matching_recipient_is_not_found(self, _name: str, params: dict[str, str]) -> None:
         self._prefer("jamie@example.com", {})
 
-        assert self._get(email="nobody@example.com").status_code == status.HTTP_404_NOT_FOUND
+        assert self._get(**params).status_code == status.HTTP_404_NOT_FOUND
 
     def test_never_lists_another_teams_recipients(self) -> None:
         other_team = Team.objects.create(organization=self.organization)
