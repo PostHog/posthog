@@ -108,10 +108,10 @@ TRINO_PERMANENT_SYNC_ERROR_MESSAGES = frozenset(
         TRINO_ACCESS_DENIED_ERROR,
     }
 )
-POSTHOG_MANAGED_TRINO_DOMAINS = frozenset(
+POSTHOG_MANAGED_TRINO_HOSTS = frozenset(
     {
-        "dw.dev.postwh.com",
-        "dw.us.postwh.com",
+        "trino.dw.dev.postwh.com",
+        "trino.dw.us.postwh.com",
     }
 )
 # Trino's OPA access control can issue one column-filter request per table, so keep
@@ -120,12 +120,7 @@ TRINO_COLUMN_DISCOVERY_TABLE_BATCH_SIZE = 100
 
 
 def is_posthog_managed_trino_host(host: str) -> bool:
-    # Hosted TLS endpoints include tenant labels, not just the shared "trino" label.
-    label, _, domain = host.lower().removesuffix(".").partition(".")
-    return (
-        domain in POSTHOG_MANAGED_TRINO_DOMAINS
-        and re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label) is not None
-    )
+    return host.lower().rstrip(".") in POSTHOG_MANAGED_TRINO_HOSTS
 
 
 @frozen
