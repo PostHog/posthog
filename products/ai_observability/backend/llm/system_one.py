@@ -30,6 +30,7 @@ from products.ai_observability.backend.llm.errors import (
     ModelNotFoundError,
     ModelPermissionError,
     ProviderConnectionError,
+    QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
     is_context_window_error_message,
@@ -38,15 +39,16 @@ from products.ai_observability.backend.llm.providers._diagnostics import _tag_re
 from products.ai_observability.backend.llm.providers.openrouter import decision_model_ids
 
 
-def is_system_one_model(provider: str | None, model: str | None) -> bool:
+def is_system_one_model(provider: str | None, model: str | None, *, openrouter_enabled: bool) -> bool:
     if provider == "system_one":
         return True
-    if provider != "openrouter" or not model:
+    # Disabled projects keep the chat path independent of catalogue availability.
+    if provider != "openrouter" or not model or not openrouter_enabled:
         return False
     models = decision_model_ids()
     if models is None:
         raise ProviderConnectionError("Could not load OpenRouter model capabilities. Try again.")
-    return model in (models or ())
+    return model in models
 
 
 def system_one_evaluations_enabled(team_id: int, *, base_url: str) -> bool:
@@ -171,6 +173,8 @@ class SystemOneClient:
                 ) from error
         if status == 401:
             raise AuthenticationError("The endpoint rejected this credential. Check the bearer token.")
+        if status == 402:
+            raise QuotaExceededError("The endpoint account has insufficient credits. Check its billing settings.")
         if status == 403:
             raise ModelPermissionError(model)
         if status == 404:
@@ -204,6 +208,7 @@ class SystemOneClient:
             ValueError,
             ModelNotFoundError,
             ProviderConnectionError,
+            QuotaExceededError,
             RateLimitError,
             StructuredOutputParseError,
             SystemOneEndpointBlockedError,

@@ -159,10 +159,20 @@ class TestModelConfigurationSerializer(SimpleTestCase):
             output_config={"min": 0, "max": 10},
             model_configuration=LLMModelConfiguration(provider=provider, model="custom-model"),
         )
-        serializer = EvaluationSerializer(instance=evaluation, data={"output_config": {"max": None}}, partial=True)
-        with patch(
-            "products.ai_observability.backend.llm.providers.openrouter._non_chat_models",
-            return_value={"custom-model": ["decisions"]},
+        serializer = EvaluationSerializer(
+            instance=evaluation,
+            data={"output_config": {"max": None}},
+            partial=True,
+            context={"get_team": lambda: Mock(id=1)},
+        )
+        with (
+            patch(
+                "products.ai_observability.backend.llm.providers.openrouter._non_chat_models",
+                return_value={"custom-model": ["decisions"]},
+            ),
+            patch(
+                "products.ai_observability.backend.api.evaluations.system_one_evaluations_enabled", return_value=True
+            ),
         ):
             self.assertEqual(serializer.is_valid(), valid, serializer.errors)
         if valid:
@@ -170,17 +180,47 @@ class TestModelConfigurationSerializer(SimpleTestCase):
         else:
             self.assertIn("output_config", serializer.errors)
 
-    def test_openrouter_catalogue_outage_does_not_bypass_numeric_validation(self) -> None:
+    @parameterized.expand(
+        [
+            (True, {"name": "Updated judge"}, True),
+            (True, {"enabled": False}, True),
+            (True, {"output_config": {"max": None}}, False),
+            (False, {"output_config": {"max": None}}, True),
+            (True, {"model_configuration": {"provider": "openrouter", "model": "openai/gpt-4o"}}, False),
+            (False, {"model_configuration": {"provider": "openrouter", "model": "openai/gpt-4o"}}, True),
+            (True, {"enabled": True}, False),
+        ]
+    )
+    def test_openrouter_catalogue_outage_only_blocks_model_validation(
+        self, flag: bool, data: dict[str, object], valid: bool
+    ) -> None:
         evaluation = Evaluation(
             evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Score quality"},
+            enabled=True,
             output_type="numeric",
             output_config={"min": 0, "max": 10},
             model_configuration=LLMModelConfiguration(provider="openrouter", model="typesafe/jev-1.13"),
         )
-        serializer = EvaluationSerializer(instance=evaluation, data={"output_config": {"max": None}}, partial=True)
-        with patch("products.ai_observability.backend.llm.providers.openrouter._non_chat_models", return_value=None):
-            self.assertFalse(serializer.is_valid())
-        self.assertIn("Try again", str(serializer.errors["model_configuration"]))
+        serializer = EvaluationSerializer(
+            instance=evaluation, data=data, partial=True, context={"get_team": lambda: Mock(id=1)}
+        )
+        with (
+            patch(
+                "products.ai_observability.backend.llm.providers.openrouter._non_chat_models", return_value=None
+            ) as catalogue,
+            patch(
+                "products.ai_observability.backend.api.evaluations.system_one_evaluations_enabled", return_value=flag
+            ),
+        ):
+            self.assertEqual(serializer.is_valid(), valid, serializer.errors)
+        if valid:
+            for field, value in data.items():
+                if field in ("name", "enabled"):
+                    self.assertEqual(serializer.validated_data[field], value)
+                    catalogue.assert_not_called()
+        else:
+            self.assertIn("Try again", str(serializer.errors["model_configuration"]))
 
     @parameterized.expand(
         [
