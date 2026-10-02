@@ -9,7 +9,6 @@ import {
     collectRunArtifacts,
     groupArtifactVersions,
     livingArtifactFiles,
-    livingArtifactsFromResponse,
     listboxKeyTarget,
     parseCsv,
     visibleRunArtifacts,
@@ -220,37 +219,82 @@ describe('taskRunArtifacts', () => {
         ).toEqual(expected)
     })
 
-    const slackFile = livingArtifact({
-        id: 'doc-2',
-        name: 'weeks.xlsx',
-        adapter: 'slack_file',
-        current_version: 1,
-        versions: [{ version: 1, run_id: 'run-1', size: 2048, created_at: '2026-09-30T16:00:00Z' }],
-    })
-    test.each([
-        ['the envelope the endpoint returns', { artifacts: [livingArtifact({}), slackFile] }],
-        [
-            'the array of envelopes the generated client types, with a repeated id',
-            [{ artifacts: [livingArtifact({})] }, { artifacts: [livingArtifact({}), slackFile] }],
-        ],
-    ])('living documents read from %s', (_, response) => {
-        const files = livingArtifactFiles(livingArtifactsFromResponse(response))
+    function slackFile(
+        location: Record<string, unknown>,
+        name = 'signups.png',
+        contentType = 'image/png'
+    ): TaskRunLivingArtifactResponseApi {
+        return livingArtifact({
+            id: 'doc-2',
+            name,
+            adapter: 'slack_file',
+            current_version: 1,
+            versions: [
+                {
+                    version: 1,
+                    run_id: 'run-1',
+                    size: 2048,
+                    content_type: contentType,
+                    location,
+                    created_at: '2026-09-30T16:00:00Z',
+                },
+            ],
+        })
+    }
+
+    test('livingArtifactFiles keeps each document apart and lists its versions newest first', () => {
+        const files = livingArtifactFiles([livingArtifact({}), slackFile({ storage_path: 'tasks/doc.v1.png' })])
         // An uploaded `report.md` keys by its name, so a living document with that name must not take the same key.
         expect(
             files.map((file) => ({
                 key: file.key,
-                versions: file.versions.map(({ id, living }) => ({ id, text: living?.text })),
+                versions: file.versions.map(({ id, living }) => ({
+                    id,
+                    version: living?.version,
+                    text: living?.text,
+                    stored: living?.stored,
+                })),
             }))
         ).toEqual([
             {
                 key: 'living-doc-1',
                 versions: [
-                    { id: 'living-doc-1-v2', text: '# Final' },
-                    { id: 'living-doc-1-v1', text: '# Draft' },
+                    { id: 'living-doc-1-v2', version: 2, text: '# Final', stored: false },
+                    { id: 'living-doc-1-v1', version: 1, text: '# Draft', stored: false },
                 ],
             },
-            { key: 'living-doc-2', versions: [{ id: 'living-doc-2-v1', text: null }] },
+            {
+                key: 'living-doc-2',
+                versions: [{ id: 'living-doc-2-v1', version: 1, text: null, stored: true }],
+            },
         ])
-        expect(artifactPreviewKind(files[1].latest)).toBe('none')
+    })
+
+    test.each([
+        [
+            'a stored Slack file image previews as an image',
+            { storage_path: 'tasks/doc.v1.png' },
+            'image.png',
+            'image/png',
+            'image',
+        ],
+        [
+            'a stored Slack file video previews as a video',
+            { storage_path: 'tasks/doc.v1.mp4' },
+            'demo.mp4',
+            'video/mp4',
+            'video',
+        ],
+        [
+            'a stored Slack file CSV has no inline preview',
+            { storage_path: 'tasks/doc.v1.csv' },
+            'weeks.csv',
+            'text/csv',
+            'none',
+        ],
+        ['a Slack file with no stored copy has no preview', {}, 'image.png', 'image/png', 'none'],
+    ])('%s', (_, location, name, contentType, expected) => {
+        const [file] = livingArtifactFiles([slackFile(location, name, contentType)])
+        expect(artifactPreviewKind(file.latest)).toBe(expected)
     })
 })

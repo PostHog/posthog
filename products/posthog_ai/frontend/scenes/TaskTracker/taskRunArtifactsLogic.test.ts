@@ -3,7 +3,8 @@ import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
 
-import { taskRunArtifactsLogic } from './taskRunArtifactsLogic'
+import type { RunArtifact } from './taskRunArtifacts'
+import { artifactDownloadUrl, taskRunArtifactsLogic } from './taskRunArtifactsLogic'
 
 const TASK_ID = 'task-123'
 
@@ -54,5 +55,25 @@ describe('taskRunArtifactsLogic', () => {
         logic.mount()
 
         await expectLogic(logic).toMatchValues({ activeTab: 'conversation', selectedFileKey: null })
+    })
+
+    it.each([
+        [
+            'a stored Slack file version streams from its version URL',
+            true,
+            `/api/projects/1/tasks/${TASK_ID}/runs/run-1/living_artifacts/doc-1/versions/3/`,
+        ],
+        ['a living version with no stored file has no URL', false, null],
+    ])('artifactDownloadUrl: %s', (_, stored, expected) => {
+        const version: RunArtifact = {
+            id: 'living-doc-1-v3',
+            name: 'signups.png',
+            type: 'living',
+            content_type: 'image/png',
+            uploaded_at: '2026-09-30T16:00:00Z',
+            runId: 'run-1',
+            living: { artifactId: 'doc-1', version: 3, adapter: 'slack_file', text: null, stored },
+        }
+        expect(artifactDownloadUrl(1, TASK_ID, version)).toBe(expected)
     })
 })
