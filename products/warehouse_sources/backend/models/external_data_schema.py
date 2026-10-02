@@ -1274,6 +1274,16 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
 # parse, even though the preceding GMT offset already fully specifies the instant.
 JS_DATE_TOSTRING_TZ_NAME_RE = re.compile(r"\([^()]*\)\s*\Z")
 
+# MySQL's zero-date convention for "no date set" ('0000-00-00', optionally with a
+# '00:00:00' time part). Some REST sources (e.g. ServiceM8's `edit_date`) emit this literal
+# string too, and dateutil raises ParserError on the year-0 value rather than treating it
+# as absent.
+ZERO_DATETIME_SENTINEL_RE = re.compile(r"\A0000-00-00(?:[ T]00:00:00(?:\.0+)?)?\Z")
+
+
+def _is_zero_datetime_sentinel(value: str) -> bool:
+    return bool(ZERO_DATETIME_SENTINEL_RE.match(value.strip()))
+
 
 def _parse_datetime_string(value: str) -> datetime:
     try:
@@ -1408,6 +1418,9 @@ def process_incremental_value(value: Any | None, field_type: IncrementalFieldTyp
         if isinstance(value, int | float) and not isinstance(value, bool):
             return value
 
+        if isinstance(value, str) and _is_zero_datetime_sentinel(value):
+            return None
+
         return _coerce_incremental_datetime(value)
 
     if field_type == IncrementalFieldType.Date:
@@ -1419,6 +1432,9 @@ def process_incremental_value(value: Any | None, field_type: IncrementalFieldTyp
 
         if isinstance(value, int | float) and not isinstance(value, bool):
             return value
+
+        if isinstance(value, str) and _is_zero_datetime_sentinel(value):
+            return None
 
         parsed = _coerce_incremental_datetime(value)
         return parsed if isinstance(parsed, int) else parsed.date()
