@@ -317,9 +317,25 @@ operations = [
 
 Several keys on one table go in one operation, `DropForeignKey("posthog_mymodel", column=["owner_id", "team_id"])`, so they share one lock phase. Keep that operation alone in its migration, next to the state-only `untrack_field` at most. Keys on other tables, and any other schema change to the same table, go in migrations of their own. The migration risk analyzer blocks a migration that runs two `DropForeignKey` operations, or one beside other database operations.
 
-When the keys point at several busy parents, one lock phase has to win every parent at once, which can fail on every retry under load. Set `atomic = False` on the migration instead and give each key its own `DropForeignKey`. Each one then locks one parent and the child in a transaction of its own, and a retry skips the keys already dropped. List the migration in `atomic_false_acknowledged_migrations.txt`, because `AtomicFalsePolicy` asks for that.
+When the keys point at several busy parents, one lock phase has to win every parent at once, which can fail on every retry under load. Set `atomic = False` on the migration instead and give each key its own `DropForeignKey`. Each one then locks one parent and the child in a transaction of its own, and a retry skips the keys already dropped. List the migration in `atomic_false_acknowledged_migrations.txt`, because `AtomicFalsePolicy` asks for that. The migration risk analyzer blocks one `DropForeignKey` whose keys reach two or more of `posthog_team`, `posthog_user`, `posthog_organization` and `posthog_project`, with or without `atomic = False`.
 
 **`deprecate_field()` is not an option for a foreign key.** It writes no migration, so there is nowhere for the constraint drop to live, and the hidden column leaves exactly the orphan described above. Use `untrack_field()` with `DropForeignKey`.
+
+**Check and unique rules on the column go before the release that stops writing it.** A check that requires the column rejects every insert once nothing fills it, and a unique rule over it guards nothing. Drop them with `DropColumnConstraints`, in a migration before the one that untracks the field:
+
+```python
+from posthog.migration_helpers import DropColumnConstraints
+
+migrations.SeparateDatabaseAndState(
+    state_operations=[
+        migrations.AlterUniqueTogether(name="mymodel", unique_together=set()),
+        migrations.RemoveConstraint(model_name="mymodel", name="one_owner_set"),
+    ],
+    database_operations=[DropColumnConstraints("posthog_mymodel", columns=["owner_id"])],
+)
+```
+
+It finds every check, unique and exclusion constraint and every unique index that covers the columns in the catalog, and drops them under one bounded lock on the table. Do not hand-write `DROP CONSTRAINT IF EXISTS <name>` or `DROP INDEX IF EXISTS <name>` for this. Django names a `unique_together` constraint with a hash suffix, and a long-lived database can hold unique indexes that earlier constraint swaps left behind and no migration file names any more. A typed name finds neither, and `IF EXISTS` hides the miss. The migration risk analyzer blocks a forward drop of a name with Django's hash suffix. Keep this operation alone in its migration too.
 
 ### If you must drop the column
 

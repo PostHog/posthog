@@ -16,6 +16,9 @@ import {
     visualReviewReposRetrieve,
     visualReviewRunsApproveCreate,
     visualReviewRunsFinalizeCreate,
+    visualReviewRunsLiftOnMergeCreate,
+    visualReviewRunsQuarantineLiftsCancelCreate,
+    visualReviewRunsQuarantineLiftsList,
     visualReviewRunsRecomputeCreate,
     visualReviewRunsTolerateCreate,
     visualReviewRunsRetrieve,
@@ -23,12 +26,14 @@ import {
     visualReviewRunsToleratedHashesList,
 } from '../generated/api'
 import type {
+    QuarantineLiftEntryApi,
     QuarantinedIdentifierEntryApi,
     RepoApi,
     RunApi,
     SnapshotApi,
     ToleratedHashEntryApi,
 } from '../generated/api.schemas'
+import { liftOnMergeDisabledReason, liftRequestsByIdentifier } from '../lib/liftOnMerge'
 import { type RecentTolerations, countRecentTolerations } from '../lib/quarantineNudge'
 import { isReportingOnlyRun } from '../lib/runPredicates'
 import { visualReviewPreferencesLogic } from './visualReviewPreferencesLogic'
@@ -43,27 +48,42 @@ export interface visualReviewRunSceneLogicValues {
     addImagesToComment: boolean // visualReviewPreferencesLogic
     breadcrumbs: Breadcrumb[]
     changedSnapshots: SnapshotApi[]
+    cleanQuarantinedSnapshots: SnapshotApi[]
+    deepLinkedSnapshot: SnapshotApi | null
+    deepLinkedSnapshotLoading: boolean
     failedThumbnails: Set<string>
     hasChanges: boolean
     isApprovingSnapshot: boolean
+    isCancellingLift: boolean
     isFinalizing: boolean
     isRecomputing: boolean
     isReportingOnly: boolean
+    isRequestingLift: boolean
     isRunInProgress: boolean
     isRunProcessing: boolean
+    liftRequestByIdentifier: Record<string, QuarantineLiftEntryApi>
+    quarantineLifts: QuarantineLiftEntryApi[]
+    quarantineLiftsLoadFailed: boolean
+    quarantineLiftsLoading: boolean
     quarantinedIdentifierSet: Set<string>
     quarantinedIdentifiers: QuarantinedIdentifierEntryApi[]
     quarantinedIdentifiersLoading: boolean
+    quarantinedRunSnapshots: SnapshotApi[]
+    quarantinedRunSnapshotsLoadFailed: boolean
+    quarantinedRunSnapshotsLoading: boolean
     recentTolerations: RecentTolerations | null
     repo: RepoApi | null
     repoFullName: string | null
     repoLoading: boolean
     run: RunApi | null
     runLoading: boolean
+    selectedLiftOnMergeDisabledReason: string | null
+    selectedLiftRequest: QuarantineLiftEntryApi | null
     selectedSnapshot: SnapshotApi | null
     selectedSnapshotId: string | null
     showQuarantinedThumbnails: boolean
     snapshots: SnapshotApi[]
+    snapshotsLoaded: boolean
     snapshotsLoading: boolean
     sortedChangedSnapshots: SnapshotApi[]
     thumbnailBasePath: string | null
@@ -86,6 +106,15 @@ export interface visualReviewRunSceneLogicActions {
     approveSnapshotSuccess: () => {
         value: true
     }
+    cancelLiftOnMerge: (requestId: string) => {
+        requestId: string
+    }
+    cancelLiftOnMergeFailure: () => {
+        value: true
+    }
+    cancelLiftOnMergeSuccess: () => {
+        value: true
+    }
     finalizeRun: () => {
         value: true
     }
@@ -94,6 +123,36 @@ export interface visualReviewRunSceneLogicActions {
     }
     finalizeRunSuccess: () => {
         value: true
+    }
+    loadDeepLinkedSnapshot: (snapshotId: string) => string
+    loadDeepLinkedSnapshotFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadDeepLinkedSnapshotSuccess: (
+        deepLinkedSnapshot: SnapshotApi | null,
+        payload?: string
+    ) => {
+        deepLinkedSnapshot: SnapshotApi | null
+        payload?: string
+    }
+    loadQuarantineLifts: () => any
+    loadQuarantineLiftsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadQuarantineLiftsSuccess: (
+        quarantineLifts: QuarantineLiftEntryApi[],
+        payload?: any
+    ) => {
+        quarantineLifts: QuarantineLiftEntryApi[]
+        payload?: any
     }
     loadQuarantinedIdentifiers: () => any
     loadQuarantinedIdentifiersFailure: (
@@ -108,6 +167,21 @@ export interface visualReviewRunSceneLogicActions {
         payload?: any
     ) => {
         quarantinedIdentifiers: QuarantinedIdentifierEntryApi[]
+        payload?: any
+    }
+    loadQuarantinedRunSnapshots: () => any
+    loadQuarantinedRunSnapshotsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadQuarantinedRunSnapshotsSuccess: (
+        quarantinedRunSnapshots: SnapshotApi[],
+        payload?: any
+    ) => {
+        quarantinedRunSnapshots: SnapshotApi[]
         payload?: any
     }
     loadRepo: () => any
@@ -180,10 +254,12 @@ export interface visualReviewRunSceneLogicActions {
         reason: string,
         identifiers: string[],
         expiresAt: string | null,
-        sourceRunId?: string | null
+        sourceRunId?: string | null,
+        notifyOwners?: boolean
     ) => {
         expiresAt: string | null
         identifiers: string[]
+        notifyOwners: boolean
         reason: string
         sourceRunId: string | null
     }
@@ -194,6 +270,15 @@ export interface visualReviewRunSceneLogicActions {
         value: true
     }
     recomputeRunSuccess: () => {
+        value: true
+    }
+    requestLiftOnMerge: (snapshot: SnapshotApi) => {
+        snapshot: SnapshotApi
+    }
+    requestLiftOnMergeFailure: () => {
+        value: true
+    }
+    requestLiftOnMergeSuccess: () => {
         value: true
     }
     setSelectedSnapshotId: (snapshotId: string | null) => {
@@ -214,7 +299,8 @@ export interface visualReviewRunSceneLogicMeta {
         selectedSnapshot: (
             snapshots: SnapshotApi[],
             selectedSnapshotId: string | null,
-            quarantinedIdentifierSet: Set<string>
+            quarantinedIdentifierSet: Set<string>,
+            deepLinkedSnapshot: SnapshotApi | null
         ) => SnapshotApi | null
         recentTolerations: (
             toleratedHashes: ToleratedHashEntryApi[],
@@ -228,6 +314,22 @@ export interface visualReviewRunSceneLogicMeta {
             quarantinedIdentifiers: QuarantinedIdentifierEntryApi[],
             run: RunApi | null
         ) => Set<string>
+        liftRequestByIdentifier: (
+            quarantineLifts: QuarantineLiftEntryApi[],
+            quarantinedIdentifiers: QuarantinedIdentifierEntryApi[],
+            run: RunApi | null
+        ) => Record<string, QuarantineLiftEntryApi>
+        cleanQuarantinedSnapshots: (quarantinedRunSnapshots: SnapshotApi[]) => SnapshotApi[]
+        selectedLiftRequest: (
+            selectedSnapshot: SnapshotApi | null,
+            liftRequestByIdentifier: Record<string, QuarantineLiftEntryApi>
+        ) => QuarantineLiftEntryApi | null
+        selectedLiftOnMergeDisabledReason: (
+            selectedSnapshot: SnapshotApi | null,
+            run: RunApi | null,
+            quarantineLiftsLoading: boolean,
+            quarantineLiftsLoadFailed: boolean
+        ) => string | null
         repoFullName: (repo: RepoApi | null) => string | null
         thumbnailBasePath: (run: RunApi | null, currentProjectId: number | string) => string | null
         isRunInProgress: (run: RunApi | null) => boolean
@@ -243,6 +345,16 @@ export type visualReviewRunSceneLogicType = MakeLogicType<
     VisualReviewRunSceneLogicProps,
     visualReviewRunSceneLogicMeta
 >
+
+function loadSelectedSnapshotIfMissing(
+    values: visualReviewRunSceneLogicType['values'],
+    actions: visualReviewRunSceneLogicType['actions']
+): void {
+    const { selectedSnapshotId } = values
+    if (selectedSnapshotId && values.snapshotsLoaded && !values.selectedSnapshot) {
+        actions.loadDeepLinkedSnapshot(selectedSnapshotId)
+    }
+}
 
 export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
     path(['products', 'visual_review', 'frontend', 'scenes', 'visualReviewRunSceneLogic']),
@@ -265,14 +377,22 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             reason: string,
             identifiers: string[],
             expiresAt: string | null,
-            sourceRunId: string | null = null
+            sourceRunId: string | null = null,
+            notifyOwners: boolean = false
         ) => ({
             reason,
             identifiers,
             expiresAt,
             sourceRunId,
+            notifyOwners,
         }),
         unquarantineSnapshot: (snapshot: SnapshotApi) => ({ snapshot }),
+        requestLiftOnMerge: (snapshot: SnapshotApi) => ({ snapshot }),
+        requestLiftOnMergeSuccess: true,
+        requestLiftOnMergeFailure: true,
+        cancelLiftOnMerge: (requestId: string) => ({ requestId }),
+        cancelLiftOnMergeSuccess: true,
+        cancelLiftOnMergeFailure: true,
         recomputeRun: true,
         recomputeRunSuccess: true,
         recomputeRunFailure: true,
@@ -293,6 +413,12 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             null as string | null,
             {
                 setSelectedSnapshotId: (_, { snapshotId }) => snapshotId,
+            },
+        ],
+        snapshotsLoaded: [
+            false,
+            {
+                loadSnapshotsSuccess: () => true,
             },
         ],
         isFinalizing: [
@@ -317,6 +443,40 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 recomputeRun: () => true,
                 recomputeRunSuccess: () => false,
                 recomputeRunFailure: () => false,
+            },
+        ],
+        isRequestingLift: [
+            false,
+            {
+                requestLiftOnMerge: () => true,
+                requestLiftOnMergeSuccess: () => false,
+                requestLiftOnMergeFailure: () => false,
+            },
+        ],
+        // Busy until the list reloads, so the cancel button of the stale pending entry cannot be clicked again.
+        isCancellingLift: [
+            false,
+            {
+                cancelLiftOnMerge: () => true,
+                cancelLiftOnMergeFailure: () => false,
+                loadQuarantineLiftsSuccess: () => false,
+                loadQuarantineLiftsFailure: () => false,
+            },
+        ],
+        quarantineLiftsLoadFailed: [
+            false,
+            {
+                loadQuarantineLifts: () => false,
+                loadQuarantineLiftsSuccess: () => false,
+                loadQuarantineLiftsFailure: () => true,
+            },
+        ],
+        quarantinedRunSnapshotsLoadFailed: [
+            false,
+            {
+                loadQuarantinedRunSnapshots: () => false,
+                loadQuarantinedRunSnapshotsSuccess: () => false,
+                loadQuarantinedRunSnapshotsFailure: () => true,
             },
         ],
         failedThumbnails: [
@@ -352,8 +512,28 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                     const response = await visualReviewRunsSnapshotsList(String(values.currentProjectId), props.runId, {
                         limit: 10000,
                         include_quarantined: true,
+                        exclude_unchanged: true,
                     })
                     return response.results
+                },
+            },
+        ],
+        // A deep link can name an unchanged snapshot (the snapshot history page links to every
+        // baseline move), which the changes-only list above does not hold.
+        deepLinkedSnapshot: [
+            null as SnapshotApi | null,
+            {
+                loadDeepLinkedSnapshot: async (snapshotId: string, breakpoint) => {
+                    const response = await visualReviewRunsSnapshotsList(String(values.currentProjectId), props.runId, {
+                        include_quarantined: true,
+                        snapshot_id: snapshotId,
+                    })
+                    breakpoint()
+                    // The user may have gone back to a snapshot cached here, which starts no request.
+                    if (values.selectedSnapshotId !== snapshotId) {
+                        return values.deepLinkedSnapshot
+                    }
+                    return response.results[0] ?? null
                 },
             },
         ],
@@ -401,17 +581,50 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 },
             },
         ],
+        // The changes-only list leaves out a quarantined story that rendered unchanged, which is the
+        // story a fix for the flake produces and the one to request a lift for.
+        quarantinedRunSnapshots: [
+            [] as SnapshotApi[],
+            {
+                loadQuarantinedRunSnapshots: async () => {
+                    if (!values.run?.pr_number) {
+                        return []
+                    }
+                    const response = await visualReviewRunsSnapshotsList(String(values.currentProjectId), props.runId, {
+                        limit: 1000,
+                        include_quarantined: true,
+                        quarantined_only: true,
+                    })
+                    return response.results
+                },
+            },
+        ],
+        quarantineLifts: [
+            [] as QuarantineLiftEntryApi[],
+            {
+                loadQuarantineLifts: async () => {
+                    if (!values.run?.pr_number) {
+                        return []
+                    }
+                    return visualReviewRunsQuarantineLiftsList(String(values.currentProjectId), props.runId)
+                },
+            },
+        ],
     })),
     selectors({
         selectedSnapshot: [
-            (s) => [s.snapshots, s.selectedSnapshotId, s.quarantinedIdentifierSet],
+            (s) => [s.snapshots, s.selectedSnapshotId, s.quarantinedIdentifierSet, s.deepLinkedSnapshot],
             (
                 snapshots: SnapshotApi[],
                 selectedSnapshotId: string | null,
-                quarantinedIdentifierSet: Set<string>
+                quarantinedIdentifierSet: Set<string>,
+                deepLinkedSnapshot: SnapshotApi | null
             ): SnapshotApi | null => {
                 if (selectedSnapshotId) {
-                    return snapshots.find((s) => s.id === selectedSnapshotId) || null
+                    return (
+                        snapshots.find((s) => s.id === selectedSnapshotId) ||
+                        (deepLinkedSnapshot?.id === selectedSnapshotId ? deepLinkedSnapshot : null)
+                    )
                 }
                 const changed = snapshots.filter((s) => s.result !== 'unchanged')
                 const changedNotQuarantined = changed.filter((s) => !quarantinedIdentifierSet.has(s.identifier))
@@ -497,6 +710,58 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                         .map((q: QuarantinedIdentifierEntryApi) => q.identifier)
                 ),
         ],
+        // Lift requests cover the whole pull request, which can hold runs of other run types. A request
+        // made under an earlier quarantine of the same story does not describe the active one, even an
+        // applied request, which would otherwise show "Quarantine lifted" for the new quarantine.
+        liftRequestByIdentifier: [
+            (s) => [s.quarantineLifts, s.quarantinedIdentifiers, s.run],
+            (
+                quarantineLifts: QuarantineLiftEntryApi[],
+                quarantinedIdentifiers: QuarantinedIdentifierEntryApi[],
+                run: RunApi | null
+            ): Record<string, QuarantineLiftEntryApi> => {
+                const activeQuarantineIds = new Set(quarantinedIdentifiers.map((q) => q.id))
+                return liftRequestsByIdentifier(
+                    quarantineLifts.filter(
+                        (r) => r.run_type === run?.run_type && activeQuarantineIds.has(r.quarantine_id)
+                    )
+                )
+            },
+        ],
+        cleanQuarantinedSnapshots: [
+            (s) => [s.quarantinedRunSnapshots],
+            (quarantinedRunSnapshots: SnapshotApi[]): SnapshotApi[] =>
+                quarantinedRunSnapshots.filter((s) => s.result === 'unchanged'),
+        ],
+        selectedLiftRequest: [
+            (s) => [s.selectedSnapshot, s.liftRequestByIdentifier],
+            (
+                selectedSnapshot: SnapshotApi | null,
+                liftRequestByIdentifier: Record<string, QuarantineLiftEntryApi>
+            ): QuarantineLiftEntryApi | null =>
+                selectedSnapshot ? (liftRequestByIdentifier[selectedSnapshot.identifier] ?? null) : null,
+        ],
+        selectedLiftOnMergeDisabledReason: [
+            (s) => [s.selectedSnapshot, s.run, s.quarantineLiftsLoading, s.quarantineLiftsLoadFailed],
+            (
+                selectedSnapshot: SnapshotApi | null,
+                run: RunApi | null,
+                quarantineLiftsLoading: boolean,
+                quarantineLiftsLoadFailed: boolean
+            ): string | null => {
+                // Until the list arrives, a pending request for this story can exist without showing.
+                if (quarantineLiftsLoading) {
+                    return 'Loading the lift requests of this pull request'
+                }
+                if (quarantineLiftsLoadFailed) {
+                    return 'Could not load the lift requests of this pull request. Refresh the page.'
+                }
+                if (run?.is_stale) {
+                    return 'Request the lift from the latest run of this pull request'
+                }
+                return selectedSnapshot ? liftOnMergeDisabledReason(selectedSnapshot) : null
+            },
+        ],
         repoFullName: [(s) => [s.repo], (repo: RepoApi | null): string | null => repo?.repo_full_name || null],
         thumbnailBasePath: [
             (s) => [s.run, s.currentProjectId],
@@ -534,16 +799,26 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             if (snapshot) {
                 actions.loadToleratedHashes(snapshot.identifier)
             }
+            loadSelectedSnapshotIfMissing(values, actions)
+        },
+        loadDeepLinkedSnapshotSuccess: () => {
+            const snapshot = values.selectedSnapshot
+            if (snapshot) {
+                actions.loadToleratedHashes(snapshot.identifier)
+            }
         },
         loadRunSuccess: () => {
             actions.loadRepo()
             actions.loadQuarantinedIdentifiers()
+            actions.loadQuarantineLifts()
+            actions.loadQuarantinedRunSnapshots()
         },
         loadSnapshotsSuccess: () => {
             const snapshot = values.selectedSnapshot
             if (snapshot) {
                 actions.loadToleratedHashes(snapshot.identifier)
             }
+            loadSelectedSnapshotIfMissing(values, actions)
         },
         finalizeRun: async () => {
             const { run } = values
@@ -645,7 +920,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 lemonToast.error(e?.detail || e?.message || 'Failed to mark as tolerated')
             }
         },
-        quarantineSnapshot: async ({ reason, identifiers, expiresAt, sourceRunId }) => {
+        quarantineSnapshot: async ({ reason, identifiers, expiresAt, sourceRunId, notifyOwners }) => {
             const { run } = values
             if (!run) {
                 return
@@ -657,12 +932,14 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             const effectiveSourceRunId = sourceRunId ?? run.id
             try {
                 await Promise.all(
-                    identifiers.map((identifier) =>
+                    identifiers.map((identifier, index) =>
                         visualReviewReposQuarantineCreate(String(values.currentProjectId), run.repo_id, run.run_type, {
                             identifier,
                             reason,
                             expires_at: expiresAt,
                             source_run_id: effectiveSourceRunId,
+                            // Theme variants of one story share a team, so only the first asks for a notice.
+                            notify_owners: notifyOwners && index === 0,
                         })
                     )
                 )
@@ -695,6 +972,43 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             } catch (e: any) {
                 actions.recomputeRunFailure()
                 lemonToast.error(e?.detail || e?.message || 'Failed to recompute')
+            }
+        },
+        requestLiftOnMerge: async ({ snapshot }) => {
+            const { run } = values
+            if (!run?.pr_number) {
+                actions.requestLiftOnMergeFailure()
+                return
+            }
+            try {
+                await visualReviewRunsLiftOnMergeCreate(String(values.currentProjectId), props.runId, {
+                    identifier: snapshot.identifier,
+                })
+                actions.requestLiftOnMergeSuccess()
+                posthog.capture('visual_review_lift_on_merge_requested', { snapshot_result: snapshot.result })
+                lemonToast.success(`The quarantine lifts when #${run.pr_number} merges`)
+                actions.loadQuarantineLifts()
+            } catch (e: any) {
+                actions.requestLiftOnMergeFailure()
+                lemonToast.error(e?.detail || e?.message || 'Could not request the lift. Try again.')
+            }
+        },
+        cancelLiftOnMerge: async ({ requestId }) => {
+            try {
+                await visualReviewRunsQuarantineLiftsCancelCreate(
+                    String(values.currentProjectId),
+                    props.runId,
+                    requestId
+                )
+                actions.cancelLiftOnMergeSuccess()
+                posthog.capture('visual_review_lift_on_merge_canceled')
+                lemonToast.success('Lift canceled. The quarantine stays.')
+                actions.loadQuarantineLifts()
+            } catch (e: any) {
+                actions.cancelLiftOnMergeFailure()
+                lemonToast.error(e?.detail || e?.message || 'Could not cancel the lift. Try again.')
+                // The request may have been applied or cancelled elsewhere since the page loaded.
+                actions.loadQuarantineLifts()
             }
         },
         unquarantineSnapshot: async ({ snapshot }) => {

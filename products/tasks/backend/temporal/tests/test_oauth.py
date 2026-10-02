@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 from posthog.models import Organization, Team
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
-from posthog.temporal.oauth import PosthogMcpScopes
+from posthog.temporal.oauth import PosthogMcpScopes, resolve_scopes
 
 from products.tasks.backend.exceptions import TaskInvalidStateError
 from products.tasks.backend.models import (
@@ -526,6 +526,7 @@ def test_workflow_run_scopes_never_exceed_request_or_snapshot(
 @pytest.mark.parametrize(
     ("origin_product", "state", "requested", "granted"),
     [
+        (Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS, {"pending_dispatch": {"posthog_mcp_scopes": []}}, None, []),
         (Task.OriginProduct.SPACE_SETUP, {"pending_dispatch": {"posthog_mcp_scopes": "full"}}, None, "full"),
         (
             Task.OriginProduct.SPACE_SETUP,
@@ -556,6 +557,18 @@ def test_workflow_run_scopes_never_exceed_request_or_snapshot(
         (Task.OriginProduct.USER_CREATED, {"run_source": "agent"}, None, "read_only"),
         (Task.OriginProduct.LOOP, {}, None, "read_only"),
         (Task.OriginProduct.SIGNALS_SCOUT, {}, None, "signals_scout_reports"),
+        (
+            Task.OriginProduct.SIGNAL_REPORT,
+            {"pending_dispatch": {"posthog_mcp_scopes": "signals_research"}},
+            None,
+            [*resolve_scopes("signals_research"), "task:write"],
+        ),
+        (
+            Task.OriginProduct.SIGNAL_REPORT,
+            {"pending_dispatch": {"posthog_mcp_scopes": "signals_research"}},
+            "signals_research",
+            "signals_research",
+        ),
     ],
 )
 @patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")

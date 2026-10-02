@@ -1,10 +1,10 @@
 import { MakeLogicType, actions, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { isUserLoggedIn } from 'lib/utils/getAppContext'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -59,6 +59,7 @@ const EDITABLE_INSTANCE_SETTINGS = [
     'RATE_LIMIT_ENABLED',
     'RATE_LIMITING_ALLOW_LIST_TEAMS',
     'FLAGS_LOG_BODIES_TEAMS',
+    'FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS',
     'CLICKHOUSE_KILL_SWITCH',
     'CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS',
     'CLICKHOUSE_KILL_SWITCH_FULL_TEAMS',
@@ -309,7 +310,7 @@ export const systemStatusLogic = kea<systemStatusLogicType>([
                     await api.update(`api/instance_settings/${key}`, {
                         value,
                     })
-                    eventUsageLogic.actions.reportInstanceSettingChange(key, value)
+                    posthog.capture('instance setting change', { name: key, value: value })
                     actions.increaseUpdatedInstanceConfigCount()
                 })
             )

@@ -198,7 +198,10 @@ SETTINGS s3_truncate_on_insert = 1, max_threads = {config.max_threads},
 @dagster.job(
     partitions_def=daily_partitions,
     resource_defs={
-        "cluster": OpsClickhouseClusterResource(max_execution_time=2 * 60 * 60, max_memory_usage=20 * ONE_GB)
+        "cluster": OpsClickhouseClusterResource(
+            max_execution_time=2 * 60 * 60,
+            max_memory_usage=(26 if settings.CLOUD_DEPLOYMENT == "US" else 20) * ONE_GB,
+        )
     },
     tags={
         "owner": JobOwners.TEAM_ANALYTICS_PLATFORM.value,

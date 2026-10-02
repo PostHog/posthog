@@ -1403,7 +1403,9 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                         return
                     }
                     if (added === 0 && deleted === 0) {
-                        lemonToast.success(`No schema changes — all ${total_tables_seen} table(s) already tracked.`)
+                        lemonToast.success(
+                            `All ${total_tables_seen} table(s) are already tracked. New columns arrive with the next sync unless you picked specific columns for that table.`
+                        )
                         return
                     }
                     const counts = [

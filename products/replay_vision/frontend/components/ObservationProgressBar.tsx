@@ -1,10 +1,9 @@
 import { useActions, useValues } from 'kea'
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { IconCheckCircle, IconCircleDashed, IconWarning } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 
@@ -70,22 +69,20 @@ export function ObservationProgressBar({
     sessionId: string
     compact?: boolean
 }): JSX.Element {
-    const { progress, streamError } = useValues(observationProgressLogic({ observationId, sessionId }))
+    const { progress, phaseStartedAt, streamError } = useValues(observationProgressLogic({ observationId, sessionId }))
     const { startStream } = useActions(observationProgressLogic({ observationId, sessionId }))
     usePeriodicRerender(1000)
 
-    // The bar only renders for in-flight observations, so its mount is the signal to open the stream.
-    useOnMountEffect(() => startStream())
+    const mountedAtRef = useRef(Date.now())
+    useEffect(() => {
+        mountedAtRef.current = Date.now()
+        startStream()
+    }, [observationId, startStream])
 
     const currentStep = Math.min(progress?.step ?? 0, PHASE_ORDER.length - 1)
     const activePhase = PHASE_ORDER[currentStep]
-
-    // Record when the active phase was first observed so its asymptotic fill animates from then.
-    const startTimesRef = useRef<Record<number, number>>({})
-    if (!(currentStep in startTimesRef.current)) {
-        startTimesRef.current[currentStep] = Date.now()
-    }
-    const activeElapsed = Math.max(0, (Date.now() - startTimesRef.current[currentStep]) / 1000)
+    const activeStartedAt = phaseStartedAt[currentStep] ?? mountedAtRef.current
+    const activeElapsed = Math.max(0, (Date.now() - activeStartedAt) / 1000)
 
     // Real sub-progress only exists while rendering (frame counts from the rasterizer heartbeats); else asymptote.
     const frame = activePhase === 'rendering' ? progress?.rasterizer?.frame_progress : undefined

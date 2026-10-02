@@ -1945,6 +1945,32 @@ class TestSentryCustomIteratorEndpoints:
         assert rows == [{"key": "browser.name", "attributeType": "string", "dataset": "spans"}]
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._request_with_retry")
+    def test_trace_item_attributes_skips_dataset_on_persistent_server_error(self, mock_request) -> None:
+        # A persistent 5xx for one dataset (retries already exhausted by _request_with_retry)
+        # must not fail the whole endpoint — skip that dataset, like the other slices do.
+        def side_effect(url, headers=None, params=None, timeout=None):
+            dataset = (params or {}).get("dataset")
+            if dataset == "spans":
+                return _response([{"key": "browser.name", "attributeType": "string"}])
+            if dataset == "logs":
+                return _response(None, status_code=502)
+            return _response([])
+
+        mock_request.side_effect = side_effect
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="trace_item_attributes",
+            team_id=123,
+            job_id="job-id",
+        )
+
+        rows = list(cast(Any, resp.items()))
+        assert rows == [{"key": "browser.name", "attributeType": "string", "dataset": "spans"}]
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._request_with_retry")
     def test_trace_item_stats_flattens_attribute_distributions(self, mock_request) -> None:
         def side_effect(url, headers=None, params=None, timeout=None):
             if (params or {}).get("itemType") == "spans":
@@ -1982,6 +2008,35 @@ class TestSentryCustomIteratorEndpoints:
             {"item_type": "spans", "attribute": "sentry.device", "label": "mobile", "value": 3},
             {"item_type": "spans", "attribute": "sentry.device", "label": "desktop", "value": 1},
         ]
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._request_with_retry")
+    def test_trace_item_stats_skips_item_type_on_persistent_server_error(self, mock_request) -> None:
+        # Same persistent-5xx graceful skip as trace_item_attributes, for the other trace-item
+        # fan-out (item type instead of dataset).
+        def side_effect(url, headers=None, params=None, timeout=None):
+            if (params or {}).get("itemType") == "spans":
+                return _response(
+                    {
+                        "data": [
+                            {"attributeDistributions": {"data": {"sentry.device": [{"label": "mobile", "value": 3}]}}}
+                        ]
+                    }
+                )
+            return _response(None, status_code=502)
+
+        mock_request.side_effect = side_effect
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="trace_item_stats",
+            team_id=123,
+            job_id="job-id",
+        )
+
+        rows = list(cast(Any, resp.items()))
+        assert rows == [{"item_type": "spans", "attribute": "sentry.device", "label": "mobile", "value": 3}]
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._request_with_retry")
     def test_project_ownership_yields_one_row_per_project_and_skips_missing_config(self, mock_request) -> None:
@@ -2030,6 +2085,36 @@ class TestSentryCustomIteratorEndpoints:
         assert rows == [
             {"stat": "received", "timestamp": 1772409600, "value": 12, "project_id": "1", "project_slug": "web"},
             {"stat": "received", "timestamp": 1772496000, "value": 8, "project_id": "1", "project_slug": "web"},
+        ]
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._request_with_retry")
+    def test_project_stats_skips_stat_on_persistent_server_error(self, mock_request) -> None:
+        def side_effect(url, headers=None, params=None, timeout=None):
+            if url.endswith("/organizations/acme/projects/"):
+                return _response([{"id": "1", "slug": "web"}])
+            if (params or {}).get("stat") == "received":
+                # Sentry persistently 500s for this project's "received" stat.
+                return _response(None, status_code=500)
+            if (params or {}).get("stat") == "generated":
+                return _response([[1772409600, 12]])
+            return _response([])
+
+        mock_request.side_effect = side_effect
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="project_stats",
+            team_id=123,
+            job_id="job-id",
+        )
+
+        # The 500 on the "received" stat (first in PROJECT_STAT_NAMES) is skipped; the
+        # sync still reaches the later "generated" stat instead of stopping at the skip.
+        rows = list(cast(Any, resp.items()))
+        assert rows == [
+            {"stat": "generated", "timestamp": 1772409600, "value": 12, "project_id": "1", "project_slug": "web"}
         ]
 
     @parameterized.expand(
