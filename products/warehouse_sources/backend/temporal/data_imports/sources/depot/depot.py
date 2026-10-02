@@ -1,5 +1,5 @@
 import datetime as dt
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Any
 
 from requests import Response, Session
@@ -26,11 +26,6 @@ REQUEST_TIMEOUT_SECONDS = 60
 # until Depot fixes its cursor. Depot caps pages at 100.
 LIST_RUNS_PAGE_SIZES = (100, 57)
 TERMINAL_STATUSES = ["finished", "failed", "cancelled"]
-# Depot can leave a run queued or running forever. A real run can take hours, but a real queued run
-# starts in minutes, so past these ages an in-flight run counts as stuck.
-IN_FLIGHT_MAX_AGE = {"queued": dt.timedelta(hours=6), "running": dt.timedelta(hours=24)}
-IN_FLIGHT_STATUSES = list(IN_FLIGHT_MAX_AGE)
-
 # Connect sends every RPC as a POST. Every RPC this source calls is a read, so a retry is as safe as
 # a retried GET.
 _DEPOT_RETRY = DEFAULT_RETRY.new(allowed_methods=frozenset(DEFAULT_RETRY.allowed_methods or ()) | {"POST"})
@@ -90,31 +85,6 @@ def _list_runs(
             # No page end inside the listing, so nothing was skipped.
             break
     return sorted(runs.values(), key=lambda entry: (entry[0], entry[1]["runId"]))
-
-
-# The watermark stays behind every run still going, because a run it passed is never read. A stuck run
-# with no workflows is the exception: it can never produce rows, and holding for it would stop every
-# sync. A job retried after its run synced is not read again.
-def _in_flight_horizon(
-    session: Session, repository: str, now: dt.datetime, logger: FilteringBoundLogger
-) -> dt.datetime:
-    horizon = now
-    for created_at, run in _list_runs(session, repository, IN_FLIGHT_STATUSES):
-        if created_at < now - IN_FLIGHT_MAX_AGE.get(run["status"], IN_FLIGHT_MAX_AGE["queued"]):
-            if not _call(session, "GetRunStatus", {"runId": run["runId"]}).get("workflows"):
-                continue
-            logger.warning("depot_ci.stuck_run_holds_horizon", run_id=run["runId"], created_at=created_at.isoformat())
-        horizon = min(horizon, created_at)
-    return horizon
-
-
-def _runs_to_sync(
-    session: Session, repository: str, created_after: dt.datetime | None, created_before: dt.datetime
-) -> list[JSONObject]:
-    # Depot stamps runs in whole seconds, and a sync that stopped partway through a second saved it as
-    # the watermark, so that second is read again. The merge on attempt_id drops the repeats.
-    runs = _list_runs(session, repository, TERMINAL_STATUSES, created_after)
-    return [run for created_at, run in runs if created_at < created_before]
 
 
 def _attempt_rows(run: JSONObject, workflow: JSONObject, run_workflow_count: int) -> list[JSONObject]:
@@ -183,23 +153,25 @@ def depot_source(
     repository: str,
     created_after: dt.datetime | str | None,
     logger: FilteringBoundLogger,
+    on_complete: Callable[[], None] | None = None,
 ) -> SourceResponse:
     lower_bound = _parse_timestamp(created_after) if created_after is not None else None
 
     def items() -> Iterator[list[JSONObject]]:
         session = _make_session(api_token)
-        horizon = _in_flight_horizon(session, repository, dt.datetime.now(dt.UTC), logger)
-        runs = _runs_to_sync(session, repository, lower_bound, horizon)
+        # Newest first, so a sync that stops partway has already stored the runs that no earlier sync read.
+        runs = [run for _, run in reversed(_list_runs(session, repository, TERMINAL_STATUSES, lower_bound))]
         logger.info(
             "depot_ci.runs_to_sync",
             run_count=len(runs),
             created_after=lower_bound.isoformat() if lower_bound else None,
-            created_before=horizon.isoformat(),
         )
         for run in runs:
             rows = _run_attempt_rows(session, run)
             if rows:
                 yield rows
+        if on_complete is not None:
+            on_complete()
 
     return SourceResponse(
         name=JOB_ATTEMPTS,
@@ -208,8 +180,9 @@ def depot_source(
         partition_mode="datetime",
         partition_format="week",
         partition_keys=[RUN_CREATED_AT],
-        sort_mode="asc",
-        # The watermark saves per chunk, and the default chunk holds a whole first sync of a busy repository.
+        # Descending defers the watermark save to the end of the sync, so a replay that stops partway cannot move it back.
+        sort_mode="desc",
+        # Rows become durable per chunk, and the default chunk holds a whole first sync of a busy repository.
         chunk_size=5_000,
     )
 

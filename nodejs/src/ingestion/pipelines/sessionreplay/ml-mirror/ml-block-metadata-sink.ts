@@ -1,4 +1,5 @@
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
 import { SessionMetadataSink } from '~/ingestion/pipelines/sessionreplay/shared/metadata/kafka-metadata-sink'
 import { SessionBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
 import { ML_BLOCK_METADATA_OUTPUT, MlBlockMetadataOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
@@ -36,7 +37,12 @@ export class MlBlockMetadataSink implements SessionMetadataSink {
             }
             const version = mlWireVersion(key)
             producedByVersion.set(version, (producedByVersion.get(version) ?? 0) + 1)
-            return [{ key: row.session_id, ...mlKafkaRecord(version, Buffer.from(JSON.stringify(row))) }]
+            const record = mlKafkaRecord(version, Buffer.from(JSON.stringify(row)))
+            const headers =
+                block.earliestCapturedAtMs === undefined
+                    ? record.headers
+                    : { [CAPTURE_TIMESTAMP_HEADER]: String(block.earliestCapturedAtMs), ...record.headers }
+            return [{ key: row.session_id, value: record.value, headers }]
         })
         await this.outputs.queueMessages(ML_BLOCK_METADATA_OUTPUT, messages)
         for (const [version, count] of producedByVersion) {

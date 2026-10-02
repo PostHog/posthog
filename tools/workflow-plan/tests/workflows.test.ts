@@ -147,6 +147,7 @@ const frontendOnlyFilters: Stubs = {
             tasks_temporal: false,
             openapi_types: false,
             product_yamls: false,
+            sdk_manifests: false,
         }),
     },
 }
@@ -160,6 +161,7 @@ const EXPECTATIONS: Expectation[] = [
                 'turbo-discover',
                 'django',
                 'repo-checks',
+                'sdk-major-guard',
                 'check-migrations',
                 'check-openapi-types',
                 'django_tests',
@@ -208,6 +210,7 @@ const EXPECTATIONS: Expectation[] = [
                 'detect-snapshot-mode',
                 'turbo-discover',
                 'repo-checks',
+                'sdk-major-guard',
                 'validate-product-yamls',
                 'check-migrations',
                 'check-openapi-types',
@@ -291,7 +294,7 @@ const EXPECTATIONS: Expectation[] = [
         { name: 'draft PR labeled no-ci', github: pullRequest({ draft: true, labels: ['no-ci'] }) },
         {
             runs: ['django_tests'],
-            skipped: ['changes', 'django', 'turbo-tests', 'repo-checks', 'check-migrations', 'dynamic-ci-filter'],
+            skipped: ['changes', 'django', 'turbo-tests', 'repo-checks', 'sdk-major-guard', 'check-migrations', 'dynamic-ci-filter'],
         }
     ),
     backend(
@@ -318,13 +321,14 @@ const EXPECTATIONS: Expectation[] = [
                 'django',
                 'get_clickhouse_versions',
                 'build_django_matrix',
+                'sdk-major-guard',
             ],
         }
     ),
     backend(
         { name: 'master push', github: push() },
         {
-            runs: ['changes', 'repo-checks', 'check-migrations', 'mirror-schema-cache', 'django_tests'],
+            runs: ['changes', 'repo-checks', 'sdk-major-guard', 'check-migrations', 'mirror-schema-cache', 'django_tests'],
             skipped: [
                 'dynamic-ci-filter',
                 'detect-snapshot-mode',
@@ -341,7 +345,7 @@ const EXPECTATIONS: Expectation[] = [
         { name: 'hourly schedule', github: schedule() },
         {
             runs: ['changes', 'turbo-tests', 'django', 'django_tests'],
-            skipped: ['repo-checks', 'check-migrations', 'check-openapi-types', 'mirror-schema-cache'],
+            skipped: ['repo-checks', 'sdk-major-guard', 'check-migrations', 'check-openapi-types', 'mirror-schema-cache'],
         }
     ),
     backend(

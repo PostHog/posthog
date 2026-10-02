@@ -34,6 +34,14 @@ const SOURCES: Record<string, TodayReportSource> = {
     gitlab: { label: 'GitLab', color: 'var(--color-text-secondary)', icon: 'pr' },
     linear: { label: 'Linear', color: 'var(--color-text-secondary)', icon: 'inbox' },
     jira: { label: 'Jira', color: 'var(--color-text-secondary)', icon: 'inbox' },
+    // Today item sources that are not signal products.
+    product_analytics: {
+        label: 'Product analytics',
+        color: 'var(--color-product-product-analytics-light)',
+        icon: 'analytics',
+    },
+    alerts: { label: 'Alerts', color: 'var(--color-product-product-analytics-light)', icon: 'trace' },
+    support: { label: 'Support', color: 'var(--color-product-support-light)', icon: 'survey' },
 }
 
 const FALLBACK_SOURCE: TodayReportSource = {
@@ -57,13 +65,16 @@ export function sourceLabel(source: string): string {
     return SOURCES[source]?.label ?? source.replace(/_/g, ' ').replace(/^./, (first) => first.toUpperCase())
 }
 
-/** The style of the product that contributed the report's first signal. */
-export function reportSource(report: Pick<SignalReport, 'source_products'>): TodayReportSource {
-    const source = report.source_products?.[0]
+export function sourceStyle(source: string | null | undefined): TodayReportSource {
     if (!source) {
         return FALLBACK_SOURCE
     }
     return SOURCES[source] ?? { ...FALLBACK_SOURCE, label: sourceLabel(source) }
+}
+
+/** The style of the product that contributed the report's first signal. */
+export function reportSource(report: Pick<SignalReport, 'source_products'>): TodayReportSource {
+    return sourceStyle(report.source_products?.[0])
 }
 
 export function reportIcon(report: Pick<SignalReport, 'source_products' | 'implementation_pr_url'>): TodayReportIcon {

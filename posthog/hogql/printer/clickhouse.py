@@ -33,6 +33,7 @@ from posthog.hogql.escape_sql import (
 )
 from posthog.hogql.functions import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS
 from posthog.hogql.functions.embed_text import resolve_embed_text
+from posthog.hogql.functions.prompt_jev import is_decision_call
 from posthog.hogql.functions.udfs import (
     JSON_DROP_KEYS_CLICKHOUSE_NAME,
     JSON_STRIP_EMPTY_STRINGS_AND_NULLS_CLICKHOUSE_NAME,
@@ -991,8 +992,8 @@ class ClickHousePrinter(BasePrinter):
         return isinstance(left_type, ast.DecimalType) and isinstance(right_type, ast.DecimalType)
 
     def visit_call(self, node: ast.Call):
-        if node.name.lower() == "jev":
-            raise QueryError("jev must run through the HogQL query executor. It cannot be embedded in SQL.")
+        if is_decision_call(node.name):
+            raise QueryError(f"{node.name} must run through the HogQL query executor. It cannot be embedded in SQL.")
         serialized = self._serialize_to_json_string_call(node)
         if serialized is not None:
             return serialized

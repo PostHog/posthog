@@ -22,6 +22,8 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from products.autoresearch.backend.dataset.labeling import (
     LABELER_QUERY_MODIFIERS,
     PREDICTION_EVENT_NAME,
+    TrainingSample,
+    TrainingSampleTooLarge,
     _build_labeled_users_cte,
     _build_population_kind_conditions,
     _compile_population_filters,
@@ -30,6 +32,7 @@ from products.autoresearch.backend.dataset.labeling import (
     build_inference_anchors_sql,
     build_inference_features_sql,
     build_random_t0_labeler_sql,
+    build_training_features_sql,
     strip_sql_comments,
 )
 from products.autoresearch.backend.query import run_hogql_rows
@@ -416,6 +419,21 @@ class TestPopulationKindTrainingSemantics(SimpleTestCase):
         for fragment in forbidden:
             self.assertNotIn(fragment, cte)
 
+    def test_bound_anchor_replaces_every_now(self) -> None:
+        cte, values = _build_labeled_users_cte(
+            target_event="checkout",
+            target_definition=None,
+            team=None,
+            horizon_days=7,
+            lookback_days=90,
+            training_population={"kind": "ever_performed_event", "event": "signed_up"},
+            sample_limit=None,
+            anchor_ts=1_700_000_000,
+        )
+        self.assertNotIn("now()", cte)
+        self.assertIn("fromUnixTimestamp({anchor_ts})", cte)
+        self.assertEqual(values["anchor_ts"], 1_700_000_000)
+
     def test_t0_position_does_not_depend_on_a_moving_modulo(self) -> None:
         cte, _values = _build_labeled_users_cte(
             target_event="checkout",
@@ -434,6 +452,26 @@ class TestPopulationKindTrainingSemantics(SimpleTestCase):
 
 
 _DAILY_PAGEVIEWS = [("$pageview", days_ago) for days_ago in range(100, 0, -1)]
+
+
+class TestTrainingSamplePlan(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("fits_the_budget", 40, 4, 1.0, 40),
+            ("all_positives", 100, 100, 1.0, 100),
+            ("above_the_budget", 1_000, 100, 0.1, 190),
+        ]
+    )
+    def test_plan_keeps_every_positive_and_fills_the_budget_with_negatives(
+        self, _name: str, population: int, positives: int, rate: float, size: int
+    ) -> None:
+        sample = TrainingSample.plan(population=population, positives=positives, budget=190)
+        assert sample.negative_sample_rate == rate
+        assert sample.expected_size == size
+
+    def test_plan_refuses_positives_that_alone_exceed_the_budget(self) -> None:
+        with self.assertRaises(TrainingSampleTooLarge):
+            TrainingSample.plan(population=1_000, positives=200, budget=190)
 
 
 class TestAnchoredPopulationsAgainstClickhouse(ClickhouseTestMixin, APIBaseTest):
@@ -549,6 +587,52 @@ class TestAnchoredPopulationsAgainstClickhouse(ClickhouseTestMixin, APIBaseTest)
         assert int(rows[0][0]) == expected
         if expected_positives is not None:
             assert int(rows[0][1]) == expected_positives
+
+    def test_negative_sampling_keeps_every_positive_and_the_training_rows_match_the_count(self) -> None:
+        now = timezone.now()  # nosemgrep: test-datetime-now-without-freeze (must match ClickHouse server-side now())
+        positives = [f"positive_{i}" for i in range(3)]
+        negatives = [f"negative_{i}" for i in range(40)]
+        for distinct_id in positives + negatives:
+            _create_person(team_id=self.team.pk, distinct_ids=[distinct_id], is_identified=True)
+            for event, days_ago in _DAILY_PAGEVIEWS:
+                _create_event(
+                    team=self.team, event=event, distinct_id=distinct_id, timestamp=now - timedelta(days=days_ago)
+                )
+                if distinct_id in positives:
+                    _create_event(
+                        team=self.team,
+                        event="feature_used",
+                        distinct_id=distinct_id,
+                        timestamp=now - timedelta(days=days_ago),
+                    )
+        flush_persons_and_events()
+        common: dict[str, Any] = {
+            "target_event": "feature_used",
+            "horizon_days": 7,
+            "lookback_days": 120,
+            "training_population": None,
+            "team": self.team,
+            "negative_sample_rate": 0.25,
+        }
+
+        def run(sql: str, values: dict[str, Any]) -> list[Any]:
+            return run_hogql_rows(
+                team=self.team,
+                query=HogQLQuery(query=sql, values=values, modifiers=LABELER_QUERY_MODIFIERS),
+                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            )
+
+        [[eligible, sampled_positives]] = run(*build_random_t0_labeler_sql(**common))
+        rows = run(
+            *build_training_features_sql(
+                feature_sql="SELECT a.person_id AS distinct_id, 1 AS one FROM {anchors} a", **common
+            )
+        )
+        assert sampled_positives == len(positives)
+        assert len(positives) < eligible < len(positives) + len(negatives)
+        # Columns: distinct_id, one, __label, __fold.
+        assert len(rows) == eligible
+        assert sum(row[2] for row in rows) == len(positives)
 
     @parameterized.expand(
         [
