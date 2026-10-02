@@ -944,6 +944,7 @@ def _patched_activity_reaching_run(source_mock, schema, api_version=None):
     model.pipeline.job_inputs = {}
     model.pipeline.api_version = api_version
     model.folder_path = mock.Mock(return_value="dataset")
+    model.created_at = datetime(2026, 6, 15, tzinfo=UTC)
 
     with (
         mock.patch.object(module, "tag_queries"),
@@ -1001,6 +1002,22 @@ async def test_incremental_lookback_shifts_query_value_not_stored_watermark(
     # from new ground, and capturing it after the shift would make them equal and silently disarm
     # that rule with every test still passing.
     assert source_inputs.db_incremental_field_last_value_before_lookback == expected_before_lookback
+
+
+@pytest.mark.asyncio
+async def test_future_stored_cursor_is_capped_and_saved() -> None:
+    source = mock.MagicMock(spec=SimpleSource)
+    source.parse_config.return_value = {}
+    source.source_for_pipeline.return_value = mock.MagicMock()
+    schema = _incremental_schema(is_incremental=True, lookback_seconds=None)
+    schema.sync_type_config["incremental_field_last_value"] = "2027-07-30T00:00:00"
+
+    with _patched_activity_reaching_run(source, schema):
+        await import_data_activity_sync(_inputs_no_reset())
+
+    _, source_inputs = source.source_for_pipeline.call_args.args
+    assert source_inputs.db_incremental_field_last_value == datetime(2026, 6, 15)
+    schema.update_incremental_field_value.assert_called_once_with(datetime(2026, 6, 15))
 
 
 @pytest.mark.asyncio

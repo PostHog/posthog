@@ -1,11 +1,12 @@
 import uuid
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pyarrow as pa
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 from redis import exceptions as redis_exceptions
@@ -30,12 +31,14 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     resolve_primary_keys,
     should_check_shutdown,
     trim_source_job_inputs,
+    update_incremental_field_values,
     validate_incremental_sync,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     MissingPrimaryKeysException,
 )
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 _EXTRACT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract"
 
@@ -76,6 +79,55 @@ class TestShouldCheckShutdown:
 
         if not in_activity:
             activity_info.assert_not_called()
+
+
+class TestUpdateIncrementalFieldValues:
+    _CEILING = datetime(2026, 6, 15, 12, 0, tzinfo=UTC)
+
+    @parameterized.expand(
+        [
+            ("future_aware", IncrementalFieldType.Timestamp, datetime(2027, 7, 30, tzinfo=UTC), _CEILING),
+            ("future_naive", IncrementalFieldType.Timestamp, datetime(2027, 7, 30), datetime(2026, 6, 15, 12, 0)),
+            (
+                "within_tolerance",
+                IncrementalFieldType.Timestamp,
+                datetime(2026, 6, 16, 1, 0),
+                datetime(2026, 6, 16, 1, 0),
+            ),
+            (
+                "past",
+                IncrementalFieldType.Timestamp,
+                datetime(2026, 1, 1, tzinfo=UTC),
+                datetime(2026, 1, 1, tzinfo=UTC),
+            ),
+            ("future_date", IncrementalFieldType.Date, date(2027, 7, 30), date(2026, 6, 15)),
+            ("integer", IncrementalFieldType.Integer, 10**12, 10**12),
+        ]
+    )
+    def test_saves_batch_max_capped_at_ceiling(self, _name, field_type, batch_max, expected) -> None:
+        schema = MagicMock()
+        schema.should_use_incremental_field = True
+        schema.incremental_field_type = field_type
+        schema.sync_type_config = {"incremental_field": "updated_at"}
+        resource = MagicMock()
+        resource.sort_mode = "asc"
+        logger = MagicMock()
+        logger.adebug = AsyncMock()
+        logger.awarning = AsyncMock()
+
+        with patch(f"{_EXTRACT_MODULE}.database_sync_to_async_pool", side_effect=lambda fn: AsyncMock(side_effect=fn)):
+            result = async_to_sync(update_incremental_field_values)(
+                schema,
+                pa.table({"updated_at": [batch_max]}),
+                resource,
+                None,
+                None,
+                logger,
+                cursor_ceiling=self._CEILING,
+            )
+
+        assert result.last_value == expected
+        schema.update_incremental_field_value.assert_called_once_with(expected)
 
 
 class TestResolvePrimaryKeys:
