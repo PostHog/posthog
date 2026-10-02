@@ -1,4 +1,5 @@
 import json
+import uuid
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any, Optional
@@ -18,7 +19,7 @@ from unittest import mock
 from unittest.mock import ANY, MagicMock, patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.test.client import Client
 from django.utils import timezone
 
@@ -27,7 +28,12 @@ from rest_framework import status
 
 from posthog.schema import PersonsOnEventsMode, PropertyOperator
 
-from posthog.api.cohort import COHORT_USED_IN_PAGE_SIZE, CohortFilters, CohortViewSet
+from posthog.api.cohort import (
+    COHORT_USED_IN_PAGE_SIZE,
+    AddPersonsToStaticCohortRequestSerializer,
+    CohortFilters,
+    CohortViewSet,
+)
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.constants import AvailableFeature
 from posthog.models import User
@@ -5601,6 +5607,55 @@ email@example.org,
         assert response.status_code == 400
         assert "Can only remove users from static cohorts" in response.json()["detail"]
 
+    def test_add_persons_to_static_cohort(self):
+        static_cohort = Cohort.objects.create(team=self.team, name="Test Static Cohort", is_static=True)
+        person = _create_person(team_id=self.team.pk, distinct_ids=["test-person-to-add"])
+        flush_persons_and_events()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{static_cohort.id}/add_persons_to_static_cohort",
+            {"person_ids": [str(person.uuid)]},
+            format="json",
+        )
+
+        assert response.status_code == 200, response.json()
+        assert _cohort_member_uuids(self.team.pk, static_cohort) == {str(person.uuid)}
+
+    @parameterized.expand(
+        [
+            (
+                "dynamic_cohort",
+                False,
+                {"person_ids": ["12345678-1234-1234-1234-123456789abc"]},
+                "cohort_not_static",
+                None,
+            ),
+            (
+                "unknown_uuid",
+                True,
+                {"person_ids": ["12345678-1234-1234-1234-123456789abc"]},
+                "no_matching_persons",
+                None,
+            ),
+            ("distinct_id", True, {"person_ids": ["user@example.com"]}, "invalid_input", "person_ids__0"),
+            ("missing_person_ids", True, {}, "required", "person_ids"),
+        ]
+    )
+    def test_add_persons_to_static_cohort_validation_errors(
+        self, _name: str, is_static: bool, payload: dict, expected_code: str, expected_attr: str | None
+    ):
+        cohort = Cohort.objects.create(team=self.team, name="Test Cohort", is_static=is_static)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.id}/add_persons_to_static_cohort",
+            payload,
+            format="json",
+        )
+
+        assert response.status_code == 400
+        assert response.json()["code"] == expected_code
+        assert response.json()["attr"] == expected_attr
+
     def test_remove_person_from_static_cohort_person_does_not_exist(self):
         static_cohort = Cohort.objects.create(
             team=self.team,
@@ -8276,3 +8331,25 @@ Jane Smith,user456,jane@example.com
         self.assertEqual(cohort.errors_calculating, 1)
         self.assertIsNotNone(cohort.last_error_at)
         self.assertIsNone(cohort.last_calculation)
+
+
+class TestAddPersonsToStaticCohortRequestSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("not_a_uuid", {"person_ids": ["user-distinct-id"]}, "invalid"),
+            ("empty", {"person_ids": []}, "empty"),
+            (
+                "too_many",
+                {"person_ids": [str(uuid.uuid4()) for _ in range(DEFAULT_COHORT_INSERT_BATCH_SIZE + 1)]},
+                "max_length",
+            ),
+            ("not_a_list", {"person_ids": "12345678-1234-1234-1234-123456789abc"}, "not_a_list"),
+        ]
+    )
+    def test_rejects_unsupported_person_ids(self, _name: str, payload: dict, expected_code: str) -> None:
+        serializer = AddPersonsToStaticCohortRequestSerializer(data=payload)
+
+        assert not serializer.is_valid()
+        errors = serializer.errors["person_ids"]
+        error = errors[0][0] if isinstance(errors, dict) else errors[0]
+        assert error.code == expected_code
