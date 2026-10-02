@@ -39,7 +39,9 @@ from products.replay_vision.backend.temporal.activities.list_stale_scanner_estim
 )
 from products.replay_vision.backend.temporal.activities.meter_scanner_reads import meter_scanner_read_bytes_activity
 from products.replay_vision.backend.temporal.activities.observation_media import (
+    finalize_observation_media_activity,
     finalize_observation_thumbnail_activity,
+    prepare_observation_media_activity,
     prepare_observation_thumbnail_activity,
 )
 from products.replay_vision.backend.temporal.activities.observation_state import (
@@ -90,6 +92,7 @@ __all__ = [
     "fetch_session_network_activity",
     "finalize_evaluation_activity",
     "finalize_observation_thumbnail_activity",
+    "finalize_observation_media_activity",
     "find_backfill_candidates_activity",
     "find_scanner_candidates_activity",
     "list_enabled_scanners_activity",
@@ -103,6 +106,7 @@ __all__ = [
     "pause_backfill_schedule_activity",
     "prepare_backfill_tick_activity",
     "prepare_observation_thumbnail_activity",
+    "prepare_observation_media_activity",
     "reap_backfill_schedules_activity",
     "reap_childless_inline_scanners_activity",
     "reap_orphaned_observations_activity",

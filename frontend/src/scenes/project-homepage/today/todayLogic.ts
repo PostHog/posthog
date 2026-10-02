@@ -4,7 +4,7 @@ import { router } from 'kea-router'
 import type { LocationChangedPayload } from 'kea-router/lib/types'
 import posthog from 'posthog-js'
 
-import api, { ApiError } from 'lib/api'
+import { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { navigateToHref } from 'lib/utils/navigateToHref'
@@ -15,6 +15,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { TeamType, UserType } from '~/types'
 
+import { signalsReportsForYouRetrieve } from 'products/signals/frontend/generated/api'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 import { todayBriefingRefreshCreate, todayBriefingRetrieve } from 'products/today/frontend/generated/api'
 import type { BriefingApi, BriefingItemApi } from 'products/today/frontend/generated/api.schemas'
@@ -34,8 +35,8 @@ import { TodayBriefingSegment, briefingForReports } from './todaySignalReports'
 export const TOP_REPORT_COUNT = 5
 const CLOCK_MS = 30_000
 export const BRIEFING_POLL_MS = 10_000
-// The agent run's budget is 30 minutes (RUN_TIMEOUT in logic/generate.py). Stop asking a little after that.
-const MAX_BRIEFING_POLLS = 190
+// The run's budget is 10 minutes (RUN_TIMEOUT in logic/generate.py). Stop asking a little after that.
+const MAX_BRIEFING_POLLS = 66
 
 /** Where a report was opened from, sent with the `today report opened` event. */
 export type TodayReportOpenSource = 'briefing' | 'chip' | 'sidebar'
@@ -297,16 +298,17 @@ export const todayLogic = kea<todayLogicType>([
                     if (values.useSampleData) {
                         return sampleTopReports(TOP_REPORT_COUNT)
                     }
-                    // The same filter as the Inbox's actionable view, ranked by priority, so Today shows
-                    // the reports most worth acting on first.
-                    // nosemgrep: prefer-codegen-api-namespaced-signals -- Today passes reports to the Inbox's helpers, which take the handwritten SignalReport. The generated report type is wider (string status and priority, read-only arrays), so this call moves to generated types together with the Inbox.
-                    const response = await api.signalReports.list({
-                        status: 'ready,pending_input',
-                        actionability: 'immediately_actionable,requires_human_input',
-                        ordering: 'priority,-updated_at',
+                    if (values.currentProjectId === null) {
+                        return { results: [], count: 0 }
+                    }
+                    // The person's own reports, ranked and counted the way the Today briefing ranks them.
+                    const response = await signalsReportsForYouRetrieve(String(values.currentProjectId), {
                         limit: TOP_REPORT_COUNT,
                     })
-                    return { results: response.results, count: response.count }
+                    // Today passes reports to the Inbox's helpers, which take the handwritten SignalReport. The
+                    // generated row type is wider (string status and priority, read-only arrays), so the cast
+                    // goes away when the Inbox moves to generated types.
+                    return { results: response.results as unknown as SignalReport[], count: response.count }
                 },
             },
         ],

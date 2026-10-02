@@ -6165,6 +6165,11 @@ export interface GitHubReposResponseApi {
     repositories: GitHubRepoApi[]
     /** Whether more repositories are available beyond this page. */
     has_more: boolean
+    /**
+     * The offset to pass to get the next page, or null when this page is the last one.
+     * @nullable
+     */
+    next_offset: number | null
     /** Total number of repositories matching the search query, across all pages. */
     total: number
 }
@@ -6914,6 +6919,10 @@ export type UsersIntegrationsGithubBranchesRetrieveParams = {
 }
 
 export type UsersIntegrationsGithubReposRetrieveParams = {
+    /**
+     * When true, return only id, name, and full_name for each repository. Use it to list large rosters in fewer, smaller pages.
+     */
+    compact?: boolean
     /**
      * Maximum number of repositories to return per request (max 500).
      * @minimum 1

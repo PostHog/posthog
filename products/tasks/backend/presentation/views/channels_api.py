@@ -31,6 +31,7 @@ from products.tasks.backend.facade.onboarding import (
 from products.tasks.backend.facade.onboarding_canvas import ensure_teaching_canvas
 from products.tasks.backend.presentation.serializers import (
     ChannelContextGenerationSerializer,
+    ChannelContributorsSerializer,
     ChannelDeleteConflictSerializer,
     ChannelFeedMessageSerializer,
     ChannelFeedMessageWriteSerializer,
@@ -104,6 +105,7 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "instructions_versions",
         "context_generation",
         "members",
+        "contributors",
     ]
     scope_object_write_actions = [
         "create",
@@ -150,6 +152,24 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if page is None:
             return Response(ChannelSerializer(channels, many=True).data)
         return paginator.get_paginated_response(ChannelSerializer(page, many=True).data)
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=ChannelContributorsSerializer(many=True),
+                description="The task and canvas owners of each channel",
+            )
+        },
+        summary="List who worked in each channel",
+        description=(
+            "For each channel the requester can access, list the people who own at least one task or canvas "
+            "in it, most recently active first. Channels with no owners are left out."
+        ),
+    )
+    @action(methods=["GET"], detail=False, pagination_class=None)
+    def contributors(self, request: Request, **kwargs) -> Response:
+        contributors = tasks_facade.list_channel_contributors(self.team_id, self._user_id())
+        return Response(ChannelContributorsSerializer(contributors, many=True).data)
 
     @extend_schema(
         request=None,

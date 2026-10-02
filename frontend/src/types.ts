@@ -487,6 +487,7 @@ export interface NotificationSettings {
     organization_member_join_email_disabled?: Record<string, boolean>
     realtime_notifications_disabled?: Record<string, Record<string, boolean>>
     pipeline_notifications_disabled?: Record<string, boolean>
+    task_comments_slack_dm?: boolean
 }
 
 export interface WebAnalyticsDigestMetricChange {
@@ -1128,8 +1129,6 @@ export enum SavedInsightsTabs {
 export enum ReplayTabs {
     Home = 'home',
     Playlists = 'playlists',
-    Comments = 'comments',
-    Templates = 'templates',
     Settings = 'settings',
 }
 
@@ -2492,6 +2491,7 @@ export interface BillingType {
         email?: string
         name?: string
     }
+    billing_managed_by_partner?: { partner_name: string } | null
 }
 
 export interface ClaimedCouponInfo {
@@ -5639,6 +5639,7 @@ export const INTEGRATION_KINDS = [
     's3-compatible',
     'snowflake',
     'youtube-analytics',
+    'twitter-ads',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
@@ -7168,6 +7169,11 @@ export enum SidePanelTab {
     /** Access detail for one member or role. Opened programmatically from access control settings. */
     AccessDetail = 'access-detail',
     Info = 'info',
+    // A canvas scene replaces the general tabs with its own panel tabs.
+    CanvasChat = 'canvas-chat',
+    CanvasBlocks = 'canvas-blocks',
+    CanvasComments = 'canvas-comments',
+    CanvasTimeline = 'canvas-timeline',
 }
 
 export interface ProductPricingTierSubrows {
