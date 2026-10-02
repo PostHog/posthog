@@ -94,6 +94,7 @@ import FeatureFlagSchedule from './FeatureFlagSchedule'
 import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 import { FeatureFlagTestingTab } from './FeatureFlagTestingTab'
 import { FeatureFlagUsageMetrics } from './FeatureFlagUsageMetrics'
+import { FLAG_EVALUATIONS_RETENTION_DAYS, readsFlagEvaluationsTable } from './featureFlagUsageQueries'
 import { useFeatureFlagAgentRefresh } from './useFeatureFlagAgentRefresh'
 
 const RESOURCE_TYPE = 'feature_flag'
@@ -731,6 +732,7 @@ function UsageTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Elemen
     } = featureFlag
     const { enrichAnalyticsNoticeAcknowledged } = useValues(featureFlagsLogic)
     const { closeEnrichAnalyticsNotice } = useActions(featureFlagsLogic)
+    const { currentTeam } = useValues(teamLogic)
 
     const propertyFilter: AnyPropertyFilter[] = [
         {
@@ -771,6 +773,11 @@ function UsageTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Elemen
             <div className="mt-4 mb-4">
                 <b>Log</b>
                 <div className="text-secondary">{`Feature flag calls for "${featureFlagKey}" will appear here`}</div>
+                {readsFlagEvaluationsTable(currentTeam) && (
+                    <div className="text-secondary">
+                        The log shows calls from the last {FLAG_EVALUATIONS_RETENTION_DAYS} days.
+                    </div>
+                )}
             </div>
             <Query
                 query={{
