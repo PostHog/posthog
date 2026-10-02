@@ -40,9 +40,11 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.product_intent import ProductIntent
 from posthog.models.project import Project
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.test.api_keys import create_project_secret_api_key
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_context_for_template, get_instance_realm
 
@@ -753,10 +755,6 @@ def team_api_test_factory():
             )
 
         def test_retiring_a_legacy_token_deletes_its_migrated_psak_row(self):
-            from posthog.models.project_secret_api_key import ProjectSecretAPIKey
-            from posthog.models.utils import hash_key_value
-            from posthog.test.api_keys import create_project_secret_api_key
-
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
 

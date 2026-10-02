@@ -51,12 +51,15 @@ def _revoke_project_secret_api_key(token: str, more_info: str) -> bool:
     project_secret_api_key = find_project_secret_api_key(token)
     if project_secret_api_key is None:
         return False
-    roll_project_secret_api_key_and_notify(project_secret_api_key, more_info)
     team = project_secret_api_key.team
-    # A backfilled PSAK (#63111) mirrors the team's legacy secret token. Rolling the row
-    # does not invalidate that token, so the admins must still be told to rotate it.
+    # A backfilled PSAK (#63111) mirrors the team's legacy secret token: deleting the row
+    # is the revocation (rolling would mint an unrelated key that later rotation cannot
+    # clean up), and the admins must still rotate the legacy token itself.
     if token in (team.secret_api_token, team.secret_api_token_backup):
+        project_secret_api_key.delete()
         send_feature_flags_secure_api_key_exposed(team.id, mask_key_value(token), more_info)
+        return True
+    roll_project_secret_api_key_and_notify(project_secret_api_key, more_info)
     return True
 
 

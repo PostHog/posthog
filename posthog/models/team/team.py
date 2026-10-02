@@ -1133,10 +1133,17 @@ class Team(UUIDTClassicModel):
             return
 
         masked_old_backup_token = mask_key_value(old_backup_token)
-        with transaction.atomic():
-            self.secret_api_token_backup = None
-            self.save()
-            _delete_project_secret_api_keys_for_token(old_backup_token)
+        try:
+            with transaction.atomic():
+                self.secret_api_token_backup = None
+                self.save()
+                _delete_project_secret_api_keys_for_token(old_backup_token)
+        except Exception:
+            # save() already cached this team (post_save) with the cleared backup, which
+            # the rollback discarded. Rewrite that entry from the committed row.
+            self.refresh_from_db(fields=["secret_api_token_backup"])
+            set_team_in_cache(self.api_token, self)
+            raise
         set_team_in_cache(old_backup_token, None)
 
         log_activity(
