@@ -70,6 +70,20 @@ class TestRetrievalEval(BaseTest):
         results = logic.search_knowledge(self.team.id, "refund", limit=1)
         assert len(results) <= 3
 
+    def test_anchor_only_search_keeps_the_best_passage_at_a_late_ordinal(self) -> None:
+        filler = "unrelated " * 150
+        source = create_text_source(
+            team_id=self.team.id,
+            created_by_id=self.user.id,
+            name="Ranked passages",
+            text="\n\n".join([f"zebrafish {filler}", filler, filler, "zebrafish " * 150]),
+        )
+        _mark_team_docs_safe(self.team.id)
+        results = logic.search_knowledge(self.team.id, "zebrafish", limit=1, expand_neighbors=False)
+        assert len(results) == 1
+        assert results[0].source_id == source.id
+        assert results[0].ordinal == 3
+
     def test_neighbours_are_contiguous_per_document(self) -> None:
         # Adjacency expansion must keep ordinals contiguous within each document.
         results = logic.search_knowledge(self.team.id, "refund", limit=1)

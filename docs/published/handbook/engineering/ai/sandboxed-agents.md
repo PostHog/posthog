@@ -683,6 +683,45 @@ the run's saved `pending_user_message` when logs do not yet contain it. This is 
 display fallback: it strips context wrappers, gives way to the selected run's log
 or stream echo, and never submits the message again.
 
+## Context selection experiment
+
+Staff in `CONTEXT_SELECTION_ALLOWED_TEAM_IDS` can receive hidden organizational context on human prompts in web and Slack cloud runs using Claude or Codex.
+The `phai-context-selection` flag selects `control`, `shadow`, or `treatment` using the task ID.
+Other flag values disable selection. Local runs, Pi, and other runtime adapters skip it.
+
+Before a human prompt reaches Claude or Codex, the sandbox calls the task-bound selection endpoint.
+Autonomous continuations, steering, and slash commands do not trigger selection.
+
+System One first checks whether organizational context could help, using the request and bounded conversation history.
+When the gate passes, the selector searches current team skills and semantic catalog rows directly, alongside business knowledge hybrid search.
+There is no separate projection or refresh job. Candidate counts are bounded per source.
+OAuth scopes, current actor permissions, and shared-context access checks constrain retrieval.
+System One reranks candidates concurrently. Sources are checked again before rendering in case definitions or access changed during scoring.
+At most five references and 8,000 characters survive into a hidden context block, identified by `selection_id`.
+Retrieved content is data to verify through existing tools, rather than instructions or approval.
+Skill references contain descriptions, so the prompt requires `skill-get` with the referenced name and version before the agent relies on or follows a skill.
+A general knowledge search does not replace that fetch. If the fetch fails or access is denied, the agent must not treat the description as a verified definition or instruction.
+This is a prompt requirement, rather than a runtime guarantee that the fetch occurs.
+The agent is instructed to use these references silently, including during progress updates, tool-call explanations, and task summaries.
+It can cite the underlying sources and explain verification failures, but must not mention selection, suggestions, injection, or the hidden block's metadata.
+
+Control skips retrieval. Shadow records the selected bundle without injecting it. Treatment injects the bundle.
+Selection has a three-second budget by default. Saturation, timeout, and selection failures leave the ordinary prompt flow available.
+Business Knowledge retrieval uses at most half the budget remaining after local retrieval, leaving time to score ready skills and catalog sources.
+Knowledge candidates are ranked anchor passages, without neighbor expansion, and child environments use the canonical project's knowledge and permissions.
+Skill access filtering happens before the retrieval limit. Catalog selection skips projects with customized warehouse access and checks system-table denials without building the full catalog.
+The agent validates the context budget in Unicode code points, matching the backend renderer.
+Native and summary resumes preserve bounded prior conversation history for later turns; a successful `/clear` resets selection history.
+Actor refreshes update the selection credential, and cancellation during preparation prevents the prepared prompt from reaching the model.
+Selection spans retain scorer error types and candidate identifiers for failed gate or relevance calls.
+
+A best-effort `Context selection` LLM span records the outcome, scores, retrieval time, and exact bounded bundle.
+Its `selection_id`, `task_id`, `task_run_id`, and `message_id` connect it to System One calls and the hidden marker in downstream model input.
+This span describes prepared context; it does not confirm model acceptance or use.
+Offline evals can check downstream inputs, outputs, and tool calls through the existing LLM traces.
+Existing trace retention and truncation apply, so absent output or context does not prove the agent ignored it.
+No dedicated evidence tables, prompt archive, or dispatch receipts are required, and telemetry failure does not block injection.
+
 ## Local development
 
 To set up sandboxed agents for local development:

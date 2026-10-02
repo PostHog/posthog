@@ -7,7 +7,12 @@ the store, pages, and enablement internals only through here.
 from __future__ import annotations
 
 import uuid
+from typing import TYPE_CHECKING
 
+if TYPE_CHECKING:
+    from posthog.models.user import User
+
+from django.conf import settings
 from django.urls import reverse
 
 import structlog
@@ -80,6 +85,7 @@ MOUNT_PATH_ENV_VAR = "POSTHOG_CONTEXT_LAYER_PATH"
 COMMITS_PATH_ENV_VAR = "POSTHOG_CONTEXT_LAYER_COMMITS_PATH"
 
 __all__ = [
+    "context_selection_enabled_for_run",
     "DREAM_AI_STAGE",
     "WikiPageProposalDTO",
     "apply_page_proposal",
@@ -174,3 +180,17 @@ def get_sandbox_mount(organization_id: uuid.UUID | str) -> ContextLayerMount | N
     except store.ContextLayerStoreError:
         return None
     return ContextLayerMount(bundle_url=export.url, head_sha=export.head_sha)
+
+
+def context_selection_enabled_for_run(team_id: int, run_id: uuid.UUID, actor: User | None) -> bool:
+    if actor is None or team_id not in settings.CONTEXT_SELECTION_ALLOWED_TEAM_IDS:
+        return False
+    try:
+        from products.context_layer.backend.selection_service import selection_mode  # noqa: PLC0415
+        from products.tasks.backend.models import TaskRun  # noqa: PLC0415
+
+        run = TaskRun.objects.select_related("task", "team__organization").get(id=run_id, team_id=team_id)
+        return selection_mode(run, actor) != "disabled"
+    except Exception:
+        logger.exception("context_selection_eligibility_failed", team_id=team_id, run_id=str(run_id))
+        return False

@@ -1354,6 +1354,11 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     )  # Ensure we get a boolean value even if the flag is missing
     emit_agent_log(run_id, "debug", f"pr_loop_enabled: {pr_loop_enabled} for this task run")
     state_updates: dict[str, Any] = {PR_LOOP_ENABLED_STATE_KEY: pr_loop_enabled}
+    state_updates["context_selection_eligible"] = context_layer_facade.context_selection_enabled_for_run(
+        task_run.team_id,
+        task_run.id,
+        actor_user or task.created_by,
+    )
     # The sandbox agent renders these into its skill roots at session start. Resolved here so the
     # sandbox needs no extra request on its boot path, and best-effort: a store failure must not
     # stop the run, it only leaves the sandbox without store skills for this session.

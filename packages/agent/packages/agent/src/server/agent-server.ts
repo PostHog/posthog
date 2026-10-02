@@ -137,6 +137,7 @@ import { redactSecrets, SecretEventRedactor } from "../utils/redact-secrets";
 import { logAgentshRuntimeInfo } from "./agentsh-runtime";
 import { AgentBootTracker } from "./boot-phases";
 import {
+  hiddenTextBlock,
   normalizeCloudPromptContent,
   promptBlocksToText,
 } from "./cloud-prompt";
@@ -144,6 +145,7 @@ import {
   CodexSubscriptionTokenClient,
   codexSubscriptionRefreshFailureMessage,
 } from "./codex-subscription-token";
+import { ContextSelection } from "./context-selection";
 import { CredentialRelay, CredentialRelayError } from "./credential-relay";
 import { TaskRunEventStreamSender } from "./event-stream-sender";
 import {
@@ -372,14 +374,6 @@ const SUBSCRIPTION_TOKEN_FAILURE = {
   },
 } as const;
 
-function hiddenTextBlock(text: string): ContentBlock {
-  return {
-    type: "text",
-    text,
-    _meta: { ui: { hidden: true } },
-  } as ContentBlock;
-}
-
 function hiddenPromptBlock(block: ContentBlock): ContentBlock {
   const meta = block._meta as
     | { ui?: Record<string, unknown>; [key: string]: unknown }
@@ -546,6 +540,9 @@ export class AgentServer {
   private session: ActiveSession | null = null;
   private app: Hono;
   private posthogAPI: PostHogAPIClient;
+  private contextSelection: ContextSelection;
+  private contextSelectionApiKey: string;
+  private readonly cancellationVersions = new WeakMap<ActiveSession, number>();
   private eventStreamSender: TaskRunEventStreamSender | null = null;
   private readonly nextEventId = createEventIdSource();
   private rtkSavingsAttempted = false;
@@ -710,6 +707,23 @@ export class AgentServer {
       getApiKey: () => config.apiKey,
       userAgent: `posthog/cloud.hog.dev; version: ${config.version ?? packageJson.version}`,
     });
+    this.contextSelectionApiKey = config.apiKey;
+    this.contextSelection = new ContextSelection(
+      new PostHogAPIClient({
+        apiUrl: config.apiUrl,
+        projectId: config.projectId,
+        getApiKey: () => this.contextSelectionApiKey,
+        userAgent: `posthog/cloud.hog.dev; version: ${config.version ?? packageJson.version}`,
+      }),
+      (event) =>
+        this.emitConsoleLog(
+          "debug",
+          "context_selection",
+          "context_selection",
+          event,
+        ),
+      config.version ?? packageJson.version,
+    );
     if (config.eventIngestToken) {
       this.eventStreamSender = new TaskRunEventStreamSender({
         apiUrl: config.apiUrl,
@@ -1612,17 +1626,35 @@ export class AgentServer {
             } else {
               const runPrompt = () => {
                 this.emitFirstCommandDispatched();
-                const promptResult = commandSession.clientConnection.prompt({
-                  sessionId: commandSession.acpSessionId,
+                const cancellationVersion =
+                  this.cancellationVersions.get(commandSession) ?? 0;
+                return this.contextSelection.dispatch(
+                  commandSession.payload.run_id,
+                  manualCompactPrompt ? undefined : messageId,
                   prompt,
-                  ...(Object.keys(promptMeta).length > 0
-                    ? { _meta: promptMeta }
-                    : {}),
-                });
-                if (!promptResult) {
-                  throw new Error("Agent connection did not accept the prompt");
-                }
-                return promptResult;
+                  (selectedPrompt) => {
+                    if (
+                      this.session !== commandSession ||
+                      (this.cancellationVersions.get(commandSession) ?? 0) !==
+                        cancellationVersion
+                    ) {
+                      return Promise.resolve({ stopReason: "cancelled" });
+                    }
+                    const result = commandSession.clientConnection.prompt({
+                      sessionId: commandSession.acpSessionId,
+                      prompt: selectedPrompt,
+                      ...(Object.keys(promptMeta).length > 0
+                        ? { _meta: promptMeta }
+                        : {}),
+                    });
+                    if (!result)
+                      throw new Error(
+                        "Agent connection did not accept the prompt",
+                      );
+                    return result;
+                  },
+                  prompt,
+                );
               };
               const runTurn = () => {
                 if (this.prewarmedStartupTurnPending) {
@@ -1732,6 +1764,11 @@ export class AgentServer {
             assistantMessage = commandSession.logWriter.getFullAgentResponse(
               commandSession.payload.run_id,
             );
+            if (assistantMessage)
+              this.contextSelection.recordAssistant(
+                commandSession.payload.run_id,
+                assistantMessage,
+              );
           } catch {
             this.logger.debug("Failed to extract assistant message from logs");
           }
@@ -1761,6 +1798,10 @@ export class AgentServer {
 
       case POSTHOG_NOTIFICATIONS.CANCEL:
       case "cancel": {
+        this.cancellationVersions.set(
+          this.session,
+          (this.cancellationVersions.get(this.session) ?? 0) + 1,
+        );
         this.logger.debug("Cancel requested", {
           acpSessionId: this.session.acpSessionId,
         });
@@ -1810,6 +1851,21 @@ export class AgentServer {
           : [];
         const authorship =
           typeof params.authorship === "string" ? params.authorship : "";
+
+        if (mcpServers.length > 0) {
+          const posthog = toAcpMcpServers(mcpServers).find(
+            (server) => server.name === "posthog" && "headers" in server,
+          );
+          const authorization =
+            posthog && "headers" in posthog
+              ? posthog.headers.find(
+                  (header) => header.name.toLowerCase() === "authorization",
+                )?.value
+              : undefined;
+          this.contextSelectionApiKey = authorization?.startsWith("Bearer ")
+            ? authorization.slice(7)
+            : "";
+        }
 
         if (refreshedCredentials.length > 0) {
           const owner = authorship ? ` (${authorship})` : "";
@@ -2774,6 +2830,7 @@ export class AgentServer {
       _meta?: Record<string, unknown>;
     },
     recordFailedUsage = true,
+    contextMessageId?: string,
   ): Promise<PromptResponse> {
     const originatingSession = this.session;
     if (
@@ -2815,7 +2872,29 @@ export class AgentServer {
                 : request.prompt,
           };
       try {
-        const response = await session.clientConnection.prompt(attempt);
+        const cancellationVersion = this.cancellationVersions.get(session) ?? 0;
+        const response = contextMessageId
+          ? await this.contextSelection.dispatch(
+              session.payload.run_id,
+              contextMessageId,
+              attempt.prompt,
+              (prompt) => {
+                if (this.session !== originatingSession) {
+                  throw new Error(
+                    "Agent session changed during context selection",
+                  );
+                }
+                if (
+                  (this.cancellationVersions.get(session) ?? 0) !==
+                  cancellationVersion
+                ) {
+                  return Promise.resolve({ stopReason: "cancelled" });
+                }
+                return session.clientConnection.prompt({ ...attempt, prompt });
+              },
+              request.prompt,
+            )
+          : await session.clientConnection.prompt(attempt);
         if (this.session !== originatingSession) {
           throw new Error(
             "Agent session changed before the turn result was handled",
@@ -2993,6 +3072,8 @@ export class AgentServer {
         "Could not load task run to determine its initial prompt",
       );
     }
+    this.contextSelection.enabled =
+      taskRun.state.context_selection_eligible === true;
     const taskRunState = taskRun.state;
     const prewarmed = taskRunState.prewarmed === true;
     const sameRunResume =
@@ -3130,11 +3211,15 @@ export class AgentServer {
       }
       promptDispatched = true;
 
-      const result = await this.promptWithUpstreamRetry({
-        sessionId: acpSessionId,
-        prompt: initialPrompt,
-        ...(initialPromptMeta ? { _meta: initialPromptMeta } : {}),
-      });
+      const result = await this.promptWithUpstreamRetry(
+        {
+          sessionId: acpSessionId,
+          prompt: initialPrompt,
+          ...(initialPromptMeta ? { _meta: initialPromptMeta } : {}),
+        },
+        true,
+        initialPromptMessageId ?? `initial:${payload.run_id}`,
+      );
 
       this.logger.debug("Initial task message completed", {
         stopReason: result.stopReason,
@@ -3146,6 +3231,10 @@ export class AgentServer {
         void this.syncCloudBranchMetadata(payload);
       }
 
+      this.contextSelection.recordAssistant(
+        payload.run_id,
+        this.session.logWriter.getFullAgentResponse(payload.run_id) ?? "",
+      );
       this.recordTurnUsage(result.usage);
       const turnTraceId = this.turnTraceId(result);
       this.broadcastTurnComplete(result.stopReason, turnTraceId);
@@ -3258,6 +3347,12 @@ export class AgentServer {
     }
 
     if (this.nativeResume) {
+      if (this.resumeState) {
+        this.contextSelection.resetHistory(
+          payload.run_id,
+          formatConversationForResume(this.resumeState.conversation),
+        );
+      }
       this.logger.debug("Applying deferred native resume to user message", {
         taskId: payload.task_id,
         sessionId: this.nativeResume.sessionId,
@@ -3369,6 +3464,12 @@ export class AgentServer {
     taskRun: TaskRun | null,
   ): Promise<void> {
     if (!this.session) return;
+    if (this.resumeState) {
+      this.contextSelection.resetHistory(
+        payload.run_id,
+        formatConversationForResume(this.resumeState.conversation),
+      );
+    }
     await this.runStartupTurn(() =>
       this.runResumeTurn(
         payload,
@@ -3522,11 +3623,15 @@ export class AgentServer {
       this.session.logWriter.resetTurnMessages(payload.run_id);
       promptDispatched = true;
 
-      const result = await this.promptWithUpstreamRetry({
-        sessionId: acpSessionId,
-        prompt: builtPrompt.prompt,
-        ...(builtPrompt.meta ? { _meta: builtPrompt.meta } : {}),
-      });
+      const result = await this.promptWithUpstreamRetry(
+        {
+          sessionId: acpSessionId,
+          prompt: builtPrompt.prompt,
+          ...(builtPrompt.meta ? { _meta: builtPrompt.meta } : {}),
+        },
+        true,
+        builtPrompt.messageId,
+      );
 
       this.logger.debug(`${logLabel} completed`, {
         stopReason: result.stopReason,
@@ -3542,6 +3647,10 @@ export class AgentServer {
         void this.syncCloudBranchMetadata(payload);
       }
 
+      this.contextSelection.recordAssistant(
+        payload.run_id,
+        this.session.logWriter.getFullAgentResponse(payload.run_id) ?? "",
+      );
       this.recordTurnUsage(result.usage);
       const turnTraceId = this.turnTraceId(result);
       this.broadcastTurnComplete(result.stopReason, turnTraceId);
@@ -5652,6 +5761,15 @@ export class AgentServer {
   }
 
   private handleAcpTransportMessage(message: unknown, eventId?: string): void {
+    if (
+      this.session &&
+      typeof message === "object" &&
+      message !== null &&
+      "method" in message &&
+      message.method === POSTHOG_NOTIFICATIONS.CONVERSATION_CLEARED
+    ) {
+      this.contextSelection.resetHistory(this.session.payload.run_id);
+    }
     const budget = budgetSnapshotFromUsageUpdate(message);
     if (budget) {
       this.lastBudgetSnapshot = budget;
