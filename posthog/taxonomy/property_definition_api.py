@@ -888,9 +888,6 @@ class PropertyDefinitionViewSet(
 
         # Inject virtual event/person/group properties to the end of the results
         if event_type in ["event", "person", "group"]:
-            paginator = self.paginator
-            assert isinstance(paginator, CappedCountLimitOffsetPagination)
-
             query = PropertyDefinitionQuerySerializer(data=request.query_params)
             query.is_valid(raise_exception=True)
 
@@ -911,9 +908,8 @@ class PropertyDefinitionViewSet(
             ]
 
             db_count = response.data["count"]
-            page_end_index = (paginator.offset or 0) + len(response.data["results"])
-            # A capped count is a lower bound, so only the missing `next` link marks the end of the rows.
-            is_last_page = response.data["next"] is None if paginator.count_is_capped else page_end_index >= db_count
+            # Not `count`: a capped count is a lower bound, so it does not mark the end of the rows.
+            is_last_page = response.data["next"] is None
 
             # Add virtual properties to the end of the results
             # Technically, this means that the last page can be longer than the others, but as the number of virtual properties is small, this is acceptable

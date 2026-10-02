@@ -109,52 +109,50 @@ def property_definitions_are_large(project_id: int, property_type: int, group_ty
     The property list pages one type at a time, so the check counts that type only. A project with millions
     of event properties can have few person properties, and those still sort cheaply.
     """
-    cache_key = f"taxonomy_property_definition_count:{project_id}:{property_type}:{group_type_index}"
-    # A cache outage must only cost the count query, never the list itself.
-    cached = get_safe_cache(cache_key)
-    if cached is None:
-        with connections[db_alias].cursor() as cursor:
-            # No ORDER BY: in name order the probe reads the heap in random order, see `project_definition_scale`.
-            cursor.execute(
-                """
-                SELECT count(*) FROM (
-                    SELECT 1 FROM posthog_propertydefinition
-                    WHERE COALESCE(project_id, team_id) = %(project_id)s
-                      AND type = %(type)s
-                      AND COALESCE(group_type_index, -1) = %(group_type_index)s
-                    LIMIT %(limit)s
-                ) bounded
-                """,
-                {
-                    "project_id": project_id,
-                    "type": property_type,
-                    "group_type_index": group_type_index,
-                    "limit": PROJECT_SCAN_MAX_DEFINITIONS + 1,
-                },
-            )
-            cached = cursor.fetchone()[0]
-        safe_cache_set(cache_key, cached, SEARCH_PLAN_CACHE_SECONDS)
-
-    trace.get_current_span().set_attribute("taxonomy_definition_count", cached)
-    return cached > PROJECT_SCAN_MAX_DEFINITIONS
+    # No ORDER BY: in name order the probe reads the heap in random order, see `project_definition_scale`.
+    definition_count = _cached_bounded_count(
+        f"taxonomy_property_definition_count:{project_id}:{property_type}:{group_type_index}",
+        """
+        SELECT count(*) FROM (
+            SELECT 1 FROM posthog_propertydefinition
+            WHERE COALESCE(project_id, team_id) = %(project_id)s
+              AND type = %(type)s
+              AND COALESCE(group_type_index, -1) = %(group_type_index)s
+            LIMIT %(limit)s
+        ) bounded
+        """,
+        {
+            "project_id": project_id,
+            "type": property_type,
+            "group_type_index": group_type_index,
+            "limit": PROJECT_SCAN_MAX_DEFINITIONS + 1,
+        },
+        db_alias,
+    )
+    trace.get_current_span().set_attribute("taxonomy_definition_count", definition_count)
+    return definition_count > PROJECT_SCAN_MAX_DEFINITIONS
 
 
 def _cached_definition_count(table: Literal["posthog_eventdefinition"], project_id: int, db_alias: str) -> int:
     # The key is not `taxonomy_search_plan:*`, which holds a plan name, so a release that reads the count
     # never reads an entry an earlier release wrote, in either direction.
-    cache_key = f"taxonomy_definition_count:{table}:{project_id}"
-    # A cache outage must only cost the count query, never the search itself.
+    # Ordering by the index key keeps the probe on the project-scoped index; see `bounded_count_sql`.
+    return _cached_bounded_count(
+        f"taxonomy_definition_count:{table}:{project_id}",
+        f"SELECT count(*) FROM (SELECT 1 FROM {table} WHERE COALESCE(project_id, team_id) = %(project_id)s ORDER BY name LIMIT %(limit)s) bounded",
+        {"project_id": project_id, "limit": max(PROJECT_SCAN_MAX_DEFINITIONS, NAME_ORDER_MIN_DEFINITIONS) + 1},
+        db_alias,
+    )
+
+
+def _cached_bounded_count(cache_key: str, count_sql: str, params: dict[str, int], db_alias: str) -> int:
+    # A cache outage must only cost the count query, never the list itself.
     cached = get_safe_cache(cache_key)
     if cached is not None:
         return cached
 
-    limit = max(PROJECT_SCAN_MAX_DEFINITIONS, NAME_ORDER_MIN_DEFINITIONS) + 1
     with connections[db_alias].cursor() as cursor:
-        # Ordering by the index key keeps the probe on the project-scoped index; see `bounded_count_sql`.
-        cursor.execute(
-            f"SELECT count(*) FROM (SELECT 1 FROM {table} WHERE COALESCE(project_id, team_id) = %(project_id)s ORDER BY name LIMIT %(limit)s) bounded",
-            {"project_id": project_id, "limit": limit},
-        )
+        cursor.execute(count_sql, params)
         definition_count = cursor.fetchone()[0]
 
     safe_cache_set(cache_key, definition_count, SEARCH_PLAN_CACHE_SECONDS)
