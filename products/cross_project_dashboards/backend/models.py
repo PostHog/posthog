@@ -18,10 +18,13 @@ from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 class CrossProjectDashboard(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     """A dashboard the organization owns, holding insights from several projects."""
 
+    # Keys to hot parent tables carry no database constraint, so creating this table takes no lock
+    # on them, and no reverse accessor, so this product adds nothing to the parent classes.
     organization = models.ForeignKey(
-        "posthog.Organization",
-        on_delete=models.CASCADE,
-        related_name="cross_project_dashboards",
+        "posthog.Organization", on_delete=models.CASCADE, related_name="+", db_constraint=False
+    )
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
     )
     name = models.CharField(max_length=400)
     description = models.TextField(blank=True, default="")
@@ -51,9 +54,10 @@ class CrossProjectDashboardTile(CreatedMetaFields, UpdatedMetaFields, UUIDModel)
     dashboard = models.ForeignKey(CrossProjectDashboard, on_delete=models.CASCADE, related_name="tiles")
     # Denormalized from the dashboard so this table classifies as org-scoped on its own.
     organization = models.ForeignKey(
-        "posthog.Organization",
-        on_delete=models.CASCADE,
-        related_name="cross_project_dashboard_tiles",
+        "posthog.Organization", on_delete=models.CASCADE, related_name="+", db_constraint=False
+    )
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
     )
     project_id = models.BigIntegerField()
     insight_id = models.BigIntegerField()
