@@ -2572,6 +2572,25 @@ class TestResearchAuthoredChecks(APIBaseTest):
             2 if action == "revise" else 1
         )
 
+    def test_research_replaces_a_check_when_its_metric_gains_progress_settings(self) -> None:
+        existing = create_checks_from_specs(
+            report=self.report, specs=[self._spec()], attribution=ArtefactAttribution.system()
+        )[0]
+        self.report.metrics = [
+            {**self.report.metrics[0], "eligibility_query": _PAGEVIEWS, "minimum_data_points": 20},
+        ]
+        self.report.save(update_fields=["metrics"])
+
+        with patch("products.signals.backend.report_check_authoring.team_report_monitoring_enabled", return_value=True):
+            written = create_checks_from_specs(
+                report=self.report, specs=[self._spec()], attribution=ArtefactAttribution.system()
+            )
+
+        existing.refresh_from_db()
+        assert existing.status == SignalReportCheck.Status.CANCELLED
+        assert len(written) == 1
+        assert (written[0].config["eligibility_query"], written[0].config["minimum_data_points"]) == (_PAGEVIEWS, 20)
+
     def test_terminal_check_during_reconciliation_does_not_drop_new_specs(self) -> None:
         older = create_checks_from_specs(
             report=self.report, specs=[self._spec()], attribution=ArtefactAttribution.system()

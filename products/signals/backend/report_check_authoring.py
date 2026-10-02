@@ -217,7 +217,9 @@ def _stored_config(report: SignalReport, kind: str, config: dict) -> dict:
             raise CheckCreationError(str(error)) from None
 
     if isinstance(parsed, MetricThresholdConfig):
-        stored_config = _with_metric_display(report, stored_config, parsed.metric_id)
+        stored_config = _with_metric_progress(
+            report, _with_metric_display(report, stored_config, parsed.metric_id), parsed.metric_id
+        )
         try:
             normalized = parse_check_config(kind, stored_config)
             assert isinstance(normalized, MetricThresholdConfig)
@@ -235,6 +237,23 @@ def _with_metric_display(report: SignalReport, config: dict, metric_id: str | No
             filled.setdefault("metric_kind", metric.get("kind", "custom"))
             filled.setdefault("value_format", metric.get("value_format", "number"))
             filled.setdefault("unit", metric.get("unit"))
+            break
+    if "comparison" in filled:
+        filled["metric_kind"] = filled.get("metric_kind") or "custom"
+        filled["value_format"] = filled.get("value_format") or "number"
+        filled.setdefault("unit", None)
+    return filled
+
+
+def _with_metric_progress(report: SignalReport, config: dict, metric_id: str | None) -> dict:
+    """Fill a metric check's interim progress settings from the report metric it names, keeping any it already has.
+
+    Reconciliation normalizes only the display fields. A metric that gains progress settings must replace its
+    check, because the old check never stored them.
+    """
+    filled = dict(config)
+    for metric in report.metrics or []:
+        if isinstance(metric, dict) and metric.get("metric_id") == metric_id:
             if (
                 metric.get("eligibility_query") is not None or metric.get("minimum_data_points") is not None
             ) and team_report_monitoring_enabled(report.team_id):
@@ -243,10 +262,6 @@ def _with_metric_display(report: SignalReport, config: dict, metric_id: str | No
                 if metric.get("minimum_data_points") is not None:
                     filled.setdefault("minimum_data_points", metric["minimum_data_points"])
             break
-    if "comparison" in filled:
-        filled["metric_kind"] = filled.get("metric_kind") or "custom"
-        filled["value_format"] = filled.get("value_format") or "number"
-        filled.setdefault("unit", None)
     return filled
 
 
