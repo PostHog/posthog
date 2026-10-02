@@ -579,6 +579,7 @@ const insightsList = (): ToolBase<
                 search: params.search,
                 short_id: params.short_id,
                 tags: params.tags,
+                tags_match: params.tags_match,
                 user: params.user,
             },
         })
