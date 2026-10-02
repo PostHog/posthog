@@ -52,7 +52,9 @@ describe('conversionPeopleLogic', () => {
     })
 
     it.each([false, true])('preserves loaded pages and retries failures (append: %s)', async (append) => {
-        await expectLogic(logic, () => logic.mount()).toFinishAllListeners()
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toFinishAllListeners()
         useMocks({
             post: { '/api/projects/:team_id/marketing_analytics/conversion_people/': [500, { detail: 'Failed' }] },
         })
