@@ -24,7 +24,7 @@ const meta: Meta<typeof ScoreDefinitionForm> = {
     render: function Render(args): JSX.Element {
         const [draft, setDraft] = useState(args.draft)
         return (
-            <div className="max-w-3xl">
+            <div className="w-[768px] max-w-full">
                 <ScoreDefinitionForm
                     {...args}
                     draft={draft}
