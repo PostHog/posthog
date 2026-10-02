@@ -1059,6 +1059,7 @@ def complete_run(
     model_explanation: dict[str, Any] | None = None,
     recommended_next: str = "",
     distillation: str = "",
+    report_notebook_short_id: str = "",
 ) -> TrainingRun:
     """Finalize a run. Promotion is server-side, so an agent cannot set the champion."""
     # Promotion imports the inference sandbox, and with it pandas and pyarrow; the router imports
@@ -1078,6 +1079,7 @@ def complete_run(
             model_explanation=model_explanation or {},
             recommended_next=recommended_next or "",
             distillation=distillation or "",
+            report_notebook_short_id=report_notebook_short_id or "",
         )
     except PromotionError as exc:
         raise AutoresearchConflict(str(exc)) from exc
