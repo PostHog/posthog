@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, kea, path, reducers, selectors } from 'kea'
 import { urlToAction } from 'kea-router'
 
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -39,7 +40,14 @@ function audienceBreadcrumbs(currentTab: AudienceTab, selectedEmail: string | nu
     return breadcrumbs
 }
 
-function decodeRecipientEmail(encodedEmail: string): string {
+const RECIPIENT_PATH_PREFIX = '/audience/recipients/'
+
+/**
+ * Reads the address from the still-encoded pathname. The route params are already passed through
+ * `decodeURI`, so decoding them again would turn a literal `%2B` in an address into `+`.
+ */
+function recipientEmailFromPathname(pathname: string): string {
+    const encodedEmail = removeProjectIdIfPresent(pathname).slice(RECIPIENT_PATH_PREFIX.length)
     try {
         return decodeURIComponent(encodedEmail)
     } catch {
@@ -100,7 +108,9 @@ export const audienceSceneLogic = kea<audienceSceneLogicType>([
     }),
     urlToAction(({ actions }) => ({
         [urls.audience()]: () => actions.setCurrentTab(DEFAULT_AUDIENCE_TAB),
-        '/audience/recipients/:email': ({ email }) => actions.openRecipient(decodeRecipientEmail(email ?? '')),
+        // A wildcard, because a `:email` segment only matches the ASCII characters initKea allows.
+        [`${RECIPIENT_PATH_PREFIX}*`]: (_, __, ___, { pathname }) =>
+            actions.openRecipient(recipientEmailFromPathname(pathname)),
         [urls.audience(':tab' as AudienceTab)]: ({ tab }) =>
             actions.setCurrentTab(isAudienceTab(tab) ? tab : DEFAULT_AUDIENCE_TAB),
     })),

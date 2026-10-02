@@ -330,6 +330,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/broadcasts/new': ['Broadcast', 'broadcast'],
     '/broadcasts/:id': ['Broadcast', 'broadcast'],
     '/audience': ['Audience', 'audience'],
+    '/audience/recipients/*': ['Audience', 'audience'],
     '/audience/:tab': ['Audience', 'audience'],
 }
 
