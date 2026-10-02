@@ -1323,9 +1323,6 @@ mod tests {
         assert!(!server.is_shutting_down(), "capture must still be serving");
     }
 
-    /// A blank output topic makes `create_sink` refuse to boot in every capture
-    /// mode — the misconfig fails fast at startup (via the `OutputTable`
-    /// completeness check in `create_output`) rather than at first produce.
     #[rstest::rstest]
     #[case(CaptureMode::Events)]
     #[case(CaptureMode::Recordings)]

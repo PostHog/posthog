@@ -497,9 +497,7 @@ pub struct Config {
     pub ai_byte_limit_local_cache_max_entries: u64,
 }
 
-/// Each output capture produces to: a topic and the named producer that
-/// carries it, read from `CAPTURE_OUTPUT_<OUTPUT>_TOPIC` and
-/// `CAPTURE_OUTPUT_<OUTPUT>_PRODUCER` as in Node.js ingestion's outputs.
+/// Mirrors Node.js ingestion's `INGESTION_OUTPUT_<OUTPUT>_{TOPIC,PRODUCER}`.
 ///
 /// Topic defaults are the local dev and hobby topics. Those stacks pull
 /// `capture:master` with compose files that can predate these variables.

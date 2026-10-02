@@ -1,32 +1,17 @@
-//! Destination registry — the topic-completeness surface.
-//!
-//! Binds every fixed routing [`Destination`] variant to its configured output,
-//! a Kafka topic and the named producer that carries it, and provides a
-//! startup completeness check ([`OutputTable::check_complete`])
-//! that refuses to boot when any fixed output resolves to an empty topic. This
-//! is the single place the output→topic wiring lives, so adding an output is a
-//! one-place change: the `target_for` and `is_required` matches are
-//! compiler-forced exhaustive, a test pins `REGISTERED` to the required set,
-//! and `check_complete` catches an unwired output at boot rather than at
-//! first produce.
-//!
-//! Two outputs sit outside the completeness check: `Custom` topics are
-//! admin-supplied inline on the event's metadata (they carry their own topic),
-//! and `AiOverflow` is the opt-in overflow valve — unset means routing never
-//! selects it.
+//! Binds every fixed routing [`Destination`] to its output: a Kafka topic and
+//! the named producer that carries it. Adding an output is a one-place change:
+//! the `target_for` and `is_required` matches are compiler-forced exhaustive,
+//! a test pins `REGISTERED` to the required set, and
+//! [`OutputTable::check_complete`] catches an unwired output at boot instead
+//! of at first produce.
 
 use std::sync::Arc;
 
 use crate::config::OutputsConfig;
 use crate::producers::ProducerName;
 
-/// Which configured output a routing decision selects, named **pipeline +
-/// lane** — the vocabulary the refactor converges on (typed per-pipeline
-/// lanes; see the plan doc). The sink resolves each output to a concrete
-/// topic and producer against the [`OutputTable`]; distinct outputs may
-/// share a topic. Mirrors v1's `Destination` split — the
-/// convergence target when the v1 stack folds onto this registry (see the
-/// plan doc).
+/// Which configured output a routing decision selects, named by pipeline and
+/// lane. Distinct outputs may share a topic.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Destination {
     AnalyticsMain,
@@ -36,19 +21,13 @@ pub enum Destination {
     HeatmapsMain,
     SessionReplayMain,
     SessionReplayOverflow,
-    /// Every pipeline's dlq lane; one shared output until the typed-address
-    /// step gives each pipeline its own dlq row.
+    /// Every pipeline's dlq lane, one shared output.
     Dlq,
     ErrorTrackingMain,
-    /// The AI pipeline's main lane — the dedicated `$ai_*` topic
-    /// (`CAPTURE_OUTPUT_AI_MAIN_TOPIC`).
     AiMain,
-    /// The AI pipeline's overflow lane; only routed to when the AI overflow
-    /// valve (`CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC`) is armed.
+    /// Only routed to when the AI overflow valve is armed.
     AiOverflow,
-    /// Admin-configured custom topic copied from `redirect_to_topic`. Carries
-    /// its own topic and publishes through the custom producer; never
-    /// registered.
+    /// Admin-configured topic copied from `redirect_to_topic`.
     Custom(String),
 }
 
@@ -114,7 +93,7 @@ impl Destination {
 }
 
 /// `R` is how the target names its producer: a [`ProducerName`] in config,
-/// the producer handle once a sink is built.
+/// the producer handle once setup resolves it.
 #[derive(Clone, Debug)]
 pub struct OutputTarget<R = ProducerName> {
     // `Arc<str>` so the per-record lookup, metric labels and produce record never allocate.
@@ -122,8 +101,6 @@ pub struct OutputTarget<R = ProducerName> {
     pub(crate) producer: R,
 }
 
-/// The one place output wiring lives. Holds the configured target for every
-/// fixed [`Destination`] variant. Cheap to clone; the sink holds it behind an `Arc`.
 #[derive(Clone, Debug)]
 pub struct OutputTable<R = ProducerName> {
     pub(crate) analytics_main: OutputTarget<R>,
@@ -136,14 +113,11 @@ pub struct OutputTable<R = ProducerName> {
     pub(crate) dlq: OutputTarget<R>,
     pub(crate) error_tracking: OutputTarget<R>,
     pub(crate) ai_main: OutputTarget<R>,
-    /// Unset means the AI overflow valve is unarmed and routing never
-    /// selects `Destination::AiOverflow`.
     pub(crate) ai_overflow: Option<OutputTarget<R>>,
     pub(crate) custom_producer: R,
 }
 
 impl<R> OutputTable<R> {
-    /// `Custom` has no target: it carries its own topic.
     fn target_for(&self, output: &Destination) -> Option<&OutputTarget<R>> {
         match output {
             Destination::AnalyticsMain => Some(&self.analytics_main),
@@ -166,8 +140,6 @@ impl<R> OutputTable<R> {
         }
     }
 
-    /// Resolve an output to its topic. Fixed outputs read the registered topic;
-    /// `Custom` returns its inline, admin-supplied topic.
     pub fn topic_for<'a>(&'a self, output: &'a Destination) -> &'a str {
         match (output, self.target_for(output)) {
             (Destination::Custom(topic), _) => topic,
@@ -176,7 +148,6 @@ impl<R> OutputTable<R> {
         }
     }
 
-    /// Only a `Custom` topic allocates.
     pub(crate) fn resolve(&self, output: &Destination) -> (Arc<str>, &R) {
         match (output, self.target_for(output)) {
             (_, Some(target)) => (Arc::clone(&target.topic), &target.producer),
@@ -209,19 +180,15 @@ impl<R> OutputTable<R> {
         }
     }
 
-    /// Whether the AI overflow valve is armed: the AI overflow topic is wired,
-    /// so routing may select `Destination::AiOverflow`.
     pub fn ai_events_overflow_armed(&self) -> bool {
         self.ai_overflow
             .as_ref()
             .is_some_and(|target| !target.topic.is_empty())
     }
 
-    /// Startup completeness check: every registered output must resolve to a
-    /// non-empty topic, so a misconfigured or newly-added-but-unwired output
-    /// fails fast at boot instead of at first produce. `Custom` is excluded
-    /// (it carries its own topic per event), as is the opt-in `AiOverflow`
-    /// valve (unset means routing never selects it).
+    /// Every registered output must resolve to a non-empty topic. `Custom` is
+    /// excluded because it carries its own topic per event, and the opt-in
+    /// `AiOverflow` valve because unset means routing never selects it.
     pub fn check_complete(&self) -> anyhow::Result<()> {
         for output in &Destination::REGISTERED {
             anyhow::ensure!(
@@ -276,9 +243,6 @@ impl From<&OutputsConfig> for OutputTable {
     }
 }
 
-/// Shared `OutputTable` fixture for tests across the capture crate. Used by
-/// sink-side routing tests and pipeline-to-sink E2E tests so every test site
-/// asserts against the same canonical topic names.
 #[cfg(test)]
 pub(crate) fn test_outputs() -> OutputTable {
     let target = |topic: &str| OutputTarget {

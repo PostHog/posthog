@@ -117,9 +117,9 @@ impl Failover {
     }
 }
 
-/// The (pipeline, lane) → output map the deployment state holds.
-/// Degenerate today: one deployment-wide output serves every address, and
-/// per-lane topics resolve during prep via the [`OutputTable`].
+/// The (pipeline, lane) → output map the deployment state holds. One
+/// deployment-wide output serves every address; the Kafka sink resolves
+/// per-lane topics through its [`OutputTable`] at enqueue.
 ///
 /// [`OutputTable`]: crate::sinks::registry::OutputTable
 pub struct OutputRegistry {

@@ -5,7 +5,8 @@
 //! redirects, custom-topic redirects, force-disable-person-processing headers) is
 //! decided *upstream* in the pipeline and stamped onto
 //! `ProcessedEventMetadata`. `KafkaSinkBase::prepare_record` reads that metadata
-//! and maps it to a concrete topic + partition key.
+//! and maps it to a [`Destination`] and partition key; enqueue resolves the
+//! destination to a topic and producer.
 //!
 //! The `overflow_reason` stamping specifically runs at four call sites, all via
 //! the shared `events::overflow_stamping::stamp_overflow_reason` helper:
@@ -178,14 +179,6 @@ impl rdkafka::ClientContext for KafkaContext {
 }
 
 /// Generic Kafka sink that can use any producer implementation.
-///
-/// Holds only the output table, each target carrying its producer handle,
-/// and the replay envelope compression setting. No limiter state — overflow and replay-overflow routing
-/// decisions are stamped upstream in the pipeline onto
-/// `ProcessedEventMetadata::overflow_reason` and read here.
-/// The Arc field is cheap to clone (one atomic ref-count increment),
-/// which matters under the scatter-gather batch produce path where the sink
-/// is cloned once per spawned prep task.
 pub struct KafkaSinkBase<P: KafkaProducer> {
     outputs: Arc<OutputTable<Arc<P>>>,
     replay_envelope_compression: EnvelopeCompression,
@@ -325,12 +318,10 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
             headers.set_skip_heatmap_processing(true);
         }
 
-        // The address decision is pure metadata policy, owned by the pipeline
-        // layer; the sink bridges it to an output, which enqueue resolves to
-        // a topic and producer, realizes the key policy against the values it owns,
-        // and applies the address-implied side effects in the same match —
-        // the dlq output's contract includes the dlq header set, and both
-        // admin redirects count their reroutes.
+        // The pipeline layer owns the address decision. Each address's side
+        // effects live in the same match that maps it to an output, so a new
+        // address cannot skip them: dlq sets the dlq headers, and both admin
+        // redirects count their reroutes.
         let decision = pipeline::resolve(&metadata, self.outputs.ai_events_overflow_armed())?;
         let target = match decision.address {
             Address::Dlq => {
@@ -384,13 +375,9 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
         })
     }
 
-    /// Serial, ordering-preserving enqueue into librdkafka. The one place the
-    /// backend-agnostic payload becomes Kafka-shaped: `destination` resolves
-    /// to a topic and the producer carrying it, and `ordering` decides
-    /// whether the record is keyed. Emits the per-topic bytes counter and
-    /// returns the ack future for the caller to await. librdkafka preserves
-    /// on-wire partition order by `send_result` call order, so this MUST be
-    /// called in the original event order within a batch.
+    /// librdkafka preserves on-wire partition order by `send_result` call
+    /// order, so this MUST be called in the original event order within a
+    /// batch.
     fn enqueue_record(&self, payload: PreparedPayload) -> Result<P::AckFuture, CaptureError> {
         let (topic, producer) = self.outputs.resolve(&payload.destination);
 
@@ -2200,8 +2187,8 @@ mod tests {
 
         #[tokio::test]
         async fn ai_events_unarmed_never_overflows() {
-            // Without CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC the lane keeps today's
-            // behavior: force_overflow and any stamped reason (which the
+            // Without CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC the lane never
+            // overflows: force_overflow and any stamped reason (which the
             // gated pipeline would not produce anyway) are ignored.
             let producer = MockKafkaProducer::new();
             let mut topics = test_outputs();

@@ -229,9 +229,9 @@ pub async fn serve(listener: TcpListener, components: CaptureComponents) {
         graceful.shutdown().await;
         info!("Hyper accept loop (shutdown): graceful shutdown completed");
 
-        // Flush both produce layers concurrently. The v0 producers flush is
-        // synchronous (rdkafka), so it runs on the blocking thread pool. V1
-        // sinks already use spawn_blocking internally (see KafkaSink::flush).
+        // The v0 producers flush is synchronous (rdkafka), so it runs on the
+        // blocking thread pool. V1 sinks already use spawn_blocking internally
+        // (see KafkaSink::flush).
         info!("Flushing sinks...");
         let legacy_flush = async move {
             let Some(producers) = producers else {
