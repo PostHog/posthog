@@ -1,4 +1,4 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
 import { IconPencil, IconPlusSmall } from '@posthog/icons'
@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 
 export function NewDashboardMenu(): JSX.Element {
     const { showNewDashboardModal } = useActions(newDashboardLogic)
+    const { searchParams } = useValues(router)
 
     return (
         <>
@@ -26,9 +27,7 @@ export function NewDashboardMenu(): JSX.Element {
             <LemonDivider className="my-1" />
             <LemonButton
                 icon={<IconPencil />}
-                onClick={() =>
-                    router.actions.push(combineUrl(urls.dashboardTemplates(), router.values.searchParams).url)
-                }
+                to={combineUrl(urls.dashboardTemplates(), searchParams).url}
                 // Pinned analytics value: insights built on clicks that open the templates list match on it.
                 data-attr="view-dashboard-templates"
                 fullWidth
