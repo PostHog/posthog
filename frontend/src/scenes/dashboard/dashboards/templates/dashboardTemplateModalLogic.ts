@@ -160,8 +160,8 @@ export const dashboardTemplateModalLogic = kea<dashboardTemplateModalLogicType>(
                             await api.dashboardTemplates.create(data)
                             lemonToast.success('Project template saved', {
                                 button: {
-                                    label: 'View templates',
-                                    dataAttr: 'dashboard-template-saved-view-templates',
+                                    label: 'Manage templates',
+                                    dataAttr: 'dashboard-template-saved-manage-templates',
                                     action: () => router.actions.push(urls.dashboardTemplates()),
                                 },
                             })

@@ -502,7 +502,7 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                         hasActiveFilters={hasActiveFilters}
                         loadFailed={allTemplatesLoadFailed}
                         onClearFilters={clearFilters}
-                        onRetry={getAllTemplates}
+                        onRetry={() => getAllTemplates()}
                     />
                 }
                 nouns={['template', 'templates']}

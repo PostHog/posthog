@@ -48,7 +48,7 @@ export type DashboardTemplateTableOrdering = '' | 'template_name' | '-template_n
  * Official templates go last. Inside each group, the table ordering applies, or featured first and then A–Z by name,
  * which matches the API default. The API cannot do this for the mixed unscoped list or the merged customer list.
  */
-function sortTemplatesOfficialLast(
+function sortTemplatesByOrdering(
     templates: DashboardTemplateType[],
     ordering: DashboardTemplateTableOrdering
 ): DashboardTemplateType[] {
@@ -313,12 +313,12 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
                         ])
                         // A search ranks each page on the server, but the rank is not returned, so team matches come first.
                         const results = [...teamPage.results, ...organizationPage.results]
-                        return useSearch ? results : sortTemplatesOfficialLast(results, values.templateNameOrdering)
+                        return useSearch ? results : sortTemplatesByOrdering(results, values.templateNameOrdering)
                     }
 
                     const page = await api.dashboardTemplates.list(params)
                     if (!useSearch && listScope === undefined) {
-                        return sortTemplatesOfficialLast(page.results, values.templateNameOrdering)
+                        return sortTemplatesByOrdering(page.results, values.templateNameOrdering)
                     }
                     return page.results
                 },
@@ -354,7 +354,12 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
         },
     })),
     actionToUrl(({ values }) => {
-        const templateFilterToUrl = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] => {
+        const templateFilterToUrl = (): [
+            string,
+            Record<string, unknown>,
+            Record<string, unknown>,
+            { replace: boolean },
+        ] => {
             const searchParams = { ...router.values.searchParams }
             searchParams.templateFilter = values.templateFilter
             if (!values.templateFilter) {
