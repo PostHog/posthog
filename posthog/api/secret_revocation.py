@@ -14,7 +14,11 @@ from posthog.models.utils import (
     SECRET_API_TOKEN_PREFIX,
     mask_key_value,
 )
-from posthog.tasks.email import send_oauth_token_exposed, send_personal_api_key_exposed
+from posthog.tasks.email import (
+    send_feature_flags_secure_api_key_exposed,
+    send_oauth_token_exposed,
+    send_personal_api_key_exposed,
+)
 
 CANONICAL_PERSONAL_API_KEY = "personal_api_key"
 CANONICAL_PROJECT_SECRET_API_KEY = "project_secret_api_key"
@@ -48,6 +52,11 @@ def _revoke_project_secret_api_key(token: str, more_info: str) -> bool:
     if project_secret_api_key is None:
         return False
     roll_project_secret_api_key_and_notify(project_secret_api_key, more_info)
+    team = project_secret_api_key.team
+    # A backfilled PSAK (#63111) mirrors the team's legacy secret token. Rolling the row
+    # does not invalidate that token, so the admins must still be told to rotate it.
+    if token in (team.secret_api_token, team.secret_api_token_backup):
+        send_feature_flags_secure_api_key_exposed(team.id, mask_key_value(token), more_info)
     return True
 
 
@@ -118,7 +127,8 @@ _REVOKERS = {
 # four, a match there can't be auto-rotated on the spot
 # (Team.rotate_secret_token_and_save needs a user to attribute the rotation to), so
 # github.py handles that case itself as a fallback rather than through this shared,
-# type-agnostic path.
+# type-agnostic path. A team token with a backfilled PSAK row (#63111) does match the
+# project-secret-api-key path, which then also sends the rotate-your-key notice.
 _PREFIX_TO_CANONICAL_TYPE = {
     PERSONAL_API_KEY_PREFIX: CANONICAL_PERSONAL_API_KEY,
     SECRET_API_TOKEN_PREFIX: CANONICAL_PROJECT_SECRET_API_KEY,

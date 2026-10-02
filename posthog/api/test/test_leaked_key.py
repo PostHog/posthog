@@ -204,6 +204,32 @@ class TestPublicLeakedKeyReport(APIBaseTest):
         self.team.refresh_from_db()
         self.assertEqual(self.team.secret_api_token, token)
 
+    @patch("posthog.api.secret_revocation.send_feature_flags_secure_api_key_exposed")
+    @patch("posthog.api.project_secret_api_key.send_project_secret_api_key_exposed")
+    def test_team_token_with_backfilled_psak_rolls_the_row_and_notifies_admins(
+        self, mock_psak_exposed, mock_ff_exposed
+    ) -> None:
+        # Rolling the backfilled row (#63111) leaves the team token valid: admins must
+        # also get the rotate-your-key notice.
+        from posthog.models.utils import hash_key_value
+        from posthog.test.api_keys import create_project_secret_api_key
+
+        token = "phs_legacy_team_secret_token_with_migrated_row"
+        self.team.secret_api_token = token
+        self.team.save()
+        row, _ = create_project_secret_api_key(team=self.team, label="Migrated legacy secret API key", value=token)
+
+        response = self._post(token)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"found": True, "type": "project_secret_api_key"})
+        row.refresh_from_db()
+        self.assertNotEqual(row.secure_value, hash_key_value(token))
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.secret_api_token, token)
+        mock_psak_exposed.assert_called_once()
+        mock_ff_exposed.assert_called_once()
+
     def test_expired_oauth_access_token_still_revokes_the_paired_refresh_token(self) -> None:
         # An expired access token can't authenticate on its own, but revoking still
         # matters: if the same exposure also affects the longer-lived paired refresh

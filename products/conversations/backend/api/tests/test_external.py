@@ -70,6 +70,19 @@ class TestExternalTicketAPI(BaseTest):
         self.ticket.refresh_from_db()
         self.assertEqual(self.ticket.status, Status.NEW)
 
+    def test_patch_accepts_legacy_token_that_has_a_migrated_psak_row(self):
+        # The #63111 backfill gives the legacy token a PSAK row with the same hash. The
+        # legacy string must keep the legacy path (PATCH allowed), not resolve as a PSAK.
+        create_project_secret_api_key(
+            self.team, label="Migrated legacy secret API key", value=self.team.secret_api_token
+        )
+        response = self.client.patch(
+            self.url, {"status": "resolved"}, content_type="application/json", **self._auth_headers()
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.status, Status.RESOLVED)
+
     @parameterized.expand(
         [
             ("conversations_disabled", {"team": {"conversations_enabled": False}}),
