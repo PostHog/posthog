@@ -189,7 +189,7 @@ class TestCrossProjectDashboardTileAPI(APIBaseTest):
             ("member_denied_role_allowed", True),
         ]
     )
-    def test_a_project_the_reader_is_denied_hides_its_tiles(self, _name: str, member_denied: bool, _flag):
+    def test_a_project_the_reader_is_denied_hides_its_tiles(self, _flag, _name: str, member_denied: bool):
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
@@ -233,7 +233,7 @@ class TestCrossProjectDashboardTileAPI(APIBaseTest):
         assert (listed["results"][0]["tile_count"], listed["results"][0]["project_count"]) == (1, 1)
 
     @parameterized.expand([("patch",), ("delete",), ("add_tile",)])
-    def test_a_member_denied_a_tile_project_cannot_change_the_dashboard(self, method: str, _flag):
+    def test_a_member_denied_a_tile_project_cannot_change_the_dashboard(self, _flag, method: str):
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
