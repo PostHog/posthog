@@ -676,6 +676,9 @@ tools:
             which level supplied it). Also returns the caller's personal agent instructions (`agent_instructions`),
             empty when unset.
         feature_flag: tasks
+    tasks-me-config-task-defaults-create:
+        operation: tasks_me_config_task_defaults_create
+        enabled: false
     tasks-models-retrieve:
         operation: tasks_models_retrieve
         enabled: true
