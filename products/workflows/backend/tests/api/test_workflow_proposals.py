@@ -1,5 +1,6 @@
 import json
 from types import SimpleNamespace
+from typing import Any
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
@@ -712,9 +713,11 @@ class TestWorkflowProposals(APIBaseTest):
                 },
                 "needs a `unit`",
             ),
+            ("a bare string", "0.07", "object"),
+            ("a bare number", 7, "object"),
         ]
     )
-    def test_a_rate_the_panel_cannot_read_back_is_refused(self, _mock_flag, _name: str, evidence: dict, expected: str):
+    def test_a_rate_the_panel_cannot_read_back_is_refused(self, _mock_flag, _name: str, evidence: Any, expected: str):
         flow_id = self._create_active_flow()
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/",
@@ -854,6 +857,75 @@ class TestWorkflowProposals(APIBaseTest):
         assert [version["version"] for version in outcome["versions"] if version["applied"]] == [2]
         # v5 is past the versions the slice read, so the after side must not claim it.
         assert outcome["after"]["versions"] == [2, 3], outcome
+
+    def test_a_version_that_removes_a_step_says_so(self, _mock_flag):
+        flow_id = self._create_active_flow()
+        self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+            {
+                "operations": [
+                    {
+                        "op": "add_action",
+                        "action": _webhook_action("action_2", "https://second.example.com"),
+                        "edges": [{"from": "action_1", "to": "action_2", "type": "continue"}],
+                    }
+                ]
+            },
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        self._publish(flow_id)
+        proposal = self._propose(flow_id)
+        self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {})
+        self._publish(flow_id)
+        self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+            {"operations": [{"op": "remove_action", "id": "action_2"}]},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        self._publish(flow_id)
+
+        outcome = self.client.get(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/outcome"
+        ).json()
+        latest = max(outcome["versions"], key=lambda version: version["version"])
+        assert [change["field"] for change in latest["changes"] if change["field"] == "step removed"] == [
+            "step removed"
+        ], latest
+
+    def test_changing_the_trigger_is_not_also_counted_as_a_workflow_change(self, _mock_flag):
+        flow_id = self._create_active_flow()
+        proposal = self._propose(flow_id)
+        self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {})
+        self._publish(flow_id)
+        self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+            {
+                "operations": [
+                    {
+                        "op": "update_action",
+                        "id": "trigger_node",
+                        "patch": {
+                            "config": {
+                                "filters": {
+                                    "events": [
+                                        {"id": "$autocapture", "name": "$autocapture", "type": "events", "order": 0}
+                                    ]
+                                }
+                            }
+                        },
+                    }
+                ]
+            },
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        self._publish(flow_id)
+
+        outcome = self.client.get(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/outcome"
+        ).json()
+        latest = max(outcome["versions"], key=lambda version: version["version"])
+        # The trigger is derived from the trigger step, so the step change is the only one to report.
+        assert [change["field"] for change in latest["changes"] if change["step_name"] is None] == [], latest
 
     def test_the_outcome_reads_the_metric_the_suggestion_aimed_at(self, _mock_flag):
         flow_id = self._create_active_flow()

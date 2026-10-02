@@ -4014,8 +4014,14 @@ class WorkflowProposalCreateSerializer(serializers.Serializer):
     )
 
     def validate_evidence(self, value: Any) -> dict:
-        if not isinstance(value, dict) or not value:
-            return value or {}
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            raise exceptions.ValidationError(
+                "Send `evidence` as an object whose fields name the metric and its reading, not a bare value."
+            )
+        if not value:
+            return {}
         # The panel reads these back by name; a producer's own key would render as "no data".
         if not isinstance(value.get("metric"), str) or not value["metric"].strip():
             raise exceptions.ValidationError(
@@ -4391,27 +4397,45 @@ def _describe_path(path: Sequence[str]) -> str:
     return " › ".join(spoken or list(path))
 
 
+# `trigger` is derived from the trigger action, so a change to it already reads as a step change.
+# Counting it again at workflow level reads as an edit nobody made.
+DERIVED_WORKFLOW_FIELDS = frozenset({"trigger"})
+
+
 def describe_version_changes(previous: dict, current: dict, proposed: Mapping) -> list[dict]:
     """Every field this version published differently from the one before it.
 
     Derived keys are skipped: publishing recompiles inputs, and nobody edited those.
     """
+
+    def from_suggestion(key: tuple, value: Any) -> bool:
+        # Membership first: a cleared field reads as absent, and so does a field the proposal never
+        # named, so comparing values alone calls an unrelated clear a suggested change.
+        return key in proposed and proposed[key] == value
+
     changes: list[dict] = []
     was_steps = {_item_id(item): item for item in previous.get("actions") or []}
+    now_steps = {_item_id(item): item for item in current.get("actions") or []}
     for step in current.get("actions") or []:
-        was = was_steps.get(_item_id(step))
+        step_id = _item_id(step)
+        was = was_steps.get(step_id)
         if was is None:
             changes.append(
                 {
-                    "step_name": step.get("name") or _item_id(step),
+                    "step_name": step.get("name") or step_id,
                     "field": "step added",
                     "before": None,
                     "after": _describe_value(step.get("type")),
-                    "from_suggestion": False,
+                    "from_suggestion": any(key[0] == step_id for key in proposed),
                 }
             )
             continue
-        for path in _patch_paths({key: value for key, value in step.items() if key != "id"}):
+        paths = {
+            path
+            for item in (step, was)
+            for path in _patch_paths({key: value for key, value in item.items() if key != "id"})
+        }
+        for path in sorted(paths):
             if path[-1] in DERIVED_STEP_KEYS:
                 continue
             after, before = _leaf(step, path), _leaf(was, path)
@@ -4419,23 +4443,38 @@ def describe_version_changes(previous: dict, current: dict, proposed: Mapping) -
                 continue
             changes.append(
                 {
-                    "step_name": step.get("name") or _item_id(step),
+                    "step_name": step.get("name") or step_id,
                     "field": _describe_path(path),
                     "before": _describe_value(before),
                     "after": _describe_value(after),
-                    "from_suggestion": proposed.get((_item_id(step), path), _ABSENT) == after,
+                    "from_suggestion": from_suggestion((step_id, path), after),
                 }
             )
-    for field, value in current.items():
-        if field in PROPOSAL_MERGE_BY_ID_FIELDS or value == previous.get(field):
+    for step_id, was in was_steps.items():
+        if step_id in now_steps:
+            continue
+        changes.append(
+            {
+                "step_name": was.get("name") or step_id,
+                "field": "step removed",
+                "before": _describe_value(was.get("type")),
+                "after": None,
+                "from_suggestion": False,
+            }
+        )
+    for field in sorted({*current, *previous}):
+        if field in PROPOSAL_MERGE_BY_ID_FIELDS or field in DERIVED_WORKFLOW_FIELDS:
+            continue
+        value, before = current.get(field, _ABSENT), previous.get(field, _ABSENT)
+        if value == before:
             continue
         changes.append(
             {
                 "step_name": None,
                 "field": _describe_path([field]),
-                "before": _describe_value(previous.get(field, _ABSENT)),
+                "before": _describe_value(before),
                 "after": _describe_value(value),
-                "from_suggestion": proposed.get((None, (field,)), _ABSENT) == value,
+                "from_suggestion": from_suggestion((None, (field,)), value),
             }
         )
     return changes
@@ -6439,11 +6478,14 @@ class HogFlowViewSet(
         """
         if not versions:
             return {}
+        # Each revision holds a whole workflow snapshot, so a suggestion filed against v1 of a
+        # workflow on v1000 would read a thousand of them to describe twenty.
+        wanted = set(versions) | {version - 1 for version in versions}
         revisions = {
             revision.version: revision
-            for revision in HogFlowRevision.objects.filter(
-                hog_flow=hog_flow, version__gte=min(versions) - 1, version__lte=max(versions)
-            ).select_related("created_by")
+            for revision in HogFlowRevision.objects.filter(hog_flow=hog_flow, version__in=sorted(wanted))
+            .order_by("version")
+            .select_related("created_by")
         }
         contents = {version: revision.content for version, revision in revisions.items()}
         if hog_flow.version in versions:
