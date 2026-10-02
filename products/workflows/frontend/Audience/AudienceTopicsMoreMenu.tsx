@@ -10,7 +10,7 @@ import { optOutSceneLogic } from '../OptOuts/optOutSceneLogic'
 
 export function AudienceTopicsMoreMenu(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { preferencesUrlLoading } = useValues(optOutSceneLogic)
+    const { previewingPreferencesPage } = useValues(optOutSceneLogic)
     const { openPreferencesPage } = useActions(optOutSceneLogic)
     const { openImportModal } = useActions(customerIOImportLogic)
 
@@ -39,7 +39,7 @@ export function AudienceTopicsMoreMenu(): JSX.Element {
                 tooltip="More"
                 icon={<IconEllipsis />}
                 size="small"
-                loading={preferencesUrlLoading}
+                loading={previewingPreferencesPage}
             />
         </LemonMenu>
     )
