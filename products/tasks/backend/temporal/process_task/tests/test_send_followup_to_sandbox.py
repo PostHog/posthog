@@ -8,9 +8,10 @@ from temporalio.testing import ActivityEnvironment
 
 from posthog.models.user_integration import ReauthorizationRequired
 
-from products.tasks.backend.logic.services.agent_command import CommandResult
+from products.tasks.backend.logic.services.agent_command import REFRESH_SESSION_TURN_IN_FLIGHT_ERROR, CommandResult
 from products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox import (
     DENIED_PERMISSION_STOP_MESSAGE,
+    REBIND_DEFERRED_OUTCOME,
     REFRESH_RETRY_DELAY_SECONDS,
     RUN_STOPPING_MESSAGE,
     SANDBOX_STOPPED_MESSAGE,
@@ -264,22 +265,38 @@ class TestRefreshSandboxMcp:
             exclude_tools=[],
         )
 
+    @pytest.mark.parametrize(
+        "error,expected_failure,expected_attempts",
+        [
+            ("down", SandboxRebindFailure.REFRESH_SESSION_FAILED, 2),
+            (REFRESH_SESSION_TURN_IN_FLIGHT_ERROR, SandboxRebindFailure.TURN_IN_FLIGHT, 1),
+        ],
+    )
     def test_transition_refresh_failure_reports_unsafe(
-        self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh, _sleep
+        self,
+        mock_oauth,
+        mock_ph_configs,
+        mock_user_configs,
+        mock_send_refresh,
+        _sleep,
+        error,
+        expected_failure,
+        expected_attempts,
     ):
-        # A prior actor holds the session and the new actor's refresh fails both
-        # attempts: the rebind never happened, so the gate reports unsafe (the
-        # caller fails the follow-up closed) and the previous binding is left as is.
+        # A prior actor holds the session and the new actor's refresh fails: the
+        # rebind never happened, so the gate reports why and the previous binding is
+        # left as is. An open turn is named apart so the caller can wait it out.
         mock_oauth.return_value = "fresh-token"
         mock_ph_configs.return_value = [_make_mcp_config()]
         mock_user_configs.return_value = []
-        mock_send_refresh.return_value = CommandResult(success=False, status_code=502, error="down")
+        mock_send_refresh.return_value = CommandResult(success=False, status_code=200, error=error)
         mark_sandbox_mcp_session("run-1", 99)
 
         actor = MagicMock(id=42)
         failure = _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", None, actor_user=actor, state=None)
 
-        assert failure == SandboxRebindFailure.REFRESH_SESSION_FAILED
+        assert failure == expected_failure
+        assert mock_send_refresh.call_count == expected_attempts
         assert get_sandbox_mcp_session_user("run-1") == 99
 
     def test_unknown_binding_refresh_failure_fails_closed(
@@ -750,7 +767,11 @@ class TestSendFollowupActivityRefreshOrdering:
 
     @pytest.mark.parametrize(
         "gate,reason",
-        [("refresh", "refresh_session_failed"), ("refresh_github", "logout_unconfirmed")],
+        [
+            ("refresh", "refresh_session_failed"),
+            ("refresh", "turn_in_flight"),
+            ("refresh_github", "logout_unconfirmed"),
+        ],
     )
     def test_gate_rejection_names_its_reason_in_the_failure(self, _patches, gate, reason):
         # A fail-closed follow-up raises without delivering, so the reason the gate
@@ -760,6 +781,17 @@ class TestSendFollowupActivityRefreshOrdering:
         with pytest.raises(RuntimeError, match=reason):
             _run_activity(SendFollowupToSandboxInput(run_id="run-1", message="hi"))
 
+        _patches["user_msg"].assert_not_called()
+
+    def test_rebind_refused_by_an_open_turn_defers_without_delivering(self, _patches):
+        _patches["refresh"].return_value = SandboxRebindFailure.TURN_IN_FLIGHT
+
+        outcome = _run_activity(
+            SendFollowupToSandboxInput(run_id="run-1", message="hi", defer_rebind_on_open_turn=True)
+        )
+
+        assert outcome == REBIND_DEFERRED_OUTCOME
+        _patches["refresh_github"].assert_not_called()
         _patches["user_msg"].assert_not_called()
 
     def test_a_stopped_sandbox_is_named_before_either_credential_gate_runs(self, _patches):
