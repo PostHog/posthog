@@ -282,6 +282,7 @@ export const API_SCOPES_OMITTED_FROM_MODAL: Partial<Record<APIScopeObject, strin
     // Remove from posthog/scopes.py once no PAK/OAuth grant references them.
     batch_import: 'Pending removal: no endpoint enforces it (its viewset is INTERNAL).',
     mcp_registry: 'Behind a feature flag.',
+    cross_project_dashboard: 'Behind a feature flag.',
     external_data_schema: 'Pending removal: covered by external_data_source; no viewset uses it.',
 }
 
@@ -411,6 +412,7 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'insight_variable',
             'dashboard',
             'dashboard_template',
+            'cross_project_dashboard',
             'query',
             'notebook',
             'canvas',
