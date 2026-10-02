@@ -144,6 +144,7 @@ export const TreeNodeDisplayIcon = ({
 
 type DragAndDropProps = {
     id: string
+    scope?: string
     children: React.ReactNode
 }
 type DraggableProps = DragAndDropProps & {
@@ -157,7 +158,8 @@ export const TreeNodeDraggable = (props: DraggableProps): JSX.Element => {
         listeners: originalListeners,
         setNodeRef,
     } = useDraggable({
-        id: props.id,
+        id: props.scope ? `${props.scope}::${props.id}` : props.id,
+        data: { treeId: props.id, treeScope: props.scope },
     })
 
     // Filter out the Enter key from drag listeners
@@ -210,9 +212,13 @@ type DroppableProps = DragAndDropProps & {
 }
 
 export const TreeNodeDroppable = (props: DroppableProps): JSX.Element => {
-    const { setNodeRef, isOver } = useDroppable({ id: props.id })
     const nodeRef = useRef<HTMLDivElement | null>(null)
     const [reorderSide, setReorderSide] = useState<'before' | 'after' | null>(null)
+    const { setNodeRef, isOver } = useDroppable({
+        id: props.scope ? `${props.scope}::${props.id}` : props.id,
+        disabled: !props.isDroppable,
+        data: { treeId: props.id, treeScope: props.scope, dropMode: props.dropMode, position: reorderSide },
+    })
 
     const setRefs = (el: HTMLDivElement | null): void => {
         nodeRef.current = el

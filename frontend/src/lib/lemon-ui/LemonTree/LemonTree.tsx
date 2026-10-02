@@ -6,6 +6,7 @@ import {
     DragStartEvent,
     MouseSensor,
     TouchSensor,
+    useDndContext,
     useSensor,
     useSensors,
 } from '@dnd-kit/core'
@@ -35,6 +36,7 @@ import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '../../ui/Co
 import { SideAction } from '../LemonButton'
 import { Link } from '../Link/Link'
 import { Spinner } from '../Spinner/Spinner'
+import { LemonTreeDndMonitor } from './LemonTreeDndMonitor'
 import {
     InlineEditField,
     TreeDropPosition,
@@ -107,6 +109,9 @@ type LemonTreeBaseProps = Omit<
     showFolderActiveState?: boolean
     /** Whether to enable drag and drop of items. */
     enableDragAndDrop?: boolean
+    /** Share a parent DndContext; the scope keeps duplicate rows in sibling trees distinct. */
+    dragAndDropScope?: string
+    rootDropId?: string
     /** The select mode of the tree. */
     selectMode?: LemonTreeSelectMode
     /** Whether the item is active, useful for highlighting the current item against a URL path,
@@ -119,7 +124,7 @@ type LemonTreeBaseProps = Omit<
     /** Drop mode for the item when used as a drop target. 'reorder' renders an insertion
      * line above or below the row based on pointer position. 'onto' (default) highlights
      * the whole row — appropriate for dropping *into* folders. */
-    getItemDropMode?: (item: TreeDataItem) => 'onto' | 'reorder'
+    getItemDropMode?: (item: TreeDataItem, activeId?: string) => 'onto' | 'reorder'
     /** The side action to render for the item. */
     itemSideAction?: (item: TreeDataItem) => React.ReactNode | undefined
     /** The button to render for the item's side action. */
@@ -274,6 +279,7 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
             isItemDraggable,
             isItemDroppable,
             getItemDropMode,
+            dragAndDropScope,
             onReorderPositionChange,
             depth = 0,
             itemSideAction,
@@ -293,6 +299,8 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
         },
         ref
     ): JSX.Element => {
+        const { active } = useDndContext()
+        const activeId = active ? String(active.data.current?.treeId ?? active.id) : undefined
         const DEPTH_OFFSET = 16 * depth
         const [isContextMenuOpenForItem, setIsContextMenuOpenForItem] = useState<string | undefined>(undefined)
 
@@ -468,7 +476,12 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
 
         if (enableDragAndDrop && isItemDraggable?.(item) && item.id) {
             button = (
-                <TreeNodeDraggable id={item.id} enableDragging className="h-[var(--lemon-tree-button-height)]">
+                <TreeNodeDraggable
+                    id={item.id}
+                    scope={dragAndDropScope}
+                    enableDragging
+                    className="h-[var(--lemon-tree-button-height)]"
+                >
                     {button}
                 </TreeNodeDraggable>
             )
@@ -582,8 +595,9 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
             wrappedContent = (
                 <TreeNodeDroppable
                     id={item.id}
+                    scope={dragAndDropScope}
                     isDroppable={!!isItemDroppable?.(item)}
-                    dropMode={getItemDropMode?.(item) ?? 'onto'}
+                    dropMode={getItemDropMode?.(item, activeId) ?? 'onto'}
                     onPositionChange={onReorderPositionChange}
                 >
                     {wrappedContent}
@@ -695,6 +709,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             isItemDraggable,
             isItemDroppable,
             getItemDropMode,
+            dragAndDropScope,
             itemSideAction,
             isItemEditing,
             onItemNameChange,
@@ -711,6 +726,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             virtualizedRowHeight = 31,
             virtualizedOverscan = 20,
             virtualizationScrollContainerRef,
+            rootDropId = '',
             ...props
         },
         ref: ForwardedRef<LemonTreeRef>
@@ -1578,8 +1594,11 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             return undefined
         }
 
+        const DragContext = dragAndDropScope ? LemonTreeDndMonitor : DndContext
+
         return (
-            <DndContext
+            <DragContext
+                scope={dragAndDropScope ?? ''}
                 sensors={sensors}
                 onDragStart={(event) => {
                     setIsDragging(true)
@@ -1600,8 +1619,13 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                         dragEvent.activatorEvent.stopPropagation()
                     } else {
                         const overItem = over ? findItem(data, String(over)) : undefined
-                        const overMode = overItem ? (getItemDropMode?.(overItem) ?? 'onto') : 'onto'
-                        const position: TreeDropPosition = overMode === 'reorder' ? dropPositionRef.current : 'onto'
+                        const overMode =
+                            dragEvent.over?.data.current?.dropMode ??
+                            (overItem ? (getItemDropMode?.(overItem, String(active)) ?? 'onto') : 'onto')
+                        const position: TreeDropPosition =
+                            overMode === 'reorder'
+                                ? (dragEvent.over?.data.current?.position ?? dropPositionRef.current)
+                                : 'onto'
                         onDragEnd?.(Object.assign(dragEvent, { position }))
                     }
                     dropPositionRef.current = 'onto'
@@ -1643,7 +1667,13 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                         } as CSSProperties
                     }
                 >
-                    <TreeNodeDroppable id="" isDroppable={enableDragAndDrop} isRoot isDragging={isDragging}>
+                    <TreeNodeDroppable
+                        id={rootDropId}
+                        scope={dragAndDropScope}
+                        isDroppable={enableDragAndDrop}
+                        isRoot
+                        isDragging={isDragging}
+                    >
                         <div ref={virtualizationAnchorRef}>
                             {virtualized ? (
                                 <AccordionPrimitive.Root
@@ -1695,6 +1725,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                                                         isItemDraggable={isItemDraggable}
                                                         isItemDroppable={isItemDroppable}
                                                         getItemDropMode={getItemDropMode}
+                                                        dragAndDropScope={dragAndDropScope}
                                                         onReorderPositionChange={handleReorderPositionChange}
                                                         enableDragAndDrop={enableDragAndDrop}
                                                         disableKeyboardInput={(disable) => {
@@ -1739,6 +1770,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                                     isItemDraggable={isItemDraggable}
                                     isItemDroppable={isItemDroppable}
                                     getItemDropMode={getItemDropMode}
+                                    dragAndDropScope={dragAndDropScope}
                                     onReorderPositionChange={handleReorderPositionChange}
                                     enableDragAndDrop={enableDragAndDrop}
                                     disableKeyboardInput={(disable) => {
@@ -1794,7 +1826,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                         </ButtonPrimitive>
                     )}
                 </DragOverlay>
-            </DndContext>
+            </DragContext>
         )
     }
 )

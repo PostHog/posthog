@@ -11,6 +11,7 @@ import {
     joinPath,
     matchesRefType,
     reparentPath,
+    resolveProjectTreeDrop,
     splitPath,
 } from './utils'
 
@@ -19,6 +20,62 @@ const catalogProducts = [...getDefaultTreeProducts(), ...getDefaultTreeData()].f
 )
 
 describe('project tree utils', () => {
+    describe('resolveProjectTreeDrop', () => {
+        const note: FileSystemEntry = { id: 'note', type: 'notebook', ref: 'note-ref', path: 'Research/Notes' }
+        const folder: FileSystemEntry = { id: 'folder', type: 'folder', path: 'Research' }
+        const shortcuts: FileSystemEntry[] = [
+            { id: 'home', type: 'folder', path: 'My home', ref: 'Users/Alex' },
+            { id: 'overview', type: 'dashboard', path: 'Overview', ref: 'overview-ref' },
+        ]
+
+        it.each([
+            ['shortcuts://My home', 'Users/Alex'],
+            ['project://Research', 'Research'],
+            ['project://', ''],
+            ['', ''],
+        ])('resolves a drop on %s to its real folder', (overId, destination) => {
+            expect(resolveProjectTreeDrop('project/note', overId, [note, folder], shortcuts)).toEqual({
+                type: 'move',
+                item: note,
+                folder: destination,
+            })
+        })
+
+        it.each(['shortcuts://', 'shortcuts/overview'])(
+            'stars a nested file dropped on %s without moving it',
+            (overId) => {
+                expect(resolveProjectTreeDrop('project/note', overId, [note], shortcuts)).toEqual({
+                    type: 'star',
+                    item: note,
+                })
+                expect(
+                    resolveProjectTreeDrop(
+                        'project/note',
+                        overId,
+                        [note],
+                        [...shortcuts, { id: 'star-note', type: 'notebook', ref: 'note-ref', path: 'Notes' }]
+                    )
+                ).toBeNull()
+            }
+        )
+
+        it.each([null, 'missing', 'shortcuts/missing', 'project/note', 'project://missing'])(
+            'does not move a file to the project root for an invalid target %s',
+            (overId) => {
+                expect(resolveProjectTreeDrop('project/note', overId, [note], shortcuts)).toBeNull()
+            }
+        )
+
+        it('reorders starred folders without moving their contents', () => {
+            expect(resolveProjectTreeDrop('shortcuts/overview', 'shortcuts://My home', [], shortcuts)).toEqual({
+                type: 'reorder',
+                activeId: 'shortcuts/overview',
+                overId: 'shortcuts://My home',
+            })
+            expect(resolveProjectTreeDrop('shortcuts://My home', 'project://Research', [folder], shortcuts)).toBeNull()
+        })
+    })
+
     describe('escapePath', () => {
         it('escapes paths as expected', () => {
             expect(escapePath('a/b')).toEqual('a\\/b')

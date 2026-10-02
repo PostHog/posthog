@@ -61,6 +61,50 @@ export function getItemId(item: FileSystemImport | FileSystemEntry, protocol = '
     return item.type === 'folder' ? `${root}://${item.path}` : `${root}/${item.id || item.path}`
 }
 
+type ProjectTreeDrop =
+    | { type: 'reorder'; activeId: string; overId: string }
+    | { type: 'star'; item: FileSystemEntry }
+    | { type: 'move'; item: FileSystemEntry; folder: string }
+
+export function resolveProjectTreeDrop(
+    activeId: string,
+    overId: string | null,
+    items: FileSystemEntry[],
+    shortcuts: FileSystemEntry[]
+): ProjectTreeDrop | null {
+    if (overId === null || activeId === overId) {
+        return null
+    }
+    const activeShortcut = shortcuts.find((item) => getItemId(item, 'shortcuts://') === activeId)
+    const overShortcut = shortcuts.find((item) => getItemId(item, 'shortcuts://') === overId)
+    if (activeShortcut) {
+        return overShortcut ? { type: 'reorder', activeId, overId } : null
+    }
+    const item = items.find((entry) => getItemId(entry) === activeId)
+    if (!item) {
+        return null
+    }
+    if (overShortcut?.type === 'folder') {
+        // A shortcut's path is its label; ref points to the real folder, including unloaded home folders.
+        return overShortcut.ref ? { type: 'move', item, folder: overShortcut.ref } : null
+    }
+    if (overShortcut || overId === 'shortcuts://') {
+        const shortcut = shortcutFromEntry(item)
+        return shortcuts.some(
+            (entry) =>
+                entry.type === shortcut.type &&
+                (shortcut.ref ? entry.ref === shortcut.ref : entry.href === shortcut.href)
+        )
+            ? null
+            : { type: 'star', item }
+    }
+    if (overId === '' || overId === 'project://') {
+        return { type: 'move', item, folder: '' }
+    }
+    const folder = items.find((entry) => entry.type === 'folder' && getItemId(entry) === overId)
+    return folder ? { type: 'move', item, folder: folder.path } : null
+}
+
 export function protocolTitle(str: string): string {
     return (str.charAt(0).toUpperCase() + str.slice(1)).replaceAll('-', ' ')
 }
