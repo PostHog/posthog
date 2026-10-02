@@ -42,7 +42,12 @@ from posthog.storage import object_storage
 from posthog.temporal.oauth import PosthogMcpScopes
 from posthog.uuidt import uuid7
 
-from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS, GITHUB_PR_URL_PREFIX, PR_LOOP_ENABLED_STATE_KEY
+from products.tasks.backend.constants import (
+    DEFAULT_TRUSTED_DOMAINS,
+    GITHUB_PR_URL_PREFIX,
+    PENDING_USER_MESSAGE_SOURCE_STATE_KEY,
+    PR_LOOP_ENABLED_STATE_KEY,
+)
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.feature_flags import (
     is_task_run_stream_presence_gated,
@@ -895,7 +900,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             remote_control_moved = move_remote_control_to_run(task=task, task_run=task_run)
 
             def emit_created_events() -> None:
-                if remote_control_moved and not state.get("slack_mention_workflow_id"):
+                if remote_control_moved and state.get(PENDING_USER_MESSAGE_SOURCE_STATE_KEY) != "slack":
                     from products.tasks.backend.facade.api import (  # noqa: PLC0415 — the facade imports this module
                         queue_slack_mirror_of_user_message,
                     )

@@ -1420,6 +1420,7 @@ def _resume_task_with_new_run(
 
     extra_state["initial_prompt_override"] = initial_prompt_override
     extra_state["pending_user_message"] = initial_prompt_override
+    extra_state[tasks_facade.PENDING_USER_MESSAGE_SOURCE_STATE_KEY] = "slack"
     if recovery_strategy is not None:
         extra_state["slack_recovery_from_run_id"] = str(previous_run.id)
         extra_state["slack_recovery_strategy"] = recovery_strategy

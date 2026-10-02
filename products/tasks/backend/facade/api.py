@@ -80,6 +80,7 @@ from products.tasks.backend.constants import (
     GITHUB_PR_URL_PREFIX as GITHUB_PR_URL_PREFIX,  # re-exported for signals billing
     MAX_CUSTOM_IMAGES_PER_TEAM,
     MAX_CUSTOM_IMAGES_PER_USER,
+    PENDING_USER_MESSAGE_SOURCE_STATE_KEY,
     PR_LOOP_ENABLED_STATE_KEY,
     PR_STATES as PR_STATES,  # re-exported for presentation
     RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS,
@@ -322,6 +323,7 @@ __all__ = [
     "list_workflow_last_runs",
     "notify_task_run_owner",
     "queue_slack_mirror_of_user_message",
+    "PENDING_USER_MESSAGE_SOURCE_STATE_KEY",
     "pi_cloud_runtime_enabled",
     "prepare_task_run_artifact_uploads",
     "prepare_task_staged_artifacts",
@@ -5078,6 +5080,11 @@ def signal_task_run_user_message(
             run.record_pending_followup_message(message_id, content, accepted_at=accepted_at)
         except Exception:
             logger.warning("Failed to record pending follow-up message for task run %s", run.id, exc_info=True)
+    if actor_slack_user_id is None:
+        try:
+            queue_slack_mirror_of_user_message(run.id, team_id, actor_user_id=actor_user_id, content=content)
+        except Exception:
+            logger.warning("Failed to mirror user message to Slack for task run %s", run.id, exc_info=True)
     return True
 
 
@@ -5129,7 +5136,7 @@ def notify_task_run_owner(
 def queue_slack_mirror_of_user_message(
     run_id: str | UUID, team_id: int, *, actor_user_id: int | None, content: object
 ) -> None:
-    """Post a message the user sent from PostHog Code into the run's Slack mirror, when it has one.
+    """Post a message the user sent outside Slack into the run's remote control thread, when it has one.
 
     Best-effort and off the request path. A run without a Slack DM thread costs one indexed lookup.
     """

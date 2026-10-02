@@ -45,6 +45,8 @@ REASONING_EFFORTS = model_catalog.REASONING_EFFORTS
 AGENT_PEER_MESSAGING_FEATURE_FLAG = "tasks-agent-peer-messaging"
 # Gates notify_user and Slack remote control, where the task owner continues a task from a DM thread.
 SLACK_APP_REMOTE_CONTROL_FEATURE_FLAG = "slack-app-remote-control"
+# Where a run's pending user message came from. "slack" means the user already sees it in Slack.
+PENDING_USER_MESSAGE_SOURCE_STATE_KEY = "pending_user_message_source"
 TASK_ANALYSIS_FEATURE_FLAG = "posthog-code-task-analysis"
 
 ANALYSIS_TARGET_TASK_ID_STATE_KEY = "analysis_target_task_id"

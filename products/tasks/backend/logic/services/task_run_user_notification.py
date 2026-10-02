@@ -20,19 +20,19 @@ import structlog
 
 from posthog.dataclasses import frozen
 from posthog.models.integration import Integration, SlackIntegration
-from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 from posthog.slack.formatting import escape_slack_mrkdwn
-from posthog.user_permissions import UserPermissions
 
 from products.slack_app.backend.feature_flags import is_slack_app_assistant_enabled, is_slack_app_oauth_enabled
 from products.slack_app.backend.models import SlackThreadTaskMapping
+from products.slack_app.backend.services.slack_messages import post_slack_thread_reply
 from products.tasks.backend.facade.contracts import (
     UserNotificationChannel,
     UserNotificationOutcome,
     UserNotificationReason,
     UserNotificationResultDTO,
 )
+from products.tasks.backend.logic.services.run_actor import user_has_current_team_access
 from products.tasks.backend.logic.services.slack_dm_recipient import SlackDmRecipient, resolve_slack_dm_recipient
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.redis import get_tasks_cache
@@ -74,7 +74,7 @@ def notify_task_owner(
     task = task_run.task
     owner = task.created_by
     delivery: _Delivery
-    if owner is None or not owner.is_active or not _owner_can_open_task(task=task, owner=owner):
+    if owner is None or not user_has_current_team_access(owner, task.team):
         delivery = _not_sent("This task has no owner who can receive notifications.", "owner_unavailable")
     else:
         cooldown_key = f"task_run_notify_user:{task_run.id}"
@@ -146,7 +146,8 @@ def mirror_user_message_to_slack(*, team_id: int, task_run_id: str, actor_user_i
     actor = User.objects.filter(id=actor_user_id).only("first_name", "last_name", "email").first()
     name = (actor and (f"{actor.first_name} {actor.last_name}".strip() or actor.email)) or "Someone"
     try:
-        SlackIntegration(mapping.integration).client.chat_postMessage(
+        post_slack_thread_reply(
+            SlackIntegration(mapping.integration).client,
             channel=mapping.channel,
             thread_ts=mapping.thread_ts,
             text=f"*{escape_slack_mrkdwn(name)}* in PostHog Code:\n{_truncate_body(content)}",
@@ -155,13 +156,6 @@ def mirror_user_message_to_slack(*, team_id: int, task_run_id: str, actor_user_i
         )
     except Exception as exc:
         logger.warning("task_run_slack_mirror_post_failed", task_run_id=task_run_id, error=str(exc))
-
-
-def _owner_can_open_task(*, task: Task, owner: User) -> bool:
-    team = task.team
-    if not OrganizationMembership.objects.filter(organization_id=team.organization_id, user_id=owner.id).exists():
-        return False
-    return UserPermissions(user=owner, team=team).current_team.effective_membership_level is not None
 
 
 def _notify_on_slack(
@@ -222,7 +216,8 @@ def _notify_on_slack(
         footer=_REMOTE_CONTROL_ON if opens else _REMOTE_CONTROL_OFF if stops else None,
     )
     try:
-        response = recipient.slack.client.chat_postMessage(
+        response = post_slack_thread_reply(
+            recipient.slack.client,
             channel=thread.channel if thread is not None else recipient.slack_user_id,
             thread_ts=thread.thread_ts if thread is not None else None,
             text=heading,
@@ -233,6 +228,11 @@ def _notify_on_slack(
     except Exception as exc:
         logger.warning("task_run_user_notification_slack_failed", task_run_id=str(task_run.id), error=str(exc))
         return _not_sent("Slack did not accept the message. Try again later.", "slack_error")
+    if response is None:
+        return _not_sent(
+            "The Slack thread for this task is gone. Send the message without remote_control.",
+            "slack_thread_missing",
+        )
 
     if stops and thread is not None:
         thread.delete()

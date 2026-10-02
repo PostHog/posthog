@@ -2840,6 +2840,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ):
                 raise NotFound("Task not found")
 
+    def _require_task_creator(self, task_id: str, user: User, *, error: str) -> Response | None:
+        if tasks_facade.task_created_by_user(task_id, self.team_id, user.id):
+            return None
+        return Response(TaskRunErrorResponseSerializer({"error": error}).data, status=status.HTTP_403_FORBIDDEN)
+
     def _peer_messaging_gate(self, task_id: str) -> Response | None:
         """Server-side authorization for the peers endpoints. Tool gating in the
         harness is UX, never authorization — everything is re-checked here.
@@ -2855,13 +2860,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         """
         self._require_sandbox_token_bound_to(task_id)
         user = cast(User, self.request.user)
-        if not tasks_facade.task_created_by_user(task_id, self.team_id, user.id):
-            return Response(
-                TaskRunErrorResponseSerializer(
-                    {"error": "Peer messaging is only available to the task creator's runs"}
-                ).data,
-                status=status.HTTP_403_FORBIDDEN,
+        if (
+            creator_response := self._require_task_creator(
+                task_id, user, error="Peer messaging is only available to the task creator's runs"
             )
+        ) is not None:
+            return creator_response
         if not tasks_facade.task_uses_pi_runtime(task_id, self.team_id):
             return Response(
                 TaskRunErrorResponseSerializer({"error": "Peer messaging requires the Pi runtime"}).data,
@@ -3059,11 +3063,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         """
         self._require_sandbox_token_bound_to(task_id)
         user = cast(User, self.request.user)
-        if not tasks_facade.task_created_by_user(task_id, self.team_id, user.id):
-            return Response(
-                TaskRunErrorResponseSerializer({"error": "Only the task creator's runs can notify them"}).data,
-                status=status.HTTP_403_FORBIDDEN,
+        if (
+            creator_response := self._require_task_creator(
+                task_id, user, error="Only the task creator's runs can notify them"
             )
+        ) is not None:
+            return creator_response
         if not tasks_facade.slack_app_remote_control_enabled(self.team, user):
             return Response(
                 TaskRunErrorResponseSerializer({"error": "Slack remote control is not enabled for this team"}).data,
@@ -3412,12 +3417,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 tasks_facade.update_task_run_state(pk, remove_keys=["await_user_message"])
             except Exception:
                 logger.warning("Failed to clear await_user_message for task run %s", pk)
-            try:
-                tasks_facade.queue_slack_mirror_of_user_message(
-                    pk, self.team_id, actor_user_id=request.user.id, content=command_params.get("content")
-                )
-            except Exception:
-                logger.warning("Failed to mirror user message to Slack for task run %s", pk)
 
             response_payload: dict[str, Any] = {
                 "jsonrpc": request.validated_data["jsonrpc"],
