@@ -1,4 +1,5 @@
 import pytest
+from posthog.test.base import BaseTest
 
 from posthog.hogql import ast
 
@@ -58,6 +59,15 @@ class TestPlanVariantSampling:
         assert plan.rates["test"] == 1.0
         assert plan.rates["control"] == pytest.approx(0.1)
 
+    def test_a_paused_scanner_samples_nothing(self) -> None:
+        # Rate 0 means paused; the cap must not turn "no budget" into sampling a zero-share
+        # variant whole.
+        plan = plan_variant_sampling(0.0, {"control": 1.0, "test": 0.0}, None)
+
+        assert plan is not None
+        assert plan.rates == {"control": 0.0, "test": 0.0}
+        assert plan.effective_rate == 0.0
+
 
 class TestVariantSamplingPredicate:
     def test_builds_one_threshold_arm_per_variant_over_the_shared_hash(self) -> None:
@@ -77,3 +87,29 @@ class TestVariantSamplingPredicate:
 
     def test_no_predicate_when_every_variant_is_sampled_whole(self) -> None:
         assert variant_sampling_predicate({"control": 1.0, "test": 1.0}, "salt-1") is None
+
+
+class TestVariantSamplingPlanForScope(BaseTest):
+    def test_a_singular_legacy_variant_scope_watches_one_arm_and_gets_no_plan(self) -> None:
+        # A legacy column scope narrows with `variant` (singular). Reading only `variants` would
+        # treat it as "every variant" and balance a population the exposure join already narrowed.
+        from products.replay_vision.backend.queries.variant_sampling import variant_sampling_plan_for_scope
+        from products.replay_vision.backend.tests.helpers import create_experiment
+
+        experiment = create_experiment(self.team, "single-arm-flag", launched=True, variants=["control", "test"])
+
+        singular = variant_sampling_plan_for_scope(
+            self.team,
+            scope={"experiment_id": experiment.pk, "variant": "test"},
+            scanner_config={"prompt": "p"},
+            sampling_rate=0.1,
+        )
+        assert singular is None
+
+        both = variant_sampling_plan_for_scope(
+            self.team,
+            scope={"experiment_id": experiment.pk, "variants": ["control", "test"]},
+            scanner_config={"prompt": "p", "experiment_id": experiment.pk},
+            sampling_rate=0.1,
+        )
+        assert both is not None and set(both.rates) == {"control", "test"}
