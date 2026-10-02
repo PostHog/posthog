@@ -10,7 +10,7 @@ See [`sql.py`](./sql.py) for the table family and the schema this compares again
 
 Two inputs, both explicit.
 
-**The day.** One completed UTC day, as `YYYY-MM-DD`. Not today: a partial day reads as a deficit for every event that has not been written yet. Pick a day inside the table's 90-day retention. The fork does not write a call dated before it, and the TTL drops older rows.
+**The day.** One completed UTC day, as `YYYY-MM-DD`. Not today: a partial day reads as a deficit for every event that has not been written yet. Pick a day inside the table's 90-day retention, because the table holds no older calls.
 
 **The team ids being widened to.** The allowlist lives only in the Node deployment env config (`INGESTION_FLAG_EVALUATIONS_TEAMS`, `INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS`, `INGESTION_FLAG_EVALUATIONS_MODE`), and nothing in ClickHouse records it. A team that is enabled but writing nothing at all looks identical to a team that was never enabled, so the check cannot derive its own team list. Pass the ids you intend to switch on.
 
