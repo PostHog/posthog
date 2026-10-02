@@ -1,4 +1,4 @@
-import { Button, cn } from '@posthog/quill'
+import { Item, ItemContent, ItemDescription, ItemMedia, ItemTitle, cn } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
@@ -36,31 +36,33 @@ export function TodayNavItem({
     dataAttr,
 }: TodayNavItemProps): JSX.Element {
     return (
-        <Button
-            left
-            nativeButton={false}
+        <Item
+            variant="menuItem"
+            size="xs"
             render={<LinkPrimitive to={to} target={target} />}
-            title={meta || undefined}
             className={cn(
-                'TodayNavItem w-full',
-                current ? 'bg-[var(--fill-selected)]' : active && 'bg-[var(--fill-hover)]'
+                'TodayNavItem flex-nowrap text-foreground no-underline hover:text-foreground',
+                (active || current) && 'bg-[var(--fill-selected)]'
             )}
+            data-active={active || current}
             aria-current={current ? 'page' : undefined}
             data-state={state}
             data-attr={dataAttr}
             onClick={onClick}
             onMouseEnter={() => onHoverChange?.(true)}
             onMouseLeave={() => onHoverChange?.(false)}
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{ '--report-color': color } as React.CSSProperties}
         >
-            <span
-                className="TodayNavItem__marker"
-                aria-hidden
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{ '--report-color': color } as React.CSSProperties}
-            >
+            <ItemMedia className="TodayNavItem__marker" aria-hidden>
                 {icon}
-            </span>
-            <span className="TodayNavItem__title">{title}</span>
-        </Button>
+            </ItemMedia>
+            <ItemContent className="min-w-0 gap-0.5">
+                <ItemTitle className="TodayNavItem__title w-full font-semibold">
+                    <span className="truncate">{title}</span>
+                </ItemTitle>
+                {meta && <ItemDescription className="truncate">{meta}</ItemDescription>}
+            </ItemContent>
+        </Item>
     )
 }

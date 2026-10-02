@@ -73,7 +73,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
         <div className="TodayShell__pane">
             <QuillSceneHeader
                 // Inset the bottom border like the footer's top border, keeping the title 16px from the edge.
-                className="mx-3 px-1"
+                className="mx-2 px-2"
                 title={
                     <h2 className="m-0 min-w-0 truncate text-base font-bold text-foreground">
                         {PANE_LABELS[activePane]}

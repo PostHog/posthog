@@ -6,9 +6,10 @@ export interface TodayRailTileProps {
     active: boolean
     onClick: () => void
     dataAttr: string
+    className?: string
 }
 
-export function TodayRailTile({ label, icon, active, onClick, dataAttr }: TodayRailTileProps): JSX.Element {
+export function TodayRailTile({ label, icon, active, onClick, dataAttr, className }: TodayRailTileProps): JSX.Element {
     return (
         <button
             type="button"
@@ -18,7 +19,8 @@ export function TodayRailTile({ label, icon, active, onClick, dataAttr }: TodayR
             onClick={onClick}
             className={cn(
                 'group flex w-full shrink-0 cursor-pointer flex-col items-center gap-1 outline-none hover:text-foreground',
-                active ? 'text-foreground' : 'text-muted-foreground'
+                active ? 'text-foreground' : 'text-muted-foreground',
+                className
             )}
         >
             <span

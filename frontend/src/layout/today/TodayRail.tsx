@@ -46,7 +46,7 @@ function RailUtility({
                         variant="default"
                         size="icon"
                         aria-label={label}
-                        className="relative [&_svg]:size-4"
+                        className="relative size-10 rounded-md text-muted-foreground hover:text-foreground [&_svg]:size-5"
                         {...props}
                     />
                 }
@@ -68,7 +68,7 @@ export function TodayRail(): JSX.Element {
     return (
         <nav
             aria-label="Main"
-            className="flex shrink-0 flex-col items-center gap-3 border-r border-[var(--border)] pb-2"
+            className="flex shrink-0 flex-col items-center gap-3 border-r border-[var(--border)] pb-3"
             // eslint-disable-next-line react/forbid-dom-props
             style={{ width: TODAY_RAIL_WIDTH }}
         >
@@ -77,7 +77,7 @@ export function TodayRail(): JSX.Element {
                 <div className="flex flex-1 items-center">
                     <Logomark className="h-auto w-6" />
                 </div>
-                <Separator className="w-9" />
+                <Separator className="w-11" />
             </div>
             {RAIL_ITEMS.map(({ pane, label, icon }) => (
                 <TodayRailTile
@@ -87,6 +87,7 @@ export function TodayRail(): JSX.Element {
                     active={activePane === pane}
                     onClick={() => pickPane(pane)}
                     dataAttr={`today-rail-${pane}`}
+                    className={pane === 'home' ? '-mt-2' : undefined}
                 />
             ))}
             <div className="mt-auto flex flex-col items-center gap-1">
