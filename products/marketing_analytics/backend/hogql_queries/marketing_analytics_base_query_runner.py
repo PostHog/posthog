@@ -1388,11 +1388,13 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         matched on. Each runner passes the keys appropriate to its query shape.
         """
         column_aliases = [col.alias if isinstance(col, ast.Alias) else str(col) for col in select_columns]
+        # The GROUP BY reads the keys from the union, so the union must select them even when the user hides them.
+        union_aliases = [*column_aliases, *(key for key in key_columns if key not in column_aliases)]
 
         def _labeled_period(period: str, period_query: ast.SelectQuery) -> ast.SelectQuery:
             select: list[ast.Expr] = [
                 ast.Alias(alias=COMPARE_PERIOD_FIELD, expr=ast.Constant(value=period)),
-                *(ast.Field(chain=[alias]) for alias in column_aliases),
+                *(ast.Field(chain=[alias]) for alias in union_aliases),
             ]
             return ast.SelectQuery(
                 select=select,

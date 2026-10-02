@@ -10,7 +10,7 @@ import { captureMarketingCrossSellClick, getMarketingCrossSellAttribution } from
 
 import { ProductIntentContext, ProductKey, WebStatsBreakdown } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import type { ExternalDataSourceSyncSchema, IncrementalField } from '~/types'
+import type { AvailableColumn, ExternalDataSourceSyncSchema, IncrementalField } from '~/types'
 
 import type { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
@@ -1194,6 +1194,40 @@ describe('sourceWizardLogic', () => {
                 logic.actions.selectConnector(stripeSource)
                 await expectLogic(logic, () => logic.actions.getDatabaseSchemas()).toFinishAllListeners()
                 expect(logic.values.databaseSchema[0].should_sync).toBe(false)
+            } finally {
+                unmount()
+            }
+        })
+
+        const column = (field: string): AvailableColumn => ({ field, label: field, type: 'string', nullable: true })
+
+        it.each([
+            ['no primary key and no id column', 'full_refresh', { available_columns: [column('updated_at')] }],
+            [
+                'a detected primary key',
+                'incremental',
+                { available_columns: [column('uuid'), column('updated_at')], detected_primary_keys: ['uuid'] },
+            ],
+            ['an id column', 'incremental', { available_columns: [column('ID'), column('updated_at')] }],
+            ['no introspected columns', 'incremental', { available_columns: [] }],
+        ])('defaults a table with %s to %s', async (_, expectedSyncType, overrides) => {
+            jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue([
+                apiSchema({
+                    incremental_available: true,
+                    incremental_fields: [
+                        { field: 'updated_at', field_type: 'datetime', label: 'updated_at', type: 'datetime' },
+                    ],
+                    ...overrides,
+                }),
+            ] as ExternalDataSourceSyncSchema[])
+
+            const logic = sourceWizardLogic({ availableSources: { Stripe: stripeSource } })
+            const unmount = logic.mount()
+
+            try {
+                logic.actions.selectConnector(stripeSource)
+                await expectLogic(logic, () => logic.actions.getDatabaseSchemas()).toFinishAllListeners()
+                expect(logic.values.databaseSchema[0].sync_type).toBe(expectedSyncType)
             } finally {
                 unmount()
             }

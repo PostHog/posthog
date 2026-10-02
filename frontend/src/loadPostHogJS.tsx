@@ -1,8 +1,9 @@
-import posthog, { BeforeSendFn, BrowserMetricsConfig, SessionRecordingOptions } from 'posthog-js'
+import posthog, { BeforeSendFn, BrowserMetricsConfig, PostHogConfig, SessionRecordingOptions } from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { isOAuthMode } from 'lib/oauth/oauthClient'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { isEmbeddedPageFrame } from 'lib/utils/embeddedPageFrame'
 import { getAppContext } from 'lib/utils/getAppContext'
 
 import { startDetachedElementTracking } from './detachedElementTracker'
@@ -43,13 +44,20 @@ export function withLastSeenFeatureFlags(
     bootstrap: UserIdentityWithFlags,
     lastSeen: LastSeenFeatureFlags | null,
     distinctId: string | undefined
-): UserIdentityWithFlags {
+): NonNullable<PostHogConfig['bootstrap']> {
+    if (!bootstrap.featureFlags) {
+        return { ...bootstrap, featureFlags: undefined }
+    }
     // An empty bootstrap makes posthog-js use its own persisted flags, which are already complete.
     if (!lastSeen || !distinctId || lastSeen.distinctId !== distinctId || !Object.keys(bootstrap.featureFlags).length) {
         return bootstrap
     }
     return { ...bootstrap, featureFlags: { ...lastSeen.featureFlags, ...bootstrap.featureFlags } }
 }
+
+// pinned: analytics property name. Insights filter the framed pages by it.
+const stampEmbeddedPageFrame: BeforeSendFn = (event) =>
+    event && { ...event, properties: { ...event.properties, embedded_page_frame: true } }
 
 function readLastSeenFeatureFlags(): LastSeenFeatureFlags | null {
     try {
@@ -116,7 +124,11 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
                 __capturePostHogExceptions: true,
             },
             metrics: { network: true, serviceName: 'posthog-app', ...options.metrics },
-            before_send: options.beforeSend,
+            // A page in a frame counts its own pageviews, so its events say so and analysis can filter them.
+            // `register` would persist the property in storage the main window shares, so it is stamped per event.
+            before_send: isEmbeddedPageFrame()
+                ? [stampEmbeddedPageFrame, ...(options.beforeSend ? [options.beforeSend].flat() : [])]
+                : options.beforeSend,
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
                     loadedInstance.sessionRecording._forceAllowLocalhostNetworkCapture = true

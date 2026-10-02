@@ -25,6 +25,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     AIObservabilityEvaluations: () => import('../../products/ai_observability/frontend/evaluations/EvaluationsScene'),
     AIObservabilityScorers: () =>
         import('../../products/ai_observability/frontend/scoreDefinitions/AIObservabilityScorersScene'),
+    AIObservabilityScorer: () =>
+        import('../../products/ai_observability/frontend/scoreDefinitions/AIObservabilityScorerScene'),
     AIObservabilityOfflineExperiments: () =>
         import('../../products/ai_observability/frontend/offline-evaluations/OfflineExperimentsScene'),
     AIObservabilityOfflineExperiment: () =>
@@ -172,6 +174,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Subscription: () => import('../../products/subscriptions/frontend/scenes/SubscriptionScene'),
     SlackTaskContext: () => import('../../products/tasks/frontend/SlackTaskContextScene'),
     TaskSpaces: () => import('../../products/tasks/frontend/spaces/SpacesScene'),
+    TaskNewSession: () => import('../../products/tasks/frontend/spaces/NewSessionScene'),
     TaskSpace: () => import('../../products/tasks/frontend/spaces/SpaceScene'),
     Tracing: () => import('../../products/tracing/frontend/TracingScene'),
     TracingOperation: () => import('../../products/tracing/frontend/TracingOperationScene'),

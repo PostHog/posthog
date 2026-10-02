@@ -69,6 +69,8 @@ func TestProcessLineGroupsFeaturePropertiesAndPreservesExistingFlagValues(t *tes
 		`{"$feature/a.b":1,"$feature/a":{"b":2},"$feature/Z":true}`:     `{"$feature_flags":{"Z":true,"a":{"b":2},"a.b":1}}`,
 		`{"$feature/named-false":"false","$feature/off":false}`:         `{"$feature_flags":{"named-false":"$false","off":false}}`,
 		`{"$feature_flags":{"off":false,"named-false":"false"}}`:        `{"$feature_flags":{"named-false":"$false","off":false}}`,
+		`{"$feature/named-true":"true","$feature/on":true}`:             `{"$feature_flags":{"named-true":"$true","on":true}}`,
+		`{"$feature_flags":{"on":true,"named-true":"true"}}`:            `{"$feature_flags":{"named-true":"$true","on":true}}`,
 	}
 
 	for input, want := range tests {

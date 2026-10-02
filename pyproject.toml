@@ -735,9 +735,6 @@ ignore_imports = [
     # parse -> facade -> serialize and delete each entry. backend:contract-check stays off until
     # this list is empty. Only delete entries here: a new import from these views goes through
     # the facade.
-    "products.workflows.backend.presentation.views.hog_flow -> products.cdp.backend.models.hog_function_template",
-    "products.workflows.backend.presentation.views.hog_flow -> products.cohorts.backend.models.cohort",
-    "products.workflows.backend.presentation.views.hog_flow -> products.cohorts.backend.models.util",
     "products.workflows.backend.presentation.views.hog_flow -> products.feature_flags.backend.person_sampling",
     "products.workflows.backend.presentation.views.hog_flow -> products.feature_flags.backend.user_blast_radius",
     "products.workflows.backend.presentation.views.hog_flow -> products.messaging.backend.api.design_operations",
@@ -759,11 +756,9 @@ ignore_imports = [
     "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.services.batch_audience",
     "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.services.email_sending_attribution",
     "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.services.timing_reschedule",
-    "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.services.wait_clock_conditions",
     "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.services.workflow_email_health",
     "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.tasks.hog_flows",
     "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.utils.batch_trigger_limit",
-    "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.utils.durations",
     "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.utils.email_sending_tiers",
     "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.utils.rrule_utils",
     # TODO: access-control presentation wave — the consolidated RBAC viewsets carry their ORM
