@@ -307,6 +307,7 @@ class ConversionGoalProcessor:
     # Oldest `computed_at` across this goal's served precomputes (touchpoints + conversions) — how old the
     # goal's data can be. The runner takes the oldest across all goals for the response's "data as of X".
     precompute_computed_at: datetime | None = None
+    include_session_ids: bool = False
 
     _UTM_LEVEL_FIELD_MAP: ClassVar[dict[MarketingAnalyticsDrillDownLevel, str]] = {
         MarketingAnalyticsDrillDownLevel.MEDIUM: "medium",
@@ -700,7 +701,6 @@ class ConversionGoalProcessor:
             ast.Alias(alias="person_id", expr=ast.Field(chain=["events", "person_id"])),
             ast.Alias(alias="conversion_timestamp", expr=ast.Field(chain=["events", "timestamp"])),
             ast.Alias(alias="conversion_math_value", expr=self._get_conversion_value_expr()),
-            # Stored for a future "show conversion session recordings" feature; the attribution read ignores it.
             ast.Alias(alias="session_id", expr=_prop_to_string("$session_id")),
         ]
         # Conversion-side UTM value per tracked field, aliased to the {field}_name table columns.
@@ -814,6 +814,8 @@ class ConversionGoalProcessor:
         select_columns: list[ast.Expr] = []
         for col in ("person_id", "conversion_timestamps", "conversion_math_values"):
             select_columns.append(ast.Alias(alias=col, expr=ast.Field(chain=["c", col])))
+        if self.include_session_ids:
+            select_columns.append(ast.Field(chain=["c", "conversion_session_ids"]))
         for field in TRACKED_FIELDS:
             select_columns.append(
                 ast.Alias(alias=field.conversion_array, expr=ast.Field(chain=["c", field.conversion_array]))
@@ -856,6 +858,8 @@ class ConversionGoalProcessor:
             self._build_conversion_timestamps_array(conversion_event),
             self._build_conversion_math_values_array(conversion_event),
         ]
+        if self.include_session_ids:
+            select_columns.append(self._build_conversion_session_ids_array(conversion_event))
         for field in TRACKED_FIELDS:
             select_columns.append(
                 self._build_conversion_utm_array(
@@ -955,6 +959,23 @@ class ConversionGoalProcessor:
                 )
             )
 
+        if self.include_session_ids:
+            select_columns.append(
+                ast.Alias(
+                    alias="conversion_session_ids",
+                    expr=ast.Call(
+                        name="groupArrayIf",
+                        args=[
+                            ast.Field(chain=["session_id"]),
+                            ast.CompareOperation(
+                                left=ast.Call(name="toUnixTimestamp", args=[ast.Field(chain=["conversion_timestamp"])]),
+                                op=ast.CompareOperationOp.Gt,
+                                right=ast.Constant(value=0),
+                            ),
+                        ],
+                    ),
+                )
+            )
         deduped_rows = self._build_distinct_preagg_rows(
             table="marketing_conversions_preaggregated",
             job_ids=job_ids,
@@ -962,6 +983,7 @@ class ConversionGoalProcessor:
                 ast.Field(chain=["person_id"]),
                 ast.Field(chain=["conversion_timestamp"]),
                 ast.Field(chain=["conversion_math_value"]),
+                *([ast.Field(chain=["session_id"])] if self.include_session_ids else []),
                 *[ast.Field(chain=[field.attributed_name]) for field in TRACKED_FIELDS],
             ],
             date_from=date_from,
@@ -1100,6 +1122,8 @@ class ConversionGoalProcessor:
         ]
 
         # Add conversion arrays for each tracked field
+        if self.include_session_ids:
+            select_columns.append(self._build_conversion_session_ids_array(conversion_event))
         for field in TRACKED_FIELDS:
             select_columns.append(
                 self._build_conversion_utm_array(field.conversion_array, conversion_event, resolved[field.name])
@@ -1280,6 +1304,36 @@ class ConversionGoalProcessor:
         ]
 
         return ast.And(exprs=conditions) if conditions else ast.Constant(value=True)
+
+    def _build_conversion_session_ids_array(self, conversion_event: Optional[str]) -> ast.Alias:
+        # Keep empty IDs so session IDs stay aligned with the conversion timestamps.
+        return ast.Alias(
+            alias="conversion_session_ids",
+            expr=ast.Call(
+                name="groupArrayIf",
+                args=[
+                    ast.Call(
+                        name="toString",
+                        args=[
+                            ast.Call(
+                                name="ifNull",
+                                args=[ast.Field(chain=["events", "properties", "$session_id"]), ast.Constant(value="")],
+                            )
+                        ],
+                    ),
+                    ast.And(
+                        exprs=[
+                            self._build_conversion_event_condition(conversion_event),
+                            ast.CompareOperation(
+                                left=ast.Call(name="toUnixTimestamp", args=[ast.Field(chain=["events", "timestamp"])]),
+                                op=ast.CompareOperationOp.Gt,
+                                right=ast.Constant(value=0),
+                            ),
+                        ]
+                    ),
+                ],
+            ),
+        )
 
     def _build_conversion_timestamps_array(self, conversion_event: Optional[str]) -> ast.Alias:
         """Build conversion timestamps array.
@@ -1548,6 +1602,15 @@ class ConversionGoalProcessor:
         ]
 
         # Add conversion value and fallback for each tracked field
+        if self.include_session_ids:
+            select_columns.append(
+                ast.Alias(
+                    alias="session_id",
+                    expr=ast.ArrayAccess(
+                        array=ast.Field(chain=["conversion_session_ids"]), property=ast.Field(chain=["i"])
+                    ),
+                )
+            )
         for field in TRACKED_FIELDS:
             select_columns.append(
                 ast.Alias(
@@ -1726,6 +1789,15 @@ class ConversionGoalProcessor:
         ]
 
         # Add conversion value for each tracked field
+        if self.include_session_ids:
+            select_columns.append(
+                ast.Alias(
+                    alias="session_id",
+                    expr=ast.ArrayAccess(
+                        array=ast.Field(chain=["conversion_session_ids"]), property=ast.Field(chain=["i"])
+                    ),
+                )
+            )
         for field in TRACKED_FIELDS:
             select_columns.append(
                 ast.Alias(
@@ -1841,6 +1913,8 @@ class ConversionGoalProcessor:
             ast.Field(chain=["person_id"]),
             ast.Field(chain=["conversion_math_value"]),
         ]
+        if self.include_session_ids:
+            touchpoint_select.append(ast.Field(chain=["session_id"]))
 
         for field in TRACKED_FIELDS:
             touchpoint_select.append(ast.Field(chain=[field.conversion_value]))
@@ -1885,6 +1959,8 @@ class ConversionGoalProcessor:
         outer_select: list[ast.Expr] = [
             person_id_field,
         ]
+        if self.include_session_ids:
+            outer_select.append(ast.Field(chain=["session_id"]))
 
         for field in TRACKED_FIELDS:
             outer_select.append(
@@ -1925,6 +2001,8 @@ class ConversionGoalProcessor:
         select_columns: list[ast.Expr] = [
             person_id_field,
         ]
+        if self.include_session_ids:
+            select_columns.append(ast.Field(chain=["session_id"]))
 
         for field in TRACKED_FIELDS:
             select_columns.append(

@@ -2,14 +2,12 @@ from typing import TypedDict
 
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import ActorsQuery, ConversionGoalFilter3, MarketingAnalyticsDrillDownLevel, PersonsArgMaxVersion
+from posthog.schema import ConversionGoalFilter3, MarketingAnalyticsDrillDownLevel
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_expr, parse_select
 
-from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
-from posthog.hogql_queries.actor_strategies import PersonStrategy
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 
 from products.marketing_analytics.backend.hogql_queries.constants import MARKETING_SPILL_AFTER_BYTES
@@ -21,30 +19,28 @@ from products.marketing_analytics.backend.hogql_queries.marketing_analytics_tabl
 from products.marketing_analytics.backend.hogql_queries.marketing_lazy_precompute import handle_not_ready
 
 
-class ConversionPerson(TypedDict):
-    id: str
-    name: str
-
-
-class ConversionPeopleResponse(TypedDict):
-    results: list[ConversionPerson]
+class ConversionRecordingsResponse(TypedDict):
+    session_ids: list[str]
     has_more: bool
     preparing: bool
 
 
-class ConversionPeopleQuery(MarketingAnalyticsTableQueryRunner):
-    def people_query(self, goal_id: str, group: str, source: str, campaign_id: str | None) -> ast.SelectQuery:
+class ConversionRecordingsQuery(MarketingAnalyticsTableQueryRunner):
+    def sessions_query(self, goal_id: str, group: str, source: str, campaign_id: str | None) -> ast.SelectQuery:
         self.validate()
         self._apply_drill_down_level()
         level = self.config.drill_down_level
         if level in (MarketingAnalyticsDrillDownLevel.AD, MarketingAnalyticsDrillDownLevel.AD_GROUP):
-            raise ValidationError("Conversion people are not available at ad or ad group level.")
+            raise ValidationError("Conversion recordings are not available at ad or ad group level.")
 
         goals, _ = self._filter_invalid_conversion_goals(self._get_team_conversion_goals())
         processors = self._create_conversion_goal_processors(goals)
         processor = next((p for p in processors if p.goal.conversion_goal_id == goal_id), None)
         if processor is None:
             raise ValidationError("This conversion goal is no longer available. Refresh the table and try again.")
+        if isinstance(processor.goal, ConversionGoalFilter3):
+            raise ValidationError("Conversion recordings are only available for event and action goals.")
+        processor.include_session_ids = True
 
         # Resolve through the table's own joins: the displayed campaign can come from costs, not its UTM.
         table = self.to_query()
@@ -95,28 +91,12 @@ class ConversionPeopleQuery(MarketingAnalyticsTableQueryRunner):
         ]
         conversions.group_by = None
         conversions.distinct = True
-        if isinstance(processor.goal, ConversionGoalFilter3):
-            table_name = processor.get_table_name()
-            distinct_id = processor.goal.schema_map.get("distinct_id_field") or processor.goal.distinct_id_field
-            assert conversions.select_from is not None
-            conversions.select_from.next_join = ast.JoinExpr(
-                table=ast.Field(chain=["person_distinct_ids"]),
-                alias="conversion_identity",
-                join_type="INNER JOIN",
-                constraint=ast.JoinConstraint(
-                    constraint_type="ON",
-                    expr=parse_expr(
-                        "conversion_identity.distinct_id = toString({distinct_id})",
-                        {
-                            "distinct_id": ast.Field(chain=[table_name, distinct_id]),
-                        },
-                    ),
-                ),
-            )
-            person_id = ast.Field(chain=["conversion_identity", "person_id"])
-        else:
-            person_id = ast.Field(chain=["person_id"])
-        conversions.select.append(ast.Alias(alias="actor_id", expr=person_id))
+        session_id = (
+            ast.Field(chain=["session_id"])
+            if processor.uses_attribution_pipeline
+            else parse_expr("toString(ifNull(events.properties.$session_id, ''))")
+        )
+        conversions.select.append(ast.Alias(alias="conversion_session_id", expr=session_id))
 
         mapped_fields: dict[str, ast.Expr] = {field: ast.Field(chain=[field]) for field in grouping_fields}
         if level == MarketingAnalyticsDrillDownLevel.CAMPAIGN:
@@ -127,62 +107,45 @@ class ConversionPeopleQuery(MarketingAnalyticsTableQueryRunner):
                 mapped_fields[self.config.id_field],
                 mapped_fields[self.config.source_field],
             )
-        people = parse_select(
-            "SELECT DISTINCT actor_id FROM {conversions} WHERE {key} IN {keys}",
+        sessions = parse_select(
+            "SELECT DISTINCT conversion_session_id FROM {conversions} WHERE {key} IN {keys}"
+            " AND notEmpty(conversion_session_id) AND conversion_session_id != '00000000-0000-0000-0000-000000000000'",
             {
                 "conversions": conversions,
                 "key": ast.Tuple(exprs=[mapped_fields[field] for field in key_fields]),
                 "keys": selected_keys,
             },
         )
-        assert isinstance(people, ast.SelectQuery)
-        return people
+        assert isinstance(sessions, ast.SelectQuery)
+        return sessions
 
-    def people(
-        self, goal_id: str, group: str, source: str, campaign_id: str | None, search: str, after: str | None, limit: int
-    ) -> ConversionPeopleResponse:
+    def sessions(
+        self, goal_id: str, group: str, source: str, campaign_id: str | None, after: str | None, limit: int
+    ) -> ConversionRecordingsResponse:
         try:
-            query = self.people_query(goal_id, group, source, campaign_id)
+            query = self.sessions_query(goal_id, group, source, campaign_id)
         except MarketingPrecomputeNotReady as not_ready:
             handle_not_ready(team=self.team, query=not_ready.query or self.query)
-            return {"results": [], "has_more": False, "preparing": True}
+            return {"session_ids": [], "has_more": False, "preparing": True}
 
         paginator = HogQLHasMorePaginator(limit=limit)
-        strategy = PersonStrategy(team=self.team, query=ActorsQuery(search=search), paginator=paginator, user=self.user)
-        conditions = strategy.filter_conditions()
-        if after is not None:
-            conditions.append(parse_expr("persons.id > toUUID({after})", {"after": ast.Constant(value=after)}))
-        names = [
-            parse_expr("nullIf(toString({property}), '')", {"property": ast.Field(chain=["properties", name])})
-            for name in (self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES)
-        ]
-        # PersonsTable moves the `persons.id IN` join condition into its deduplication subquery.
-        # Without it, the equality join deduplicates every person in the team before it filters.
-        people = parse_select(
-            (
-                "SELECT id, {name} FROM {conversions} AS converted INNER JOIN persons"
-                " ON persons.id = converted.actor_id AND persons.id IN (SELECT actor_id FROM {conversions})"
-                " WHERE {conditions} ORDER BY id"
-            ),
-            {
-                "name": ast.Call(name="coalesce", args=[*names, parse_expr("toString(id)")]),
-                "conversions": query,
-                "conditions": ast.And(exprs=conditions) if conditions else ast.Constant(value=True),
-            },
+        sessions = parse_select(
+            "SELECT conversion_session_id FROM {conversions} WHERE conversion_session_id > {after} ORDER BY conversion_session_id",
+            {"conversions": query, "after": ast.Constant(value=after or "")},
         )
         paginator.execute_hogql_query(
-            query=people,
-            query_type="marketing_analytics_conversion_people",
+            query=sessions,
+            query_type="marketing_analytics_conversion_recordings",
             team=self.team,
             user=self.user,
-            modifiers=self.modifiers.model_copy(update={"personsArgMaxVersion": PersonsArgMaxVersion.V2}),
+            modifiers=self.modifiers,
             context=self._shared_hogql_context,
             # The row selection embeds the full table query, which groups by high-cardinality campaign
             # dimensions. Let the GROUP BY spill to disk, as the table runner does, rather than hit the memory limit.
             settings=HogQLGlobalSettings(max_bytes_before_external_group_by=MARKETING_SPILL_AFTER_BYTES),
         )
         return {
-            "results": [{"id": str(row[0]), "name": str(row[1])} for row in paginator.results],
+            "session_ids": [str(row[0]) for row in paginator.results],
             "has_more": paginator.has_more(),
             "preparing": False,
         }

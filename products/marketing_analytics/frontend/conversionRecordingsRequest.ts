@@ -6,11 +6,11 @@ import {
     MarketingAnalyticsTableQuery,
 } from '~/queries/schema/schema-general'
 
-import { ConversionPeopleRequestApi } from './generated/api.schemas'
+import { ConversionRecordingsRequestApi } from './generated/api.schemas'
 
-export interface ConversionPeopleSelection {
+export interface ConversionRecordingsSelection {
     tableKey: string
-    request: ConversionPeopleRequestApi
+    request: ConversionRecordingsRequestApi
     goalName: string
 }
 
@@ -32,7 +32,7 @@ function rowColumns(source: MarketingAnalyticsTableQuery): string[] {
     return columns
 }
 
-export function conversionPeopleTableQuery(query: DataTableNode, enabled: boolean): DataTableNode {
+export function conversionRecordingsTableQuery(query: DataTableNode, enabled: boolean): DataTableNode {
     const source = query.source as MarketingAnalyticsTableQuery
     if (!enabled || !source.select?.length) {
         return query
@@ -48,7 +48,7 @@ export function conversionPeopleTableQuery(query: DataTableNode, enabled: boolea
     }
 }
 
-export function restoreConversionPeopleColumns(updated: DataTableNode, original: DataTableNode): DataTableNode {
+export function restoreConversionRecordingsColumns(updated: DataTableNode, original: DataTableNode): DataTableNode {
     const source = original.source as MarketingAnalyticsTableQuery
     if (!source.select?.length) {
         return updated
@@ -70,11 +70,11 @@ function rowValue(record: unknown, column: string): string | undefined {
     return cell?.value == null ? undefined : String(cell.value)
 }
 
-export function conversionPeopleRequest(
+export function conversionRecordingsRequest(
     source: MarketingAnalyticsTableQuery,
     record: unknown,
     goalId: string
-): ConversionPeopleRequestApi | null {
+): ConversionRecordingsRequestApi | null {
     const level = source.drillDownLevel ?? MarketingAnalyticsDrillDownLevel.Campaign
     if (level === MarketingAnalyticsDrillDownLevel.Ad || level === MarketingAnalyticsDrillDownLevel.AdGroup) {
         return null
@@ -87,7 +87,7 @@ export function conversionPeopleRequest(
         return null
     }
     return {
-        source: source as ConversionPeopleRequestApi['source'],
+        source: source as ConversionRecordingsRequestApi['source'],
         goal_id: goalId,
         group,
         source_name: needsSource ? sourceName : '',

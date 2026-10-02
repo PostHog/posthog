@@ -59,7 +59,7 @@ from products.marketing_analytics.backend.services.conversion_goals_inspector im
     explain_conversion_goal,
     list_conversion_goals,
 )
-from products.marketing_analytics.backend.services.conversion_people import ConversionPeopleQuery
+from products.marketing_analytics.backend.services.conversion_recordings import ConversionRecordingsQuery
 from products.marketing_analytics.backend.services.data_source_health import get_data_source_health
 from products.marketing_analytics.backend.services.event_suggestions import suggest_conversion_goals
 from products.marketing_analytics.backend.services.mapping_suggester import suggest_utm_mappings
@@ -1104,7 +1104,7 @@ class ApplySetupOpsResponseSerializer(serializers.Serializer):
 
 
 @extend_schema_field(MarketingAnalyticsTableQuery)  # type: ignore[arg-type]  # Supported by the Pydantic schema extension.
-class ConversionPeopleSourceField(serializers.JSONField):
+class ConversionRecordingsSourceField(serializers.JSONField):
     def to_internal_value(self, data: object) -> dict[str, Any]:
         try:
             return MarketingAnalyticsTableQuery.model_validate(data).model_dump(mode="json")
@@ -1112,12 +1112,15 @@ class ConversionPeopleSourceField(serializers.JSONField):
             raise serializers.ValidationError("Provide a valid Marketing analytics table query.")
 
 
-class ConversionPeopleRequestSerializer(serializers.Serializer):
-    source = ConversionPeopleSourceField(  # type: ignore[assignment]
+class ConversionRecordingsRequestSerializer(serializers.Serializer):
+    client_query_id = serializers.UUIDField(
+        default=uuid.uuid4, help_text="A unique query ID for tracing this request in query logs."
+    )
+    source = ConversionRecordingsSourceField(  # type: ignore[assignment]
         help_text="The table query whose conversion cell was selected."
     )
     goal_id = serializers.CharField(help_text="The selected conversion goal ID.")
-    # The people query compares these row keys to table values exactly, and campaign names and UTM values
+    # The recordings query compares these row keys to table values exactly, and campaign names and UTM values
     # can keep surrounding spaces. A trimmed key selects another row or no row.
     group = serializers.CharField(
         allow_blank=True, trim_whitespace=False, help_text="The displayed row grouping value."
@@ -1132,25 +1135,22 @@ class ConversionPeopleRequestSerializer(serializers.Serializer):
         trim_whitespace=False,
         help_text="The displayed campaign ID, omitted for comparison rows.",
     )
-    search = serializers.CharField(
-        default="", allow_blank=True, max_length=200, help_text="Search by person name, email, or ID."
-    )
-    after = serializers.UUIDField(
-        required=False, help_text="The last person ID returned by the previous page. Omit for the first page."
+    after = serializers.CharField(
+        required=False,
+        max_length=200,
+        help_text="The last session ID returned by the previous page. Omit for the first page.",
     )
     limit = serializers.IntegerField(
-        default=50, min_value=1, max_value=100, help_text="The maximum number of people to return."
+        default=100, min_value=1, max_value=100, help_text="The maximum number of conversion session IDs to return."
     )
 
 
-class ConversionPersonSerializer(serializers.Serializer):
-    id = serializers.UUIDField(help_text="The person's ID.")
-    name = serializers.CharField(help_text="The person's display name.")
-
-
-class ConversionPeopleResponseSerializer(serializers.Serializer):
-    results = ConversionPersonSerializer(many=True, help_text="The people attributed to this conversion cell.")
-    has_more = serializers.BooleanField(help_text="Whether another page of people is available.")
+class ConversionRecordingsResponseSerializer(serializers.Serializer):
+    session_ids = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Sessions in which the attributed conversions occurred. A session might not have a recording.",
+    )
+    has_more = serializers.BooleanField(help_text="Whether another page of conversion sessions is available.")
     preparing = serializers.BooleanField(help_text="Whether the conversion data is still being prepared.")
 
 
@@ -1164,27 +1164,31 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     permission_classes = [IsAuthenticated]
 
     @validated_request(
-        request_serializer=ConversionPeopleRequestSerializer,
-        responses={200: ConversionPeopleResponseSerializer},
+        request_serializer=ConversionRecordingsRequestSerializer,
+        responses={200: ConversionRecordingsResponseSerializer},
     )
-    @action(methods=["POST"], detail=False, required_scopes=["marketing_analytics:read", "person:read"])
-    def conversion_people(self, request: Request, *args: object, **kwargs: object) -> Response:
-        tag_queries(team_id=self.team_id, product=Product.MARKETING_ANALYTICS, feature=Feature.QUERY)
+    @action(methods=["POST"], detail=False, required_scopes=["marketing_analytics:read", "session_recording:read"])
+    def conversion_recordings(self, request: Request, *args: object, **kwargs: object) -> Response:
         data = request.validated_data
-        result = ConversionPeopleQuery(
+        tag_queries(
+            team_id=self.team_id,
+            product=Product.MARKETING_ANALYTICS,
+            feature=Feature.QUERY,
+            client_query_id=str(data["client_query_id"]),
+        )
+        result = ConversionRecordingsQuery(
             query=MarketingAnalyticsTableQuery.model_validate(data["source"]),
             team=self.team,
             user=cast(User, request.user),
-        ).people(
+        ).sessions(
             goal_id=data["goal_id"],
             group=data["group"],
             source=data["source_name"],
             campaign_id=data.get("campaign_id"),
-            search=data["search"],
             after=str(data["after"]) if data.get("after") else None,
             limit=data["limit"],
         )
-        return Response(ConversionPeopleResponseSerializer(result).data)
+        return Response(ConversionRecordingsResponseSerializer(result).data)
 
     @validated_request(
         query_serializer=UtmAuditQuerySerializer,

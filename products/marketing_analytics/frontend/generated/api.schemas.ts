@@ -1927,7 +1927,9 @@ export interface MarketingAnalyticsTableQueryApi {
     version?: number | null
 }
 
-export interface ConversionPeopleRequestApi {
+export interface ConversionRecordingsRequestApi {
+    /** A unique query ID for tracing this request in query logs. */
+    client_query_id?: string
     /** The table query whose conversion cell was selected. */
     source: MarketingAnalyticsTableQueryApi
     /** The selected conversion goal ID. */
@@ -1942,31 +1944,22 @@ export interface ConversionPeopleRequestApi {
      */
     campaign_id?: string | null
     /**
-     * Search by person name, email, or ID.
+     * The last session ID returned by the previous page. Omit for the first page.
      * @maxLength 200
      */
-    search?: string
-    /** The last person ID returned by the previous page. Omit for the first page. */
     after?: string
     /**
-     * The maximum number of people to return.
+     * The maximum number of conversion session IDs to return.
      * @minimum 1
      * @maximum 100
      */
     limit?: number
 }
 
-export interface ConversionPersonApi {
-    /** The person's ID. */
-    id: string
-    /** The person's display name. */
-    name: string
-}
-
-export interface ConversionPeopleResponseApi {
-    /** The people attributed to this conversion cell. */
-    results: ConversionPersonApi[]
-    /** Whether another page of people is available. */
+export interface ConversionRecordingsResponseApi {
+    /** Sessions in which the attributed conversions occurred. A session might not have a recording. */
+    session_ids: string[]
+    /** Whether another page of conversion sessions is available. */
     has_more: boolean
     /** Whether the conversion data is still being prepared. */
     preparing: boolean

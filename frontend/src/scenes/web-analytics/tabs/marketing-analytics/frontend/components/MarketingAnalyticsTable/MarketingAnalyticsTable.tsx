@@ -28,12 +28,12 @@ import { useMarketingAnalyticsPrecompute } from '~/scenes/marketing-analytics/us
 import { webAnalyticsDataTableQueryContext } from '~/scenes/web-analytics/tiles/WebAnalyticsTile'
 import { InsightLogicProps } from '~/types'
 
-import { ConversionPeopleModal } from 'products/marketing_analytics/frontend/ConversionPeopleModal'
+import { ConversionRecordingsModal } from 'products/marketing_analytics/frontend/ConversionRecordingsModal'
 import {
-    conversionPeopleRequest,
-    conversionPeopleTableQuery,
-    restoreConversionPeopleColumns,
-} from 'products/marketing_analytics/frontend/conversionPeopleRequest'
+    conversionRecordingsRequest,
+    conversionRecordingsTableQuery,
+    restoreConversionRecordingsColumns,
+} from 'products/marketing_analytics/frontend/conversionRecordingsRequest'
 
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
@@ -58,22 +58,22 @@ export const MarketingAnalyticsTable = ({
     insightProps,
     attachTo,
 }: MarketingAnalyticsTableProps): JSX.Element => {
-    const { setQuery, setConversionPeople } = useActions(marketingAnalyticsTableLogic)
-    const { conversionPeople } = useValues(marketingAnalyticsTableLogic)
+    const { setQuery, setConversionRecordings } = useActions(marketingAnalyticsTableLogic)
+    const { conversionRecordings } = useValues(marketingAnalyticsTableLogic)
     const { currentTeamId } = useValues(teamLogic)
     const tableId = useId()
     const tableKey = `${currentTeamId}:${tableId}`
     const { showColumnConfigModal, setDrillDownLevel } = useActions(marketingAnalyticsLogic)
     const { drillDownLevel, nativeSourcesHierarchyStatus } = useValues(marketingAnalyticsLogic)
     const hasExtendedDrillDown = useFeatureFlag('MARKETING_ANALYTICS_EXTENDED_DRILL_DOWN')
-    const hasConversionPeople = useFeatureFlag('MARKETING_ANALYTICS_CONVERSION_PEOPLE')
+    const hasConversionRecordings = useFeatureFlag('MARKETING_ANALYTICS_CONVERSION_RECORDINGS')
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
 
     const [searchTerm, setSearchTerm] = useState('')
-    const people = conversionPeople?.tableKey === tableKey ? conversionPeople : null
+    const recordings = conversionRecordings?.tableKey === tableKey ? conversionRecordings : null
     const tableQuery = useMemo(
-        () => conversionPeopleTableQuery(query, !!hasConversionPeople && !isSharedView()),
-        [query, hasConversionPeople]
+        () => conversionRecordingsTableQuery(query, !!hasConversionRecordings && !isSharedView()),
+        [query, hasConversionRecordings]
     )
     const { notReady: precomputeNotReady, computedAt } = useMarketingAnalyticsPrecompute(
         tableQuery.source,
@@ -137,12 +137,13 @@ export const MarketingAnalyticsTable = ({
                                 )
                                 const value = (props.value as MarketingAnalyticsItem | null)?.value
                                 const request =
-                                    hasConversionPeople &&
+                                    hasConversionRecordings &&
                                     !isSharedView() &&
                                     goal &&
+                                    goal.kind !== 'DataWarehouseNode' &&
                                     typeof value === 'number' &&
                                     value > 0
-                                        ? conversionPeopleRequest(
+                                        ? conversionRecordingsRequest(
                                               (props.query as DataTableNode).source as MarketingAnalyticsTableQuery,
                                               props.record,
                                               goal.conversion_goal_id
@@ -153,10 +154,10 @@ export const MarketingAnalyticsTable = ({
                                         type="tertiary"
                                         fullWidth
                                         className="[&_.cursor-default]:cursor-pointer"
-                                        data-attr="marketing-analytics-conversion-people"
-                                        tooltip="View people attributed to these conversions"
+                                        data-attr="marketing-analytics-conversion-recordings"
+                                        tooltip="View recordings of these conversion sessions"
                                         onClick={() =>
-                                            setConversionPeople({
+                                            setConversionRecordings({
                                                 tableKey,
                                                 request,
                                                 goalName: goal.conversion_goal_name,
@@ -176,12 +177,20 @@ export const MarketingAnalyticsTable = ({
                 )
             })(),
         }),
-        [insightProps, query.source, searchTerm, conversion_goals, hasConversionPeople, tableKey, setConversionPeople]
+        [
+            insightProps,
+            query.source,
+            searchTerm,
+            conversion_goals,
+            hasConversionRecordings,
+            tableKey,
+            setConversionRecordings,
+        ]
     )
 
     return (
         <div className="bg-surface-primary">
-            {people && <ConversionPeopleModal {...people} onClose={() => setConversionPeople(null)} />}
+            {recordings && <ConversionRecordingsModal {...recordings} onClose={() => setConversionRecordings(null)} />}
             <div className="p-4 border-b border-border bg-bg-light">
                 <div className="flex flex-wrap gap-4 justify-between items-center">
                     <div className="flex items-center gap-2">
@@ -293,7 +302,9 @@ export const MarketingAnalyticsTable = ({
                         readOnly={false}
                         context={marketingAnalyticsContext}
                         setQuery={(updated) =>
-                            setQuery(tableQuery === query ? updated : restoreConversionPeopleColumns(updated, query))
+                            setQuery(
+                                tableQuery === query ? updated : restoreConversionRecordingsColumns(updated, query)
+                            )
                         }
                     />
                 </div>

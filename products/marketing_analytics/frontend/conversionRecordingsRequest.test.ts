@@ -6,10 +6,10 @@ import {
 } from '~/queries/schema/schema-general'
 
 import {
-    conversionPeopleRequest,
-    conversionPeopleTableQuery,
-    restoreConversionPeopleColumns,
-} from './conversionPeopleRequest'
+    conversionRecordingsRequest,
+    conversionRecordingsTableQuery,
+    restoreConversionRecordingsColumns,
+} from './conversionRecordingsRequest'
 
 describe('conversion people row selection', () => {
     const source: MarketingAnalyticsTableQuery = {
@@ -30,12 +30,12 @@ describe('conversion people row selection', () => {
             source: { ...source, drillDownLevel: level },
             hiddenColumns: ['Cost'],
         }
-        const prepared = conversionPeopleTableQuery(original, true)
+        const prepared = conversionRecordingsTableQuery(original, true)
         expect((prepared.source as MarketingAnalyticsTableQuery).select).toEqual(['Purchases', ...columns])
         expect(prepared.hiddenColumns).toEqual(['Cost', ...columns])
 
         const record = columns.map((key) => ({ key, value: `${key} value` }))
-        const request = conversionPeopleRequest(prepared.source as MarketingAnalyticsTableQuery, record, 'purchase')
+        const request = conversionRecordingsRequest(prepared.source as MarketingAnalyticsTableQuery, record, 'purchase')
         expect(request).toMatchObject({ goal_id: 'purchase', group: `${columns[0]} value` })
         if (columns.includes('ID')) {
             expect(request).toMatchObject({ campaign_id: 'ID value', source_name: 'Source value' })
@@ -45,20 +45,20 @@ describe('conversion people row selection', () => {
             ...prepared,
             source: { ...(prepared.source as MarketingAnalyticsTableQuery), orderBy: [['Purchases', 'DESC']] },
         }
-        expect(restoreConversionPeopleColumns(sorted, original)).toEqual({
+        expect(restoreConversionRecordingsColumns(sorted, original)).toEqual({
             ...original,
             source: { ...original.source, orderBy: [['Purchases', 'DESC']] },
         })
     })
 
     it('does not split comparison rows by campaign ID', () => {
-        const prepared = conversionPeopleTableQuery(
+        const prepared = conversionRecordingsTableQuery(
             { ...query, source: { ...source, compareFilter: { compare: true } } },
             true
         )
         expect((prepared.source as MarketingAnalyticsTableQuery).select).toEqual(['Purchases', 'Campaign', 'Source'])
         expect(
-            conversionPeopleRequest(
+            conversionRecordingsRequest(
                 prepared.source as MarketingAnalyticsTableQuery,
                 [
                     { key: 'Campaign', value: 'winter-sale' },
@@ -75,9 +75,9 @@ describe('conversion people row selection', () => {
             ...query,
             source: { ...source, select: ['Campaign', 'Source', 'ID', 'Purchases'] },
         }
-        expect(conversionPeopleTableQuery(complete, enabled)).toBe(complete)
+        expect(conversionRecordingsTableQuery(complete, enabled)).toBe(complete)
         if (!enabled) {
-            expect(conversionPeopleTableQuery(query, enabled)).toBe(query)
+            expect(conversionRecordingsTableQuery(query, enabled)).toBe(query)
         }
     })
 })

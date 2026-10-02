@@ -24823,7 +24823,17 @@ export namespace Schemas {
       has_misconfigured: boolean;
     }
 
-    export interface ConversionPeopleRequest {
+    export type ConversionRateInputType = typeof ConversionRateInputType[keyof typeof ConversionRateInputType];
+
+
+    export const ConversionRateInputType = {
+      Manual: 'manual',
+      Automatic: 'automatic',
+    } as const;
+
+    export interface ConversionRecordingsRequest {
+      /** A unique query ID for tracing this request in query logs. */
+      client_query_id?: string;
       /** The table query whose conversion cell was selected. */
       source: MarketingAnalyticsTableQuery;
       /** The selected conversion goal ID. */
@@ -24838,43 +24848,26 @@ export namespace Schemas {
          */
       campaign_id?: string | null;
       /**
-         * Search by person name, email, or ID.
+         * The last session ID returned by the previous page. Omit for the first page.
          * @maxLength 200
          */
-      search?: string;
-      /** The last person ID returned by the previous page. Omit for the first page. */
       after?: string;
       /**
-         * The maximum number of people to return.
+         * The maximum number of conversion session IDs to return.
          * @minimum 1
          * @maximum 100
          */
       limit?: number;
     }
 
-    export interface ConversionPerson {
-      /** The person's ID. */
-      id: string;
-      /** The person's display name. */
-      name: string;
-    }
-
-    export interface ConversionPeopleResponse {
-      /** The people attributed to this conversion cell. */
-      results: ConversionPerson[];
-      /** Whether another page of people is available. */
+    export interface ConversionRecordingsResponse {
+      /** Sessions in which the attributed conversions occurred. A session might not have a recording. */
+      session_ids: string[];
+      /** Whether another page of conversion sessions is available. */
       has_more: boolean;
       /** Whether the conversion data is still being prepared. */
       preparing: boolean;
     }
-
-    export type ConversionRateInputType = typeof ConversionRateInputType[keyof typeof ConversionRateInputType];
-
-
-    export const ConversionRateInputType = {
-      Manual: 'manual',
-      Automatic: 'automatic',
-    } as const;
 
     /**
      * * `0` - Disabled

@@ -14,8 +14,8 @@ import type {
     ConversionGoalWriteApi,
     ConversionGoalWriteResponseApi,
     ConversionGoalsListResponseApi,
-    ConversionPeopleRequestApi,
-    ConversionPeopleResponseApi,
+    ConversionRecordingsRequestApi,
+    ConversionRecordingsResponseApi,
     DataSourceHealthResponseApi,
     EventSuggestionsResponseApi,
     GoalExplanationApi,
@@ -144,20 +144,20 @@ export const marketingAnalyticsConversionGoalsCreateCreate = async (
     })
 }
 
-export const getMarketingAnalyticsConversionPeopleCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/marketing_analytics/conversion_people/`
+export const getMarketingAnalyticsConversionRecordingsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/marketing_analytics/conversion_recordings/`
 }
 
-export const marketingAnalyticsConversionPeopleCreate = async (
+export const marketingAnalyticsConversionRecordingsCreate = async (
     projectId: string,
-    conversionPeopleRequestApi: ConversionPeopleRequestApi,
+    conversionRecordingsRequestApi: ConversionRecordingsRequestApi,
     options?: RequestInit
-): Promise<ConversionPeopleResponseApi> => {
-    return apiMutator<ConversionPeopleResponseApi>(getMarketingAnalyticsConversionPeopleCreateUrl(projectId), {
+): Promise<ConversionRecordingsResponseApi> => {
+    return apiMutator<ConversionRecordingsResponseApi>(getMarketingAnalyticsConversionRecordingsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(conversionPeopleRequestApi),
+        body: JSON.stringify(conversionRecordingsRequestApi),
     })
 }
 
