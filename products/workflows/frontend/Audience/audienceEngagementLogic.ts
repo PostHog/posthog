@@ -4,10 +4,12 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { UNFILED_DASHBOARDS_FOLDER } from 'scenes/dashboard/dashboardConstants'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import type { DashboardApi } from 'products/dashboards/frontend/generated/api.schemas'
+import { dashboardsModel } from '~/models/dashboardsModel'
+import { DashboardType } from '~/types'
 
 import { engagementEventsLogic } from '../engagementEventsLogic'
 import { AudienceEngagementTileKey, audienceEngagementDashboardTemplate } from './audienceEngagementTiles'
@@ -16,7 +18,7 @@ import { AudienceEngagementTileKey, audienceEngagementDashboardTemplate } from '
 export interface audienceEngagementLogicValues {
     engagementEventsCaptured: boolean // engagementEventsLogic
     currentTeamId: number | null // teamLogic
-    createdDashboard: DashboardApi | null
+    createdDashboard: DashboardType | null
     createdDashboardLoading: boolean
 }
 
@@ -31,10 +33,10 @@ export interface audienceEngagementLogicActions {
         errorObject?: any
     }
     createDashboardSuccess: (
-        createdDashboard: DashboardApi,
+        createdDashboard: DashboardType,
         payload?: any
     ) => {
-        createdDashboard: DashboardApi
+        createdDashboard: DashboardType
         payload?: any
     }
     insightOpened: (tile: AudienceEngagementTileKey) => {
@@ -54,13 +56,16 @@ export const audienceEngagementLogic = kea<audienceEngagementLogicType>([
     }),
     loaders(({ values }) => ({
         createdDashboard: [
-            null as DashboardApi | null,
+            null as DashboardType | null,
             {
                 createDashboard: async () => {
-                    // nosemgrep: prefer-codegen-api -- dashboardsCreateFromTemplateJsonCreate() serves this route, but its generated types describe a dashboard body and a void response instead of the template body and the created dashboard.
-                    return await api.create<DashboardApi>(
+                    // nosemgrep: prefer-codegen-api -- dashboardsCreateFromTemplateJsonCreate() serves this route, but its generated types describe a dashboard body and a void response instead of the template body and the created dashboard, which dashboardsModel stores as a DashboardType.
+                    return await api.create<DashboardType>(
                         `api/projects/${values.currentTeamId}/dashboards/create_from_template_json`,
-                        { template: audienceEngagementDashboardTemplate() }
+                        {
+                            template: audienceEngagementDashboardTemplate(),
+                            _create_in_folder: UNFILED_DASHBOARDS_FOLDER,
+                        }
                     )
                 },
             },
@@ -68,6 +73,7 @@ export const audienceEngagementLogic = kea<audienceEngagementLogicType>([
     })),
     listeners(() => ({
         createDashboardSuccess: ({ createdDashboard }) => {
+            dashboardsModel.actions.addDashboardSuccess(createdDashboard)
             // pinned: event name is a wire string
             posthog.capture('audience dashboard created', { dashboard_id: createdDashboard.id })
             router.actions.push(urls.dashboard(createdDashboard.id))

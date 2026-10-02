@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import { AppMetricsTotalsResponse, loadAppMetricsTotals } from 'lib/components/AppMetrics/appMetricsLogic'
 import { dayjs } from 'lib/dayjs'
+import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { teamLogic } from 'scenes/teamLogic'
 
 export interface EmailMetricsTotals {
@@ -74,7 +75,10 @@ export const emailMetricsTotalsLogic = kea<emailMetricsTotalsLogicType>([
                             appSource: 'hog_flow',
                             metricName: Object.values(METRIC_NAMES),
                             breakdownBy: ['metric_name'],
-                            dateFrom: dayjs().subtract(METRICS_TOTALS_PERIOD_DAYS, 'day').toISOString(),
+                            dateFrom: dateStringToDayJs(
+                                `-${METRICS_TOTALS_PERIOD_DAYS}d`,
+                                values.timezone
+                            )?.toISOString(),
                             dateTo: dayjs().toISOString(),
                         },
                         values.timezone

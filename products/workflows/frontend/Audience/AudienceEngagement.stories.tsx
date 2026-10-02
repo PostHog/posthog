@@ -153,7 +153,7 @@ function engagementStory({
                 }
             }, [captured])
             return (
-                <div style={{ width: containerWidth ?? '100%' }}>
+                <div className="@container/main-content" style={{ width: containerWidth ?? '100%' }}>
                     <AudienceScene />
                 </div>
             )

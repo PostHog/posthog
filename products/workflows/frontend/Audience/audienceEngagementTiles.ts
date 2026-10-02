@@ -5,11 +5,17 @@ import {
     DashboardLayoutSize,
     DashboardTemplateEditorType,
     DashboardTemplateStoredInsightTile,
+    FunnelConversionWindowTimeUnit,
     FunnelVizType,
     TileLayout,
 } from '~/types'
 
-const LAST_30_DAYS = { date_from: '-30d' }
+const LAST_30_DAYS_IN_DAYS = 30
+const LAST_30_DAYS = { date_from: `-${LAST_30_DAYS_IN_DAYS}d` }
+
+function engagementSeries(event: string, name: string): EventsNode {
+    return { kind: NodeKind.EventsNode, event, name, math: BaseMathType.TotalCount }
+}
 
 const SENT = engagementSeries('$workflows_email_sent', 'Sent')
 const DELIVERED = engagementSeries('$workflows_email_delivered', 'Delivered')
@@ -19,10 +25,6 @@ const UNSUBSCRIBED = engagementSeries('$workflows_email_unsubscribed', 'Unsubscr
 const BOUNCED = engagementSeries('$workflows_email_bounced', 'Bounced')
 // The provider reports a spam complaint as a block, so `$workflows_email_blocked` is the spam report.
 const MARKED_AS_SPAM = engagementSeries('$workflows_email_blocked', 'Marked as spam')
-
-function engagementSeries(event: string, name: string): EventsNode {
-    return { kind: NodeKind.EventsNode, event, name, math: BaseMathType.TotalCount }
-}
 
 const SENT_PER_DAY: InsightVizNode<TrendsQuery> = {
     kind: NodeKind.InsightVizNode,
@@ -56,6 +58,8 @@ const SENT_TO_CLICKED_FUNNEL: InsightVizNode<FunnelsQuery> = {
             funnelVizType: FunnelVizType.Steps,
             // A recipient is an address, not a person, so each step counts the addresses that reached it.
             funnelAggregateByHogQL: 'properties.$email_to',
+            funnelWindowInterval: LAST_30_DAYS_IN_DAYS,
+            funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Day,
         },
     },
 }
