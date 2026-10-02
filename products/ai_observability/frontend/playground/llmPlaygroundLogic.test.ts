@@ -748,7 +748,12 @@ describe('llmPlaygroundLogic', () => {
 
             expect(llmPlaygroundModelLogic.values.hasByokKeys).toBe(true)
             expect(llmPlaygroundModelLogic.values.effectiveModelOptions).toEqual(
-                byokModels.map((m) => ({ ...m, isRecommended: false, providerKeyId: 'key-1' }))
+                byokModels.map((m) => ({
+                    ...m,
+                    isRecommended: false,
+                    providerKeyId: 'key-1',
+                    supportsSystemOne: false,
+                }))
             )
         })
     })

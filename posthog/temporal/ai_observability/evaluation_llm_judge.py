@@ -596,7 +596,12 @@ def call_llm_judge(
     probability: float | None = None
     system_one_result = None
     try:
-        if is_system_one_model(provider, model):
+        if is_system_one_model(
+            provider,
+            model,
+            openrouter_enabled=provider == "openrouter"
+            and system_one_evaluations_enabled(team_id, base_url=OPENROUTER_BASE_URL),
+        ):
             if output_type not in ("boolean", "categorical", "numeric"):
                 return build_skipped_evaluation_result(
                     output_type=output_type,
@@ -611,7 +616,7 @@ def call_llm_judge(
                 if provider_key
                 else ""
             )
-            if not system_one_evaluations_enabled(team_id, base_url=base_url):
+            if provider == "system_one" and not system_one_evaluations_enabled(team_id, base_url=base_url):
                 return build_skipped_evaluation_result(
                     output_type=output_type,
                     allows_na=allows_na,

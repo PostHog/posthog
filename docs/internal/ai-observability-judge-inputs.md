@@ -73,8 +73,10 @@ OpenRouter decision models, including Jev, appear under an existing OpenRouter k
 They use OpenRouter's `/api/v1/systemone` endpoint with that key; no custom endpoint or System One connection is needed.
 The OpenRouter catalogue's `decisions` output modality identifies these models, including aliases; chat models such as Jev Router keep using chat completions.
 Decision models are excluded from the playground and tagger model pickers.
-If the catalogue is unavailable during an OpenRouter evaluation, the run retries rather than guessing which API to call.
-Saving an OpenRouter evaluation also requires the catalogue so its output configuration can be validated.
+For projects with this flag enabled, an unavailable catalogue makes OpenRouter runs retry rather than guess which API to call.
+These projects also need the catalogue when changing a model or output configuration, changing the evaluation type, or enabling an evaluation.
+Renaming or disabling an evaluation does not require the catalogue. Projects without the flag keep the existing chat path.
+An out-of-credits response disables the evaluation and marks its provider key as failing, as on the chat path.
 For other compatible services, add a connection under **System One** in provider key settings.
 Enter the public HTTPS base URL and model ID of a compatible service; neither has a default.
 TypeSafe's hosted endpoint is not supported by this integration.

@@ -1,6 +1,7 @@
 import json
 import uuid
 import dataclasses
+from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from ipaddress import IPv4Address, IPv6Address, ip_address
 from typing import Any, cast
@@ -301,25 +302,36 @@ def _mock_config_with_active_key(provider: str = "openai") -> MagicMock:
     return MagicMock(active_provider_key=key)
 
 
-def test_openrouter_catalogue_outage_retries_without_sending_a_chat_request() -> None:
+@pytest.mark.parametrize("flag", [True, False, None])
+def test_openrouter_catalogue_outage_only_affects_projects_with_decisions_enabled(flag: bool | None) -> None:
     key = MagicMock(provider="openrouter", encrypted_config={"api_key": "example-token"})
     with (
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
-        patch("products.ai_observability.backend.llm.providers.openrouter._non_chat_models", return_value=None),
+        patch(
+            "products.ai_observability.backend.llm.providers.openrouter._non_chat_models", return_value=None
+        ) as catalogue,
+        patch(
+            "posthog.temporal.ai_observability.evaluation_llm_judge.system_one_evaluations_enabled", return_value=flag
+        ),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client.complete") as complete,
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.SystemOneClient.evaluate") as decide,
     ):
         spec.return_value.resolve.return_value = MagicMock(
-            provider="openrouter", model="typesafe/jev-1.13", provider_key=key, is_byok=True
+            provider="openrouter", model="openai/gpt-4o", provider_key=key, is_byok=True
         )
-        with pytest.raises(TransientJudgeError, match="OpenRouter model capabilities"):
-            call_llm_judge(
+        complete.return_value = MagicMock(parsed=BooleanEvalResult(verdict=True, reasoning="Polite"), usage=None)
+        with pytest.raises(TransientJudgeError, match="OpenRouter model capabilities") if flag else nullcontext():
+            result = call_llm_judge(
                 evaluation={"team_id": 1, "evaluation_config": {"prompt": "Is the response polite?"}},
                 system_prompt="",
                 user_prompt="Hello!",
                 allows_na=False,
             )
-    complete.assert_not_called()
+    if flag:
+        complete.assert_not_called()
+    else:
+        assert result["verdict"] is True
+        catalogue.assert_not_called()
     decide.assert_not_called()
 
 
@@ -638,17 +650,12 @@ def test_system_one_numeric_requires_a_score_range(output_config: dict[str, floa
         ("system_one", "https://decisions.example.com/v1", False),
         ("system_one", "https://ai-gateway.us.posthog.com/v1", False),
         ("system_one", "https://api.typesafe.ai/v1", True),
-        ("openrouter", "https://openrouter.ai/api/v1", False),
     ],
 )
 def test_system_one_restricted_connection_does_not_send_evaluation_data(
     provider: str, base_url: str, flag: bool
 ) -> None:
     with (
-        patch(
-            "products.ai_observability.backend.llm.providers.openrouter._non_chat_models",
-            return_value={"custom-model": ["decisions"]},
-        ),
         override_settings(POSTHOG_INTERNAL_ORG_IDS=[]),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
         patch("products.ai_observability.backend.llm.system_one.Team.objects.only") as teams,
@@ -679,8 +686,14 @@ def test_system_one_restricted_connection_does_not_send_evaluation_data(
     [
         ("system_one", 301, "identity", "endpoint_blocked"),
         ("system_one", 400, "identity", "request_rejected"),
+        ("system_one", 402, "identity", "quota_error"),
         ("system_one", 422, "identity", "request_rejected"),
         ("system_one", 200, "gzip", "request_rejected"),
+        ("openrouter", 301, "identity", "endpoint_blocked"),
+        ("openrouter", 400, "identity", "request_rejected"),
+        ("openrouter", 402, "identity", "quota_error"),
+        ("openrouter", 422, "identity", "request_rejected"),
+        ("openrouter", 200, "gzip", "request_rejected"),
         ("openai_compatible", 200, "gzip", "request_rejected"),
     ],
 )
@@ -695,6 +708,10 @@ def test_provider_rejections_distinguish_blocked_endpoints_from_bad_inputs(
         status, stream=httpx.ByteStream(b"Invalid request"), headers={"Content-Encoding": encoding}
     )
     with (
+        patch(
+            "products.ai_observability.backend.llm.providers.openrouter._non_chat_models",
+            return_value={"example-judge-v1": ["decisions"]},
+        ),
         patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
         patch(
@@ -712,15 +729,20 @@ def test_provider_rejections_distinguish_blocked_endpoints_from_bad_inputs(
             allows_na=False,
         )
     assert result["skip_reason"] == expected_skip_reason
-    if status == 301:
+    if status in (301, 402):
         assert result["terminal_user_error"] is True
         assert result["provider_key_state"] == "error"
     else:
         assert result["skipped"] is True
         assert "terminal_user_error" not in result
         assert "provider_key_state" not in result
-    assert "model" not in result
-    assert "provider" not in result
+    if status == 402:
+        assert result["status_reason"] == "provider_key_quota_exceeded"
+        assert result["key_id"] == str(key.id)
+        assert result["provider"] == provider
+    else:
+        assert "model" not in result
+        assert "provider" not in result
 
     if encoding == "gzip":
         assert "uncompressed responses no larger than 1 MiB" in result["reasoning"]

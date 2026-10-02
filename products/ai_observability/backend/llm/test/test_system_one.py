@@ -20,6 +20,7 @@ from products.ai_observability.backend.llm.errors import (
     ContextWindowExceededError,
     ModelPermissionError,
     ProviderConnectionError,
+    QuotaExceededError,
     StructuredOutputParseError,
 )
 from products.ai_observability.backend.llm.system_one import (
@@ -77,7 +78,9 @@ def test_system_one_connections_require_flag_and_supported_endpoint(
         assert system_one_evaluations_enabled(team.id, base_url=base_url) is enabled
 
 
-@pytest.mark.parametrize("status, expected_state", [(200, "ok"), (401, "invalid"), (403, "invalid"), (500, "error")])
+@pytest.mark.parametrize(
+    "status, expected_state", [(200, "ok"), (401, "invalid"), (402, "error"), (403, "invalid"), (500, "error")]
+)
 def test_system_one_key_validation(status: int, expected_state: str) -> None:
     response = _response(
         status,
@@ -307,6 +310,7 @@ def test_system_one_requires_every_requested_answer(answers: dict[str, object]) 
         (200, "<html>Bad gateway</html>", StructuredOutputParseError),
         (302, "Redirect", SystemOneEndpointBlockedError),
         (401, "Invalid key", AuthenticationError),
+        (402, "Insufficient credits", QuotaExceededError),
         (403, "Access denied", ModelPermissionError),
         (500, "Unavailable", ProviderConnectionError),
         (413, "Request too large", ContextWindowExceededError),

@@ -578,10 +578,22 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             if isinstance(model_configuration, dict)
             else getattr(model_configuration, "model", None)
         )
-        try:
-            uses_system_one = is_system_one_model(model_provider, model)
-        except ProviderConnectionError as e:
-            raise serializers.ValidationError({"model_configuration": str(e)}) from e
+        should_validate_model = (
+            self.instance is None
+            or bool({"model_configuration", "evaluation_type", "output_type", "output_config"} & data.keys())
+            or data.get("enabled", False)
+        )
+        uses_system_one = False
+        if should_validate_model:
+            try:
+                uses_system_one = is_system_one_model(
+                    model_provider,
+                    model,
+                    openrouter_enabled=model_provider == "openrouter"
+                    and system_one_evaluations_enabled(self.context["get_team"]().id, base_url=OPENROUTER_BASE_URL),
+                )
+            except ProviderConnectionError as e:
+                raise serializers.ValidationError({"model_configuration": str(e)}) from e
         if uses_system_one and output_type not in ("boolean", "categorical", "numeric"):
             raise serializers.ValidationError(
                 {"model_configuration": "Select a model that supports this evaluation output type."}
@@ -685,10 +697,6 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             return
         model = model_config.get("model")
         if uses_system_one:
-            if not system_one_evaluations_enabled(self.context["get_team"]().id, base_url=OPENROUTER_BASE_URL):
-                raise serializers.ValidationError(
-                    {"model_configuration": "System One evaluations are not available for this project."}
-                )
             return
         if model and is_non_chat_model(model):
             raise serializers.ValidationError(
