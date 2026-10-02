@@ -1,5 +1,4 @@
 import json
-from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -51,17 +50,23 @@ class Command(BaseCommand):
         if measured_at is None:
             raise CommandError("report has no usable generated_at timestamp")
 
-        rows_by_team: dict[int, list[dict[str, Any]]] = defaultdict(list)
-        for team in report.get("teams", {}).values():
-            for row in team.get("rows", []):
-                if row.get("bucket") == NO_FAITHFUL_FIX:
-                    rows_by_team[row["team_id"]].append(row)
+        # Keyed by every team the audit covered, not only the affected ones, so a team
+        # that no longer has a no-faithful-fix selector has its stored rows cleared
+        # rather than left behind to show a notice the latest measurement disowns.
+        rows_by_team: dict[int, list[dict[str, Any]]] = {
+            int(team_key): [row for row in team.get("rows", []) if row.get("bucket") == NO_FAITHFUL_FIX]
+            for team_key, team in report.get("teams", {}).items()
+        }
         if not rows_by_team:
-            log("report holds no no_faithful_fix rows; nothing to import")
+            log("report covers no teams; nothing to import")
             return
 
         total_rows = sum(len(rows) for rows in rows_by_team.values())
-        log(f"report holds {total_rows} no-faithful-fix selector steps across {len(rows_by_team)} teams")
+        affected_teams = sum(1 for rows in rows_by_team.values() if rows)
+        log(
+            f"report covers {len(rows_by_team)} teams and holds {total_rows} no-faithful-fix "
+            f"selector steps across {affected_teams} of them"
+        )
 
         imported = 0
         stale = 0
