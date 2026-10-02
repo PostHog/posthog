@@ -19,6 +19,8 @@ import type {
 } from 'products/tasks/frontend/generated/api.schemas'
 import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
+import { expect, userEvent, waitFor } from 'storybook/test'
+
 import { OriginProduct, Task, TaskRun, TaskRunEnvironment, TaskRunStatus } from '../../types/taskTypes'
 import { TaskDetailPage } from './components/TaskDetailPage'
 import { TaskRunTab } from './taskRunArtifacts'
@@ -836,4 +838,40 @@ export const MarkdownComments: Story = {
 export const ImageCommentPins: Story = {
     parameters: { msw: { mocks: commentMocks() } },
     render: () => <StoryPage fileName="trial-starts-by-step.svg" commentsOpen />,
+}
+
+export const MarkdownCommentThread: Story = {
+    parameters: { msw: { mocks: commentMocks() } },
+    render: () => <StoryPage fileName={REPORT_FILE_NAME} />,
+    play: async ({ canvasElement }) => {
+        const highlight = await waitFor(
+            () => {
+                const element = canvasElement.querySelector<HTMLElement>(
+                    '[data-attr="task-artifact-comment-highlight"]'
+                )
+                expect(element).not.toBeNull()
+                return element!
+            },
+            { timeout: 10_000 }
+        )
+        await userEvent.click(highlight)
+    },
+}
+
+export const ImageCommentThread: Story = {
+    parameters: { msw: { mocks: commentMocks() } },
+    render: () => <StoryPage fileName="trial-starts-by-step.svg" />,
+    play: async ({ canvasElement }) => {
+        const pin = await waitFor(
+            () => {
+                const element = canvasElement.querySelector<HTMLElement>(
+                    '[data-attr="task-artifact-comment-pin-marker"]'
+                )
+                expect(element).not.toBeNull()
+                return element!
+            },
+            { timeout: 10_000 }
+        )
+        await userEvent.click(pin)
+    },
 }
