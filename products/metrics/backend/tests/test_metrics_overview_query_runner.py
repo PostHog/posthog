@@ -1,4 +1,5 @@
 import datetime as dt
+from typing import Any
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
@@ -7,6 +8,10 @@ from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
+
+from posthog.schema import HogQLQueryResponse
+
+from posthog.hogql.query import execute_hogql_query
 
 from products.metrics.backend import metrics_overview_query_runner
 from products.metrics.backend.metrics_overview_query_runner import MetricsOverviewQueryRunner
@@ -64,6 +69,20 @@ class TestMetricsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(api_row.metric_names, 2)
         self.assertEqual(api_row.series, 3)
         self.assertEqual(dt.datetime.fromisoformat(api_row.last_seen), anchor)
+
+    def test_services_query_reads_the_hourly_projection(self):
+        anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
+        seed_metric(team_id=self.team.id, metric_name="http.duration", points=[(anchor, 1.0)], service_name="api")
+
+        def force_projection(**kwargs: Any) -> HogQLQueryResponse:
+            if kwargs["query_type"] == "MetricsOverviewServicesQuery":
+                kwargs["settings"] = kwargs["settings"].model_copy(update={"force_optimize_projection": True})
+            return execute_hogql_query(**kwargs)
+
+        with patch.object(metrics_overview_query_runner, "execute_hogql_query", side_effect=force_projection):
+            overview = MetricsOverviewQueryRunner(team=self.team).run()
+
+        self.assertEqual([(s.service_name, s.series) for s in overview.services], [("api", 1)])
 
     def test_quiet_project_keeps_overall_last_seen_but_lists_no_services(self):
         stale = timezone.now().replace(microsecond=0) - dt.timedelta(days=3)

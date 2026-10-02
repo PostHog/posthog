@@ -942,6 +942,7 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
                 model_explanation=data.get("model_explanation") or {},
                 recommended_next=data.get("recommended_next") or "",
                 distillation=data.get("distillation") or "",
+                report_notebook_short_id=data.get("report_notebook_short_id") or "",
             )
         except TrainingRunNotFound:
             raise NotFound("Training run not found.")
