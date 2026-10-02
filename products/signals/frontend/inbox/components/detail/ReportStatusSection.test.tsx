@@ -83,6 +83,16 @@ describe('ReportStatusSection', () => {
         expect(container).not.toHaveTextContent('In progress by')
     })
 
+    it('shows a not-started implementation task with a link to it', () => {
+        render(<ReportStatusSection report={makeReport({ pull_requests: [] })} notStartedTaskId="task-1" />)
+
+        expect(screen.getByText('Not started')).toBeInTheDocument()
+        expect(screen.getByText('Open task').closest('a')).toHaveAttribute(
+            'href',
+            expect.stringContaining('/tasks/task-1')
+        )
+    })
+
     it('hides pull request rows when the report has no pull request', () => {
         const { container } = render(<ReportStatusSection report={makeReport({ pull_requests: [] })} />)
 

@@ -62,7 +62,7 @@ const IMPLEMENTATION_AGENTS: {
 
 export function ImplementButton({ report }: { report: SignalReport }): JSX.Element {
     const { isCreatingPr, isDiscussing, createPrDisabledReason } = useValues(inboxTaskKickoffLogic)
-    const { implementationSlotClaim, reportTaskToOpen } = useValues(
+    const { implementationSlotClaim, reportTaskToOpen, notStartedImplementationTask } = useValues(
         inboxReportDetailLogic({ reportId: report.id, report })
     )
     const { createPrFromReport, openReportTask } = useActions(inboxTaskKickoffLogic)
@@ -118,6 +118,21 @@ export function ImplementButton({ report }: { report: SignalReport }): JSX.Eleme
                 }}
                 tooltip="Open this task in the PostHog AI sidebar"
                 data-attr="inbox-report-open-task"
+            >
+                View task
+            </LemonButton>
+        )
+    }
+
+    if (notStartedImplementationTask) {
+        return (
+            <LemonButton
+                type="secondary"
+                size="small"
+                className="w-fit"
+                to={urls.taskDetail(notStartedImplementationTask.task.id)}
+                tooltip="This task has not started yet. Open it to check its state."
+                data-attr="inbox-report-open-not-started-task"
             >
                 View task
             </LemonButton>

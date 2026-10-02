@@ -237,6 +237,7 @@ export function InboxDetailFrame({
         trailingCharts,
         detailTab,
         reportTaskToOpen,
+        notStartedImplementationTask,
     } = useValues(inboxReportDetailLogic(logicProps))
     const { setDetailTab, expandEvidence, collapseEvidence } = useActions(inboxReportDetailLogic(logicProps))
     const { evidenceRailCollapsed } = useValues(inboxDetailLayoutLogic)
@@ -269,7 +270,8 @@ export function InboxDetailFrame({
 
     const reportActions = useReportDetailActions(report)
     const showCreatePr = canCreateImplementationPr(report)
-    const implementButton = showCreatePr || reportTaskToOpen ? <ImplementButton report={report} /> : null
+    const implementButton =
+        showCreatePr || reportTaskToOpen || notStartedImplementationTask ? <ImplementButton report={report} /> : null
     const summaryHasSolution = parseReportSummary(report.summary).sections.some(
         (section) => section.kind === 'solution'
     )
@@ -430,7 +432,11 @@ export function InboxDetailFrame({
                     <aside className={DETAIL_ASIDE_COLLAPSED_CLASS}>{showRailButton}</aside>
                 ) : (
                     <aside className={DETAIL_ASIDE_CLASS}>
-                        <ReportStatusSection report={report} rightSlot={hideRailButton} />
+                        <ReportStatusSection
+                            report={report}
+                            rightSlot={hideRailButton}
+                            notStartedTaskId={notStartedImplementationTask?.task.id}
+                        />
                         {/* The observation leads, then the evidence its claims rest on. */}
                         {primaryMetric && (
                             <DetailSection
