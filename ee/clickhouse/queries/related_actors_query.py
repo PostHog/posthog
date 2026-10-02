@@ -172,6 +172,8 @@ class RelatedActorsQuery:
             assert isinstance(query, ast.SelectQuery)
             # Detached IDs can own history without a current Personhog mapping. Include stored
             # ownership and all override candidates; the resolved person filter rejects stale versions.
+            # Keep IN local so candidates and person resolution use the same shard's snapshot.
+            # GLOBAL IN can miss overrides on shards whose replicas are ahead of the initiator.
             query.prewhere = parse_expr(
                 """
                 events.team_id = {team_id}
