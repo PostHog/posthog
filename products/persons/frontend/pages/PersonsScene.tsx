@@ -60,7 +60,7 @@ export function PersonsScene(): JSX.Element {
             width: '30rem',
             title: 'Reset deleted person',
             description: `Use this if a deleted person's distinct ID gets new events, but no person shows up for it.
-                Resetting the distinct ID lets those events create a new person profile.`,
+                Resetting the distinct ID makes that person show up again.`,
             initialValues: { distinct_id: '' },
             content: (
                 <LemonField name="distinct_id" label="Distinct ID to reset">
@@ -114,7 +114,7 @@ export function PersonsScene(): JSX.Element {
                                             width: '30rem',
                                             title: 'Reset deleted person',
                                             description: `Use this if a deleted person's distinct ID gets new events, but no person shows up for it.
-                                                Resetting the distinct ID lets those events create a new person profile.`,
+                                                Resetting the distinct ID makes that person show up again.`,
                                             initialValues: {
                                                 distinct_id: '',
                                             },
