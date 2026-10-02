@@ -39,7 +39,21 @@ const SHELL_COLOUR = orange;
 const OLDER_ROW = "older";
 // Output lines an expanded tool call shows before it cuts off.
 const OUTPUT_LINES = 5;
-const SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
+const BOLD = (text: string): string => `\u001b[1m${text}\u001b[22m`;
+// Cells the highlight covers, and the cells it travels past the text before it comes round again.
+const SHIMMER_WIDTH = 3;
+const SHIMMER_PAUSE = 8;
+
+// A highlight that sweeps along the text, advancing with the clock on each repaint.
+export function shimmer(text: string, now = Date.now()): string {
+  const chars = [...text];
+  const head = Math.floor(now / 80) % (chars.length + SHIMMER_PAUSE);
+  return chars
+    .map((char, index) =>
+      index <= head && index > head - SHIMMER_WIDTH ? BOLD(char) : char,
+    )
+    .join("");
+}
 
 export interface ChatNotice {
   text: string;
@@ -48,7 +62,7 @@ export interface ChatNotice {
   tone: "working" | "error" | "done";
 }
 
-// The run's status line; a working one spins, advancing with the clock on each repaint.
+// The run's status line; a working one shimmers.
 class NoticeRow implements Component {
   constructor(private readonly notice: ChatNotice) {}
 
@@ -57,9 +71,8 @@ class NoticeRow implements Component {
       return [` \u001b[31m${this.notice.text}\u001b[39m`];
     }
     if (this.notice.tone === "done") return [DIM(` ✻ ${this.notice.text}`)];
-    const frame = SPINNER[Math.floor(Date.now() / 80) % SPINNER.length];
     const detail = this.notice.detail ? ` ${this.notice.detail}` : "";
-    return [`${DIM(` ${frame}`)} ${this.notice.text}${DIM(detail)}`];
+    return [`${DIM(" ✻")} ${shimmer(this.notice.text)}${DIM(detail)}`];
   }
 
   invalidate(): void {}
@@ -145,7 +158,7 @@ class ToolGroup implements Component {
     // Under the pointer it goes from grey to full colour, so it reads as clickable.
     const dim = this.isHovered() ? (text: string): string => text : DIM;
     const label = this.live
-      ? `${dim(arrow)} ${this.live.text}${dim(this.live.detail ? ` ${this.live.detail}` : "")}`
+      ? `${dim(arrow)} ${shimmer(this.live.text)}${dim(this.live.detail ? ` ${this.live.detail}` : "")}`
       : dim(`${arrow} ${toolSummary(this.tools)}`);
     const summary = `${label}${failed ? ` ${DIM("·")} ${RED(`${failed} failed`)}` : ""}`;
     const lines = [truncateToWidth(` ${summary}`, width)];
