@@ -677,8 +677,14 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert len(mock_capture.call_args_list) == 1
         assert mock_capture.call_args_list[0][1]["event"] == "recording viewed"
 
+    @parameterized.expand(
+        [
+            ("without_player_metadata", {"analyzed": True}),
+            ("with_null_player_metadata", {"analyzed": True, "player_metadata": None}),
+        ]
+    )
     @patch("posthoganalytics.capture")
-    def test_update_session_recording_analyzed(self, mock_capture: MagicMock):
+    def test_update_session_recording_analyzed(self, _name: str, payload: dict, mock_capture: MagicMock):
         session_id = "test_update_analyzed_state"
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
         produce_replay_summary(
@@ -692,7 +698,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         # Update analyzed state
         update_response = self.client.patch(
             f"/api/projects/{self.team.id}/session_recordings/{session_id}",
-            {"analyzed": True},
+            payload,
         )
         assert update_response.status_code == 200
         assert update_response.json()["success"] is True
