@@ -141,7 +141,7 @@ export function InsightViz({
                                     embedded={isEmbedded}
                                 />
                                 {!isEmbedded ? (
-                                    <div className="flex-1 max-h-full overflow-auto">
+                                    <div className="flex-1 max-h-full overflow-auto pb-8">
                                         <SelectorMatchChangeNotice insightProps={insightProps} />
                                         {display}
                                     </div>

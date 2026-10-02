@@ -22,7 +22,7 @@ def read_report(target: str) -> dict[str, Any]:
     to run wherever the table lives.
     """
     if not target.startswith(OBJECT_URI_SCHEME):
-        return json.loads(Path(target).read_text())
+        return json.loads(Path(target).read_text(encoding="utf-8"))
     bucket, _, key = target[len(OBJECT_URI_SCHEME) :].partition("/")
     if not bucket or not key:
         raise CommandError(f"expected {OBJECT_URI_SCHEME}<bucket>/<key>, got {target!r}")
