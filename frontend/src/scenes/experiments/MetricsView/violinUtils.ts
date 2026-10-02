@@ -1,3 +1,13 @@
+/**
+ * Generates an SVG path for a violin plot visualization
+ *
+ * @param x1 - Left boundary of the violin
+ * @param x2 - Right boundary of the violin
+ * @param y - Vertical position of the violin
+ * @param height - Height of the violin
+ * @param deltaX - Position of the delta marker
+ * @returns SVG path string
+ */
 export function generateViolinPath(x1: number, x2: number, y: number, height: number, deltaX: number): string {
     const points: [number, number][] = []
     const steps = 20
