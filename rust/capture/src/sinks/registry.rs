@@ -8,6 +8,7 @@
 use std::sync::Arc;
 
 use crate::config::OutputsConfig;
+use crate::pipeline::{Lane, Pipeline};
 use crate::producers::ProducerName;
 
 /// Which configured output a routing decision selects, named by pipeline and
@@ -46,6 +47,33 @@ impl Destination {
         Destination::ErrorTrackingMain,
         Destination::AiMain,
     ];
+
+    /// Map a lane address to its configured output. Every `(pipeline, lane)`
+    /// pair is spelled out so that a new lane, or a change making an unbacked
+    /// pair reachable, has to visit this match instead of being absorbed by a
+    /// wildcard. `None` marks a pair [`pipeline::resolve`] never produces: no
+    /// output backs it.
+    ///
+    /// [`pipeline::resolve`]: crate::pipeline::resolve
+    pub(crate) fn for_lane(pipeline: Pipeline, lane: Lane) -> Option<Destination> {
+        match (pipeline, lane) {
+            (Pipeline::Analytics, Lane::Main) => Some(Destination::AnalyticsMain),
+            (Pipeline::Analytics, Lane::Overflow) => Some(Destination::AnalyticsOverflow),
+            (Pipeline::Analytics, Lane::Historical) => Some(Destination::AnalyticsHistorical),
+            (Pipeline::Ai, Lane::Main) => Some(Destination::AiMain),
+            (Pipeline::Ai, Lane::Overflow) => Some(Destination::AiOverflow),
+            (Pipeline::Ai, Lane::Historical) => None,
+            (Pipeline::Warnings, Lane::Main) => Some(Destination::ClientWarningsMain),
+            (Pipeline::Warnings, Lane::Overflow | Lane::Historical) => None,
+            (Pipeline::Heatmaps, Lane::Main) => Some(Destination::HeatmapsMain),
+            (Pipeline::Heatmaps, Lane::Overflow | Lane::Historical) => None,
+            (Pipeline::ErrorTracking, Lane::Main) => Some(Destination::ErrorTrackingMain),
+            (Pipeline::ErrorTracking, Lane::Overflow | Lane::Historical) => None,
+            (Pipeline::Replay, Lane::Main) => Some(Destination::SessionReplayMain),
+            (Pipeline::Replay, Lane::Overflow) => Some(Destination::SessionReplayOverflow),
+            (Pipeline::Replay, Lane::Historical) => None,
+        }
+    }
 
     /// Whether this output participates in the boot completeness check.
     /// Deliberately exhaustive: a new variant cannot compile without

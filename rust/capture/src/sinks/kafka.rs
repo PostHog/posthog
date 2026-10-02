@@ -22,7 +22,7 @@ use crate::api::CaptureError;
 use crate::config::EnvelopeCompression;
 use crate::ordering::OrderingGuarantee;
 use crate::outputs::PublishEvents;
-use crate::pipeline::{self, Address, Lane, Pipeline};
+use crate::pipeline::{self, Address};
 use crate::producers::ProducerHandle;
 use crate::serialization::Serializer;
 use crate::sinks::producer::{KafkaProducer, ProduceRecord};
@@ -193,31 +193,6 @@ impl<P: KafkaProducer> Clone for KafkaSinkBase<P> {
     }
 }
 
-/// Map a lane address to the sink's configured [`Destination`]. Every
-/// `(pipeline, lane)` pair is spelled out so that a new lane, or a change
-/// making an unbacked pair reachable, has to visit this match instead of
-/// being absorbed by a wildcard. `None` marks a pair [`pipeline::resolve`]
-/// never produces — no output backs it, and the caller dlqs the event.
-fn lane_output(pipeline: Pipeline, lane: Lane) -> Option<Destination> {
-    match (pipeline, lane) {
-        (Pipeline::Analytics, Lane::Main) => Some(Destination::AnalyticsMain),
-        (Pipeline::Analytics, Lane::Overflow) => Some(Destination::AnalyticsOverflow),
-        (Pipeline::Analytics, Lane::Historical) => Some(Destination::AnalyticsHistorical),
-        (Pipeline::Ai, Lane::Main) => Some(Destination::AiMain),
-        (Pipeline::Ai, Lane::Overflow) => Some(Destination::AiOverflow),
-        (Pipeline::Ai, Lane::Historical) => None,
-        (Pipeline::Warnings, Lane::Main) => Some(Destination::ClientWarningsMain),
-        (Pipeline::Warnings, Lane::Overflow | Lane::Historical) => None,
-        (Pipeline::Heatmaps, Lane::Main) => Some(Destination::HeatmapsMain),
-        (Pipeline::Heatmaps, Lane::Overflow | Lane::Historical) => None,
-        (Pipeline::ErrorTracking, Lane::Main) => Some(Destination::ErrorTrackingMain),
-        (Pipeline::ErrorTracking, Lane::Overflow | Lane::Historical) => None,
-        (Pipeline::Replay, Lane::Main) => Some(Destination::SessionReplayMain),
-        (Pipeline::Replay, Lane::Overflow) => Some(Destination::SessionReplayOverflow),
-        (Pipeline::Replay, Lane::Historical) => None,
-    }
-}
-
 /// The dlq output's contract: count the reroute and stamp the dlq header set.
 fn dlq_reroute_effects(headers: &mut common_types::CapturedEventHeaders, reason: &'static str) {
     counter!("capture_events_rerouted_dlq", &[("reason", reason)]).increment(1);
@@ -336,7 +311,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
                 .increment(1);
                 Destination::Custom(topic)
             }
-            Address::Lane { pipeline, lane } => match lane_output(pipeline, lane) {
+            Address::Lane { pipeline, lane } => match Destination::for_lane(pipeline, lane) {
                 Some(output) => output,
                 // A pair `resolve` never produces: no output backs it, so
                 // the event goes to the dlq — preserved and replayable —
