@@ -123,8 +123,16 @@ describe('posthog conversations ticket templates', () => {
         }
 
         it.each([
-            ['splits a comma list and defaults to add', { cc: ' a@example.com, ,b@example.com ' }, { cc_participants: ['a@example.com', 'b@example.com'], cc_mode: 'add' }],
-            ['passes the chosen mode', { cc: 'a@example.com', cc_mode: 'remove' }, { cc_participants: ['a@example.com'], cc_mode: 'remove' }],
+            [
+                'splits a comma list and defaults to add',
+                { cc: ' a@example.com, ,b@example.com ' },
+                { cc_participants: ['a@example.com', 'b@example.com'], cc_mode: 'add' },
+            ],
+            [
+                'passes the chosen mode',
+                { cc: 'a@example.com', cc_mode: 'remove' },
+                { cc_participants: ['a@example.com'], cc_mode: 'remove' },
+            ],
         ])('%s', async (_name, inputs, expected) => {
             await tester.invoke({ ticket_id: TICKET_UUID, ...inputs })
             expect(patchedBody()).toEqual(expected)

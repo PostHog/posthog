@@ -778,16 +778,26 @@ class TestExternalTicketAPI(BaseTest):
         self.ticket.refresh_from_db()
         self.assertEqual(self.ticket.cc_participants, expected)
 
-    def test_patch_cc_participants_rejects_invalid_email(self):
+    @parameterized.expand(
+        [
+            ("invalid_email", [], ["not-an-email"]),
+            ("add_past_limit", [f"cc{i}@example.com" for i in range(50)], ["extra@example.com"]),
+        ]
+    )
+    def test_patch_cc_participants_rejected(self, _name, existing, payload):
+        self.ticket.cc_participants = existing
+        self.ticket.save(update_fields=["cc_participants"])
+
         response = self.client.patch(
             self.url,
-            {"cc_participants": ["not-an-email"]},
+            {"cc_participants": payload, "status": Status.OPEN},
             content_type="application/json",
             **self._auth_headers(),
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.ticket.refresh_from_db()
-        self.assertEqual(self.ticket.cc_participants, [])
+        self.assertEqual(self.ticket.cc_participants, existing)
+        self.assertEqual(self.ticket.status, Status.NEW)
 
     # -- URL validation ---------------------------------------------------
 
