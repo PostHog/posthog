@@ -20,8 +20,8 @@ from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 from posthog.models import Team
 
+from products.batch_exports.backend.filters import SUPPORTED_FILTER_TYPES
 from products.batch_exports.backend.hogql_source import native_event_property_chain, native_feature_flag_read
-from products.batch_exports.backend.service import SUPPORTED_FILTER_TYPES
 
 
 class UpdatePropertiesToPersonProperties(TraversingVisitor):
@@ -58,7 +58,7 @@ class InvalidFilterError(Exception):
 
 
 def compose_filters_clause(
-    filters: list[dict[str, str | list[str] | None]],
+    filters: list[dict[str, str | bool | list[str] | None]],
     team_id: int,
     values: dict[str, str] | None = None,
     *,

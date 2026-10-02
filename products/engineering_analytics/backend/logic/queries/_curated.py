@@ -14,18 +14,35 @@ into these fragments.
 """
 
 import math
+import hashlib
+import threading
+from collections.abc import Callable, Iterator, Sequence
+from concurrent.futures import Future
+from contextlib import contextmanager
 from dataclasses import dataclass
+from functools import partial
 from typing import TYPE_CHECKING
+
+from django.conf import settings
+from django.core.cache import cache
+from django.db import connection
+
+import structlog
 
 from posthog.schema import HogQLQueryResponse
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
+from posthog.hogql.metadata import get_table_names
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
+from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
 from posthog.models.team import Team
 
 from products.engineering_analytics.backend.facade.contracts import QueryWorkLimitExceededError
@@ -53,7 +70,11 @@ from products.engineering_analytics.backend.logic.views import (
 )
 
 if TYPE_CHECKING:
+    from posthog.models.user import User
+
     from products.access_control.backend.facade.user_access_control import UserAccessControl
+
+logger = structlog.get_logger(__name__)
 
 _QUERY_PAGE_SIZE = 5000
 
@@ -121,7 +142,7 @@ class ReadyToMergeSql:
         return f"quantileIf(0.5)({self.expr}, {scope})" if self.observable else self.expr
 
 
-_READY_TO_MERGE_UNOBSERVABLE = ReadyToMergeSql(cte="", join="", expr="NULL")
+READY_TO_MERGE_UNOBSERVABLE = ReadyToMergeSql(cte="", join="", expr="NULL")
 
 
 def _ready_to_merge_expr(window: _IssueEventsWindow) -> str:
@@ -172,6 +193,9 @@ class CuratedGitHubSource:
         self._trunk_quarantine_resolved = False
         self._depot_job_attempts_table: depot_ci.DepotJobAttempts | None = None
         self._depot_job_attempts_resolved = False
+        self._database: Database | None = None
+        # Guards the query budget, the catalog and the lazily resolved sources, which concurrent reads share.
+        self._lock = threading.Lock()
 
     @property
     def team(self) -> Team:
@@ -220,7 +244,9 @@ class CuratedGitHubSource:
         adds the raw-string scan floor — callers must register {run_started_floor} (see
         run_started_floor_constant)."""
         query = workflow_runs.build_query(
-            self._runs_table(), pull_requests_table=self._tables.pull_requests, started_floor=started_floor
+            self._runs_table(),
+            pull_requests_table=self._tables.pull_requests,
+            started_floor=started_floor,
         )
         return f"({query})"
 
@@ -239,39 +265,45 @@ class CuratedGitHubSource:
     def _depot_job_attempts(self) -> depot_ci.DepotJobAttempts | None:
         """The repository's synced Depot CI job attempts, or None. Resolved lazily and cached like the
         Trunk tables, so a read that never touches CI pays no lookup."""
-        if not self._depot_job_attempts_resolved:
-            depot_tables = resolve_depot_job_attempts_tables(self._team, self._user_access_control)
-            self._depot_job_attempts_table = depot_tables.get(self.repository.casefold())
-            self._depot_job_attempts_resolved = True
-        return self._depot_job_attempts_table
+        with self._lock:
+            if not self._depot_job_attempts_resolved:
+                depot_tables = resolve_depot_job_attempts_tables(self._team, self._user_access_control)
+                self._depot_job_attempts_table = depot_tables.get(self.repository.casefold())
+                self._depot_job_attempts_resolved = True
+            return self._depot_job_attempts_table
 
     def _runs_table(self) -> str:
         return depot_ci.with_depot_runs(
-            self._tables.workflow_runs, self._depot_job_attempts(), self._tables.pull_requests
+            self._tables.workflow_runs,
+            self._depot_job_attempts(),
+            self._tables.pull_requests,
+            self._tables.workflow_jobs,
         )
 
-    def _jobs_table(self, workflow_jobs_table: str) -> str:
-        return depot_ci.with_depot_jobs(workflow_jobs_table, self._depot_job_attempts())
+    def _jobs_table(self, workflow_jobs_table: str) -> workflow_jobs.JobsTable:
+        return depot_ci.with_depot_jobs(workflow_jobs_table, self._depot_job_attempts(), self._tables.workflow_runs)
 
     def trunk_merge_queue_source(self) -> str | None:
         """Curated Trunk merge-queue ``SELECT`` subquery, or None when no TrunkIo source has the
         opt-in merge-queue endpoint synced (the normal state) or the requesting user can't access
         one; either way consumers degrade to the GitHub-derived proxy. Resolved lazily on first
         call and cached, so probing stays as cheap as the sibling sources."""
-        if not self._trunk_table_resolved:
-            self._trunk_table = resolve_trunk_merge_queue_table(self._team, self._user_access_control)
-            self._trunk_table_resolved = True
+        with self._lock:
+            if not self._trunk_table_resolved:
+                self._trunk_table = resolve_trunk_merge_queue_table(self._team, self._user_access_control)
+                self._trunk_table_resolved = True
         if self._trunk_table is None:
             return None
         return f"({trunk_merge_queue.build_query(self._trunk_table)})"
 
     def _trunk_quarantine(self) -> "TrunkQuarantineSource | None":
-        if not self._trunk_quarantine_resolved:
-            self._trunk_quarantine_source = resolve_trunk_quarantined_tests_source(
-                self._team, self.repository, self._user_access_control
-            )
-            self._trunk_quarantine_resolved = True
-        return self._trunk_quarantine_source
+        with self._lock:
+            if not self._trunk_quarantine_resolved:
+                self._trunk_quarantine_source = resolve_trunk_quarantined_tests_source(
+                    self._team, self.repository, self._user_access_control
+                )
+                self._trunk_quarantine_resolved = True
+            return self._trunk_quarantine_source
 
     def trunk_quarantined_tests_source(self) -> str | None:
         """Curated Trunk quarantined-tests ``SELECT`` subquery, or None when no TrunkIo source has
@@ -335,7 +367,7 @@ class CuratedGitHubSource:
         window = self._issue_events_window()
         cte = self.ready_by_pr_cte()
         if window is None or cte is None:
-            return _READY_TO_MERGE_UNOBSERVABLE
+            return READY_TO_MERGE_UNOBSERVABLE
         return ReadyToMergeSql(cte=cte, join=_READY_BY_PR_JOIN, expr=_ready_to_merge_expr(window))
 
     def _issue_events_window(self) -> "_IssueEventsWindow | None":
@@ -357,8 +389,8 @@ class CuratedGitHubSource:
         Only the LAST switch counts: for a merged PR the newest transition is necessarily the ready
         that preceded the merge (a draft can't merge); an open PR goes false while re-drafted. The
         event id breaks same-second ties (GitHub timestamps are second-coarse). Keyed on
-        ``pr_number`` alone, unlike ``runs_by_pr``: a run's association can list the fork network's
-        PRs (which is why that rollup needs the repo qualifier), whereas every row of a resolved
+        ``pr_number`` alone, unlike the push-activity query in ``pull_request_list``: a run's association
+        can list the fork network's PRs (which is why that query needs the repo qualifier), whereas every row of a resolved
         issue-events table belongs to that one repo by table construction.
 
         The events table and the pull requests table sync independently, so a timestamp here can run
@@ -410,21 +442,19 @@ class CuratedGitHubSource:
         return f"({query})"
 
     def runs_cte(self) -> str:
-        """CTE materializing the curated workflow-runs source once.
+        """CTE naming the curated workflow-runs source for ``ci_rollup``.
 
-        ``ci_rollup`` and ``runs_by_pr`` both derive from the same runs source; reading them from
-        this shared CTE keeps the (JSON- and timestamp-parsing) source to a single scan per query
-        instead of inlining — and re-parsing — it once per rollup.
+        ClickHouse inlines a CTE at every reference, so each extra reader of ``runs`` scans and
+        parses the whole runs source again.
         """
         return f"runs AS {self.run_source()}"
 
     def _pr_scope_cte(self, pr_scope_where: str) -> str:
         """CTE: the number and head SHA of PRs matching ``pr_scope_where`` (a predicate over
-        unqualified curated PR columns), read once and shared by both runs rollups below —
-        the same one-scan-per-query reasoning as ``runs_cte``, applied to the PR source.
+        unqualified curated PR columns).
 
-        The runs rollups only ever join back to PRs the consuming query keeps, so they
-        prefilter the runs scan to this set. Unscoped, they aggregate the team's whole
+        The CI rollup only ever joins back to PRs the consuming query keeps, so it
+        prefilters the runs scan to this set. Unscoped, it aggregates the team's whole
         run history — millions of ``(head_sha, workflow)`` groups on a busy repo — and
         the query runs out of memory before the join discards almost all of it.
         """
@@ -470,75 +500,33 @@ class CuratedGitHubSource:
             )
         """
 
-    def pr_rollup_query(self, select: str, *, pr_scope_where: str) -> str:
+    def pr_rollup_query(
+        self, select: str, *, pr_scope_where: str, ready: ReadyToMergeSql = READY_TO_MERGE_UNOBSERVABLE
+    ) -> str:
         """Compose a pull-requests query that reads ``FROM __PR_SOURCE__ AS pr LEFT JOIN ci_rollup``.
 
-        Prefixes ``select`` with the ``pr_scope`` and CI rollup CTEs and fills its
-        ``__PR_SOURCE__`` placeholder with the curated pull-requests source — the steps the
-        cards and PR-list queries always do together. ``pr_scope_where`` must keep every PR the
-        ``select`` reads CI for (it prunes the rollup scan, see ``_pr_scope_cte``); a PR outside
-        it joins as if it had no runs.
+        Prefixes ``select`` with the ``pr_scope`` and CI rollup CTEs, and the CTE of the ``ready``
+        measure when ``select`` reads it, and fills its ``__PR_SOURCE__`` placeholder with the
+        curated pull-requests source. The cards and PR-list queries always do these steps together.
+        ``pr_scope_where`` must keep every PR the ``select`` reads CI for (it prunes the rollup scan,
+        see ``_pr_scope_cte``); a PR outside it joins as if it had no runs.
         """
-        return self._compose_pr_query(
-            [self.runs_cte(), self._pr_scope_cte(pr_scope_where), self.ci_rollup_cte()], select
-        )
-
-    def runs_by_pr_cte(self) -> str:
-        """CTE: per-PR activity from the workflow runs attributed to each PR. Scoped to the
-        ``pr_scope`` CTE the composing query adds (see ``_pr_scope_cte``); the scope is a
-        prefilter — the repo-qualified join below still decides correctness.
-
-        A run records the PR(s) it ran for in ``pull_requests``; the curated run source surfaces
-        the first as ``pr_number``. ``pushes`` counts the distinct head SHAs that triggered CI
-        (CI triggers), ``rerun_cycles`` the runs that were a 2nd+ attempt. Fork-PR runs have no
-        association (``pr_number = 0``) and are excluded.
-
-        Merge-queue gate runs are excluded too, even though the runs builder credits them to the PR
-        they were landing. This rollup measures what the *author* did to the PR, and a gate branch's
-        head SHA is a rebase the queue made — counting it would report a push nobody made, once per
-        merge attempt. Cost and CI-health surfaces keep the gate run; they measure spend and outcomes,
-        not authoring activity.
-
-        Keyed on ``(repo_owner, repo_name, pr_number)``, not ``pr_number`` alone: PR numbers
-        restart per repository, so the PR-list join is qualified by repo to stay correct — as
-        repo-safe as the head-SHA join in ``ci_rollup_cte``. A resolved source is a single repo
-        today (the warehouse GitHub source syncs one ``owner/repo``), so the qualifier is a no-op
-        now; it keeps the rollup correct if a source ever spans repos, instead of silently
-        cross-attributing runs to a same-numbered PR in another repo.
-        """
-        return f"""
-            runs_by_pr AS (
-                SELECT
-                    repo_owner,
-                    repo_name,
-                    pr_number,
-                    count(DISTINCT head_sha) AS pushes,
-                    countIf(run_attempt > 1) AS rerun_cycles
-                FROM runs AS r
-                WHERE {_PUSH_RUN_PREDICATE}
-                    AND pr_number IN (SELECT number FROM pr_scope)
-                GROUP BY repo_owner, repo_name, pr_number
-            )
-        """
-
-    def pr_list_rollup_query(self, select: str, *, pr_scope_where: str) -> str:
-        """``pr_rollup_query`` plus the per-PR runs rollup and, when it is observable, the
-        ``ready_by_pr`` rollup ``ready_to_merge_sql`` reads. ``pr_scope_where`` scopes both
-        runs rollups via the shared ``pr_scope`` CTE (see ``pr_rollup_query``)."""
-        ctes = [
-            self.runs_cte(),
-            self._pr_scope_cte(pr_scope_where),
-            self.ci_rollup_cte(),
-            self.runs_by_pr_cte(),
-        ]
-        ready_cte = self.ready_to_merge_sql().cte
-        if ready_cte:
-            ctes.append(ready_cte)
+        ctes = [self.runs_cte(), self._pr_scope_cte(pr_scope_where), self.ci_rollup_cte()]
+        if ready.cte:
+            ctes.append(ready.cte)
         return self._compose_pr_query(ctes, select)
 
     def _compose_pr_query(self, ctes: list[str], select: str) -> str:
         """Prefix ``select`` with the given CTEs and fill its ``__PR_SOURCE__`` placeholder with the PR source."""
         return f"WITH {', '.join(ctes)} {select}".replace("__PR_SOURCE__", self.pr_source())
+
+    @contextmanager
+    def concurrent_reads(self) -> Iterator["ConcurrentReads"]:
+        """Run the reads submitted inside the block together when it exits, so a request waits for
+        its slowest read instead of the sum of all of them. Read each result after the block."""
+        reads = ConcurrentReads()
+        yield reads
+        reads.run()
 
     def run_paged(
         self,
@@ -580,6 +568,65 @@ class CuratedGitHubSource:
                 return rows
             cursor = tuple(page[-1][index] for _column, index in page_key)
 
+    @property
+    def _user(self) -> "User | None":
+        return self._user_access_control.user if self._user_access_control is not None else None
+
+    @property
+    def _bypass_warehouse_access_control(self) -> bool:
+        return self._user_access_control is None
+
+    def _catalog(self) -> Database:
+        with self._lock:
+            if self._database is None:
+                self._database = Database.create_for(
+                    team=self._team,
+                    user=self._user,
+                    user_access_control=self._user_access_control,
+                    modifiers=create_default_modifiers_for_team(self._team),
+                    bypass_warehouse_access_control=self._bypass_warehouse_access_control,
+                    trigger="engineering_analytics",
+                )
+            return self._database
+
+    def read_through[V](
+        self, *, sql: str, keys: Sequence[int], load: Callable[[list[int]], dict[int, V]], ttl_seconds: int
+    ) -> dict[int, V]:
+        """``load``'s value for every key, reusing values another request computed in the last
+        ``ttl_seconds``. ``load`` gets the keys with no cached value and must return one for each.
+
+        ``sql`` is the query ``load`` runs, before its placeholders. Its hash names the cache, so a
+        change to that query, the prices it renders or the tables it resolves starts a fresh one. A
+        cached value is served only when this reader's catalog grants every table that query reads,
+        the decision the query itself would get. A cache that fails to answer loads every key.
+        """
+        prefix = f"engineering_analytics:{self._team.pk}:{hashlib.sha256(sql.encode()).hexdigest()}"
+        cache_keys = {key: f"{prefix}:{key}" for key in keys}
+        cached: dict[str, V] = {}
+        if self._may_read_every_table_in(sql):
+            try:
+                cached = cache.get_many(list(cache_keys.values()))
+            except Exception:
+                logger.warning("engineering_analytics_cache_read_failed", exc_info=True)
+        values = {key: cached[cache_key] for key, cache_key in cache_keys.items() if cache_key in cached}
+        missing = [key for key in keys if key not in values]
+        if not missing:
+            return values
+        loaded = load(missing)
+        try:
+            cache.set_many({cache_keys[key]: value for key, value in loaded.items()}, timeout=ttl_seconds)
+        except Exception:
+            logger.warning("engineering_analytics_cache_write_failed", exc_info=True)
+        return {**values, **loaded}
+
+    def _may_read_every_table_in(self, sql: str) -> bool:
+        # The rule HogQL's own query cache applies: posthog/hogql/ACCESS_CONTROL.md, "Query cache partitioning".
+        catalog = self._catalog()
+        return all(
+            catalog.has_table(table) and not catalog.is_table_access_denied(table)
+            for table in get_table_names(parse_select(sql))
+        )
+
     def run(
         self,
         sql: str,
@@ -604,11 +651,15 @@ class CuratedGitHubSource:
         ``logs`` table). The warehouse-ACL reasoning above governs warehouse tables only and is a no-op
         for such reads — those tables carry no per-table ACL, so the ``team_id`` scope is their boundary.
         """
-        if self._queries_remaining is not None:
-            if self._queries_remaining <= 0:
-                raise QueryWorkLimitExceededError
-            self._queries_remaining -= 1
+        with self._lock:
+            if self._queries_remaining is not None:
+                if self._queries_remaining <= 0:
+                    raise QueryWorkLimitExceededError
+                self._queries_remaining -= 1
         uac = self._user_access_control
+        user = self._user
+        bypass_warehouse_access_control = self._bypass_warehouse_access_control
+        database = self._catalog()
         with tags_context(product=Product.ENGINEERING_ANALYTICS, feature=Feature.QUERY, team_id=self._team.pk):
             return execute_hogql_query(
                 query=parse_select(sql, placeholders=placeholders),
@@ -617,16 +668,61 @@ class CuratedGitHubSource:
                 # The logs table lives on a separate ClickHouse cluster (Workload.LOGS); warehouse
                 # reads use the default. Callers pass the workload that matches the tables they query.
                 workload=workload,
-                # Forward the real user, not just the access control: a userless build drops the access
-                # control and fails closed (see _compute_system_table_access_decision), so the user is what
-                # lets HogQL honor the per-table warehouse ACL.
-                user=uac.user if uac is not None else None,
+                user=user,
                 user_access_control=uac,
-                # No user means a system / Temporal / CLI caller (the facade's documented userless path).
-                # There is no principal to honor the ACL with, so bypass it rather than fail closed and
-                # strip the tables — bypass is set ONLY in this genuinely userless case.
-                bypass_warehouse_access_control=uac is None,
+                bypass_warehouse_access_control=bypass_warehouse_access_control,
+                context=HogQLContext(
+                    team_id=self._team.pk,
+                    user=user,
+                    user_access_control=uac,
+                    bypass_warehouse_access_control=bypass_warehouse_access_control,
+                    database=database,
+                ),
             )
+
+
+class ConcurrentReads:
+    """Each worker closes the Postgres connection it opens. Under TEST the reads run inline, because a
+    worker's connection cannot see the test transaction."""
+
+    def __init__(self) -> None:
+        self._work: list[Callable[[], None]] = []
+
+    def submit[T](self, read: Callable[[], T]) -> "Future[T]":
+        future: Future[T] = Future()
+
+        def run_read() -> None:
+            try:
+                future.set_result(read())
+            except Exception as error:
+                future.set_exception(error)
+                raise
+
+        self._work.append(run_read)
+        return future
+
+    def run(self) -> None:
+        if settings.TEST:
+            errors: list[Exception] = []
+            for work in self._work:
+                try:
+                    work()
+                except Exception as error:
+                    errors.append(error)
+            if errors:
+                raise errors[0]
+            return
+        run_in_parallel_threads(
+            [partial(_closing_connection, work) for work in self._work],
+            thread_name_prefix="engineering_analytics",
+        )
+
+
+def _closing_connection(work: Callable[[], None]) -> None:
+    try:
+        work()
+    finally:
+        connection.close()
 
 
 def opt_float(value: float | None) -> float | None:

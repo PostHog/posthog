@@ -16,6 +16,7 @@ from products.tasks.backend.exceptions import (
     SandboxTimeoutError,
 )
 from products.tasks.backend.logic.services.launch_preparation_metrics import record_launch_preparation_ms
+from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, sandbox_repo_path
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.start_agent_server import (
@@ -305,6 +306,27 @@ def test_invoke_start_agent_server_skips_log_tails_when_rate_limited(mocker) -> 
     assert raised.value is error
     emit_agentsh.assert_not_called()
     emit_agent_server.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "is_modal, use_modal_vm_sandbox, expected_runtime",
+    [(True, True, "vm"), (True, False, "gvisor"), (False, True, None)],
+    ids=["modal_vm", "modal_gvisor", "non_modal"],
+)
+def test_invoke_start_agent_server_forwards_sandbox_runtime(
+    mocker, is_modal: bool, use_modal_vm_sandbox: bool, expected_runtime: str | None
+) -> None:
+    sandbox = mocker.Mock(spec=ModalSandbox, id="sandbox-id") if is_modal else mocker.Mock(id="sandbox-id")
+    sandbox.start_agent_server.return_value = None
+
+    _invoke_start_agent_server(
+        sandbox,
+        _context(use_modal_vm_sandbox=use_modal_vm_sandbox),
+        mocker.Mock(agentsh_domains=None),
+        repo_ready_file=None,
+    )
+
+    assert sandbox.start_agent_server.call_args.kwargs["sandbox_runtime"] == expected_runtime
 
 
 @pytest.mark.parametrize(
@@ -665,6 +687,26 @@ def test_prepare_launch_relabels_only_non_transient_token_errors(mocker, raised,
 def test_resolve_protected_base_branch(mocker, pr_base, branch, expected) -> None:
     _mock_github_integration(mocker, pr_base=pr_base)
     context = _context(github_integration_id=42, repository="PostHog/posthog", branch=branch)
+    assert _resolve_protected_base_branch(context) == expected
+
+
+@pytest.mark.parametrize(
+    "stack_base_branch,expected",
+    [
+        # A stacked run starts on the lower layer's head: protect that head as the PR base.
+        ("posthog-self-driving/layer-one-abc123", "posthog-self-driving/layer-one-abc123"),
+        # The marker names another branch, so the run moved on and the open PR lookup decides.
+        ("posthog-self-driving/other-def456", "master"),
+    ],
+)
+def test_resolve_protected_base_branch_for_stacked_run(mocker, stack_base_branch, expected) -> None:
+    _mock_github_integration(mocker, pr_base="master")
+    context = _context(
+        github_integration_id=42,
+        repository="PostHog/posthog",
+        branch="posthog-self-driving/layer-one-abc123",
+        state={"stack_base_branch": stack_base_branch},
+    )
     assert _resolve_protected_base_branch(context) == expected
 
 

@@ -103,9 +103,9 @@ export const manifest: ProductManifest = {
         customerAnalyticsAccounts: (): string => '/customer_analytics/accounts',
         // Account detail path. The flag-off scene falls back to the filtered, expanded Accounts list.
         customerAnalyticsAccount: (accountId: string, tab?: string): string =>
-            `/customer_analytics/accounts/${accountId}${tab ? `/${tab}` : ''}`,
+            `/customer_analytics/accounts/${accountId}${tab ? `/${encodeURIComponent(tab)}` : ''}`,
         customerAnalyticsAccountByExternalId: (externalId: string, tab?: string): string =>
-            `/customer_analytics/accounts/by-external-id/${encodeURIComponent(externalId)}${tab ? `/${tab}` : ''}`,
+            `/customer_analytics/accounts/by-external-id/${encodeURIComponent(externalId)}${tab ? `/${encodeURIComponent(tab)}` : ''}`,
         customerAnalyticsNotes: (): string => '/customer_analytics/notes',
         customerAnalyticsAnnouncements: (): string => '/customer_analytics/announcements',
         customerAnalyticsFeed: (): string => '/customer_analytics/feed',
@@ -113,8 +113,11 @@ export const manifest: ProductManifest = {
         customerAnalyticsFeatureRequests: (requestId?: string): string =>
             `/customer_analytics/feature-requests${requestId ? `/${requestId}` : ''}`,
         customerAnalyticsJourneys: (): string => '/customer_analytics/journeys',
-        customerAnalyticsConfiguration: (tab?: string): string =>
-            `/customer_analytics/configuration${tab ? `?tab=${tab}` : ''}`,
+        customerAnalyticsConfiguration: (tab?: string, returnTo?: string): string =>
+            combineUrl('/customer_analytics/configuration', {
+                ...(tab ? { tab } : {}),
+                ...(returnTo ? { returnTo } : {}),
+            }).url,
         customerJourneyBuilder: (): string => '/customer_analytics/journeys/new',
         customerJourneyTemplates: (): string => '/customer_analytics/journeys/templates',
         customerJourneyEdit: (id: string): string => `/customer_analytics/journeys/${id}/edit`,
@@ -125,8 +128,8 @@ export const manifest: ProductManifest = {
         {
             path: 'Customer analytics',
             intents: [ProductKey.CUSTOMER_ANALYTICS],
-            category: ProductItemCategory.ANALYTICS,
-            iconType: 'cohort',
+            category: ProductItemCategory.DATA,
+            iconType: 'customer_analytics',
             iconColor: [
                 'var(--color-product-customer-analytics-light)',
                 'var(--color-product-customer-analytics-dark)',
@@ -149,7 +152,11 @@ export const manifest: ProductManifest = {
         {
             path: 'Warehouse properties',
             category: 'Schema',
-            iconType: 'data_warehouse',
+            iconType: 'warehouse_property',
+            iconColor: [
+                'var(--color-product-warehouse-properties-light)',
+                'var(--color-product-warehouse-properties-dark)',
+            ],
             href: urls.warehouseProperties(),
             flag: FEATURE_FLAGS.WAREHOUSE_PERSON_PROPERTIES,
             sceneKey: 'WarehouseProperties',

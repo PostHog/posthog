@@ -1,6 +1,4 @@
-import threading
 import dataclasses
-from concurrent.futures import Future
 
 from unittest.mock import patch
 
@@ -16,7 +14,7 @@ from posthog.taxonomic_search_intent.contracts import SearchIntent, SearchIntent
 from posthog.taxonomic_search_intent.prompt import (
     BUNDLED_SEARCH_INTENT_PROMPT,
     SearchIntentPrompt,
-    _PromptRefresher,
+    fetch_search_intent_prompt,
     parse_search_intent_prompt,
 )
 
@@ -49,6 +47,7 @@ class TestClassifySearchIntent(SimpleTestCase):
         build = patch(BUILD_CLIENT).start()
         patch(CURRENT_PROMPT, return_value=BUNDLED_SEARCH_INTENT_PROMPT).start()
         self.addCleanup(patch.stopall)
+        self.build = build
         self.decide = build.return_value.decide
 
     @parameterized.expand(
@@ -72,9 +71,15 @@ class TestClassifySearchIntent(SimpleTestCase):
                 None,
                 SearchIntentSource.SKIPPED,
             ),
-            ("id_like", "user 12345678", ALL_TABS, None, SearchIntentSource.SKIPPED),
             ("opaque_token", "sess_a1b2c3d4", ALL_TABS, None, SearchIntentSource.SKIPPED),
-            ("opaque_token_in_words", "session sess_a1b2c3d4", ALL_TABS, None, SearchIntentSource.SKIPPED),
+            ("key_value_pair", "token=abc", ALL_TABS, None, SearchIntentSource.SKIPPED),
+            ("url_inside_word", "visits:https://example.com/reset", ALL_TABS, None, SearchIntentSource.SKIPPED),
+            ("only_a_phone", "+1 (415) 555-2671", ALL_TABS, None, SearchIntentSource.SKIPPED),
+            ("only_a_host", "example.com", ALL_TABS, None, SearchIntentSource.SKIPPED),
+            ("spaced_key_value", "token = sk_live_abcdefghijklmnop", ALL_TABS, None, SearchIntentSource.SKIPPED),
+            ("value_after_marker", "token= sk_live_abcdefghijklmnop", ALL_TABS, None, SearchIntentSource.SKIPPED),
+            ("spaced_email", "ada @ example.com", ALL_TABS, None, SearchIntentSource.SKIPPED),
+            ("email_split_at_domain", "ada@ example.com", ALL_TABS, None, SearchIntentSource.SKIPPED),
             ("too_short", "e", ALL_TABS, None, SearchIntentSource.SKIPPED),
             ("one_option_left", "email", ("events", "suggested_filters"), None, SearchIntentSource.SKIPPED),
         ]
@@ -87,6 +92,35 @@ class TestClassifySearchIntent(SimpleTestCase):
         assert (intent.group_type, intent.source) == (expected, source)
         self.decide.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("id_like", "user 12345678", "user <number>"),
+            ("opaque_token_in_words", "session sess_a1b2c3d4", "session <id>"),
+            ("partial_email_in_words", "emails from ada@exa", "emails from <email>"),
+            ("url_after_words", "visits https://example.com/reset", "visits <url>"),
+            ("path_after_words", "visits /reset?token=abc", "visits <path>"),
+            ("wrapped_url", "visits (https://example.com/reset)", "visits <url>"),
+            ("bare_host_url", "visits example.com/reset/abc", "visits <path>"),
+            ("windows_path", "opened C:\\Users\\ada\\notes.txt", "opened <path>"),
+            ("key_value_in_words", "campaign utm_source=newsletter", "campaign <value>"),
+            ("formatted_phone", "call +1 (415) 555-2671", "call <number>"),
+            ("local_phone", "call 555-2671 today", "call <number> today"),
+            ("ip_address", "show 10.24.8.7", "show <ip>"),
+            ("short_ip_address", "show 10.0.0.1", "show <ip>"),
+            ("bare_host", "visits example.com", "visits <url>"),
+            ("bare_host_with_port", "visits app.example.io:8080", "visits <url>"),
+            ("dotted_property_reads", "user.plan is pro", "user.plan is pro"),
+            ("small_numbers_read", "top 10 events in 2024", "top 10 events in 2024"),
+        ]
+    )
+    def test_asks_the_model_with_values_replaced(self, _name: str, query: str, model_reads: str) -> None:
+        self.decide.return_value = _answer("event_properties", 0.8)
+
+        intent = classify_search_intent(_search(query))
+
+        assert f"Search: {model_reads}\n" in self.decide.call_args.kwargs["state"] + "\n"
+        assert intent.model_query == model_reads
+
     def test_offers_only_the_tabs_the_picker_shows(self) -> None:
         self.decide.return_value = _answer("person_properties", 0.9)
 
@@ -98,6 +132,7 @@ class TestClassifySearchIntent(SimpleTestCase):
             is_confident=True,
             source=SearchIntentSource.MODEL,
             suggests_switch=True,
+            model_query="email",
         )
         sent = self.decide.call_args.kwargs
         assert set(sent["questions"]["tab"].criteria) == {
@@ -143,6 +178,16 @@ class TestClassifySearchIntent(SimpleTestCase):
         assert (intent.is_confident, intent.prompt_version) == (False, 7)
         question = self.decide.call_args.kwargs["questions"]["tab"]
         assert (question.instructions, question.criteria) == ("Which tab?", prompt.options)
+
+    def test_managed_model_is_sent_to_the_gateway_and_separates_cached_answers(self) -> None:
+        self.decide.return_value = _answer("events", 0.9)
+        managed = dataclasses.replace(BUNDLED_SEARCH_INTENT_PROMPT, model="posthog/hogference/jeeves-0.1")
+
+        classify_search_intent(_search("checkout"), prompt=BUNDLED_SEARCH_INTENT_PROMPT)
+        classify_search_intent(_search("checkout"), prompt=managed)
+
+        assert self.decide.call_count == 2
+        assert self.build.call_args.kwargs["model"] == managed.model
 
     @parameterized.expand(
         [
@@ -213,30 +258,34 @@ class TestSearchIntentPrompt(SimpleTestCase):
             instructions="Which tab?", options=options, confident_threshold=threshold, version=4
         )
 
-    def test_the_sdk_fallback_is_the_bundled_prompt(self) -> None:
+    def test_the_code_fallback_is_the_bundled_prompt(self) -> None:
         result = PromptResult(source="code_fallback", prompt=BUNDLED_SEARCH_INTENT_PROMPT.instructions)
 
         assert parse_search_intent_prompt(result) is BUNDLED_SEARCH_INTENT_PROMPT
 
-    def test_a_request_never_waits_for_the_prompt_fetch(self) -> None:
-        managed = dataclasses.replace(BUNDLED_SEARCH_INTENT_PROMPT, instructions="Which tab?", version=3)
-        release = threading.Event()
-        fetches: list[Future] = []
+    def test_model_config_uses_the_managed_model(self) -> None:
+        model = "posthog/hogference/jeeves-0.1"
+        result = PromptResult(source="api", prompt="Which tab?", name="n", version=4, config={"model": model})
 
-        def slow_fetch(**_kwargs: object) -> SearchIntentPrompt:
-            assert release.wait(timeout=5)
-            return managed
+        assert parse_search_intent_prompt(result).model == model
 
-        refresher = _PromptRefresher()
-        submit = refresher._executor.submit
-        with (
-            patch("posthog.taxonomic_search_intent.prompt.fetch_search_intent_prompt", slow_fetch),
-            patch.object(refresher._executor, "submit", side_effect=lambda fn: fetches.append(submit(fn))),
-        ):
-            assert refresher.current() is BUNDLED_SEARCH_INTENT_PROMPT
-            assert refresher.current() is BUNDLED_SEARCH_INTENT_PROMPT
-            release.set()
-            fetches[0].result(timeout=5)
+    @patch("posthog.taxonomic_search_intent.prompt.get_app_prompt")
+    def test_fetch_reads_the_managed_prompt(self, read_prompt) -> None:
+        read_prompt.return_value = PromptResult(
+            source="api",
+            prompt="Which tab?",
+            name="taxonomic-filter-search-intent",
+            version=3,
+            config={"model": "posthog/hogference/jeeves-0.1"},
+        )
 
-            assert refresher.current() == managed
-            assert len(fetches) == 1
+        prompt = fetch_search_intent_prompt()
+        assert prompt.version == 3
+        assert prompt.model == "posthog/hogference/jeeves-0.1"
+        read_prompt.assert_called_with("taxonomic-filter-search-intent", version=None)
+
+        fetch_search_intent_prompt(version=4)
+        read_prompt.assert_called_with("taxonomic-filter-search-intent", version=4)
+
+        read_prompt.return_value = None
+        assert fetch_search_intent_prompt() is BUNDLED_SEARCH_INTENT_PROMPT

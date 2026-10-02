@@ -172,6 +172,8 @@ pub struct UpsertStats {
     #[pyo3(get)]
     pub open_ms: u64,
     #[pyo3(get)]
+    pub initial_open_ms: u64,
+    #[pyo3(get)]
     pub ingest_ms: u64,
     #[pyo3(get)]
     pub relax_ms: u64,
@@ -218,6 +220,7 @@ impl From<deltalite_core::upsert::UpsertStats> for UpsertStats {
             commit_ms: s.commit_ms,
             columns_relaxed: s.columns_relaxed,
             open_ms: s.open_ms,
+            initial_open_ms: s.initial_open_ms,
             ingest_ms: s.ingest_ms,
             relax_ms: s.relax_ms,
             maintenance_ms: s.maintenance_ms,
@@ -225,9 +228,10 @@ impl From<deltalite_core::upsert::UpsertStats> for UpsertStats {
     }
 }
 
-/// A handle on a Delta table for deltalite writes. Reads (schema, history, file
-/// listing) exist for parity tooling; production read paths stay on the Python
-/// `deltalake` package -- both address the same `_delta_log`.
+/// A handle on a Delta table for deltalite writes, plus snapshot reads (version, table
+/// id, schema, live files) served from the loaded state so a writer does not need a
+/// second delta-rs `DeltaTable` open for them. `history` is the one read that goes back
+/// to the log.
 #[pyclass(module = "deltalite")]
 pub struct DeltaLiteTable {
     handle: TableHandle,
@@ -267,6 +271,43 @@ impl DeltaLiteTable {
     /// The table version this handle currently observes (-1 before any load).
     fn version(&self) -> i64 {
         self.handle.version()
+    }
+
+    /// The table id from the snapshot's metadata action.
+    fn table_id(&self) -> PyResult<String> {
+        self.handle.table_id().map_err(to_py_err)
+    }
+
+    /// The table configuration (`delta.*` properties and custom keys).
+    fn configuration(&self) -> PyResult<HashMap<String, String>> {
+        self.handle.configuration().map_err(to_py_err)
+    }
+
+    /// The Delta schema of the loaded snapshot as a JSON string, in the form
+    /// `deltalake.DeltaTable.schema().to_json()` returns.
+    fn schema_json(&self) -> PyResult<String> {
+        self.handle.schema_json().map_err(to_py_err)
+    }
+
+    /// Number of live data files in the loaded snapshot.
+    fn num_files(&self) -> PyResult<usize> {
+        self.handle.num_files().map_err(to_py_err)
+    }
+
+    /// The live data files of the loaded snapshot, one dict per file with `path`
+    /// (relative to the table root), `size`, `modification_time` (epoch ms) and
+    /// `partition_values` (`dict[str, str | None]`, empty when unpartitioned).
+    fn files(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let out = PyList::empty(py);
+        for file in self.handle.files().map_err(to_py_err)? {
+            let d = PyDict::new(py);
+            d.set_item("path", file.path)?;
+            d.set_item("size", file.size)?;
+            d.set_item("modification_time", file.modification_time)?;
+            d.set_item("partition_values", file.partition_values)?;
+            out.append(d)?;
+        }
+        Ok(out.into())
     }
 
     /// Re-read the log so this handle observes commits made elsewhere. Incremental --

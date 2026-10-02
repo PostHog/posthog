@@ -13,7 +13,9 @@ import { parseRequestProtocolMeta } from '@/lib/stateless-protocol'
 import { extractBearerToken, sanitizeHeaderValue } from '@/lib/utils'
 
 import { trackAuthFailure } from './analytics'
-import { authFailuresTotal } from './metrics'
+import { resolveClientIp } from './client-ip'
+import { getEdgeClientIpSigningKeys } from './constants'
+import { authFailuresTotal, clientIpResolutionsTotal } from './metrics'
 import type { HonoCtx } from './types'
 
 const InitializeParamsSchema = z.object({
@@ -104,6 +106,9 @@ export async function authenticateAndParse(
     props.mcpSessionId = sanitizeHeaderValue(c.req.header('mcp-session-id') || undefined)
     props.mcpConversationId = sanitizeHeaderValue(c.req.header('mcp-conversation-id') || undefined)
     props.region = props.region || getRegionFromRequest(c.req.raw) || undefined
+    const clientIp = await resolveClientIp(c.req.raw.headers, getEdgeClientIpSigningKeys())
+    clientIpResolutionsTotal.inc({ source: clientIp.source, edge_outcome: clientIp.edgeOutcome })
+    props.clientIp = clientIp.ip
     if (new URL(c.req.url).searchParams.get('_deprecated') === 'sse') {
         props.viaSseRedirect = true
     }

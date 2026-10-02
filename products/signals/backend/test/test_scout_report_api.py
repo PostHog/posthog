@@ -20,7 +20,14 @@ from social_django.models import UserSocialAuth
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 
-from products.signals.backend.artefact_schemas import Priority, PriorityAssessment, SuggestedReviewers, TaskRunArtefact
+from products.signals.backend.artefact_schemas import (
+    AutostartSkip,
+    Priority,
+    PriorityAssessment,
+    SuggestedReviewers,
+    TaskRunArtefact,
+)
+from products.signals.backend.auto_start import _evaluate_link_gates
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
     ArtefactAttribution,
@@ -30,7 +37,7 @@ from products.signals.backend.models import (
     SignalSourceConfig,
 )
 from products.signals.backend.report_generation.resolve_reviewers import ReviewerIdentitySet
-from products.signals.backend.scout_harness.serializers import EditReportRequestSerializer
+from products.signals.backend.scout_harness.serializers import EditReportRequestSerializer, EmitReportRequestSerializer
 from products.signals.backend.scout_harness.tools.emit import remediation_for_skip
 from products.signals.backend.scout_harness.tools.report import (
     MAX_EVIDENCE_DESCRIPTION_LENGTH,
@@ -254,6 +261,8 @@ class TestScoutReportAPI(APIBaseTest):
         assert retry["report_id"] == first["report_id"]
         assert retry["idempotent_replay"] is True
         assert SignalReport.objects.filter(team=self.team).count() == 1
+        # A retry that crosses a deploy looks the report up by this stored key, so its format must not drift.
+        assert SignalReport.objects.get(team=self.team).scout_idempotency_key == f"{run.id}:key:checkout-p99"
 
     def test_emit_report_still_authors_a_second_report_for_a_different_finding(self) -> None:
         # The barrier must not swallow a real second finding: one run routinely reports more than one
@@ -513,6 +522,55 @@ class TestScoutReportAPI(APIBaseTest):
                 format="json",
             )
         assert cycle.status_code == status.HTTP_400_BAD_REQUEST, cycle.json()
+
+    def test_emit_report_writes_links_before_autostart_reads_the_link_gates(self) -> None:
+        run = _make_run(self.team)
+        resolved = SignalReport.objects.create(team=self.team, status=SignalReport.Status.RESOLVED, title="fixed")
+        gate_at_autostart: list[AutostartSkip | None] = []
+
+        async def _read_gates(*, team_id: int, report_id: str) -> None:
+            gate_at_autostart.append(await sync_to_async(_evaluate_link_gates)(team_id, report_id))
+
+        payload = self._payload(
+            repository="PostHog/PostHog",
+            priority="P1",
+            priority_explanation="big blast radius",
+            links=[{"kind": "duplicate_of", "report_id": str(resolved.id), "reason": "same root cause"}],
+        )
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock(side_effect=_read_gates)):
+            response = self.client.post(self._emit_url(str(run.id)), data=payload, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert len(gate_at_autostart) == 1
+        gate = gate_at_autostart[0]
+        assert gate is not None
+        assert (gate.skip_reason, gate.linked_report_id) == ("duplicate_of", str(resolved.id))
+
+    @parameterized.expand(
+        [
+            ("unknown_target", lambda self: str(uuid4())),
+            (
+                "other_team_target",
+                lambda self: str(
+                    SignalReport.objects.create(
+                        team=Team.objects.create(organization=self.organization, name="other"),
+                        status=SignalReport.Status.READY,
+                        title="other team",
+                    ).id
+                ),
+            ),
+        ]
+    )
+    def test_emit_report_with_a_rejected_link_authors_no_report(self, _name: str, target_factory: Any) -> None:
+        run = _make_run(self.team)
+        payload = self._payload(links=[{"kind": "depends_on", "report_id": target_factory(self)}])
+        with _safe_judge() as judge, patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()) as autostart:
+            response = self.client.post(self._emit_url(str(run.id)), data=payload, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert not SignalReport.objects.filter(team=self.team, title=payload["title"]).exists()
+        judge.assert_not_called()
+        autostart.assert_not_awaited()
 
     def test_a_links_only_edit_counts_as_an_edit(self) -> None:
         # A links-only edit commits the link and answers 200, so it has to reach the edit tally and
@@ -1870,6 +1928,7 @@ class TestScoutReportAPI(APIBaseTest):
         )
         assert forward.kwargs["token"] == self.team.api_token
         assert forward.kwargs["process_person_profile"] is False
+        assert forward.kwargs["distinct_id"] == f"signals_scout:{run.skill_name}"
         expected_url = None if expected_outcome == "gate_skipped" else f"/inbox/reports/{body['report_id']}"
         if expected_url is None:
             assert forward.kwargs["properties"]["report_url"] is None
@@ -2399,15 +2458,21 @@ class TestScoutReportAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("invalid_priority", {"priority": "P9", "priority_explanation": "x"}),
-            ("priority_without_explanation", {"priority": "P1"}),
+            ("invalid_priority", {"priority": "P9", "priority_explanation": "x"}, "priority"),
+            ("priority_without_explanation", {"priority": "P1"}, "priority_explanation"),
+            (
+                "priority_with_null_explanation",
+                {"priority": "P1", "priority_explanation": None},
+                "priority_explanation",
+            ),
         ]
     )
-    def test_emit_report_rejects_bad_priority(self, _name: str, overrides: dict) -> None:
+    def test_emit_report_rejects_bad_priority(self, _name: str, overrides: dict, expected_attr: str) -> None:
         run = _make_run(self.team)
         with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
             response = self.client.post(self._emit_url(str(run.id)), data=self._payload(**overrides), format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == expected_attr, response.json()
 
 
 class TestBuildSuggestedReviewers(APIBaseTest):
@@ -2775,3 +2840,49 @@ class TestScoutReportCheckAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.content
         assert response.json()["status"] == "cancelled"
+
+
+class TestEmitReportMetricGoalFields(SimpleTestCase):
+    def _payload(self, **metric_overrides: object) -> dict:
+        metric = {
+            "metric_id": "affected-users",
+            "title": "Affected users",
+            "kind": "affected_users",
+            "role": "primary",
+            "value_format": "count",
+            "query": trends_metric_query(series=[{"kind": "EventsNode", "event": "$exception", "math": "dau"}]),
+            **metric_overrides,
+        }
+        return {
+            "title": "Checkout p99 regressed after 4.2",
+            "summary": "The /checkout endpoint p99 doubled after the 4.2 deploy.",
+            "evidence": [{"description": "p99 doubled on /checkout", "source_id": "obs-1"}],
+            "actionability_explanation": "clear fix in the checkout handler",
+            "actionability": "immediately_actionable",
+            "priority": "P2",
+            "priority_explanation": "Checkout is a revenue path.",
+            "metrics": [metric],
+        }
+
+    @parameterized.expand(
+        [
+            ("goal_value", {"goal_value": 10}),
+            ("goal_direction", {"goal_direction": "at_most"}),
+            ("decision_window_days", {"decision_window_days": 7}),
+            ("minimum_data_points", {"minimum_data_points": 30}),
+        ]
+    )
+    def test_a_metric_goal_is_rejected_although_the_schema_omits_it(self, _name: str, goal: dict) -> None:
+        serializer = EmitReportRequestSerializer(data=self._payload(**goal))
+
+        assert not serializer.is_valid()
+        assert "impact_measurement_plan" in str(serializer.errors["metrics"])
+
+    @parameterized.expand(
+        [("no_goal_fields", {}), ("goal_grain_default_from_an_older_client", {"goal_grain": "whole_window"})]
+    )
+    def test_a_metric_without_a_goal_is_accepted(self, _name: str, extra: dict) -> None:
+        serializer = EmitReportRequestSerializer(data=self._payload(**extra))
+
+        assert serializer.is_valid(), serializer.errors
+        assert "goal_grain" not in serializer.validated_data["metrics"][0]

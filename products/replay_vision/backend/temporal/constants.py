@@ -5,6 +5,7 @@ from temporalio.common import Priority, RetryPolicy
 
 APPLY_SCANNER_WORKFLOW_NAME = "replay-vision-apply-scanner"
 SWEEP_SCANNER_WORKFLOW_NAME = "replay-vision-sweep-scanner"
+BUILD_BENCHMARK_WORKFLOW_NAME = "replay-vision-build-benchmark"
 
 # How long a cached admission budget admits without re-running the spend aggregates. Spend the
 # cache misses (settling receipts, evaluation reservations, failed-observation refunds) stays wrong
@@ -262,19 +263,18 @@ def build_evaluate_prompt_suggestion_workflow_id(suggestion_id: UUID) -> str:
     return f"{EVALUATE_PROMPT_SUGGESTION_WORKFLOW_NAME}-{suggestion_id}"
 
 
-def replay_vision_distinct_id(team_id: int) -> str:
-    """`posthog_distinct_id` for analytics events emitted by Replay Vision when no human user is attributable."""
-    return f"replay-vision:{team_id}"
-
-
 # Search suggestion refresher: hourly, bounded per run and per day so cost tracks scanners people look at.
 SEARCH_SUGGESTIONS_WORKFLOW_NAME = "replay-vision-refresh-search-suggestions"
 SEARCH_SUGGESTIONS_WORKFLOW_ID = "replay-vision-search-suggestions-refresher"
 SEARCH_SUGGESTIONS_SCHEDULE_ID = "replay-vision-search-suggestions-refresher-schedule"
-SEARCH_SUGGESTIONS_REFRESH_INTERVAL = dt.timedelta(hours=1)
-SEARCH_SUGGESTIONS_EXECUTION_TIMEOUT = dt.timedelta(minutes=50)
+# Short, so a new scanner or team has phrases minutes after its first observations land.
+SEARCH_SUGGESTIONS_REFRESH_INTERVAL = dt.timedelta(minutes=10)
+SEARCH_SUGGESTIONS_EXECUTION_TIMEOUT = dt.timedelta(minutes=9)
+# With the concurrency below and a 30s model timeout, a full run of slow calls still ends inside the execution timeout.
 SEARCH_SUGGESTIONS_MAX_PER_RUN = 200
-SEARCH_SUGGESTIONS_MAX_PER_DAY = 2000
-SEARCH_SUGGESTIONS_CONCURRENCY = 4
+# Backstop against a bug that makes every scope look stale. Sized for every active scanner and team refreshing
+# each REFRESH_INTERVAL, at a fraction of a cent per call.
+SEARCH_SUGGESTIONS_MAX_PER_DAY = 40_000
+SEARCH_SUGGESTIONS_CONCURRENCY = 16
 LIST_STALE_SEARCH_SUGGESTIONS_TIMEOUT = dt.timedelta(seconds=60)
 REFRESH_SEARCH_SUGGESTIONS_TIMEOUT = dt.timedelta(seconds=90)
