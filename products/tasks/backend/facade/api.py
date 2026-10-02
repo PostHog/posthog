@@ -4410,39 +4410,36 @@ def read_task_run_living_artifact_version(
 
 def presign_task_run_living_artifact_version_download(
     run_id: str | UUID, task_id: str | UUID, team_id: int, *, artifact_id: str | UUID, version: int
-) -> tuple[str | None, str | None]:
+) -> contracts.LivingArtifactVersionDownload:
     """Presign a download URL for one stored living artifact version.
 
-    Returns ``(url, error)``: ``(None, None)`` if the run isn't found, ``(None, "not_found")`` if the
-    artifact or version isn't found, ``(None, "not_stored")`` if the version keeps its content as text,
-    ``(None, "unavailable")`` if presigning fails, else ``(url, None)``.
+    The error is ``"not_found"`` if the artifact or version isn't found, ``"not_stored"`` if the version
+    keeps its content as text, and ``"unavailable"`` if presigning fails. Both fields are None if the run
+    isn't found.
     """
     from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
 
     from products.tasks.backend.logic.services.living_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
         get_task_artifact_for_run,
-        living_artifact_version_storage_path,
+        resolve_living_artifact_version,
     )
 
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
-        return None, None
+        return contracts.LivingArtifactVersionDownload(url=None, error=None)
     try:
         UUID(str(artifact_id))
     except ValueError:
-        return None, "not_found"
+        return contracts.LivingArtifactVersionDownload(url=None, error="not_found")
     artifact = get_task_artifact_for_run(run, artifact_id)
-    if artifact is None:
-        return None, "not_found"
-    if not any(isinstance(record, dict) and record.get("version") == version for record in artifact.versions or []):
-        return None, "not_found"
-    stored = living_artifact_version_storage_path(artifact, version)
-    if stored is None:
-        return None, "not_stored"
-    storage_path, content_type = stored
+    resolved = resolve_living_artifact_version(artifact, version) if artifact is not None else None
+    if artifact is None or resolved is None:
+        return contracts.LivingArtifactVersionDownload(url=None, error="not_found")
+    if not resolved.storage_path:
+        return contracts.LivingArtifactVersionDownload(url=None, error="not_stored")
     url = object_storage.get_presigned_url(
-        storage_path,
-        content_type=content_type or None,
+        resolved.storage_path,
+        content_type=resolved.content_type or None,
         # Agent-written HTML or SVG must not render as a page, so the browser always saves it.
         content_disposition=content_disposition_header(
             as_attachment=True, filename=PurePosixPath(artifact.name).name or "artifact"
@@ -4450,8 +4447,8 @@ def presign_task_run_living_artifact_version_download(
         or "attachment",
     )
     if not url:
-        return None, "unavailable"
-    return url, None
+        return contracts.LivingArtifactVersionDownload(url=None, error="unavailable")
+    return contracts.LivingArtifactVersionDownload(url=url, error=None)
 
 
 def create_task_run_living_artifact(

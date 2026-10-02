@@ -24,6 +24,7 @@ import requests
 import structlog
 from slack_sdk.errors import SlackApiError
 
+from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.ph_client import ph_scoped_capture
 from posthog.slack.channels import MAX_BUTTON_URL_CHARS, SlackButton, section_block
@@ -386,15 +387,16 @@ class LivingArtifactVersionTooLarge(Exception):
     pass
 
 
-@dataclass(frozen=True)
-class _ResolvedVersion:
+@frozen
+class LivingVersionLocation:
     record: dict[str, Any]
     content_type: str
-    # Set when the version keeps its bytes in object storage.
+    # Empty when the version keeps its content as text in the record.
     storage_path: str
 
 
-def _resolve_living_version(artifact: TaskArtifact, version: int) -> _ResolvedVersion | None:
+def resolve_living_artifact_version(artifact: TaskArtifact, version: int) -> LivingVersionLocation | None:
+    """Find one version and where it keeps its content, or None when the version is unknown or its path is foreign."""
     record = next(
         (
             candidate
@@ -414,10 +416,10 @@ def _resolve_living_version(artifact: TaskArtifact, version: int) -> _ResolvedVe
     # Every living artifact object sits under its task's prefix. A path outside it is not this artifact's object.
     if storage_path and not storage_path.startswith(_task_artifact_s3_prefix(artifact)):
         return None
-    return _ResolvedVersion(record=record, content_type=content_type, storage_path=storage_path)
+    return LivingVersionLocation(record=record, content_type=content_type, storage_path=storage_path)
 
 
-def _stored_version_size(resolved: _ResolvedVersion) -> int | None:
+def _stored_version_size(resolved: LivingVersionLocation) -> int | None:
     size = resolved.record.get("size")
     if isinstance(size, int):
         return size
@@ -433,7 +435,7 @@ def read_living_artifact_version(artifact: TaskArtifact, version: int) -> Living
     text in the version record. A stored version above the preview limit raises
     LivingArtifactVersionTooLarge. Storage read errors propagate to the caller.
     """
-    resolved = _resolve_living_version(artifact, version)
+    resolved = resolve_living_artifact_version(artifact, version)
     if resolved is None:
         return None
 
@@ -452,14 +454,6 @@ def read_living_artifact_version(artifact: TaskArtifact, version: int) -> Living
             name=artifact.name, content_type=resolved.content_type, content=text.encode("utf-8")
         )
     return None
-
-
-def living_artifact_version_storage_path(artifact: TaskArtifact, version: int) -> tuple[str, str] | None:
-    """The object storage path and content type of a stored version, or None when the version keeps no file."""
-    resolved = _resolve_living_version(artifact, version)
-    if resolved is None or not resolved.storage_path:
-        return None
-    return resolved.storage_path, resolved.content_type
 
 
 # The task part of TaskRun.get_artifact_s3_prefix. Keep the two formats the same.

@@ -4562,19 +4562,19 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         task_id = self._ensure_task_accessible()
         version_number = int(str(version))
         if str(request.query_params.get("download", "")).lower() in ("1", "true"):
-            url, error = tasks_facade.presign_task_run_living_artifact_version_download(
+            download = tasks_facade.presign_task_run_living_artifact_version_download(
                 self._run_id(), task_id, self.team_id, artifact_id=str(pk), version=version_number
             )
-            if url:
-                response = HttpResponseRedirect(url)
-                response["Cache-Control"] = "no-store"
-                return response
-            if error == "unavailable":
+            if download.url:
+                redirect = HttpResponseRedirect(download.url)
+                redirect["Cache-Control"] = "no-store"
+                return redirect
+            if download.error == "unavailable":
                 return Response(
                     TaskRunErrorResponseSerializer({"error": "Unable to read this version"}).data,
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            if error != "not_stored":
+            if download.error != "not_stored":
                 raise NotFound()
         content, error = tasks_facade.read_task_run_living_artifact_version(
             self._run_id(), task_id, self.team_id, artifact_id=str(pk), version=version_number
