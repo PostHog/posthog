@@ -40,7 +40,12 @@ from posthog.models.identity_provider_config import ConfigScope, IdentityProvide
 from posthog.models.organization_invite import INVITE_DAYS_VALIDITY
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import CanCreateOrg
-from posthog.rate_limit import SignupEmailPrecheckThrottle, SignupIPThrottle, SignupResendInviteThrottle
+from posthog.rate_limit import (
+    SignupEmailPrecheckThrottle,
+    SignupIPThrottle,
+    SignupResendInviteThrottle,
+    reserve_organization_creation,
+)
 from posthog.utils import get_can_create_org, get_trusted_client_ip, is_relative_url
 from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
 
@@ -248,6 +253,8 @@ class SignupSerializer(serializers.Serializer):
             )
         except Exception:
             logger.exception("security_shadow_check_site_failed", call_site="signup")
+
+        reserve_organization_creation(request)
 
         is_instance_first_user: bool = not User.objects.exists()
 

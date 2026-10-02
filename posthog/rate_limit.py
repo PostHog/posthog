@@ -365,6 +365,48 @@ class SignupIPThrottle(IPThrottle):
     rate = settings.SIGNUP_IP_THROTTLE_RATE
 
 
+class OrganizationCreationIPThrottle(IPThrottle):
+    """
+    Limit how many organizations one IP address can create, across signup and the create organization API.
+    Charged through reserve_organization_creation, so only requests that reach organization creation count.
+    """
+
+    scope = "organization_creation_ip"
+    rate = settings.ORGANIZATION_CREATION_IP_THROTTLE_RATE
+
+
+def reserve_organization_creation(request) -> None:
+    """Atomically count one new organization against the request's IP address, or raise Throttled.
+
+    Call it immediately before the organization is created, so a request that fails validation spends nothing,
+    and parallel requests cannot all slip under the limit the way a read-then-charge throttle lets them.
+
+    Fails open on a cache error, so a Redis blip does not block signups.
+    """
+    if settings.E2E_TESTING:
+        return
+    throttle = OrganizationCreationIPThrottle()
+    try:
+        key = throttle.get_cache_key(request, None)
+        window = int(time.time()) // throttle.duration
+        counter = f"{key}:{window}"
+        cache.add(counter, 0, timeout=throttle.duration)
+        try:
+            count = cache.incr(counter)
+        except ValueError:
+            # The key expired between add and incr.
+            cache.set(counter, 1, timeout=throttle.duration)
+            count = 1
+    except Exception as e:
+        capture_exception(e)
+        return
+    if count > throttle.num_requests:
+        raise exceptions.Throttled(
+            wait=throttle.duration - int(time.time()) % throttle.duration,
+            detail="Too many organizations were created from your network recently. Try again later, or contact support if you need another organization now.",
+        )
+
+
 class WebAuthnSignupRegistrationThrottle(IPThrottle):
     """
     Rate limit passkey signup registrations by IP address to avoid a single IP address from initiating too many signups.

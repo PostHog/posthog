@@ -49,7 +49,11 @@ from posthog.permissions import (
     TimeSensitiveActionPermission,
     extract_organization,
 )
-from posthog.rate_limit import PostHogAIAccessRequestIPThrottle, PostHogAIAccessRequestUserThrottle
+from posthog.rate_limit import (
+    PostHogAIAccessRequestIPThrottle,
+    PostHogAIAccessRequestUserThrottle,
+    reserve_organization_creation,
+)
 from posthog.rbac.migrations.rbac_feature_flag_migration import rbac_feature_flag_role_access_migration
 from posthog.rbac.migrations.rbac_team_migration import rbac_team_access_control_migration
 from posthog.tasks.email import send_posthog_ai_access_request
@@ -257,6 +261,7 @@ class OrganizationSerializer(
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Organization:
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
         user = self.context["request"].user
+        reserve_organization_creation(self.context["request"])
         organization, _, _ = Organization.objects.bootstrap(user, **validated_data)
         exclude_internal_organization_from_crm(organization, user)
         return organization

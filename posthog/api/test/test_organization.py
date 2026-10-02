@@ -120,6 +120,24 @@ class TestOrganizationAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(Organization.objects.count(), 1)
 
+    @patch("posthog.utils.get_ip_address", return_value="192.168.1.100")
+    def test_organization_creation_is_limited_per_ip(self, _mock_get_ip):
+        cache.clear()
+        role = Role.objects.create(name="Existing organization role", organization=self.organization)
+
+        with self.is_cloud(True):
+            invalid = self.client.post("/api/organizations/", {"name": "New org", "default_role_id": str(role.id)})
+            self.assertEqual(invalid.status_code, status.HTTP_400_BAD_REQUEST)
+
+            for i in range(5):
+                response = self.client.post("/api/organizations/", {"name": f"New org {i}"})
+                self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+
+            response = self.client.post("/api/organizations/", {"name": "One too many"})
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(Organization.objects.count(), 6)
+
     # Updating organizations
 
     def test_update_organization_default_role(self):

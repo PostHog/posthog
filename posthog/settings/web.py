@@ -507,6 +507,10 @@ WHITENOISE_MAX_AGE = get_from_env("WHITENOISE_MAX_AGE", 3600, type_cast=int)
 # non-prod (e.g. dev deploy smoke-tests) can raise it without weakening the prod default.
 SIGNUP_IP_THROTTLE_RATE = get_from_env("SIGNUP_IP_THROTTLE_RATE", "5/day")
 
+# Per-IP limit on new organizations from signup and the create organization API
+# (see posthog.rate_limit.OrganizationCreationIPThrottle).
+ORGANIZATION_CREATION_IP_THROTTLE_RATE = get_from_env("ORGANIZATION_CREATION_IP_THROTTLE_RATE", "5/day")
+
 # Billing usage and spend exports stream a file from the billing service for as long as the
 # browser reads it, so both limits are per user (see ee.api.billing): how often an export may
 # start, and how many may be open at once.
