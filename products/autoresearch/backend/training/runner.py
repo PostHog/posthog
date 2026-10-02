@@ -33,8 +33,10 @@ import structlog
 from posthog.hogql.property import action_to_expr
 
 from posthog.dataclasses import frozen
+from posthog.models.user import User
 
 from products.actions.backend.models.action import Action
+from products.autoresearch.backend.access import has_report_notebook_access
 from products.autoresearch.backend.dataset.labeling import TrainingSample, build_target_condition
 from products.autoresearch.backend.inference.sandbox import _resolve_acting_user, measure_training_sample
 from products.autoresearch.backend.models import AutoresearchPipeline, AutoresearchSuggestion, AutoresearchTrainingRun
@@ -72,6 +74,11 @@ MAX_PENDING_SUGGESTIONS = 10
 # so without user:read it refuses the connection and the agent gets none of those tools.
 # The brief carries user-authored text, so the token grants nothing beyond that.
 TRAINING_MCP_SCOPES = ["query:read", "insight:read", "user:read", "autoresearch:read", "autoresearch:write"]
+
+# Added only when the report notebook flag is on for the user who starts the run.
+# notebook:write also exposes notebooks-partial-update and notebooks-destroy, so the brief
+# limits the agent to the notebook it creates in this run.
+REPORT_NOTEBOOK_MCP_SCOPES = ["notebook:read", "notebook:write"]
 
 # Task.title is a 255-character column, and a pipeline name and target event can each
 # take all of it.
@@ -141,12 +148,62 @@ def _describe_training_sample(sample: TrainingSample | None) -> str:
     return clause
 
 
+def _report_notebook_step(pipeline: AutoresearchPipeline, *, training_run_id: str, today_iso: str) -> str:
+    """The Finalize step that builds the report notebook, indented to sit inside the brief."""
+    step = textwrap.dedent(f"""
+        3. **Build the report notebook** — a live copy of the report whose numbers come from SQL
+           cells, so a reader can check them and re-run them after scoring. `report.md` stays the
+           fallback: write it first, whatever happens in this step.
+
+           Do this step only if `notebooks-create-markdown` and `notebooks-add-cell` are in your
+           tool list. If they are not, skip to the next step.
+
+           Create exactly ONE notebook with `notebooks-create-markdown`. Title it
+           `<pipeline name> · model report · {today_iso}`, where the pipeline name is
+           {_wrap_untrusted(pipeline.name)}. Change and run only this notebook. Never update,
+           delete, or run any other notebook.
+
+           Build it in this order, with markdown prose between the cells:
+           - **TL;DR** and **What it predicts** — the same content as `report.md`.
+           - **How training went** — a SQL cell over `system.autoresearch_iterations` where
+             `training_run_id = '{training_run_id}'`, then a Python cell that plots holdout AUC by
+             iteration and marks kept and discarded iterations.
+           - **How well it works** — a SQL cell over `system.autoresearch_models` where
+             `pipeline_id = '{pipeline.pk}'`: role, holdout AUC, realized AUC, calibration error,
+             and lift@10/@20 from `metrics` when present. Explain them in plain words.
+           - **What drives it** — a Python cell that charts the feature importances and direction
+             in `model_explanation` of this run's model row
+             (`source_training_run_id = '{training_run_id}'`), then prose on the intuition behind
+             each top feature.
+           - **Live performance** — a SQL cell over `events` where
+             `event = 'autoresearch_prediction'` and
+             `properties.$autoresearch_pipeline_id = '{pipeline.pk}'`, then Python cells for the
+             score histogram and the realized vs predicted rate by decile. A new model has no
+             predictions yet, so these cells must handle an empty result: print a clear message
+             such as "No predictions yet. Re-run after the first scoring run." and do not fail.
+           - **How it was built** and **Caveats and recommended use** — prose.
+
+           Rules for every cell:
+           - Every number comes from a SQL cell. Do not type metrics into Python or prose tables.
+           - Python cells work only on the dataframes of earlier cells. No network access: no
+             `requests`, `urllib`, `http`, `socket`, or `subprocess`. No file reads or writes,
+             and no package installs.
+           - One figure per Python cell. The kernel keeps at most 8 figures and about 3 MB of
+             images per cell.
+           - Do not call `notebooks-configure-compute`. Use the default kernel.
+           - Run each cell. If a cell fails, fix it or delete it. Never leave a failed cell.
+
+           Keep the notebook's `short_id` for the next step.""")
+    return textwrap.indent(step, " " * 8)
+
+
 def build_agent_description(
     pipeline: AutoresearchPipeline,
     iteration_budget: int,
     training_run_id: str,
     pending_suggestions: list[AutoresearchSuggestion] | None = None,
     training_sample: TrainingSample | None = None,
+    report_notebook: bool = False,
 ) -> str:
     """Build the Claude Code agent prompt for the autoresearch training loop."""
     pop_clause = ""
@@ -174,6 +231,16 @@ def build_agent_description(
     today_iso = date.today().isoformat()
     min_iters = min(3, iteration_budget)
     target = _describe_target(pipeline)
+    complete_step = 3
+    notebook_step = ""
+    notebook_field = ""
+    if report_notebook:
+        complete_step = 4
+        notebook_step = _report_notebook_step(pipeline, training_run_id=training_run_id, today_iso=today_iso)
+        notebook_field = (
+            "\n           - `report_notebook_short_id`: the `short_id` of the notebook from step 3. Omit it\n"
+            "             if you skipped step 3 or the notebook does not exist."
+        )
 
     prompt = textwrap.dedent(f"""
         # PostHog Autoresearch Agent
@@ -530,14 +597,14 @@ def build_agent_description(
            Add a calibration line (predicted vs realized rate) if it aids the story. Where a chart
            would be overkill (or mermaid can't express it), fall back to compact ASCII/unicode bar
            charts inline — they render in any Markdown surface. Use plain GFM tables for the metrics
-           block. If a user suggestion asks for a particular audience or emphasis, honor it.
-        3. Call `autoresearch-training-runs-complete-create` with `pipeline_id = "{pipeline.pk}"`
+           block. If a user suggestion asks for a particular audience or emphasis, honor it.{notebook_step}
+        {complete_step}. Call `autoresearch-training-runs-complete-create` with `pipeline_id = "{pipeline.pk}"`
            and `id = "{training_run_id}"`. The backend picks the best iteration, decides
            champion vs challenger, and attaches your uploaded bundle as the model's artifact.
            Also pass two short fields that become this run's learning memory for the NEXT run:
            - `distillation`: 1–2 sentences on what this run learned — the winning signal, the
              key transform, the dead-ends. This is the cheapest thing the next run reads.
-           - `recommended_next`: concretely what a future run should try next given what you found.
+           - `recommended_next`: concretely what a future run should try next given what you found.{notebook_field}
            The backend derives the rest of the summary (the kept ladder and dead-ends) from your
            recorded iterations, so keep these two fields to judgment only — do not restate the ladder.
 
@@ -604,6 +671,16 @@ def _training_sample_for_brief(pipeline: AutoresearchPipeline) -> TrainingSample
         return None
 
 
+def _report_notebook_enabled(pipeline: AutoresearchPipeline, *, user_id: int) -> bool:
+    """A flag check that fails leaves the notebook out rather than failing the launch."""
+    try:
+        user = User.objects.filter(pk=user_id).first()
+        return has_report_notebook_access(user, team_id=pipeline.team_id)
+    except Exception:
+        logger.warning("autoresearch_report_notebook_flag_check_failed", pipeline_id=str(pipeline.pk), exc_info=True)
+        return False
+
+
 def run_training(
     pipeline: AutoresearchPipeline,
     iteration_budget: int,
@@ -625,6 +702,9 @@ def run_training(
     # Completion fits the champion as the pipeline's creator, so a creator who has left
     # would consume the paid run and leave a champion that no scoring run can load.
     _resolve_acting_user(team=pipeline.team, pipeline=pipeline, user=None)
+    # The MCP token belongs to user_id, so the flag is evaluated for the same user.
+    report_notebook = _report_notebook_enabled(pipeline, user_id=user_id)
+    mcp_scopes = TRAINING_MCP_SCOPES + REPORT_NOTEBOOK_MCP_SCOPES if report_notebook else TRAINING_MCP_SCOPES
     # Every materialization labels through this condition, so a target it refuses (a deleted
     # action, or one with no steps) would fail the whole paid run.
     build_target_condition(
@@ -662,6 +742,7 @@ def run_training(
             training_run_id=str(training_run.id),
             pending_suggestions=pending_suggestions or None,
             training_sample=_training_sample_for_brief(pipeline),
+            report_notebook=report_notebook,
         )
 
         title = f"[autoresearch] {pipeline.name}: learn to predict '{pipeline.target_event}'"
@@ -675,7 +756,7 @@ def run_training(
             create_pr=False,
             mode="background",
             internal=True,
-            posthog_mcp_scopes=TRAINING_MCP_SCOPES,
+            posthog_mcp_scopes=mcp_scopes,
             # The autoresearch image is the agent-capable base plus pandas/numpy/
             # scikit-learn/pyarrow at system site. The base image lacks the ML libs; the
             # notebook image has the libs but cannot host the agent server — only this
