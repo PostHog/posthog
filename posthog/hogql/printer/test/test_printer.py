@@ -3155,9 +3155,8 @@ class TestPrinter(BaseTest):
     def test_non_string_timezone_override_raises(self, function_name: str, expr: str):
         with self.assertRaises(QueryError) as error_context:
             self._select(f"SELECT {expr} FROM events")
-        self.assertEqual(
-            str(error_context.exception),
-            f"The last argument of '{function_name}' must be a time zone string, such as 'UTC'",
+        assert str(error_context.exception) == (
+            f"The last argument of '{function_name}' must be a time zone string, such as 'UTC'"
         )
 
     def test_to_datetime_does_not_double_parse_datetime_property(self):
