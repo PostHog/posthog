@@ -2834,16 +2834,19 @@ describe('sqlEditorLogic', () => {
             })
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
-                monaco: createMockMonaco(),
-                editor: createMockEditor(),
             })
             logic.mount()
 
-            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', c: connection.id })
+            router.actions.push(urls.sqlEditor({ query, connectionId: connection.id }))
 
-            await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
             await expectLogic(logic).toDispatchActions(['setSendRawQuery'])
 
+            // Connection options can arrive before Monaco, while the URL query is still pending.
+            expect(router.values.searchParams.open_query).toEqual(query)
+            sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab']).toFinishAllListeners()
+
+            expect(logic.values.queryInput).toEqual(query)
             expect(logic.values.selectedConnectionSupportsHogQL).toEqual(true)
             expect(logic.values.sourceQuery.source.sendRawQuery).toEqual(true)
             expect(logic.values.sendRawQueryEnabled).toEqual(true)

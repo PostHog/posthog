@@ -3534,6 +3534,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         syncUrlWithQuery: () => {
             if (
                 values.isEmbeddedMode ||
+                values.queryInput === null ||
                 removeProjectIdIfPresent(router.values.location.pathname) !== urls.sqlEditor()
             ) {
                 return
