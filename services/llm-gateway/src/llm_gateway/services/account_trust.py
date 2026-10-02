@@ -38,7 +38,6 @@ def _highest_score(raw: object) -> int:
 class AccountTrustResolver:
     def __init__(self, pool: asyncpg.Pool) -> None:
         self._pool = pool
-        # Cache inputs, not decisions, so an age boundary takes effect on the next request.
         self._cache: TTLCache[int, AccountTrust] = TTLCache(maxsize=10_000, ttl=60, timer=time.monotonic)
 
     async def resolve(self, team_id: int) -> AccountTrust | None:

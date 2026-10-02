@@ -70,21 +70,6 @@ gateway reads are declared in `src/llm_gateway/db/required_tables.py`, and
 so a revoked grant unreadies serving pods as well as new rollouts. To add a table
 read, land the grant in every environment first, then declare the table.
 
-## Account trust
-
-Inference requests require an organization trust score of at least 7 while the organization is less than 7 days old,
-and at least 3 from 7 days until 30 days. Organizations at least 30 days old have no minimum trust score.
-Age is measured from the organization's creation time; the score is the highest valid nonnegative integer in
-`Organization.customer_trust_scores`, with missing scores treated as 0.
-
-The gateway checks the authenticated project's organization after resolving OAuth project scope, before usage limits
-or provider dispatch. For staff personal API keys acting on behalf of a customer, it checks the project in
-`x-posthog-property-team_id`, matching usage attribution. Other callers cannot override the checked project through
-attribution headers. The check applies to all inference products, including staff and internal-run credentials.
-Scores synchronized to the organization are cached for up to 60 seconds; age boundaries are evaluated on every request.
-Low trust returns HTTP 403 with `account_trust_required`. A missing project or a failed database lookup returns
-HTTP 503 with `account_trust_unavailable`. These checks are independent of the existing Desktop access and quota rules.
-
 ## User attribution
 
 When using an OAuth Access Token, the user who's token it is is the user used for analytics and rate limiting.

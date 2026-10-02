@@ -48,14 +48,8 @@ Existing Django callers should use `build_openai_client`, `build_async_openai_cl
 
 For PostHog Desktop, the Python gateway maps Django credential rejections to generic access denials. Transport, server, and malformed-response failures remain retryable service errors.
 
-Desktop, Code, and cloud agents also depend on the Python gateway's organization-age trust policy:
-the highest product trust score must be at least 7 before day 7, and at least 3 from day 7 until day 30.
-From day 30 there is no trust minimum. The check covers all Python inference routes, including internal-run tokens,
-so changing the product or endpoint cannot bypass it. These callers still require the OAuth application and project
-authorization contracts above, so a Go-only check would not protect them before migration.
-This policy was checked against PostHog base `db9efd4437c` and Go main
-`182d775fe868169ce46abcf25a62787ee58826c6` on 2026-10-02: Go's credential and scoped-token resolvers do not read
-organization age or billing trust scores.
+Desktop, Code, and cloud agents need account-age trust checks in Python while they depend on its authorization contracts above.
+Go's credential and scoped-token resolvers lack this policy, so migration also requires trust-check parity.
 
 PostHog Code's per-user spend caps remain in Python while its callers depend on the product authorization and billing policy above.
 The Code-only switch enables the existing burst and sustained caps only for configured authenticated user IDs, whether billed or unbilled; it defaults to disabled with an empty list.
