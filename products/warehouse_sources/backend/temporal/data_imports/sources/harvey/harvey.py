@@ -490,9 +490,12 @@ def _get_project_file_rows(
             yield rows
 
         pagination = content.get("pagination") or {}
-        cursor = pagination.get("next_cursor")
-        if not files or not pagination.get("has_more") or not cursor:
+        next_cursor = pagination.get("next_cursor")
+        if not files or not pagination.get("has_more") or not next_cursor:
             return
+        if next_cursor == cursor:
+            raise HarveyRetryableError("Harvey returned the same Vault project files cursor twice")
+        cursor = next_cursor
 
 
 def _get_project_review_table_ids(

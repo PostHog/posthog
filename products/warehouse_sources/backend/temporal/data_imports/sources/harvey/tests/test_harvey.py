@@ -814,6 +814,17 @@ class TestProjectFanOutRows:
         assert first["sort_by"] == "uploaded_at"
         assert first["sort_order"] == "asc"
 
+    def test_project_files_reject_repeated_cursor(self) -> None:
+        with pytest.raises(HarveyRetryableError, match="same Vault project files cursor"):
+            self._get_batches(
+                "vault_project_files",
+                [
+                    _vault_page(["proj-1"]),
+                    self._files_page(["file-1"], next_cursor="cursor-abc"),
+                    self._files_page(["file-1"], next_cursor="cursor-abc"),
+                ],
+            )
+
     @parameterized.expand(
         [
             # The spec documents an object but its example wraps the metadata in a list.
