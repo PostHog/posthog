@@ -66,9 +66,11 @@ from products.ai_observability.backend.llm.errors import (
     UnsupportedModelError,
     provider_error_detail,
 )
+from products.ai_observability.backend.llm.providers.openrouter import OPENROUTER_BASE_URL
 from products.ai_observability.backend.llm.system_one import (
     SystemOneClient,
     SystemOneEndpointBlockedError,
+    is_system_one_model,
     system_one_evaluations_enabled,
 )
 from products.ai_observability.backend.llm.types import CompletionResponse
@@ -580,23 +582,6 @@ def call_llm_judge(
     is_byok = resolved.is_byok
     key_id = str(provider_key.id) if provider_key else None
 
-    if provider == "system_one":
-        if output_type not in ("boolean", "categorical", "numeric"):
-            return build_skipped_evaluation_result(
-                output_type=output_type,
-                allows_na=allows_na,
-                reasoning="System One supports boolean, categorical, and numeric evaluations.",
-                skip_reason="unsupported_output_type",
-            )
-        base_url = provider_key.encrypted_config.get("base_url", "") if provider_key else ""
-        if not system_one_evaluations_enabled(team_id, base_url=base_url):
-            return build_skipped_evaluation_result(
-                output_type=output_type,
-                allows_na=allows_na,
-                reasoning="System One evaluations are not available for this project.",
-                skip_reason="system_one_unavailable",
-            )
-
     type_config = get_output_type_config(allows_na, output_type=output_type, output_config=output_config)
     response_format = type_config.response_format
 
@@ -611,7 +596,28 @@ def call_llm_judge(
     probability: float | None = None
     system_one_result = None
     try:
-        if provider == "system_one":
+        if is_system_one_model(provider, model, require_catalogue=True):
+            if output_type not in ("boolean", "categorical", "numeric"):
+                return build_skipped_evaluation_result(
+                    output_type=output_type,
+                    allows_na=allows_na,
+                    reasoning="System One supports boolean, categorical, and numeric evaluations.",
+                    skip_reason="unsupported_output_type",
+                )
+            base_url = (
+                OPENROUTER_BASE_URL
+                if provider == "openrouter"
+                else provider_key.encrypted_config.get("base_url", "")
+                if provider_key
+                else ""
+            )
+            if not system_one_evaluations_enabled(team_id, base_url=base_url):
+                return build_skipped_evaluation_result(
+                    output_type=output_type,
+                    allows_na=allows_na,
+                    reasoning="System One evaluations are not available for this project.",
+                    skip_reason="system_one_unavailable",
+                )
             prompt = evaluation["evaluation_config"]["prompt"]
             categorical_config = (
                 CategoricalOutputConfig.model_validate(output_config) if output_type == "categorical" else None

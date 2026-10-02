@@ -103,6 +103,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
         canEnableReason,
         modelSelectionRequired,
         numericBoundsRequired,
+        usesSystemOne,
     } = useValues(llmEvaluationLogic)
     const { searchParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -141,9 +142,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
         return <NotFound object="evaluation" />
     }
     const openInPlaygroundUrl =
-        evaluationTypeUsesModelConfiguration(evaluation.evaluation_type) &&
-        evaluation.id &&
-        evaluation.model_configuration?.provider !== 'system_one'
+        evaluationTypeUsesModelConfiguration(evaluation.evaluation_type) && evaluation.id && !usesSystemOne
             ? combineUrl(urls.aiObservabilityPlayground(), { source_evaluation_id: evaluation.id }).url
             : null
 
@@ -950,7 +949,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
 function EvaluationModelPicker(): JSX.Element {
     const { byokModels, evaluationProviderModelGroups, byokModelsLoading, providerKeysLoading } =
         useValues(modelPickerLogic)
-    const { selectedModel, selectedPickerProviderKeyId, modelSelectionRequired, evaluation } =
+    const { selectedModel, selectedPickerProviderKeyId, modelSelectionRequired, evaluation, usesSystemOne } =
         useValues(llmEvaluationLogic)
     const { selectModelFromPicker } = useActions(llmEvaluationLogic)
 
@@ -988,7 +987,7 @@ function EvaluationModelPicker(): JSX.Element {
                             data-attr="evaluation-model-selector"
                         />
                         <ByokModelPickerNotice forEvaluation />
-                        {evaluation?.model_configuration?.provider === 'system_one' && (
+                        {evaluation && usesSystemOne && (
                             <p className="text-sm text-muted mt-2">
                                 {evaluation.output_type === 'categorical'
                                     ? 'This judge selects categories without written reasoning. For multiple selections, each category is included when its probability is 50% or higher.'

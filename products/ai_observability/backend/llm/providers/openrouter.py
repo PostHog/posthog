@@ -34,7 +34,7 @@ OPENROUTER_HEADERS = {
 
 # The default model list only has text-output models, so ask for every output modality.
 OPENROUTER_ALL_MODELS_URL = f"{OPENROUTER_BASE_URL}/models?output_modalities=all"
-NON_CHAT_MODELS_CACHE_KEY = "ai_observability:openrouter:non_chat_models"
+NON_CHAT_MODELS_CACHE_KEY = "ai_observability:openrouter:non_chat_models:v2"
 NON_CHAT_MODELS_CACHE_TTL_SECONDS = 60 * 60
 NON_CHAT_MODELS_FETCH_TIMEOUT_SECONDS = 5.0
 # Short, so a catalogue outage adds the fetch timeout at most once a minute.
@@ -42,31 +42,45 @@ NON_CHAT_MODELS_UNAVAILABLE_TTL_SECONDS = 60
 _CATALOGUE_UNAVAILABLE = "unavailable"
 
 
-def _non_chat_model_ids() -> frozenset[str] | None:
-    """IDs of OpenRouter models that cannot produce text, such as decision models.
+def _non_chat_models() -> dict[str, list[str]] | None:
+    """Output modalities of OpenRouter models that cannot produce text.
 
-    Returns None when the catalogue is unavailable, so callers fail open.
+    Returns None when the catalogue is unavailable.
     """
     cached = cache.get(NON_CHAT_MODELS_CACHE_KEY)
     if cached == _CATALOGUE_UNAVAILABLE:
         return None
     if cached is not None:
-        return frozenset(cached)
+        return cached
     try:
         response = httpx.get(OPENROUTER_ALL_MODELS_URL, timeout=NON_CHAT_MODELS_FETCH_TIMEOUT_SECONDS)
         response.raise_for_status()
         models = response.json()["data"]
-        ids = sorted(
-            model["id"]
+        modalities = {
+            model["id"]: model["architecture"]["output_modalities"]
             for model in models
             if "text" not in (model.get("architecture") or {}).get("output_modalities", ["text"])
-        )
+        }
     except Exception:
         logger.warning("Could not fetch the OpenRouter model catalogue", exc_info=True)
         cache.set(NON_CHAT_MODELS_CACHE_KEY, _CATALOGUE_UNAVAILABLE, NON_CHAT_MODELS_UNAVAILABLE_TTL_SECONDS)
         return None
-    cache.set(NON_CHAT_MODELS_CACHE_KEY, ids, NON_CHAT_MODELS_CACHE_TTL_SECONDS)
-    return frozenset(ids)
+    cache.set(NON_CHAT_MODELS_CACHE_KEY, modalities, NON_CHAT_MODELS_CACHE_TTL_SECONDS)
+    return modalities
+
+
+def _non_chat_model_ids() -> frozenset[str] | None:
+    models = _non_chat_models()
+    return frozenset(models) if models is not None else None
+
+
+def decision_model_ids() -> frozenset[str] | None:
+    models = _non_chat_models()
+    return (
+        frozenset(model for model, modalities in models.items() if "decisions" in modalities)
+        if models is not None
+        else None
+    )
 
 
 def is_non_chat_model(model: str) -> bool:

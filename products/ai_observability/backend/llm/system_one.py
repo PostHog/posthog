@@ -32,6 +32,18 @@ from products.ai_observability.backend.llm.errors import (
     is_context_window_error_message,
 )
 from products.ai_observability.backend.llm.providers._diagnostics import tagged_http_client
+from products.ai_observability.backend.llm.providers.openrouter import decision_model_ids
+
+
+def is_system_one_model(provider: str | None, model: str | None, *, require_catalogue: bool = False) -> bool:
+    if provider == "system_one":
+        return True
+    if provider != "openrouter" or not model:
+        return False
+    models = decision_model_ids()
+    if models is None and require_catalogue:
+        raise ProviderConnectionError("Could not load OpenRouter model capabilities. Try again.")
+    return model in (models or ())
 
 
 def system_one_evaluations_enabled(team_id: int, *, base_url: str) -> bool:
