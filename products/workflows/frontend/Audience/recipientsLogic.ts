@@ -14,7 +14,7 @@ const RECIPIENTS_PAGE_SIZE = 50
 export const RECIPIENT_SEARCH_MAX_LENGTH = 512
 const SEARCH_DEBOUNCE_MS = 300
 
-export type RecipientsView = 'loading' | 'error' | 'setup' | 'empty' | 'no-match' | 'results'
+export type RecipientsView = 'loading' | 'error' | 'empty' | 'no-match' | 'results'
 
 export interface RecipientsRequest {
     search: string
@@ -61,6 +61,7 @@ export interface recipientsLogicValues {
     search: string
     searchPending: boolean
     shownRequest: RecipientsRequest
+    showsSetup: boolean
     topicNames: Record<string, string>
 }
 
@@ -136,11 +137,14 @@ export interface recipientsLogicMeta {
             page: RecipientPageApi,
             shownRequest: RecipientsRequest,
             lastRequest: RecipientsRequest,
-            categoriesLoading: boolean,
-            categoriesLoadFailed: boolean,
-            categories: MessageCategory[]
+            categoriesLoading: boolean
         ) => RecipientsView
         searchPending: (search: string, shownRequest: RecipientsRequest) => boolean
+        showsSetup: (
+            recipientsView: RecipientsView,
+            categories: MessageCategory[],
+            categoriesLoadFailed: boolean
+        ) => boolean
         topicNames: (categories: MessageCategory[]) => Record<string, string>
     }
 }
@@ -255,25 +259,14 @@ export const recipientsLogic = kea<recipientsLogicType>([
                 Object.fromEntries(categories.map((category) => [category.key, category.name])),
         ],
         recipientsView: [
-            (s) => [
-                s.pageLoading,
-                s.loadFailed,
-                s.page,
-                s.shownRequest,
-                s.lastRequest,
-                s.categoriesLoading,
-                s.categoriesLoadFailed,
-                s.categories,
-            ],
+            (s) => [s.pageLoading, s.loadFailed, s.page, s.shownRequest, s.lastRequest, s.categoriesLoading],
             (
                 pageLoading: boolean,
                 loadFailed: boolean,
                 page: RecipientPageApi,
                 shownRequest: RecipientsRequest,
                 lastRequest: RecipientsRequest,
-                categoriesLoading: boolean,
-                categoriesLoadFailed: boolean,
-                categories: MessageCategory[]
+                categoriesLoading: boolean
             ): RecipientsView => {
                 if (pageLoading && lastRequest.search !== shownRequest.search) {
                     return 'loading'
@@ -289,11 +282,13 @@ export const recipientsLogic = kea<recipientsLogicType>([
                 if (pageLoading || categoriesLoading) {
                     return 'loading'
                 }
-                if (shownRequest.search) {
-                    return 'no-match'
-                }
-                return categories.length === 0 && !categoriesLoadFailed ? 'setup' : 'empty'
+                return shownRequest.search ? 'no-match' : 'empty'
             },
+        ],
+        showsSetup: [
+            (s) => [s.recipientsView, s.categories, s.categoriesLoadFailed],
+            (recipientsView: RecipientsView, categories: MessageCategory[], categoriesLoadFailed: boolean): boolean =>
+                recipientsView === 'empty' && categories.length === 0 && !categoriesLoadFailed,
         ],
     }),
     listeners(({ actions, values, selectors }) => ({

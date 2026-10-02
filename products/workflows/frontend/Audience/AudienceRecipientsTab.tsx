@@ -7,7 +7,7 @@ import { AudienceSetup } from './setup/AudienceSetup'
 
 export function AudienceRecipientsTab(): JSX.Element {
     const { setupPageOpen } = useValues(audienceSceneLogic)
-    const { recipientsView } = useValues(recipientsLogic)
+    const { showsSetup } = useValues(recipientsLogic)
 
-    return setupPageOpen || recipientsView === 'setup' ? <AudienceSetup /> : <AudienceRecipients />
+    return setupPageOpen || showsSetup ? <AudienceSetup /> : <AudienceRecipients />
 }

@@ -1,4 +1,5 @@
 import { AGENT_USE_CASE_SCOPES } from 'lib/agentScopes.generated'
+import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 
 import type { APIScopeAction, APIScopeObject } from '~/types'
 
@@ -323,13 +324,16 @@ export const AGENT_CLI_API_KEY_SCOPES = AGENT_USE_CASE_SCOPES.filter((scope) =>
     API_KEY_CREATION_RENDERABLE_SCOPES.has(scope)
 )
 
-export const API_KEY_SCOPE_PRESETS: {
+export interface APIKeyScopePreset {
     value: string
     label: string
     scopes: string[]
     access_type?: 'all' | 'organizations' | 'teams'
     isCloudOnly?: boolean
-}[] = [
+    featureFlag?: FeatureFlagKey
+}
+
+export const API_KEY_SCOPE_PRESETS: APIKeyScopePreset[] = [
     { value: 'local_evaluation', label: 'Local feature flag evaluation', scopes: ['feature_flag:read'] },
     {
         value: 'source_map_upload',
@@ -347,7 +351,12 @@ export const API_KEY_SCOPE_PRESETS: {
         scopes: ['action:read', 'query:read', 'project:read', 'organization:read', 'user:read', 'webhook:write'],
     },
     { value: 'analytics', label: 'Performing analytics queries', scopes: ['query:read'] },
-    { value: 'messaging_preferences', label: 'Email preference sync', scopes: ['hog_flow:write'] },
+    {
+        value: 'messaging_preferences',
+        label: 'Email preference sync',
+        scopes: ['hog_flow:write'],
+        featureFlag: FEATURE_FLAGS.WORKFLOWS_AUDIENCE,
+    },
     { value: 'endpoints', label: 'Endpoint execution', scopes: ['endpoint:read'] },
     {
         value: 'project_management',

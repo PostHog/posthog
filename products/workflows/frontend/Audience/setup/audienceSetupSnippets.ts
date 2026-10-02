@@ -6,8 +6,12 @@ export interface AudienceSetupSnippetContext {
 
 const BARE_OBJECT_KEY = /^[A-Za-z_$][\w$]*$/
 
+function singleQuoted(text: string): string {
+    return `'${text.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`
+}
+
 function objectKey(topicKey: string): string {
-    return BARE_OBJECT_KEY.test(topicKey) ? topicKey : `'${topicKey}'`
+    return BARE_OBJECT_KEY.test(topicKey) ? topicKey : singleQuoted(topicKey)
 }
 
 const EXAMPLE_UNSUBSCRIBED_TOPIC_INDEX = 0
@@ -32,6 +36,8 @@ export function posthogNodeSnippet({ projectToken, host, topicKeys }: AudienceSe
 const posthog = new PostHog('${projectToken}', {
     host: '${host}',
     secretKey: process.env.POSTHOG_PERSONAL_API_KEY,
+    // The key can only send preferences, so turn off feature flag polling.
+    enableLocalEvaluation: false,
 })
 
 // Call this wherever a user saves their email preferences.
@@ -54,7 +60,7 @@ export function codingAgentPrompt({ projectToken, host, topicKeys }: AudienceSet
     return `Send our users' email preferences to PostHog with posthog-node.
 
 1. Install or update posthog-node to a version that has \`posthog.messaging.setPreferences\`.
-2. Create a PostHog client with the project API key \`${projectToken}\`, \`host: '${host}'\`, and \`secretKey\` set to a personal API key with the \`hog_flow:write\` scope. Read the key from the POSTHOG_PERSONAL_API_KEY environment variable.
+2. Create a PostHog client with the project API key \`${projectToken}\`, \`host: '${host}'\`, and \`secretKey\` set to a personal API key with the \`hog_flow:write\` scope. Read the key from the POSTHOG_PERSONAL_API_KEY environment variable. Set \`enableLocalEvaluation: false\`, because this key can't fetch feature flag definitions.
 3. Wherever a user saves their email preferences, call \`await posthog.messaging.setPreferences(email, { allMarketing, categories })\` with the values the user picked. Leave out anything they did not change.
    - \`allMarketing\` is a boolean. false unsubscribes the user from all marketing email, true subscribes them again.
    - ${topicKeysInstruction(topicKeys)}

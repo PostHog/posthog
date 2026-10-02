@@ -11,7 +11,6 @@ export function RecipientsBody({ onClearSearch }: { onClearSearch: () => void })
     switch (recipientsView) {
         case 'error':
             return null
-        case 'setup':
         case 'empty':
             return (
                 <EmptyMessage
