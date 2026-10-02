@@ -828,6 +828,8 @@ class TestWorkflowProposals(APIBaseTest):
         charted = {version["version"] for version in outcome["versions"]}
         assert set(outcome["after"]["versions"]) <= charted, outcome
         assert [version["version"] for version in outcome["versions"] if version["applied"]] == [2]
+        # v5 is past the versions the slice read, so the after side must not claim it.
+        assert outcome["after"]["versions"] == [2, 3], outcome
 
     def test_the_outcome_reads_the_metric_the_suggestion_aimed_at(self, _mock_flag):
         flow_id = self._create_active_flow()

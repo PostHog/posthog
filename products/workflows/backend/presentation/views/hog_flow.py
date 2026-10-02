@@ -6461,8 +6461,12 @@ class HogFlowViewSet(
                 :OUTCOME_VERSION_LIMIT
             ]
         }
-        if (hog_flow.version or applied) >= applied:
-            contents.setdefault(hog_flow.version, snapshot_flow_content(hog_flow))
+        # One revision row per publish, so a gap between the last one read and the live version means
+        # the slice stopped short. Reading the live version across that gap would call the change
+        # survived without looking at the publishes in between.
+        live_version = hog_flow.version or applied
+        if live_version >= applied and (not contents or live_version <= max(contents) + 1):
+            contents.setdefault(live_version, snapshot_flow_content(hog_flow))
         carrying: list[int] = []
         for version in sorted(contents):
             if not carries_proposal_change(contents[version], changes):
