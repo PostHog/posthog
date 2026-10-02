@@ -166,7 +166,7 @@ def is_in_quiet_hours(schedule_restriction: dict | None, now: datetime, tz_name:
         # A restriction we cannot parse must not decide the alert either way, so the check
         # proceeds and the production stack keeps ownership of the broken configuration.
         logger.exception(
-            "Unparseable schedule restriction; evaluating anyway", check_id=str(alert_id), error=str(error)
+            "Unparseable schedule restriction; evaluating anyway", alert_id=str(alert_id), error=str(error)
         )
         return False
 

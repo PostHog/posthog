@@ -39,8 +39,6 @@ def _check(state: str, muted_notification: str = "none") -> PlatformCheck:
 
 
 class _Correspondence:
-    """A source that declares one divergence: any check whose announcement a mute held back."""
-
     source = SourceKind.LOGS
     production_policy = LOGS_ALERT_POLICY
     platform_policy = PLATFORM_LOGS_ALERT_POLICY

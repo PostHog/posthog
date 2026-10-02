@@ -4,9 +4,9 @@ The history row carries `configuration_id`, and a correspondence needs `legacy_c
 which lives on `PlatformAlertConfiguration` in Postgres. So a read is a Postgres query followed by
 a ClickHouse one, and that stays true whatever columns the row grows.
 
-Restricting the ClickHouse read to one source's configurations is what selects a source, rather
-than a column on the row. A `source_kind` column would let ClickHouse do the filtering instead of
-receiving the answer, which is a narrower read rather than a different one.
+Restricting the ClickHouse read to one source's configurations is what selects a source. The row's
+own `source_kind` column would select the same rows, but the Postgres query has to run first anyway
+for the legacy ids, so the configuration list costs nothing extra.
 """
 
 from __future__ import annotations
