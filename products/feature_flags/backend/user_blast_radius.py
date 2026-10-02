@@ -106,14 +106,9 @@ UNEVALUABLE_FILTERS_MESSAGE = "These filters can't be evaluated. Check the prope
 
 def _group_property_globals(group_type_index: GroupTypeIndex) -> dict[str, int]:
     """
-    Tell the property-type resolver which group type the `groups` table rows belong to.
-
-    PropertyFinder reads the group type from the lazy join that an insight query goes through
-    (`group_0`, `group_1`, ...). These queries select from `groups` directly, so the resolver
-    reads context.globals["group_id"] instead. Without it no group PropertyDefinition is loaded,
-    the left side of a comparison stays the raw JSON string, and a Boolean group property
-    compiles to equals(String, UInt8), which ClickHouse refuses. GroupsQueryRunner passes the
-    same global for the same reason.
+    HogQL reads the group type from this global to resolve group property types when a query
+    selects from `groups` directly. Without it, HogQL compares a Boolean group property as a
+    string, and ClickHouse rejects the query.
     """
     return {"group_id": group_type_index}
 
