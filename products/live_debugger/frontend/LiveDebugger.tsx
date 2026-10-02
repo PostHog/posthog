@@ -4,8 +4,7 @@ import { useActions, useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { sceneConfigurations } from 'scenes/scenes'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -66,7 +65,7 @@ export function LiveDebugger(): JSX.Element {
     return (
         <>
             <SceneTitleSection
-                name={sceneConfigurations[Scene.LiveDebugger].name}
+                name="Live Debugger"
                 description="Set breakpoints in your code to capture and inspect runtime values"
                 resourceType={{
                     type: 'live_debugger',
