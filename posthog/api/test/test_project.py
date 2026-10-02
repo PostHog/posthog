@@ -9,7 +9,7 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIRequestFactory
 
-from posthog.api.project import ProjectViewSet
+from posthog.api.project import ProjectCreateRequestSerializer, ProjectViewSet
 from posthog.api.project_tags import MAX_TAGS_PER_FILTER
 from posthog.api.team import TeamCustomerAnalyticsConfigSerializer
 from posthog.api.test.test_team import EnvironmentToProjectRewriteClient, team_api_test_factory
@@ -39,6 +39,14 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
     """
 
     client_class = EnvironmentToProjectRewriteClient
+
+    def test_project_create_request_excludes_response_only_fields(self) -> None:
+        serializer = ProjectCreateRequestSerializer()
+        self.assertIn("name", serializer.fields)
+        self.assertFalse(any(field.required for field in serializer.fields.values()))
+        for field_name in ("id", "organization", "created_at", "api_token", "home_tab_dashboard"):
+            self.assertNotIn(field_name, serializer.fields)
+        self.assertFalse(any(field.read_only for field in serializer.fields.values()))
 
     def test_projects_outside_personal_api_key_scoped_organizations_not_listed(self):
         other_org, _, team_in_other_org = Organization.objects.bootstrap(self.user)

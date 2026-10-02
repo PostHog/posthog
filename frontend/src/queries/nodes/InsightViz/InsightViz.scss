@@ -140,7 +140,8 @@
     .MarkdownNotebook__real-node &,
     .InsightCard &,
     .ExportedInsight &,
-    .WebAnalyticsDashboard & {
+    .WebAnalyticsDashboard &,
+    .HomeTabDefaultChart & {
         flex: 1;
         height: 100%;
 
@@ -202,6 +203,12 @@
     }
 }
 
+.HomeTabDefaultChart {
+    .InsightVizDisplay {
+        --insight-viz-min-height: 24rem;
+    }
+}
+
 .RetentionContainer {
     display: flex;
     flex: 1;
@@ -259,7 +266,8 @@
     .NotebookNode &,
     .InsightCard &,
     .ExportedInsight &,
-    .WebAnalyticsDashboard & {
+    .WebAnalyticsDashboard &,
+    .HomeTabDefaultChart & {
         height: auto;
         min-height: auto;
         max-height: none;
