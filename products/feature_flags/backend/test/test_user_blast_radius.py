@@ -71,8 +71,7 @@ class TestUnevaluableFiltersAsValidationErrors(SimpleTestCase):
         with self.assertRaises(ValidationError) as ctx, unevaluable_filters_as_validation_errors():
             raise err
         message = str(ctx.exception)
-        self.assertNotIn("String, UInt8", message)
-        self.assertNotIn("Illegal type", message)
+        self.assertNotIn(raw, message)
         self.assertIn("Check the property values", message)
 
     def test_curated_clickhouse_message_is_kept(self):

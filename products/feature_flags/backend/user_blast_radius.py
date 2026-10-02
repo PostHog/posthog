@@ -101,23 +101,19 @@ def sampled_person_blast_radius(team: Team, filter: Filter, query_type: str) -> 
 # in stored flag dependencies, which must fall back to sizing without the dependency.
 _VALUE_PARSE_CH_ERROR_CODES = frozenset({6, 72})
 
-UNEVALUABLE_FILTERS_MESSAGE = "These filters can't be evaluated. Check the property values in this release condition."
+UNEVALUABLE_FILTERS_MESSAGE = "These filters can't be evaluated. Check the property values."
 
 
 def _caller_facing_ch_message(error: ExposedCHQueryError) -> str:
     """
     Pick the message a ClickHouse failure may show the caller.
 
-    The release condition editor prints the 400 detail as it arrives, so a ClickHouse message
-    reaches the user unchanged. Engine text names ClickHouse types and generated SQL, which
-    tells nobody which filter to correct, so only copy PostHog wrote is echoed. An error code
-    whose ErrorCodeMeta carries a user_safe string is exactly that: wrap_clickhouse_query_error
-    swaps the engine message for that copy. A code with user_safe=True keeps the engine message,
-    and falls back here.
+    The release condition editor and the workflow batch trigger print the 400 detail as it
+    arrives. Engine text names ClickHouse types and generated SQL, which tells nobody which
+    filter to correct, so only the user_safe copy that PostHog wrote in ErrorCodeMeta is echoed.
     """
-    if isinstance(look_up_clickhouse_error_code_meta(error).user_safe, str):
-        return str(error)
-    return UNEVALUABLE_FILTERS_MESSAGE
+    curated_copy = look_up_clickhouse_error_code_meta(error).user_safe
+    return curated_copy if isinstance(curated_copy, str) else UNEVALUABLE_FILTERS_MESSAGE
 
 
 def _group_property_globals(group_type_index: GroupTypeIndex) -> dict[str, int]:
@@ -142,9 +138,9 @@ def unevaluable_filters_as_validation_errors() -> Iterator[None]:
     # instead of an opaque 500. HogQL writes its messages for a person to read, so those are
     # echoed. ClickHouse writes its messages for the engine, so none of them reaches the caller:
     # an exposed error says only what _caller_facing_ch_message allows, and a cannot-parse-value
-    # code says the actionable line. Only deliberately-exposed error types are converted across
-    # query build and execution - plus ObjectDoesNotExist from cohort lookups and
-    # PropertyValidationError from Property construction during query build, whose message
+    # code raises UNEVALUABLE_FILTERS_MESSAGE. Only deliberately-exposed error types are
+    # converted across query build and execution - plus ObjectDoesNotExist from cohort lookups
+    # and PropertyValidationError from Property construction during query build, whose message
     # already names the offending property.
     # Caller-shaped ValueError is converted separately in the parse phase
     # (replace_proxy_properties), so a bare ValueError from HogQL internals or team config
