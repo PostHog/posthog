@@ -4559,6 +4559,39 @@ def _leaf(item: Any, path: tuple[str, ...]) -> Any:
     return _ABSENT if item is None else item
 
 
+def _as_the_serializer_stores_it(content: dict, validated: Mapping) -> dict:
+    """The proposal's own values, in the shape a publish would write them.
+
+    A field validator can rewrite what a producer sent: a bare `output_variable` string is stored as
+    `{"key": ...}`. The published workflow then holds the rewritten shape, so a raw value kept here
+    would make every later comparison read the change as already gone.
+    """
+    aligned = deepcopy(content)
+    validated_steps = {_item_id(item): item for item in validated.get("actions") or []}
+    for item in aligned.get("actions") or []:
+        step = validated_steps.get(_item_id(item))
+        if step is None:
+            continue
+        for path in _patch_paths({key: value for key, value in item.items() if key != "id"}):
+            stored = _leaf(step, path)
+            if stored is not _ABSENT:
+                _write_leaf(item, path, stored)
+    for field in list(aligned):
+        if field in PROPOSAL_MERGE_BY_ID_FIELDS or field not in validated:
+            continue
+        aligned[field] = validated[field]
+    return aligned
+
+
+def _write_leaf(item: dict, path: tuple[str, ...], value: Any) -> None:
+    for key in path[:-1]:
+        nested = item.get(key)
+        if not isinstance(nested, dict):
+            return
+        item = nested
+    item[path[-1]] = value
+
+
 def unstage_workflow_proposals(hog_flow: HogFlow) -> None:
     """Put back in the queue any approved suggestion whose change the draft no longer carries.
 
@@ -6203,6 +6236,7 @@ class HogFlowViewSet(
                         ]
                     }
                 )
+            content = _as_the_serializer_stores_it(content, draft_serializer.validated_data)
 
         step_id = params.get("step_id") or None
         if step_id:
