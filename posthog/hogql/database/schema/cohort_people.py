@@ -7,6 +7,7 @@ from posthog.hogql.database.models import (
     LazyTableToAdd,
     StringDatabaseField,
     Table,
+    UUIDDatabaseField,
 )
 
 COHORT_PEOPLE_FIELDS: dict[str, FieldOrTable] = {
@@ -111,6 +112,15 @@ class CohortPeople(LazyTable):
 class CohortMembership(CohortPeople):
     """`cohort_people` under its legacy name, so saved queries written against the removed
     realtime `cohort_membership` table keep resolving."""
+
+    # A UUID type makes the resolver trim and canonicalize UUID literals compared to `person_id`,
+    # as saved queries on the legacy table expect.
+    fields: dict[str, FieldOrTable] = {
+        **COHORT_PEOPLE_FIELDS,
+        "person_id": UUIDDatabaseField(
+            name="person_id", nullable=False, description="Person who is a member of the cohort; join to `persons.id`."
+        ),
+    }
 
     def to_printed_hogql(self):
         return "cohort_membership"
