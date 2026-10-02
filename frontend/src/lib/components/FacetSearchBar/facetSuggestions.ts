@@ -1,3 +1,5 @@
+import uniqBy from 'lodash.uniqby'
+
 import {
     ClientFacet,
     FacetDraft,
@@ -79,7 +81,7 @@ function createValueLister({ facets, data, filters, valueLoads }: SuggestionCont
         if (isLoadedFacet(facet)) {
             return valueLoads[valueLoadKey(facet.key, search)] ?? { status: 'loading' }
         }
-        return { status: 'loaded', options: ('values' in facet && facet.values) || [] }
+        return { status: 'loaded', options: uniqBy(('values' in facet && facet.values) || [], 'value') }
     }
 }
 

@@ -687,13 +687,16 @@ describe('FacetSearchBar', () => {
             expect(suggestions()).toEqual(['New project team'])
         })
 
-        it('shows each loaded value once', async () => {
-            const loadValues = async (): Promise<FacetValueOption[]> => [
-                { value: 'a', label: 'Alpha' },
-                { value: 'a', label: 'Alpha' },
-                { value: 'b', label: 'Beta' },
-            ]
-            render(<ServerConsumer facets={[{ key: 'team', label: 'Team', description: 'Owner', loadValues }]} />)
+        const repeatedValues: FacetValueOption[] = [
+            { value: 'a', label: 'Alpha' },
+            { value: 'a', label: 'Alpha' },
+            { value: 'b', label: 'Beta' },
+        ]
+        it.each<[string, ServerFacet]>([
+            ['loaded', { key: 'team', label: 'Team', description: 'Owner', loadValues: async () => repeatedValues }],
+            ['supplied', { key: 'team', label: 'Team', description: 'Owner', values: repeatedValues }],
+        ])('shows each %s value once', async (_, facet) => {
+            render(<ServerConsumer facets={[facet]} />)
             const user = userEvent.setup()
             await user.click(input())
             await user.paste('team:')
