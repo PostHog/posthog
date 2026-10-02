@@ -394,7 +394,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
         producer.send(ProduceRecord {
             topic,
             key,
-            payload: payload.payload,
+            payload: payload.payload.into(),
             headers: payload.headers,
         })
     }
