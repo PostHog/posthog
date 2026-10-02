@@ -33,6 +33,7 @@ export type AppMetricsCommonParams = {
     /** Match all app_source_ids starting with this prefix (e.g. `<hog flow id>/` for versioned hog flow metrics). */
     appSourceIdPrefix?: string
     instanceId?: string
+    /** Match any of these instance IDs. */
     instanceIds?: string[]
     metricName?: string | string[]
     metricKind?: string | string[]
