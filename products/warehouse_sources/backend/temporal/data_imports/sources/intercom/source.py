@@ -64,6 +64,7 @@ class IntercomSource(ResumableSource[IntercomSourceConfig, IntercomResumeConfig]
         self,
         *,
         incremental_or_append: bool,
+        keyset_full_load_enabled: bool = True,
         schema_name: str | None = None,
     ) -> bool:
         # The companies Scroll API cannot preserve a cursor across worker hand-offs.

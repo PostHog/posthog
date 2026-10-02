@@ -329,9 +329,9 @@ class CreateExternalDataJobModelActivityOutputs:
     # Computed here because this activity already resolves the repair gates the decision needs.
     # Defaults False so a payload from a worker that predates the field takes the full path.
     fast_return_eligible: bool = False
-    # Unused by this release's workflow. Always True so that a workflow worker on the previous release,
-    # which forwards this value to the import activity, keeps that activity seeking during a rolling
-    # deploy. Remove after this release is fully deployed.
+    # Always True for new jobs so workers from either release seek during a rolling deploy. The new
+    # workflow also preserves an explicit False from an older recorded result. Remove after this
+    # release is fully deployed.
     keyset_full_load_enabled: bool = True
     # The workflow hands this to the import, which resets only while the schema is still due. Nothing is
     # stored on the schema, so a run that stops before the wipe leaves no reset behind for later runs.

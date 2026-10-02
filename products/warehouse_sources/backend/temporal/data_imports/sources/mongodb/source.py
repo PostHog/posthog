@@ -448,6 +448,7 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
         self,
         *,
         incremental_or_append: bool,
+        keyset_full_load_enabled: bool = True,
         schema_name: str | None = None,
     ) -> bool:
         # The `_id` checkpoint covers only a full refresh. An incremental or append run restarts from
