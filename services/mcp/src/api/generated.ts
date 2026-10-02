@@ -2599,6 +2599,8 @@ export namespace Schemas {
       optimizeProjections?: boolean | null;
       /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
       parserMode?: ParserMode | null;
+      /** Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. */
+      personIdPushdown?: boolean | null;
       personsArgMaxVersion?: PersonsArgMaxVersion | null;
       personsJoinMode?: PersonsJoinMode | null;
       personsOnEventsMode?: PersonsOnEventsMode | null;
@@ -34560,6 +34562,42 @@ export namespace Schemas {
       summary: DiagnosticReportSummary;
       /** Per-check results in execution order. */
       checks: DiagnosticCheckResult[];
+    }
+
+    /**
+     * * `ok` - OK
+     * * `no_web_sessions` - No web sessions
+     * * `no_sessions` - No sessions
+     * * `unknown` - Unknown
+     */
+    export type DigestDataStatusEnum = typeof DigestDataStatusEnum[keyof typeof DigestDataStatusEnum];
+
+
+    export const DigestDataStatusEnum = {
+      Ok: 'ok',
+      NoWebSessions: 'no_web_sessions',
+      NoSessions: 'no_sessions',
+      Unknown: 'unknown',
+    } as const;
+
+    export interface DigestMetadata {
+      /** How to read the headline numbers. 'ok': the headline has pageviews or sessions in the period. 'no_web_sessions': the headline is zero, but the project has sessions in the period. None of them contain a $pageview or $screen event from a non-test account. Query the sessions table directly to count them. 'no_sessions': the project has no sessions in the period. 'unknown': the headline is zero, and the check for other sessions in the period failed. Query the sessions table directly to count them.
+       *
+       * * `ok` - OK
+       * * `no_web_sessions` - No web sessions
+       * * `no_sessions` - No sessions
+       * * `unknown` - Unknown */
+      data_status: DigestDataStatusEnum;
+      /** Start of the current period, in the project timezone. */
+      date_from: string;
+      /** End of the current period, in the project timezone. */
+      date_to: string;
+      /** Project timezone for the period boundaries. */
+      timezone: string;
+      /** True when the headline metrics, top pages and top sources exclude events from test accounts. Goal conversions include them. */
+      filter_test_accounts: boolean;
+      /** Metric definitions to use when you compare the digest with a direct query. */
+      notes: string[];
     }
 
     /**
@@ -106556,6 +106594,8 @@ export namespace Schemas {
       top_sources: TopSource[];
       /** Goal conversions. */
       goals: Goal[];
+      /** Period, filters and metric definitions behind the numbers, and a status that explains a zero. */
+      metadata: DigestMetadata;
       /** Link to the Web analytics dashboard for this project. */
       dashboard_url: string;
       /** The single weekly persona assigned from this week's data. */
@@ -106732,6 +106772,8 @@ export namespace Schemas {
       top_sources: TopSource[];
       /** Goal conversions. */
       goals: Goal[];
+      /** Period, filters and metric definitions behind the numbers, and a status that explains a zero. */
+      metadata: DigestMetadata;
       /** Link to the Web analytics dashboard for this project. */
       dashboard_url: string;
     }
@@ -122716,6 +122758,13 @@ export namespace Schemas {
      * Set to true when the client can rebuild the run from its durable log after the agent-proxy reports a trimmed stream cursor. Without it, runs that keep only a short live tail in Redis are read from the Django endpoint, which replays the durable backlog itself.
      */
     resync?: boolean;
+    };
+
+    export type TasksRunsLivingArtifactsVersionContentParams = {
+    /**
+     * Set to true to save the version. A stored file then redirects to a short-lived presigned URL, so a large file never passes through the app. Leave unset for an inline preview.
+     */
+    download?: boolean;
     };
 
     export type TasksThreadMessagesListParams = {
