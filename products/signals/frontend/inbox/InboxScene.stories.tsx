@@ -107,6 +107,39 @@ type Story = StoryObj
 
 export const Inbox: Story = {}
 
+const valueSummaryMocks = mswDecorator({
+    get: {
+        '/api/projects/:team_id/signals/inbox-summary/': {
+            period_start: '2026-06-04T00:00:00Z',
+            period_end: '2026-06-11T00:00:00Z',
+            merged_pr_count: 12,
+            people_count: 5,
+            participation_complete: true,
+        },
+    },
+})
+
+export const WithValueSummary: Story = {
+    parameters: {
+        featureFlags: {
+            ...meta.parameters?.featureFlags,
+            [FEATURE_FLAGS.SIGNALS_INBOX_VALUE_SUMMARY]: true,
+        },
+    },
+    decorators: [valueSummaryMocks],
+}
+
+export const LegacyWithValueSummary: Story = {
+    parameters: {
+        featureFlags: {
+            ...meta.parameters?.featureFlags,
+            [FEATURE_FLAGS.SIGNALS_INBOX_VALUE_SUMMARY]: true,
+            [FEATURE_FLAGS.INBOX_REDESIGN]: false,
+        },
+    },
+    decorators: [valueSummaryMocks],
+}
+
 function reportWithEvidenceItems(count: number): Story {
     return {
         decorators: [

@@ -1,6 +1,7 @@
 from posthog.api.routing import RouterRegistry
 
 import products.signals.backend.views as signals
+from products.signals.backend.inbox_summary_api import InboxSummaryViewSet
 from products.signals.backend.presentation.scout_rubrics import SignalScoutRubricViewSet
 from products.signals.backend.scout_chat import SignalScoutChatTaskViewSet
 from products.signals.backend.scout_harness.views import (
@@ -18,6 +19,9 @@ from products.signals.backend.views import SignalViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:
+    routers.projects.register(
+        r"signals/inbox-summary", InboxSummaryViewSet, "project_signals_inbox_summary", ["team_id"]
+    )
     routers.projects.register(
         r"signals/scout/rubrics", SignalScoutRubricViewSet, "project_signals_scout_rubrics", ["team_id"]
     )

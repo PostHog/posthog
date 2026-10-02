@@ -4,6 +4,7 @@ import type { CaptureOptions } from 'posthog-js'
 import { dayjs } from 'lib/dayjs'
 
 import type { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
+import type { InboxSummaryApi } from 'products/signals/frontend/generated/api.schemas'
 
 import type { ReportTaskPurpose } from './components/detail/artefactTypes'
 import type { ReportDiscussionIntent } from './inboxTaskKickoffLogic'
@@ -33,6 +34,8 @@ export const INBOX_EVENTS = {
     WELCOME_MANUAL_SETUP_CLICKED: 'Inbox welcome manual setup clicked',
     INTRO_MODAL_VIEWED: 'Inbox intro modal viewed',
     PANEL_VIEWED: 'Inbox panel viewed',
+    VALUE_SUMMARY_VIEWED: 'Inbox value summary viewed',
+    VALUE_SUMMARY_DISMISSED: 'Inbox value summary dismissed',
     PANEL_LOAD_TIMED_OUT: 'Inbox panel load timed out',
     QUERY_CHANGED: 'Inbox query changed',
     REPORTS_IMPRESSED: 'Inbox reports impressed',
@@ -71,6 +74,14 @@ export const INBOX_EVENTS = {
 } as const
 
 type InboxEvent = (typeof INBOX_EVENTS)[keyof typeof INBOX_EVENTS]
+
+export function captureInboxValueSummary(action: 'viewed' | 'dismissed', summary: InboxSummaryApi): void {
+    captureInboxEvent(action === 'viewed' ? INBOX_EVENTS.VALUE_SUMMARY_VIEWED : INBOX_EVENTS.VALUE_SUMMARY_DISMISSED, {
+        merged_pr_count: summary.merged_pr_count,
+        people_count: summary.people_count,
+        participation_complete: summary.participation_complete,
+    })
+}
 
 /**
  * Action surface an `Inbox report action` fired from. `context_menu` is the right-click menu on a list row.

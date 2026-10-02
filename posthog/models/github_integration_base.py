@@ -1193,6 +1193,7 @@ class GitHubIntegrationBase:
             "created_at": pr.get("created_at"),
             "updated_at": pr.get("updated_at"),
             "merged_at": pr.get("merged_at"),
+            "merged_by": pr.get("merged_by"),
             "closed_at": pr.get("closed_at"),
             "comments": pr.get("comments", 0),
             "review_comments": pr.get("review_comments", 0),
@@ -1201,6 +1202,27 @@ class GitHubIntegrationBase:
             "deletions": pr.get("deletions", 0),
             "changed_files": pr.get("changed_files", 0),
         }
+
+    def get_pull_request_reviews(self, repository: str, pr_number: int) -> list[dict[str, Any]]:
+        if not _is_safe_github_repo_path(repository) or type(pr_number) is not int or pr_number <= 0:
+            raise GitHubIntegrationError("Invalid pull request identity")
+        responses, complete = self._installation_authenticated_get_pages(
+            f"https://api.github.com/repos/{repository}/pulls/{pr_number}/reviews",
+            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/reviews",
+            params={"per_page": 100},
+        )
+        if not complete:
+            raise GitHubIntegrationError("Could not fetch all pull request reviews")
+        reviews: list[dict[str, Any]] = []
+        for response in responses:
+            try:
+                page = response.json()
+            except ValueError as error:
+                raise GitHubIntegrationError("Could not parse pull request reviews") from error
+            if not isinstance(page, list) or any(not isinstance(review, dict) for review in page):
+                raise GitHubIntegrationError("Invalid pull request reviews")
+            reviews.extend(page)
+        return reviews
 
     def get_pull_request_from_url(self, pr_url: str) -> dict[str, Any]:
         """Fetch a pull request by its HTML URL (e.g. ``https://github.com/owner/repo/pull/123``)."""
