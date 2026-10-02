@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from rest_framework.request import Request
 
 from posthog.models import Team
@@ -9,6 +11,7 @@ from products.tasks.backend.access import (
     get_desktop_access_decision,
     has_loops_access,
 )
+from products.tasks.backend.facade.client_provenance import is_sandbox_oauth_request
 from products.tasks.backend.facade.contracts import DesktopAccessReason
 from products.tasks.backend.logic.services.code_usage_gate import (
     code_access_required_response,
@@ -18,10 +21,34 @@ from products.tasks.backend.logic.services.code_usage_gate import (
 from products.tasks.backend.models import TaskRun
 
 
+def is_sandbox_run_request(*, request: Request, team: Team, task_id: str, run_id: str | None) -> bool:
+    if not is_sandbox_oauth_request(request):
+        return False
+    token = getattr(getattr(request, "successful_authenticator", None), "access_token", None)
+    if token is None or run_id is None:
+        return False
+    try:
+        parsed_task_id, parsed_run_id = UUID(task_id), UUID(run_id)
+    except (ValueError, TypeError):
+        return False
+    if token.sandbox_task_id != parsed_task_id:
+        return False
+    return TaskRun.objects.filter(
+        team_id=team.id,
+        task_id=parsed_task_id,
+        id=parsed_run_id,
+        state__sandbox_oauth_token_ids__contains=[str(token.id)],
+    ).exists()
+
+
 def may_read_task_run_context(*, request: Request, team: Team, task_id: str, run_id: str | None) -> bool:
     runs = TaskRun.objects.filter(team_id=team.id, task_id=task_id)
     if run_id is not None:
-        runs = runs.filter(id=run_id)
+        try:
+            parsed_run_id = UUID(run_id)
+        except (ValueError, TypeError):
+            return False
+        runs = runs.filter(id=parsed_run_id)
     if run_id is None:
         runs = runs.filter(state__has_key="analytics_query_context")
     reader = analytics_context_reader(request=request, team=team)
@@ -39,6 +66,7 @@ __all__ = [
     "compute_quota_limit_response",
     "get_desktop_access_decision",
     "has_loops_access",
+    "is_sandbox_run_request",
     "may_read_task_run_context",
     "usage_limit_response",
 ]

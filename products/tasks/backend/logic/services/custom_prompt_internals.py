@@ -285,7 +285,9 @@ async def create_task_and_trigger(
     if output_schema:
         extra_run_state["caller_ends_run"] = True
     if analytics_query_context is not None:
-        extra_run_state["analytics_query_context"] = analytics_query_context
+        queries = [query for query in analytics_query_context if query is not None]
+        if queries:
+            extra_run_state["analytics_query_context"] = queries
     task = await sync_to_async(Task.create_and_run)(
         team=team,
         title=title,

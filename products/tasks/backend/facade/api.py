@@ -2635,6 +2635,7 @@ def delete_sandbox_custom_image(image_id: str | UUID, team_id: int, user_id: int
 _PROTECTED_RUN_STATE_KEYS = frozenset(
     {
         "analytics_query_context",
+        "sandbox_oauth_token_ids",
         "run_source",
         "pr_base_branch",
         "stack_base_branch",

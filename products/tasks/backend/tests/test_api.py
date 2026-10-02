@@ -35,7 +35,7 @@ from posthog.models.user_integration import UserIntegration
 from posthog.models.utils import generate_random_token_personal
 from posthog.scopes import MCP_BUILT_IN_AGENT_SCOPE
 from posthog.storage import object_storage
-from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, POSTHOG_AI_APP_CLIENT_ID_DEV
+from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, ARRAY_APP_CLIENT_ID_US, POSTHOG_AI_APP_CLIENT_ID_DEV
 from posthog.utils import absolute_uri
 
 from products.posthog_ai.backend.models.assistant import Conversation
@@ -326,6 +326,11 @@ class BaseTaskAPITest(TestCase):
             scoped_teams=[self.team.id],
             sandbox_task_id=task_id if bound else None,
         )
+        if bound:
+            run = TaskRun.objects.filter(task_id=task_id).order_by("-created_at").first()
+            if run is not None:
+                run.state = {**(run.state or {}), "sandbox_oauth_token_ids": [str(access_token.id)]}
+                run.save(update_fields=["state"])
         client = APIClient()
         client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
         return client
@@ -6471,6 +6476,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
         # A non-UUID task id in the URL must 404, not 500 through the UUIDField filter.
         response = self.client.get("/api/projects/@current/tasks/not-a-uuid/runs/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        task = self.create_task()
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/not-a-uuid/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
     def test_task_bound_sandbox_can_update_only_its_task(self, _mock_publish_stream_state_event: MagicMock):
@@ -6499,6 +6507,11 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         self.assertEqual(allowed.status_code, status.HTTP_200_OK)
         self.assertEqual(denied.status_code, status.HTTP_404_NOT_FOUND)
+        TaskRun.objects.create(task=bound_task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        later_client = self._sandbox_oauth_client(bound_task.id, client_id=ARRAY_APP_CLIENT_ID_US)
+        for method in (later_client.get, later_client.patch):
+            response = method(f"/api/projects/@current/tasks/{bound_task.id}/runs/{bound_run.id}/")
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         other_run.refresh_from_db()
         self.assertIsNone(other_run.stage)
 
@@ -6835,6 +6848,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             state={
                 "github_credential_source": "caller_token",
                 "analytics_query_context": [],
+                "sandbox_oauth_token_ids": ["server-token-id"],
                 "systemPrompt": system_prompt,
                 "claude_model_access": "own-subscription",
                 "claude_subscription_user_id": self.user.id,
@@ -6911,6 +6925,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "state": {
                     "github_credential_source": "server_integration",
                     "analytics_query_context": [{"kind": "private"}],
+                    "sandbox_oauth_token_ids": ["forged-token-id"],
                     "systemPrompt": "Caller-controlled instructions",
                     "claude_model_access": "posthog-gateway",
                     "claude_subscription_user_id": self.user.id + 1,
@@ -6994,6 +7009,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["claude_model_access"] == "own-subscription"
         assert run.state["claude_subscription_user_id"] == self.user.id
         assert run.state["analytics_query_context"] == []
+        assert run.state["sandbox_oauth_token_ids"] == ["server-token-id"]
         assert run.state["github_credential_source"] == "caller_token"
         assert run.state["pr_authorship_mode"] == "user"
         assert "dev_stack_preview" not in run.state
@@ -7055,6 +7071,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["scratch"] == "ok"  # non-protected keys still merge
         assert run.state["systemPrompt"] == system_prompt
         assert run.state["analytics_query_context"] == []
+        assert run.state["sandbox_oauth_token_ids"] == ["server-token-id"]
 
         # Nor can a caller remove a protected key to force a fallback or unguarded path.
         response = self.client.patch(
@@ -7063,6 +7080,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "state": {},
                 "state_remove_keys": [
                     "analytics_query_context",
+                    "sandbox_oauth_token_ids",
                     "systemPrompt",
                     "claude_model_access",
                     "claude_subscription_user_id",
@@ -7168,12 +7186,14 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert "scratch" not in run.state  # non-protected key removed
         assert run.state["systemPrompt"] == system_prompt
         assert run.state["analytics_query_context"] == []
+        assert run.state["sandbox_oauth_token_ids"] == ["server-token-id"]
 
         response = self.client.patch(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
             {
                 "state_append": {
                     "analytics_query_context": [{"kind": "private"}],
+                    "sandbox_oauth_token_ids": ["forged-token-id"],
                     "systemPrompt": "Caller-controlled instructions",
                     "task_management_ci_idle_skips": 0,
                     "task_management_ci_wait_checks": 0,
@@ -7187,6 +7207,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         run.refresh_from_db()
         assert run.state["systemPrompt"] == system_prompt
         assert run.state["analytics_query_context"] == []
+        assert run.state["sandbox_oauth_token_ids"] == ["server-token-id"]
         assert run.state["scratch"] == ["ok"]
         assert run.state["task_management_ci_idle_skips"] == 1
         assert run.state["task_management_ci_wait_checks"] == 10
