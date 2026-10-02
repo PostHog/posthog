@@ -866,6 +866,9 @@ importers:
       '@posthog/products-web-analytics':
         specifier: workspace:*
         version: link:../products/web_analytics
+      '@posthog/products-webmcp':
+        specifier: workspace:*
+        version: link:../products/webmcp
       '@posthog/products-wizard':
         specifier: workspace:*
         version: link:../products/wizard
@@ -5315,6 +5318,28 @@ importers:
       kea-test-utils:
         specifier: 'catalog:'
         version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+
+  products/webmcp:
+    dependencies:
+      '@types/react':
+        specifier: 18.3.27
+        version: 18.3.27
+      kea:
+        specifier: 'catalog:'
+        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+      posthog-js:
+        specifier: 'catalog:'
+        version: 1.435.5(@types/react@18.3.27)(react@18.3.1)
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+    devDependencies:
+      '@testing-library/react':
+        specifier: '*'
+        version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
 
   products/wizard:
     dependencies:
@@ -23049,8 +23074,8 @@ packages:
     resolution: {integrity: sha512-gptHNQghINnc/vTGIk0SOFGFNXw7JVrlRUtConJRlvaw6DuX0wO5Jeko9sWrMBhh+PsYAZ7oXAiOnf/UKogyiw==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.500.0:
-    resolution: {integrity: sha512-M6gUG8j46DJAm8fZzj7+LwSZP1VsbpIQu+lIIDhN3QOYCWq65AvxL2dfwMLyt+t/cXyQhz61Txirs/nPtQQCSg==}
+  unlayer-types@1.501.0:
+    resolution: {integrity: sha512-1WVpcvZaAvv5+EhVrVfpl2XKmiNQLSm68DjxFyQohbGGXwvo8dWHPWWKRbAqmiKrKET4ZUJYl3PgZFw2o6ab/A==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -43545,7 +43570,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.3.1):
     dependencies:
       react: 18.3.1
-      unlayer-types: 1.500.0
+      unlayer-types: 1.501.0
 
   react-grid-layout@2.2.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
@@ -45864,7 +45889,7 @@ snapshots:
 
   universalify@2.0.1: {}
 
-  unlayer-types@1.500.0: {}
+  unlayer-types@1.501.0: {}
 
   unpipe@1.0.0: {}
 

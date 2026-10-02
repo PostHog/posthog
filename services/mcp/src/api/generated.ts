@@ -106288,6 +106288,40 @@ export namespace Schemas {
       achievements_opt_out: boolean;
     }
 
+    export interface WebMCPExecRequest {
+      /**
+         * The exec command to run, for example `search insights` or `call insight-get {...}`.
+         * @maxLength 100000
+         */
+      command: string;
+    }
+
+    export type WebMCPExecResultContentItem = {
+      type: string;
+      [key: string]: unknown;
+     };
+
+    export interface WebMCPExecResult {
+      /** MCP content blocks the tool returned, such as `{type: 'text', text: '...'}`. */
+      content: WebMCPExecResultContentItem[];
+      /** True when the tool ran and reported a failure. */
+      is_error: boolean;
+    }
+
+    /**
+     * JSON Schema of the tool input, as the MCP server advertises it.
+     */
+    export type WebMCPExecToolInputSchema = { [key: string]: unknown };
+
+    export interface WebMCPExecTool {
+      /** Tool name to register with WebMCP. */
+      name: string;
+      /** Tool description from the PostHog MCP server, which tells the agent how to write commands. */
+      description: string;
+      /** JSON Schema of the tool input, as the MCP server advertises it. */
+      input_schema: WebMCPExecToolInputSchema;
+    }
+
     export interface WebhookExternalStatus {
       /** Whether the webhook exists on the external service. */
       exists: boolean;
