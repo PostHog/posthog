@@ -401,11 +401,32 @@ def collect_exported_types(body: list[ast.stmt]) -> dict[str, str]:
 _IPYTHON_SYNTAX = re.compile(r"^\s*[%!]|=\s*[%!]", re.MULTILINE)
 # Magics whose argument or body is Python, so the names it reads still count as inputs.
 _PYTHON_BODY_CELL_MAGICS = frozenset({"time", "timeit", "prun", "capture"})
-_PYTHON_ARGUMENT_LINE_MAGIC = re.compile(
-    r"^(\s*)%(?:time|timeit|prun)\s+(?:-[A-Za-z]+(?:\s+\d+)?\s+)*(.*)$", re.MULTILINE
-)
+_PYTHON_ARGUMENT_LINE_MAGIC = re.compile(r"^(\s*)%(timeit|time|prun)\b(.*)$", re.MULTILINE)
+# The single-letter options each magic reads a value for, as in `-n 10` or `-n10`.
+_MAGIC_VALUE_OPTIONS: dict[str, frozenset[str]] = {
+    "timeit": frozenset("nrp"),
+    "prun": frozenset("lsTD"),
+}
 # Names the transformed source calls that IPython provides at runtime, never a sibling frame.
 _IPYTHON_RUNTIME_NAMES = frozenset({"get_ipython"})
+
+
+def _magic_statement(magic: str, arguments: str) -> str:
+    """The Python statement after a magic's options: `-n10 -r 3 df.sum()` gives `df.sum()`."""
+    value_options = _MAGIC_VALUE_OPTIONS.get(magic, frozenset())
+    rest = arguments.strip()
+    while rest.startswith("-"):
+        token, _, rest = rest.partition(" ")
+        rest = rest.lstrip()
+        letters = token[1:]
+        for position, letter in enumerate(letters):
+            if letter in value_options:
+                # The value is the rest of the token, or else the next token.
+                if position == len(letters) - 1:
+                    _, _, rest = rest.partition(" ")
+                    rest = rest.lstrip()
+                break
+    return rest
 
 
 def to_plain_python(code: str) -> str:
@@ -419,10 +440,16 @@ def to_plain_python(code: str) -> str:
     stripped = code.lstrip()
     if stripped.startswith("%%"):
         header, _, body = stripped.partition("\n")
-        magic = header[2:].split(maxsplit=1)[0] if header[2:].strip() else ""
+        magic, _, arguments = header[2:].strip().partition(" ")
         # Any other cell magic (%%bash, %%html, …) holds another language: there is no Python to read.
-        return to_plain_python(body) if magic in _PYTHON_BODY_CELL_MAGICS else ""
-    code = _PYTHON_ARGUMENT_LINE_MAGIC.sub(r"\1\2", code)
+        if magic not in _PYTHON_BODY_CELL_MAGICS:
+            return ""
+        # `%%timeit` runs the statement after its options once as setup, before the body.
+        setup = _magic_statement(magic, arguments) if magic == "timeit" else ""
+        return to_plain_python(f"{setup}\n{body}" if setup else body)
+    code = _PYTHON_ARGUMENT_LINE_MAGIC.sub(
+        lambda match: match.group(1) + _magic_statement(match.group(2), match.group(3)), code
+    )
     from IPython.core.inputtransformer2 import TransformerManager  # noqa: PLC0415 — keeps IPython off the import path
 
     return TransformerManager().transform_cell(code)

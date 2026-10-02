@@ -135,6 +135,18 @@ describe('MarkdownNotebook in Jupyter mode', () => {
         expect(notebook.latest()).toEqual(expected)
     })
 
+    it('keeps a markdown cell whole when a code cell moves up past it', async () => {
+        const notebook = renderJupyterNotebook(
+            '# Title\n\nIntro\n\n<Py code="a = 1" />\n\n\nOne\n\nTwo\n\n<Py code="b = 2" />'
+        )
+        act(() => notebook.cell(1).focus())
+        press(notebook.cell(1), 'ArrowUp', { shiftKey: true, metaKey: true })
+        await flushFrames()
+        expect(notebook.latest()).toEqual(
+            '# Title\n\nIntro\n\n<Py code="a = 1" />\n\n<Py code="b = 2" />\n\n\nOne\n\nTwo'
+        )
+    })
+
     it('never turns keys typed in a code editor into cell commands', () => {
         const notebook = renderJupyterNotebook(TWO_CELLS)
         for (const key of ['a', 'b', 'd', 'd', 'm', 'Delete', 'Backspace']) {

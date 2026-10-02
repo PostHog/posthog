@@ -5782,14 +5782,12 @@ function MarkdownNotebookEditor({
             direction === 'up' ? [neighbour.startIndex, cell.endIndex + 1] : [cell.startIndex, neighbour.endIndex + 1]
         const reordered = direction === 'up' ? [...moved, ...passed] : [...passed, ...moved]
         const nextNodes = [...nodes.slice(0, start), ...reordered, ...nodes.slice(end)]
+        // Where the second of the two swapped cells now starts.
+        const middle = start + (direction === 'up' ? moved.length : passed.length)
         commitDocument(
             {
                 ...documentRef.current,
-                nodes: withJupyterCellBoundaries(
-                    withJupyterCellBoundaries(nextNodes, start, start + passed.length),
-                    start + (direction === 'up' ? moved.length : passed.length),
-                    end
-                ),
+                nodes: withJupyterCellBoundaries(withJupyterCellBoundaries(nextNodes, start, middle), middle, end),
             },
             { coalesce: false }
         )

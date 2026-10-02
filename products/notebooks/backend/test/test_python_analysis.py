@@ -24,6 +24,8 @@ class TestAnalyzePythonGlobalsUsed(SimpleTestCase):
             ("line_magic", "%pip install polars\nout = df.head()", ["df"]),
             ("shell_command_and_capture", "!ls /data\nfiles = !ls\nout = df.head()", ["df"]),
             ("magic_with_python_argument", "%timeit -n 10 df.sum()", ["df"]),
+            ("magic_with_attached_option_value", "%timeit -n10 -r3 df.sum()", ["df"]),
+            ("cell_magic_setup_statement", "%%timeit -n10 local = df.head()\nlocal.sum()", ["df"]),
             ("python_body_cell_magic", "%%time\nout = df.head()", ["df"]),
             ("other_language_cell_magic", "%%bash\necho $df", []),
         ]
