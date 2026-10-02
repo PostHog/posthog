@@ -31,8 +31,25 @@ function Reading({ label, reading }: { label: string; reading: WorkflowProposalM
             <span className="font-semibold">
                 {reading ? (formatValue(reading.value, 'rate') ?? 'No data') : 'No data'}
             </span>
+            {reading && <Denominator reading={reading} />}
         </span>
     )
+}
+
+// Opens and clicks read against tracked sends, not the Sends column, and each version has its own.
+function Denominator({ reading }: { reading: WorkflowProposalMetricApi }): JSX.Element {
+    if (reading.below_minimum_sample) {
+        return (
+            <Tooltip
+                title={`${reading.n} tracked sends, under ${MIN_EVIDENCE_SAMPLE}. Too few for the rate to mean anything.`}
+            >
+                <LemonTag type="warning" size="small">
+                    n={reading.n}
+                </LemonTag>
+            </Tooltip>
+        )
+    }
+    return <span className="text-xs text-secondary">n={reading.n}</span>
 }
 
 export function WorkflowAppliedOutcome({
@@ -122,7 +139,10 @@ export function WorkflowAppliedOutcome({
                                 width: '25%',
                                 render: (_, version) => (
                                     <span className="flex flex-col gap-1">
-                                        <span>{formatValue(version.target.value, 'rate') ?? 'No data'}</span>
+                                        <span className="flex items-baseline gap-1">
+                                            {formatValue(version.target.value, 'rate') ?? 'No data'}
+                                            <Denominator reading={version.target} />
+                                        </span>
                                         <span className="h-1 w-4/5 rounded bg-fill-primary overflow-hidden">
                                             <span
                                                 className="block h-full rounded bg-accent"
@@ -140,9 +160,10 @@ export function WorkflowAppliedOutcome({
                                 key: 'secondary',
                                 width: '20%',
                                 render: (_, version) => (
-                                    <span className="text-secondary">
+                                    <span className="flex items-baseline gap-1 text-secondary">
                                         {formatValue((version.secondary ?? version.click_through).value, 'rate') ??
                                             'No data'}
+                                        <Denominator reading={version.secondary ?? version.click_through} />
                                     </span>
                                 ),
                             },
@@ -151,16 +172,33 @@ export function WorkflowAppliedOutcome({
                                 key: 'sends',
                                 width: '15%',
                                 render: (_, version) => (
-                                    <span className="text-secondary">
-                                        {version.guardrails[0]?.n ?? version.target.n}
-                                    </span>
+                                    <Tooltip title="Every send on this version. Open and click rates read against tracked sends only, shown as n beside each rate.">
+                                        <span className="text-secondary">
+                                            {version.guardrails[0]?.n ?? version.target.n}
+                                        </span>
+                                    </Tooltip>
                                 ),
                             },
                         ]}
                         dataSource={charted}
                         rowKey={(version) => String(version.version)}
+                        expandable={{
+                            // A version that lifts opens and complaints together only shows on its own row.
+                            rowExpandable: (version) => version.guardrails.length > 0,
+                            expandedRowRender: (version) => (
+                                <div className="flex items-center gap-4 flex-wrap text-sm py-2">
+                                    {version.guardrails.map((guardrail) => (
+                                        <Reading
+                                            key={guardrail.metric}
+                                            label={ROW_LABELS[guardrail.metric] ?? guardrail.metric}
+                                            reading={guardrail}
+                                        />
+                                    ))}
+                                </div>
+                            ),
+                        }}
                     />
-                    {latest && (
+                    {latest && latest.guardrails.length > 0 && (
                         <div className="flex items-center gap-4 flex-wrap text-sm">
                             <span className="text-secondary">Live version:</span>
                             {latest.guardrails.map((guardrail) => (
@@ -170,13 +208,6 @@ export function WorkflowAppliedOutcome({
                                     reading={guardrail}
                                 />
                             ))}
-                            {latest.target.below_minimum_sample && (
-                                <Tooltip
-                                    title={`Under ${MIN_EVIDENCE_SAMPLE} sends. Not enough for the rates to mean anything.`}
-                                >
-                                    <LemonTag type="warning">Too little data</LemonTag>
-                                </Tooltip>
-                            )}
                         </div>
                     )}
                 </>
