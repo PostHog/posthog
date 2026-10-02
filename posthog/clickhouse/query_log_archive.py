@@ -626,6 +626,13 @@ def QUERY_LOG_ARCHIVE_ADD_COST_PLANNER_ALIASES_SQL(table=QUERY_LOG_ARCHIVE_DATA_
     )
 
 
+def QUERY_LOG_ARCHIVE_ADD_SAVED_QUERY_IDS_ALIAS_SQL(table=QUERY_LOG_ARCHIVE_DATA_TABLE):
+    return (
+        f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS lc_saved_query_ids Array(String) "
+        "ALIAS CAST(log_comment.saved_query_ids, 'Array(String)') AFTER lc_query"
+    )
+
+
 # Read-time aliases. lc_* read the curated JSON subset; ProfileEvents_* read the
 # raw map; exception_name keeps its derived form. The lc_query* / lc_modifiers
 # aliases reproduce the previous MV logic (source preference + is_initial_query
@@ -689,6 +696,7 @@ _QUERY_LOG_ARCHIVE_ALIAS_COLUMNS = """
         JSONHas(toString(log_comment), 'query', 'source'), JSONExtractString(toString(log_comment), 'query', 'source', 'query'),
         JSONExtractString(toString(log_comment), 'query', 'query')),
     lc_query String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'query'), ''),
+    lc_saved_query_ids Array(String) ALIAS CAST(log_comment.saved_query_ids, 'Array(String)'),
 
     lc_temporal__workflow_namespace String ALIAS log_comment.`temporal.workflow_namespace`::String,
     lc_temporal__workflow_type String ALIAS log_comment.`temporal.workflow_type`::String,
