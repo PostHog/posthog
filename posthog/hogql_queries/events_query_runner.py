@@ -1,7 +1,9 @@
 import re
 from datetime import datetime, timedelta
 from functools import cached_property
+from itertools import batched
 from typing import cast
+from uuid import UUID
 
 from django.utils.timezone import now
 
@@ -23,8 +25,10 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.ast import Alias
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.lazy_join_tags import GROUP_N, PERSONS
-from posthog.hogql.database.models import ExpressionField, LazyJoin
+from posthog.hogql.database.schema.flag_evaluations import (
+    EVENTS_LIST_JOINED_FIELDS,
+    add_events_list_fields_to_flag_evaluations,
+)
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import (
     action_to_expr,
@@ -34,11 +38,11 @@ from posthog.hogql.property import (
     steps_to_expr,
 )
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.api.element import ElementSerializer
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
-from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.dataclasses import frozen
 from posthog.hogql_queries.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
@@ -80,6 +84,9 @@ class EventsListTable:
     chain: tuple[str, ...]
     alias: str | None
     person_id: str
+    looks_up_person_display_names: bool
+    # Fields that join another table. The outer presorted query leaves out filters on them.
+    joined_fields: frozenset[str]
 
     def join_expr(self) -> ast.JoinExpr:
         return ast.JoinExpr(table=ast.Field(chain=[*self.chain]), alias=self.alias)
@@ -89,6 +96,8 @@ EVENTS_LIST_TABLE = EventsListTable(
     chain=("events",),
     alias=None,
     person_id="person.id",
+    looks_up_person_display_names=False,
+    joined_fields=frozenset(),
 )
 FLAG_EVALUATIONS_LIST_TABLE = EventsListTable(
     chain=("posthog", "flag_evaluations"),
@@ -99,7 +108,30 @@ FLAG_EVALUATIONS_LIST_TABLE = EventsListTable(
     # The persons join reads a zero UUID from person.id for a distinct_id with no person row.
     # person_id holds the id that flag_evaluations resolved through person merges.
     person_id="person_id",
+    # Reading person.properties in the query joins persons. That join deduplicates every person in the team before
+    # the query picks the page. The runner reads display names for only the page's persons after the query, unless
+    # the query sorts by Person and joins persons anyway.
+    looks_up_person_display_names=True,
+    joined_fields=EVENTS_LIST_JOINED_FIELDS,
 )
+
+
+class _FieldUnderFinder(TraversingVisitor):
+    def __init__(self, roots: frozenset[str]) -> None:
+        super().__init__()
+        self.roots = roots
+        self.found = False
+
+    def visit_field(self, node: ast.Field) -> None:
+        if node.chain and node.chain[0] in self.roots:
+            self.found = True
+
+
+def _reads_field_under(expr: ast.Expr, roots: frozenset[str]) -> bool:
+    finder = _FieldUnderFinder(roots)
+    finder.visit(expr)
+    return finder.found
+
 
 # Pagination cursors are encoded as ``<timestamp>|<uuid>`` so a stable uuid tiebreaker can advance
 # past events that share the boundary timestamp instead of dropping every tied row beyond the page
@@ -184,9 +216,24 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             self.source_runner.validate()
 
     def _person_display_name_key(self, table: EventsListTable) -> str:
-        property_keys = self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
-        props = person_display_name_property_exprs(property_keys, "person.properties")
+        props = self._person_display_name_property_exprs("person.properties")
         return f"coalesce({', '.join([*props, 'distinct_id'])}), toString({table.person_id})"
+
+    def _person_display_names_after_query(self, table: EventsListTable) -> bool:
+        """Whether the page lookup fills person_display_name, rather than the page query.
+
+        A sort by the Person column reads person.properties, which joins persons. The query then reads the names
+        from that join, and the lookup does not run.
+        """
+        return table.looks_up_person_display_names and not self._sorts_by_person_display_name()
+
+    def _sorts_by_person_display_name(self) -> bool:
+        if self.query.orderBy is not None:
+            return any(col.split("--")[0].strip() == "person_display_name" for col in self.query.orderBy)
+        columns = self.select_input_raw()
+        return columns[0].split("--")[0].strip() == "person_display_name" and self._default_order_is_first_column(
+            columns, any(has_aggregation(parse_expr(column)) for column in columns)
+        )
 
     def select_cols(self, table: EventsListTable) -> tuple[list[str], list[ast.Expr]]:
         select_input: list[str] = []
@@ -201,7 +248,11 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                 select_input.append("distinct_id")
                 person_indices.append(index)
             elif col.split("--")[0].strip() == "person_display_name":
-                select_input.append(f"({self._person_display_name_key(table)}, distinct_id)")
+                if self._person_display_names_after_query(table):
+                    # _expand_person_display_name_columns replaces distinct_id with the person's name.
+                    select_input.append(f"(distinct_id, toString({table.person_id}), distinct_id)")
+                else:
+                    select_input.append(f"({self._person_display_name_key(table)}, distinct_id)")
             else:
                 select_input.append(col)
         return select_input, [
@@ -383,28 +434,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         context = self.build_hogql_context()
         assert context.database is not None
         if table is FLAG_EVALUATIONS_LIST_TABLE:
-            # flag_evaluations.person carries only the id, but the default columns and test account filters read
-            # person.properties. This joins persons the way events does under PERSON_ID_OVERRIDE_PROPERTIES_JOINED.
-            # The change applies only to this runner's database. Every other reader keeps the narrow person.
-            flag_evaluations = context.database.get_table([*table.chain])
-            flag_evaluations.fields["person"] = LazyJoin(
-                from_field=["person_id"],
-                join_table=context.database.get_table("persons"),
-                resolver=PERSONS,
-            )
-            # flag_evaluations has no elements_chain or person_mode column. Empty strings let `*`, a saved column,
-            # a filter, or an order by that names either one still resolve.
-            for name in ("elements_chain", "person_mode"):
-                flag_evaluations.fields[name] = ExpressionField(name=name, expr=ast.Constant(value=""))
-            # Group property filters, including test account filters, read group_N.properties as they do on events.
-            groups = context.database.get_table("groups")
-            for index in range(GROUP_TYPES_LIMIT):
-                flag_evaluations.fields[f"group_{index}"] = LazyJoin(
-                    from_field=[f"$group_{index}"],
-                    join_table=groups,
-                    resolver=GROUP_N,
-                    resolver_params={"group_index": index},
-                )
+            add_events_list_fields_to_flag_evaluations(context.database)
         return context
 
     def _filter_where_exprs(self, table: EventsListTable) -> list[ast.Expr]:
@@ -567,18 +597,20 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                 columns.append(col)
         return [parse_order_expr(column, timings=self.timings) for column in columns]
 
+    @staticmethod
+    def _default_order_is_first_column(select_input: list[str], has_any_aggregation: bool) -> bool:
+        return "count()" not in select_input and not has_any_aggregation and "timestamp" not in select_input
+
     def _default_order_by(
         self, select_input: list[str], select: list[ast.Expr], aggregations: list[ast.Expr]
     ) -> list[ast.OrderExpr]:
+        if self._default_order_is_first_column(select_input, len(aggregations) > 0):
+            return [ast.OrderExpr(expr=select[0], order="ASC")] if select else []
         if "count()" in select_input:
             return [ast.OrderExpr(expr=parse_expr("count()"), order="DESC")]
         if len(aggregations) > 0:
             return [ast.OrderExpr(expr=aggregations[0], order="DESC")]
-        if "timestamp" in select_input:
-            return [ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")]
-        if len(select) > 0:
-            return [ast.OrderExpr(expr=select[0], order="ASC")]
-        return []
+        return [ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")]
 
     def _source_events_query(
         self,
@@ -641,7 +673,18 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         )
 
         prefilter_sorted = parse_expr("uuid in ({inner_query})", {"inner_query": inner_query})
-        return ast.And(exprs=[prefilter_sorted, where]) if where is not None else prefilter_sorted
+        outer_where = self._presorted_outer_where(table, where)
+        return ast.And(exprs=[prefilter_sorted, outer_where]) if outer_where is not None else prefilter_sorted
+
+    @staticmethod
+    def _presorted_outer_where(table: EventsListTable, where: ast.Expr | None) -> ast.Expr | None:
+        # The inner query applies every filter. The outer query keeps a filter only to narrow its own scan.
+        # A filter that reads a joined field would join that table a second time.
+        if where is None or not table.joined_fields:
+            return where
+        exprs = where.exprs if isinstance(where, ast.And) else [where]
+        kept = [expr for expr in exprs if not _reads_field_under(expr, table.joined_fields)]
+        return ast.And(exprs=kept) if kept else None
 
     def _calculate(self) -> EventsQueryResponse:
         # Tag here (not in `to_query()`) so platform code that calls `to_query()` as a
@@ -668,7 +711,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             if len(self.paginator.results) > 0:
                 self._annotate_session_recordings()
 
-        person_indices = self._expand_person_display_name_columns()
+        person_indices = self._expand_person_display_name_columns(table)
 
         # TODO: get rid of this logic once we don't use `person` columns anywhere
         if len(person_indices) > 0 and len(self.paginator.results) > 0:
@@ -715,23 +758,77 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                 if isinstance(session_id, str) and session_id:
                     properties["$has_recording"] = session_id in session_recordings_map
 
-    def _expand_person_display_name_columns(self) -> list[int]:
-        """Convert each person_display_name tuple into a dict, and return the `person` column indices."""
+    def _expand_person_display_name_columns(self, table: EventsListTable) -> list[int]:
+        """Convert each person_display_name tuple into a dict, and return the `person` column indices.
+
+        When the page lookup fills the names, this queries `persons` in ClickHouse for the page's person ids.
+        """
         person_indices: list[int] = []
+        display_name_indices: list[int] = []
         for column_index, col in enumerate(self.select_input_raw()):
             stripped = col.split("--")[0].strip()
             if stripped == "person":
                 person_indices.append(column_index)
             if stripped == "person_display_name":
-                for index, result in enumerate(self.paginator.results):
-                    row = list(self.paginator.results[index])
-                    row[column_index] = {
-                        "display_name": result[column_index][0],
-                        "id": str(result[column_index][1]),
-                        "distinct_id": str(result[column_index][2]),
+                display_name_indices.append(column_index)
+
+        names: dict[str, str] = {}
+        if display_name_indices and self._person_display_names_after_query(table):
+            with self.timings.measure("person_display_name_lookup"):
+                names = self._person_display_names(
+                    {
+                        str(row[column_index][1])
+                        for row in self.paginator.results
+                        for column_index in display_name_indices
                     }
-                    self.paginator.results[index] = row
+                )
+
+        for column_index in display_name_indices:
+            for index, result in enumerate(self.paginator.results):
+                row = list(self.paginator.results[index])
+                person_id = str(result[column_index][1])
+                row[column_index] = {
+                    "display_name": names.get(person_id, result[column_index][0]),
+                    "id": person_id,
+                    "distinct_id": str(result[column_index][2]),
+                }
+                self.paginator.results[index] = row
         return person_indices
+
+    def _person_display_name_property_exprs(self, prefix: str) -> list[str]:
+        property_keys = self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+        return person_display_name_property_exprs(property_keys, prefix)
+
+    def _person_display_names(self, person_ids: set[str]) -> dict[str, str]:
+        """Read display names from ClickHouse for only the given persons, keyed by person id."""
+        name_exprs = [parse_expr(expr) for expr in self._person_display_name_property_exprs("properties")]
+        names: dict[str, str] = {}
+        # Sorting keeps the printed query the same for the same page.
+        for batch in batched(sorted(person_ids), 1000, strict=False):
+            # persons applies this id filter before it deduplicates person versions only when persons is the
+            # query's own unaliased FROM. Under a join or an alias it deduplicates every person in the team first.
+            query = ast.SelectQuery(
+                select=[ast.Field(chain=["id"]), ast.Call(name="coalesce", args=name_exprs)],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
+                where=ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=ast.Field(chain=["id"]),
+                    right=ast.Tuple(exprs=[ast.Constant(value=UUID(person_id)) for person_id in batch]),
+                ),
+                # Without a LIMIT, execute_hogql_query returns at most its default row count.
+                limit=ast.Constant(value=len(batch)),
+            )
+            response = execute_hogql_query(
+                query=query,
+                team=self.team,
+                user=self.user,
+                query_type="EventsQueryPersonDisplayNames",
+                timings=self.timings,
+                modifiers=self.modifiers,
+                context=self.build_hogql_context(),
+            )
+            names.update((str(person_id), name) for person_id, name in response.results if name)
+        return names
 
     def _expand_person_columns(self, person_indices: list[int]) -> None:
         with self.timings.measure("person_column_extra_query"):
