@@ -1,6 +1,7 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { FacetSearchValue } from 'lib/components/FacetSearchBar/facetSearch'
 import { PERSON_DISPLAY_NAME_COLUMN_NAME } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
@@ -26,6 +27,10 @@ function recipient(email: string): RecipientApi {
         last_sent_at: null,
         preferences_updated_at: null,
     }
+}
+
+function textSearch(text: string): FacetSearchValue {
+    return { filters: [], text }
 }
 
 const PAGES_BY_CURSOR: Record<string, RecipientPageApi> = {
@@ -76,9 +81,9 @@ describe('recipientsLogic', () => {
         await mountLogic()
         jest.useFakeTimers()
 
-        logic.actions.setSearch('ja')
-        logic.actions.setSearch('jam')
-        logic.actions.setSearch('jamie')
+        logic.actions.setSearchValue(textSearch('ja'))
+        logic.actions.setSearchValue(textSearch('jam'))
+        logic.actions.setSearchValue(textSearch('jamie'))
         jest.advanceTimersByTime(SEARCH_DEBOUNCE_MS)
         jest.useRealTimers()
         await expectLogic(logic).toDispatchActions(['loadAudienceRecipientsSuccess'])
@@ -110,7 +115,7 @@ describe('recipientsLogic', () => {
             'loadAudienceRecipientsSuccess',
         ])
 
-        await expectLogic(logic, () => logic.actions.setSearch('sam')).toDispatchActions([
+        await expectLogic(logic, () => logic.actions.setSearchValue(textSearch('sam'))).toDispatchActions([
             'loadAudienceRecipientsSuccess',
         ])
 
@@ -121,7 +126,7 @@ describe('recipientsLogic', () => {
     it('ignores paging while a new search waits for its debounce', async () => {
         await mountLogic()
 
-        logic.actions.setSearch('sam')
+        logic.actions.setSearchValue(textSearch('sam'))
         logic.actions.loadNextPage()
         await expectLogic(logic).toFinishAllListeners()
 
@@ -147,8 +152,10 @@ describe('recipientsLogic', () => {
             return [200, PAGES_BY_CURSOR['']]
         })
 
-        await expectLogic(logic, () => logic.actions.setSearch('slow')).toDispatchActions(['loadAudienceRecipients'])
-        await expectLogic(logic, () => logic.actions.setSearch('jamie')).toDispatchActions([
+        await expectLogic(logic, () => logic.actions.setSearchValue(textSearch('slow'))).toDispatchActions([
+            'loadAudienceRecipients',
+        ])
+        await expectLogic(logic, () => logic.actions.setSearchValue(textSearch('jamie'))).toDispatchActions([
             'loadAudienceRecipientsSuccess',
         ])
         failSlowSearch()
@@ -196,7 +203,7 @@ describe('recipientsLogic', () => {
         await mountLogic()
         useRecipientsResponse(() => [response[0], response[1]])
 
-        await expectLogic(logic, () => logic.actions.setSearch(search)).toDispatchActions([
+        await expectLogic(logic, () => logic.actions.setSearchValue(textSearch(search))).toDispatchActions([
             response[0] === 200 ? 'loadAudienceRecipientsSuccess' : 'loadAudienceRecipientsFailure',
         ])
 

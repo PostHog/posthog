@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonInput } from '@posthog/lemon-ui'
+import { LemonBanner } from '@posthog/lemon-ui'
 
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
+import { FacetSearchBar } from 'lib/components/FacetSearchBar/FacetSearchBar'
 
 import { recipientsLogic } from './recipientsLogic'
 import { RecipientsTable } from './RecipientsTable'
@@ -22,7 +23,7 @@ function LoadFailedBanner(): JSX.Element {
 
 function RecipientsBody(): JSX.Element {
     const { recipientsView, loadFailed } = useValues(recipientsLogic)
-    const { setSearch } = useActions(recipientsLogic)
+    const { clearSearch } = useActions(recipientsLogic)
 
     switch (recipientsView) {
         case 'error':
@@ -38,9 +39,9 @@ function RecipientsBody(): JSX.Element {
             return (
                 <EmptyMessage
                     title="No recipients match this search"
-                    description="Check the spelling, or search for part of the address."
-                    buttonText="Clear search"
-                    buttonOnClick={() => setSearch('')}
+                    description="Check the spelling, search for part of the address, or remove a filter."
+                    buttonText="Clear search and filters"
+                    buttonOnClick={clearSearch}
                     buttonDataAttr="audience-recipients-clear-search"
                 />
             )
@@ -56,19 +57,20 @@ function RecipientsBody(): JSX.Element {
 }
 
 export function AudienceRecipients(): JSX.Element {
-    const { search } = useValues(recipientsLogic)
-    const { setSearch } = useActions(recipientsLogic)
+    const { facets, searchValue } = useValues(recipientsLogic)
+    const { setSearchValue } = useActions(recipientsLogic)
 
     return (
         <div className="flex flex-col gap-3 min-w-0" data-attr="audience-recipients">
-            <LemonInput
-                type="search"
-                placeholder="Search by email address"
-                value={search}
-                onChange={setSearch}
-                className="max-w-100"
-                data-attr="audience-recipients-search"
-            />
+            <div className="max-w-160">
+                <FacetSearchBar
+                    facets={facets}
+                    value={searchValue}
+                    onChange={setSearchValue}
+                    placeholder="Search by address, or filter by topic, suppression or person"
+                    dataAttr="audience-recipients-search"
+                />
+            </div>
             <UnreachablePersonsNotice />
             <RecipientsBody />
         </div>

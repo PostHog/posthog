@@ -4,6 +4,7 @@ import { cleanup, render, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { urls } from 'scenes/urls'
 
@@ -86,6 +87,7 @@ describe('AudienceRecipients', () => {
 
     afterEach(() => {
         cleanup()
+        jest.restoreAllMocks()
     })
 
     it('offers All marketing and marketing topics on the topic facets', async () => {
@@ -99,6 +101,7 @@ describe('AudienceRecipients', () => {
     })
 
     it('sends each pill as its own filter from the first page, and restores the pills from the URL', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
         startAt(urls.audience('recipients'))
         await expectLogic(recipientsLogic).toDispatchActions(['loadAudienceRecipientsSuccess'])
         await expectLogic(recipientsLogic, () => recipientsLogic.actions.loadNextPage()).toDispatchActions([
@@ -126,6 +129,11 @@ describe('AudienceRecipients', () => {
         await waitFor(() => expect(pills()).toEqual(['Unsubscribed from: All marketing', 'Person is not: No person']))
         expect(requests.map((request) => request.searchParams.getAll('filter'))).toEqual([
             ['unsubscribed:all-marketing', '-person:none'],
+        ])
+        const filteredEvents = capture.mock.calls.filter(([event]) => event === 'audience recipients filtered')
+        expect(filteredEvents).toEqual([
+            ['audience recipients filtered', { facets: ['unsubscribed'] }],
+            ['audience recipients filtered', { facets: ['person', 'unsubscribed'] }],
         ])
     })
 })

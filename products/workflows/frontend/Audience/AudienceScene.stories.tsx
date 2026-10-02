@@ -19,7 +19,6 @@ import type {
 
 import { AudienceScene } from './AudienceScene'
 import { AudienceTab } from './audienceSceneLogic'
-import { recipientsLogic } from './recipientsLogic'
 
 const CREATED_AT = '2026-09-01T10:00:00Z'
 
@@ -224,10 +223,7 @@ function audienceTabStory(
         ],
         render: function Render() {
             useEffect(() => {
-                router.actions.push(urls.audience(tab))
-                if (search) {
-                    recipientsLogic.actions.setSearch(search)
-                }
+                router.actions.push(urls.audience(tab), search ? { q: search } : {})
             }, [])
             return (
                 <div style={{ width: containerWidth ?? '100%' }}>
@@ -240,6 +236,20 @@ function audienceTabStory(
 
 export const Recipients: Story = audienceTabStory('recipients')
 export const RecipientsNarrow: Story = audienceTabStory('recipients', { containerWidth: NARROW_SCENE_WIDTH })
+const FILTERED_SEARCH = 'unsubscribed:all-marketing -person:none jamie'
+const filteredPage: RecipientPageApi = {
+    results: recipients.filter((recipient) => recipient.email === 'jamie@example.com'),
+    next_cursor: null,
+}
+export const RecipientsFiltered: Story = audienceTabStory('recipients', {
+    recipientsPage: filteredPage,
+    search: FILTERED_SEARCH,
+})
+export const RecipientsFilteredNarrow: Story = audienceTabStory('recipients', {
+    containerWidth: NARROW_SCENE_WIDTH,
+    recipientsPage: filteredPage,
+    search: FILTERED_SEARCH,
+})
 export const RecipientsEmpty: Story = audienceTabStory('recipients', {
     recipientsPage: { results: [], next_cursor: null },
 })
