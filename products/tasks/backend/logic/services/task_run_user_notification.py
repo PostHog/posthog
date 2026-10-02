@@ -23,6 +23,7 @@ from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.user import User
 from posthog.slack.formatting import escape_slack_mrkdwn
 
+from products.slack_app.backend.facade.api import SlackDmRecipient, resolve_slack_dm_recipient
 from products.slack_app.backend.feature_flags import is_slack_app_assistant_enabled, is_slack_app_oauth_enabled
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.services.slack_messages import post_slack_thread_reply
@@ -33,7 +34,6 @@ from products.tasks.backend.facade.contracts import (
     UserNotificationResultDTO,
 )
 from products.tasks.backend.logic.services.run_actor import user_has_current_team_access
-from products.tasks.backend.logic.services.slack_dm_recipient import SlackDmRecipient, resolve_slack_dm_recipient
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.redis import get_tasks_cache
 

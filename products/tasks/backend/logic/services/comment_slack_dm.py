@@ -32,12 +32,12 @@ from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.user_permissions import UserPermissions
 
 from products.canvas.backend.models import Canvas
-from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
-from products.tasks.backend.logic.services.slack_dm_recipient import (
+from products.slack_app.backend.facade.api import (
     linked_integration_for_recipient,
     linked_slack_user_id,
     slack_user_id_by_email,
 )
+from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
 from products.tasks.backend.models import Task, TaskCommentActivity
 
 logger = structlog.get_logger(__name__)

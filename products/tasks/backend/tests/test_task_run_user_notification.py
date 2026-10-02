@@ -48,8 +48,11 @@ class TestTaskRunUserNotification(BaseTest):
 
         self.slack_client = MagicMock()
         self.slack_client.chat_postMessage.return_value = {"ok": True, "channel": "D-owner", "ts": "100.1"}
-        for module in ("slack_dm_recipient", "task_run_user_notification"):
-            client_patch = patch(f"products.tasks.backend.logic.services.{module}.SlackIntegration")
+        for module in (
+            "products.slack_app.backend.services.slack_dm_recipient",
+            "products.tasks.backend.logic.services.task_run_user_notification",
+        ):
+            client_patch = patch(f"{module}.SlackIntegration")
             self.addCleanup(client_patch.stop)
             client_patch.start().return_value.client = self.slack_client
 
@@ -191,7 +194,7 @@ class TestTaskRunUserNotification(BaseTest):
     def test_an_undelivered_notification_does_not_start_the_cooldown(self, _name, break_delivery):
         break_delivery(self)
         with patch(
-            "products.tasks.backend.logic.services.slack_dm_recipient.lookup_slack_user_id_by_email", return_value=None
+            "products.slack_app.backend.services.slack_dm_recipient.lookup_slack_user_id_by_email", return_value=None
         ):
             first = self._notify()
             second = notify_task_owner(

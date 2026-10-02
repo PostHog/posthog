@@ -16,7 +16,6 @@ import structlog
 from posthog.models import Team
 from posthog.models.comment import Comment
 from posthog.models.integration import Integration, SlackIntegration
-from posthog.models.user_integration import UserIntegration
 from posthog.redis import get_client
 from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.utils import get_instance_region
@@ -30,6 +29,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.product_analytics.backend.facade.models import Insight
 from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.services.followup_invite import build_followup_invite
+from products.slack_app.backend.services.slack_dm_recipient import linked_slack_user_id
 from products.slack_app.backend.services.slack_messages import UNFURL_OPT_OUT_PARAM
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import TaskSlackUnfurlDTO
@@ -373,29 +373,21 @@ def _task_owner_can_view_public_slack_channel(
 ) -> bool:
     if task.created_by_id is None:
         return False
-    owner_link = (
-        UserIntegration.objects.filter(
-            user_id=task.created_by_id,
-            kind=UserIntegration.IntegrationKind.SLACK,
-            config__slack_team_id=integration.integration_id,
-        )
-        .order_by("-created_at")
-        .first()
-    )
-    if owner_link is None:
+    owner_slack_user_id = linked_slack_user_id(user_id=task.created_by_id, integration=integration)
+    if owner_slack_user_id is None:
         return False
-    if owner_link.integration_id in cache:
-        return cache[owner_link.integration_id]
+    if owner_slack_user_id in cache:
+        return cache[owner_slack_user_id]
     try:
-        owner = slack.client.users_info(user=owner_link.integration_id).get("user") or {}
+        owner = slack.client.users_info(user=owner_slack_user_id).get("user") or {}
     except Exception:
         logger.exception("slack_task_reference_owner_lookup_failed", task_id=str(task.id))
-        cache[owner_link.integration_id] = False
+        cache[owner_slack_user_id] = False
         return False
-    cache[owner_link.integration_id] = bool(
+    cache[owner_slack_user_id] = bool(
         not owner.get("deleted") and not owner.get("is_restricted") and not owner.get("is_ultra_restricted")
     )
-    return cache[owner_link.integration_id]
+    return cache[owner_slack_user_id]
 
 
 def _attach_public_slack_thread_reference(

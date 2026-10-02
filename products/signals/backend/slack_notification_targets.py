@@ -22,10 +22,10 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.user import User
-from posthog.models.user_integration import UserIntegration
 from posthog.slack.formatting import channel_id_from_target
 
 from products.signals.backend.models import SignalUserAutonomyConfig
+from products.slack_app.backend.facade.api import linked_slack_user_id
 
 logger = logging.getLogger(__name__)
 
@@ -160,16 +160,7 @@ def validate_slack_notification_target(user: User, target: str, integration: Int
 
 
 def _linked_slack_member_id(user: User, integration: Integration) -> str | None:
-    link = (
-        UserIntegration.objects.filter(
-            user=user,
-            kind=UserIntegration.IntegrationKind.SLACK,
-            config__slack_team_id=integration.integration_id,
-        )
-        .order_by("-created_at")
-        .first()
-    )
-    return link.integration_id if link else None
+    return linked_slack_user_id(user_id=user.id, integration=integration)
 
 
 def _member_display_name(member: dict) -> str:

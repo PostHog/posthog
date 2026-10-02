@@ -1,4 +1,4 @@
-"""Find where in Slack to DM a PostHog user.
+"""Find where in Slack to DM a PostHog user, for any product that messages people through the Slack app.
 
 A linked Slack identity wins. Without one, the user's email is matched against each workspace's own
 directory, and a match in more than one workspace is ambiguous and resolves to nobody.
@@ -70,7 +70,7 @@ def slack_user_id_by_email(*, email: str, integration: Integration, slack: Slack
     profile = resolve_slack_user(slack.client, slack_user_id, workspace=workspace)
     # `users.lookupByEmail` also returns external Slack Connect members, whose profile emails are
     # controlled by their own workspace's admin. Without this check an outsider could claim a
-    # teammate's address and receive their comment text.
+    # teammate's address and receive messages meant for them.
     if profile.get("team_id") != workspace:
         logger.warning("slack_dm_email_match_outside_workspace", integration_id=integration.id)
         return None
