@@ -1,5 +1,7 @@
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event, flush_persons_and_events
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
+from django.test import SimpleTestCase
 
 from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
@@ -8,6 +10,7 @@ from rest_framework.exceptions import PermissionDenied
 
 from posthog.schema import (
     ArtifactContentType,
+    ArtifactSource,
     AssistantToolCallMessage,
     ChartDisplayType,
     DataVisualizationNode,
@@ -17,14 +20,51 @@ from posthog.schema import (
 )
 
 from posthog.exceptions import ClickHouseAtCapacity
+from posthog.models import Organization, Team, User
 
 from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
 from products.product_analytics.backend.facade.models import Insight
 
 from ee.hogai.context.context import AssistantContextManager
+from ee.hogai.context.insight.format.sql import SQLResultsFormatter
 from ee.hogai.tools.execute_sql.tool import ExecuteSQLTool, ExecuteSQLToolArgs
 from ee.hogai.utils.types import AssistantState
-from ee.hogai.utils.types.base import NodePath
+from ee.hogai.utils.types.base import ArtifactRefMessage, NodePath
+
+
+class TestExecuteSQLPreview(SimpleTestCase):
+    async def test_native_tool_bounds_results_and_preserves_artifact_query(self) -> None:
+        context = MagicMock(spec=AssistantContextManager)
+        context.get_contextual_tools.return_value = {"execute_sql": {"connection_id": "example-connection"}}
+        context.artifacts.acreate = AsyncMock(return_value=AgentArtifact(short_id="preview1"))
+        context.artifacts.create_message.return_value = ArtifactRefMessage(
+            id="artifact",
+            artifact_id="preview1",
+            content_type=ArtifactContentType.VISUALIZATION,
+            source=ArtifactSource.ARTIFACT,
+        )
+        tool = ExecuteSQLTool(
+            team=Team(id=1, organization=Organization()),
+            user=User(),
+            context_manager=context,
+            description="Execute an example SQL query",
+            node_path=(NodePath(name="test", tool_call_id="sql"),),
+        )
+        query = "SELECT text FROM example_table"
+        response = {"columns": ["text"], "results": [["example text " * 200] for _ in range(300)]}
+        with patch("ee.hogai.context.insight.query_executor.process_query_dict", return_value=response):
+            _, artifact = await tool._arun_impl(query, "Example query", "Example description")
+        assert artifact is not None
+        message = artifact.messages[-1]
+        assert isinstance(message, AssistantToolCallMessage)
+        self.assertLess(len(message.content), SQLResultsFormatter.MAX_RESULT_CHARS + 2000)
+        self.assertIn("SQL result preview", message.content)
+        self.assertIn("Some cells were shortened", message.content)
+        self.assertEqual(message.ui_payload, {"execute_sql": query})
+        self.assertEqual(context.artifacts.acreate.call_args.args[0].query.source.query, query)
+        artifact_ref = artifact.messages[0]
+        assert isinstance(artifact_ref, ArtifactRefMessage)
+        self.assertEqual(artifact_ref.artifact_id, "preview1")
 
 
 class TestExecuteSQLTool(ClickhouseTestMixin, NonAtomicBaseTest):

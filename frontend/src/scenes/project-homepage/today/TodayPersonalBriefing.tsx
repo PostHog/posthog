@@ -8,6 +8,7 @@ import { TodayPreviewTrigger } from '~/layout/today/TodayPreviewTrigger'
 
 import type { BriefingSegmentApi } from 'products/today/frontend/generated/api.schemas'
 
+import { WALK_THROUGH_QUESTION } from './todayAskPrompt'
 import { isExternalHref, itemHref, itemSource } from './todayBriefingItems'
 import { TodayChipStack } from './TodayChipStack'
 import { TodayIcon } from './TodayIcon'
@@ -127,7 +128,7 @@ export function TodayPersonalBriefing(): JSX.Element | null {
                 <button
                     type="button"
                     data-attr="today-ask-about-edition"
-                    onClick={() => askAi('Walk me through what changed in my product today.')}
+                    onClick={() => askAi(WALK_THROUGH_QUESTION, 'walk_through')}
                 >
                     ask PostHog AI to walk you through it
                 </button>

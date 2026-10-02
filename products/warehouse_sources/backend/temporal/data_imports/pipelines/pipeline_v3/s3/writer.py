@@ -6,6 +6,7 @@ from typing import Literal
 import s3fs
 import pyarrow as pa
 import pyarrow.parquet as pq
+import botocore.exceptions
 from structlog.types import FilteringBoundLogger
 from temporalio import activity
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential_jitter
@@ -79,6 +80,19 @@ def _is_transient_s3_write_error(exc: BaseException) -> bool:
     # FileNotFoundError, and TimeoutError are also OSError subclasses but signal
     # non-transient causes (bad credentials, deleted bucket) that retrying won't fix,
     # so only the exact base type is treated as retryable here.
+    #
+    # A read/connect timeout or a dropped connection to the object store never gets that OSError
+    # translation: s3fs's own internal retries only convert a *response* it got back into an
+    # OSError, and a timed-out or refused connection never got one. It reaches here as the raw
+    # botocore exception once those internal retries are exhausted, so it needs a type check of
+    # its own (these are exactly the classes s3fs itself treats as retryable, see its
+    # S3_RETRYABLE_ERRORS/ClientError handling in s3fs.core._error_wrapper). SSLError is a
+    # ConnectionError subclass but usually means a persistent certificate problem, not a blip,
+    # so it's excluded rather than spending the whole retry budget before failing anyway.
+    if isinstance(exc, botocore.exceptions.SSLError):
+        return False
+    if isinstance(exc, botocore.exceptions.HTTPClientError | botocore.exceptions.ConnectionError):
+        return True
     return type(exc) is OSError
 
 
