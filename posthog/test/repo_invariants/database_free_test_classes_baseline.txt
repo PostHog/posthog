@@ -326,7 +326,6 @@ products/marketing_analytics/backend/test_max_tools.py::TestFormatTimestampForLl
 products/marketing_analytics/backend/test_max_tools.py::TestFormatUtmMappingSuggestionsForLlm
 products/marketing_analytics/backend/test_max_tools.py::TestSanitizeForPrompt
 products/mcp_store/backend/test/test_api.py::TestIsValidPosthogCodeCallbackUrl
-products/messaging/backend/services/test_customerio_track_client.py::TestCustomerIOTrackClient
 products/metrics/backend/tests/test_metric_query_runner.py::TestAlignToInterval
 products/posthog_ai/eval_harness/test/test_acp_log.py::TestSandboxedTraceCaptureParser
 products/posthog_ai/scripts/hogql_example/test/test_hogql_example.py::TestRenderHogQLExample
