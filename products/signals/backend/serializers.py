@@ -1113,16 +1113,24 @@ class ReportMetricWriteSerializer(ReportMetricSerializer):
         default=None,
         help_text="Legacy optional comparison. New report metrics must omit it.",
     )
+    # Proposed goals live in impact_measurement_plan artefacts, so the authoring schema must not advertise them.
+    goal_value = None  # type: ignore[assignment]
+    goal_direction = None  # type: ignore[assignment]
+    goal_grain = None  # type: ignore[assignment]
+    decision_window_days = None  # type: ignore[assignment]
+    minimum_data_points = None  # type: ignore[assignment]
 
-    def validate(self, attrs: dict[str, object]) -> dict[str, object]:
-        if any(
-            attrs.get(field) is not None
+    def to_internal_value(self, data: object) -> dict[str, object]:
+        # DRF ignores undeclared keys, so check the raw payload to keep the rejection explicit.
+        # `goal_grain` stays out of this check: an older client fills its schema default on every metric.
+        if isinstance(data, Mapping) and any(
+            data.get(field) is not None
             for field in ("goal_value", "goal_direction", "decision_window_days", "minimum_data_points")
         ):
             raise serializers.ValidationError(
                 "Write proposed goals as impact_measurement_plan artefacts, not report metrics."
             )
-        return attrs
+        return super().to_internal_value(data)
 
 
 class ReportMetricListSerializer(ReportMetricSerializer):
