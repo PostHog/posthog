@@ -67,6 +67,7 @@ export interface workflowProposalsLogicActions {
     approveProposal: (proposalId: string) => {
         proposalId: string
     }
+    clearOutcomes: () => {}
     confirmApproveProposal: (
         proposalId: string,
         expectedDraftUpdatedAt: string | null
@@ -241,7 +242,7 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
             action,
         }),
         loadOutcome: (proposalId: string) => ({ proposalId }),
-        clearOutcomes: true,
+        clearOutcomes: () => ({}),
         setLastSeen: (version: number | null, draftStamp: string | null) => ({ version, draftStamp }),
         setOptimizationUnreadable: (unreadable: boolean) => ({ unreadable }),
         reloadLists: true,
