@@ -194,8 +194,6 @@ describe('API_KEY_SCOPE_PRESETS', () => {
         })
     })
 
-    // The MCP Server preset used to grant query:write, which the picker shows as Write on a disabled
-    // segment, so its group never read as fully set.
     it.each(API_KEY_SCOPE_PRESETS.filter(({ value }) => value !== 'all_access').map(({ value }) => value))(
         'preset %s only sets levels the key creation UI can render',
         (value) => {
