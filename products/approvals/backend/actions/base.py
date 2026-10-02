@@ -24,11 +24,6 @@ class BaseAction(ABC):
 
     intent_fields: Optional[list[str]] = None
 
-    # Intent field that names the target of a change request with no resource id, such as a
-    # create. The duplicate check compares this field, because every such change request stores
-    # resource_id as NULL and would otherwise match every other one for the same action.
-    target_intent_field: Optional[str] = None
-
     # TODO(experiment-approval-policies): temporary. Action keys whose policy gates this action
     # when it has no policy of its own, so a move to a new key leaves no window without approval.
     # The fallback policy's conditions name the old action's fields, so they are not evaluated.
@@ -77,6 +72,16 @@ class BaseAction(ABC):
         Override this to add resource-specific context (e.g., fetch instance).
         """
         return base_context
+
+    @classmethod
+    def get_target_filter(cls, intent_data: dict[str, Any]) -> dict[str, Any]:
+        """
+        Return ChangeRequest filters that identify the target of a change request with no resource id.
+
+        Every such change request stores resource_id as NULL, so without these filters the
+        duplicate check matches every other one for the same action.
+        """
+        return {}
 
     @classmethod
     @abstractmethod
