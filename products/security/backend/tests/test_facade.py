@@ -1,12 +1,20 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.test import override_settings
+
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
 from posthog.models import User
 
-from products.security.backend.facade.api import decide, is_email_code_exempt, is_signup_risk_exempt, shadow_check
+from products.security.backend.facade.api import (
+    access_refused,
+    decide,
+    is_email_code_exempt,
+    is_signup_risk_exempt,
+    shadow_check,
+)
 from products.security.backend.facade.contracts import SubjectInput
 from products.security.backend.facade.enums import Outcome, Surface
 from products.security.backend.tests.helpers import block_rule, exempt_rule, seed_rules
@@ -27,6 +35,16 @@ def _decisions(surface: str, call_site: str, outcome: str) -> float:
         REGISTRY.get_sample_value(
             "posthog_security_access_decisions_total",
             {"surface": surface, "call_site": call_site, "outcome": outcome},
+        )
+        or 0.0
+    )
+
+
+def _refusals(call_site: str) -> float:
+    return (
+        REGISTRY.get_sample_value(
+            "posthog_security_access_refusals_total",
+            {"surface": "app", "call_site": call_site, "target_type": "user_uuid"},
         )
         or 0.0
     )
@@ -104,3 +122,34 @@ class TestFacade(BaseTest):
         before = _decisions(surface, surface, outcome)
         check(address)
         assert _decisions(surface, surface, outcome) == before + 1
+
+    @parameterized.expand(
+        [
+            ("surface enforced", ["app"], True),
+            ("another surface enforced", ["signup", "ai_gateway"], False),
+            ("nothing enforced", [], False),
+        ]
+    )
+    def test_access_refused_only_on_an_enforced_surface(self, _name: str, enforced: list[str], expected: bool) -> None:
+        user = User.objects.create_and_join(self.organization, "abuser@example.com", "password1234")
+        seed_rules(block_rule(targetType="user_uuid", targetValue=str(user.uuid)))
+        refused_before, would_block_before = _refusals("refuse_site"), _would_block("refuse_site")
+
+        with override_settings(SECURITY_ACCESS_ENFORCED_SURFACES=enforced):
+            result = access_refused(
+                SubjectInput(email=user.email, user_uuid=str(user.uuid)), Surface.APP, call_site="refuse_site"
+            )
+
+        assert result is expected
+        assert _refusals("refuse_site") == refused_before + (1 if expected else 0)
+        assert _would_block("refuse_site") == would_block_before + (0 if expected else 1)
+
+    def test_access_refused_refuses_nobody_when_the_decision_fails(self) -> None:
+        seed_rules(block_rule(targetValue="blocked@example.com"))
+        with (
+            override_settings(SECURITY_ACCESS_ENFORCED_SURFACES=["app"]),
+            patch("products.security.backend.facade.api.current_snapshot", side_effect=RuntimeError("boom")),
+        ):
+            assert (
+                access_refused(SubjectInput(email="blocked@example.com"), Surface.APP, call_site="refuse_site") is False
+            )

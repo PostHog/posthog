@@ -1,5 +1,8 @@
 from posthog.test.base import APIBaseTest
 
+from django.test import override_settings
+
+from parameterized import parameterized
 from prometheus_client import REGISTRY
 
 from posthog.models import Organization, User
@@ -22,24 +25,29 @@ class TestShadowCallSites(APIBaseTest):
     # The default test user is a posthog.com account, which no block rule may reach.
     CONFIG_EMAIL = "member@example.com"
 
-    def test_blocked_signup_is_logged_and_still_succeeds(self) -> None:
+    @parameterized.expand([("logged only", [], 201, 1), ("enforced", ["signup"], 403, 0)])
+    def test_blocked_signup(self, _name: str, enforced: list[str], status: int, would_block: int) -> None:
         seed_rules(block_rule(targetType="email_domain", targetValue="throwaway.example", scope="signup"))
         before = _count("signup", "signup", "email_domain")
         self.client.logout()
         # CanCreateOrg only opens outside cloud/DEBUG when no organization exists yet;
         # setUpTestData already created one, so this test's own org must go first.
         self.organization.delete()
-        response = self.client.post(
-            "/api/signup/",
-            {
-                "email": "new.user@throwaway.example",
-                "password": "a-long-password-123",
-                "first_name": "New",
-                "organization_name": "Org",
-            },
-        )
-        assert response.status_code == 201, response.json()
-        assert _count("signup", "signup", "email_domain") == before + 1
+        with override_settings(SECURITY_ACCESS_ENFORCED_SURFACES=enforced):
+            response = self.client.post(
+                "/api/signup/",
+                {
+                    "email": "new.user@throwaway.example",
+                    "password": "a-long-password-123",
+                    "first_name": "New",
+                    "organization_name": "Org",
+                },
+            )
+        assert response.status_code == status, response.json()
+        assert _count("signup", "signup", "email_domain") == before + would_block
+        assert User.objects.filter(email="new.user@throwaway.example").exists() is (status == 201)
+        if status == 403:
+            assert response.json()["code"] == "access_blocked"
 
     def test_blocked_login_is_logged_and_still_succeeds(self) -> None:
         user = User.objects.create_and_join(self.organization, "blocked.login@example.com", "a-long-password-123")
@@ -52,7 +60,10 @@ class TestShadowCallSites(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert _count("app", "login", "user_uuid") == before + 1
 
-    def test_blocked_existing_user_accepting_an_invite_is_logged_and_still_succeeds(self) -> None:
+    @parameterized.expand([("logged only", [], 201, 1), ("enforced", ["signup"], 403, 0)])
+    def test_blocked_existing_user_accepting_an_invite(
+        self, _name: str, enforced: list[str], status: int, would_block: int
+    ) -> None:
         # self.user (already logged in) is created with CONFIG_EMAIL, so this exercises the
         # branch InviteSignupSerializer.create takes when the invite acceptor already has an account.
         seed_rules(block_rule(targetType="email", targetValue=self.CONFIG_EMAIL))
@@ -60,10 +71,11 @@ class TestShadowCallSites(APIBaseTest):
         invite = OrganizationInvite.objects.create(target_email=self.user.email, organization=new_org)
 
         before = _count("signup", "invite_signup", "email")
-        with self.captureOnCommitCallbacks(execute=True):
+        with override_settings(SECURITY_ACCESS_ENFORCED_SURFACES=enforced), self.captureOnCommitCallbacks(execute=True):
             response = self.client.post(f"/api/signup/{invite.id}/")
-        assert response.status_code == 201, response.json()
-        assert _count("signup", "invite_signup", "email") == before + 1
+        assert response.status_code == status, response.json()
+        assert _count("signup", "invite_signup", "email") == before + would_block
+        assert self.user.organizations.filter(id=new_org.id).exists() is (status == 201)
 
     def test_blocked_session_is_logged_and_still_served(self) -> None:
         seed_rules(block_rule(targetType="email", targetValue=self.user.email.lower()))

@@ -13,6 +13,16 @@ DECISIONS_COUNTER = Counter(
     "Access decisions evaluated, by surface, call site and outcome",
     labelnames=["surface", "call_site", "outcome"],
 )
+REFUSALS_COUNTER = Counter(
+    "posthog_security_access_refusals_total",
+    "Requests an access rule refused, on a surface that enforces blocks",
+    labelnames=["surface", "call_site", "target_type"],
+)
+ENFORCED_GAUGE = Gauge(
+    "posthog_security_access_enforced",
+    "1 when a block rule refuses requests on this surface, 0 when it only records them",
+    labelnames=["surface"],
+)
 DECISION_ERRORS_COUNTER = Counter(
     "posthog_security_access_decision_errors_total",
     "Access decisions that raised and were treated as allow",

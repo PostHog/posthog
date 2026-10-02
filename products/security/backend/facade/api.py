@@ -14,15 +14,20 @@ import structlog
 
 from ..logic.accounts import email_for_user
 from ..logic.decisions import deciding_rule
+from ..logic.enforcement import is_enforced
 from ..logic.snapshot import current_snapshot
 from ..logic.subjects import normalize_subject
-from ..metrics import DECISION_ERRORS_COUNTER, DECISIONS_COUNTER, WOULD_BLOCK_COUNTER
+from ..metrics import DECISION_ERRORS_COUNTER, DECISIONS_COUNTER, REFUSALS_COUNTER, WOULD_BLOCK_COUNTER
 from . import contracts
 from .enums import Outcome, Surface
 
 logger = structlog.get_logger(__name__)
 
 _OUTCOME_FOR_MATCH = {Surface.EMAIL_CODE: Outcome.EXEMPT, Surface.SIGNUP_RISK: Outcome.EXEMPT}
+
+# The error code every refusal carries, so support can tell an access rule from any other 403
+# without the response naming the rule that matched.
+REFUSAL_CODE = "access_blocked"
 
 
 def decide(subject: contracts.SubjectInput, surface: Surface) -> contracts.Decision:
@@ -77,23 +82,48 @@ def is_signup_risk_exempt(email: str) -> bool:
         return False
 
 
+def _record_block(
+    decision: contracts.Decision, subject: contracts.SubjectInput, call_site: str, *, refused: bool
+) -> None:
+    counter = REFUSALS_COUNTER if refused else WOULD_BLOCK_COUNTER
+    counter.labels(surface=decision.surface.value, call_site=call_site, target_type=decision.target_type or "").inc()
+    logger.info(
+        "security_access_refused" if refused else "security_access_would_block",
+        surface=decision.surface.value,
+        call_site=call_site,
+        rule_id=decision.rule_id,
+        target_type=decision.target_type,
+        user_uuid=subject.user_uuid,
+    )
+
+
+def access_refused(subject: contracts.SubjectInput, surface: Surface, *, call_site: str) -> bool:
+    """Whether a block rule refuses this request.
+
+    On a surface that is not enforced, a match only records a would-block and returns False.
+    Never raises: a failed decision refuses nobody, so a broken check turns the blocklist off
+    instead of locking everyone out. The error counter is what shows that it happened.
+    """
+    try:
+        decision = _counted(decide(subject, surface), call_site)
+        if decision.outcome != Outcome.BLOCK:
+            return False
+        refused = is_enforced(surface)
+        _record_block(decision, subject, call_site, refused=refused)
+        return refused
+    except Exception:
+        logger.exception("security_access_check_failed", call_site=call_site)
+        DECISION_ERRORS_COUNTER.labels(call_site=call_site).inc()
+        return False
+
+
 def shadow_check(subject: contracts.SubjectInput, surface: Surface, *, call_site: str) -> None:
     """Records what a block rule would do here, and changes nothing. Never raises."""
     try:
         decision = _counted(decide(subject, surface), call_site)
         if decision.outcome != Outcome.BLOCK:
             return
-        WOULD_BLOCK_COUNTER.labels(
-            surface=surface.value, call_site=call_site, target_type=decision.target_type or ""
-        ).inc()
-        logger.info(
-            "security_access_would_block",
-            surface=surface.value,
-            call_site=call_site,
-            rule_id=decision.rule_id,
-            target_type=decision.target_type,
-            user_uuid=subject.user_uuid,
-        )
+        _record_block(decision, subject, call_site, refused=False)
     except Exception:
         logger.exception("security_access_shadow_check_failed", call_site=call_site)
         DECISION_ERRORS_COUNTER.labels(call_site=call_site).inc()

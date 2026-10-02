@@ -20,3 +20,8 @@ SECURITY_HUB_INBOUND_JWT_SECRETS: list[str] = get_list(
 SECURITY_HUB_OUTBOUND_JWT_SECRETS: list[str] = get_list(
     get_from_env("SECURITY_HUB_OUTBOUND_JWT_SECRETS", "local-dev-security-hub-outbound" if DEBUG or TEST else "")
 )
+
+# Surfaces where a matching block rule refuses the request: "signup", "ai_gateway", "app".
+# Comma-separated. A surface left out only records what a block rule would refuse, so an
+# unset value keeps every surface in shadow mode. Remove a surface to stop refusing there.
+SECURITY_ACCESS_ENFORCED_SURFACES: list[str] = get_list(get_from_env("SECURITY_ACCESS_ENFORCED_SURFACES", ""))

@@ -46,11 +46,21 @@ from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_att
 
 from products.demo.backend.facade.api import HedgeboxMatrix, MatrixManager
 from products.growth.backend.temporal.signup_enrichment.trigger import start_signup_enrichment_workflow
-from products.security.backend.facade.api import shadow_check as security_shadow_check
+from products.security.backend.facade.api import (
+    REFUSAL_CODE as SECURITY_REFUSAL_CODE,
+    access_refused as security_access_refused,
+)
 from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
 from products.security.backend.facade.enums import Surface as SecuritySurface
 
 logger = structlog.get_logger(__name__)
+
+# Says nothing about the rule that matched, so an abuser learns nothing from it. The code
+# is what lets support trace the refusal to an access rule.
+SIGNUP_BLOCKED_DETAIL = (
+    "We couldn't complete your signup. If you think this is a mistake, contact support "
+    f"and quote the code {SECURITY_REFUSAL_CODE}."
+)
 
 
 def _save_session_with_recovery(session: SessionBase) -> None:
@@ -238,7 +248,7 @@ class SignupSerializer(serializers.Serializer):
             )
 
         try:
-            security_shadow_check(
+            refused = security_access_refused(
                 SecuritySubject(
                     email=validated_data["email"],
                     ip=get_trusted_client_ip(getattr(request, "_request", request)),
@@ -247,7 +257,10 @@ class SignupSerializer(serializers.Serializer):
                 call_site="signup",
             )
         except Exception:
-            logger.exception("security_shadow_check_site_failed", call_site="signup")
+            logger.exception("security_access_check_site_failed", call_site="signup")
+            refused = False
+        if refused:
+            raise exceptions.PermissionDenied(SIGNUP_BLOCKED_DETAIL, code=SECURITY_REFUSAL_CODE)
 
         is_instance_first_user: bool = not User.objects.exists()
 
@@ -601,7 +614,7 @@ class InviteSignupSerializer(serializers.Serializer):
         # Runs for both branches below: an already signed-in user accepting an invite never hits
         # the "not user" branch, so this must not live inside it.
         try:
-            security_shadow_check(
+            refused = security_access_refused(
                 SecuritySubject(
                     email=(user.email if user else invite.target_email) or "",
                     user_uuid=str(user.uuid) if user else None,
@@ -611,7 +624,10 @@ class InviteSignupSerializer(serializers.Serializer):
                 call_site="invite_signup",
             )
         except Exception:
-            logger.exception("security_shadow_check_site_failed", call_site="invite_signup")
+            logger.exception("security_access_check_site_failed", call_site="invite_signup")
+            refused = False
+        if refused:
+            raise exceptions.PermissionDenied(SIGNUP_BLOCKED_DETAIL, code=SECURITY_REFUSAL_CODE)
 
         with transaction.atomic():
             if not user:
