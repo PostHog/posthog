@@ -3565,7 +3565,6 @@ def postgres_source(
     byte_bounded_extraction: bool = False,
     activity_attempt: int = 1,
     resumable_source_manager: Optional[ResumableSourceManager[KeysetResumeState]] = None,
-    keyset_full_load_enabled: bool = True,
 ) -> SourceResponse:
     table_name = table_names[0]
     if not table_name:
@@ -3958,13 +3957,12 @@ def postgres_source(
         # reason stay measurable.
         logger.info(f"Postgres keyset resume unavailable: reason={keyset.reason}")
 
-    # New full loads over a seekable key page by keyset, which lets a drained worker resume rather
-    # than restart the read. A False value can only come from an activity payload recorded before
-    # rollout completed; honoring it keeps that activity on one cursor mode across worker versions.
-    # The read-replica retry fallback remains unchanged for those old payloads.
-    takes_keyset_path = keyset.columns is not None and (
-        keyset_full_load_enabled or (activity_attempt > 1 and using_read_replica)
-    )
+    # Every full load over a seekable key pages by keyset, which lets a drained worker resume rather
+    # than restart the read. It also avoids the read-replica failure of a server cursor: the cursor
+    # idles in an open transaction through every Delta merge, and a replica that cancels reads during
+    # that idle kills each attempt at the same place. Seeking pages in autocommit, so nothing idles
+    # and a conflict resumes at the last key.
+    takes_keyset_path = keyset.columns is not None
     can_checkpoint = resumable_source_manager is not None and keyset.checkpointable
 
     def keyset_resume_key(key_length: int) -> tuple[Any, ...] | None:

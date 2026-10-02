@@ -1,5 +1,6 @@
 """Jira integration."""
 
+import re
 import time
 from datetime import timedelta
 from typing import Any, NoReturn
@@ -13,6 +14,57 @@ from posthog.exceptions_capture import capture_exception
 from . import common, model, oauth
 
 logger = structlog.get_logger(__name__)
+
+OPENING_FENCE = re.compile(r"(?P<fence>`{3,})(?P<language>[^`]*)")
+CLOSING_FENCE = re.compile(r"(?P<fence>`{3,})[ \t]*")
+
+
+def description_to_adf(description: str) -> dict[str, Any]:
+    """Markdown code fences become ADF code blocks, because Jira shows the backticks literally otherwise.
+
+    The fences follow CommonMark, so Jira shows the same blocks that GitHub would: a closing fence is at least as
+    long as its opening fence, and a fence without a closing line runs to the end. Each line is read once, so a
+    description with many unclosed fences still converts in linear time.
+    """
+    content: list[dict[str, Any]] = []
+    text_lines: list[str] = []
+    code_lines: list[str] = []
+    fence = ""
+    language = ""
+
+    def add_paragraph() -> None:
+        text = "\n".join(text_lines).strip("\n")
+        text_lines.clear()
+        # Jira rejects an empty text node.
+        if text.strip():
+            content.append({"type": "paragraph", "content": [{"type": "text", "text": text}]})
+
+    def add_code_block(language: str) -> None:
+        code_block: dict[str, Any] = {"type": "codeBlock", "content": []}
+        if language:
+            code_block["attrs"] = {"language": language}
+        if code := "\n".join(code_lines):
+            code_block["content"] = [{"type": "text", "text": code}]
+        code_lines.clear()
+        content.append(code_block)
+
+    for line in description.split("\n"):
+        if not fence:
+            if opening := OPENING_FENCE.fullmatch(line):
+                add_paragraph()
+                fence, language = opening["fence"], opening["language"].strip()
+            else:
+                text_lines.append(line)
+        elif (closing := CLOSING_FENCE.fullmatch(line)) and len(closing["fence"]) >= len(fence):
+            add_code_block(language)
+            fence = ""
+        else:
+            code_lines.append(line)
+    if fence:
+        add_code_block(language)
+    add_paragraph()
+
+    return {"type": "doc", "version": 1, "content": content}
 
 
 class JiraIntegration:
@@ -117,21 +169,11 @@ class JiraIntegration:
         description = config.get("description")
         project_key = config.get("project_key")
 
-        # Jira uses Atlassian Document Format (ADF) for description
         payload = {
             "fields": {
                 "project": {"key": project_key},
                 "summary": title,
-                "description": {
-                    "type": "doc",
-                    "version": 1,
-                    "content": [
-                        {
-                            "type": "paragraph",
-                            "content": [{"type": "text", "text": description}],
-                        }
-                    ],
-                },
+                "description": description_to_adf(description or ""),
                 "issuetype": {"name": "Task"},
             }
         }

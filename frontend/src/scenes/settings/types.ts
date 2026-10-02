@@ -302,6 +302,7 @@ export type SettingId =
     | 'ai-cloud-custom-images'
     | 'task-comments-slack-dm'
     | 'task-agent-other-settings'
+    | 'task-agent-new-task-defaults'
     | 'task-agent-project-default'
     | 'theme'
     | 'tracing-distinct-id-attribute-keys'

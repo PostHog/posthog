@@ -415,12 +415,11 @@ class PostgresSource(
         self,
         *,
         incremental_or_append: bool,
-        keyset_full_load_enabled: bool = True,
         schema_name: str | None = None,
     ) -> bool:
-        # Old activity payloads that recorded False keep the server-cursor path during the rolling
-        # deploy, so only keyset full loads receive the resumable retry budget.
-        return not incremental_or_append and keyset_full_load_enabled
+        # Keyset seeking is a full-load path, so an incremental or xmin run resumes from its watermark
+        # and keeps the incremental budget.
+        return not incremental_or_append
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[KeysetResumeState]:
         return ResumableSourceManager[KeysetResumeState](inputs, KeysetResumeState)
@@ -2043,7 +2042,6 @@ class PostgresSource(
                 byte_bounded_extraction=inputs.byte_bounded_extraction,
                 activity_attempt=inputs.activity_attempt,
                 resumable_source_manager=resumable_source_manager,
-                keyset_full_load_enabled=inputs.keyset_full_load,
             )
         except SqlclientUnableToEstablishSqlconnection as e:
             # A setup query (e.g. the duplicate-PK probe) touched a postgres_fdw foreign table and the

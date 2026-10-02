@@ -419,6 +419,7 @@ export function SceneTitleSection({
                                         </>
                                     }
                                 />
+                                {forceEdit && nameSuffix}
                             </>
                         )}
                     </div>
