@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, Protocol, Ty
 
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.types import IncrementalFieldType
+from products.warehouse_sources.backend.types import ExternalDataSchemaSyncType, IncrementalFieldType
 
 if TYPE_CHECKING:
     import pyarrow as pa
@@ -170,12 +170,12 @@ class SourceInputs:
     # True when extraction batches should be bounded by accumulated bytes rather than by the
     # sampled row count alone. Evaluated once per run alongside `fanout_warehouse_reuse`.
     byte_bounded_extraction: bool = False
-    # True when a full load may page with keyset seeks by default, rather than only as the
-    # read-replica retry fallback. Evaluated once per run alongside `byte_bounded_extraction`.
-    keyset_full_load: bool = False
+    # Compatibility switch for activity payloads recorded before keyset full loads became unconditional.
+    keyset_full_load: bool = True
     # Temporal's attempt number for this activity, starting at 1. A source can read a retry
     # differently from a first run, because the first run has already shown what fails.
     activity_attempt: int = 1
     # Set for a source that implements `CursorSource`. It holds the cursor stored by the last
     # successful run, or no cursor when this run rebuilds the table.
     source_cursor: Optional[SourceCursorManager[Any]] = None
+    sync_type: ExternalDataSchemaSyncType | None = None

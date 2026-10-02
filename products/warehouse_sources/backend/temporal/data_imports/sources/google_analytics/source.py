@@ -50,6 +50,21 @@ _PROPERTY_METADATA_ERROR = (
     "PostHog couldn't reach Google Analytics to read your property. Wait a few minutes, then try again."
 )
 
+# Google answers the metadata probe with 403 both when the account can't read the property (or the
+# property doesn't exist) and when the user unticked the Analytics scope on the consent screen. Only
+# a 401 means the token itself is bad, so reconnecting is the fix for the scope and 401 cases only.
+_CREDENTIALS_REJECTED_ERROR = (
+    "Google rejected the credentials for this connection. Reconnect your Google account, then try again."
+)
+_PROPERTY_ACCESS_ERROR = (
+    "Your connected Google account can't read this Google Analytics property. Check the property ID, "
+    "or reconnect with an account that has access to it."
+)
+_MISSING_SCOPE_ERROR = (
+    "Your Google connection doesn't include Google Analytics access. Reconnect your Google account "
+    "and allow Google Analytics access when Google asks."
+)
+
 
 @SourceRegistry.register
 class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleAnalyticsResumeConfig], OAuthMixin):
@@ -224,12 +239,12 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
             get_property_metadata(session, property_id)
         except requests.HTTPError as e:
             status = e.response.status_code if e.response is not None else None
-            if status in (401, 403):
-                return (
-                    False,
-                    f"Google Analytics rejected the credentials for property '{property_id}'. Please reconnect "
-                    "your account and ensure it has read access to the property.",
-                )
+            if status == 401:
+                return False, _CREDENTIALS_REJECTED_ERROR
+            if status == 403:
+                if "ACCESS_TOKEN_SCOPE_INSUFFICIENT" in e.response.text:
+                    return False, _MISSING_SCOPE_ERROR
+                return False, _PROPERTY_ACCESS_ERROR
             if status == 404:
                 return (
                     False,

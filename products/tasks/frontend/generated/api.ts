@@ -10,6 +10,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     ChannelContextGenerationApi,
+    ChannelContributorsDTOApi,
     ChannelDTOApi,
     ChannelFeedMessageDTOApi,
     ChannelFeedMessageWriteApi,
@@ -92,6 +93,8 @@ import type {
     TaskPinRequestApi,
     TaskPinResponseApi,
     TaskPresenceBeaconRequestApi,
+    TaskPullRequestTitlesApi,
+    TaskPullRequestTitlesRequestApi,
     TaskRepositoriesResponseApi,
     TaskReviewApi,
     TaskRunAnalysisActivityRequestApi,
@@ -146,6 +149,7 @@ import type {
     TaskUserBasicInfoApi,
     TaskWriteApi,
     TasksAIRunPreferencesApi,
+    TasksAgentInstructionsApi,
     TasksCommentsListParams,
     TasksCommentsRetrieveParams,
     TasksConfigListParams,
@@ -1185,6 +1189,24 @@ export const taskChannelsStarCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(channelStarWriteApi),
+    })
+}
+
+export const getTaskChannelsContributorsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/task_channels/contributors/`
+}
+
+/**
+ * For each channel the requester can access, list the people who own at least one task or canvas in it, most recently active first. Channels with no owners are left out.
+ * @summary List who worked in each channel
+ */
+export const taskChannelsContributorsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ChannelContributorsDTOApi[]> => {
+    return apiMutator<ChannelContributorsDTOApi[]>(getTaskChannelsContributorsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -2570,14 +2592,11 @@ export const tasksRunsLivingArtifactsList = async (
     taskId: string,
     runId: string,
     options?: RequestInit
-): Promise<TaskRunLivingArtifactsResponseApi[]> => {
-    return apiMutator<TaskRunLivingArtifactsResponseApi[]>(
-        getTasksRunsLivingArtifactsListUrl(projectId, taskId, runId),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<TaskRunLivingArtifactsResponseApi> => {
+    return apiMutator<TaskRunLivingArtifactsResponseApi>(getTasksRunsLivingArtifactsListUrl(projectId, taskId, runId), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getTasksRunsLivingArtifactsCreateUrl = (projectId: string, taskId: string, runId: string) => {
@@ -2655,6 +2674,34 @@ export const tasksRunsLivingArtifactsEdit = async (
             body: JSON.stringify(taskRunLivingArtifactEditRequestApi),
         }
     )
+}
+
+export const getTasksRunsLivingArtifactsVersionContentUrl = (
+    projectId: string,
+    taskId: string,
+    runId: string,
+    id: string,
+    version: number
+) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${runId}/living_artifacts/${id}/versions/${version}/`
+}
+
+/**
+ * Streams the content of one living artifact version from the app origin. Slack file versions return their stored file. Slack canvas and message versions return their text.
+ * @summary Download one version of a living artifact
+ */
+export const tasksRunsLivingArtifactsVersionContent = async (
+    projectId: string,
+    taskId: string,
+    runId: string,
+    id: string,
+    version: number,
+    options?: RequestInit
+): Promise<Blob> => {
+    return apiMutator<Blob>(getTasksRunsLivingArtifactsVersionContentUrl(projectId, taskId, runId, id, version), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getTasksRunsLivingArtifactsChartUrl = (projectId: string, taskId: string, runId: string) => {
@@ -2836,6 +2883,26 @@ export const tasksMeConfigCreate = async (
     })
 }
 
+export const getTasksMeConfigAgentInstructionsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tasks/@me/config/agent_instructions/`
+}
+
+/**
+ * Set your personal instructions, which PostHog cloud agents load in Tasks runs you start, after the project instructions. Autonomous runs never get them. Anyone who continues a task you started can see them, so leave out anything private. Send an empty string to clear.
+ */
+export const tasksMeConfigAgentInstructionsCreate = async (
+    projectId: string,
+    tasksAgentInstructionsApi: TasksAgentInstructionsApi,
+    options?: RequestInit
+): Promise<TasksAgentInstructionsApi> => {
+    return apiMutator<TasksAgentInstructionsApi>(getTasksMeConfigAgentInstructionsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tasksAgentInstructionsApi),
+    })
+}
+
 export const getTasksActiveWizardRunRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/tasks/active_wizard_run/`
 }
@@ -2904,6 +2971,26 @@ export const tasksConfigCreate = async (
     })
 }
 
+export const getTasksConfigAgentInstructionsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tasks/config/agent_instructions/`
+}
+
+/**
+ * Set the project instructions that PostHog cloud agents load as their user-level AGENTS.md in every eligible Tasks run, including autonomous runs. Send an empty string to clear.
+ */
+export const tasksConfigAgentInstructionsCreate = async (
+    projectId: string,
+    tasksAgentInstructionsApi: TasksAgentInstructionsApi,
+    options?: RequestInit
+): Promise<TasksAgentInstructionsApi> => {
+    return apiMutator<TasksAgentInstructionsApi>(getTasksConfigAgentInstructionsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tasksAgentInstructionsApi),
+    })
+}
+
 export const getTasksModelsRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/tasks/models/`
 }
@@ -2937,6 +3024,27 @@ export const tasksPinnedRetrieve = async (
     return apiMutator<PinnedTaskIdsResponseApi>(getTasksPinnedRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getTasksPullRequestTitlesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tasks/pull_request_titles/`
+}
+
+/**
+ * Returns the GitHub titles of the pull requests that the latest run of each task opened.
+ * @summary Fetch pull request titles for tasks
+ */
+export const tasksPullRequestTitlesCreate = async (
+    projectId: string,
+    taskPullRequestTitlesRequestApi: TaskPullRequestTitlesRequestApi,
+    options?: RequestInit
+): Promise<TaskPullRequestTitlesApi> => {
+    return apiMutator<TaskPullRequestTitlesApi>(getTasksPullRequestTitlesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskPullRequestTitlesRequestApi),
     })
 }
 

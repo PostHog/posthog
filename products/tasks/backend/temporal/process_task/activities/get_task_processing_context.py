@@ -56,6 +56,7 @@ from products.tasks.backend.exceptions import (
 from products.tasks.backend.facade.api import ensure_task_run_session
 from products.tasks.backend.feature_flags import is_agent_otel_telemetry_enabled
 from products.tasks.backend.logic.model_access import ModelAccess, resolve_model_access
+from products.tasks.backend.logic.services.agent_instructions import agent_instructions_state_update
 from products.tasks.backend.logic.services.agentsh import (
     _get_debug_only_domains,
     _get_debug_only_ports,
@@ -1368,8 +1369,16 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         store_skills = None
     if store_skills is not None:
         state_updates[STORE_SKILLS_STATE_KEY] = store_skills
+    # The sandbox writes these as the agent's user-level AGENTS.md / CLAUDE.md at session start.
+    # Best-effort for the same reason as store skills.
+    state_remove_keys: list[str] = []
     try:
-        TaskRun.update_state_atomic(task_run.id, updates=state_updates)
+        instruction_updates, state_remove_keys = agent_instructions_state_update(task, actor_user)
+        state_updates.update(instruction_updates)
+    except Exception as e:
+        log_with_activity_context("agent_instructions_resolve_failed", run_id=run_id, error=str(e))
+    try:
+        TaskRun.update_state_atomic(task_run.id, updates=state_updates, remove_keys=state_remove_keys)
     except Exception as e:
         log_with_activity_context("run_state_stamp_failed", run_id=run_id, error=str(e))
 

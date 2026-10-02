@@ -117,9 +117,10 @@ class ImportDataActivityInputs:
     fast_return_eligible: bool = False
     # Kept apart from `reset_pipeline`, which every retry would read again and wipe the table again.
     scheduled_full_refresh: bool = False
-    # Fixed for the job lifetime so a flag change between activity attempts cannot mix a stale
-    # keyset checkpoint with a server-cursor retry that reset the destination table.
-    keyset_full_load_enabled: bool = False
+    # Fixed for the job lifetime so activity retries cannot switch cursor modes while old and new
+    # workers overlap. Defaults True for new payloads; an old payload that recorded False keeps the
+    # server-cursor path on both worker versions. Remove after this release is fully deployed.
+    keyset_full_load_enabled: bool = True
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -131,7 +132,6 @@ class ImportDataActivityInputs:
             "reset_pipeline": self.reset_pipeline,
             "fast_return_eligible": self.fast_return_eligible,
             "scheduled_full_refresh": self.scheduled_full_refresh,
-            "keyset_full_load_enabled": self.keyset_full_load_enabled,
         }
 
 
@@ -539,6 +539,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
 
             source_inputs = SourceInputs(
                 schema_name=schema.name,
+                sync_type=ExternalDataSchema.SyncType(schema.sync_type) if schema.sync_type is not None else None,
                 schema_id=str(schema.id),
                 source_id=str(inputs.source_id),
                 team_id=inputs.team_id,

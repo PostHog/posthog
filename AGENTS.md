@@ -12,7 +12,7 @@
 
 - Environment:
   - This is a full dev environment with `node`, `pnpm`, a package mirror and `apt`. A missing `node_modules`, browser binary or flox means setup has not run yet (`pnpm install`, `npx playwright install --with-deps chromium`), not that running things is impossible — install it and continue. Report "can't run" only for a specific, nameable failure (no network, no `apt`, out of memory), alongside whatever fallback you took.
-  - Visual and UX work is not confirmed by reading the code. Render the affected surface (Storybook via a headless browser) and compare before and after. Worth the setup cost.
+  - Visual and UX work is not confirmed by reading the code. Render the affected surface (the running app, or Storybook via a headless browser) and compare before and after. Worth the setup cost. A story written only for this check is scratch: keep it out of the commit.
   - Use flox when available — prefer `flox activate -- bash -c "<command>"` if commands fail
     - Never use `flox activate` in interactive sessions (it hangs if you try)
 - Tests:

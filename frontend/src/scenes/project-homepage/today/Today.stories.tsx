@@ -7,6 +7,8 @@ import { Card } from '@posthog/quill'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
+import { briefingItemReportCard } from 'scenes/project-homepage/today/todayBriefingItems'
+import { TodayReportHoverCard } from 'scenes/project-homepage/today/TodayReportHoverCard'
 import { urls } from 'scenes/urls'
 
 import { todayListAppearanceLogic } from '~/layout/today/todayListAppearanceLogic'
@@ -21,6 +23,10 @@ import { mswDecorator } from '~/mocks/browser'
 import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 
 import { makeReport, mockSignals } from 'products/signals/frontend/inbox/__mocks__/inboxMocks'
+import {
+    reportMetricQueryHandler,
+    reportMetricsFixture,
+} from 'products/signals/frontend/inbox/__mocks__/reportMetricMocks'
 import { SignalReportStatus } from 'products/signals/frontend/inbox/types'
 import { ChannelDTOApi, TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
 import type { BriefingApi, BriefingItemApi } from 'products/today/frontend/generated/api.schemas'
@@ -114,6 +120,7 @@ const RECENT_SESSIONS = [
     ...PINNED_SESSIONS,
     {
         id: 'task-1',
+        origin_product: 'slack',
         channel: 'space-checkout',
         title: 'Add a retry to the billing webhook',
         archived: false,
@@ -136,6 +143,7 @@ const RECENT_SESSIONS = [
     },
     {
         id: 'task-3',
+        origin_product: 'error_tracking',
         channel: 'space-checkout',
         title: 'Speed up the invoice export',
         archived: false,
@@ -152,6 +160,7 @@ const RECENT_SESSIONS = [
     },
     {
         id: 'task-2',
+        origin_product: 'signal_report',
         channel: 'space-checkout',
         title: 'Investigate the drop in trial starts',
         archived: false,
@@ -223,12 +232,62 @@ const LIBRARY = [
     { id: 'fs-3', path: 'Unfiled/Feature flags/one-page-checkout', type: 'feature_flag', ref: '7' },
 ]
 
+const USER = { id: 1, uuid: 'user-1', first_name: 'Ada', email: 'ada@example.com' }
+
+const VIEW_CANVASES = [
+    {
+        id: 'canvas-1',
+        name: 'Checkout health board',
+        kind: 'freeform',
+        channel: 'space-checkout',
+        updated_at: '2026-09-28T17:50:00Z',
+        current_version_id: 'version-1',
+        generation_task_id: null,
+    },
+    {
+        id: 'canvas-building',
+        name: 'Signup funnel by country',
+        kind: 'freeform',
+        channel: 'space-checkout',
+        updated_at: '2026-09-28T18:05:00Z',
+        current_version_id: null,
+        generation_task_id: 'task-canvas-building',
+    },
+    {
+        id: 'canvas-2',
+        name: 'Weekly growth widgets',
+        kind: 'grid',
+        channel: 'space-general',
+        updated_at: '2026-09-26T08:15:00Z',
+        current_version_id: 'version-1',
+        generation_task_id: null,
+    },
+].map((canvas) => ({ description: '', pinned: false, created_by: USER, created_at: canvas.updated_at, ...canvas }))
+
+const NOTEBOOKS = [
+    { short_id: 'nb-1', title: 'Trial drop-off investigation', last_modified_at: '2026-09-28T12:30:00Z' },
+    { short_id: 'nb-2', title: 'Q3 pricing research notes', last_modified_at: '2026-09-20T10:00:00Z' },
+].map((notebook) => ({
+    id: notebook.short_id,
+    deleted: false,
+    created_at: notebook.last_modified_at,
+    created_by: USER,
+    last_modified_by: USER,
+    ...notebook,
+}))
+
+const DASHBOARDS = [
+    { id: 12, name: 'Growth overview', last_viewed_at: '2026-09-28T09:00:00Z', created_at: '2026-08-01T09:00:00Z' },
+    { id: 13, name: 'Billing and revenue', last_viewed_at: null, created_at: '2026-09-24T09:00:00Z' },
+].map((dashboard) => ({ description: '', pinned: false, deleted: false, tags: [], created_by: USER, ...dashboard }))
+
 const REPORTS = [
     makeReport({
         id: 'report-1',
         title: 'Signup form rejects plus-addressed emails',
         summary:
             'Sign-ups with a plus sign in the email address fail validation since the last release.\n\n## Impact\n\nNew teams that use plus addressing cannot finish signing up.',
+        summary_lead: 'Sign-ups with a plus sign in the email address fail validation since the last release.',
         status: SignalReportStatus.READY,
         signal_count: 12,
         updated_at: '2026-09-28T07:00:00Z',
@@ -241,6 +300,7 @@ const REPORTS = [
         id: 'report-2',
         title: 'Pricing page visitors drop off at the plan table',
         summary: 'Most visitors who reach the plan table leave without starting a trial.',
+        summary_lead: 'Most visitors who reach the plan table leave without starting a trial.',
         status: SignalReportStatus.READY,
         signal_count: 5,
         updated_at: '2026-09-27T16:00:00Z',
@@ -256,12 +316,53 @@ const REPORTS = [
         id: 'report-3',
         title: 'LLM costs doubled for the summarize tool',
         summary: 'Token usage for the summarize tool doubled after the prompt change.',
+        summary_lead: 'Token usage for the summarize tool doubled after the prompt change.',
         status: SignalReportStatus.PENDING_INPUT,
         signal_count: 3,
         updated_at: '2026-09-27T10:00:00Z',
         priority: 'P2',
         actionability: 'immediately_actionable',
         source_products: ['llm_analytics'],
+    }),
+    makeReport({
+        id: 'report-4',
+        title: 'Checkout conversion fell after the address form change',
+        summary:
+            'Fewer people finish checkout since the address form gained a required phone field.\n\n[Checkout conversion](chart:checkout-conversion)\n\nThe drop is sharpest on mobile, where the field is hard to fill.',
+        summary_lead:
+            'Fewer people finish checkout since the address form gained a required phone field. The drop is sharpest on mobile, where the field is hard to fill.',
+        status: SignalReportStatus.READY,
+        signal_count: 4,
+        updated_at: '2026-09-28T08:00:00Z',
+        priority: 'P1',
+        actionability: 'immediately_actionable',
+        source_products: ['product_analytics'],
+        charts: [
+            {
+                chart_id: 'checkout-conversion',
+                title: 'Checkout conversion',
+                query: {
+                    kind: 'InsightVizNode',
+                    source: {
+                        kind: 'TrendsQuery',
+                        series: [{ kind: 'EventsNode', event: 'checkout completed' }],
+                        dateRange: { date_from: '2026-09-14', date_to: '2026-09-28' },
+                    },
+                },
+            },
+            {
+                chart_id: 'mobile-dropoff',
+                title: 'Mobile drop-off at the address form',
+                query: {
+                    kind: 'InsightVizNode',
+                    source: {
+                        kind: 'TrendsQuery',
+                        series: [{ kind: 'EventsNode', event: 'address form abandoned' }],
+                        dateRange: { date_from: '2026-09-14', date_to: '2026-09-28' },
+                    },
+                },
+            },
+        ],
     }),
 ]
 
@@ -276,6 +377,7 @@ function briefingItem(overrides: Partial<BriefingItemApi> & Pick<BriefingItemApi
         reason: 'waiting_for_you',
         state: 'open',
         source_product: null,
+        report: null,
         ...overrides,
     }
 }
@@ -309,6 +411,41 @@ const PERSONAL_BRIEFING: BriefingApi = {
             signal: 'P1, fix ready for review',
             rank: 1,
             source_product: 'error_tracking',
+            title: 'Signup form rejects plus-addressed emails',
+            report: {
+                priority: 'P1',
+                summary:
+                    'Since the release on Friday, the signup form rejects emails with a plus sign. People who try again with another address finish signup, the rest drop off at the email step.',
+                pull_request_state: 'open',
+                pull_request_url: 'https://github.com/example-org/web/pull/4821',
+                signal_count: 23,
+                updated_at: '2026-09-28T15:10:00Z',
+                metrics: [
+                    {
+                        metric_id: 'affected-users',
+                        title: 'Affected users',
+                        kind: 'affected_users',
+                        role: 'primary',
+                        value: 52,
+                        series: [12, 18, 15, 22, 31, 40, 52],
+                        value_format: 'count',
+                        unit: 'users',
+                        query: reportMetricsFixture[0].query,
+                    },
+                    ...reportMetricsFixture.slice(1).map((metric) => ({
+                        metric_id: metric.metric_id,
+                        title: metric.title,
+                        kind: metric.kind,
+                        role: metric.role ?? 'supporting',
+                        value: metric.value ?? 0,
+                        series: metric.series ?? null,
+                        value_format: metric.value_format ?? 'number',
+                        unit: metric.unit ?? null,
+                        query: metric.query,
+                    })),
+                ],
+                charts: [],
+            },
         }),
         briefingItem({
             key: 'report:report-3',
@@ -316,6 +453,31 @@ const PERSONAL_BRIEFING: BriefingApi = {
             signal: 'P2, claimed by you',
             rank: 2,
             source_product: 'llm_analytics',
+            title: 'Summarize tool costs doubled after the prompt change',
+            report: {
+                priority: 'P2',
+                summary:
+                    'The summarize tool now sends the whole thread as context instead of the last ten messages. Token use per call doubled on Tuesday and has stayed there. Cost per conversation rose the same amount, while answer ratings did not change. Trimming the context back would undo the rise.',
+                pull_request_state: null,
+                pull_request_url: null,
+                signal_count: 7,
+                updated_at: '2026-09-27T09:00:00Z',
+                metrics: [],
+                charts: [
+                    {
+                        chart_id: 'summarize-tokens',
+                        title: 'Tokens per summarize call',
+                        query: {
+                            kind: 'InsightVizNode',
+                            source: {
+                                kind: 'TrendsQuery',
+                                series: [{ kind: 'EventsNode', event: '$ai_generation' }],
+                                dateRange: { date_from: '2026-09-14', date_to: '2026-09-28' },
+                            },
+                        },
+                    },
+                ],
+            },
         }),
         briefingItem({
             key: 'dashboard:12',
@@ -358,23 +520,21 @@ const PERSONAL_BRIEFING: BriefingApi = {
 
 // Today keeps sample mode, the open pane, the sidebar width and the space feed view in local storage, which outlives
 // a story. Clearing it makes each story start clean, so only the sample stories show sample reports.
-function clearTodayStorage(Story: () => JSX.Element): JSX.Element {
+// A story's `spaceFeedView` parameter is written after the clear, so it starts with that saved space feed view, the
+// way a returning person sees it.
+function clearTodayStorage(
+    Story: () => JSX.Element,
+    { parameters }: { parameters: { spaceFeedView?: Record<string, unknown> } }
+): JSX.Element {
     for (const key of Object.keys(window.localStorage)) {
         if (/today|spaceFeedViewLogic/i.test(key)) {
             window.localStorage.removeItem(key)
         }
     }
-    return <Story />
-}
-
-/** Starts a story with a saved space feed view, the way a returning person sees it. */
-function withSpaceFeedView(saved: Record<string, unknown>): (Story: () => JSX.Element) => JSX.Element {
-    return function SpaceFeedViewDecorator(Story) {
-        for (const [reducer, value] of Object.entries(saved)) {
-            window.localStorage.setItem(`products.tasks.spaces.spaceFeedViewLogic.${reducer}`, JSON.stringify(value))
-        }
-        return <Story />
+    for (const [reducer, value] of Object.entries(parameters.spaceFeedView ?? {})) {
+        window.localStorage.setItem(`products.tasks.spaces.spaceFeedViewLogic.${reducer}`, JSON.stringify(value))
     }
+    return <Story />
 }
 
 const meta: Meta = {
@@ -387,10 +547,12 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 '/api/projects/:team_id/signals/reports/': { results: REPORTS, count: 7 },
+                '/api/projects/:team_id/signals/reports/for_you/': { results: REPORTS, count: 7 },
                 '/api/projects/:team_id/signals/reports/:id/': (req) => [
                     200,
                     REPORTS.find((report) => report.id === req.params.id) ?? REPORTS[0],
                 ],
+                '/api/environments/:team_id/query/:kind/': reportMetricQueryHandler,
                 '/api/projects/:team_id/signals/reports/:id/signals/': (req) => [
                     200,
                     // Error tracking signals fetch their issue, which these stories do not mock.
@@ -406,6 +568,9 @@ const meta: Meta = {
                     200,
                     SPACES.find((space) => space.id === req.params.id) ?? SPACES[0],
                 ],
+                '/api/users/@me/integrations/codex/': { status: 'not_connected' },
+                '/api/code/invites/check-access/': { has_access: true, has_loops_access: false },
+                '/api/projects/:team_id/tasks/repositories/': { repositories: [] },
                 '/api/projects/:team_id/tasks/': ({ request }) => {
                     const params = new URL(request.url).searchParams
                     const results = params.get('pinned')
@@ -418,8 +583,13 @@ const meta: Meta = {
                     return [200, { results, count: results.length, next: null, previous: null }]
                 },
                 '/api/projects/:team_id/canvases/': ({ request }) => {
-                    const results =
-                        new URL(request.url).searchParams.get('channel') === 'space-checkout' ? CANVASES : []
+                    const params = new URL(request.url).searchParams
+                    const channel = params.get('channel')
+                    const results = channel
+                        ? channel === 'space-checkout'
+                            ? CANVASES
+                            : []
+                        : VIEW_CANVASES.filter((canvas) => canvas.kind === params.get('kind'))
                     return [200, { results, count: results.length, next: null, previous: null }]
                 },
                 '/api/projects/:team_id/task_activity/': {
@@ -447,8 +617,17 @@ const meta: Meta = {
                     return [200, { results, count: results.length }]
                 },
                 '/api/environments/:team_id/file_system/unfiled/': { results: [], count: 0 },
+                '/api/projects/:team_id/canvases/canvas-building/': VIEW_CANVASES[1],
+                '/api/projects/:team_id/tasks/task-canvas-building/': {
+                    id: 'task-canvas-building',
+                    title: 'Signup funnel by country',
+                    latest_run: { id: 'run-canvas-building', status: 'in_progress' },
+                },
+                '/api/projects/:team_id/notebooks/': { results: NOTEBOOKS, count: NOTEBOOKS.length },
+                '/api/projects/:team_id/dashboards/': { results: DASHBOARDS, count: DASHBOARDS.length },
             },
             post: {
+                '/api/environments/:team_id/query/:kind/': reportMetricQueryHandler,
                 '/api/projects/:team_id/tasks/summaries/': {
                     count: 2,
                     next: null,
@@ -489,6 +668,26 @@ export const HomeWithPersonalBriefing: Story = {
     decorators: [mswDecorator({ get: { '/api/projects/:team_id/today/briefing/': PERSONAL_BRIEFING } })],
 }
 
+// One report was resolved and another dismissed after the briefing was written.
+export const HomeWithResolvedAndDismissedItems: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/today/briefing/': {
+                    ...PERSONAL_BRIEFING,
+                    items: PERSONAL_BRIEFING.items.map((item) =>
+                        item.key === 'report:report-3'
+                            ? { ...item, state: 'dismissed' }
+                            : item.key === 'report:report-1'
+                              ? { ...item, state: 'done' }
+                              : item
+                    ),
+                },
+            },
+        }),
+    ],
+}
+
 export const HomeWithNothingForYou: Story = {
     decorators: [
         mswDecorator({
@@ -527,7 +726,7 @@ export const SampleReportPage: Story = {
 export const HomeWithNoReports: Story = {
     decorators: [
         mswDecorator({
-            get: { '/api/projects/:team_id/signals/reports/': EMPTY_PAGINATED_RESPONSE },
+            get: { '/api/projects/:team_id/signals/reports/for_you/': { results: [], count: 0 } },
         }),
     ],
 }
@@ -535,7 +734,7 @@ export const HomeWithNoReports: Story = {
 export const HomeWhenReportsFailToLoad: Story = {
     decorators: [
         mswDecorator({
-            get: { '/api/projects/:team_id/signals/reports/': () => [500, { detail: 'Server error' }] },
+            get: { '/api/projects/:team_id/signals/reports/for_you/': () => [500, { detail: 'Server error' }] },
         }),
     ],
 }
@@ -548,13 +747,18 @@ export const ReportWithSuggestedPrompts: Story = {
     parameters: { pageUrl: urls.todayReport('report-2') },
 }
 
+// One chart placed in the summary, one trailing it. Charts resolve without the Inbox detail logic.
+export const ReportWithCharts: Story = {
+    parameters: { pageUrl: urls.todayReport('report-4') },
+}
+
 export const SpacesPane: Story = {
     play: async ({ canvasElement }) => {
         await userEvent.click(await within(canvasElement).findByLabelText('Spaces'))
     },
 }
 
-// A hovered space row shows no buttons, so the faces and the unread dot keep their place.
+// A hovered space row shows no buttons, so the faces keep their place.
 // Its actions, New session first, are in the hover card that opens beside it.
 export const SpacesPaneHoveringSpaceRow: Story = {
     play: async ({ canvasElement }) => {
@@ -594,32 +798,28 @@ export const SpacesPaneWithRecentFilterMenu: Story = {
 }
 
 export const SpacePageListView: Story = {
-    decorators: [withSpaceFeedView({ view: 'list' })],
-    parameters: { pageUrl: urls.taskSpace('space-checkout') },
+    parameters: { pageUrl: urls.taskSpace('space-checkout'), spaceFeedView: { view: 'list' } },
 }
 
 export const SpacePagePullRequests: Story = {
-    decorators: [withSpaceFeedView({ types: ['pr'] })],
-    parameters: { pageUrl: urls.taskSpace('space-checkout') },
+    parameters: { pageUrl: urls.taskSpace('space-checkout'), spaceFeedView: { types: ['pr'] } },
 }
 
 export const SpacePageCanvases: Story = {
-    decorators: [withSpaceFeedView({ types: ['canvas'] })],
-    parameters: { pageUrl: urls.taskSpace('space-checkout') },
+    parameters: { pageUrl: urls.taskSpace('space-checkout'), spaceFeedView: { types: ['canvas'] } },
 }
 
 export const SpacePageCanvasesListView: Story = {
-    decorators: [withSpaceFeedView({ types: ['canvas'], view: 'list' })],
-    parameters: { pageUrl: urls.taskSpace('space-checkout') },
+    parameters: { pageUrl: urls.taskSpace('space-checkout'), spaceFeedView: { types: ['canvas'], view: 'list' } },
 }
 
 export const SpacePageFiltered: Story = {
-    decorators: [
-        withSpaceFeedView({
+    parameters: {
+        pageUrl: urls.taskSpace('space-checkout'),
+        spaceFeedView: {
             filters: { createdBy: 'anyone', sources: [], status: 'unread', pinned: 'any', environment: 'any' },
-        }),
-    ],
-    parameters: { pageUrl: urls.taskSpace('space-checkout') },
+        },
+    },
 }
 
 // Right-click at the target's corner, where a person would, so the menu opens beside it.
@@ -779,6 +979,34 @@ export const SpaceHoverCard: Story = {
     ),
 }
 
+export const ReportHoverCard: Story = {
+    render: () => (
+        <HoverCardFrame>
+            <TodayReportHoverCard
+                preview={{
+                    kind: 'report',
+                    card: briefingItemReportCard(PERSONAL_BRIEFING.items[0]),
+                    surface: 'sidebar',
+                }}
+            />
+        </HoverCardFrame>
+    ),
+}
+
+export const ReportHoverCardResolved: Story = {
+    render: () => (
+        <HoverCardFrame>
+            <TodayReportHoverCard
+                preview={{
+                    kind: 'report',
+                    card: briefingItemReportCard({ ...PERSONAL_BRIEFING.items[1], state: 'done' }),
+                    surface: 'sidebar',
+                }}
+            />
+        </HoverCardFrame>
+    ),
+}
+
 // The details are picked through the logic, where the dialog saves them, so each session row shows a second line.
 export const SpacesPaneWithListItemDetails: Story = {
     play: async ({ canvasElement }) => {
@@ -796,5 +1024,29 @@ export const ListItemAppearanceDialog: Story = {
         todayListAppearanceLogic.actions.openAppearanceDialog()
         // The dialog opens in a portal outside the story's canvas.
         await within(document.body).findByText('Edit list item appearance')
+    },
+}
+
+export const ViewsAll: Story = {
+    parameters: { pageUrl: urls.views() },
+}
+
+export const ViewsEmpty: Story = {
+    parameters: { pageUrl: urls.views() },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/canvases/': EMPTY_PAGINATED_RESPONSE,
+                '/api/projects/:team_id/notebooks/': EMPTY_PAGINATED_RESPONSE,
+                '/api/projects/:team_id/dashboards/': EMPTY_PAGINATED_RESPONSE,
+            },
+        }),
+    ],
+}
+
+export const ViewsNewMenu: Story = {
+    parameters: { pageUrl: urls.views() },
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByText('New…'))
     },
 }
