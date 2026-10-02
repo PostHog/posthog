@@ -17,11 +17,17 @@ const inflightByKey = new Map<string, Promise<CachedLiveCount>>()
 // Fallback for when localStorage is disabled or full.
 const memoryCacheByKey = new Map<string, CachedLiveCount>()
 
+function isCachedLiveCount(value: unknown): value is CachedLiveCount {
+    const candidate = value as Partial<CachedLiveCount> | null
+    return Number.isFinite(candidate?.value) && Number.isFinite(candidate?.fetchedAt)
+}
+
 function readCachedLiveCount(storageKey: string): CachedLiveCount | null {
     try {
         const raw = localStorage.getItem(storageKey)
-        if (raw) {
-            return JSON.parse(raw) as CachedLiveCount
+        const parsed: unknown = raw ? JSON.parse(raw) : null
+        if (isCachedLiveCount(parsed)) {
+            return parsed
         }
     } catch {
         // Fall through to the in-memory copy.

@@ -193,9 +193,6 @@ export interface liveWebAnalyticsMetricsLogicActions {
     clearRecentEvents: () => {
         value: true
     }
-    setRecentEvents: (events: LiveEvent[]) => {
-        events: LiveEvent[]
-    }
     loadInitialData: (isBackground?: boolean) => {
         isBackground: boolean
     }
@@ -240,6 +237,9 @@ export interface liveWebAnalyticsMetricsLogicActions {
     }
     setIsRefreshing: (refreshing: boolean) => {
         refreshing: boolean
+    }
+    setRecentEvents: (events: LiveEvent[]) => {
+        events: LiveEvent[]
     }
     tickCurrentMinute: () => {
         value: true
