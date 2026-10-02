@@ -432,9 +432,9 @@
     }
 
     /* =========================================================================
-       Elevated — heavy edge + solid bottom ledge for one strong CTA per area.
-       `--quill-button-edge` colors both the border and the ledge; each variant
-       picks an edge that reads as the darker side of its own fill.
+       Elevated — heavy edge + solid bottom ledge for strong CTAs.
+       Two looks only: `primary` (brand fill) and neutral (card fill, any other
+       variant). `--quill-button-edge` colors both the border and the ledge.
        ========================================================================= */
     .quill-button--elevated {
         --quill-button-edge: color-mix(in oklab, var(--foreground) 72%, var(--background));
@@ -496,19 +496,6 @@
 
     :is(.dark, [theme='dark']) .quill-button--elevated.quill-button--variant-primary {
         --quill-button-edge: color-mix(in oklab, var(--primary) 55%, black);
-    }
-
-    .quill-button--elevated:is(.quill-button--variant-destructive, .quill-button--variant-destructive-outline) {
-        --quill-button-edge: var(--destructive-foreground);
-
-        background-color: var(--destructive);
-    }
-
-    .quill-button--elevated:is(.quill-button--variant-destructive, .quill-button--variant-destructive-outline):not(
-        :disabled,
-        [aria-disabled='true']
-    ):hover {
-        background-color: color-mix(in oklab, var(--destructive) 85%, var(--destructive-foreground) 15%);
     }
 
     /* Disabled sits flat, like primary: no ledge that reads as pressable. */

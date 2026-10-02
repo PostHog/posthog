@@ -61,8 +61,8 @@ export type ButtonProps = ButtonPrimitive.Props &
         /** Hides the label under a centered spinner and disables the button. Width stays stable. */
         loading?: boolean
         /**
-         * Chunky raised chrome (heavy edge + bottom ledge) for a single strong call to action.
-         * Never place two elevated buttons side by side. See AGENTS.md.
+         * Chunky raised chrome (heavy edge + bottom ledge) for strong calls to action.
+         * Use with `primary` or `outline`. Never place it beside a non-elevated button. See AGENTS.md.
          */
         elevated?: boolean
     }

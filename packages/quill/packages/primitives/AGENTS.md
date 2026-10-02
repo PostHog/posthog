@@ -648,15 +648,15 @@ The arrow inherits the popup's border and background, so restyling the popover c
 </RadioGroup>
 ```
 
-### Elevated button (one strong CTA)
+### Elevated button (strong CTA)
 
-`elevated` adds a heavy edge and a solid bottom ledge that presses down on click. It composes with `outline`, `primary` and `destructive`. It is for the single most important action in an area: the "New" button at the top of a sidebar, the CTA in an empty state, the confirm action of a flow.
+`elevated` adds a heavy edge and a solid bottom ledge that presses down on click. It has two looks: `variant="primary"` (brand fill) and `variant="outline"` (neutral white in light mode, black in dark mode). Do not combine it with other variants. Use it for the strongest action in an area: the "New" button at the top of a sidebar, the CTA in an empty state, the confirm action of a flow.
 
-**Never place two elevated buttons next to each other horizontally.** Two ledges side by side compete, and neither reads as the main action. Pair one elevated button with flat companions (`outline`, `link-muted`). Do not use `elevated` in toolbars, menus, table rows, button groups or with `xs`/`sm` sizes — dense rows turn the chrome into noise.
+**An elevated button stands alone or beside exactly one other elevated button.** The only allowed pair is one elevated `primary` plus one elevated `outline`. Never place an elevated button next to a non-elevated button: the flat button looks broken beside the ledge. Never put more than two elevated buttons in a row. Do not use `elevated` in toolbars, menus, table rows, button groups or with `xs`/`sm` sizes.
 
 ```tsx
 <div className="flex justify-end gap-2">
-  <Button variant="outline" size="lg">
+  <Button elevated variant="outline" size="lg">
     Save draft
   </Button>
   <Button elevated variant="primary" size="lg">

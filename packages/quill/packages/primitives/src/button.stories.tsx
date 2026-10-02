@@ -248,9 +248,6 @@ export const Elevated = {
                 <Button elevated variant="primary" size="lg">
                     <PlusIcon /> New
                 </Button>
-                <Button elevated variant="destructive" size="lg">
-                    <TrashIcon /> Delete
-                </Button>
             </div>
             <div className="flex flex-wrap items-center gap-3">
                 <Button elevated variant="outline" id="elevated-hover">
@@ -269,9 +266,9 @@ export const Elevated = {
                     Loading
                 </Button>
             </div>
-            {/* The intended pairing: one elevated CTA, flat companions. */}
+            {/* The only allowed pair: one elevated primary plus one elevated outline. */}
             <div className="flex items-center gap-2">
-                <Button variant="outline" size="lg">
+                <Button elevated variant="outline" size="lg">
                     Cancel
                 </Button>
                 <Button elevated variant="primary" size="lg">
