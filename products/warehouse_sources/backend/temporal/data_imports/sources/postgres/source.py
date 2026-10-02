@@ -2039,7 +2039,6 @@ class PostgresSource(
                 # Delta table before this read and a kept cursor would collapse it to one window.
                 is_xmin=schema.is_xmin,
                 xmin_cursor=self.get_cursor_manager(inputs) if schema.is_xmin else None,
-                byte_bounded_extraction=inputs.byte_bounded_extraction,
                 activity_attempt=inputs.activity_attempt,
                 resumable_source_manager=resumable_source_manager,
             )
