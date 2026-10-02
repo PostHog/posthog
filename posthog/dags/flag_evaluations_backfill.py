@@ -61,6 +61,7 @@ _COPIED_COLUMNS = "uuid, event, properties, timestamp, team_id, distinct_id, cre
 # lookback drops out of this query.
 # Lag comes from _timestamp, the Kafka message time. A consumer that works through a backlog writes
 # rows now, so the time a row is written does not show how far the consumer is behind.
+# The lookback filters on inserted_at because only inserted_at has a skip index.
 _KAFKA_LOOKBACK_DAYS = 7
 _KAFKA_POSITION_QUERY = f"""
 SELECT count(), max(lag_seconds)
