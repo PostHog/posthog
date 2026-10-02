@@ -21,27 +21,20 @@ _RECIPIENT_FIELDS = ("target_type", "target_value", "integration_id")
 _TARGET_FIELDS = ("insight", "dashboard")
 
 
-def write_needs_query_access_check(
-    instance: Subscription | None, attrs: dict[str, Any], *, changes_delivery: bool
-) -> bool:
+def write_needs_query_access_check(instance: Subscription | None, attrs: dict[str, Any]) -> bool:
     """Whether a validated write must pass the table-access check.
 
-    A write that disables or deletes the subscription never needs the check, so a member without
-    table access can still turn a subscription off. Re-enabling or restoring it needs the check
-    again, which also covers any change made together with the disable or delete.
+    The check covers a create, a change to what is delivered or who receives it, and a write
+    that re-enables or restores the subscription. A write that disables or deletes the
+    subscription never needs the check, so a member without table access can still turn a
+    subscription off. Re-enabling or restoring it needs the check again, which also covers any
+    change made together with the disable or delete.
     """
     if instance is None:
         return True
     if attrs.get("deleted") is True or attrs.get("enabled") is False:
         return False
     if (instance.deleted and attrs.get("deleted") is False) or (not instance.enabled and attrs.get("enabled") is True):
-        return True
-    return changes_delivery
-
-
-def write_changes_delivery(instance: Subscription | None, attrs: dict[str, Any]) -> bool:
-    """Whether a validated write changes what is delivered or who receives it."""
-    if instance is None:
         return True
     if any(field in attrs and attrs[field] != getattr(instance, field) for field in _RECIPIENT_FIELDS):
         return True

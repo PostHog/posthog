@@ -4739,23 +4739,15 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         assert not Subscription.objects.filter(team_id=self.team.id).exists()
         self.mock_temporal_client.start_workflow.assert_not_called()
 
-    @parameterized.expand([("a member with table access", False), ("an org admin under a deny rule", True)])
-    def test_create_records_that_the_caller_passed_the_table_access_check(self, _name, as_denied_admin):
+    def test_create_allows_a_member_who_can_read_the_delivered_table(self):
         insight = self._insight_over_a_governed_view()
-        if as_denied_admin:
-            self._deny_warehouse_tables()
-            self.organization_membership.level = OrganizationMembership.Level.ADMIN
-            self.organization_membership.save(update_fields=["level"])
 
         with patch(WAREHOUSE_ACCESS_CONTROL_FLAG, return_value=True):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/subscriptions", self._payload(insight=insight.id)
             )
 
-        body = response.json()
-        assert response.status_code == status.HTTP_201_CREATED, body
-        assert "query_access_verified_at" not in body
-        assert Subscription.objects.get(id=body["id"]).query_access_verified_at is not None
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
 
     @parameterized.expand(
         [
@@ -4764,10 +4756,7 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         ]
     )
     def test_update_by_a_caller_denied_a_delivered_table_may_only_turn_it_off(self, _name, body, expected):
-        verified_at = datetime(2024, 1, 1, tzinfo=UTC)
-        subscription = self._subscription_for(
-            insight=self._insight_over_a_governed_view(), query_access_verified_at=verified_at
-        )
+        subscription = self._subscription_for(insight=self._insight_over_a_governed_view())
         self._deny_warehouse_tables()
 
         with patch(WAREHOUSE_ACCESS_CONTROL_FLAG, return_value=True):
@@ -4775,5 +4764,4 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
 
         assert response.status_code == expected, response.json()
         subscription.refresh_from_db()
-        assert subscription.query_access_verified_at == verified_at
         assert subscription.target_value == "test1@posthog.com,test2@posthog.com"
