@@ -9,7 +9,6 @@ schema. The next run's pre-extraction activity performs the rewrite (see `repart
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Literal
 
 from django.conf import settings
@@ -43,11 +42,9 @@ from products.warehouse_sources.backend.temporal.data_imports.schema_flags impor
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
-WAREHOUSE_AUTO_REPARTITION_FLAG = "data-warehouse-auto-repartition"
-WAREHOUSE_AUTO_COARSEN_FLAG = "data-warehouse-auto-coarsen"
-# Gates pausing a schema's imports while a multi-budget rewrite converges. Separate from the
-# repartition flag, and off by default: repartitioning a table costs us worker time, pausing its
-# imports costs the customer freshness, so the second is not a decision the first should make.
+# Gates pausing a schema's imports while a multi-budget rewrite converges. Off by default:
+# repartitioning a table costs us worker time, pausing its imports costs the customer freshness, so
+# the second is not a decision the first should make.
 WAREHOUSE_REPARTITION_HOLD_FLAG = "data-warehouse-repartition-hold"
 
 # Coarsening gates. The two directions deliberately don't meet: a table is split finer above the budget
@@ -111,57 +108,18 @@ def repartition_oom_window_days() -> int:
     return int(getattr(settings, "DATA_WAREHOUSE_REPARTITION_OOM_WINDOW_DAYS", 7))
 
 
-def is_auto_repartition_enabled(schema: ExternalDataSchema) -> bool:
-    return is_schema_flag_enabled(schema, WAREHOUSE_AUTO_REPARTITION_FLAG)
-
-
-def is_auto_coarsen_enabled(schema: ExternalDataSchema) -> bool:
-    return is_schema_flag_enabled(schema, WAREHOUSE_AUTO_COARSEN_FLAG)
-
-
-def needs_pre_extraction_detection(schema: ExternalDataSchema, enabled: bool) -> bool:
+def needs_pre_extraction_detection(schema: ExternalDataSchema) -> bool:
     """Whether to read the live on-disk partition sizes to decide if a repartition is needed.
 
     We deliberately do NOT gate on the recorded `max_partition_bytes`. That value is only refreshed by
     post-load detection, so for a table whose merge OOMs before post-load it goes stale and can sit far
     below the true partition size — precisely the tables this path exists to rescue (e.g. a partition
     that has since grown to many GB while the recorded value still reads a few hundred MB). Instead,
-    whenever the rollout flag is on (a targeted set of schemas) and the table isn't CDC-excluded, we
-    read the live partition sizes from the Delta log each run and let `maybe_flag_for_repartition` judge
-    against the real, current size. The cost is one metadata-only Delta-log read per sync, bounded to
-    flagged schemas; a disabled flag still short-circuits to a zero-I/O no-op.
-
-    A table nominated for coarsening is measured whether or not the rollout flag covers it, since the
-    nomination is the operator asking for exactly this measurement. CDC stays excluded either way.
+    whenever the table isn't CDC-excluded, we read the live partition sizes from the Delta log each run
+    and let `maybe_flag_for_repartition` judge against the real, current size. The cost is one
+    metadata-only Delta-log read per sync.
     """
-    if schema.sync_type == ExternalDataSchema.SyncType.CDC:
-        return False
-    if schema.coarsen_requested is not None:
-        return True
-    return enabled
-
-
-def is_pending_repartition_released_by_flag(
-    schema: ExternalDataSchema, pending: Mapping[str, object], *, enabled: bool | None = None
-) -> bool:
-    """Whether a queued rewrite's own rollout flag has since been disabled, releasing it as a no-op.
-
-    Mirrors `_maybe_repartition_table`'s 'release' branch in `repartition_table.py` exactly: each
-    auto-staged trigger family answers to the flag that staged it (the flag is the only lever support
-    has to release such a table), and any other reason fails open because operator-staged work (admin,
-    a staged swap) must never dead-end on a rollout flag. Shared so `repartition_activity_has_work`
-    agrees with the activity's own answer instead of scheduling a round trip the activity would just
-    skip.
-
-    `enabled` lets a caller that already evaluated `WAREHOUSE_AUTO_REPARTITION_FLAG` this run thread
-    the result through instead of paying for a second evaluation.
-    """
-    reason = pending.get("trigger_reason")
-    if reason in ("proactive_threshold", "oom_history"):
-        return not (enabled if enabled is not None else is_auto_repartition_enabled(schema))
-    if reason == "coarsening":
-        return not is_auto_coarsen_enabled(schema)
-    return False
+    return schema.sync_type != ExternalDataSchema.SyncType.CDC
 
 
 def repartition_activity_has_work(schema: ExternalDataSchema) -> bool:
@@ -169,26 +127,14 @@ def repartition_activity_has_work(schema: ExternalDataSchema) -> bool:
 
     The workflow uses this to skip scheduling the activity, so it must say True whenever the activity
     itself would go past its own fast no-op path: a queued rewrite or staged swap to drive, or a table
-    the rollout flag (or a coarsening nomination) wants measured on disk. A pending corruption revive
-    makes the activity stand down before any of that, so it is a no-op here too. The flag is only
-    evaluated when nothing is queued, which is the one case the activity's answer depends on it.
-
-    A queued rewrite whose own trigger flag has since been disabled is also a no-op: the activity's
-    fast path stands it down without doing any work (see `is_pending_repartition_released_by_flag`), so
-    scheduling the activity for it would just pay a full round trip to log and return.
+    that needs measuring on disk. A pending corruption revive makes the activity stand down before any
+    of that, so it is a no-op here too.
     """
     if schema.delta_revive_required is not None:
         return False
-    pending = schema.repartition_pending
-    swap = schema.repartition_swap
-    if swap is not None:
+    if schema.repartition_swap is not None or schema.repartition_pending is not None:
         return True
-    if pending is not None:
-        enabled = is_auto_repartition_enabled(schema)
-        if is_pending_repartition_released_by_flag(schema, pending, enabled=enabled):
-            return needs_pre_extraction_detection(schema, enabled)
-        return True
-    return needs_pre_extraction_detection(schema, is_auto_repartition_enabled(schema))
+    return needs_pre_extraction_detection(schema)
 
 
 def is_repartition_hold_enabled(schema: ExternalDataSchema) -> bool:
@@ -301,8 +247,8 @@ async def maybe_flag_for_coarsening(
     check is `select_coarsen_target`, which measures the live layout and refuses any target that would
     not fit the budget. Nothing overrides that, so a nomination can only ever be a no-op.
 
-    Ordered cheapest first — in-memory shape gates, then the in-memory selector, then the database, and
-    the feature flag (a Team fetch plus a PostHog API call) dead last. Post-load detection runs this
+    Ordered cheapest first — in-memory shape gates, then the in-memory selector, then the database.
+    Post-load detection runs this
     for every within-budget table on every sync, so anything before the selector is fleet-wide cost,
     and most tables that pass the shape gates sit at the coarsest tier where the selector refuses.
 
@@ -371,16 +317,6 @@ async def maybe_flag_for_coarsening(
         if await asyncio.to_thread(ExternalDataSchemaOOMEvent.blocks_coarsening, schema, days=COARSEN_OOM_FREE_DAYS):
             return _decline("oom_within_free_window")
 
-        if not await asyncio.to_thread(is_auto_coarsen_enabled, schema):
-            await logger.adebug(
-                f"repartition: table is over-fragmented but coarsening is disabled by feature flag "
-                f"schema_id={schema.id} max_partition_bytes={max_bytes} partition_count={measured_partitions}",
-                schema_id=str(schema.id),
-                max_partition_bytes=max_bytes,
-                partition_count=measured_partitions,
-            )
-            return _decline("flag_disabled")
-
     # Distinct reason for a nominated rewrite, the same way an admin-staged one is distinguishable, so
     # the backlog pass can be tracked separately from what the controller does on its own.
     trigger_reason = "coarsening_requested" if requested is not None else "coarsening"
@@ -425,18 +361,11 @@ async def maybe_flag_for_repartition(
     job: ExternalDataJob,
     delta_table: deltalake.DeltaTable,
     logger: FilteringBoundLogger,
-    *,
-    enabled: bool | None = None,
 ) -> None:
     """Measure partition sizes and, if over budget, record a `repartition_pending` target.
 
-    Always records `max_partition_bytes` for observability (even when the controller is disabled or in
-    cooldown). Setting the pending target is gated by the feature flag; the rewrite itself happens on
-    the next run. Never raises — detection must not break post-load.
-
-    Pass `enabled` when the caller has already evaluated the rollout flag for this schema (each
-    evaluation is a `Team.objects.get()` plus a PostHog API call) to avoid re-evaluating it here; when
-    omitted it is evaluated lazily, only once the table is confirmed over budget.
+    Always records `max_partition_bytes` for observability (even when the table is in cooldown). The
+    rewrite itself happens on the next run. Never raises — detection must not break post-load.
     """
     try:
         # A table pending a corruption revive must heal before it's rewritten — flagging it here would
@@ -537,21 +466,6 @@ async def maybe_flag_for_repartition(
                 trigger_reason=trigger_reason,
                 max_partition_bytes=max_bytes,
             )
-
-        if enabled is None:
-            enabled = await asyncio.to_thread(is_auto_repartition_enabled, schema)
-        if not enabled:
-            await logger.adebug(
-                f"repartition: needs repartition but skipped, controller disabled by feature flag "
-                f"schema_id={schema.id} trigger_reason={trigger_reason} max_partition_bytes={max_bytes} "
-                f"budget_bytes={budget} recent_oom_count={oom_count}",
-                schema_id=str(schema.id),
-                trigger_reason=trigger_reason,
-                max_partition_bytes=max_bytes,
-                budget_bytes=budget,
-                recent_oom_count=oom_count,
-            )
-            return
 
         if schema.repartition_pending is not None:
             await logger.adebug(

@@ -108,7 +108,7 @@ export function TodayViewsSidebar(): JSX.Element {
                         </>
                     }
                 >
-                    {!recentViews ? (
+                    {!recentViews || (recentViewsLoading && !recentItems.length) ? (
                         recentUnavailable ? (
                             <div className="TodayPane__state">
                                 <span>Your views didn’t load.</span>
@@ -150,6 +150,11 @@ export function TodayViewsSidebar(): JSX.Element {
                             {recentViews.truncated && (
                                 <div className="TodayPane__state">
                                     Some views are not shown. Open All views and use search to find them.
+                                </div>
+                            )}
+                            {recentViewsLoading && (
+                                <div className="TodayPane__state" role="status">
+                                    Loading more views…
                                 </div>
                             )}
                             {recentItems.map((item) => {
