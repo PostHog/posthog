@@ -1,7 +1,7 @@
 import { PointerEvent, useCallback, useLayoutEffect, useRef, useState } from 'react'
 
 import { IconMinus, IconPlus } from '@posthog/icons'
-import { Button, Separator, Text, Toggle, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill-primitives'
+import { Button, Separator, Text, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill-primitives'
 
 const ZOOM_STEPS = [0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4, 6, 8]
 // Room the image keeps from the pane edges when it fits, so its border never touches them.
@@ -161,20 +161,24 @@ export function ArtifactImageViewer({ src, alt }: { src: string; alt: string }):
                         <IconPlus className="size-4" />
                     </ZoomButton>
                     <Separator orientation="vertical" className="mx-1 h-4" />
-                    <Toggle
-                        pressed={zoom === 'fit'}
-                        onPressedChange={() => setZoom('fit')}
-                        data-attr="task-artifact-zoom-fit"
-                    >
-                        Fit
-                    </Toggle>
-                    <Toggle
-                        pressed={zoom === 1}
-                        onPressedChange={() => setZoom(1)}
-                        data-attr="task-artifact-zoom-actual"
-                    >
-                        100%
-                    </Toggle>
+                    <div role="radiogroup" aria-label="Zoom preset" className="flex items-center gap-0.5">
+                        <Button
+                            role="radio"
+                            aria-checked={zoom === 'fit'}
+                            onClick={() => setZoom('fit')}
+                            data-attr="task-artifact-zoom-fit"
+                        >
+                            Fit
+                        </Button>
+                        <Button
+                            role="radio"
+                            aria-checked={zoom === 1}
+                            onClick={() => setZoom(1)}
+                            data-attr="task-artifact-zoom-actual"
+                        >
+                            100%
+                        </Button>
+                    </div>
                 </div>
             )}
         </div>

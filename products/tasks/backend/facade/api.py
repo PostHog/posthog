@@ -324,6 +324,7 @@ __all__ = [
     "presign_task_run_artifact",
     "presign_task_run_artifact_download",
     "read_task_run_artifact",
+    "read_task_run_living_artifact_version",
     "get_task_run_log_urls",
     "get_task_run_log_size",
     "read_task_run_log_content",
@@ -539,7 +540,10 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
 # `end_run_when_done` gates the sandbox's `finish` tool for workflow runs; a key this
 # filter drops never reaches the agent server, so the gate would silently do nothing.
 # `store_skills` is the acting user's skills-store listing, so it is for their sandbox only.
-_TASK_RUN_AGENT_STATE_KEYS = frozenset({"end_run_when_done", "initial_prompt_override", "store_skills", "systemPrompt"})
+# `agent_instructions` can carry a member's personal instructions, so the same applies.
+_TASK_RUN_AGENT_STATE_KEYS = frozenset(
+    {"agent_instructions", "end_run_when_done", "initial_prompt_override", "store_skills", "systemPrompt"}
+)
 
 
 def _public_task_run_state(state: dict | None, *, include_agent_keys: bool = False) -> dict:
@@ -2642,6 +2646,9 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "sandbox_ttl_seconds",
         "inactivity_timeout_seconds",
         "systemPrompt",
+        # Resolved from the project and personal settings; a PATCHable value would let a task
+        # controller write arbitrary text into the agent's user-level instructions file.
+        "agent_instructions",
         "wizard_config",
         "wizard_head_branch",
         "use_modal_directory_resume_snapshots",
@@ -3437,7 +3444,7 @@ def set_task_run_output(
     run.output = _apply_caller_output(existing, output, merged)
     run.save(update_fields=["output", "updated_at"])
     _refresh_self_driving_quota_for_pr(run, existing.get("pr_url"))
-    if task.json_schema:
+    if task.json_schema and not (run.state or {}).get("caller_ends_run"):
         signal_workflow_completion(run.id, TaskRun.Status.COMPLETED, None)
     run.publish_stream_state_event()
     _post_slack_update_for_pr(run)
@@ -4345,6 +4352,40 @@ def get_task_run_living_artifact(
     serialized = serialize_task_artifact(artifact)
     serialized["content"] = open_task_artifact(artifact)
     return serialized
+
+
+def read_task_run_living_artifact_version(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, artifact_id: str | UUID, version: int
+) -> tuple[contracts.LivingArtifactVersionContent | None, str | None]:
+    """Read the content of one living artifact version.
+
+    Returns ``(content, error)``: ``(None, None)`` if the run isn't found, ``(None, "not_found")`` if the
+    artifact or version isn't found or keeps no content, ``(None, "read_failed")`` if the storage read
+    raised, else ``(content, None)``.
+    """
+    from products.tasks.backend.logic.services.living_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
+        get_task_artifact_for_run,
+        read_living_artifact_version,
+    )
+
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None, None
+    try:
+        UUID(str(artifact_id))
+    except ValueError:
+        return None, "not_found"
+    artifact = get_task_artifact_for_run(run, artifact_id)
+    if artifact is None:
+        return None, "not_found"
+    try:
+        content = read_living_artifact_version(artifact, version)
+    except Exception:
+        logger.exception("Failed to read living artifact %s version %s for team %s", artifact_id, version, team_id)
+        return None, "read_failed"
+    if content is None:
+        return None, "not_found"
+    return content, None
 
 
 def create_task_run_living_artifact(

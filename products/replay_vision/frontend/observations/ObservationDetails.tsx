@@ -47,7 +47,12 @@ export function ObservationDetails({ observation }: { observation: ReplayObserva
             {expanded && (
                 <FactList>
                     <Fact label="Observation ID">
-                        <CopyToClipboardInline explicitValue={observation.id} iconSize="xsmall" className="min-w-0">
+                        <CopyToClipboardInline
+                            data-attr="vision-observation-copy"
+                            explicitValue={observation.id}
+                            iconSize="xsmall"
+                            className="min-w-0"
+                        >
                             <span className="font-mono text-xs truncate">{observation.id}</span>
                         </CopyToClipboardInline>
                     </Fact>
@@ -63,7 +68,12 @@ export function ObservationDetails({ observation }: { observation: ReplayObserva
                     {/* The backend emits the event only once a scan succeeds. */}
                     {observation.status === 'succeeded' && observation.completed_at && (
                         <Fact label="Observation event">
-                            <Link to={urls.event(observation.id, observation.completed_at)}>$recording_observed</Link>
+                            <Link
+                                data-attr="vision-observation-open-event"
+                                to={urls.event(observation.id, observation.completed_at)}
+                            >
+                                $recording_observed
+                            </Link>
                         </Fact>
                     )}
                     {observation.started_at && (
