@@ -25,17 +25,18 @@ cd products/games/services/club-hoguin
 pnpm start
 ```
 
-Then open <http://localhost:8010>.
+Then open <http://localhost:8642>.
 Add `?embed=1` to the URL for the embed layout, which drops the header and help text:
 
 ```html
-<iframe src="http://localhost:8010/?embed=1" width="720" height="520"></iframe>
+<iframe src="http://localhost:8642/?embed=1" width="720" height="520"></iframe>
 ```
 
 | Variable                  | Default                    | What it does                                 |
 | ------------------------- | -------------------------- | -------------------------------------------- |
-| `PORT`                    | `8010`                     | The port the server listens on               |
+| `PORT`                    | `8642`                     | The port the server listens on               |
 | `HOST`                    | `0.0.0.0`                  | The address the server binds to              |
+| `TRUSTED_PROXY_HOPS`      | `0`                        | The number of proxies in front of the server |
 | `POSTHOG_PROJECT_API_KEY` | not set                    | Sends usage events to PostHog when it is set |
 | `POSTHOG_HOST`            | `https://us.i.posthog.com` | The PostHog ingestion host                   |
 
@@ -45,7 +46,7 @@ The mod in `mod/` needs Claude Code 2.1.287 or later.
 Load it for one session with:
 
 ```bash
-CLUB_HOGUIN_URL=http://localhost:8010 claude --plugin-dir products/games/services/club-hoguin/mod
+CLUB_HOGUIN_URL=http://localhost:8642 claude --plugin-dir products/games/services/club-hoguin/mod
 ```
 
 - `/hoguin` opens or closes the club in a pane.
@@ -63,6 +64,9 @@ The checks need the `claude` CLI, so CI does not run them.
 
 The server is one Node process with no runtime dependencies other than the hedgehog sprites from `@posthog/hedgehog-mode`.
 It keeps the room in memory, moves each hedgehog one tile per tick along a breadth-first path, and removes a hedgehog after 20 seconds without a request.
+One network address can have 10 hedgehogs in the room at a time, so one client cannot take every place.
+Behind a proxy, every request comes from the address of the proxy.
+Set `TRUSTED_PROXY_HOPS` to the number of proxies, and the server reads the client address from `x-forwarded-for`.
 Clients poll `GET /api/state`, because a Claude Code mod can make HTTP requests but cannot open a socket.
 
 | Endpoint          | Body            | What it does                                  |

@@ -21,6 +21,8 @@ const ERROR_STATUS: Record<string, number> = {
     unknown_player: 401,
     cooldown: 429,
     too_far: 409,
+    club_full: 503,
+    too_many_from_address: 429,
 }
 
 export interface StaticFile {
@@ -34,6 +36,7 @@ export interface ServerDependencies {
     analytics: Analytics
     staticFiles: ReadonlyMap<string, StaticFile>
     now: () => number
+    trustedProxyHops: number
 }
 
 class HttpError extends Error {
@@ -85,6 +88,22 @@ function readToken(request: IncomingMessage): string | null {
     return typeof value === 'string' && value.length > 0 ? value : null
 }
 
+// Behind a proxy, the socket address is the address of the proxy. Each trusted proxy appends the address
+// it saw to x-forwarded-for, so the client address is that many entries from the end of the header.
+// The client can write the entries before it, so the server does not read them.
+function clientAddress(request: IncomingMessage, trustedProxyHops: number): string {
+    const socketAddress = request.socket.remoteAddress ?? 'unknown'
+    if (trustedProxyHops === 0) {
+        return socketAddress
+    }
+    const header = request.headers['x-forwarded-for']
+    const forwarded = (Array.isArray(header) ? header.join(',') : (header ?? ''))
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0)
+    return forwarded[forwarded.length - trustedProxyHops] ?? socketAddress
+}
+
 export function trackDeparture(analytics: Analytics, departed: DepartedPlayer): void {
     analytics.capture(departed.id, 'club hoguin left', {
         client: departed.client,
@@ -93,7 +112,13 @@ export function trackDeparture(analytics: Analytics, departed: DepartedPlayer): 
     })
 }
 
-export function createClubHoguinServer({ world, analytics, staticFiles, now }: ServerDependencies): Server {
+export function createClubHoguinServer({
+    world,
+    analytics,
+    staticFiles,
+    now,
+    trustedProxyHops,
+}: ServerDependencies): Server {
     const worldDescription = JSON.stringify({
         width: MAP_WIDTH,
         height: MAP_HEIGHT,
@@ -145,12 +170,12 @@ export function createClubHoguinServer({ world, analytics, staticFiles, now }: S
                 if (!isClientKind(body.client)) {
                     fail('invalid_client')
                 }
-                const joined = world.join(body.client, now())
-                if (!joined) {
-                    throw new HttpError(503, 'club_full')
+                const joined = world.join(body.client, clientAddress(request, trustedProxyHops), now())
+                if (!joined.ok) {
+                    fail(joined.error)
                 }
-                analytics.capture(joined.id, 'club hoguin joined', { client: body.client })
-                sendJson(response, 200, joined)
+                analytics.capture(joined.player.id, 'club hoguin joined', { client: body.client })
+                sendJson(response, 200, joined.player)
                 return
             }
             case '/api/move': {

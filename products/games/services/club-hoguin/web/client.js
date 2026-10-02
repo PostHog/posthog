@@ -21,6 +21,7 @@ const ERROR_MESSAGES = {
     too_far: 'Walk closer to something to poke it.',
     cooldown: 'Slow down a little, hedgehog.',
     club_full: 'The club is full right now. Try again soon.',
+    too_many_from_address: 'Too many hedgehogs from your network are here. Close another Club Hoguin tab or pane.',
 }
 
 const KEY_DIRECTIONS = {
@@ -57,6 +58,37 @@ let notice = ''
 let noticeUntil = 0
 /** @type {Map<string, { x: number, y: number }>} */
 const displayed = new Map()
+// How much larger than its design size text is drawn, in room units. See fitCanvas.
+let textScale = 1
+
+// The room is drawn in room units of TILE pixels per tile, and the page shows the canvas at any width.
+// The canvas keeps one backing pixel per screen pixel, so text stays sharp. When the canvas is narrower
+// than the room, text is drawn larger in room units, so its size on the screen does not go below its design size.
+function fitCanvas() {
+    const ratio = window.devicePixelRatio || 1
+    const width = Math.max(1, Math.round(canvas.clientWidth * ratio))
+    const height = Math.max(1, Math.round(canvas.clientHeight * ratio))
+    if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width
+        canvas.height = height
+    }
+    const zoom = canvas.clientWidth / (world.width * TILE)
+    textScale = 1 / Math.min(1, zoom)
+    ctx.setTransform(zoom * ratio, 0, 0, zoom * ratio, 0, 0)
+    ctx.imageSmoothingEnabled = false
+}
+
+/** @param {number} size @param {boolean} [bold] */
+function font(size, bold = false) {
+    return `${bold ? 'bold ' : ''}${size * textScale}px system-ui, sans-serif`
+}
+
+// Keeps the middle of a label far enough from the walls that the whole label is inside the room.
+/** @param {number} centerX @param {number} width */
+function insideRoom(centerX, width) {
+    const roomWidth = world.width * TILE
+    return Math.min(Math.max(centerX, TILE + width / 2), roomWidth - TILE - width / 2)
+}
 
 /**
  * @param {string} method
@@ -194,35 +226,35 @@ function renderFeed() {
 
 /** @param {string} text @param {number} centerX @param {number} bottomY */
 function drawBubble(text, centerX, bottomY) {
-    ctx.font = '13px system-ui, sans-serif'
-    const width = Math.min(ctx.measureText(text).width + 16, 260)
-    const x = Math.min(Math.max(centerX - width / 2, 2), canvas.width - width - 2)
-    const y = Math.max(bottomY - 26, 2)
+    const unit = textScale
+    ctx.font = font(13)
+    const width = Math.min(ctx.measureText(text).width + 16 * unit, 260 * unit)
+    const x = Math.min(Math.max(centerX - width / 2, 2), world.width * TILE - width - 2)
+    const y = Math.max(bottomY - 26 * unit, 2)
     ctx.fillStyle = '#ffffff'
     ctx.strokeStyle = '#151515'
-    ctx.lineWidth = 1.5
+    ctx.lineWidth = 1.5 * unit
     ctx.beginPath()
-    ctx.roundRect(x, y, width, 22, 8)
+    ctx.roundRect(x, y, width, 22 * unit, 8 * unit)
     ctx.fill()
     ctx.stroke()
     ctx.fillStyle = '#151515'
     ctx.textAlign = 'left'
     ctx.textBaseline = 'middle'
-    ctx.fillText(text, x + 8, y + 11, width - 16)
+    ctx.fillText(text, x + 8 * unit, y + 11 * unit, width - 16 * unit)
 }
 
 function drawRoom() {
     const lightsOn = snapshot?.objects.lightsOn ?? true
     ctx.fillStyle = lightsOn ? '#eeefe9' : '#3b3d45'
-    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    ctx.fillRect(0, 0, world.width * TILE, world.height * TILE)
+    // The canvas scale is not a whole number, so tiles that only touch show a hairline of floor between them.
+    // Each tile is drawn half a unit larger on every side to close that line.
     world.rows.forEach((/** @type {string} */ row, /** @type {number} */ y) => {
         for (let x = 0; x < row.length; x++) {
-            if (row[x] === '#') {
-                ctx.fillStyle = '#151515'
-                ctx.fillRect(x * TILE, y * TILE, TILE, TILE)
-            } else if (row[x] === '~') {
-                ctx.fillStyle = lightsOn ? '#8fa5ff' : '#2b3a7a'
-                ctx.fillRect(x * TILE, y * TILE, TILE, TILE)
+            if (row[x] === '#' || row[x] === '~') {
+                ctx.fillStyle = row[x] === '#' ? '#151515' : lightsOn ? '#8fa5ff' : '#2b3a7a'
+                ctx.fillRect(x * TILE - 0.5, y * TILE - 0.5, TILE + 1, TILE + 1)
             }
         }
     })
@@ -240,10 +272,17 @@ function drawRoom() {
         ctx.textBaseline = 'middle'
         ctx.fillStyle = '#ffffff'
         ctx.fillText(OBJECT_EMOJI[object.id] ?? object.glyph, x + width / 2, y + height / 2)
-        ctx.font = '11px system-ui, sans-serif'
+        ctx.font = font(11)
         ctx.fillStyle = lightsOn ? '#151515' : '#eeefe9'
-        const labelY = object.y + object.h >= world.height - 1 ? y - 8 : y + height + 9
-        ctx.fillText(object.name, x + width / 2, labelY)
+        const labelX = insideRoom(x + width / 2, ctx.measureText(object.name).width)
+        // An object against the bottom wall has no floor under it, so its label goes above it.
+        if (object.y + object.h >= world.height - 1) {
+            ctx.textBaseline = 'bottom'
+            ctx.fillText(object.name, labelX, y - 2 * textScale)
+        } else {
+            ctx.textBaseline = 'top'
+            ctx.fillText(object.name, labelX, y + height + 2 * textScale)
+        }
     }
 }
 
@@ -276,12 +315,21 @@ function drawPlayer(player, now, dt) {
     }
 
     const isYou = player.id === snapshot?.you?.id
+    const lightsOn = snapshot?.objects.lightsOn ?? true
     const label = `${player.client === 'mod' ? '⏳ ' : ''}${player.name}${isYou ? ' (you)' : ''}`
-    ctx.font = `${isYou ? 'bold ' : ''}11px system-ui, sans-serif`
+    ctx.font = font(11, isYou)
+    const labelWidth = ctx.measureText(label).width + 8 * textScale
+    const labelHeight = 15 * textScale
+    const labelX = insideRoom(centerX, labelWidth)
+    // The plate keeps a name readable when it is on top of an object label or another name.
+    ctx.fillStyle = lightsOn ? 'rgba(238, 239, 233, 0.85)' : 'rgba(59, 61, 69, 0.85)'
+    ctx.beginPath()
+    ctx.roundRect(labelX - labelWidth / 2, bottomY, labelWidth, labelHeight, 4 * textScale)
+    ctx.fill()
     ctx.textAlign = 'center'
-    ctx.textBaseline = 'top'
-    ctx.fillStyle = isYou ? '#f54e00' : (snapshot?.objects.lightsOn ?? true) ? '#151515' : '#eeefe9'
-    ctx.fillText(label, centerX, bottomY + 1)
+    ctx.textBaseline = 'middle'
+    ctx.fillStyle = isYou ? '#f54e00' : lightsOn ? '#151515' : '#eeefe9'
+    ctx.fillText(label, labelX, bottomY + labelHeight / 2)
     if (player.bubble) {
         drawBubble(player.bubble, centerX, bottomY - SPRITE_SIZE)
     }
@@ -294,6 +342,7 @@ function frame(now) {
     const dt = (now - lastFrameAt) / 1000
     lastFrameAt = now
     if (world) {
+        fitCanvas()
         drawRoom()
         const players = [...(snapshot?.players ?? [])].sort((a, b) => a.y - b.y)
         const ids = new Set(players.map((player) => player.id))

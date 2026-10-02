@@ -32,14 +32,24 @@ async function loadStaticFiles(): Promise<Map<string, StaticFile>> {
 }
 
 async function main(): Promise<void> {
-    const port = Number(process.env.PORT ?? 8010)
+    const port = Number(process.env.PORT ?? 8642)
     const host = process.env.HOST ?? '0.0.0.0'
+    const trustedProxyHops = Number(process.env.TRUSTED_PROXY_HOPS ?? 0)
+    if (!Number.isInteger(trustedProxyHops) || trustedProxyHops < 0) {
+        throw new Error('TRUSTED_PROXY_HOPS must be a whole number, 0 or more')
+    }
     const analytics = new Analytics(
         process.env.POSTHOG_PROJECT_API_KEY || undefined,
         process.env.POSTHOG_HOST ?? 'https://us.i.posthog.com'
     )
     const world = new World({ makeId: randomUUID, random: Math.random })
-    const server = createClubHoguinServer({ world, analytics, staticFiles: await loadStaticFiles(), now: Date.now })
+    const server = createClubHoguinServer({
+        world,
+        analytics,
+        staticFiles: await loadStaticFiles(),
+        now: Date.now,
+        trustedProxyHops,
+    })
 
     setInterval(() => {
         for (const departed of world.tick(Date.now())) {

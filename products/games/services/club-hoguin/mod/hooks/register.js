@@ -2,7 +2,7 @@
 // A mod has no sockets, so the pane polls the Club Hoguin server over HTTP.
 
 const PANE = 'club-hoguin'
-const DEFAULT_URL = 'http://localhost:8010'
+const DEFAULT_URL = 'http://localhost:8642'
 const POLL_MS = 500
 const AUTO_OPEN_AFTER_MS = 10_000
 const STEP = 3
@@ -58,6 +58,10 @@ async function join($) {
         const joined = await request($, 'POST', '/api/join', { client: 'mod' })
         if (joined.status === 503) {
             problem = 'Club Hoguin is full right now. Try again soon.'
+            return false
+        }
+        if (joined.status === 429) {
+            problem = 'Too many hedgehogs from your network are here. Close another Club Hoguin tab or pane.'
             return false
         }
         if (!joined.ok) {

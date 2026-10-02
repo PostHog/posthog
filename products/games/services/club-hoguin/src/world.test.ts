@@ -1,16 +1,21 @@
 import { OBJECTS } from './content'
-import { isWalkable, LIMITS, World } from './world'
+import { isWalkable, type JoinedPlayer, LIMITS, World } from './world'
 
 function makeWorld(): World {
     let nextId = 0
     return new World({ makeId: () => `id-${++nextId}`, random: () => 0.5 })
 }
 
-function joinAt(world: World, x: number, y: number): string {
-    const joined = world.join('web', 0)
-    if (!joined) {
-        throw new Error('join failed')
+function join(world: World, address = 'address-1'): JoinedPlayer {
+    const joined = world.join('web', address, 0)
+    if (!joined.ok) {
+        throw new Error(joined.error)
     }
+    return joined.player
+}
+
+function joinAt(world: World, x: number, y: number): string {
+    const joined = join(world)
     // Walk the hedgehog to a known tile so a test does not depend on the spawn point.
     world.moveTo(joined.token, x, y)
     for (let i = 0; i < 100; i++) {
@@ -40,8 +45,8 @@ describe('World', () => {
 
     it('keeps polling hedgehogs and removes idle ones', () => {
         const world = makeWorld()
-        const active = world.join('mod', 0)!
-        const idle = world.join('web', 0)!
+        const active = join(world)
+        const idle = join(world)
 
         const later = LIMITS.idleTimeoutMs + 1
         expect(world.touch(active.token, later)).not.toBeNull()
@@ -57,7 +62,7 @@ describe('World', () => {
         ['a second phrase inside the cooldown', 'hi', LIMITS.sayCooldownMs - 1, 'cooldown'],
     ])('rejects %s', (_case, phraseId, delay, error) => {
         const world = makeWorld()
-        const { token } = world.join('web', 0)!
+        const { token } = join(world)
         expect(world.say(token, 'quills', 0)).toEqual({ ok: true })
         const feedBefore = world.snapshot(token).feed
 
@@ -80,12 +85,26 @@ describe('World', () => {
         expect(world.snapshot(token).objects.lightsOn).toBe(false)
     })
 
-    it('turns hedgehogs away once the club is full', () => {
+    it('turns hedgehogs away once the club is full, and gives each one in it a different name', () => {
         const world = makeWorld()
         for (let i = 0; i < LIMITS.maxPlayers; i++) {
-            expect(world.join('web', 0)).not.toBeNull()
+            join(world, `address-${i}`)
         }
-        expect(world.join('web', 0)).toBeNull()
-        expect(world.snapshot(null).online).toBe(LIMITS.maxPlayers)
+
+        expect(world.join('web', 'one-more-address', 0)).toEqual({ ok: false, error: 'club_full' })
+        const names = world.snapshot(null).players.map((player) => player.name)
+        expect(new Set(names).size).toBe(LIMITS.maxPlayers)
+        expect(names.filter((name) => /\d/.test(name))).toEqual([])
+    })
+
+    it('stops one address from taking every place, and frees a place when its hedgehog leaves', () => {
+        const world = makeWorld()
+        const fromOneAddress = Array.from({ length: LIMITS.maxPlayersPerAddress }, () => join(world, 'greedy'))
+
+        expect(world.join('web', 'greedy', 0)).toEqual({ ok: false, error: 'too_many_from_address' })
+        expect(world.join('web', 'someone-else', 0)).toMatchObject({ ok: true })
+
+        world.leave(fromOneAddress[0]!.token, 0)
+        expect(world.join('web', 'greedy', 0)).toMatchObject({ ok: true })
     })
 })

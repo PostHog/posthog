@@ -154,9 +154,35 @@ export const NAME_ADJECTIVES: readonly string[] = [
     'Bouncy',
     'Dapper',
     'Zesty',
+    'Fuzzy',
+    'Jolly',
+    'Mellow',
+    'Nimble',
+    'Plucky',
+    'Snug',
+    'Sunny',
+    'Witty',
 ]
 
-export const NAME_NOUNS: readonly string[] = ['Hog', 'Hoglet', 'Quill', 'Hedgineer', 'Spike', 'Prickle']
+export const NAME_NOUNS: readonly string[] = [
+    'Hog',
+    'Hoglet',
+    'Quill',
+    'Hedgineer',
+    'Spike',
+    'Prickle',
+    'Snout',
+    'Burrow',
+    'Bramble',
+    'Thistle',
+    'Nettle',
+    'Acorn',
+]
+
+// One name per adjective and noun pair. A full club needs at least LIMITS.maxPlayers of them.
+export const NAMES: readonly string[] = NAME_ADJECTIVES.flatMap((adjective) =>
+    NAME_NOUNS.map((noun) => `${adjective} ${noun}`)
+)
 
 export const REPLAY_REELS: readonly string[] = [
     'a user rage-clicking a disabled button for a whole minute',

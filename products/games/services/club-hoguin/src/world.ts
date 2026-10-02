@@ -5,8 +5,7 @@ import {
     MAP_ROWS,
     MAP_WIDTH,
     MAX_JOKES,
-    NAME_ADJECTIVES,
-    NAME_NOUNS,
+    NAMES,
     OBJECTS,
     type ObjectId,
     PHRASES,
@@ -25,6 +24,7 @@ export type Facing = 'left' | 'right'
 
 export const LIMITS = {
     maxPlayers: 150,
+    maxPlayersPerAddress: 10,
     idleTimeoutMs: 20_000,
     sayCooldownMs: 1_500,
     pokeCooldownMs: 1_000,
@@ -39,6 +39,7 @@ interface Player {
     name: string
     skin: Skin
     client: ClientKind
+    address: string
     x: number
     y: number
     path: Array<{ x: number; y: number }>
@@ -98,6 +99,9 @@ export interface DepartedPlayer {
     durationMs: number
 }
 
+export type JoinResult =
+    | { ok: true; player: JoinedPlayer }
+    | { ok: false; error: 'club_full' | 'too_many_from_address' }
 export type ActionResult = { ok: true } | { ok: false; error: string }
 export type PokeResult = { ok: true; objectId: ObjectId } | { ok: false; error: string }
 
@@ -180,9 +184,14 @@ export class World {
         this.random = options.random
     }
 
-    join(client: ClientKind, now: number): JoinedPlayer | null {
+    // The address is the network address of the client. The cap per address stops one client from taking every place.
+    join(client: ClientKind, address: string, now: number): JoinResult {
         if (this.players.size >= LIMITS.maxPlayers) {
-            return null
+            return { ok: false, error: 'club_full' }
+        }
+        const fromAddress = [...this.players.values()].filter((player) => player.address === address).length
+        if (fromAddress >= LIMITS.maxPlayersPerAddress) {
+            return { ok: false, error: 'too_many_from_address' }
         }
         const spawn = this.spawnPoint()
         const player: Player = {
@@ -191,6 +200,7 @@ export class World {
             name: this.uniqueName(),
             skin: this.pick(SKINS),
             client,
+            address,
             x: spawn.x,
             y: spawn.y,
             path: [],
@@ -203,7 +213,7 @@ export class World {
         }
         this.players.set(player.token, player)
         this.post(now, `${player.name} waddled in`)
-        return { id: player.id, token: player.token, name: player.name, skin: player.skin }
+        return { ok: true, player: { id: player.id, token: player.token, name: player.name, skin: player.skin } }
     }
 
     // Every authenticated request counts as a heartbeat, so a polling client never goes idle.
@@ -397,13 +407,7 @@ export class World {
 
     private uniqueName(): string {
         const taken = new Set([...this.players.values()].map((player) => player.name))
-        for (let attempt = 0; attempt < 10; attempt++) {
-            const name = `${this.pick(NAME_ADJECTIVES)} ${this.pick(NAME_NOUNS)}`
-            if (!taken.has(name)) {
-                return name
-            }
-        }
-        return `${this.pick(NAME_ADJECTIVES)} ${this.pick(NAME_NOUNS)} ${this.players.size + 1}`
+        return this.pick(NAMES.filter((name) => !taken.has(name)))
     }
 
     private pick<T>(items: readonly T[]): T {
