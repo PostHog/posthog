@@ -115,7 +115,7 @@ The reader is `score_reports` in `products/signals/backend/ranking/scorer.py`. I
 
 | Head            | Cohort at the horizon | Horizon (days) |
 | --------------- | --------------------- | -------------- |
-| `open`          | Impressed reports     | 3              |
+| `open`          | Every report          | 3              |
 | `action`        | Impressed reports     | 7              |
 | `dismiss_wrong` | Impressed reports     | 14             |
 | `pr_created`    | Every report          | 7              |
