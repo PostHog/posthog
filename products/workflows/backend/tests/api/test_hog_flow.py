@@ -3499,7 +3499,7 @@ class TestHogFlowAPI(APIBaseTest):
         with (
             self._account_audience_provider(),
             patch(
-                "products.workflows.backend.presentation.views.hog_flow.get_account_audience_page",
+                "products.workflows.backend.services.blast_radius.get_account_audience_page",
                 return_value=["a1", "a2"],
             ) as mock_page,
         ):
@@ -3559,7 +3559,7 @@ class TestHogFlowAPI(APIBaseTest):
         with (
             self._account_audience_provider(),
             patch(
-                "products.workflows.backend.presentation.views.hog_flow.get_account_audience_count", side_effect=[3, 10]
+                "products.workflows.backend.services.blast_radius.get_account_audience_count", side_effect=[3, 10]
             ) as mock_count,
         ):
             response = self.client.post(
@@ -3727,7 +3727,7 @@ class TestHogFlowAPI(APIBaseTest):
 
     def test_hog_flow_user_blast_radius_requires_filters(self):
         with patch(
-            "products.workflows.backend.presentation.views.hog_flow.get_user_blast_radius"
+            "products.workflows.backend.services.blast_radius.get_user_blast_radius"
         ) as mock_get_user_blast_radius:
             response = self.client.post(f"/api/projects/{self.team.id}/hog_flows/user_blast_radius", {})
 
@@ -3737,7 +3737,7 @@ class TestHogFlowAPI(APIBaseTest):
 
     def test_hog_flow_user_blast_radius_returns_counts(self):
         with patch(
-            "products.workflows.backend.presentation.views.hog_flow.get_user_blast_radius"
+            "products.workflows.backend.services.blast_radius.get_user_blast_radius"
         ) as mock_get_user_blast_radius:
             from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
 
@@ -3757,12 +3757,10 @@ class TestHogFlowAPI(APIBaseTest):
 
     def test_hog_flow_user_blast_radius_routes_to_v2_when_flag_enabled(self):
         with (
-            patch("products.workflows.backend.presentation.views.hog_flow.use_audience_query_v2", return_value=True),
-            patch("products.workflows.backend.presentation.views.hog_flow.get_person_audience_count_v2") as mock_v2,
-            patch(
-                "products.workflows.backend.presentation.views.hog_flow.get_dedupe_audience_count_v2"
-            ) as mock_dedupe_v2,
-            patch("products.workflows.backend.presentation.views.hog_flow.get_user_blast_radius") as mock_v1,
+            patch("products.workflows.backend.services.blast_radius.use_audience_query_v2", return_value=True),
+            patch("products.workflows.backend.services.blast_radius.get_person_audience_count_v2") as mock_v2,
+            patch("products.workflows.backend.services.blast_radius.get_dedupe_audience_count_v2") as mock_dedupe_v2,
+            patch("products.workflows.backend.services.blast_radius.get_user_blast_radius") as mock_v1,
         ):
             from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
 
@@ -3811,7 +3809,7 @@ class TestHogFlowAPI(APIBaseTest):
         # sampled count here would move workflows numbers outside the workflows rollout.
         # The routing test above mocks get_user_blast_radius away, so it cannot see this.
         with (
-            patch("products.workflows.backend.presentation.views.hog_flow.use_audience_query_v2", return_value=False),
+            patch("products.workflows.backend.services.blast_radius.use_audience_query_v2", return_value=False),
             patch("products.feature_flags.backend.user_blast_radius.use_blast_radius_query_v2", return_value=True),
             patch("products.feature_flags.backend.user_blast_radius.sampled_person_blast_radius") as mock_sampled,
         ):
@@ -3831,7 +3829,7 @@ class TestHogFlowAPI(APIBaseTest):
     )
     def test_hog_flow_user_blast_radius_returns_default_limit_for_unlisted_team(self):
         with patch(
-            "products.workflows.backend.presentation.views.hog_flow.get_user_blast_radius"
+            "products.workflows.backend.services.blast_radius.get_user_blast_radius"
         ) as mock_get_user_blast_radius:
             from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
 
@@ -3852,7 +3850,7 @@ class TestHogFlowAPI(APIBaseTest):
                 HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS={self.team.id},
             ),
             patch(
-                "products.workflows.backend.presentation.views.hog_flow.get_user_blast_radius"
+                "products.workflows.backend.services.blast_radius.get_user_blast_radius"
             ) as mock_get_user_blast_radius,
         ):
             from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
@@ -3890,7 +3888,7 @@ class TestHogFlowAPI(APIBaseTest):
             scopes=["hog_flow:read", "person:read"],
         )
         with patch(
-            "products.workflows.backend.presentation.views.hog_flow.get_user_blast_radius"
+            "products.workflows.backend.services.blast_radius.get_user_blast_radius"
         ) as mock_get_user_blast_radius:
             from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
 
@@ -3922,7 +3920,7 @@ class TestHogFlowAPI(APIBaseTest):
         # Feature flags can't be sized as a static batch audience — reject with a clean 400 before
         # the condition reaches the blast-radius query (where it would otherwise 500).
         with patch(
-            "products.workflows.backend.presentation.views.hog_flow.get_user_blast_radius"
+            "products.workflows.backend.services.blast_radius.get_user_blast_radius"
         ) as mock_get_user_blast_radius:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
@@ -3936,7 +3934,7 @@ class TestHogFlowAPI(APIBaseTest):
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
     def test_internal_user_blast_radius_rejects_flag_condition(self):
         with patch(
-            "products.workflows.backend.presentation.views.hog_flow.get_user_blast_radius"
+            "products.workflows.backend.services.blast_radius.get_user_blast_radius"
         ) as mock_get_user_blast_radius:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius",
@@ -3952,7 +3950,7 @@ class TestHogFlowAPI(APIBaseTest):
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
     def test_internal_user_blast_radius_persons_rejects_flag_condition(self):
         with patch(
-            "products.workflows.backend.presentation.views.hog_flow.get_batch_audience_person_ids"
+            "products.workflows.backend.services.blast_radius.get_batch_audience_person_ids"
         ) as mock_get_batch_audience_person_ids:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius_persons",
@@ -3974,9 +3972,9 @@ class TestHogFlowAPI(APIBaseTest):
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
     def test_internal_user_blast_radius_persons_uses_workflows_query(self, _name, gate_on, expected_timeout_mode):
         with (
-            patch("products.workflows.backend.presentation.views.hog_flow.use_audience_query_v2", return_value=gate_on),
+            patch("products.workflows.backend.services.blast_radius.use_audience_query_v2", return_value=gate_on),
             patch(
-                "products.workflows.backend.presentation.views.hog_flow.get_batch_audience_person_ids",
+                "products.workflows.backend.services.blast_radius.get_batch_audience_person_ids",
                 return_value=["id-1"],
             ) as mock_workflows_query,
         ):
@@ -4012,11 +4010,11 @@ class TestHogFlowAPI(APIBaseTest):
 
         with (
             patch(
-                "products.workflows.backend.presentation.views.hog_flow.get_user_blast_radius",
+                "products.workflows.backend.services.blast_radius.get_user_blast_radius",
                 return_value=BlastRadiusResult(affected=5, total=10),
             ) as mock_legacy_count,
             patch(
-                "products.workflows.backend.presentation.views.hog_flow.get_batch_audience_count", return_value=3
+                "products.workflows.backend.services.blast_radius.get_batch_audience_count", return_value=3
             ) as mock_deduped_count,
             patch(
                 "posthog.models.team.team.Team.persons_seen_so_far",
