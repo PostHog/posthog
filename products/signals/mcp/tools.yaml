@@ -143,12 +143,34 @@ tools:
         list: true
         title: List a report's checks
         description: >
-            List the follow-up checks on one report, newest first. Each row carries the expectation and why it was
-            written, its schedule (`next_run_at`, `run_interval_minutes`, `runs_remaining`, `expires_at`), its `status`
-            (`pending`, `active`, `passed`, `failed`, `errored`, `expired`, or `cancelled`) and its `last_outcome`. A
-            `pending` check waits for its report to resolve before its clock starts. Checks are written by scout runs
-            and by the research pipeline, so this surface reads them and does not create them. `query` and
-            `baseline_value` read as null when you cannot read the data they describe.
+            List the follow-up checks on one report, open checks first and newest first within each group. Each row
+            carries the expectation and why it was written, its schedule (`next_run_at`, `run_interval_minutes`,
+            `runs_remaining`, `expires_at`), its `status` (`pending`, `active`, `passed`, `failed`, `errored`,
+            `expired`, or `cancelled`) and its `last_outcome`. A `pending` check waits for its report to resolve before
+            its clock starts. Checks are written by scout runs and by the research pipeline, so this surface reads them
+            and does not create them. `query` and `baseline_value` read as null when you cannot read the data they
+            describe.
+    inbox-report-checks-replace:
+        operation: signals_report_checks_replace_create
+        enabled: true
+        scopes:
+            - task:write
+            - query:read
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Replace a metric follow-up check
+        description: >
+            Replace one open metric check after investigating a better measure or threshold. Read the current check and
+            report first. Supply a bounded live Trends query or a report metric ID, an explicit comparison, and a
+            measured baseline. The old check stays live if the replacement fails validation. A successful replacement
+            starts unapproved and is scheduled independently of human approval. Do not use this to change an agent
+            check. The replacement preserves the existing soak and remaining recurrence. The measurement also requires
+            event_definition:read for event series, action:read for action series, and cohort:read for cohort filters
+            when present.
+        feature_flag: signals-report-checks-replace
+        feature_flag_behavior: enable
     inbox-report-checks-retrieve:
         operation: signals_report_checks_retrieve
         enabled: true
@@ -1235,6 +1257,9 @@ tools:
         enabled: false
     signals-report-artefacts-diff:
         operation: signals_report_artefacts_diff
+        enabled: false
+    signals-report-checks-approve-create:
+        operation: signals_report_checks_approve_create
         enabled: false
     signals-report-checks-destroy:
         operation: signals_report_checks_destroy

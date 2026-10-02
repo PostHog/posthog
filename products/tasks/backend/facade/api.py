@@ -2656,6 +2656,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         # controller write arbitrary text into the agent's user-level instructions file.
         "agent_instructions",
         "wizard_config",
+        "reconciled_pr_merge_url",
         "wizard_head_branch",
         "use_modal_directory_resume_snapshots",
         "use_modal_vm_sandbox",
@@ -3209,6 +3210,9 @@ def update_task_run(
     from products.tasks.backend.logic.services.loop_runs import (  # noqa: PLC0415 (keep temporalio off the api import path)
         handle_loop_run_terminal,
     )
+    from products.tasks.backend.logic.services.pr_reconciliation import (  # noqa: PLC0415 - avoids the facade/webhook import cycle
+        PullRequestReconciler,
+    )
     from products.tasks.backend.metrics import (  # noqa: PLC0415 — keep prometheus deps off the api import path
         observe_agent_turn_failed,
         observe_prewarmed_unused_if_never_activated,
@@ -3265,6 +3269,7 @@ def update_task_run(
             or only_if_non_terminal
             or only_if_not_started
             or "status" in validated_data
+            or "branch" in validated_data
         ):
             run = TaskRun.objects.select_for_update().get(pk=run.pk)
         if only_if_not_started and run.status != TaskRun.Status.NOT_STARTED:
@@ -3274,6 +3279,8 @@ def update_task_run(
                 transaction.on_commit(lambda: resume_workflow_step_for_run(run))
             return _task_run_detail_to_dto(run, user_id=user_id)
         old_status = run.status
+        old_output = run.output
+        old_branch = run.branch
         old_pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
         old_commit_head = _commit_push_head_sha(run.output)
 
@@ -3345,6 +3352,7 @@ def update_task_run(
 
         update_fields.add("updated_at")
         run.save(update_fields=list(update_fields))
+        PullRequestReconciler.schedule(run, previous_output=old_output, previous_branch=old_branch)
         run.publish_stream_state_event()
 
     # Only on the actual transition: a repeat PATCH with the same terminal status, or an
@@ -3443,16 +3451,23 @@ def set_task_run_output(
     run_id: str | UUID, task_id: str | UUID, team_id: int, *, output: dict, user_id: int | None = None
 ) -> contracts.TaskRunDetailDTO | None:
     """Persist a run's output. Completes the run for structured-output tasks; posts Slack PR update."""
+    from products.tasks.backend.logic.services.pr_reconciliation import (  # noqa: PLC0415 - avoids the facade/webhook import cycle
+        PullRequestReconciler,
+    )
+
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
     task = run.task
     # Preserve PR facts a webhook may have written concurrently: this assignment is wholesale,
     # so a bare `= output` would drop output.pr_url recorded out of band.
-    existing = run.output if isinstance(run.output, dict) else {}
-    merged = merge_pr_output(existing, output)
-    run.output = _apply_caller_output(existing, output, merged)
-    run.save(update_fields=["output", "updated_at"])
+    with transaction.atomic():
+        run = TaskRun.objects.select_for_update().get(pk=run.pk, team_id=team_id)
+        existing = run.output if isinstance(run.output, dict) else {}
+        merged = merge_pr_output(existing, output)
+        run.output = _apply_caller_output(existing, output, merged)
+        run.save(update_fields=["output", "updated_at"])
+        PullRequestReconciler.schedule(run, previous_output=existing, previous_branch=run.branch)
     _refresh_self_driving_quota_for_pr(run, existing.get("pr_url"))
     if task.json_schema and not (run.state or {}).get("caller_ends_run"):
         signal_workflow_completion(run.id, TaskRun.Status.COMPLETED, None)

@@ -29,6 +29,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
+from products.signals.backend.report_charts import _unstorable_text
 from products.signals.backend.report_metrics import (
     MAX_METRIC_UNIT_LENGTH,
     ReportMetric,
@@ -196,6 +197,13 @@ class MetricThresholdConfig(BaseModel):
         default=None, description="How to format measured values; copied from a referenced metric."
     )
     unit: str | None = Field(default=None, max_length=MAX_METRIC_UNIT_LENGTH, description="Optional value suffix.")
+
+    @field_validator("unit")
+    @classmethod
+    def unit_must_be_storable(cls, value: str | None) -> str | None:
+        if value is not None and (reason := _unstorable_text(value)) is not None:
+            raise ValueError(f"unit must not contain {reason}")
+        return value
 
     @field_validator("baseline_value", mode="before")
     @classmethod
