@@ -10,6 +10,8 @@ import { urls } from 'scenes/urls'
 
 import { TodayPreviewTrigger } from '~/layout/today/TodayPreviewTrigger'
 
+import { displayConventionalCommitTitle } from 'products/signals/frontend/inbox/utils/reportPresentation'
+
 import { isExternalHref, itemHref, itemSource, itemStateLabel } from './todayBriefingItems'
 import { TodayIcon } from './TodayIcon'
 import { todayLogic } from './todayLogic'
@@ -32,7 +34,7 @@ function PersonalBriefingNavItems(): JSX.Element {
                 const row = (
                     <TodayNavItem
                         key={item.key}
-                        title={item.label}
+                        title={displayConventionalCommitTitle(item.title, 'Untitled report')}
                         meta={itemStateLabel(item) ?? (item.signal || source.label)}
                         color={source.color}
                         icon={<TodayIcon icon={source.icon} />}
@@ -86,11 +88,11 @@ export function TodayHomeSidebar(): JSX.Element {
                 variant="primary"
                 size="lg"
                 className="w-full"
-                render={<LinkPrimitive to={urls.ai()} />}
+                render={<LinkPrimitive to={urls.taskNewSession()} />}
                 data-attr="today-new-chat"
             >
                 <IconPlus />
-                New chat
+                New session
             </Button>
             <div className="TodayPane__scroll">
                 <div className="TodayPane__heading Today__label">Today</div>

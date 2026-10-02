@@ -1938,9 +1938,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                     # the query actually returned instead of failing the batch build.
                     read_schema = restrict_schema_to_columns(arrow_schema, column_names)
 
-                    for batch in fetch_row_batches(
-                        ss_cursor.fetchmany, max_rows=chunk_size, byte_bounded=inputs.byte_bounded_extraction
-                    ):
+                    for batch in fetch_row_batches(ss_cursor.fetchmany, max_rows=chunk_size):
                         yield table_from_iterator(
                             (dict(zip(column_names, row)) for row in batch),
                             read_schema,

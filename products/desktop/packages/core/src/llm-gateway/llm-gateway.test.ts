@@ -703,6 +703,28 @@ describe("LlmGatewayService.prompt on the Go gateway", () => {
     expect(goFetch).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps the requested model on a paid pin echoed in canonical spelling", async () => {
+    const goFetch = vi.fn().mockResolvedValue(createJsonResponse(SUCCESS_BODY));
+    const { service } = createService(vi.fn(), {
+      route: {
+        ...GO_ROUTE,
+        allowedModels: [
+          "anthropic/claude-haiku-4.5",
+          "anthropic/claude-opus-5.5",
+        ],
+      },
+      fetch: goFetch,
+    });
+
+    await service.prompt([{ role: "user", content: "hi" }], {
+      model: "claude-opus-5-5",
+    });
+
+    expect(JSON.parse(goFetch.mock.calls[0][1].body).model).toBe(
+      "claude-opus-5-5",
+    );
+  });
+
   it("keeps the requested model when the pin is null or empty", async () => {
     for (const allowedModels of [null, []]) {
       const goFetch = vi
