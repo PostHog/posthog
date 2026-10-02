@@ -1,7 +1,10 @@
 import {
+    FacetFilter,
     FacetSearchValue,
     FacetValueOption,
     ServerFacet,
+    facetFilterKey,
+    findFacet,
     parseFacetSearch,
     toFacetQuery,
 } from 'lib/components/FacetSearchBar/facetSearch'
@@ -85,6 +88,20 @@ const FACET_KEYS_ONLY = recipientFacets([])
 
 export function parseRecipientSearch(query: string): FacetSearchValue {
     return parseFacetSearch(query, FACET_KEYS_ONLY)
+}
+
+function withListedValue(filter: FacetFilter, facets: ServerFacet[]): FacetFilter {
+    const typed = filter.value.toLowerCase()
+    const listed = findFacet(facets, filter.facet)?.values?.find((option) => option.value.toLowerCase() === typed)
+    return listed ? { ...filter, value: listed.value } : filter
+}
+
+/** The API matches values exactly, so a value typed in another case becomes the listed one: `suppressed:bounce` → `suppressed:BOUNCE`. */
+export function withListedValues(value: FacetSearchValue, facets: ServerFacet[]): FacetSearchValue {
+    const filters = new Map(
+        value.filters.map((filter) => withListedValue(filter, facets)).map((filter) => [facetFilterKey(filter), filter])
+    )
+    return { filters: [...filters.values()], text: value.text }
 }
 
 /** One `facet:value` per value, `-facet:value` when negated, the way the listing API's repeated `filter` reads them. */
