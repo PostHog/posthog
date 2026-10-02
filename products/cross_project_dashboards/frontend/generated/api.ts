@@ -16,7 +16,7 @@ import type {
     PaginatedCrossProjectDashboardListApi,
     PaginatedCrossProjectDashboardTileListApi,
     PatchedCrossProjectDashboardApi,
-    PatchedCrossProjectDashboardTileApi,
+    PatchedCrossProjectDashboardTileUpdateApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -179,34 +179,6 @@ export const crossProjectDashboardsTilesRetrieve = async (
     )
 }
 
-export const getCrossProjectDashboardsTilesUpdateUrl = (organizationId: string, dashboardId: string, id: string) => {
-    return `/api/organizations/${organizationId}/cross_project_dashboards/${dashboardId}/tiles/${id}/`
-}
-
-/**
- * Tiles on one cross-project dashboard, edited one at a time.
- *
- * Writes are per tile rather than a whole-set replace, so two people editing the same
- * dashboard cannot overwrite each other's tiles.
- */
-export const crossProjectDashboardsTilesUpdate = async (
-    organizationId: string,
-    dashboardId: string,
-    id: string,
-    crossProjectDashboardTileApi: NonReadonly<CrossProjectDashboardTileApi>,
-    options?: RequestInit
-): Promise<CrossProjectDashboardTileApi> => {
-    return apiMutator<CrossProjectDashboardTileApi>(
-        getCrossProjectDashboardsTilesUpdateUrl(organizationId, dashboardId, id),
-        {
-            ...options,
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(crossProjectDashboardTileApi),
-        }
-    )
-}
-
 export const getCrossProjectDashboardsTilesPartialUpdateUrl = (
     organizationId: string,
     dashboardId: string,
@@ -225,7 +197,7 @@ export const crossProjectDashboardsTilesPartialUpdate = async (
     organizationId: string,
     dashboardId: string,
     id: string,
-    patchedCrossProjectDashboardTileApi?: NonReadonly<PatchedCrossProjectDashboardTileApi>,
+    patchedCrossProjectDashboardTileUpdateApi?: PatchedCrossProjectDashboardTileUpdateApi,
     options?: RequestInit
 ): Promise<CrossProjectDashboardTileApi> => {
     return apiMutator<CrossProjectDashboardTileApi>(
@@ -234,7 +206,7 @@ export const crossProjectDashboardsTilesPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedCrossProjectDashboardTileApi),
+            body: JSON.stringify(patchedCrossProjectDashboardTileUpdateApi),
         }
     )
 }
@@ -276,27 +248,6 @@ export const crossProjectDashboardsRetrieve = async (
     return apiMutator<CrossProjectDashboardApi>(getCrossProjectDashboardsRetrieveUrl(organizationId, id), {
         ...options,
         method: 'GET',
-    })
-}
-
-export const getCrossProjectDashboardsUpdateUrl = (organizationId: string, id: string) => {
-    return `/api/organizations/${organizationId}/cross_project_dashboards/${id}/`
-}
-
-/**
- * Dashboards the organization owns, holding insights from one or more projects.
- */
-export const crossProjectDashboardsUpdate = async (
-    organizationId: string,
-    id: string,
-    crossProjectDashboardApi: NonReadonly<CrossProjectDashboardApi>,
-    options?: RequestInit
-): Promise<CrossProjectDashboardApi> => {
-    return apiMutator<CrossProjectDashboardApi>(getCrossProjectDashboardsUpdateUrl(organizationId, id), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(crossProjectDashboardApi),
     })
 }
 

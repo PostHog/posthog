@@ -8,18 +8,11 @@
  * OpenAPI spec version: 1.0.0
  */
 export interface CrossProjectDashboardTileApi {
+    /** Id of the tile. */
     readonly id: string
-    /**
-     * Id of the project the tile's insight belongs to.
-     * @minimum -2147483648
-     * @maximum 2147483647
-     */
+    /** Id of the project the tile's insight belongs to. */
     project_id: number
-    /**
-     * Id of the insight the tile renders.
-     * @minimum -2147483648
-     * @maximum 2147483647
-     */
+    /** Id of the insight the tile renders. */
     insight_id: number
     /** Grid position and size of the tile, keyed by layout size. */
     layouts?: unknown
@@ -33,61 +26,13 @@ export interface CrossProjectDashboardTileApi {
     filters_overrides?: unknown
 }
 
-/**
- * * `engineering` - Engineering
- * * `data` - Data
- * * `product` - Product Management
- * * `founder` - Founder
- * * `leadership` - Leadership
- * * `marketing` - Marketing
- * * `sales` - Sales / Success
- * * `student` - Student
- * * `other` - Other
- */
-export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
-
-export const RoleAtOrganizationEnumApi = {
-    Engineering: 'engineering',
-    Data: 'data',
-    Product: 'product',
-    Founder: 'founder',
-    Leadership: 'leadership',
-    Marketing: 'marketing',
-    Sales: 'sales',
-    Student: 'student',
-    Other: 'other',
-} as const
-
-export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
-
-export const BlankEnumApi = {
-    '': '',
-} as const
-
-/**
- * @nullable
- */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
-
-export interface UserBasicApi {
+export interface CrossProjectDashboardCreatorApi {
+    /** Id of the user who created the dashboard. */
     readonly id: number
-    readonly uuid: string
-    /**
-     * @maxLength 200
-     * @nullable
-     */
-    distinct_id?: string | null
-    /** @maxLength 150 */
-    first_name?: string
-    /** @maxLength 150 */
-    last_name?: string
-    /** @maxLength 254 */
-    email: string
-    /** @nullable */
-    is_email_verified?: boolean | null
-    /** @nullable */
-    readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
+    /** First name of the user who created the dashboard. */
+    readonly first_name: string
+    /** Email of the user who created the dashboard. */
+    readonly email: string
 }
 
 /**
@@ -97,6 +42,7 @@ export interface UserBasicApi {
  * that tile's own project endpoint, so their access, quota and cache key stay correct there.
  */
 export interface CrossProjectDashboardApi {
+    /** Id of the dashboard. */
     readonly id: string
     /**
      * Name shown in the dashboard list and page header.
@@ -107,10 +53,16 @@ export interface CrossProjectDashboardApi {
     description?: string
     /** Dashboard-level filters applied to every tile. Supports a date range, an interval, and property filters that refer to a property by name. Filters carrying a project-specific id are rejected. */
     filters?: unknown
+    /** Tiles from the projects the reader can open. */
     readonly tiles: readonly CrossProjectDashboardTileApi[]
-    readonly created_by: UserBasicApi
+    /** The user who created the dashboard. */
+    readonly created_by: CrossProjectDashboardCreatorApi | null
+    /** When the dashboard was created. */
     readonly created_at: string
-    /** @nullable */
+    /**
+     * When the dashboard last changed.
+     * @nullable
+     */
     readonly updated_at: string | null
 }
 
@@ -132,20 +84,10 @@ export interface PaginatedCrossProjectDashboardTileListApi {
     results: CrossProjectDashboardTileApi[]
 }
 
-export interface PatchedCrossProjectDashboardTileApi {
-    readonly id?: string
-    /**
-     * Id of the project the tile's insight belongs to.
-     * @minimum -2147483648
-     * @maximum 2147483647
-     */
-    project_id?: number
-    /**
-     * Id of the insight the tile renders.
-     * @minimum -2147483648
-     * @maximum 2147483647
-     */
-    insight_id?: number
+/**
+ * A tile's project and insight never change, so an update carries only its placement and styling.
+ */
+export interface PatchedCrossProjectDashboardTileUpdateApi {
     /** Grid position and size of the tile, keyed by layout size. */
     layouts?: unknown
     /**
@@ -165,6 +107,7 @@ export interface PatchedCrossProjectDashboardTileApi {
  * that tile's own project endpoint, so their access, quota and cache key stay correct there.
  */
 export interface PatchedCrossProjectDashboardApi {
+    /** Id of the dashboard. */
     readonly id?: string
     /**
      * Name shown in the dashboard list and page header.
@@ -175,10 +118,16 @@ export interface PatchedCrossProjectDashboardApi {
     description?: string
     /** Dashboard-level filters applied to every tile. Supports a date range, an interval, and property filters that refer to a property by name. Filters carrying a project-specific id are rejected. */
     filters?: unknown
+    /** Tiles from the projects the reader can open. */
     readonly tiles?: readonly CrossProjectDashboardTileApi[]
-    readonly created_by?: UserBasicApi
+    /** The user who created the dashboard. */
+    readonly created_by?: CrossProjectDashboardCreatorApi | null
+    /** When the dashboard was created. */
     readonly created_at?: string
-    /** @nullable */
+    /**
+     * When the dashboard last changed.
+     * @nullable
+     */
     readonly updated_at?: string | null
 }
 

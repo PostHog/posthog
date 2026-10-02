@@ -25618,18 +25618,11 @@ export namespace Schemas {
     }
 
     export interface CrossProjectDashboardTile {
+      /** Id of the tile. */
       readonly id: string;
-      /**
-         * Id of the project the tile's insight belongs to.
-         * @minimum -2147483648
-         * @maximum 2147483647
-         */
+      /** Id of the project the tile's insight belongs to. */
       project_id: number;
-      /**
-         * Id of the insight the tile renders.
-         * @minimum -2147483648
-         * @maximum 2147483647
-         */
+      /** Id of the insight the tile renders. */
       insight_id: number;
       /** Grid position and size of the tile, keyed by layout size. */
       layouts?: unknown;
@@ -25643,6 +25636,15 @@ export namespace Schemas {
       filters_overrides?: unknown;
     }
 
+    export interface CrossProjectDashboardCreator {
+      /** Id of the user who created the dashboard. */
+      readonly id: number;
+      /** First name of the user who created the dashboard. */
+      readonly first_name: string;
+      /** Email of the user who created the dashboard. */
+      readonly email: string;
+    }
+
     /**
      * Carries tile references only.
      *
@@ -25650,6 +25652,7 @@ export namespace Schemas {
      * that tile's own project endpoint, so their access, quota and cache key stay correct there.
      */
     export interface CrossProjectDashboard {
+      /** Id of the dashboard. */
       readonly id: string;
       /**
          * Name shown in the dashboard list and page header.
@@ -25660,10 +25663,16 @@ export namespace Schemas {
       description?: string;
       /** Dashboard-level filters applied to every tile. Supports a date range, an interval, and property filters that refer to a property by name. Filters carrying a project-specific id are rejected. */
       filters?: unknown;
+      /** Tiles from the projects the reader can open. */
       readonly tiles: readonly CrossProjectDashboardTile[];
-      readonly created_by: UserBasic;
+      /** The user who created the dashboard. */
+      readonly created_by: CrossProjectDashboardCreator | null;
+      /** When the dashboard was created. */
       readonly created_at: string;
-      /** @nullable */
+      /**
+         * When the dashboard last changed.
+         * @nullable
+         */
       readonly updated_at: string | null;
     }
 
@@ -75026,6 +75035,7 @@ export namespace Schemas {
      * that tile's own project endpoint, so their access, quota and cache key stay correct there.
      */
     export interface PatchedCrossProjectDashboard {
+      /** Id of the dashboard. */
       readonly id?: string;
       /**
          * Name shown in the dashboard list and page header.
@@ -75036,27 +75046,23 @@ export namespace Schemas {
       description?: string;
       /** Dashboard-level filters applied to every tile. Supports a date range, an interval, and property filters that refer to a property by name. Filters carrying a project-specific id are rejected. */
       filters?: unknown;
+      /** Tiles from the projects the reader can open. */
       readonly tiles?: readonly CrossProjectDashboardTile[];
-      readonly created_by?: UserBasic;
+      /** The user who created the dashboard. */
+      readonly created_by?: CrossProjectDashboardCreator | null;
+      /** When the dashboard was created. */
       readonly created_at?: string;
-      /** @nullable */
+      /**
+         * When the dashboard last changed.
+         * @nullable
+         */
       readonly updated_at?: string | null;
     }
 
-    export interface PatchedCrossProjectDashboardTile {
-      readonly id?: string;
-      /**
-         * Id of the project the tile's insight belongs to.
-         * @minimum -2147483648
-         * @maximum 2147483647
-         */
-      project_id?: number;
-      /**
-         * Id of the insight the tile renders.
-         * @minimum -2147483648
-         * @maximum 2147483647
-         */
-      insight_id?: number;
+    /**
+     * A tile's project and insight never change, so an update carries only its placement and styling.
+     */
+    export interface PatchedCrossProjectDashboardTileUpdate {
       /** Grid position and size of the tile, keyed by layout size. */
       layouts?: unknown;
       /**
