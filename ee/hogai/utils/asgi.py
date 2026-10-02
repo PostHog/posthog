@@ -12,6 +12,7 @@ class SyncIterableToAsync(AsyncIterator[T]):
         self._iterable: Iterable[T] = iterable
         self.sync_iterator: Iterator[T] | None = None
         self._lock = threading.Lock()
+        self._close_requested = threading.Event()
         self._closed = False
 
     def __aiter__(self) -> AsyncIterator[T]:
@@ -21,15 +22,18 @@ class SyncIterableToAsync(AsyncIterator[T]):
         return await sync_to_async(self._next, thread_sensitive=False)()
 
     def _next(self) -> T:
-        with self._lock:
-            if self._closed:
-                raise StopAsyncIteration
-            if self.sync_iterator is None:
-                self.sync_iterator = iter(self._iterable)
-            return self.next(self.sync_iterator)
+        try:
+            with self._lock:
+                if self._close_requested.is_set():
+                    raise StopAsyncIteration
+                if self.sync_iterator is None:
+                    self.sync_iterator = iter(self._iterable)
+                return self.next(self.sync_iterator)
+        finally:
+            if self._close_requested.is_set():
+                self._close()
 
     def _close(self) -> None:
-        # Cancellation stops the await but not the worker, so closing must wait for an in-flight next().
         with self._lock:
             if self._closed:
                 return
@@ -40,7 +44,11 @@ class SyncIterableToAsync(AsyncIterator[T]):
                 close()
 
     async def aclose(self) -> None:
-        await sync_to_async(self._close, thread_sensitive=False)()
+        self._close_requested.set()
+        # Cancellation cannot interrupt a sync read, so its worker closes the iterator when the read finishes.
+        if self._lock.acquire(blocking=False):
+            self._lock.release()
+            await sync_to_async(self._close, thread_sensitive=False)()
 
     @staticmethod
     def next(it: Iterator[T]) -> T:

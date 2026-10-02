@@ -54,6 +54,8 @@ Models without native structured-output support retain the JSON fallback, which 
 Oversized or compressed completion responses skip the evaluation as a rejected request without disabling the connection.
 The evaluation records the response limit and how to configure the endpoint.
 These connection and response limits also apply when using the same provider in the playground.
+Disconnecting from the playground releases the server's stream slot without waiting for an in-flight provider read.
+The worker closes the connection when that read finishes or reaches the provider's deadline.
 
 ## System One judges
 

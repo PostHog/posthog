@@ -15,6 +15,7 @@ class TestSyncIterableToAsync:
         loop = asyncio.get_running_loop()
         read_started = asyncio.Event()
         close_started = asyncio.Event()
+        closed = asyncio.Event()
         release_read = threading.Event()
         release_close = threading.Event()
         closed_on: list[int] = []
@@ -29,6 +30,7 @@ class TestSyncIterableToAsync:
                 loop.call_soon_threadsafe(close_started.set)
                 assert release_close.wait(5)
                 closed_on.append(threading.get_ident())
+                loop.call_soon_threadsafe(closed.set)
 
         stream = SyncIterableToAsync(generate())
         assert await anext(stream) == 1
@@ -41,11 +43,16 @@ class TestSyncIterableToAsync:
 
         cleanup = asyncio.create_task(stream.aclose())
         try:
-            release_read.set()
+            if reading:
+                await asyncio.wait_for(cleanup, 5)
+                assert not close_started.is_set()
+                release_read.set()
             await asyncio.wait_for(close_started.wait(), 5)
         finally:
+            release_read.set()
             release_close.set()
             await asyncio.wait_for(cleanup, 5)
+            await asyncio.wait_for(closed.wait(), 5)
 
         assert len(closed_on) == 1
         assert closed_on[0] != threading.get_ident()
