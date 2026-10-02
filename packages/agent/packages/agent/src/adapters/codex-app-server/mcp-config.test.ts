@@ -58,7 +58,18 @@ describe("toCodexMcpServers", () => {
     });
   });
 
-  it("prompts for PostHog exec when gating is enabled", () => {
+  it.each([
+    [
+      "prompts for PostHog exec when gating is enabled",
+      { gatePosthogExec: true },
+      { tools: { exec: { approval_mode: "prompt" } } },
+    ],
+    [
+      "marks the PostHog server required when requirePosthogMcp is set",
+      { requirePosthogMcp: true },
+      { required: true, startup_timeout_sec: 30 },
+    ],
+  ])("%s", (_name, options, posthogPolicy) => {
     const servers = [
       {
         type: "http",
@@ -72,11 +83,8 @@ describe("toCodexMcpServers", () => {
       },
     ] as unknown as McpServer[];
 
-    expect(toCodexMcpServers(servers, { gatePosthogExec: true })).toEqual({
-      posthog_cloud: {
-        url: "https://mcp.example/mcp",
-        tools: { exec: { approval_mode: "prompt" } },
-      },
+    expect(toCodexMcpServers(servers, options)).toEqual({
+      posthog_cloud: { url: "https://mcp.example/mcp", ...posthogPolicy },
       other: { url: "https://other.example/mcp" },
     });
   });

@@ -1,35 +1,71 @@
-import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    beforeUnmount,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { projectLogic } from 'scenes/projectLogic'
+import { urls } from 'scenes/urls'
 
 import {
     getTasksRunsArtifactsDownloadCreateUrl,
     getTasksRunsArtifactsDownloadRetrieveUrl,
+    tasksRunsLivingArtifactsList,
     tasksRunsRetrieve,
 } from 'products/tasks/frontend/generated/api'
-import type { TaskRunDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
+import type {
+    TaskRunDetailDTOApi,
+    TaskRunLivingArtifactResponseApi,
+} from 'products/tasks/frontend/generated/api.schemas'
 
 import type { TaskRun } from '../../types/taskTypes'
 import { taskDetailSceneLogic } from './taskDetailSceneLogic'
 import {
+    ARTIFACT_PARAM,
+    ArtifactFile,
     ArtifactPreviewKind,
     RunArtifact,
     TaskRunTab,
     artifactPreviewKind,
     collectRunArtifacts,
+    groupArtifactVersions,
     isTextPreview,
+    livingArtifactFiles,
+    livingArtifactsFromResponse,
+    postHogObjectRef,
+    taskArtifactPath,
+    VERSION_PARAM,
 } from './taskRunArtifacts'
 
 export interface TaskRunArtifactsLogicProps {
     taskId: string
 }
 
+export type ArtifactSelectSource = 'click' | 'keyboard'
+
 export interface ArtifactText {
     artifactId: string
     text: string | null
+    error: string | null
+}
+
+export interface ArtifactMedia {
+    artifactId: string
+    /** A `blob:` URL. The app's media-src allows it, and not the object storage origin. */
+    url: string | null
     error: string | null
 }
 
@@ -39,16 +75,30 @@ export interface taskRunArtifactsLogicValues {
     runs: TaskRun[] // taskDetailSceneLogic
     selectedRun: TaskRunDetailDTOApi | null // taskDetailSceneLogic
     activeTab: TaskRunTab
+    artifactMedia: ArtifactMedia | null
+    artifactMediaLoading: boolean
     artifactText: ArtifactText | null
     artifactTextLoading: boolean
     artifacts: RunArtifact[]
     chainRuns: TaskRunDetailDTOApi[]
     chainRunsLoading: boolean
+    commentsOpen: boolean
+    files: ArtifactFile[]
+    livingArtifacts: TaskRunLivingArtifactResponseApi[]
+    livingArtifactsLoading: boolean
+    livingFiles: ArtifactFile[]
+    mediaById: Record<string, ArtifactMedia>
     selectedArtifact: RunArtifact | null
-    selectedArtifactId: string | null
+    selectedFile: ArtifactFile | null
+    selectedFileKey: string | null
     selectedIndex: number
     selectedKind: ArtifactPreviewKind | null
+    selectedMedia: ArtifactMedia | null
     selectedText: ArtifactText | null
+    selectedVersion: RunArtifact | null
+    selectedVersionId: string | null
+    selectedVersionIndex: number
+    shareUrl: string | null
     textsById: Record<string, ArtifactText>
 }
 
@@ -66,6 +116,21 @@ export interface taskRunArtifactsLogicActions {
     }
     ensureSelectedText: () => {
         value: true
+    }
+    loadArtifactMedia: (artifact: RunArtifact) => RunArtifact
+    loadArtifactMediaFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadArtifactMediaSuccess: (
+        artifactMedia: ArtifactMedia | null,
+        payload?: RunArtifact
+    ) => {
+        artifactMedia: ArtifactMedia | null
+        payload?: RunArtifact
     }
     loadArtifactText: (artifact: RunArtifact) => RunArtifact
     loadArtifactTextFailure: (
@@ -97,11 +162,49 @@ export interface taskRunArtifactsLogicActions {
         chainRuns: TaskRunDetailDTOApi[]
         payload?: string[]
     }
-    selectArtifact: (artifactId: string) => {
-        artifactId: string
+    loadLivingArtifacts: (runId: string) => string
+    loadLivingArtifactsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadLivingArtifactsSuccess: (
+        livingArtifacts: TaskRunLivingArtifactResponseApi[],
+        payload?: string
+    ) => {
+        livingArtifacts: TaskRunLivingArtifactResponseApi[]
+        payload?: string
+    }
+    openFromUrl: (
+        fileKey: string,
+        versionId: string | null
+    ) => {
+        fileKey: string
+        versionId: string | null
+    }
+    reportLinkCopied: () => {
+        value: true
+    }
+    reportObjectOpened: (objectKind: string) => {
+        objectKind: string
+    }
+    selectArtifact: (
+        fileKey: string,
+        source?: ArtifactSelectSource
+    ) => {
+        fileKey: string
+        source: ArtifactSelectSource
+    }
+    selectVersion: (artifactId: string | null) => {
+        artifactId: string | null
     }
     setActiveTab: (tab: TaskRunTab) => {
         tab: TaskRunTab
+    }
+    setCommentsOpen: (open: boolean) => {
+        open: boolean
     }
     stepArtifact: (delta: number) => {
         delta: number
@@ -113,9 +216,25 @@ export interface taskRunArtifactsLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         artifacts: (selectedRun: TaskRunDetailDTOApi | null, chainRuns: TaskRunDetailDTOApi[]) => RunArtifact[]
-        selectedIndex: (artifacts: RunArtifact[], selectedArtifactId: string | null) => number
-        selectedArtifact: (artifacts: RunArtifact[], selectedIndex: number) => RunArtifact | null
+        livingFiles: (livingArtifacts: TaskRunLivingArtifactResponseApi[]) => ArtifactFile[]
+        files: (artifacts: RunArtifact[], livingFiles: ArtifactFile[]) => ArtifactFile[]
+        selectedIndex: (files: ArtifactFile[], selectedFileKey: string | null) => number
+        selectedFile: (files: ArtifactFile[], selectedIndex: number) => ArtifactFile | null
+        selectedVersionIndex: (selectedFile: ArtifactFile | null, selectedVersionId: string | null) => number
+        selectedVersion: (selectedFile: ArtifactFile | null, selectedVersionIndex: number) => RunArtifact | null
+        selectedArtifact: (selectedVersion: RunArtifact | null) => RunArtifact | null
         selectedKind: (selectedArtifact: RunArtifact | null) => ArtifactPreviewKind | null
+        selectedMedia: (
+            selectedArtifact: RunArtifact | null,
+            mediaById: Record<string, ArtifactMedia>
+        ) => ArtifactMedia | null
+        shareUrl: (
+            currentProjectId: number | null,
+            selectedFileKey: string | null,
+            selectedFile: ArtifactFile | null,
+            selectedVersionId: string | null,
+            arg: any
+        ) => string | null
         selectedText: (
             selectedArtifact: RunArtifact | null,
             textsById: Record<string, ArtifactText>
@@ -132,6 +251,8 @@ export type taskRunArtifactsLogicType = MakeLogicType<
 
 // A long-lived task can have many runs. Older runs past this cap keep their files out of the list.
 const MAX_CHAIN_RUNS = 20
+// A video plays from a blob in memory, so a very large file goes to a download instead.
+const MAX_MEDIA_PREVIEW_BYTES = 200 * 1024 * 1024
 
 /** The download-by-id URL redirects to a fresh presigned link, so an `img` or an `a` can use it directly. */
 export function artifactDownloadUrl(projectId: number | null, taskId: string, artifact: RunArtifact): string | null {
@@ -139,6 +260,11 @@ export function artifactDownloadUrl(projectId: number | null, taskId: string, ar
         return null
     }
     return getTasksRunsArtifactsDownloadRetrieveUrl(String(projectId), taskId, artifact.runId, artifact.id)
+}
+
+/** The standalone page puts the task in the path, an embedded runner in `?task=`. */
+function urlIsForTask(pathname: string, searchParams: Record<string, any>, taskId: string): boolean {
+    return searchParams.task === taskId || pathname.split('/').includes(taskId)
 }
 
 export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
@@ -156,10 +282,16 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
     })),
     actions({
         setActiveTab: (tab: TaskRunTab) => ({ tab }),
-        selectArtifact: (artifactId: string) => ({ artifactId }),
+        selectArtifact: (fileKey: string, source: ArtifactSelectSource = 'click') => ({ fileKey, source }),
+        // `null` follows the latest version, so a new upload of the open file shows at once.
+        selectVersion: (artifactId: string | null) => ({ artifactId }),
         stepArtifact: (delta: number) => ({ delta }),
         downloadArtifact: (artifact: RunArtifact) => ({ artifact }),
         ensureSelectedText: true,
+        openFromUrl: (fileKey: string, versionId: string | null) => ({ fileKey, versionId }),
+        reportLinkCopied: true,
+        reportObjectOpened: (objectKind: string) => ({ objectKind }),
+        setCommentsOpen: (open: boolean) => ({ open }),
     }),
     loaders(({ props, values }) => ({
         chainRuns: [
@@ -177,6 +309,59 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
                             .map((runId) => tasksRunsRetrieve(projectId, props.taskId, runId).catch(() => null))
                     )
                     return runs.filter((run): run is TaskRunDetailDTOApi => run !== null)
+                },
+            },
+        ],
+        livingArtifacts: [
+            [] as TaskRunLivingArtifactResponseApi[],
+            {
+                // The registry is task-scoped, so any run of the task lists the documents of the whole chain.
+                loadLivingArtifacts: async (runId: string): Promise<TaskRunLivingArtifactResponseApi[]> => {
+                    if (values.currentProjectId === null) {
+                        return values.livingArtifacts
+                    }
+                    try {
+                        return livingArtifactsFromResponse(
+                            await tasksRunsLivingArtifactsList(String(values.currentProjectId), props.taskId, runId)
+                        )
+                    } catch {
+                        return values.livingArtifacts
+                    }
+                },
+            },
+        ],
+        artifactMedia: [
+            null as ArtifactMedia | null,
+            {
+                loadArtifactMedia: async (artifact: RunArtifact): Promise<ArtifactMedia | null> => {
+                    if (values.currentProjectId === null || !artifact.id || !artifact.storage_path) {
+                        return null
+                    }
+                    if ((artifact.size ?? 0) > MAX_MEDIA_PREVIEW_BYTES) {
+                        return {
+                            artifactId: artifact.id,
+                            url: null,
+                            error: 'This video is too large to play here. Download it to watch it.',
+                        }
+                    }
+                    try {
+                        // nosemgrep: prefer-codegen-api -- A file download: the generated function parses the body as JSON.
+                        const response = await api.createResponse(
+                            getTasksRunsArtifactsDownloadCreateUrl(
+                                String(values.currentProjectId),
+                                props.taskId,
+                                artifact.runId
+                            ),
+                            { storage_path: artifact.storage_path }
+                        )
+                        return { artifactId: artifact.id, url: URL.createObjectURL(await response.blob()), error: null }
+                    } catch {
+                        return {
+                            artifactId: artifact.id,
+                            url: null,
+                            error: 'This video did not load. Try again later.',
+                        }
+                    }
                 },
             },
         ],
@@ -212,8 +397,31 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
         ],
     })),
     reducers({
-        activeTab: ['conversation' as TaskRunTab, { setActiveTab: (_, { tab }) => tab }],
-        selectedArtifactId: [null as string | null, { selectArtifact: (_, { artifactId }) => artifactId }],
+        activeTab: [
+            'conversation' as TaskRunTab,
+            { setActiveTab: (_, { tab }) => tab, openFromUrl: () => 'artifacts' },
+        ],
+        // The panel stays open across files, so a reviewer can read the comments on each one in turn.
+        commentsOpen: [false, { setCommentsOpen: (_, { open }) => open }],
+        selectedFileKey: [
+            null as string | null,
+            { selectArtifact: (_, { fileKey }) => fileKey, openFromUrl: (_, { fileKey }) => fileKey },
+        ],
+        selectedVersionId: [
+            null as string | null,
+            {
+                selectArtifact: () => null,
+                selectVersion: (_, { artifactId }) => artifactId,
+                openFromUrl: (_, { versionId }) => versionId,
+            },
+        ],
+        mediaById: [
+            {} as Record<string, ArtifactMedia>,
+            {
+                loadArtifactMediaSuccess: (state, { artifactMedia }) =>
+                    artifactMedia ? { ...state, [artifactMedia.artifactId]: artifactMedia } : state,
+            },
+        ],
         textsById: [
             {} as Record<string, ArtifactText>,
             {
@@ -228,38 +436,109 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
             (selectedRun: TaskRunDetailDTOApi | null, chainRuns: TaskRunDetailDTOApi[]): RunArtifact[] =>
                 collectRunArtifacts([selectedRun, ...chainRuns]),
         ],
+        livingFiles: [
+            (s) => [s.livingArtifacts],
+            (livingArtifacts: TaskRunLivingArtifactResponseApi[]): ArtifactFile[] =>
+                livingArtifactFiles(livingArtifacts),
+        ],
+        // Documents the agent updates sit with the files, before cited objects, so the list and the stepper keep one order.
+        files: [
+            (s) => [s.artifacts, s.livingFiles],
+            (artifacts: RunArtifact[], livingFiles: ArtifactFile[]): ArtifactFile[] => {
+                const grouped = groupArtifactVersions(artifacts)
+                const objects = grouped.filter((file) => !!postHogObjectRef(file.latest))
+                return [...grouped.filter((file) => !postHogObjectRef(file.latest)), ...livingFiles, ...objects]
+            },
+        ],
         selectedIndex: [
-            (s) => [s.artifacts, s.selectedArtifactId],
-            (artifacts: RunArtifact[], selectedArtifactId: string | null): number =>
+            (s) => [s.files, s.selectedFileKey],
+            (files: ArtifactFile[], selectedFileKey: string | null): number =>
                 Math.max(
                     0,
-                    artifacts.findIndex((artifact) => artifact.id === selectedArtifactId)
+                    files.findIndex((file) => file.key === selectedFileKey)
                 ),
         ],
+        selectedFile: [
+            (s) => [s.files, s.selectedIndex],
+            (files: ArtifactFile[], selectedIndex: number): ArtifactFile | null => files[selectedIndex] ?? null,
+        ],
+        /** 0 is the latest version. */
+        selectedVersionIndex: [
+            (s) => [s.selectedFile, s.selectedVersionId],
+            (selectedFile: ArtifactFile | null, selectedVersionId: string | null): number =>
+                Math.max(0, selectedFile?.versions.findIndex((version) => version.id === selectedVersionId) ?? 0),
+        ],
+        selectedVersion: [
+            (s) => [s.selectedFile, s.selectedVersionIndex],
+            (selectedFile: ArtifactFile | null, selectedVersionIndex: number): RunArtifact | null =>
+                selectedFile?.versions[selectedVersionIndex] ?? null,
+        ],
+        // The same value as `selectedVersion`, under the name the preview and download code use.
         selectedArtifact: [
-            (s) => [s.artifacts, s.selectedIndex],
-            (artifacts: RunArtifact[], selectedIndex: number): RunArtifact | null => artifacts[selectedIndex] ?? null,
+            (s) => [s.selectedVersion],
+            (selectedVersion: RunArtifact | null): RunArtifact | null => selectedVersion,
         ],
         selectedKind: [
             (s) => [s.selectedArtifact],
             (selectedArtifact: RunArtifact | null): ArtifactPreviewKind | null =>
                 selectedArtifact ? artifactPreviewKind(selectedArtifact) : null,
         ],
+        selectedMedia: [
+            (s) => [s.selectedArtifact, s.mediaById],
+            (selectedArtifact: RunArtifact | null, mediaById: Record<string, ArtifactMedia>): ArtifactMedia | null =>
+                (selectedArtifact?.id && mediaById[selectedArtifact.id]) || null,
+        ],
+        /** The link that opens this tab on the open file and version, for someone else. */
+        shareUrl: [
+            (s) => [
+                s.currentProjectId,
+                s.selectedFileKey,
+                s.selectedFile,
+                s.selectedVersionId,
+                (_, props) => props.taskId,
+            ],
+            (
+                currentProjectId: number | null,
+                selectedFileKey: string | null,
+                selectedFile: ArtifactFile | null,
+                selectedVersionId: string | null,
+                taskId: string
+            ): string | null => {
+                // The same file the url sync writes, so the copied link matches the address bar.
+                const fileKey = selectedFileKey ?? selectedFile?.key
+                if (currentProjectId === null || !fileKey) {
+                    return null
+                }
+                return urls.absolute(
+                    urls.project(currentProjectId, taskArtifactPath(taskId, fileKey, selectedVersionId))
+                )
+            },
+        ],
         selectedText: [
             (s) => [s.selectedArtifact, s.textsById],
-            (selectedArtifact: RunArtifact | null, textsById: Record<string, ArtifactText>): ArtifactText | null =>
-                (selectedArtifact?.id && textsById[selectedArtifact.id]) || null,
+            (selectedArtifact: RunArtifact | null, textsById: Record<string, ArtifactText>): ArtifactText | null => {
+                // A living document version carries its text in the registry, so it needs no download.
+                if (selectedArtifact?.id && typeof selectedArtifact.living?.text === 'string') {
+                    return { artifactId: selectedArtifact.id, text: selectedArtifact.living.text, error: null }
+                }
+                return (selectedArtifact?.id && textsById[selectedArtifact.id]) || null
+            },
         ],
     }),
     listeners(({ actions, values }) => {
         const loadSelectedText = (): void => {
             const artifact = values.selectedArtifact
             const kind = values.selectedKind
-            if (values.activeTab === 'artifacts' && artifact && kind && isTextPreview(kind) && !values.selectedText) {
+            if (values.activeTab !== 'artifacts' || !artifact || !kind) {
+                return
+            }
+            if (isTextPreview(kind) && !values.selectedText) {
                 actions.loadArtifactText(artifact)
+            } else if (kind === 'video' && !values.selectedMedia) {
+                actions.loadArtifactMedia(artifact)
             }
         }
-        const previewSelected = (): void => {
+        const previewSelected = (source?: ArtifactSelectSource): void => {
             const artifact = values.selectedArtifact
             if (values.activeTab !== 'artifacts' || !artifact || !values.selectedKind) {
                 return
@@ -268,6 +547,10 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
             posthog.capture('task artifact previewed', {
                 kind: values.selectedKind,
                 content_type: artifact.content_type ?? null,
+                version_count: values.selectedFile?.versions.length ?? 1,
+                living_adapter: artifact.living?.adapter ?? null,
+                // Only a pick in the file list or the stepper has a source. Opening the tab or a link has none.
+                ...(source ? { source } : {}),
             })
         }
         return {
@@ -279,26 +562,103 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
                 }
                 previewSelected()
             },
-            selectArtifact: previewSelected,
+            selectArtifact: ({ source }) => previewSelected(source),
+            selectVersion: () => {
+                // pinned: analytics event name and properties. Renaming them breaks insights.
+                posthog.capture('task artifact version selected', {
+                    version_index: values.selectedVersionIndex,
+                    version_count: values.selectedFile?.versions.length ?? 1,
+                })
+            },
             ensureSelectedText: loadSelectedText,
+            loadChainRuns: (runIds) => {
+                if (runIds[0]) {
+                    actions.loadLivingArtifacts(runIds[0])
+                }
+            },
             loadTaskRunsSuccess: ({ runs }) => {
                 actions.loadChainRuns(runs.map((run) => run.id))
             },
             stepArtifact: ({ delta }) => {
-                const { artifacts, selectedIndex } = values
-                const next = artifacts[(selectedIndex + delta + artifacts.length) % artifacts.length]
-                if (next?.id) {
-                    actions.selectArtifact(next.id)
+                const { files, selectedIndex } = values
+                const next = files[(selectedIndex + delta + files.length) % files.length]
+                if (next) {
+                    actions.selectArtifact(next.key)
                 }
             },
             downloadArtifact: ({ artifact }) => {
                 posthog.capture('task artifact downloaded', { kind: artifactPreviewKind(artifact) })
             },
+            reportObjectOpened: ({ objectKind }) => {
+                // pinned: analytics event name and properties. Renaming them breaks insights.
+                posthog.capture('task artifact object opened', { object_kind: objectKind })
+            },
+            reportLinkCopied: () => {
+                // pinned: analytics event name and properties. Renaming them breaks insights.
+                posthog.capture('task artifact link copied', {
+                    kind: values.selectedKind,
+                    is_latest_version: values.selectedVersionIndex === 0,
+                })
+            },
+            setCommentsOpen: ({ open }) => {
+                if (open) {
+                    // pinned: analytics event name and properties. Renaming them breaks insights.
+                    posthog.capture('task artifact comments opened', { kind: values.selectedKind })
+                }
+            },
+            openFromUrl: ({ versionId }) => {
+                // pinned: analytics event name and properties. Renaming them breaks insights.
+                posthog.capture('task artifact link opened', { has_version: !!versionId })
+            },
         }
     }),
+    actionToUrl(({ values, props }) => {
+        const syncUrl = (): [string, Record<string, any>, Record<string, any>, { replace: true }] | undefined => {
+            const { pathname, searchParams, hashParams } = router.values.currentLocation
+            if (!urlIsForTask(pathname, searchParams, props.taskId)) {
+                return undefined
+            }
+            const next = { ...searchParams }
+            delete next[ARTIFACT_PARAM]
+            delete next[VERSION_PARAM]
+            const fileKey = values.selectedFileKey ?? values.selectedFile?.key
+            if (values.activeTab === 'artifacts' && fileKey) {
+                next[ARTIFACT_PARAM] = fileKey
+                if (values.selectedVersionId) {
+                    next[VERSION_PARAM] = values.selectedVersionId
+                }
+            }
+            return [pathname, next, hashParams, { replace: true }]
+        }
+        return { setActiveTab: syncUrl, selectArtifact: syncUrl, selectVersion: syncUrl }
+    }),
+    urlToAction(({ actions, values, props }) => ({
+        '*': (_, searchParams, __, { pathname }) => {
+            const fileKey = searchParams[ARTIFACT_PARAM]
+            if (typeof fileKey !== 'string' || !fileKey || !urlIsForTask(pathname, searchParams, props.taskId)) {
+                return
+            }
+            const versionId = typeof searchParams[VERSION_PARAM] === 'string' ? searchParams[VERSION_PARAM] : null
+            // Our own `actionToUrl` writes land here too. Those match the state already.
+            if (
+                values.activeTab !== 'artifacts' ||
+                values.selectedFileKey !== fileKey ||
+                values.selectedVersionId !== versionId
+            ) {
+                actions.openFromUrl(fileKey, versionId)
+            }
+        },
+    })),
     afterMount(({ actions, values }) => {
         if (values.runs.length > 0) {
             actions.loadChainRuns(values.runs.map((run) => run.id))
+        }
+    }),
+    beforeUnmount(({ values }) => {
+        for (const media of Object.values(values.mediaById)) {
+            if (media.url) {
+                URL.revokeObjectURL(media.url)
+            }
         }
     }),
 ])

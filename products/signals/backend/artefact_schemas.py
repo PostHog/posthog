@@ -19,6 +19,7 @@ degraded, never raised to users).
 from __future__ import annotations
 
 import re
+import json
 from collections.abc import Mapping
 from datetime import datetime
 from enum import Enum
@@ -132,6 +133,19 @@ class ActionabilityAssessment(BaseModel):
         if not v.strip():
             raise ValueError("Explanation must not be empty")
         return v
+
+
+def priority_from_judgment(content: str | None) -> str | None:
+    """The priority of a `priority_judgment` artefact's content, or None when the content has none.
+
+    Tolerant on purpose: an old or malformed judgment reads as "no priority" rather than an error.
+    """
+    try:
+        data = json.loads(content or "")
+    except (TypeError, ValueError):
+        return None
+    priority = data.get("priority") if isinstance(data, dict) else None
+    return priority if isinstance(priority, str) else None
 
 
 class PriorityAssessment(BaseModel):
@@ -1025,7 +1039,7 @@ class CheckCancelled(CheckLifecycleEntry):
     the type rather than a nullable field.
     """
 
-    reason: Literal["stopped_by_person", "stopped_by_scout", "replaced_by_research"] = Field(
+    reason: Literal["stopped_by_person", "stopped_by_scout", "replaced_by_research", "replaced_by_request"] = Field(
         description="Which path stopped the check."
     )
 

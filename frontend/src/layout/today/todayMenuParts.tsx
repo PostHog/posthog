@@ -5,6 +5,7 @@ import {
     Button,
     ContextMenuItem,
     ContextMenuSeparator,
+    ContextMenuShortcut,
     ContextMenuSub,
     ContextMenuSubContent,
     ContextMenuSubTrigger,
@@ -12,6 +13,7 @@ import {
     DropdownMenuContent,
     DropdownMenuItem,
     DropdownMenuSeparator,
+    DropdownMenuShortcut,
     DropdownMenuSub,
     DropdownMenuSubContent,
     DropdownMenuSubTrigger,
@@ -27,6 +29,7 @@ export interface TodayMenuItemProps {
     /** Navigates instead of acting. */
     to?: string
     disabled?: boolean
+    variant?: 'default' | 'destructive'
 }
 
 export interface TodayMenuSubProps {
@@ -42,24 +45,27 @@ export interface TodayMenuSubProps {
 export interface TodayMenuParts {
     Item: (props: TodayMenuItemProps) => JSX.Element
     Separator: () => JSX.Element | null
+    Shortcut: (props: { children: ReactNode }) => JSX.Element
     Sub: (props: TodayMenuSubProps) => JSX.Element
 }
 
-const SUB_CONTENT_CLASS = 'max-h-80 w-64'
+const SUB_CONTENT_CLASS = 'w-64 [&>div]:max-h-[min(20rem,var(--available-height))]'
 
 export const DROPDOWN_PARTS: TodayMenuParts = {
-    Item: ({ children, dataAttr, onClick, to, disabled }) => (
+    Item: ({ children, dataAttr, onClick, to, disabled, variant }) => (
         <DropdownMenuItem
             onClick={onClick}
             disabled={disabled}
+            variant={variant}
             // quill draws the item as a row button by default, so a link keeps that look by rendering through one.
-            {...(to ? { render: <Button size="row" left render={<LinkPrimitive to={to} />} /> } : {})}
+            {...(to ? { render: <Button variant={variant} size="row" left render={<LinkPrimitive to={to} />} /> } : {})}
             data-attr={dataAttr}
         >
             {children}
         </DropdownMenuItem>
     ),
     Separator: () => <DropdownMenuSeparator />,
+    Shortcut: ({ children }) => <DropdownMenuShortcut>{children}</DropdownMenuShortcut>,
     Sub: ({ label, dataAttr, children }) => (
         <DropdownMenuSub>
             <DropdownMenuSubTrigger data-attr={dataAttr}>{label}</DropdownMenuSubTrigger>
@@ -69,17 +75,19 @@ export const DROPDOWN_PARTS: TodayMenuParts = {
 }
 
 export const CONTEXT_PARTS: TodayMenuParts = {
-    Item: ({ children, dataAttr, onClick, to, disabled }) => (
+    Item: ({ children, dataAttr, onClick, to, disabled, variant }) => (
         <ContextMenuItem
             onClick={onClick}
             disabled={disabled}
-            {...(to ? { render: <Button size="row" left render={<LinkPrimitive to={to} />} /> } : {})}
+            variant={variant}
+            {...(to ? { render: <Button variant={variant} size="row" left render={<LinkPrimitive to={to} />} /> } : {})}
             data-attr={dataAttr}
         >
             {children}
         </ContextMenuItem>
     ),
     Separator: () => <ContextMenuSeparator />,
+    Shortcut: ({ children }) => <ContextMenuShortcut>{children}</ContextMenuShortcut>,
     Sub: ({ label, dataAttr, children }) => (
         <ContextMenuSub>
             <ContextMenuSubTrigger data-attr={dataAttr}>{label}</ContextMenuSubTrigger>
@@ -95,10 +103,11 @@ export const CONTEXT_PARTS: TodayMenuParts = {
  */
 export function cardMenuParts(onAction: () => void, onSubmenuOpenChange: (open: boolean) => void): TodayMenuParts {
     return {
-        Item: ({ children, dataAttr, onClick, to, disabled }) => (
+        Item: ({ children, dataAttr, onClick, to, disabled, variant }) => (
             <Button
                 left
                 className="w-full"
+                variant={variant}
                 disabled={disabled}
                 onClick={() => {
                     onClick?.()
@@ -111,6 +120,7 @@ export function cardMenuParts(onAction: () => void, onSubmenuOpenChange: (open: 
             </Button>
         ),
         Separator: () => null,
+        Shortcut: ({ children }) => <DropdownMenuShortcut>{children}</DropdownMenuShortcut>,
         Sub: ({ label, dataAttr, children }) => (
             <DropdownMenu
                 onOpenChange={(open, details) => {

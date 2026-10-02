@@ -8,6 +8,34 @@
  */
 const TEMPLATE_VARIABLE_REGEX = /\{\{([\w.-]+)\}\}/g
 
+export interface TemplateSegment {
+    text: string
+    /** The variable name when this segment is a `{{name}}` token, null for plain text. */
+    variableName: string | null
+}
+
+/**
+ * Split text into plain runs and `{{name}}` tokens, for rendering the same string
+ * with the tokens styled. The concatenated segment texts must equal the input
+ * exactly: the editor backdrop renders these behind a transparent textarea, and a
+ * dropped character pulls the caret away from the glyphs under it.
+ */
+export function segmentTemplateText(text: string): TemplateSegment[] {
+    const segments: TemplateSegment[] = []
+    let index = 0
+    for (const match of text.matchAll(TEMPLATE_VARIABLE_REGEX)) {
+        if (match.index > index) {
+            segments.push({ text: text.slice(index, match.index), variableName: null })
+        }
+        segments.push({ text: match[0], variableName: match[1] })
+        index = match.index + match[0].length
+    }
+    if (index < text.length) {
+        segments.push({ text: text.slice(index), variableName: null })
+    }
+    return segments
+}
+
 /** Distinct variable names in order of first appearance. */
 export function extractVariables(text: string): string[] {
     const names: string[] = []

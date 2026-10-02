@@ -7,11 +7,11 @@ from datetime import datetime, timedelta
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 from ..db import READER_DB, WRITER_DB
-from ..facade.contracts import FLAKINESS_EXPIRY_SOON_DAYS
+from ..facade.contracts import AGENT_QUARANTINE_MAX_DAYS, FLAKINESS_EXPIRY_SOON_DAYS
 from ..facade.enums import ActorType
 from ..models import QuarantinedIdentifier, Run
 from . import errors, github_api, repos
@@ -43,6 +43,22 @@ def list_quarantined_identifiers(
         now = timezone.now()
         qs = qs.filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
     return list(qs.order_by("-created_at"))
+
+
+def active_quarantined_identifiers(
+    repo_id: UUID, team_id: int, run_type: str, using: str
+) -> QuerySet[QuarantinedIdentifier, str]:
+    """Identifiers under an active quarantine, as a subquery that filters snapshot rows in SQL.
+
+    `using` must name the database of the outer query, because Django refuses a subquery
+    across database aliases.
+    """
+    return (
+        QuarantinedIdentifier.objects.using(using)
+        .filter(repo_id=repo_id, team_id=team_id, run_type=run_type)
+        .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()))
+        .values_list("identifier", flat=True)
+    )
 
 
 def expiry_soon_cutoff(now: datetime, within_days: int = FLAKINESS_EXPIRY_SOON_DAYS) -> datetime:
@@ -106,6 +122,10 @@ def quarantine_identifier(
 ) -> QuarantinedIdentifier:
     repos.get_repo(repo_id, team_id)  # raises RepoNotFoundError if repo not owned by team
     now = timezone.now()
+    if source == ActorType.AGENT:
+        latest = now + timedelta(days=AGENT_QUARANTINE_MAX_DAYS)
+        if expires_at is None or expires_at > latest:
+            expires_at = latest
     # Resolve the source run inside the team scope so a malicious caller can't
     # attach a quarantine to an unrelated run. Silently drop on mismatch — the
     # quarantine itself still wins; we just lose the "what was wrong" pointer.

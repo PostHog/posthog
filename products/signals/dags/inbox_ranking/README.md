@@ -68,7 +68,7 @@ The first four are report grain and land in one table. `inbox_signal_embeddings`
 
 ## The training dag
 
-`inbox_ranking_training_job` runs daily at 06:00 UTC on the same partition definition (gated like the dataset job) and writes:
+`inbox_ranking_training_job` runs daily at 06:13 UTC on the same partition definition (gated like the dataset job) and writes:
 
 ```text
 s3://<bucket>/<prefix>/
