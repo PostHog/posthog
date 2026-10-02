@@ -10,7 +10,7 @@ import { urls } from 'scenes/urls'
 import type { SignalScoutOutputDestinationsApi } from 'products/signals/frontend/generated/api.schemas'
 import { scoutDisplayName } from 'products/signals/frontend/inbox/utils/scoutRunsWindow'
 
-import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
+import { getReplayVisionEditDisabledReason, getScoutCreateDisabledReason } from '../../utils/accessControl'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { SCOUT_DISPLAY_NAME_MAX_LENGTH, scannerScoutTemplate, scoutBodyPlaceholders } from '../scannerScout'
 import { SCOUT_REPORT_EMITTED_EVENT, webhookUrlError } from '../scannerScoutDelivery'
@@ -191,9 +191,12 @@ export function ScannerScoutFormModal({
     const scannerLoaded = scanner?.id?.toLowerCase() === scannerId.toLowerCase()
 
     const submitDisabledReason = (): string | undefined => {
-        const editDisabledReason = getReplayVisionEditDisabledReason(scanner?.user_access_level)
-        if (editDisabledReason) {
-            return editDisabledReason
+        // Creating also publishes a skill, so it needs skill editor access on top of scanner edit.
+        const permissionDisabledReason = template
+            ? getScoutCreateDisabledReason(scanner?.user_access_level)
+            : getReplayVisionEditDisabledReason(scanner?.user_access_level)
+        if (permissionDisabledReason) {
+            return permissionDisabledReason
         }
         if (template && !scannerLoaded) {
             return 'Loading the scanner'
