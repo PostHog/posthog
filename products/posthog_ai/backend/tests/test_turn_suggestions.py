@@ -499,7 +499,7 @@ def _answers(nouls: dict[str, float], choices: dict[str, str]) -> SystemOneResul
     answers.update(
         {key: ChoiceAnswer(choice=value, probabilities={value: 1.0}, confidence=1.0) for key, value in choices.items()}
     )
-    return SystemOneResult(model="jev-1.13.0", answers=answers, input_tokens=300)
+    return SystemOneResult(model=JUDGE_MODEL, answers=answers, input_tokens=300)
 
 
 FUNNEL_INSIGHT = replace(SAVED_INSIGHT, query_kind="FunnelsQuery")
@@ -614,11 +614,13 @@ class TestJudgeTurn(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("gateway_error", _GATEWAY_ONLY, "httpx", httpx.Response(500, json={})),
-            ("typesafe_network_error", _TYPESAFE_ONLY, "requests", requests.ConnectionError()),
+            ("gateway_error", _GATEWAY_ONLY, "httpx", httpx.Response(500, json={}), 1),
+            ("typesafe_key_only", _TYPESAFE_ONLY, "requests", requests.ConnectionError(), 0),
         ]
     )
-    def test_a_failed_request_returns_none(self, _name: str, configured: dict, transport: str, outcome: object):
+    def test_a_failed_request_returns_none(
+        self, _name: str, configured: dict, transport: str, outcome: object, expected_calls: int
+    ):
         target = patch.object(httpx.Client, "send") if transport == "httpx" else patch("requests.request")
         with override_settings(**configured), target as send:
             if isinstance(outcome, Exception):
@@ -626,6 +628,7 @@ class TestJudgeTurn(SimpleTestCase):
             else:
                 send.return_value = outcome
             assert judge_turn(build_turn_transcript(_metric_turn()), available=ALL_OFFERS) is None
+        assert send.call_count == expected_calls
 
 
 class TestPickOffer(SimpleTestCase):

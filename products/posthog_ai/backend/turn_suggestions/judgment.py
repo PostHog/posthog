@@ -1,7 +1,7 @@
 """Asks Jev, a System One model, whether a finished PostHog AI turn deserves a follow-up and which.
 
-The ai-gateway answers with the Jev build PostHog hosts where it is configured, and TypeSafe answers
-elsewhere (see ``posthog.llm.system_one_client``).
+Only the ai-gateway answers, with the Jev build PostHog hosts. TypeSafe is never a fallback here,
+because the state carries customer text (see ``posthog/egress/typesafe/README.md``).
 
 Jev answers typed questions instead of writing text, so one request carries every judgment the
 policy might need: whether to show anything now, which offer, and the speculative parameters of each
@@ -18,9 +18,6 @@ from collections.abc import Mapping, Sequence
 import structlog
 
 from posthog.dataclasses import frozen
-from posthog.egress.limiter.policies import Priority
-from posthog.egress.typesafe import TypeSafeEgressBudgetExhausted
-from posthog.llm.gateway_client import team_distinct_id
 from posthog.llm.system_one import (
     ChoiceAnswer,
     ChoiceQuestion,
@@ -35,7 +32,6 @@ from posthog.llm.system_one import (
 from posthog.llm.system_one_client import (
     GATEWAY_MAX_CHOICE_OPTIONS,
     SystemOneClient,
-    TypeSafeFallback,
     build_system_one_client,
     system_one_configured,
 )
@@ -58,10 +54,9 @@ from products.posthog_ai.backend.turn_suggestions.verdict import (
 logger = structlog.get_logger(__name__)
 
 JUDGE_SOURCE = "posthog_ai_turn_suggestions"
+# Pinned to a build rather than an alias, because the thresholds in classifier.py read this model's
+# probabilities.
 JUDGE_MODEL = "posthog/hogference/jevk5-fp8-0.2"
-# Pinned rather than `jev-latest`, because an alias moves on each release. The thresholds in
-# classifier.py are tuned against this model's probabilities.
-JUDGE_TYPESAFE_FALLBACK = TypeSafeFallback(model="jev-1.13.0", source=JUDGE_SOURCE, priority=Priority.BATCH)
 JUDGE_TIMEOUT_SECONDS = 10.0
 
 _NO_MATCH = "none"
@@ -208,16 +203,14 @@ class TurnJudgment:
 
 
 def judge_configured() -> bool:
-    return system_one_configured(JUDGE_TYPESAFE_FALLBACK)
+    return system_one_configured()
 
 
 def _judge_client(team_id: int | None) -> SystemOneClient:
     return build_system_one_client(
         model=JUDGE_MODEL,
         ai_product=JUDGE_SOURCE,
-        typesafe_fallback=JUDGE_TYPESAFE_FALLBACK,
-        distinct_id=team_distinct_id(team_id) if team_id is not None else None,
-        properties={"team_id": str(team_id)} if team_id is not None else None,
+        team_id=team_id,
         timeout=JUDGE_TIMEOUT_SECONDS,
     )
 
@@ -328,7 +321,7 @@ def judge_turn(
         result = _judge_client(team_id).decide(
             state=build_judge_state(transcript), questions=build_judge_questions(transcript, available)
         )
-    except (SystemOneNotConfigured, TypeSafeEgressBudgetExhausted) as error:
+    except SystemOneNotConfigured as error:
         logger.info("posthog_ai_turn_suggestion_judge_skipped", reason=type(error).__name__)
         return None
     except (SystemOneRequestFailed, OSError):
