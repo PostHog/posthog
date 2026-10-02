@@ -188,6 +188,10 @@ function describeHogFunctionUpdate(logItem: ActivityLogItem, objectNoun: string)
             }
             continue
         }
+        // Older rows logged the compiled site code, which follows from the inputs and source already listed.
+        if (change.field === 'transpiled') {
+            continue
+        }
         changes.push(describeHogFunctionField(change, objectNoun))
     }
     const functionName = nameOrLinkToHogFunction(logItem?.item_id, logItem?.detail.name)
