@@ -42,9 +42,10 @@ METRICS_STEP_SECONDS = 300
 METRICS_MAX_SAMPLES = 500
 # The API keeps 30 days of metrics; the margin keeps the oldest window inside it despite clock skew.
 METRICS_RETENTION = timedelta(days=30) - timedelta(hours=1)
+REQUEST_TIMEOUT = (10, 60)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class HetznerResumeConfig:
     # Page number to fetch first on resume. The framework checkpoints the NEXT page after a page has
     # been yielded, so a crash mid-page resumes onto that in-flight page and re-reads it rather than
@@ -87,6 +88,7 @@ def hetzner_source(
             "headers": _non_secret_headers(),
             "auth": {"type": "bearer", "token": api_token},
             "paginator": _list_paginator() if config.paginated else SinglePagePaginator(),
+            "request_timeout": REQUEST_TIMEOUT,
             # Disable redirect following so a 3xx can never replay the Authorization header to another
             # host — the SSRF guard the hand-rolled transport used.
             "allow_redirects": False,
@@ -222,6 +224,7 @@ def hetzner_metrics_source(
             headers=_non_secret_headers(),
             auth=BearerTokenAuth(api_token),
             allow_redirects=False,
+            request_timeout=REQUEST_TIMEOUT,
         )
         now = int(datetime.now(UTC).timestamp())
         end = now - now % METRICS_STEP_SECONDS
