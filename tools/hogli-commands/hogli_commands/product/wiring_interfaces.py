@@ -16,6 +16,8 @@ from collections.abc import Mapping
 from enum import StrEnum
 from pathlib import Path
 
+from posthog.dataclasses import frozen
+
 from .ast_helpers import ast_parse_safe, module_level_import_nodes
 
 # Rule 1 of § Wiring couplings, by the qualified name a class reaches. A base counts through any
@@ -46,6 +48,12 @@ class WiringVerdict(StrEnum):
     # A base or a re-export that the source does not name statically, such as a star import. The
     # lint cannot confirm an approved interface, so it reports the class like an unapproved one.
     UNRESOLVED = "unresolved"
+
+
+@frozen
+class _ClassRef:
+    module: str
+    name: str
 
 
 @functools.cache
@@ -132,11 +140,11 @@ class WiringInterfaceResolver:
                 return f"builtins.{node.id}"
         return None
 
-    def _split(self, qualified: str) -> tuple[str, str] | None:
-        """(module, class name) for a qualified name whose module is in this repository."""
+    def _split(self, qualified: str) -> _ClassRef | None:
+        """The module and class name of a qualified name whose module is in this repository."""
         module, _, name = qualified.rpartition(".")
         if module and self._module_file(module) is not None:
-            return module, name
+            return _ClassRef(module=module, name=name)
         return None
 
     def _qualified_verdict(self, qualified: str, seen: frozenset[str]) -> WiringVerdict:
@@ -151,12 +159,12 @@ class WiringInterfaceResolver:
         return verdict
 
     def _read_verdict(self, qualified: str, seen: frozenset[str]) -> WiringVerdict:
-        split = self._split(qualified)
-        if split is None:
+        ref = self._split(qualified)
+        if ref is None:
             if qualified.split(".", 1)[0] in _REPOSITORY_PACKAGES:
                 return WiringVerdict.UNRESOLVED
             return WiringVerdict.UNAPPROVED
-        module, name = split
+        module, name = ref.module, ref.name
         located = self._module_file(module)
         if located is None:
             return WiringVerdict.UNRESOLVED

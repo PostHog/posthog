@@ -19,6 +19,8 @@ from collections import Counter
 from collections.abc import Iterable
 from pathlib import Path
 
+from posthog.dataclasses import frozen
+
 from .crossings import BASELINE_PATH, parse_baseline, read_baseline
 from .paths import REPO_ROOT
 
@@ -41,11 +43,17 @@ class LedgerBaseUnreadable(Exception):
     pass
 
 
-def _debt_by_crossing_and_kind(lines: Iterable[str]) -> Counter[tuple[str, str]]:
-    debt: Counter[tuple[str, str]] = Counter()
+@frozen(order=True)
+class _Debt:
+    crossing: str
+    kind: str
+
+
+def _debt_by_crossing_and_kind(lines: Iterable[str]) -> Counter[_Debt]:
+    debt: Counter[_Debt] = Counter()
     for line in lines:
         crossing, _consumer, kind, count = line.split(" ")
-        debt[(crossing, kind)] += int(count)
+        debt[_Debt(crossing=crossing, kind=kind)] += int(count)
     return debt
 
 
@@ -53,9 +61,9 @@ def grown_debt(base_lines: Iterable[str], current_lines: Iterable[str]) -> list[
     base = _debt_by_crossing_and_kind(base_lines)
     current = _debt_by_crossing_and_kind(current_lines)
     return [
-        f"{crossing} {kind}: {base[(crossing, kind)]} → {count}"
-        for (crossing, kind), count in sorted(current.items())
-        if count > base[(crossing, kind)]
+        f"{debt.crossing} {debt.kind}: {base[debt]} → {count}"
+        for debt, count in sorted(current.items())
+        if count > base[debt]
     ]
 
 
