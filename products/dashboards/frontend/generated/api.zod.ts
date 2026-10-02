@@ -132,6 +132,9 @@ export const DashboardTemplatesCopyBetweenProjectsCreateBody = /* @__PURE__ */ z
 export const dashboardsCreateBodyNameMax = 400
 
 export const dashboardsCreateBodyBreakdownColorsItemColorTokenRegExp = new RegExp('^preset-[1-9][0-9]\*$')
+export const dashboardsCreateBodyRestrictionLevelMin = 21
+export const dashboardsCreateBodyRestrictionLevelMax = 21
+
 export const dashboardsCreateBodyDeleteInsightsDefault = false
 
 export const DashboardsCreateBody = /* @__PURE__ */ zod
@@ -184,10 +187,12 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
         tags: zod.array(zod.unknown()).optional(),
         restriction_level: zod
-            .union([zod.literal(21), zod.literal(37)])
+            .number()
+            .min(dashboardsCreateBodyRestrictionLevelMin)
+            .max(dashboardsCreateBodyRestrictionLevelMax)
             .optional()
             .describe(
-                '\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
+                'Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.'
             ),
         last_refresh: zod.iso.datetime({ offset: true }).nullish(),
         quick_filter_ids: zod
@@ -235,6 +240,9 @@ export const DashboardsCollaboratorsCreateBody = /* @__PURE__ */ zod.object({
 export const dashboardsUpdateBodyNameMax = 400
 
 export const dashboardsUpdateBodyBreakdownColorsItemColorTokenRegExp = new RegExp('^preset-[1-9][0-9]\*$')
+export const dashboardsUpdateBodyRestrictionLevelMin = 21
+export const dashboardsUpdateBodyRestrictionLevelMax = 21
+
 export const dashboardsUpdateBodyDeleteInsightsDefault = false
 
 export const DashboardsUpdateBody = /* @__PURE__ */ zod
@@ -287,10 +295,12 @@ export const DashboardsUpdateBody = /* @__PURE__ */ zod
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
         tags: zod.array(zod.unknown()).optional(),
         restriction_level: zod
-            .union([zod.literal(21), zod.literal(37)])
+            .number()
+            .min(dashboardsUpdateBodyRestrictionLevelMin)
+            .max(dashboardsUpdateBodyRestrictionLevelMax)
             .optional()
             .describe(
-                '\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
+                'Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.'
             ),
         last_refresh: zod.iso.datetime({ offset: true }).nullish(),
         quick_filter_ids: zod
@@ -329,6 +339,9 @@ export const DashboardsUpdateBody = /* @__PURE__ */ zod
 export const dashboardsPartialUpdateBodyNameMax = 400
 
 export const dashboardsPartialUpdateBodyBreakdownColorsItemColorTokenRegExp = new RegExp('^preset-[1-9][0-9]\*$')
+export const dashboardsPartialUpdateBodyRestrictionLevelMin = 21
+export const dashboardsPartialUpdateBodyRestrictionLevelMax = 21
+
 export const dashboardsPartialUpdateBodyTilesItemLayoutsOneSmOneXMin = 0
 export const dashboardsPartialUpdateBodyTilesItemLayoutsOneSmOneXMax = 11
 
@@ -479,13 +492,12 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
         tags: zod.array(zod.string()).optional(),
         restriction_level: zod
-            .union([zod.literal(21), zod.literal(37)])
-            .describe(
-                '\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
-            )
+            .number()
+            .min(dashboardsPartialUpdateBodyRestrictionLevelMin)
+            .max(dashboardsPartialUpdateBodyRestrictionLevelMax)
             .optional()
             .describe(
-                'Who can edit this dashboard.\n\n\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
+                'Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.'
             ),
         quick_filter_ids: zod
             .array(zod.string())
@@ -3766,9 +3778,12 @@ export const DashboardsCreateFromTemplateJsonCreateBody = /* @__PURE__ */ zod
         tags: zod.array(zod.unknown()).optional(),
         restriction_level: zod
             .union([zod.literal(21), zod.literal(37)])
-            .optional()
             .describe(
                 '\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
+            )
+            .optional()
+            .describe(
+                'Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.\n\n\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
             ),
         last_refresh: zod.iso.datetime({ offset: true }).nullish(),
         quick_filter_ids: zod
@@ -3867,9 +3882,12 @@ export const DashboardsCreateUnlistedDashboardCreateBody = /* @__PURE__ */ zod
         tags: zod.array(zod.unknown()).optional(),
         restriction_level: zod
             .union([zod.literal(21), zod.literal(37)])
-            .optional()
             .describe(
                 '\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
+            )
+            .optional()
+            .describe(
+                'Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.\n\n\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
             ),
         last_refresh: zod.iso.datetime({ offset: true }).nullish(),
         quick_filter_ids: zod
