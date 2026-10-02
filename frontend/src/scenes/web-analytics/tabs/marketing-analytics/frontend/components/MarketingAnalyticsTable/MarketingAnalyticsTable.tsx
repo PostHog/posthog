@@ -102,10 +102,14 @@ export const MarketingAnalyticsTable = ({
                     ...conversionGoalColumns,
                     ...((query.source as MarketingAnalyticsTableQuery).select ?? []),
                 ])
+                const draftConversionGoal = (query.source as MarketingAnalyticsTableQuery).draftConversionGoal
+                const drillDownGoals = draftConversionGoal
+                    ? [draftConversionGoal, ...conversion_goals]
+                    : conversion_goals
                 return Array.from(allKnownColumns).reduce(
                     (acc, column) => {
                         const isGroupingColumn = allGroupingAliases.includes(column)
-                        const goal = conversion_goals.find((goal) => goal.conversion_goal_name === column)
+                        const goal = drillDownGoals.find((goal) => goal.conversion_goal_name === column)
                         acc[column] = {
                             render: (props) => {
                                 const cell = (
