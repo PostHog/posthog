@@ -155,6 +155,16 @@ class TestProgressEvaluation(SimpleTestCase):
         with patch("products.signals.backend.report_check_authoring.team_report_monitoring_enabled", return_value=True):
             self.assertIn(field, _stored_config(report, "metric_threshold", config))
 
+    @parameterized.expand([("eligibility_query", None), ("minimum_data_points", 1), ("progress_target_type", None)])
+    def test_default_interim_options_do_not_require_monitoring_rollout(self, field: str, value: object) -> None:
+        query = trends_metric_query(series=[{"kind": "EventsNode", "event": "example_failure"}])
+        config = {"query": query, "comparison": {"operator": "lte", "value": 5}, field: value}
+        report = SignalReport(team_id=42, metrics=[])
+        with patch(
+            "products.signals.backend.report_check_authoring.team_report_monitoring_enabled", return_value=False
+        ):
+            self.assertNotIn(field, _stored_config(report, "metric_threshold", config))
+
 
 class TestReportCheckProgressAPI(APIBaseTest):
     @time_machine.travel("2026-10-03T12:23:00Z", tick=False)

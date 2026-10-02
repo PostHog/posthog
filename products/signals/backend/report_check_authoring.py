@@ -185,8 +185,10 @@ def _stored_config(report: SignalReport, kind: str, config: dict) -> dict:
 
     stored_config = dict(config)
     if isinstance(parsed, MetricThresholdConfig):
+        # Generated MCP schemas fill in `minimum_data_points: 1` on every check. A default value changes nothing,
+        # so it must not trip the rollout gate below.
         for field in _PROGRESS_FIELDS:
-            if stored_config.get(field) is None:
+            if stored_config.get(field) in (None, MetricThresholdConfig.model_fields[field].default):
                 stored_config.pop(field, None)
         if _PROGRESS_FIELDS.intersection(stored_config) and not team_report_monitoring_enabled(report.team_id):
             raise CheckCreationError("Interim monitoring options are not enabled for this organization.")
