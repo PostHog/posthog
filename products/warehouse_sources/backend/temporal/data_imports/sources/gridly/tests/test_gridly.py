@@ -29,9 +29,9 @@ def _records_response(records: list[dict[str, Any]], total: int | None) -> mock.
     return resp
 
 
-def _view_response(view: dict[str, Any]) -> mock.MagicMock:
+def _view_response(data: dict[str, Any] | list[dict[str, Any]]) -> mock.MagicMock:
     resp = mock.MagicMock()
-    resp.json.return_value = view
+    resp.json.return_value = data
     resp.status_code = 200
     resp.ok = True
     return resp

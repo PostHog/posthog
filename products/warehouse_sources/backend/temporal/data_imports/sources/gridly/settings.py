@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 
 
-@dataclass
+@dataclass(frozen=True)
 class GridlyEndpointConfig:
     name: str
     # Record and column ids are unique within a view, and a Gridly source targets exactly one
