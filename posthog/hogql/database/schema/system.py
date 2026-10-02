@@ -2864,6 +2864,113 @@ usage_metrics: PostgresTable = PostgresTable(
 )
 
 
+signal_reports: PostgresTable = PostgresTable(
+    name="signal_reports",
+    postgres_table_name="signals_signalreport",
+    access_scope="task",
+    resource_level_access_only=True,
+    predicates=[parse_expr("status != 'deleted'")],
+    description="Self-driving reports in the project; deleted reports are excluded.",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Report UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "status": StringDatabaseField(name="status", description="Report status, such as ready, resolved, or failed."),
+        "title": StringDatabaseField(name="title", nullable=True, description="Report title."),
+        "summary": StringDatabaseField(name="summary", nullable=True, description="Report summary in Markdown."),
+        "error": StringDatabaseField(name="error", nullable=True, description="Error from report research, if any."),
+        "total_weight": FloatDatabaseField(name="total_weight", description="Combined weight of the report's signals."),
+        "signal_count": IntegerDatabaseField(
+            name="signal_count", description="Number of signals linked to the report."
+        ),
+        "signals_at_run": IntegerDatabaseField(
+            name="signals_at_run", description="Signal count threshold for the next report research run."
+        ),
+        "run_count": IntegerDatabaseField(name="run_count", description="Number of report research runs started."),
+        "signals_researched": IntegerDatabaseField(
+            name="signals_researched",
+            nullable=True,
+            description="Signal count covered by the last completed research run.",
+        ),
+        "content_revision_count": IntegerDatabaseField(
+            name="content_revision_count", nullable=True, description="Number of title or summary revisions by scouts."
+        ),
+        "corroboration_count": IntegerDatabaseField(
+            name="corroboration_count", nullable=True, description="Number of explicit corroborations by scouts."
+        ),
+        "latest_actionability": StringDatabaseField(
+            name="latest_actionability", nullable=True, description="Actionability from the latest parsed judgment."
+        ),
+        "_latest_already_addressed": BooleanDatabaseField(name="latest_already_addressed", nullable=True, hidden=True),
+        "latest_already_addressed": ExpressionField(
+            name="latest_already_addressed",
+            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_latest_already_addressed"])]),
+            description="1 if the latest judgment says the issue is addressed, 0 otherwise; NULL without a judgment.",
+        ),
+        "charts": StringJSONDatabaseField(name="charts", description="JSON chart definitions attached to the summary."),
+        "metrics": StringJSONDatabaseField(name="metrics", description="JSON impact metric definitions and snapshots."),
+        "suggested_prompts": StringJSONDatabaseField(
+            name="suggested_prompts", description="JSON list of suggested questions about the report."
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the report was created."),
+        "updated_at": DateTimeDatabaseField(name="updated_at", description="When the report was last updated."),
+        "promoted_at": DateTimeDatabaseField(
+            name="promoted_at", nullable=True, description="When the report last became a research candidate."
+        ),
+        "last_run_at": DateTimeDatabaseField(
+            name="last_run_at", nullable=True, description="When the latest report research run started."
+        ),
+        "first_visible_at": DateTimeDatabaseField(
+            name="first_visible_at", nullable=True, description="When the report first appeared in the inbox."
+        ),
+    },
+)
+
+signal_report_artifacts: PostgresTable = PostgresTable(
+    name="signal_report_artifacts",
+    postgres_table_name="signals_signalreportartefact",
+    access_scope="task",
+    resource_level_access_only=True,
+    predicates=[
+        parse_expr("report_id IN (SELECT id FROM system.signal_reports)"),
+        parse_expr("type != 'ranking_score'"),
+    ],
+    description="Artifacts attached to self-driving reports; deleted reports and staff-only ranking scores are excluded.",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Artifact UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "report_id": UUIDDatabaseField(
+            name="report_id", description="Report this artifact belongs to; joins to signal_reports.id."
+        ),
+        "type": StringDatabaseField(name="type", description="Artifact type, such as note, task_run, or pull_request."),
+        "content": StringJSONDatabaseField(name="content", description="JSON content whose schema depends on type."),
+        "actor_kind": StringDatabaseField(
+            name="actor_kind", nullable=True, description="Type of actor that produced the artifact."
+        ),
+        "actor_agent": StringDatabaseField(
+            name="actor_agent", nullable=True, description="Agent that produced the artifact, if any."
+        ),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="User who produced the artifact, if any."
+        ),
+        "task_id": UUIDDatabaseField(
+            name="task_id", nullable=True, description="Task that produced the artifact, if any."
+        ),
+        "claim_id": UUIDDatabaseField(
+            name="claim_id", nullable=True, description="Work claim artifact associated with this entry."
+        ),
+        "pull_request_id": UUIDDatabaseField(
+            name="pull_request_id", nullable=True, description="Pull request record associated with this entry."
+        ),
+        "channel_id": UUIDDatabaseField(
+            name="channel_id", nullable=True, description="Project space associated with this entry."
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the artifact was created."),
+        "updated_at": DateTimeDatabaseField(
+            name="updated_at", nullable=True, description="When the artifact was last updated; NULL for older entries."
+        ),
+    },
+)
+
 task_public_channels: PostgresTable = PostgresTable(
     name="_task_public_channels",
     postgres_table_name="posthog_task_channel",
@@ -3297,6 +3404,8 @@ class SystemTables(TableNode):
         "session_recording_playlists": TableNode(name="session_recording_playlists", table=session_recording_playlists),
         "replay_scanners": TableNode(name="replay_scanners", table=replay_scanners),
         "session_recordings": TableNode(name="session_recordings", table=session_recordings),
+        "signal_reports": TableNode(name="signal_reports", table=signal_reports),
+        "signal_report_artifacts": TableNode(name="signal_report_artifacts", table=signal_report_artifacts),
         "source_schemas": TableNode(name="source_schemas", table=source_schemas),
         "source_sync_jobs": TableNode(name="source_sync_jobs", table=source_sync_jobs),
         "_ticket_tagged_items": TableNode(name="_ticket_tagged_items", table=ticket_tagged_items, hidden=True),

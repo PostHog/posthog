@@ -151,6 +151,11 @@ API scopes and billing access checks still apply.
 System tables are defined in [`posthog/hogql/database/schema/system.py`](https://github.com/PostHog/posthog/blob/master/posthog/hogql/database/schema/system.py) as `PostgresTable` instances.
 Each table must include a `team_id` column for data isolation.
 
+Self-driving reports are available as `system.signal_reports` and their artifacts as `system.signal_report_artifacts`.
+Join them on `signal_report_artifacts.report_id = signal_reports.id`.
+Both tables require task read access and exclude deleted reports.
+The artifacts table also excludes staff-only ranking scores.
+
 Example from the codebase:
 
 ```python

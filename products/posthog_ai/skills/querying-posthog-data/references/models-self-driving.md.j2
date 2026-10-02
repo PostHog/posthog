@@ -1,0 +1,34 @@
+# Self-driving reports
+
+## Report (`system.signal_reports`)
+
+Reports contain findings, research summaries, and impact metrics for a project.
+Deleted reports are excluded. Task read access is required.
+
+### Columns
+
+{{ schema_columns('system.signal_reports') }}
+
+## Report artifact (`system.signal_report_artifacts`)
+
+Artifacts record findings, judgments, notes, and work on a report.
+Deleted reports and staff-only ranking scores are excluded. Task read access is required.
+
+### Columns
+
+{{ schema_columns('system.signal_report_artifacts') }}
+
+### Relationships
+
+Join `report_id` to `system.signal_reports.id`.
+Artifacts are log entries. For the current judgment, use the latest entry of that type by `created_at`.
+
+### Example
+
+```sql
+SELECT r.id, r.title, r.status, a.type, a.content, a.created_at
+FROM system.signal_reports AS r
+JOIN system.signal_report_artifacts AS a ON a.report_id = r.id
+ORDER BY a.created_at DESC
+LIMIT 20
+```
