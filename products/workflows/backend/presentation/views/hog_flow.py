@@ -103,11 +103,6 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
-from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
-from products.cohorts.backend.models.cohort import Cohort
-from products.cohorts.backend.models.util import get_all_cohort_dependencies
-from products.feature_flags.backend.person_sampling import bounded_memory_settings
-from products.feature_flags.backend.user_blast_radius import BlastRadiusResult, get_user_blast_radius
 from products.messaging.backend.api.design_operations import apply_design_operations
 from products.messaging.backend.api.design_validation import validate_design
 from products.messaging.backend.api.message_templates import DesignOperationSerializer
@@ -124,6 +119,38 @@ from products.tasks.backend.facade.workflow_tasks import (
     validate_skill_names,
 )
 from products.workflows.backend.facade.api import create_batch_job
+from products.workflows.backend.facade.blast_radius import (
+    SUPPORTED_DEDUPE_KEYS,
+    get_account_audience_ids_page,
+    get_account_audience_size,
+    get_account_group_type_name,
+    get_audience_person_page,
+    get_audience_size,
+    is_account_audience,
+    parse_account_audience_filters,
+)
+from products.workflows.backend.facade.secrets import (
+    TemplateCache,
+    mask_derived_trigger,
+    mask_secret_action_inputs,
+    merge_secret_maps,
+    plaintext_secret_map,
+    recover_or_drop_masked_inputs,
+    rehydrate_flow_secrets,
+    secret_keys_for_action,
+    strip_content_secrets,
+    strip_secrets_from_content,
+)
+from products.workflows.backend.facade.templates import get_function_template_schema
+from products.workflows.backend.facade.validation import (
+    DURATION_PATTERN,
+    duration_error,
+    duration_minutes,
+    find_behavioral_cohort_name,
+    find_clock_function,
+    is_duration,
+    is_signed_duration,
+)
 from products.workflows.backend.metrics import (
     GUARDRAIL_LABELS,
     GUARDRAIL_METRICS,
@@ -172,25 +199,6 @@ from products.workflows.backend.presentation.views.message_assets import (
 )
 from products.workflows.backend.presentation.views.publish_impact import build_publish_impact
 from products.workflows.backend.providers.ses import SESProvider
-from products.workflows.backend.services.account_audience import (
-    ACCOUNT_BATCH_SIZE,
-    get_account_audience_count,
-    get_account_audience_page,
-    get_account_group_type_name,
-    is_account_audience,
-    parse_account_audience_filters,
-)
-from products.workflows.backend.services.audience_v2 import (
-    get_dedupe_audience_count_v2,
-    get_person_audience_count_v2,
-    use_audience_query_v2,
-)
-from products.workflows.backend.services.batch_audience import (
-    SUPPORTED_DEDUPE_KEYS,
-    audience_page_size,
-    get_batch_audience_count,
-    get_batch_audience_person_ids,
-)
 from products.workflows.backend.services.email_sending_attribution import (
     EMAIL_HEALTH_METRIC_NAMES,
     fold_email_totals_by_flow,
@@ -199,21 +207,12 @@ from products.workflows.backend.services.timing_reschedule import (
     get_all_timing_action_ids,
     get_timing_reschedule_action_ids,
 )
-from products.workflows.backend.services.wait_clock_conditions import find_clock_function
 from products.workflows.backend.services.workflow_email_health import (
     StaffPausedError,
     pause_requires_staff,
     resume_workflow_email_sending,
 )
 from products.workflows.backend.tasks.hog_flows import reschedule_hog_flow_timing
-from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit
-from products.workflows.backend.utils.durations import (
-    DURATION_PATTERN,
-    duration_error,
-    duration_minutes,
-    is_duration,
-    is_signed_duration,
-)
 from products.workflows.backend.utils.email_sending_tiers import max_email_sending_tier, resolve_team_email_sending_tier
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
@@ -361,80 +360,10 @@ def snapshot_flow_content(flow: HogFlow) -> dict:
             snapshot[field] = []
     # Defensively strip secrets: a legacy row written before encryption shipped still has plaintext
     # secret inputs in `actions`, and this snapshot feeds revision content — which must never carry
-    # secrets. New rows are already stripped, so this is a no-op for them.
-    return strip_content_secrets(snapshot)
-
-
-# --- Secret function-action inputs -------------------------------------------------------------
-# Function/email/sms steps (and function-shaped triggers) can carry secret inputs - API keys, auth
-# headers - declared `secret: true` on their template's inputs_schema. We split those values out of
-# the plaintext `actions` blob into the encrypted `encrypted_inputs` column (keyed by action id then
-# input key), mirroring HogFunction.encrypted_inputs. The worker re-merges them at execution time.
-_FUNCTION_TRIGGER_CONFIG_TYPES = frozenset({"webhook", "manual", "tracking_pixel"})
-
-
-# A per-call {template_id: template_or_None} memo. Resolving a template is a DB query, and both the
-# read (masking) and write (stripping) paths touch every action, so callers pass one of these to
-# dedupe lookups - within a flow, and across a whole list page when stashed on the serializer context.
-TemplateCache = dict[str, Optional[Any]]
-
-
-def _function_template_for_action(action: dict, template_cache: Optional[TemplateCache] = None) -> Optional[Any]:
-    # A function step, or a trigger whose source is function-shaped, resolves a template whose
-    # inputs_schema tells us which inputs are secret. Everything else has no secret inputs.
-    config = action.get("config") or {}
-    action_type = action.get("type", "") or ""
-    is_function = "function" in action_type or (
-        action_type == "trigger" and config.get("type") in _FUNCTION_TRIGGER_CONFIG_TYPES
-    )
-    if not is_function:
-        return None
-    template_id = config.get("template_id", "") or ""
-    if template_cache is None:
-        return HogFunctionTemplate.get_template(template_id)
-    if template_id not in template_cache:
-        template_cache[template_id] = HogFunctionTemplate.get_template(template_id)
-    return template_cache[template_id]
-
-
-def _secret_keys_for_action(action: dict, template_cache: Optional[TemplateCache] = None) -> set[str]:
-    template = _function_template_for_action(action, template_cache)
-    if not template:
-        return set()
-    return {schema["key"] for schema in (template.inputs_schema or []) if schema.get("secret")}
-
-
-def partition_flow_secrets(
-    actions: list[dict], template_cache: Optional[TemplateCache] = None
-) -> tuple[list[dict], dict[str, dict]]:
-    """Split secret inputs out of each action's config.inputs.
-
-    Returns (stripped_actions, encrypted_map) where encrypted_map is {action_id: {input_key: value}}.
-    The input list is not mutated. The map is rebuilt from scratch each call - never merged onto a
-    prior map - so secrets for deleted or renamed actions drop out rather than orphaning.
-    """
-    stripped: list[dict] = []
-    encrypted: dict[str, dict] = {}
-    for original in actions:
-        action = deepcopy(original)
-        secret_keys = _secret_keys_for_action(action, template_cache)
-        if secret_keys:
-            inputs = (action.get("config") or {}).get("inputs")
-            if isinstance(inputs, dict):
-                moved = {key: inputs.pop(key) for key in list(inputs) if key in secret_keys}
-                if moved:
-                    encrypted[action["id"]] = moved
-        stripped.append(action)
-    return stripped, encrypted
-
-
-def plaintext_secret_map(actions: Any, template_cache: Optional[TemplateCache] = None) -> dict[str, dict]:
-    # The secret inputs still sitting in plaintext inside an actions blob, as an {action_id: {key:
-    # value}} map. Non-empty only for legacy rows written before encryption shipped - the recovery
-    # base that lets a masked re-save migrate their secrets instead of wiping them.
-    if not isinstance(actions, list):
-        return {}
-    return partition_flow_secrets(actions, template_cache)[1]
+    # secrets. New rows are already stripped, so this is a no-op for them. Every create takes a
+    # snapshot inside its transaction, so the cache resolves each template once instead of once per
+    # action.
+    return strip_content_secrets(snapshot, template_cache={})
 
 
 def existing_secret_map(instance: "HogFlow", template_cache: Optional[TemplateCache] = None) -> dict[str, dict]:
@@ -444,67 +373,6 @@ def existing_secret_map(instance: "HogFlow", template_cache: Optional[TemplateCa
     result = merge_secret_maps(result, plaintext_secret_map((instance.draft or {}).get("actions"), template_cache))
     result = merge_secret_maps(result, instance.encrypted_inputs)
     return merge_secret_maps(result, instance.draft_encrypted_inputs)
-
-
-def merge_secret_maps(base: Optional[dict], overlay: Optional[dict]) -> dict[str, dict]:
-    # Per-action, per-key merge of two {action_id: {key: value}} maps; overlay wins on conflicts.
-    result: dict[str, dict] = {action_id: dict(values) for action_id, values in (base or {}).items()}
-    for action_id, values in (overlay or {}).items():
-        result[action_id] = {**result.get(action_id, {}), **values}
-    return result
-
-
-def recover_or_drop_masked_inputs(inputs: Any, secret_keys: set[str], existing: dict) -> None:
-    # A lenient (web draft) save keeps the raw inputs when validation fails. A {"secret": true}
-    # read-back marker in that raw payload must never persist as a stored value - the worker would
-    # treat the marker object as the real input (e.g. compare it against a webhook's auth header and
-    # reject every request). Swap it for the stored secret, or drop the key when there is none.
-    if not isinstance(inputs, dict):
-        return
-    for key in secret_keys:
-        value = inputs.get(key)
-        if isinstance(value, dict) and value.get("secret") and "value" not in value:
-            stored = existing.get(key)
-            if stored:
-                inputs[key] = stored
-            else:
-                inputs.pop(key, None)
-
-
-def mask_secret_action_inputs(
-    actions: list[dict], secrets_by_action: dict[str, dict], template_cache: Optional[TemplateCache] = None
-) -> list[dict]:
-    # Replace every set secret input with the {"secret": True} presence marker for read-back. Mutates
-    # the given action dicts (must be a copy - callers deepcopy first). A value counts as set if it
-    # lives in the encrypted map or, for legacy rows written before the split, still sits in plaintext.
-    for flow_action in actions:
-        secret_keys = _secret_keys_for_action(flow_action, template_cache)
-        if not secret_keys:
-            continue
-        inputs = (flow_action.get("config") or {}).get("inputs")
-        if not isinstance(inputs, dict):
-            continue
-        action_id = flow_action.get("id")
-        action_secrets = secrets_by_action.get(action_id, {}) if isinstance(action_id, str) else {}
-        for key in secret_keys:
-            if action_secrets.get(key) or inputs.get(key):
-                inputs[key] = {"secret": True}
-    return actions
-
-
-def _mask_derived_trigger(content: dict, template_cache: Optional[TemplateCache] = None) -> None:
-    # The `trigger` representation is derived from the trigger action, so once that action's inputs are
-    # masked, re-derive `trigger` from it. Keeps a function-shaped trigger's secret from leaking on the
-    # separately-serialized trigger field. No-op when there's no trigger action or no `trigger` key.
-    actions = content.get("actions")
-    if "trigger" not in content or not isinstance(actions, list):
-        return
-    trigger_action = next(
-        (a for a in actions if isinstance(a, dict) and a.get("type") == "trigger"),
-        None,
-    )
-    if trigger_action is not None:
-        content["trigger"] = trigger_action.get("config")
 
 
 def mask_trigger_config(
@@ -528,32 +396,6 @@ def mask_trigger_config(
     return masked[0].get("config")
 
 
-def strip_secrets_from_content(content: dict, template_cache: Optional[TemplateCache] = None) -> dict[str, dict]:
-    # Move secret inputs out of content["actions"] into an encrypted map, updating content["actions"]
-    # (stripped) and the derived content["trigger"] in place. Returns the {action_id: {key: value}} map.
-    # Shared by the live write, the draft write, and (map discarded) the snapshot/compare paths.
-    actions = content.get("actions")
-    if not isinstance(actions, list):
-        return {}
-    stripped, encrypted = partition_flow_secrets(actions, template_cache)
-    content["actions"] = stripped
-    if "trigger" in content:
-        trigger_action = next((action for action in stripped if action.get("type") == "trigger"), None)
-        if trigger_action is not None:
-            content["trigger"] = trigger_action.get("config")
-    return encrypted
-
-
-def strip_content_secrets(content: dict, template_cache: Optional[TemplateCache] = None) -> dict:
-    # Return a copy of a content snapshot with secret inputs stripped from actions (and the trigger
-    # re-derived). Used to snapshot revisions secret-free and to compare two snapshots secret-free, so a
-    # resent secret validation recovers into `actions` doesn't read as a content change against the
-    # stored (stripped) snapshot and spuriously bump the revision.
-    normalized = dict(content)
-    strip_secrets_from_content(normalized, template_cache)
-    return normalized
-
-
 def strip_proposal_secrets(content: dict, live_content: dict, template_cache: Optional[TemplateCache] = None) -> dict:
     """Strip secret inputs from a proposal's content, classifying each step against the live step it
     patches. A patch carries only the fields it changes, so it can set a secret input without the
@@ -569,24 +411,9 @@ def strip_proposal_secrets(content: dict, live_content: dict, template_cache: Op
         inputs = (item.get("config") or {}).get("inputs") if isinstance(item, dict) else None
         if live_step is None or not isinstance(inputs, dict):
             continue
-        for key in _secret_keys_for_action(_deep_merge(deepcopy(live_step), item), template_cache):
+        for key in secret_keys_for_action(_deep_merge(deepcopy(live_step), item), template_cache):
             inputs.pop(key, None)
     return stripped
-
-
-def rehydrate_flow_secrets(actions: list[dict], secrets_by_action: dict[str, dict]) -> list[dict]:
-    # Fold decrypted secrets back into each action's config.inputs. Used for inline test runs that
-    # ship a config to the executor directly, bypassing the worker's manager (which decrypts normally).
-    result: list[dict] = []
-    for original in actions:
-        action = deepcopy(original)
-        action_id = action.get("id")
-        action_secrets = secrets_by_action.get(action_id) if isinstance(action_id, str) else None
-        config = action.get("config")
-        if action_secrets and isinstance(config, dict) and isinstance(config.get("inputs"), dict):
-            config["inputs"] = {**config["inputs"], **action_secrets}
-        result.append(action)
-    return result
 
 
 # A batch audience is a one-time snapshot of everyone matching the conditions at run time, so each
@@ -1093,6 +920,19 @@ class InternalBlastRadiusPersonsSerializer(serializers.Serializer):
     has_more = serializers.BooleanField(help_text="Whether another page may follow.")
 
 
+class InternalAccountAudienceSerializer(serializers.Serializer):
+    """Response contract for the internal account audience endpoint, read by the Node batch resolver."""
+
+    accounts = serializers.ListField(
+        child=serializers.CharField(), help_text="Account group keys in this page, in stable pagination order."
+    )
+    cursor = serializers.CharField(
+        allow_null=True, help_text="Cursor for the next call, or null when this page is the last."
+    )
+    has_more = serializers.BooleanField(help_text="Whether another page may follow.")
+    group_type = serializers.CharField(allow_null=True, help_text="Group type the account keys belong to.")
+
+
 class WorkflowGlobalStatsRequestSerializer(serializers.Serializer):
     after = serializers.CharField(
         required=False,
@@ -1299,6 +1139,7 @@ class HogFlowActionSerializer(serializers.Serializer):
     on_error = serializers.ChoiceField(
         choices=["continue", "abort"],
         required=False,
+        default=None,
         allow_null=True,
         help_text="On failure: continue (skip the action and proceed) or abort (stop the run).",
     )
@@ -1378,6 +1219,7 @@ class HogFlowActionSerializer(serializers.Serializer):
     )
     output_variable = serializers.JSONField(
         required=False,
+        default=None,
         allow_null=True,
         help_text="Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those.",
     )
@@ -1423,27 +1265,17 @@ class HogFlowActionSerializer(serializers.Serializer):
         ]
         if not cohort_ids:
             return
-        project_id = self.context["get_team"]().project_id
-        for cohort_id in cohort_ids:
-            try:
-                cohort = Cohort.objects.get(pk=cohort_id, team__project_id=project_id, deleted=False)
-            except (Cohort.DoesNotExist, ValueError, TypeError):
-                continue  # missing/invalid cohort surfaces during audience resolution, not here
-            if cohort.is_static:
-                continue
-            for dep in [cohort, *get_all_cohort_dependencies(cohort)]:
-                if dep.is_static:
-                    continue
-                if any(p.type == "behavioral" for p in dep.properties.flat):
-                    raise serializers.ValidationError(
-                        {
-                            "filters": (
-                                f"Cohort '{dep.name}' targets event behavior, which batch/schedule audiences "
-                                "can't evaluate. Use a static or property-based cohort, or an event trigger "
-                                "for behavioral targeting."
-                            )
-                        }
+        cohort_name = find_behavioral_cohort_name(self.context["get_team"]().project_id, cohort_ids)
+        if cohort_name is not None:
+            raise serializers.ValidationError(
+                {
+                    "filters": (
+                        f"Cohort '{cohort_name}' targets event behavior, which batch/schedule audiences "
+                        "can't evaluate. Use a static or property-based cohort, or an event trigger "
+                        "for behavioral targeting."
                     )
+                }
+            )
 
     def _validate_create_task_action(self, inputs: dict) -> None:
         """Save-time checks for the "Create AI task" step beyond input shape: whether the
@@ -1610,7 +1442,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                         )
                     if audience_type == "accounts":
                         team = self.context["get_team"]()
-                        if get_account_group_type_name(team) is None:
+                        if get_account_group_type_name(team.id) is None:
                             raise serializers.ValidationError(
                                 {
                                     "filters": (
@@ -1749,7 +1581,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                 get_team = self.context.get("get_team")
                 if get_team is not None:
                     _apply_email_template_content(config, get_team(), strict, self.context)
-            template = HogFunctionTemplate.get_template(template_id)
+            template = get_function_template_schema(template_id)
             gating_flag = FLAG_GATED_TEMPLATE_IDS.get(template_id)
             already_stored = data.get("id") in (self.context.get("stored_gated_template_action_ids") or set())
             if template is not None and gating_flag is not None and not already_stored:
@@ -2907,7 +2739,7 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Mod
             draft["actions"] = mask_secret_action_inputs(
                 draft["actions"], merge_secret_maps(live_secrets, draft_secrets), template_cache
             )
-            _mask_derived_trigger(draft, template_cache)
+            mask_derived_trigger(draft, template_cache)
             data["draft"] = draft
 
         return data
@@ -5056,7 +4888,9 @@ class HogFlowViewSet(
                 "Create as draft, test with workflows-test-run, then enable with workflows-enable."
             )
 
-        serializer.save()
+        with transaction.atomic():
+            serializer.save()
+            self._append_revision(serializer.instance, created_by=self._revision_author())
         log_activity_from_viewset(self, serializer.instance, name=serializer.instance.name, detail_type="standard")
         self._emit_resource_edited(serializer.instance)
 
@@ -5264,24 +5098,26 @@ class HogFlowViewSet(
         return True
 
     def _append_revisions(self, instance: HogFlow, before: HogFlow) -> None:
-        # Must run inside the same transaction as the content write it snapshots. On the first
-        # tracked write, also snapshot the outgoing live content so the state before any tracked
-        # change is always available to roll back to (there's no backfill).
+        # Must run inside the same transaction as the content write it snapshots. A workflow created
+        # before the create path wrote revisions has no rows, and there is no backfill. On its first
+        # tracked write, also snapshot the outgoing live content, so the state before any tracked
+        # change stays available to roll back to.
         if not HogFlowRevision.objects.filter(hog_flow=instance).exists():
-            HogFlowRevision.objects.create(
-                team_id=self.team_id,
-                hog_flow=instance,
-                version=before.version,
-                content=snapshot_flow_content(before),
-                created_by=None,
-            )
+            self._append_revision(before, created_by=None)
+        self._append_revision(instance, created_by=self._revision_author())
+
+    def _append_revision(self, flow: HogFlow, *, created_by: User | None) -> None:
         HogFlowRevision.objects.create(
             team_id=self.team_id,
-            hog_flow=instance,
-            version=instance.version,
-            content=snapshot_flow_content(instance),
-            created_by=self.request.user if self.request.user.is_authenticated else None,
+            hog_flow=flow,
+            version=flow.version,
+            content=snapshot_flow_content(flow),
+            created_by=created_by,
         )
+
+    def _revision_author(self) -> User | None:
+        user = self.request.user
+        return user if isinstance(user, User) else None
 
     def _write_draft(self, instance: HogFlow, locked: HogFlow, validated_data: dict) -> None:
         # The draft is always a full content snapshot (live config as the base, staged draft on top,
@@ -6285,12 +6121,13 @@ class HogFlowViewSet(
             # data, so it requires the same access the audience editor requires.
             if not self.user_access_control.check_access_level_for_resource("account", "viewer"):
                 raise exceptions.PermissionDenied("You do not have access to customer analytics accounts.")
+            size = get_account_audience_size(team_id=self.team_id, filters=filters, sends_email=params["sends_email"])
             return Response(
                 BlastRadiusSerializer(
                     {
-                        "affected": get_account_audience_count(self.team, filters),
-                        "total": get_account_audience_count(self.team, {"audience_type": "accounts"}),
-                        "limit": get_hogflow_batch_trigger_limit(self.team_id, sends_email=params["sends_email"]),
+                        "affected": size.affected,
+                        "total": size.total,
+                        "limit": size.limit,
                         "dedupe_key": None,
                         "confirm_token": mint_audience_confirm_token(self.team_id, filters, None, None),
                     }
@@ -6299,36 +6136,22 @@ class HogFlowViewSet(
 
         reject_flag_conditions_in_audience(self.team, filters)
 
-        # Preview matches the actual send: with dedup active, "affected" is the number of
-        # sends (unique emails + email-less persons), not the number of matching persons —
-        # the legacy person-count query is skipped entirely, "total" comes straight from
-        # the cached team-wide count it would have returned anyway. The applied key is
-        # echoed back so the frontend labels the count from the response instead of
-        # guessing whether the dedup actually ran.
-        applied_dedupe_key = None
-        audience_v2 = group_type_index is None and use_audience_query_v2(self.team)
-        if dedupe_key is not None and group_type_index is None:
-            if audience_v2:
-                blast_radius = get_dedupe_audience_count_v2(self.team, filters, dedupe_key)
-            else:
-                total = self.team.persons_seen_so_far
-                affected = min(get_batch_audience_count(self.team, filters, dedupe_key), total)
-                blast_radius = BlastRadiusResult(affected=affected, total=total)
-            applied_dedupe_key = dedupe_key
-        elif audience_v2:
-            blast_radius = get_person_audience_count_v2(self.team, filters)
-        else:
-            blast_radius = get_user_blast_radius(self.team, filters, group_type_index)
-
+        size = get_audience_size(
+            team_id=self.team_id,
+            filters=filters,
+            group_type_index=group_type_index,
+            dedupe_key=dedupe_key,
+            sends_email=params["sends_email"],
+        )
         return Response(
             BlastRadiusSerializer(
                 {
-                    "affected": blast_radius.affected,
-                    "total": blast_radius.total,
-                    "limit": get_hogflow_batch_trigger_limit(self.team_id, sends_email=params["sends_email"]),
-                    "dedupe_key": applied_dedupe_key,
+                    "affected": size.affected,
+                    "total": size.total,
+                    "limit": size.limit,
+                    "dedupe_key": size.dedupe_key,
                     "confirm_token": mint_audience_confirm_token(
-                        self.team_id, filters, group_type_index, applied_dedupe_key
+                        self.team_id, filters, group_type_index, size.dedupe_key
                     ),
                 }
             ).data
@@ -6583,7 +6406,8 @@ class HogFlowViewSet(
                 .filter(id__in=[flow.id for flow in deletable])
                 .values_list("id", flat=True)
             )
-            deleted_count, _ = self.get_queryset().filter(id__in=deleted_ids).delete()
+            _, deleted_by_model = self.get_queryset().filter(id__in=deleted_ids).delete()
+            deleted_count = deleted_by_model.get(HogFlow._meta.label, 0)
             deleted_flows = [flow for flow in deletable if flow.id in deleted_ids]
             for flow in deleted_flows:
                 log_activity_from_viewset(self, flow, activity="deleted", name=flow.name)
@@ -7141,18 +6965,19 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
         try:
             reject_flag_conditions_in_audience(team, filters)
-            if group_type_index is None and use_audience_query_v2(team):
-                result = get_person_audience_count_v2(team, filters)
-            else:
-                result = get_user_blast_radius(team, filters, group_type_index)
+            result = get_audience_size(
+                team_id=team.id,
+                filters=filters,
+                group_type_index=group_type_index,
+                dedupe_key=None,
+                sends_email=bool(request.data.get("sends_email", True)),
+            )
             return Response(
                 BlastRadiusSerializer(
                     {
                         "affected": result.affected,
                         "total": result.total,
-                        "limit": get_hogflow_batch_trigger_limit(
-                            team.id, sends_email=bool(request.data.get("sends_email", True))
-                        ),
+                        "limit": result.limit,
                         "dedupe_key": None,
                     }
                 ).data
@@ -7189,18 +7014,19 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
         try:
             reject_flag_conditions_in_audience(team, filters)
-            enumeration_settings = (
-                bounded_memory_settings() if group_type_index is None and use_audience_query_v2(team) else None
-            )
-            users_affected = get_batch_audience_person_ids(
-                team, filters, group_type_index, cursor, dedupe_key=dedupe_key, settings=enumeration_settings
+            page = get_audience_person_page(
+                team_id=team.id,
+                filters=filters,
+                group_type_index=group_type_index,
+                cursor=cursor,
+                dedupe_key=dedupe_key,
             )
             return Response(
                 InternalBlastRadiusPersonsSerializer(
                     {
-                        "users_affected": users_affected,
-                        "cursor": users_affected[-1] if users_affected else None,
-                        "has_more": len(users_affected) == audience_page_size(group_type_index),
+                        "users_affected": page.ids,
+                        "cursor": page.ids[-1] if page.ids else None,
+                        "has_more": page.has_more,
                     }
                 ).data
             )
@@ -7226,20 +7052,22 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         filters = request.data.get("filters") or {}
         if not is_account_audience(filters):
             return Response({"error": "Filters must declare audience_type 'accounts'"}, status=400)
-        group_type = get_account_group_type_name(team)
+        group_type = get_account_group_type_name(team.id)
         if group_type is None:
             return Response({"error": "No customer analytics account group type configured"}, status=400)
 
         cursor = request.data.get("cursor")
         try:
-            accounts = get_account_audience_page(team, filters, cursor)
+            page = get_account_audience_ids_page(team_id=team.id, filters=filters, cursor=cursor)
             return Response(
-                {
-                    "accounts": accounts,
-                    "cursor": accounts[-1] if accounts else None,
-                    "has_more": len(accounts) == ACCOUNT_BATCH_SIZE,
-                    "group_type": group_type,
-                }
+                InternalAccountAudienceSerializer(
+                    {
+                        "accounts": page.ids,
+                        "cursor": page.ids[-1] if page.ids else None,
+                        "has_more": page.has_more,
+                        "group_type": group_type,
+                    }
+                ).data
             )
         except exceptions.ValidationError as e:
             return Response({"error": _validation_error_message(e)}, status=400)

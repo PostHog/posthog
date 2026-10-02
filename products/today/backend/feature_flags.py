@@ -36,8 +36,8 @@ def may_get_briefing(user: User, team: Team) -> bool:
 
     The organization must have approved AI data processing and have AI credits left, the person
     must still be able to open the project, and the flag must be on for them. The API, the
-    scheduler and the agent run all ask this, so a person who fails it gets the report list and
-    no row, no workflow and no sandbox.
+    scheduler and the run all ask this, so a person who fails it gets the report list and
+    no row, no workflow and no LLM call.
     """
     return bool(
         team.organization.is_ai_data_processing_approved

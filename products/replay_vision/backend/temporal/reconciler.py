@@ -10,6 +10,7 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
+from posthog.scheduling.jitter import deterministic_offset
 from posthog.temporal.common.base import PostHogWorkflow
 
 from products.replay_vision.backend.temporal.constants import (
@@ -215,5 +216,6 @@ async def create_replay_vision_reconciler_schedule(client: "Client") -> None:
         workflow_id=RECONCILER_WORKFLOW_ID,
         inputs=ReconcileScannerSchedulesInputs(),
         interval=RECONCILER_INTERVAL,
+        offset=deterministic_offset(RECONCILER_SCHEDULE_ID, RECONCILER_INTERVAL),
         execution_timeout=RECONCILER_EXECUTION_TIMEOUT,
     )

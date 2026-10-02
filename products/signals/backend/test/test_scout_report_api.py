@@ -37,7 +37,7 @@ from products.signals.backend.models import (
     SignalSourceConfig,
 )
 from products.signals.backend.report_generation.resolve_reviewers import ReviewerIdentitySet
-from products.signals.backend.scout_harness.serializers import EditReportRequestSerializer
+from products.signals.backend.scout_harness.serializers import EditReportRequestSerializer, EmitReportRequestSerializer
 from products.signals.backend.scout_harness.tools.emit import remediation_for_skip
 from products.signals.backend.scout_harness.tools.report import (
     MAX_EVIDENCE_DESCRIPTION_LENGTH,
@@ -2840,3 +2840,49 @@ class TestScoutReportCheckAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.content
         assert response.json()["status"] == "cancelled"
+
+
+class TestEmitReportMetricGoalFields(SimpleTestCase):
+    def _payload(self, **metric_overrides: object) -> dict:
+        metric = {
+            "metric_id": "affected-users",
+            "title": "Affected users",
+            "kind": "affected_users",
+            "role": "primary",
+            "value_format": "count",
+            "query": trends_metric_query(series=[{"kind": "EventsNode", "event": "$exception", "math": "dau"}]),
+            **metric_overrides,
+        }
+        return {
+            "title": "Checkout p99 regressed after 4.2",
+            "summary": "The /checkout endpoint p99 doubled after the 4.2 deploy.",
+            "evidence": [{"description": "p99 doubled on /checkout", "source_id": "obs-1"}],
+            "actionability_explanation": "clear fix in the checkout handler",
+            "actionability": "immediately_actionable",
+            "priority": "P2",
+            "priority_explanation": "Checkout is a revenue path.",
+            "metrics": [metric],
+        }
+
+    @parameterized.expand(
+        [
+            ("goal_value", {"goal_value": 10}),
+            ("goal_direction", {"goal_direction": "at_most"}),
+            ("decision_window_days", {"decision_window_days": 7}),
+            ("minimum_data_points", {"minimum_data_points": 30}),
+        ]
+    )
+    def test_a_metric_goal_is_rejected_although_the_schema_omits_it(self, _name: str, goal: dict) -> None:
+        serializer = EmitReportRequestSerializer(data=self._payload(**goal))
+
+        assert not serializer.is_valid()
+        assert "impact_measurement_plan" in str(serializer.errors["metrics"])
+
+    @parameterized.expand(
+        [("no_goal_fields", {}), ("goal_grain_default_from_an_older_client", {"goal_grain": "whole_window"})]
+    )
+    def test_a_metric_without_a_goal_is_accepted(self, _name: str, extra: dict) -> None:
+        serializer = EmitReportRequestSerializer(data=self._payload(**extra))
+
+        assert serializer.is_valid(), serializer.errors
+        assert "goal_grain" not in serializer.validated_data["metrics"][0]

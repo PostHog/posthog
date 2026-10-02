@@ -4898,6 +4898,16 @@ export interface TasksResolvedAIRunDefaultsApi {
 }
 
 /**
+ * The requesting user's per-project task defaults, shared by PostHog Desktop and the web app.
+ */
+export interface TasksTaskDefaultsApi {
+    /** When true, new tasks start in plan mode: the agent makes a plan and waits for approval. */
+    start_in_plan_mode: boolean
+    /** When true, a cloud run that changes code always opens a draft pull request. */
+    auto_publish_cloud_runs: boolean
+}
+
+/**
  * The requesting user's per-project tasks configuration.
  */
 export interface TasksUserConfigResponseApi {
@@ -4905,6 +4915,31 @@ export interface TasksUserConfigResponseApi {
     ai_run_preferences: TasksAIRunPreferencesApi
     /** The defaults a new run will use when no explicit runtime selection is sent. */
     resolved_ai_run_defaults: TasksResolvedAIRunDefaultsApi
+    /** Your personal instructions, which PostHog cloud agents read in Tasks runs you start, after the project instructions. Anyone who continues a task you started can see them. Empty when unset. */
+    agent_instructions: string
+    /** Your per-project defaults for new tasks. Unset defaults are false. */
+    task_defaults: TasksTaskDefaultsApi
+}
+
+/**
+ * Markdown instructions that PostHog cloud agents load as their user-level AGENTS.md in Tasks runs.
+ */
+export interface TasksAgentInstructionsApi {
+    /**
+     * Markdown instructions that PostHog cloud agents read in every eligible Tasks run, the same way a local agent reads AGENTS.md. Send an empty string to clear.
+     * @maxLength 20000
+     */
+    agent_instructions: string
+}
+
+/**
+ * A partial update of the requesting user's task defaults. Fields left out keep their stored value.
+ */
+export interface TasksTaskDefaultsUpdateApi {
+    /** When true, new tasks start in plan mode: the agent makes a plan and waits for approval. */
+    start_in_plan_mode?: boolean
+    /** When true, a cloud run that changes code always opens a draft pull request. */
+    auto_publish_cloud_runs?: boolean
 }
 
 /**
@@ -4931,6 +4966,8 @@ export interface WizardCloudRunDTOApi {
 export interface TasksTeamConfigResponseApi {
     /** Project-wide default AI run triple; all fields null when unset. */
     ai_run_preferences: TasksAIRunPreferencesApi
+    /** Project instructions that PostHog cloud agents read in every eligible Tasks run, including autonomous runs such as scouts and loops. Empty when unset. */
+    agent_instructions: string
 }
 
 /**
@@ -6124,17 +6161,6 @@ export type TasksRunsStreamTokenRetrieveParams = {
 }
 
 export type TasksThreadMessagesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type TasksMeConfigListParams = {
     /**
      * Number of results to return per page.
      */

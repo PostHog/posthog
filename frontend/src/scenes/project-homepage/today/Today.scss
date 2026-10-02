@@ -98,6 +98,27 @@
     gap: 8px;
 }
 
+// Lines up with the row titles: the row padding plus the icon and its gap.
+.TodaySidebar__more {
+    align-self: flex-start;
+    padding-inline: 0;
+    margin: 2px 0 0 65px;
+    font-size: 12px;
+    color: var(--today-muted);
+
+    &:hover {
+        color: var(--today-ink);
+    }
+}
+
+.TodaySidebar__more--empty {
+    color: var(--today-faint);
+
+    &:hover {
+        color: var(--today-faint);
+    }
+}
+
 .TodayNavItem {
     --report-color: #5c5c57;
 
@@ -175,9 +196,15 @@
     color: var(--today-body-text);
 }
 
-.TodayNavItem[data-done='true'] .TodayNavItem__title,
-.TodayReportLink[data-done='true'] {
+.TodayNavItem[data-state='done'] .TodayNavItem__title,
+.TodayReportLink[data-state='done'] {
     text-decoration: line-through;
+}
+
+// Dismissed is not done: it stays readable, only quieter, and the left bar says why.
+.TodayNavItem[data-state='dismissed'] .TodayNavItem__copy,
+.TodayReportLink[data-state='dismissed'] {
+    opacity: 0.55;
 }
 
 .TodayNavItem__meta {
@@ -378,6 +405,12 @@
         color: #ff4800;
         text-decoration: none;
     }
+}
+
+.TodayHome__progress {
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    color: var(--today-faint);
 }
 
 .TodayHome__foot {

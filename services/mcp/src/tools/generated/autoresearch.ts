@@ -262,6 +262,49 @@ const autoresearchRetrieve = (): ToolBase<
     },
 })
 
+const AutoresearchRunsListSchema = () => {
+    const AutoresearchRunsListParams = orvalSchemas.AutoresearchRunsListParams()
+    const AutoresearchRunsListQueryParams = orvalSchemas.AutoresearchRunsListQueryParams()
+    return AutoresearchRunsListParams.omit({ project_id: true }).extend(AutoresearchRunsListQueryParams.shape)
+}
+
+const autoresearchRunsList = (): ToolBase<
+    ReturnType<typeof AutoresearchRunsListSchema>,
+    WithPostHogUrl<Schemas.PaginatedAutoresearchRunList>
+> => ({
+    name: 'autoresearch-runs-list',
+    schema: AutoresearchRunsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AutoresearchRunsListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedAutoresearchRunList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/${encodeURIComponent(String(params.pipeline_id))}/runs/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, [
+                    'id',
+                    'pipeline',
+                    'model',
+                    'run_type',
+                    'status',
+                    'rows_scored',
+                    'error',
+                    'started_at',
+                    'completed_at',
+                    'created_at',
+                ])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/autoresearch')
+    },
+})
+
 const AutoresearchScoreCreateSchema = () => {
     const AutoresearchScoreCreateParams = orvalSchemas.AutoresearchScoreCreateParams()
     return AutoresearchScoreCreateParams.omit({ project_id: true })
@@ -552,6 +595,9 @@ const autoresearchTrainingRunsCompleteCreate = (): ToolBase<
         if (params.distillation !== undefined) {
             body['distillation'] = params.distillation
         }
+        if (params.report_notebook_short_id !== undefined) {
+            body['report_notebook_short_id'] = params.report_notebook_short_id
+        }
         const result = await context.api.request<Schemas.AutoresearchTrainingRun>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/${encodeURIComponent(String(params.pipeline_id))}/training_runs/${encodeURIComponent(String(params.id))}/complete/`,
@@ -788,6 +834,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'autoresearch-models-retrieve': autoresearchModelsRetrieve,
     'autoresearch-resolve-template-create': autoresearchResolveTemplateCreate,
     'autoresearch-retrieve': autoresearchRetrieve,
+    'autoresearch-runs-list': autoresearchRunsList,
     'autoresearch-score-create': autoresearchScoreCreate,
     'autoresearch-suggestions-create': autoresearchSuggestionsCreate,
     'autoresearch-suggestions-list': autoresearchSuggestionsList,

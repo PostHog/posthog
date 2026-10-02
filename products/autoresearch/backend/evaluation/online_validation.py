@@ -42,7 +42,7 @@ from products.autoresearch.backend.dataset.labeling import (
 )
 from products.autoresearch.backend.inference.sandbox import SandboxInferenceError, _resolve_acting_user
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline, AutoresearchRun
-from products.autoresearch.backend.query import HogQLResult, run_hogql
+from products.autoresearch.backend.query import INTERACTIVE_QUERY, HogQLResult, QueryContext, run_hogql
 
 logger = structlog.get_logger(__name__)
 
@@ -113,7 +113,11 @@ class _ModelValidation:
 
 
 def run_online_validation_for_pipeline(
-    pipeline: AutoresearchPipeline, *, user: User | None = None
+    pipeline: AutoresearchPipeline,
+    *,
+    user: User | None = None,
+    query_context: QueryContext = INTERACTIVE_QUERY,
+    claim_deadline: datetime | None = None,
 ) -> list[AutoresearchRun]:
     """
     Validate every matured prediction date that has no completed validation yet.
@@ -125,6 +129,13 @@ def run_online_validation_for_pipeline(
     ``calibration_error`` on each model that emitted predictions.
 
     ``user`` is who HogQL applies access control for; it defaults to the pipeline's creator.
+    ``query_context`` is the ClickHouse budget of every query. The Temporal activity passes
+    ``BATCH_QUERY``, and the API request path keeps the interactive limit.
+
+    After ``claim_deadline`` the pass claims no more dates, but it always claims at least one,
+    so a pass makes progress whatever the deadline. The dates it does not reach stay pending
+    for the next pass. The Temporal activity sets the deadline so that the last date it claims
+    still finishes inside the attempt timeout.
     """
     team = pipeline.team
     acting_user = _acting_user(team=team, pipeline=pipeline, user=user)
@@ -134,11 +145,22 @@ def run_online_validation_for_pipeline(
         return []
 
     results: list[AutoresearchRun] = []
-    for item in pending:
+    for index, item in enumerate(pending):
+        if results and claim_deadline is not None and django_timezone.now() >= claim_deadline:
+            logger.info(
+                "autoresearch_validation_dates_deferred",
+                pipeline_id=str(pipeline.pk),
+                dates_deferred=len(pending) - index,
+            )
+            break
         run = _claim_date(pipeline, item)
         if run is None:
             continue
-        results.append(_validate_claimed_date(team=team, pipeline=pipeline, run=run, pending=item, user=acting_user))
+        results.append(
+            _validate_claimed_date(
+                team=team, pipeline=pipeline, run=run, pending=item, user=acting_user, query_context=query_context
+            )
+        )
     return results
 
 
@@ -293,6 +315,7 @@ def _validate_claimed_date(
     run: AutoresearchRun,
     pending: PendingValidationDate,
     user: User,
+    query_context: QueryContext = INTERACTIVE_QUERY,
 ) -> AutoresearchRun:
     """
     Compute realized metrics for every model that emitted predictions on the date, then
@@ -302,10 +325,17 @@ def _validate_claimed_date(
     eligible for the next pass and the other dates in this pass are unaffected.
     """
     try:
-        predictions = _fetch_predictions(team=team, pipeline=pipeline, pending=pending, user=user)
+        predictions = _fetch_predictions(
+            team=team, pipeline=pipeline, pending=pending, user=user, query_context=query_context
+        )
         n_predicted = sum(len(model.p_y_by_person) for model in predictions.values())
         realized = _fetch_realized_labels(
-            team=team, pipeline=pipeline, pending=pending, n_predicted=n_predicted, user=user
+            team=team,
+            pipeline=pipeline,
+            pending=pending,
+            n_predicted=n_predicted,
+            user=user,
+            query_context=query_context,
         )
         per_model = {
             model_id: _ModelValidation(
@@ -417,7 +447,12 @@ def _prediction_values(pipeline: AutoresearchPipeline, pending: PendingValidatio
 
 
 def _fetch_predictions(
-    *, team: Team, pipeline: AutoresearchPipeline, pending: PendingValidationDate, user: User
+    *,
+    team: Team,
+    pipeline: AutoresearchPipeline,
+    pending: PendingValidationDate,
+    user: User,
+    query_context: QueryContext = INTERACTIVE_QUERY,
 ) -> dict[str, _ModelPredictions]:
     """
     ``{model_id: predictions}`` for every model the inference runs say scored the date.
@@ -449,6 +484,7 @@ def _fetch_predictions(
         user=user,
         limit=pending.expected_rows + 1,
         what="Predictions",
+        query_context=query_context,
     )
 
     roles: dict[str, str] = {}
@@ -481,7 +517,13 @@ def _fetch_predictions(
 
 
 def _fetch_realized_labels(
-    *, team: Team, pipeline: AutoresearchPipeline, pending: PendingValidationDate, n_predicted: int, user: User
+    *,
+    team: Team,
+    pipeline: AutoresearchPipeline,
+    pending: PendingValidationDate,
+    n_predicted: int,
+    user: User,
+    query_context: QueryContext = INTERACTIVE_QUERY,
 ) -> frozenset[str]:
     """
     The predicted persons who performed the pipeline's target inside the outcome window.
@@ -512,11 +554,28 @@ def _fetch_realized_labels(
         "window_start": pending.window_start,
         "window_end": pending.window_end,
     }
-    result = _query(team=team, sql=sql, values=values, user=user, limit=n_predicted + 1, what="Realized labels")
+    result = _query(
+        team=team,
+        sql=sql,
+        values=values,
+        user=user,
+        limit=n_predicted + 1,
+        what="Realized labels",
+        query_context=query_context,
+    )
     return frozenset(str(row[0]) for row in result.rows if row[0])
 
 
-def _query(*, team: Team, sql: str, values: dict[str, Any], user: User, limit: int, what: str) -> HogQLResult:
+def _query(
+    *,
+    team: Team,
+    sql: str,
+    values: dict[str, Any],
+    user: User,
+    limit: int,
+    what: str,
+    query_context: QueryContext = INTERACTIVE_QUERY,
+) -> HogQLResult:
     """
     Run a query as the acting user, fresh, with an explicit bound.
 
@@ -534,6 +593,7 @@ def _query(*, team: Team, sql: str, values: dict[str, Any], user: User, limit: i
             query=HogQLQuery(query=bounded_sql, values={**values, "limit": limit}, modifiers=LABELER_QUERY_MODIFIERS),
             user=user,
             execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            query_context=query_context,
         )
     except Exception as exc:
         logger.exception("autoresearch_validation_query_failed", team_id=team.pk, what=what)

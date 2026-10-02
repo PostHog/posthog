@@ -1021,3 +1021,10 @@ class ComputeQuotaDenialReason(StrEnum):
 class TaskPullRequest:
     url: str
     state: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class LivingArtifactVersionContent:
+    name: str
+    content_type: str
+    content: bytes

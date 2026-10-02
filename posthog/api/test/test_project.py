@@ -1,4 +1,4 @@
-from datetime import time, timedelta
+from datetime import timedelta
 
 from unittest.mock import MagicMock, patch
 
@@ -1259,9 +1259,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         config.refresh_from_db()
         self.assertEqual(config.precomputation_enabled_set_by, TeamExperimentsConfig.PrecomputationEnabledSetBy.MANUAL)
 
-    def test_experiments_config_recalculation_times_sync_with_legacy_field(self):
-        # The hourly workflow and older clients read experiment_recalculation_time while
-        # newer clients read the list; if the sync breaks, recalcs run at the wrong hour.
+    def test_experiments_config_recalculation_times_write_and_clear(self):
         response = self.client.patch(
             f"/api/projects/{self.project.id}/experiments_config/",
             {"experiment_recalculation_times": ["14:00:00", "02:00:00"]},
@@ -1270,8 +1268,9 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         config = TeamExperimentsConfig.objects.get(team_id=self.project.id)
         self.assertEqual(config.experiment_recalculation_times, ["14:00:00", "02:00:00"])
-        self.assertEqual(config.experiment_recalculation_time, time(hour=14))
 
+        # Old clients still PATCH the retired experiment_recalculation_time field;
+        # it must be ignored, not rejected.
         response = self.client.patch(
             f"/api/projects/{self.project.id}/experiments_config/",
             {"experiment_recalculation_time": "08:00:00"},
@@ -1279,8 +1278,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         config.refresh_from_db()
-        self.assertEqual(config.experiment_recalculation_times, ["08:00:00"])
-        self.assertEqual(config.experiment_recalculation_time, time(hour=8))
+        self.assertEqual(config.experiment_recalculation_times, ["14:00:00", "02:00:00"])
 
         response = self.client.patch(
             f"/api/projects/{self.project.id}/experiments_config/",
@@ -1290,7 +1288,6 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         config.refresh_from_db()
         self.assertIsNone(config.experiment_recalculation_times)
-        self.assertIsNone(config.experiment_recalculation_time)
 
     @parameterized.expand(
         [
