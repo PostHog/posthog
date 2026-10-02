@@ -27,8 +27,8 @@ SELECT
     address,
     groupArrayIf(preferences, source_kind = 'preference') AS preference_maps,
     maxIf(changed_at, source_kind = 'preference') AS preferences_updated_at,
-    anyIf(suppression_source, source_kind = 'suppression') AS active_suppression_source,
-    anyIf(suppression_reason, source_kind = 'suppression') AS active_suppression_reason,
+    argMaxIf(suppression_source, changed_at, source_kind = 'suppression') AS active_suppression_source,
+    argMaxIf(suppression_reason, changed_at, source_kind = 'suppression') AS active_suppression_reason,
     maxIf(changed_at, source_kind = 'suppression') AS suppressed_at,
     countIf(source_kind = 'suppression') > 0 AS is_suppressed,
     countIf(source_kind = 'person') AS person_count,
@@ -36,7 +36,7 @@ SELECT
 FROM (
     SELECT
         'preference' AS source_kind,
-        lower(trim(identifier)) AS address,
+        lowerUTF8(trim(identifier, {whitespace})) AS address,
         preferences,
         updated_at AS changed_at,
         '' AS suppression_source,
@@ -45,11 +45,11 @@ FROM (
         '' AS distinct_id,
         '' AS person_name
     FROM system.message_recipient_preferences
-    WHERE deleted = 0
+    WHERE deleted = 0 AND {address_filter}
     UNION ALL
     SELECT
         'suppression' AS source_kind,
-        lower(trim(identifier)) AS address,
+        lowerUTF8(trim(identifier, {whitespace})) AS address,
         '' AS preferences,
         suppressed_at AS changed_at,
         source AS suppression_source,
@@ -58,11 +58,11 @@ FROM (
         '' AS distinct_id,
         '' AS person_name
     FROM system.message_suppressions
-    WHERE deleted = 0 AND suppressed
+    WHERE deleted = 0 AND suppressed AND {address_filter}
     UNION ALL
     SELECT
         'person' AS source_kind,
-        coalesce(lower(trim(persons.properties.email)), '') AS address,
+        coalesce(lowerUTF8(trim(persons.properties.email, {whitespace})), '') AS address,
         '' AS preferences,
         NULL AS changed_at,
         '' AS suppression_source,
@@ -71,10 +71,9 @@ FROM (
         min(persons.pdi.distinct_id) AS distinct_id,
         coalesce(any(persons.properties.name), '') AS person_name
     FROM persons
-    WHERE address != ''
+    WHERE address != '' AND {address_filter}
     GROUP BY persons.id, address
 )
-WHERE {address_filter}
 GROUP BY address
 HAVING {facet_filter}
 ORDER BY address
@@ -82,7 +81,7 @@ LIMIT {limit}
 """
 
 _LAST_SENT_QUERY = """
-SELECT lower(trim(latest_recipient)) AS address, max(latest_sent_at)
+SELECT lowerUTF8(trim(BOTH %(whitespace)s FROM latest_recipient)) AS address, max(latest_sent_at)
 FROM (
     SELECT
         argMax(recipient, version) AS latest_recipient,
@@ -92,16 +91,22 @@ FROM (
     WHERE team_id = %(team_id)s
       AND kind = 'email'
       AND sent_at >= %(sent_after)s
-      AND lower(trim(recipient)) IN %(addresses)s
+      AND lowerUTF8(trim(BOTH %(whitespace)s FROM recipient)) IN %(addresses)s
     GROUP BY invocation_id, action_id
 )
 WHERE latest_is_deleted = 0
 GROUP BY address
 """
 
-_PERSONS_WITHOUT_EMAIL_QUERY = "SELECT count() FROM persons WHERE coalesce(trim(persons.properties.email), '') = ''"
+_PERSONS_WITHOUT_EMAIL_QUERY = (
+    "SELECT count() FROM persons WHERE coalesce(trim(persons.properties.email, {whitespace}), '') = ''"
+)
 
 ALL_MARKETING_TOPIC_KEY = "all-marketing"
+
+LAST_SENT_WINDOW_DAYS = MESSAGE_ASSETS_TTL_DAYS
+
+_ADDRESS_WHITESPACE = " \t\n\r"
 
 
 class RecipientFacet(StrEnum):
@@ -217,7 +222,7 @@ def parse_recipient_filter(raw: str) -> RecipientFilter:
 
 
 def normalize_address(email: str) -> str:
-    return email.strip().lower()
+    return email.strip(_ADDRESS_WHITESPACE).lower()
 
 
 def list_recipients(team: "Team", user: "User", query: RecipientQuery) -> RecipientPage:
@@ -239,7 +244,11 @@ def find_recipient(team: "Team", user: "User", email: str) -> Recipient | None:
 
 def count_persons_without_email(team: "Team", user: "User") -> int:
     response = execute_hogql_query(
-        _PERSONS_WITHOUT_EMAIL_QUERY, team=team, user=user, query_type="MessagingRecipientsCoverageQuery"
+        _PERSONS_WITHOUT_EMAIL_QUERY,
+        team=team,
+        user=user,
+        placeholders={"whitespace": ast.Constant(value=_ADDRESS_WHITESPACE)},
+        query_type="MessagingRecipientsCoverageQuery",
     )
     return response.results[0][0]
 
@@ -254,6 +263,7 @@ def _query_recipient_rows(team: "Team", user: "User", query: RecipientQuery, top
         _RECIPIENTS_QUERY,
         placeholders={
             "address_filter": _address_filter(query),
+            "whitespace": ast.Constant(value=_ADDRESS_WHITESPACE),
             "facet_filter": _facet_filter(query.filters, topics),
             "limit": ast.Constant(value=query.limit + 1),
         },
@@ -267,8 +277,8 @@ def _address_filter(query: RecipientQuery) -> ast.Expr:
     if query.search:
         conditions.append(
             parse_expr(
-                "position(address, {search}) > 0",
-                placeholders={"search": ast.Constant(value=query.search.strip().lower())},
+                "positionUTF8(address, {search}) > 0",
+                placeholders={"search": ast.Constant(value=normalize_address(query.search))},
             )
         )
     if query.cursor:
@@ -281,8 +291,11 @@ def _address_filter(query: RecipientQuery) -> ast.Expr:
 def _last_sent_at_by_address(team_id: int, addresses: list[str]) -> dict[str, datetime]:
     if not addresses:
         return {}
-    sent_after = timezone.now() - timedelta(days=MESSAGE_ASSETS_TTL_DAYS)
-    rows = sync_execute(_LAST_SENT_QUERY, {"team_id": team_id, "addresses": addresses, "sent_after": sent_after})
+    sent_after = timezone.now() - timedelta(days=LAST_SENT_WINDOW_DAYS)
+    rows = sync_execute(
+        _LAST_SENT_QUERY,
+        {"team_id": team_id, "addresses": addresses, "sent_after": sent_after, "whitespace": _ADDRESS_WHITESPACE},
+    )
     return dict(rows)
 
 
@@ -328,7 +341,7 @@ def _build_recipient(
         person_count,
         persons,
     ) = row
-    statuses = _merge_preferences([json.loads(raw) for raw in preference_maps])
+    statuses = _merge_preferences([_parse_preference_map(raw) for raw in preference_maps])
     return Recipient(
         email=address,
         all_marketing=statuses.get(ALL_MESSAGE_PREFERENCE_CATEGORY_ID, PreferenceStatus.NO_PREFERENCE),
@@ -350,6 +363,11 @@ def _build_recipient(
         last_sent_at=last_sent_at,
         preferences_updated_at=preferences_updated_at if preference_maps else None,
     )
+
+
+def _parse_preference_map(raw: str) -> dict[str, str]:
+    preferences = json.loads(raw)
+    return preferences if isinstance(preferences, dict) else {}
 
 
 def _merge_preferences(preference_maps: list[dict[str, str]]) -> dict[str, PreferenceStatus]:
