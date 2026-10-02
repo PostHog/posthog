@@ -1865,7 +1865,7 @@ def selector_to_expr(selector_string: str):
     legacy = Selector(selector_string, escape_slashes=False, legacy_attribute_tag=True)
     if [part.data for part in legacy.parts] == [part.data for part in selector.parts]:
         return _selector_parts_to_expr(selector)
-    # ponytail: the legacy parse of .btn[x="1"] matches some events the selector does not
+    # The legacy parse of .btn[x="1"] matches some events the selector does not
     # describe. Matching it too means no action loses counts, but it keeps those false matches.
     # Drop it once the affected actions are measured and their owners told.
     return ast.Or(exprs=[_selector_parts_to_expr(legacy), _selector_parts_to_expr(selector)])
