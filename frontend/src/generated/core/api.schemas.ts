@@ -4625,7 +4625,7 @@ export const LeakedKeyReportResponseTypeEnumApi = {
 } as const
 
 export interface LeakedKeyReportResponseApi {
-    /** Whether a matching PostHog key or token was found and revoked. */
+    /** Whether a matching PostHog key or token was found. It was revoked, or, for team_secret_token, its project admins were told to rotate it. */
     found: boolean
     /** The type of key that was found and revoked, or null if no match was found. team_secret_token means the string is a legacy feature flags secure API key: its migrated project secret API key row was removed, but the legacy key itself cannot be auto-rotated, so project admins are emailed to rotate it.
      *

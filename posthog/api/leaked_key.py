@@ -34,7 +34,7 @@ class LeakedKeyReportSerializer(serializers.Serializer):
 
 class LeakedKeyReportResponseSerializer(serializers.Serializer):
     found = serializers.BooleanField(
-        help_text="Whether a matching PostHog key or token was found and revoked.",
+        help_text="Whether a matching PostHog key or token was found. It was revoked, or, for team_secret_token, its project admins were told to rotate it.",
     )
     type = serializers.ChoiceField(
         choices=[
@@ -54,8 +54,11 @@ class PublicLeakedKeyReport(APIView):
     Public, unauthenticated self-service endpoint: submit a leaked PostHog token and,
     if it matches a real credential, it's revoked immediately and the owner is
     notified — even if the submitted OAuth access token has itself already expired,
-    since the paired refresh token it protects may still be live. Safety relies on
-    possession of the plaintext token, not a signature — see secret_revocation.py.
+    since the paired refresh token it protects may still be live. The one exception
+    is a legacy feature flags secure API key, which cannot be rotated automatically:
+    its mirror PSAK row is deleted and the project admins are emailed to rotate it.
+    Safety relies on possession of the plaintext token, not a signature — see
+    secret_revocation.py.
 
     Region-local only, no cross-region relay: a "found": false result does not rule
     out the token being live in the other region. See the endpoint description below.
@@ -84,7 +87,9 @@ class PublicLeakedKeyReport(APIView):
             "personal API key, project secret API key, legacy feature flags secure API key, or "
             "OAuth access/refresh token. If the token matches a real credential, it is revoked "
             "immediately and the owner is notified by email. This includes an expired OAuth "
-            "access token: the paired refresh token it protects may still be live.\n\n"
+            "access token: the paired refresh token it protects may still be live. A legacy "
+            "feature flags secure API key cannot be rotated automatically: its project admins "
+            "get an email to rotate it.\n\n"
             'This endpoint only checks the region it is running on. `"found": false` does not '
             "guarantee the token is safe. If you're not sure which region issued it, check "
             "both: https://app.posthog.com/api/revoke_leaked_key and "
