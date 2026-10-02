@@ -808,12 +808,12 @@ def preprocess_exclude_path_format(endpoints, **kwargs):
         is_env_duplicate = env_suffix is not None and (env_suffix, method) in projects_suffixes
 
         org_suffix = _extract_root_suffix(_ORG_PREFIX_RE, path)
-        # A viewset whose organization routes are their own resource, not the project routes repeated,
-        # opts out with `org_routes_differ_from_project_routes = True`.
+        # Sharing a suffix usually means one resource served at both levels. A viewset whose organization
+        # paths are a different resource opts out with `schema_org_paths_are_not_duplicates = True`.
         is_org_duplicate = (
             org_suffix is not None
             and (org_suffix, method) in projects_suffixes
-            and not getattr(callback.cls, "org_routes_differ_from_project_routes", False)
+            and not getattr(callback.cls, "schema_org_paths_are_not_duplicates", False)
         )
 
         if is_env_duplicate:

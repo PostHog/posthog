@@ -827,7 +827,7 @@ class OrganizationBillingViewSet(BillingReadViewSet):
     ]
     permission_classes = [permissions.IsAuthenticated, OrganizationMemberPermissions, PostHogFeatureFlagPermission]
     # The project billing routes share these paths' suffixes, but they read one project, not the organization.
-    org_routes_differ_from_project_routes = True
+    schema_org_paths_are_not_duplicates = True
 
     @extend_schema(
         operation_id="billing_subscription_retrieve",
