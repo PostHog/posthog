@@ -67,6 +67,13 @@ export const ANNOUNCEMENTS_FLAG = featureFlagKeys.ANNOUNCEMENTS_FLAG;
 /** Gates the PR-refund action in the inbox (matches the web SIGNALS_PR_REFUNDS flag). */
 export const SIGNALS_PR_REFUNDS_FLAG = featureFlagKeys.SIGNALS_PR_REFUNDS_FLAG;
 /**
+ * The personal inbox: For you asks the server for `scope=for_me` (suggested
+ * reviewer or claimed) and defaults to relevance order. Same key as the backend
+ * flag, which decides what `for_me` selects.
+ */
+export const SIGNALS_PERSONAL_INBOX_FLAG =
+  featureFlagKeys.SIGNALS_PERSONAL_INBOX_FLAG;
+/**
  * Gates reports living in the channels sidebar: the per-space Reports tab and its
  * report detail route, plus report entries in the feed. Requires project-bluebird.
  */

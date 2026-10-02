@@ -1,5 +1,6 @@
 import type {
   SignalReportActionability,
+  SignalReportPersonalInbox,
   SignalReportStatus,
 } from "@posthog/shared/types";
 import { describe, expect, it } from "vitest";
@@ -10,6 +11,8 @@ import {
   humanizeReportTitle,
   isStatusRedundantWithActionability,
   parseConventionalCommitTitle,
+  personalInboxNextStepLabel,
+  personalInboxReasonText,
   splitReportSummary,
 } from "./reportPresentation";
 
@@ -263,5 +266,59 @@ describe("splitReportSummary", () => {
     const split = splitReportSummary("## Problem\n\nIt broke.");
     expect(split.lede).toBe("");
     expect(split.sections).toEqual([{ title: "Problem", body: "It broke." }]);
+  });
+});
+
+describe("personal inbox labels", () => {
+  function personalInbox(
+    overrides: Partial<SignalReportPersonalInbox> = {},
+  ): SignalReportPersonalInbox {
+    return {
+      reasons: ["suggested_reviewer"],
+      action_state: "action_available",
+      next_action: null,
+      observed_at: null,
+      policy_version: "personal-inbox-v1",
+      ...overrides,
+    };
+  }
+
+  it.each([
+    [
+      { next_action: { kind: "review_pr", pull_request_url: null } },
+      "Review PR",
+    ],
+    [
+      { next_action: { kind: "check_pr", pull_request_url: null } },
+      "Check PR status",
+    ],
+    [{ action_state: "waiting", next_action: null }, "Waiting"],
+    [{ action_state: "unknown", next_action: null }, "State unknown"],
+    [
+      {
+        action_state: "closed",
+        next_action: { kind: "review_pr", pull_request_url: null },
+      },
+      null,
+    ],
+  ] as const)("labels %j as %s", (overrides, expected) => {
+    expect(
+      personalInboxNextStepLabel(
+        personalInbox(overrides as Partial<SignalReportPersonalInbox>),
+      ),
+    ).toBe(expected);
+  });
+
+  it("returns nothing for rows without personal inbox data", () => {
+    expect(personalInboxNextStepLabel(null)).toBeNull();
+    expect(personalInboxReasonText(undefined)).toBeNull();
+  });
+
+  it("explains every reason the report is yours", () => {
+    expect(
+      personalInboxReasonText(
+        personalInbox({ reasons: ["claimed", "suggested_reviewer"] }),
+      ),
+    ).toBe("You claimed this. You're a suggested reviewer.");
   });
 });

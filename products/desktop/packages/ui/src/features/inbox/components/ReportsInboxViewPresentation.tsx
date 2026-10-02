@@ -21,6 +21,10 @@ import type { SignalReport } from "@posthog/shared/types";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import type { ReactNode } from "react";
 
+export const PERSONAL_INBOX_EMPTY_TITLE = "Nothing needs you right now";
+export const PERSONAL_INBOX_EMPTY_DESCRIPTION =
+  "Reports show up here when you're a suggested reviewer or you claim one.";
+
 export interface ReportsInboxViewPresentationProps {
   reports: SignalReport[];
   triageReportCount: number;
@@ -31,6 +35,8 @@ export interface ReportsInboxViewPresentationProps {
   isEmpty: boolean;
   hasActiveFilters: boolean;
   showConfigureAgentsEmptyState: boolean;
+  /** The list is the viewer's personal inbox, so empty means nothing needs them. */
+  personalInbox?: boolean;
   triageEnabled: boolean;
   filterControl: ReactNode;
   scopeControl: ReactNode;
@@ -52,6 +58,7 @@ export function ReportsInboxViewPresentation({
   isEmpty,
   hasActiveFilters,
   showConfigureAgentsEmptyState,
+  personalInbox = false,
   triageEnabled,
   filterControl,
   scopeControl,
@@ -149,14 +156,18 @@ export function ReportsInboxViewPresentation({
                     ? "Ship fixes while you sleep"
                     : hasActiveFilters
                       ? "No reports match your filters"
-                      : "Nothing to review"}
+                      : personalInbox
+                        ? PERSONAL_INBOX_EMPTY_TITLE
+                        : "Nothing to review"}
                 </EmptyTitle>
                 <EmptyDescription>
                   {showConfigureAgentsEmptyState
                     ? "PostHog watches your session replays, errors, and Slack, then opens a pull request when it finds something worth fixing. Connect a source to get started."
                     : hasActiveFilters
                       ? "Clear the filters to check for hidden reports."
-                      : "Reports show up here as your agents find things worth acting on."}
+                      : personalInbox
+                        ? PERSONAL_INBOX_EMPTY_DESCRIPTION
+                        : "Reports show up here as your agents find things worth acting on."}
                 </EmptyDescription>
               </EmptyHeader>
               {(hasActiveFilters || showConfigureAgentsEmptyState) && (

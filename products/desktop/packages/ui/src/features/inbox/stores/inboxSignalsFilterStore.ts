@@ -1,3 +1,4 @@
+import type { InboxSortChoice } from "@posthog/core/inbox/reportFiltering";
 import type {
   SignalReportOrderingField,
   SignalReportPriority,
@@ -32,6 +33,12 @@ export const DEFAULT_INBOX_REPORT_STATE_FILTER: InboxReportStateFilter[] = [
 interface InboxSignalsFilterState {
   sortField: SignalSortField;
   sortDirection: SignalSortDirection;
+  /**
+   * Null until the user picks a sort, so the personal For you list can default
+   * to relevance without overriding an explicit choice. The field sort above
+   * stays the order for lists that cannot rank by relevance.
+   */
+  sortChoice: InboxSortChoice;
   searchQuery: string;
   /** Empty array means "all sources" (no filter). */
   sourceProductFilter: SourceProduct[];
@@ -43,6 +50,7 @@ interface InboxSignalsFilterState {
 
 interface InboxSignalsFilterActions {
   setSort: (field: SignalSortField, direction: SignalSortDirection) => void;
+  setRelevanceSort: () => void;
   setSearchQuery: (query: string) => void;
   toggleSourceProduct: (source: SourceProduct) => void;
   setSourceProductFilter: (sources: SourceProduct[]) => void;
@@ -123,12 +131,15 @@ export const useInboxSignalsFilterStore = create<InboxSignalsFilterStore>()(
     (set) => ({
       sortField: "created_at",
       sortDirection: "desc",
+      sortChoice: null,
       searchQuery: "",
       sourceProductFilter: [],
       priorityFilter: [],
       reportStateFilter: DEFAULT_INBOX_REPORT_STATE_FILTER,
       prFilter: "all",
-      setSort: (sortField, sortDirection) => set({ sortField, sortDirection }),
+      setSort: (sortField, sortDirection) =>
+        set({ sortField, sortDirection, sortChoice: "field" }),
+      setRelevanceSort: () => set({ sortChoice: "relevance" }),
       setSearchQuery: (searchQuery) => set({ searchQuery }),
       toggleSourceProduct: (source) =>
         set((state) => {
@@ -173,26 +184,37 @@ export const useInboxSignalsFilterStore = create<InboxSignalsFilterStore>()(
     }),
     {
       name: "inbox-signals-filter-storage",
-      version: 3,
+      version: 4,
       migrate: (persisted, version) => {
         if (!persisted || typeof persisted !== "object") return persisted;
-        const next = persisted as Record<string, unknown>;
-        if (version >= 3) return next;
-        const {
-          statusFilter: _statusFilter,
-          suggestedReviewerFilter: _suggestedReviewerFilter,
-          hasInitializedSuggestedReviewerFilter:
-            _hasInitializedSuggestedReviewerFilter,
-          ...rest
-        } = next;
-        return {
-          ...rest,
-          reportStateFilter: DEFAULT_INBOX_REPORT_STATE_FILTER,
-        };
+        let next = persisted as Record<string, unknown>;
+        if (version < 3) {
+          const {
+            statusFilter: _statusFilter,
+            suggestedReviewerFilter: _suggestedReviewerFilter,
+            hasInitializedSuggestedReviewerFilter:
+              _hasInitializedSuggestedReviewerFilter,
+            ...rest
+          } = next;
+          next = {
+            ...rest,
+            reportStateFilter: DEFAULT_INBOX_REPORT_STATE_FILTER,
+          };
+        }
+        if (version < 4) {
+          // Older builds stored no choice. Only a non-default sort shows the
+          // user picked one, so keep that one over the relevance default.
+          const isDefaultSort =
+            (next.sortField ?? "created_at") === "created_at" &&
+            (next.sortDirection ?? "desc") === "desc";
+          next = { ...next, sortChoice: isDefaultSort ? null : "field" };
+        }
+        return next;
       },
       partialize: (state) => ({
         sortField: state.sortField,
         sortDirection: state.sortDirection,
+        sortChoice: state.sortChoice,
         sourceProductFilter: state.sourceProductFilter,
         priorityFilter: state.priorityFilter,
         reportStateFilter: state.reportStateFilter,

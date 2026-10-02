@@ -3,6 +3,7 @@ import {
   INBOX_ACTIONABLE_ACTIONABILITY_FILTER,
   INBOX_ACTIONABLE_REPORT_STATUS_FILTER,
   sortInboxReports,
+  sortReportsByRelevanceKey,
 } from "@posthog/core/inbox/reportFiltering";
 import {
   needsImplementationDecision,
@@ -35,6 +36,7 @@ const SECTION_QUERY_DEFAULTS = {
   applySearchFilter: false,
   groupByStatus: false,
   withPullRequestCount: false,
+  allowRelevanceSort: true,
 } as const;
 
 export interface InboxSectionedReports {
@@ -51,6 +53,10 @@ export interface InboxSectionedReports {
   isSuccess: boolean;
   isError: boolean;
   isEmpty: boolean;
+  /** For you lists the viewer's personal inbox, so empty means nothing needs them. */
+  isPersonalInbox: boolean;
+  /** The list keeps the server's relevance order. */
+  relevanceSort: boolean;
   isFetchingNextPage: boolean;
   hasNextPage: boolean;
   loadMore: () => void;
@@ -158,21 +164,23 @@ export function useInboxSectionedReports(options?: {
       )
     : EMPTY_REPORTS;
 
+  // All three queries share one scope and sort, so they agree on this.
+  const relevanceSort = reviewAndMergeQuery.relevanceSort;
   const visibleReports = useMemo(() => {
     const reports = [
       ...(showReviewAndMerge ? reviewAndMergeQuery.scopedReports : []),
       ...(showNeedsDecision ? needsDecisionQuery.scopedReports : []),
       ...(showTerminal ? terminalQuery.scopedReports : []),
     ];
-    return sortInboxReports(
-      Array.from(
-        new Map(reports.map((report) => [report.id, report])).values(),
-      ),
-      sortField,
-      sortDirection,
+    const unique = Array.from(
+      new Map(reports.map((report) => [report.id, report])).values(),
     );
+    return relevanceSort
+      ? sortReportsByRelevanceKey(unique)
+      : sortInboxReports(unique, sortField, sortDirection);
   }, [
     needsDecisionQuery.scopedReports,
+    relevanceSort,
     reviewAndMergeQuery.scopedReports,
     showNeedsDecision,
     showReviewAndMerge,
@@ -206,6 +214,8 @@ export function useInboxSectionedReports(options?: {
     isError:
       visibleReports.length === 0 && selected.some((query) => query.isError),
     isEmpty: isSuccess && reportCount === 0,
+    isPersonalInbox: reviewAndMergeQuery.isPersonalInbox,
+    relevanceSort,
     isFetchingNextPage: selected.some((query) => query.isFetchingNextPage),
     hasNextPage: selected.some(
       (query) =>

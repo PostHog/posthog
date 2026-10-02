@@ -1,19 +1,16 @@
 import {
-  buildArchiveListOrdering,
+  buildInboxOrderParams,
+  buildInboxScopeParams,
   buildPriorityFilterParam,
-  buildSignalReportListOrdering,
-  buildSuggestedReviewerFilterParam,
   filterReportsBySearch,
   INBOX_PIPELINE_STATUS_FILTER,
   INBOX_PULL_REQUEST_STATUS_FILTER,
   INBOX_REPORTS_TAB_STATUS_FILTER,
 } from "@posthog/core/inbox/reportFiltering";
-import {
-  INBOX_SCOPE_FOR_YOU,
-  parseTeammateInboxScope,
-} from "@posthog/core/inbox/reportMembership";
+import { INBOX_SCOPE_FOR_YOU } from "@posthog/core/inbox/reportMembership";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
+import { usePersonalInboxEnabled } from "@posthog/ui/features/feature-flags/usePersonalInboxEnabled";
 import { DESKTOP_INBOX_REFETCH_INTERVAL_MS } from "@posthog/ui/features/inbox/hooks/inboxPolling";
 import {
   useInboxReports,
@@ -65,6 +62,12 @@ export function useInboxAllReports(options?: {
   applySearchFilter?: boolean;
   /** Keep statuses interleaved by the selected sort instead of grouping them. */
   groupByStatus?: boolean;
+  /**
+   * Let the personal For you list use relevance order. Only surfaces whose sort
+   * control offers relevance opt in, so no list reorders under a label that
+   * names another sort.
+   */
+  allowRelevanceSort?: boolean;
 }) {
   const enabled = options?.enabled ?? true;
   const ignoreScope = options?.ignoreScope ?? false;
@@ -72,6 +75,7 @@ export function useInboxAllReports(options?: {
   const applySourceFilter = options?.applySourceFilter ?? true;
   const applySearchFilter = options?.applySearchFilter ?? true;
   const groupByStatus = options?.groupByStatus ?? true;
+  const allowRelevanceSort = options?.allowRelevanceSort ?? false;
   const refetchIntervalMs =
     options?.refetchIntervalMs ?? DESKTOP_INBOX_REFETCH_INTERVAL_MS;
   // The Pull requests tab fetches a server-filtered list (reports that have a
@@ -99,19 +103,34 @@ export function useInboxAllReports(options?: {
   const priorityFilter = useInboxSignalsFilterStore((s) =>
     ignoreFilters ? EMPTY_FILTER_ARRAY : s.priorityFilter,
   );
+  const sortChoice = useInboxSignalsFilterStore((s) =>
+    ignoreFilters || !allowRelevanceSort ? "field" : s.sortChoice,
+  );
+  const personalInboxEnabled = usePersonalInboxEnabled();
   const isForYou = !ignoreScope && scope === INBOX_SCOPE_FOR_YOU;
-  const teammateUuid = ignoreScope ? null : parseTeammateInboxScope(scope);
   const client = useOptionalAuthenticatedClient();
   const { data: currentUser } = useCurrentUser({
     client,
-    enabled: enabled && isForYou && teammateUuid === null,
+    enabled: enabled && isForYou && !personalInboxEnabled,
   });
 
-  // Reviewer scope is applied server-side via `suggested_reviewers`: "For you"
-  // filters on the current user, a teammate scope on theirs, "Entire project"
-  // and the Runs tab (`ignoreScope`) send nothing.
-  const reviewerUuid =
-    teammateUuid ?? (isForYou ? (currentUser?.uuid ?? null) : null);
+  // Reviewer scope is applied server-side. The personal For you sends
+  // `scope=for_me`; the legacy For you and a teammate scope filter on
+  // `suggested_reviewers`; Entire project and the Runs tab (`ignoreScope`)
+  // send nothing. "For you" holds its query until the scope is known rather
+  // than firing a throwaway project-wide fetch first.
+  const { params: scopeParams, ready: scopeReady } = buildInboxScopeParams({
+    scope: ignoreScope ? null : scope,
+    personalInboxEnabled,
+    currentUserUuid: currentUser?.uuid ?? null,
+  });
+  const orderParams = buildInboxOrderParams({
+    scopeParams,
+    sortChoice,
+    field: sortField,
+    direction: sortDirection,
+    groupByStatus,
+  });
 
   const query = useInboxReportsInfinite(
     {
@@ -123,24 +142,16 @@ export function useInboxAllReports(options?: {
       has_implementation_pr:
         options?.hasImplementationPr ?? (pullRequestsOnly ? true : undefined),
       actionability: options?.actionabilityFilter,
-      ordering: groupByStatus
-        ? buildSignalReportListOrdering(sortField, sortDirection)
-        : buildArchiveListOrdering(sortField, sortDirection),
+      ...orderParams,
       source_product:
         sourceProductFilter.length > 0
           ? sourceProductFilter.join(",")
           : undefined,
       priority: buildPriorityFilterParam(priorityFilter),
-      suggested_reviewers: reviewerUuid
-        ? buildSuggestedReviewerFilterParam([reviewerUuid])
-        : undefined,
+      ...scopeParams,
     },
     {
-      // "For you" must always carry the current user's `suggested_reviewers`
-      // filter, so hold the query until that uuid resolves rather than firing a
-      // throwaway project-wide fetch first. Other scopes don't depend on the
-      // user and run immediately.
-      enabled: enabled && (!isForYou || reviewerUuid != null),
+      enabled: enabled && scopeReady,
       refetchInterval: refetchIntervalMs,
       refetchIntervalInBackground: false,
     },
@@ -163,14 +174,11 @@ export function useInboxAllReports(options?: {
           ? sourceProductFilter.join(",")
           : undefined,
       priority: buildPriorityFilterParam(priorityFilter),
-      suggested_reviewers: reviewerUuid
-        ? buildSuggestedReviewerFilterParam([reviewerUuid])
-        : undefined,
+      ...scopeParams,
       count_only: true,
     },
     {
-      enabled:
-        enabled && withPullRequestCount && (!isForYou || reviewerUuid != null),
+      enabled: enabled && withPullRequestCount && scopeReady,
       refetchInterval: refetchIntervalMs,
       refetchIntervalInBackground: false,
     },
@@ -191,14 +199,11 @@ export function useInboxAllReports(options?: {
           ? sourceProductFilter.join(",")
           : undefined,
       priority: buildPriorityFilterParam(priorityFilter),
-      suggested_reviewers: reviewerUuid
-        ? buildSuggestedReviewerFilterParam([reviewerUuid])
-        : undefined,
+      ...scopeParams,
       count_only: true,
     },
     {
-      enabled:
-        enabled && withReportsCount && (!isForYou || reviewerUuid != null),
+      enabled: enabled && withReportsCount && scopeReady,
       refetchInterval: refetchIntervalMs,
       refetchIntervalInBackground: false,
     },
@@ -206,9 +211,10 @@ export function useInboxAllReports(options?: {
   const reportsTotal = reportsCountQuery.data?.count ?? 0;
 
   const scopedReports = useMemo(() => {
-    // Reviewer scope is already applied server-side via `suggested_reviewers`.
-    // Don't re-filter on the `is_suggested_reviewer` boolean — it can disagree
-    // with that filter, dropping reports the count badge still counts.
+    // Reviewer scope is already applied server-side. Don't re-filter on the
+    // `is_suggested_reviewer` boolean: it can disagree with the server scope
+    // (a claimed report names no reviewer), dropping reports the count badge
+    // still counts.
     return searchQuery.trim()
       ? filterReportsBySearch(query.allReports, searchQuery)
       : query.allReports;
@@ -244,5 +250,8 @@ export function useInboxAllReports(options?: {
     priorityFilter,
     sortField,
     sortDirection,
+    /** The server ranked the list, so callers must keep its order. */
+    relevanceSort: orderParams.sort === "relevance",
+    isPersonalInbox: scopeParams.scope === "for_me",
   };
 }

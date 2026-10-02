@@ -65,6 +65,7 @@ export function ReportsInboxView(): React.JSX.Element {
       isEmpty={inbox.isEmpty}
       hasActiveFilters={hasActiveFilters}
       showConfigureAgentsEmptyState={showConfigureAgentsEmptyState}
+      personalInbox={inbox.isPersonalInbox}
       triageEnabled={triageEnabled}
       filterControl={<InboxReportFilters />}
       scopeControl={<InboxScopeSelect />}

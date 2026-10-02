@@ -750,6 +750,36 @@ export interface SignalReportChart {
   size?: SignalReportChartSize | null;
 }
 
+export type SignalReportPersonalInboxReason = "suggested_reviewer" | "claimed";
+
+export type SignalReportPersonalInboxActionState =
+  | "action_available"
+  | "waiting"
+  | "unknown"
+  | "closed";
+
+export type SignalReportPersonalInboxNextActionKind =
+  | "review_finding"
+  | "answer_question"
+  | "review_pr"
+  | "check_pr"
+  | "resolve_blocker"
+  | "continue_work";
+
+/** Why a report is in the viewer's personal inbox and what they can do next (server policy). */
+export interface SignalReportPersonalInbox {
+  reasons: SignalReportPersonalInboxReason[];
+  action_state: SignalReportPersonalInboxActionState;
+  next_action: {
+    kind: SignalReportPersonalInboxNextActionKind;
+    pull_request_url: string | null;
+  } | null;
+  observed_at: string | null;
+  policy_version: string;
+  /** Ascending string order is the server's relevance order, comparable across list requests. */
+  relevance_key?: string;
+}
+
 export interface SignalReport {
   id: string;
   title: string | null;
@@ -807,6 +837,8 @@ export interface SignalReport {
   refund_ineligibility_reason?: string | null;
   /** The space (task channel) this report is assigned to, or null when unassigned. The general view lists every report regardless of this value. */
   channel_id?: string | null;
+  /** Set on list rows for `scope=for_me` (behind the server flag) and `sort=relevance`. Older servers omit it. */
+  personal_inbox?: SignalReportPersonalInbox | null;
 }
 
 export type SignalReportRefundReason =
@@ -1138,6 +1170,15 @@ export interface SignalReportArtefactsResponse {
 import type { SignalReportOrderingField } from "./signal-types";
 export type { SignalReportOrderingField };
 
+export type SignalReportsScope = "for_me" | "entire_project" | "teammate";
+
+export type SignalReportsSortPreset =
+  | "relevance"
+  | "priority"
+  | "last_updated"
+  | "newest"
+  | "oldest";
+
 export interface SignalReportsQueryParams {
   limit?: number;
   offset?: number;
@@ -1152,6 +1193,18 @@ export interface SignalReportsQueryParams {
   source_product?: string;
   /** Comma-separated PostHog user UUIDs — only returns reports with these suggested reviewers. */
   suggested_reviewers?: string;
+  /**
+   * Reviewer scope. `for_me` is the personal inbox: reports naming the viewer as a suggested
+   * reviewer or claimed by them (reviewer-only while the server flag is off).
+   */
+  scope?: SignalReportsScope;
+  /** PostHog user UUID, required with `scope=teammate`. */
+  teammate_uuid?: string;
+  /**
+   * Sort preset. The server ignores it when `ordering` is also sent. `relevance` requires
+   * `scope=for_me` (HTTP 400 otherwise) and ranks every row before pagination.
+   */
+  sort?: SignalReportsSortPreset;
   /** Comma-separated `P0`–`P4` priorities — only returns reports with one of these priorities. */
   priority?: string;
   /** Comma-separated actionability choices. Only returns reports with one of these latest judgments. */

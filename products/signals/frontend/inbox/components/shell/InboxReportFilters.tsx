@@ -3,8 +3,8 @@ import { useActions, useValues } from 'kea'
 import { LemonSelect } from '@posthog/lemon-ui'
 
 import {
+    availableInboxSortOptions,
     INBOX_PRIORITY_OPTIONS,
-    INBOX_SORT_OPTIONS,
     inboxPriorityFilterLabel,
     inboxSortOptionKey,
     PRIORITY_ACCENT,
@@ -31,13 +31,6 @@ const PRIORITY_SELECT_OPTIONS = [
     })),
 ]
 
-// No icons: the trigger reads out the active option, and an icon there would crowd the label the
-// order is already stated in.
-const SORT_SELECT_OPTIONS = INBOX_SORT_OPTIONS.map((option) => ({
-    value: inboxSortOptionKey(option.field, option.direction),
-    label: option.label,
-}))
-
 /**
  * What narrows the report list: priority, then report state, then sort order. Filter state is
  * persisted via `inboxFiltersLogic`, and the list reloads on change.
@@ -46,8 +39,9 @@ const SORT_SELECT_OPTIONS = INBOX_SORT_OPTIONS.map((option) => ({
  * because it picks whose inbox this is rather than narrowing the one you are looking at.
  */
 export function InboxReportFilters(): JSX.Element {
-    const { sortField, sortDirection, priorityFilter } = useValues(inboxFiltersLogic)
+    const { activeSort, isRelevanceSortAvailable, priorityFilter } = useValues(inboxFiltersLogic)
     const { setSort, setPriorityFilter } = useActions(inboxFiltersLogic)
+    const sortOptions = availableInboxSortOptions(isRelevanceSortAvailable)
 
     return (
         <div className="flex flex-wrap items-center gap-2">
@@ -64,14 +58,19 @@ export function InboxReportFilters(): JSX.Element {
             <InboxStateFilter />
             <LemonSelect
                 size="small"
-                value={inboxSortOptionKey(sortField, sortDirection)}
+                value={inboxSortOptionKey(activeSort.field, activeSort.direction)}
                 onChange={(key) => {
-                    const option = INBOX_SORT_OPTIONS.find((o) => inboxSortOptionKey(o.field, o.direction) === key)
+                    const option = sortOptions.find((o) => inboxSortOptionKey(o.field, o.direction) === key)
                     if (option) {
                         setSort(option.field, option.direction)
                     }
                 }}
-                options={SORT_SELECT_OPTIONS}
+                // No icons: the trigger reads out the active option, and an icon there would crowd the
+                // label the order is already stated in.
+                options={sortOptions.map((option) => ({
+                    value: inboxSortOptionKey(option.field, option.direction),
+                    label: option.label,
+                }))}
                 renderButtonContent={(leaf) => `Sort: ${leaf?.label ?? ''}`}
                 data-attr="inbox-sort"
             />

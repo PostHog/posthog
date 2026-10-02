@@ -30,6 +30,7 @@ import {
     safeHttpUrl,
 } from '../../utils/reportPresentation'
 import { primaryReportPullRequest } from '../../utils/reportPullRequests'
+import { PersonalInboxNextStepTag } from '../badges/PersonalInboxNextStepTag'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
@@ -263,6 +264,7 @@ export function ReportCard({
                         showImpactColumn ? 'mt-auto pt-1' : 'mt-1.5'
                     )}
                 >
+                    {report.personal_inbox ? <PersonalInboxNextStepTag entry={report.personal_inbox} /> : null}
                     {hasPr && repoSlug ? <span className="truncate font-mono">{repoSlug}</span> : null}
                     <InboxCardSourceMeta sourceProducts={report.source_products} scoutSkillName={report.scout_name} />
                     {!hasPr &&

@@ -9,14 +9,16 @@ import { DropdownMenu, DropdownMenuContent } from "@posthog/quill";
 import {
   getSuggestedReviewerDisplayName,
   INBOX_PRIORITY_MENU_OPTIONS,
+  INBOX_RELEVANCE_SORT_KEY,
   INBOX_REPORT_STATE_OPTIONS,
-  INBOX_SORT_MENU_OPTIONS,
   inboxPriorityFilterLabel,
   inboxReportStateFilterLabel,
+  inboxSortMenuOptions,
   inboxSortOptionFromKey,
   inboxSortOptionKey,
   isDefaultInboxReportStateFilter,
 } from "@posthog/ui/features/inbox/filterOptions";
+import { useInboxRelevanceSort } from "@posthog/ui/features/inbox/hooks/useInboxRelevanceSort";
 import { useInboxScopeOptions } from "@posthog/ui/features/inbox/hooks/useInboxScopeOptions";
 import { useInboxReviewerScopeStore } from "@posthog/ui/features/inbox/stores/inboxReviewerScopeStore";
 import { useInboxSignalsFilterStore } from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
@@ -75,6 +77,10 @@ function InboxFilterMenuContent({
     (state) => state.sortDirection,
   );
   const setSort = useInboxSignalsFilterStore((state) => state.setSort);
+  const setRelevanceSort = useInboxSignalsFilterStore(
+    (state) => state.setRelevanceSort,
+  );
+  const relevanceSort = useInboxRelevanceSort();
   const priorityFilter = useInboxSignalsFilterStore(
     (state) => state.priorityFilter,
   );
@@ -97,7 +103,9 @@ function InboxFilterMenuContent({
   const setScope = useInboxReviewerScopeStore((state) => state.setScope);
   const { teammateOptions } = useInboxScopeOptions();
 
-  const activeSortKey = inboxSortOptionKey(sortField, sortDirection);
+  const activeSortKey = relevanceSort.active
+    ? INBOX_RELEVANCE_SORT_KEY
+    : inboxSortOptionKey(sortField, sortDirection);
   const teammateUuid = parseTeammateInboxScope(scope);
   const selectedTeammate = teammateUuid
     ? teammateOptions.find((option) => option.uuid === teammateUuid)
@@ -141,10 +149,16 @@ function InboxFilterMenuContent({
       />
       <FilterRadioSubMenu
         label="Sort by"
-        options={INBOX_SORT_MENU_OPTIONS}
+        options={inboxSortMenuOptions(relevanceSort.available)}
         value={activeSortKey}
-        defaultValue={DEFAULT_SORT_KEY}
+        defaultValue={
+          relevanceSort.available ? INBOX_RELEVANCE_SORT_KEY : DEFAULT_SORT_KEY
+        }
         onChange={(key) => {
+          if (key === INBOX_RELEVANCE_SORT_KEY) {
+            setRelevanceSort();
+            return;
+          }
           const option = inboxSortOptionFromKey(key);
           if (option) setSort(option.field, option.direction);
         }}

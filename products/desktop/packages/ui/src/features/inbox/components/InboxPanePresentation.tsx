@@ -15,6 +15,10 @@ import {
 } from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
 import { SidebarSearchHeader } from "@posthog/ui/features/canvas/components/SidebarSearchHeader";
+import {
+  PERSONAL_INBOX_EMPTY_DESCRIPTION,
+  PERSONAL_INBOX_EMPTY_TITLE,
+} from "@posthog/ui/features/inbox/components/ReportsInboxViewPresentation";
 import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { Fragment, type ReactElement, type ReactNode, useMemo } from "react";
 
@@ -26,12 +30,17 @@ export interface InboxPanePresentationProps {
   isFetchingNextPage: boolean;
   hasNextPage: boolean;
   hasActiveFilters: boolean;
+  /** The list failed to load, which must not read as an empty inbox. */
+  isError?: boolean;
+  /** The list is the viewer's personal inbox, so empty means nothing needs them. */
+  personalInbox?: boolean;
   /** Runs the age buckets the other way, so the list reads oldest first. */
   oldestFirst: boolean;
   filterControl: ReactNode;
   renderReport: (report: SignalReport) => ReactNode;
   onClearFilters: () => void;
   onLoadMore: () => void;
+  onRetry?: () => void;
   className?: string;
 }
 
@@ -48,11 +57,14 @@ export function InboxPanePresentation({
   isFetchingNextPage,
   hasNextPage,
   hasActiveFilters,
+  isError = false,
+  personalInbox = false,
   oldestFirst,
   filterControl,
   renderReport,
   onClearFilters,
   onLoadMore,
+  onRetry,
   className,
 }: InboxPanePresentationProps): ReactElement {
   const isSearching = query.trim() !== "";
@@ -90,6 +102,25 @@ export function InboxPanePresentation({
         <AutocompleteList className="sidebar-autocomplete-tree scroll-mask-8 !max-h-none !p-1.5 min-h-0 flex-1 overflow-y-auto">
           {isLoading && reports.length === 0 ? (
             <LoadingState className="py-10" />
+          ) : isError && reports.length === 0 ? (
+            <Empty className="border-0 py-8">
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <EnvelopeSimpleIcon />
+                </EmptyMedia>
+                <EmptyTitle>Couldn't load reports</EmptyTitle>
+                <EmptyDescription>
+                  Try loading the inbox again.
+                </EmptyDescription>
+              </EmptyHeader>
+              {onRetry && (
+                <EmptyContent>
+                  <Button variant="outline" size="sm" onClick={onRetry}>
+                    Retry
+                  </Button>
+                </EmptyContent>
+              )}
+            </Empty>
           ) : reports.length === 0 ? (
             <Empty className="border-0 py-8">
               <EmptyHeader>
@@ -101,14 +132,18 @@ export function InboxPanePresentation({
                     ? "No matching reports"
                     : hasActiveFilters
                       ? "No reports match your filters"
-                      : "Nothing to review"}
+                      : personalInbox
+                        ? PERSONAL_INBOX_EMPTY_TITLE
+                        : "Nothing to review"}
                 </EmptyTitle>
                 <EmptyDescription>
                   {isSearching
                     ? "Try a different search."
                     : hasActiveFilters
                       ? "Clear the filters to check for hidden reports."
-                      : "Reports show up here as your agents find things worth acting on."}
+                      : personalInbox
+                        ? PERSONAL_INBOX_EMPTY_DESCRIPTION
+                        : "Reports show up here as your agents find things worth acting on."}
                 </EmptyDescription>
               </EmptyHeader>
               {!isSearching && hasActiveFilters && (

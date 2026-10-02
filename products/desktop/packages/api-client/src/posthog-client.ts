@@ -5468,6 +5468,15 @@ export class PostHogAPIClient {
     if (params?.suggested_reviewers) {
       url.searchParams.set("suggested_reviewers", params.suggested_reviewers);
     }
+    if (params?.scope) {
+      url.searchParams.set("scope", params.scope);
+    }
+    if (params?.teammate_uuid) {
+      url.searchParams.set("teammate_uuid", params.teammate_uuid);
+    }
+    if (params?.sort) {
+      url.searchParams.set("sort", params.sort);
+    }
     if (params?.priority) {
       url.searchParams.set("priority", params.priority);
     }

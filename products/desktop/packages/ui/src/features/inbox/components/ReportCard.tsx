@@ -29,6 +29,7 @@ import { InboxCardTitle } from "@posthog/ui/features/inbox/components/InboxCardT
 import { PriorityMonogram } from "@posthog/ui/features/inbox/components/PriorityMonogram";
 import { SuggestedReviewerAvatarStack } from "@posthog/ui/features/inbox/components/SuggestedReviewerAvatarStack";
 import { ForYouBadge } from "@posthog/ui/features/inbox/components/utils/ForYouBadge";
+import { PersonalInboxNextStepBadge } from "@posthog/ui/features/inbox/components/utils/PersonalInboxNextStepBadge";
 import { SignalReportActionabilityBadge } from "@posthog/ui/features/inbox/components/utils/SignalReportActionabilityBadge";
 import { SignalReportStatusBadge } from "@posthog/ui/features/inbox/components/utils/SignalReportStatusBadge";
 import { SignalReportSummaryMarkdown } from "@posthog/ui/features/inbox/components/utils/SignalReportSummaryMarkdown";
@@ -114,6 +115,7 @@ export function ReportCardView(props: ReportCardViewProps) {
       !isReady ||
       report.actionability != null ||
       report.is_suggested_reviewer === true ||
+      report.personal_inbox != null ||
       report.signal_count > 0;
 
   const body = (
@@ -202,6 +204,9 @@ export function ReportCardView(props: ReportCardViewProps) {
                     actionability={report.actionability}
                   />
                 )}
+                <PersonalInboxNextStepBadge
+                  personalInbox={report.personal_inbox}
+                />
                 {report.is_suggested_reviewer && <ForYouBadge />}
                 {report.signal_count > 0 && (
                   <span className="flex items-center gap-1 text-[12px] text-gray-10">

@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { isUUIDLike } from 'lib/utils/guards'
@@ -11,7 +12,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import type { UserType } from '~/types'
 
-import { INBOX_PRIORITY_OPTIONS, INBOX_SORT_OPTIONS, INBOX_SOURCE_OPTIONS } from '../filterOptions'
+import { availableInboxSortOptions, INBOX_PRIORITY_OPTIONS, INBOX_SOURCE_OPTIONS } from '../filterOptions'
 import { captureInboxQueryChanged, InboxQueryChange } from '../inboxAnalytics'
 import { parseTeammateInboxScope } from '../inboxMembership'
 import {
@@ -33,11 +34,23 @@ export interface InboxReviewerOption {
     email: string
 }
 
+/** The sort fields the server can order by through `ordering`. */
 export type InboxSortField = 'priority' | 'created_at' | 'updated_at'
+/** `relevance` is the server's personal ranking, sent as `sort=relevance` and only valid with `scope=for_me`. */
+export type InboxListSortField = InboxSortField | 'relevance'
 export type InboxSortDirection = 'asc' | 'desc'
+
+export interface InboxSort {
+    field: InboxListSortField
+    direction: InboxSortDirection
+}
 
 const DEFAULT_SORT_FIELD: InboxSortField = 'priority'
 const DEFAULT_SORT_DIRECTION: InboxSortDirection = 'asc'
+export const DEFAULT_INBOX_SORT: { field: InboxSortField; direction: InboxSortDirection } = {
+    field: DEFAULT_SORT_FIELD,
+    direction: DEFAULT_SORT_DIRECTION,
+}
 
 /**
  * The states selected by default: the two that hold open work. The closed states (Resolved,
@@ -65,7 +78,7 @@ const VALID_PRIORITIES = new Set<string>(INBOX_PRIORITY_OPTIONS)
 const VALID_STATE_VALUES = new Set<string>(INBOX_REPORT_SECTION_KEYS)
 // Only the field/direction combinations the Sort control actually offers — validating the field and
 // direction independently would accept keys like `priority:desc` that have no matching UI option.
-const VALID_SORT_KEYS = new Set(INBOX_SORT_OPTIONS.map((o) => `${o.field}:${o.direction}`))
+const VALID_SORT_KEYS = new Set(availableInboxSortOptions(true).map((o) => `${o.field}:${o.direction}`))
 
 export interface InboxFilterState {
     scope: InboxScope
@@ -73,8 +86,10 @@ export interface InboxFilterState {
     scoutFilter: string[]
     priorityFilter: SignalReportPriority[]
     stateFilter: InboxReportSectionKey[]
-    sortField: InboxSortField
+    sortField: InboxListSortField
     sortDirection: InboxSortDirection
+    /** Whether the stored sort is an explicit choice. Only an explicit choice overrides the relevance default. */
+    hasUserChosenSort: boolean
     searchQuery: string
 }
 
@@ -126,12 +141,14 @@ function parseScoutParam(raw: unknown): string[] {
 
 /** Decode the filter query params into filter state, ignoring unknown/invalid values and falling back to defaults. */
 export function parseFilterSearchParams(searchParams: Record<string, any>): InboxFilterState {
-    let sortField = DEFAULT_SORT_FIELD
+    let sortField: InboxListSortField = DEFAULT_SORT_FIELD
     let sortDirection = DEFAULT_SORT_DIRECTION
+    let hasUserChosenSort = false
     if (typeof searchParams.sort === 'string' && VALID_SORT_KEYS.has(searchParams.sort)) {
         const [field, direction] = searchParams.sort.split(':')
-        sortField = field as InboxSortField
+        sortField = field as InboxListSortField
         sortDirection = direction as InboxSortDirection
+        hasUserChosenSort = true
     }
     return {
         scope: parseScopeParam(searchParams.scope),
@@ -141,6 +158,7 @@ export function parseFilterSearchParams(searchParams: Record<string, any>): Inbo
         stateFilter: parseStateParam(searchParams.state),
         sortField,
         sortDirection,
+        hasUserChosenSort,
         searchQuery: typeof searchParams.search === 'string' ? searchParams.search : '',
     }
 }
@@ -188,7 +206,13 @@ export function filterSearchParams(values: InboxFilterState): Record<string, str
     } else if (!isDefaultStateFilter(values.stateFilter)) {
         params.state = values.stateFilter.join(',')
     }
-    if (values.sortField !== DEFAULT_SORT_FIELD || values.sortDirection !== DEFAULT_SORT_DIRECTION) {
+    // An explicit "Priority first" still goes in the URL, so a recipient whose default is relevance
+    // sees the order the sender picked.
+    if (
+        values.hasUserChosenSort ||
+        values.sortField !== DEFAULT_SORT_FIELD ||
+        values.sortDirection !== DEFAULT_SORT_DIRECTION
+    ) {
         params.sort = `${values.sortField}:${values.sortDirection}`
     }
     if (values.searchQuery.trim().length > 0) {
@@ -233,15 +257,44 @@ export function buildSignalReportListOrdering(field: InboxSortField, direction: 
     return field === 'updated_at' ? `${fieldKey},status` : `${fieldKey},status,-updated_at`
 }
 
+/**
+ * The sort the list uses. Relevance is available only on the For-you scope with the personal inbox
+ * on, because the server rejects it on any other scope. There it is the default unless the user
+ * picked another sort. A stored sort other than the default also counts as a pick, because a
+ * persisted sort can be older than `hasUserChosenSort`. On any other scope a stored relevance sort
+ * falls back to the default order.
+ */
+export function resolveInboxSort(input: {
+    sortField: InboxListSortField
+    sortDirection: InboxSortDirection
+    hasUserChosenSort: boolean
+    relevanceAvailable: boolean
+}): InboxSort {
+    if (!input.relevanceAvailable) {
+        return input.sortField === 'relevance'
+            ? DEFAULT_INBOX_SORT
+            : { field: input.sortField, direction: input.sortDirection }
+    }
+    const storedIsDefault = input.sortField === DEFAULT_SORT_FIELD && input.sortDirection === DEFAULT_SORT_DIRECTION
+    if (!input.hasUserChosenSort && storedIsDefault) {
+        return { field: 'relevance', direction: 'asc' }
+    }
+    return { field: input.sortField, direction: input.sortDirection }
+}
+
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface inboxFiltersLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     user: UserType | null // userLogic
+    activeSort: InboxSort
     availableReviewers: InboxReviewerOption[]
     availableReviewersLoading: boolean
     hasActiveFilters: boolean
     hasUserChosenScope: boolean
+    hasUserChosenSort: boolean
+    isPersonalInboxEnabled: boolean
     isRedesign: boolean
+    isRelevanceSortAvailable: boolean
     knownTeammate: {
         label: string
         uuid: string
@@ -251,7 +304,7 @@ export interface inboxFiltersLogicValues {
     scoutFilter: string[]
     searchQuery: string
     sortDirection: InboxSortDirection
-    sortField: InboxSortField
+    sortField: InboxListSortField
     sourceProductFilter: string[]
     stateFilter: ('dismissed' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved')[]
     visibleStateFilter: InboxReportSectionKey[]
@@ -320,11 +373,11 @@ export interface inboxFiltersLogicActions {
         searchQuery: string
     }
     setSort: (
-        field: InboxSortField,
+        field: InboxListSortField,
         direction: InboxSortDirection
     ) => {
         direction: InboxSortDirection
-        field: InboxSortField
+        field: InboxListSortField
     }
     togglePriority: (priority: SignalReportPriority) => {
         priority: SignalReportPriority
@@ -350,6 +403,14 @@ export interface inboxFiltersLogicMeta {
             priorityFilter: SignalReportPriority[]
         ) => boolean
         isRedesign: (featureFlags: FeatureFlagsSet) => boolean
+        isPersonalInboxEnabled: (featureFlags: FeatureFlagsSet) => boolean
+        isRelevanceSortAvailable: (isPersonalInboxEnabled: boolean, scope: InboxScope) => boolean
+        activeSort: (
+            sortField: InboxListSortField,
+            sortDirection: InboxSortDirection,
+            hasUserChosenSort: boolean,
+            isRelevanceSortAvailable: boolean
+        ) => InboxSort
         visibleStateFilter: (
             stateFilter: ('dismissed' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved')[],
             user: UserType | null
@@ -393,7 +454,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
         // without marking it as an explicit user choice, so a later real choice still wins and persists.
         applyDefaultScope: (scope: InboxScope) => ({ scope }),
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
-        setSort: (field: InboxSortField, direction: InboxSortDirection) => ({ field, direction }),
+        setSort: (field: InboxListSortField, direction: InboxSortDirection) => ({ field, direction }),
         toggleSourceProduct: (source: string) => ({ source }),
         toggleScout: (scout: string) => ({ scout }),
         clearScoutFilter: true,
@@ -438,8 +499,8 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
                 change,
                 tab: currentInboxTab(values.isRedesign),
                 scope: values.scope,
-                sortField: values.sortField,
-                sortDirection: values.sortDirection,
+                sortField: values.activeSort.field,
+                sortDirection: values.activeSort.direction,
                 sourceProductFilter: values.sourceProductFilter,
                 scoutFilter: values.scoutFilter,
                 priorityFilter: values.priorityFilter,
@@ -525,7 +586,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             },
         ],
         sortField: [
-            DEFAULT_SORT_FIELD as InboxSortField,
+            DEFAULT_SORT_FIELD as InboxListSortField,
             { persist: true },
             {
                 setSort: (_, { field }) => field,
@@ -538,6 +599,16 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             {
                 setSort: (_, { direction }) => direction,
                 setFilters: (_, { filters }) => filters.sortDirection,
+            },
+        ],
+        // Whether the user has explicitly picked a sort. Until then the For-you scope of the personal
+        // inbox uses relevance (see `resolveInboxSort`).
+        hasUserChosenSort: [
+            false,
+            { persist: true },
+            {
+                setSort: () => true,
+                setFilters: (_, { filters }) => filters.hasUserChosenSort,
             },
         ],
         sourceProductFilter: [
@@ -609,6 +680,26 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => isInboxRedesignEnabled(featureFlags),
         ],
+        isPersonalInboxEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.SIGNALS_PERSONAL_INBOX],
+        ],
+        isRelevanceSortAvailable: [
+            (s) => [s.isPersonalInboxEnabled, s.scope],
+            (isPersonalInboxEnabled: boolean, scope: InboxScope): boolean =>
+                isPersonalInboxEnabled && scope === INBOX_SCOPE_FOR_YOU,
+        ],
+        // The sort the list and the Sort control use. Read this, not the stored `sortField` and
+        // `sortDirection`, which hold the user's last pick.
+        activeSort: [
+            (s) => [s.sortField, s.sortDirection, s.hasUserChosenSort, s.isRelevanceSortAvailable],
+            (
+                sortField: InboxListSortField,
+                sortDirection: InboxSortDirection,
+                hasUserChosenSort: boolean,
+                relevanceAvailable: boolean
+            ): InboxSort => resolveInboxSort({ sortField, sortDirection, hasUserChosenSort, relevanceAvailable }),
+        ],
         // The stored state filter can name states the current user cannot see: a staff-only state
         // from a shared link, or one persisted before staff access changed. The list and the filter
         // control read this narrowed view, so a hidden state can never strand the list on a
@@ -672,6 +763,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
                 !sameSet(values.stateFilter, parsed.stateFilter) ||
                 values.sortField !== parsed.sortField ||
                 values.sortDirection !== parsed.sortDirection ||
+                values.hasUserChosenSort !== parsed.hasUserChosenSort ||
                 values.searchQuery !== parsed.searchQuery
             if (changed) {
                 actions.setFilters(parsed)

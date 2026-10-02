@@ -12,6 +12,7 @@ import {
     IconGithub,
     IconGraph,
     IconList,
+    IconPerson,
     IconReceipt,
     IconRefresh,
     IconStack,
@@ -19,7 +20,7 @@ import {
 } from '@posthog/icons'
 import { LemonTagType } from '@posthog/lemon-ui'
 
-import type { InboxSortDirection, InboxSortField } from './logics/inboxFiltersLogic'
+import type { InboxListSortField, InboxSortDirection, InboxSortField } from './logics/inboxFiltersLogic'
 import { SignalReportPriority } from './types'
 import { prettifyScoutSkillName } from './utils/scoutRunsWindow'
 
@@ -72,12 +73,32 @@ export interface InboxSortOption {
     icon: JSX.Element
 }
 
+export interface InboxListSortOption extends Omit<InboxSortOption, 'field'> {
+    field: InboxListSortField
+}
+
 export const INBOX_SORT_OPTIONS: InboxSortOption[] = [
     { label: 'Priority first', field: 'priority', direction: 'asc', icon: <IconList /> },
     { label: 'Last updated first', field: 'updated_at', direction: 'desc', icon: <IconRefresh /> },
     { label: 'Newest first', field: 'created_at', direction: 'desc', icon: <IconCalendar /> },
     { label: 'Oldest first', field: 'created_at', direction: 'asc', icon: <IconClock /> },
 ]
+
+/**
+ * Kept out of `INBOX_SORT_OPTIONS`, which other report lists share: the server accepts relevance
+ * only on the personal For-you scope.
+ */
+export const INBOX_RELEVANCE_SORT_OPTION: InboxListSortOption = {
+    label: 'Most relevant first',
+    field: 'relevance',
+    direction: 'asc',
+    icon: <IconPerson />,
+}
+
+/** The sort options the inbox Sort control offers. */
+export function availableInboxSortOptions(relevanceAvailable: boolean): InboxListSortOption[] {
+    return relevanceAvailable ? [INBOX_RELEVANCE_SORT_OPTION, ...INBOX_SORT_OPTIONS] : INBOX_SORT_OPTIONS
+}
 
 export const INBOX_SOURCE_OPTIONS: { value: string; label: string; icon: JSX.Element }[] = [
     { value: 'replay_vision', label: 'Replay vision', icon: <IconEye /> },
@@ -100,7 +121,7 @@ export const INBOX_SOURCE_OPTIONS: { value: string; label: string; icon: JSX.Ele
 /** Priority codes in rank order (P0 highest → P4 lowest), driving the Priority filter popover. */
 export const INBOX_PRIORITY_OPTIONS: SignalReportPriority[] = ['P0', 'P1', 'P2', 'P3', 'P4']
 
-export function inboxSortOptionKey(field: InboxSortField, direction: InboxSortDirection): string {
+export function inboxSortOptionKey(field: InboxListSortField, direction: InboxSortDirection): string {
     return `${field}:${direction}`
 }
 
