@@ -47,7 +47,10 @@ function HeatmapsPricingNoticeBanner({ teamId }: { teamId: number }): JSX.Elemen
             {urlAllowlist.length === 0
                 ? 'Your capture list is empty, so heatmaps will stop collecting data. '
                 : 'Only the URLs in your capture list will keep collecting data. '}
-            <Link to={urls.settings('environment-heatmaps')} data-attr="heatmaps-pricing-notice-review-urls">
+            <Link
+                to={urls.settings('environment-heatmaps', 'heatmaps-capture')}
+                data-attr="heatmaps-pricing-notice-review-urls"
+            >
                 Review capture URLs
             </Link>{' '}
             to choose which pages to keep.{' '}
