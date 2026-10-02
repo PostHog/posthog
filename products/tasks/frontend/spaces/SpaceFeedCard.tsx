@@ -87,18 +87,17 @@ export function SpaceFeedCard({ spaceId, task, pinned, unread, repository }: Spa
     const authorName = author ? taskUserName(author) : null
     const source = getOriginProductMeta(item.originProduct ?? undefined)
     const selection = useSpaceFeedBulkSelection(spaceId)
+    const selected = selection.selectedSessionIds.includes(task.id)
 
     const card = (
         <Card
             size="sm"
-            className="group/card relative my-1.5 gap-0 rounded-xl px-4 pt-3.5 pb-3 transition hover:bg-fill-hover hover:ring-1 hover:ring-input"
+            className={cn(
+                'group/card relative my-1.5 gap-0 rounded-xl px-4 pt-3.5 pb-3 transition-colors hover:bg-fill-hover has-focus-visible:ring-2 has-focus-visible:ring-ring',
+                selected && 'bg-primary/10 hover:bg-primary/15'
+            )}
         >
             <div className="flex min-w-0 items-center gap-3">
-                <SpaceFeedSelectCheckbox
-                    spaceId={spaceId}
-                    sessionId={task.id}
-                    title={item.title || 'Untitled session'}
-                />
                 {renaming?.sessionId === task.id && renaming.surface === 'feed' ? (
                     <div className="flex min-w-0 flex-1 items-center gap-1.5">
                         <SpaceFeedStatusIcon item={item} />
@@ -109,7 +108,14 @@ export function SpaceFeedCard({ spaceId, task, pinned, unread, repository }: Spa
                 ) : (
                     <div className="flex min-w-0 flex-1 items-baseline gap-1.5">
                         {/* Nudged down so the icon sits on the title's baseline, like PostHog Desktop's feed cards. */}
-                        <SpaceFeedStatusIcon item={item} className="translate-y-0.5" />
+                        <SpaceFeedSelectCheckbox
+                            spaceId={spaceId}
+                            sessionId={task.id}
+                            title={item.title || 'Untitled session'}
+                            className="translate-y-0.5"
+                        >
+                            <SpaceFeedStatusIcon item={item} />
+                        </SpaceFeedSelectCheckbox>
                         <LinkPrimitive
                             to={urls.aiTask(task.id)}
                             className="min-w-0 truncate text-sm leading-snug font-semibold text-foreground after:absolute after:inset-0"

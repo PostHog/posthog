@@ -20,7 +20,10 @@ export function SpaceCanvasCard({ spaceId, canvas }: { spaceId: string; canvas: 
     return (
         <ContextMenu>
             <ContextMenuTrigger render={<div className="min-w-0" />}>
-                <Card size="sm" className="group relative gap-0 rounded-xl py-0 transition-colors hover:bg-fill-hover">
+                <Card
+                    size="sm"
+                    className="group relative gap-0 rounded-xl py-0 transition-colors hover:bg-fill-hover has-focus-visible:ring-2 has-focus-visible:ring-ring"
+                >
                     <SpaceCanvasPreview spaceId={spaceId} canvas={canvas} />
                     <div className="flex min-w-0 flex-col gap-1 px-4 py-3">
                         <div className="flex min-w-0 items-center gap-2">

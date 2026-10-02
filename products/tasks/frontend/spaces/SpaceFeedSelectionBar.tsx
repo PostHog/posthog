@@ -77,7 +77,7 @@ export function SpaceFeedSelectionBar({ spaceId }: { spaceId: string }): JSX.Ele
             </span>
             {count > 0 && (
                 <div
-                    className="mb-1 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md bg-fill-selected px-2 py-1"
+                    className="sticky bottom-3 z-20 mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 max-w-full self-center rounded-lg border border-border bg-popover px-2 py-1.5 text-popover-foreground shadow-md"
                     data-attr="today-space-feed-bulk-bar"
                 >
                     <div className="flex min-w-0 items-center gap-2">
