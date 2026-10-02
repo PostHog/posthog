@@ -5,7 +5,7 @@ from typing import Literal, Optional
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=True)
 class HatchetEndpointConfig:
     name: str
     # Tenant-scoped path template. `{tenant}` is filled with the tenant UUID derived from the token.

@@ -3916,7 +3916,8 @@ Today (8): `event_keys`, `events`, `task_events`, `task_timings`, `tasks`, `work
 
 Diffed against: <https://raw.githubusercontent.com/hatchet-dev/hatchet/main/api-contracts/openapi/openapi.yaml>
 
-- [x] `workflows (GET /api/v1/tenants/{tenant}/workflows, GET /api/v1/workflows/{workflow}/versions)` — lookup resolving the workflow ID and version carried on every synced workflow run and task (high)
+- [x] `workflows (GET /api/v1/tenants/{tenant}/workflows)` — lookup resolving the workflow ID carried on every synced workflow run and task (high)
+- [ ] `workflow versions (GET /api/v1/workflows/{workflow}/versions)` — returns one version per call (latest, or one by id), so there is no listable version history to sync (high)
 - [x] `task events (GET /api/v1/stable/tasks/{task}/task-events, GET /api/v1/stable/workflow-runs/{id}/task-events)` — state-transition history (queued, started, retried, failed) behind each task's final status (high)
 - [x] `workers (GET /api/v1/tenants/{tenant}/worker, GET /api/v1/workers/{worker})` — lookup identifying which worker executed a synced task, plus worker availability (high)
 - [ ] `task metrics (GET /api/v1/stable/tenants/{tenant}/task-metrics, /task-point-metrics, /task-stats)` — the vendor's headline throughput and status-count series for queue health dashboards (medium)

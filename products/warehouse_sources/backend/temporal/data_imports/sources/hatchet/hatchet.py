@@ -12,6 +12,7 @@ from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.cloud_utils import is_cloud
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -56,6 +57,13 @@ class HatchetResumeConfig:
     # offset points at).
     offset: int
     since: str | None = None
+
+
+@frozen
+class HatchetPage:
+    offset: int
+    rows: list[Any]
+    is_last_page: bool
 
 
 @dataclasses.dataclass(frozen=True)
@@ -363,21 +371,19 @@ def get_rows(
     # The window actually in use (after any resume override); re-saved state pins this same window.
     effective_since = params.get("since")
 
-    for page_offset, items, is_last_page in _iter_pages(
-        session, connection, path, params, offset, config, headers, logger
-    ):
+    for page in _iter_pages(session, connection, path, params, offset, config, headers, logger):
         rows = (
-            _iter_fan_out_rows(session, connection, items, config.fan_out_path, config, headers, logger)
+            _iter_fan_out_rows(session, connection, page.rows, config.fan_out_path, config, headers, logger)
             if config.fan_out_path
-            else (_normalize_row(item) for item in items)
+            else (_normalize_row(item) for item in page.rows)
         )
         for row in rows:
             batcher.batch(row)
             if batcher.should_yield():
                 yield batcher.get_table()
                 # Save state AFTER yielding so a crash re-reads this page rather than skipping it.
-                if not is_last_page:
-                    resumable_source_manager.save_state(HatchetResumeConfig(offset=page_offset, since=effective_since))
+                if not page.is_last_page:
+                    resumable_source_manager.save_state(HatchetResumeConfig(offset=page.offset, since=effective_since))
 
     if batcher.should_yield(include_incomplete_chunk=True):
         yield batcher.get_table()
@@ -403,8 +409,8 @@ def _iter_pages(
     config: HatchetEndpointConfig,
     headers: dict[str, str],
     logger: FilteringBoundLogger,
-) -> Iterator[tuple[int, list[Any], bool]]:
-    """Yield `(page_offset, rows, is_last_page)` for each non-empty page of an offset-paginated list."""
+) -> Iterator[HatchetPage]:
+    """Yield each non-empty page of an offset-paginated list."""
     while True:
         # Checkpoint the offset of the page we're about to read. The batcher accumulates across
         # pages and only flushes at its size threshold, so on resume we re-read from this page and
@@ -427,7 +433,7 @@ def _iter_pages(
             if isinstance(current_page, int) and isinstance(num_pages, int) and current_page >= num_pages:
                 is_last_page = True
 
-        yield page_offset, rows, is_last_page
+        yield HatchetPage(offset=page_offset, rows=rows, is_last_page=is_last_page)
 
         if is_last_page:
             return
