@@ -114,8 +114,8 @@ describe('todayLogic', () => {
             hasBriefing: true,
             report: makeReport({ id: 'r-2', title: 'Checkout errors spike' }),
             expected: [
-                'from the report i am reading',
-                '[checkout errors spike](http://localhost/project/997/home/reports/r-2)',
+                'from the inbox report i am reading',
+                '[checkout errors spike](http://localhost/project/997/inbox/reports/r-2)',
             ],
         },
     ])('sends PostHog AI the question with $shown as context', async ({ hasBriefing, report, expected }) => {

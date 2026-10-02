@@ -62,10 +62,9 @@ function reportsContext(reports: SignalReport[]): string[] {
 
 function reportContext(report: SignalReport): string[] {
     return [
-        `- Report: ${markdownLink(report.title ?? 'Untitled report', urls.todayReport(report.id))}`,
+        `- Report: ${markdownLink(report.title ?? 'Untitled report', urls.inboxReport('reports', report.id))}`,
         ...(report.priority ? [`- Priority: ${report.priority}`] : []),
         `- Status: ${report.status}`,
-        `- Also in the ${markdownLink('Inbox', urls.inboxReport('reports', report.id))}`,
         ...(report.implementation_pr_url ? [`- Pull request: ${report.implementation_pr_url}`] : []),
         '',
         'The report link ends with the report id. Use it with `inbox-reports-retrieve` to read the report in full, ' +
@@ -75,7 +74,7 @@ function reportContext(report: SignalReport): string[] {
 
 function contextHeading(context: Exclude<TodayAskContext, { kind: 'none' }>): string {
     return context.kind === 'report'
-        ? '#### Context from the report I am reading on Today'
+        ? '#### Context from the Inbox report I am reading'
         : `#### Context from my ${markdownLink('Today home page', urls.projectHomepage())}`
 }
 
