@@ -5,11 +5,12 @@ import pytest
 from unittest.mock import patch
 
 from django.test import SimpleTestCase
+from django.utils import timezone
 
 from products.alerts.backend.delivery.dispatch import deliver
 from products.alerts.backend.delivery.message import AlertMessage
 from products.alerts.backend.delivery.telemetry import record_delivery
-from products.alerts.backend.delivery.thread_store import NullThreadStore, ThreadKey
+from products.alerts.backend.delivery.thread_store import NullThreadStore, ThreadClaim, ThreadKey
 from products.alerts.backend.delivery.transport import DeliveryError, MessageHandle
 from products.alerts.backend.facade.contracts import (
     AlertDestinationData,
@@ -75,12 +76,26 @@ class RecordingThreadStore(NullThreadStore):
 
     def __init__(self) -> None:
         self.threads: dict[ThreadKey, MessageHandle] = {}
+        self.delivered_keys: dict[ThreadKey, list[str]] = {}
+        self._claimed: dict[str, ThreadKey] = {}
 
-    def handle_for(self, key: ThreadKey) -> MessageHandle | None:
-        return self.threads.get(key)
+    def claim(self, key: ThreadKey, evaluation_key: str) -> ThreadClaim | None:
+        if evaluation_key in self.delivered_keys.get(key, []):
+            return None
+        thread_id = str(len(self._claimed))
+        self._claimed[thread_id] = key
+        return ThreadClaim(
+            thread_id=thread_id,
+            evaluation_key=evaluation_key,
+            handle=self.threads.get(key),
+            claimed_at=timezone.now(),
+        )
 
-    def remember(self, key: ThreadKey, handle: MessageHandle) -> None:
-        self.threads[key] = handle
+    def delivered(self, claim: ThreadClaim, handle: MessageHandle | None) -> None:
+        key = self._claimed[claim.thread_id]
+        self.delivered_keys.setdefault(key, []).append(claim.evaluation_key)
+        if handle is not None and key not in self.threads:
+            self.threads[key] = handle
 
     @property
     def remembered(self) -> list[MessageHandle]:
@@ -88,13 +103,16 @@ class RecordingThreadStore(NullThreadStore):
 
 
 class TestDeliveryDispatch(SimpleTestCase):
-    def _deliver(self, transport: FakeTransport, store: Any, announcement: Any = None) -> Any:
+    def _deliver(
+        self, transport: FakeTransport, store: Any, announcement: Any = None, evaluation_key: str = "eval-1"
+    ) -> Any:
         with patch("products.alerts.backend.delivery.dispatch.record_delivery") as recorded:
             deliver(
                 transport=transport,
                 thread_store=store,
                 team_id=2,
                 configuration_id="cfg-1",
+                evaluation_key=evaluation_key,
                 target=TARGET,
                 announcement=announcement or _announcement(),
             )
@@ -118,6 +136,7 @@ class TestDeliveryDispatch(SimpleTestCase):
                     thread_store=NullThreadStore(),
                     team_id=2,
                     configuration_id="cfg-1",
+                    evaluation_key="eval-1",
                     target=TARGET,
                     announcement=_announcement(),
                 )
@@ -127,13 +146,13 @@ class TestDeliveryDispatch(SimpleTestCase):
     def test_a_resolve_replies_under_its_own_firing_rather_than_an_earlier_one(self) -> None:
         store = RecordingThreadStore()
         first = FakeTransport(handle=MessageHandle(external_ref={"ts": "morning"}))
-        self._deliver(first, store, _announcement(AlertEventKind.FIRING, FIRST_FIRING))
+        self._deliver(first, store, _announcement(AlertEventKind.FIRING, FIRST_FIRING), "eval-1")
 
         resolve = FakeTransport(handle=MessageHandle(external_ref={"ts": "resolve"}))
-        self._deliver(resolve, store, _announcement(AlertEventKind.RESOLVED, FIRST_FIRING))
+        self._deliver(resolve, store, _announcement(AlertEventKind.RESOLVED, FIRST_FIRING), "eval-2")
 
         second = FakeTransport(handle=MessageHandle(external_ref={"ts": "evening"}))
-        self._deliver(second, store, _announcement(AlertEventKind.FIRING, SECOND_FIRING))
+        self._deliver(second, store, _announcement(AlertEventKind.FIRING, SECOND_FIRING), "eval-3")
 
         assert [handle for _, handle in resolve.sends] == [MessageHandle(external_ref={"ts": "morning"})]
         assert [handle for _, handle in second.sends] == [None]
@@ -151,6 +170,15 @@ class TestDeliveryDispatch(SimpleTestCase):
 
         assert [handle for _, handle in transport.sends] == [None, None]
         assert len(store.threads) == 2
+
+    def test_a_retried_evaluation_does_not_send_a_second_copy(self) -> None:
+        store = RecordingThreadStore()
+        self._deliver(FakeTransport(), store, evaluation_key="eval-1")
+
+        retry = FakeTransport()
+        self._deliver(retry, store, evaluation_key="eval-1")
+
+        assert retry.sends == []
 
     def test_a_check_that_never_fired_starts_no_conversation(self) -> None:
         store = RecordingThreadStore()
@@ -170,6 +198,7 @@ class TestDeliveryDispatch(SimpleTestCase):
                     thread_store=NullThreadStore(),
                     team_id=2,
                     configuration_id="cfg-1",
+                    evaluation_key="eval-1",
                     target=TARGET,
                     announcement=_announcement(),
                 )
