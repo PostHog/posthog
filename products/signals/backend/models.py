@@ -1154,6 +1154,8 @@ class SignalReportPullRequest(TeamScopedRootMixin, UUIDModel):
     review_decision = models.CharField(max_length=20, choices=ReviewDecision, null=True, blank=True)
     merged_at = models.DateTimeField(null=True, blank=True)
     checked_at = models.DateTimeField(null=True, blank=True)
+    participant_ids = ArrayField(models.PositiveBigIntegerField(), null=True, blank=True)
+    participants_synced_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -1161,6 +1163,7 @@ class SignalReportPullRequest(TeamScopedRootMixin, UUIDModel):
         constraints = [
             models.UniqueConstraint(fields=["team", "repository", "number"], name="signals_pr_identity_unique"),
         ]
+        indexes = [models.Index(fields=["team", "merged_at"], name="signals_pr_team_merged_idx")]
 
 
 class SignalEmissionRecord(UUIDModel):

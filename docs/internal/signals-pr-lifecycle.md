@@ -22,6 +22,26 @@ A `part_of` link written on a step that already closed runs the check as well, b
 It continues up a plan of plans, and skips a plan that is waiting on a replacement.
 It also skips a plan that carries its own open, draft, or unknown PR, because that plan's own work decides its status.
 
+## Inbox value summary
+
+The `signals-inbox-value-summary` flag shows project-wide counts above the web
+inbox in both layouts. It is disabled by default. The rolling seven-day window
+uses GitHub merge time and includes only PRs verified as output from Self-driving
+implementation tasks. Manual attachments and research or discussion tasks do not
+count. Personal inbox filters do not change the totals.
+
+The people count deduplicates human GitHub IDs across mergers and non-dismissed
+approvals submitted before merge. Approvals can predate the seven-day window.
+Bots do not count. A missing participant snapshot leaves the people count unknown,
+not zero. The response exposes counts, not identities. GitHub reads run in a
+background task; opening the inbox only reads the database.
+
+The panel stays hidden when there are no qualifying merges. Dismissal lasts seven
+days and is stored per user and project in that browser. On return, the client
+refreshes a result older than five minutes. Before rollout, apply the migrations,
+run `backfill_inbox_summary --team-id <id>` in bounded batches, and check the counts
+against the linked GitHub PRs. The flag does not enable this backfill itself.
+
 ## Follow-up measurement timing
 
 Metric follow-up checks wait until their full trailing query window contains only post-resolution data. The configured soak is an independent minimum wait. Reopening a report clears the measurement anchor; resolving it again starts a new window. Legacy active metric checks without an anchor start their window at the next coordinator tick and recalculate expiry from the remaining schedule, capped at 90 days from that tick. Legacy rows do not distinguish supplied expiries from defaults, so both follow this re-arming policy. Checks with an existing anchor retain their expiry. A window that cannot finish before expiry records an inconclusive result instead of scheduling an unreachable run. Agent checks keep their soak-based schedule.
