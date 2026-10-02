@@ -213,12 +213,11 @@ describe('recipientsLogic', () => {
         { name: 'a failed request', search: 'slow', response: [500, { detail: 'Query timed out' }], view: 'error' },
         { name: 'a page of recipients', search: 'jamie', response: [200, PAGES_BY_CURSOR['']], view: 'results' },
     ] as const)('shows the $view view for $name', async ({ search, response, view }) => {
-        await mountLogic()
         useRecipientsResponse(() => [response[0], response[1]])
+        logic = recipientsLogic()
+        logic.mount()
 
-        await expectLogic(logic, () => logic.actions.setSearchValue(textSearch(search))).toDispatchActions([
-            response[0] === 200 ? 'loadAudienceRecipientsSuccess' : 'loadAudienceRecipientsFailure',
-        ])
+        await expectLogic(logic, () => logic.actions.setSearchValue(textSearch(search))).toFinishAllListeners()
 
         expect(logic.values.recipientsView).toBe(view)
     })

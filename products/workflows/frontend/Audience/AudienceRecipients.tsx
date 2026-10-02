@@ -22,12 +22,18 @@ function LoadFailedBanner(): JSX.Element {
 }
 
 function RecipientsBody(): JSX.Element {
-    const { recipientsView, loadFailed } = useValues(recipientsLogic)
+    const { recipientsView, loadFailed, rejectedFilter } = useValues(recipientsLogic)
     const { clearSearch } = useActions(recipientsLogic)
 
     switch (recipientsView) {
         case 'error':
             return <LoadFailedBanner />
+        case 'rejected-filter':
+            return (
+                <LemonBanner type="warning">
+                    {rejectedFilter} Remove that filter, or pick a value from the suggestions.
+                </LemonBanner>
+            )
         case 'empty':
             return (
                 <EmptyMessage

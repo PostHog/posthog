@@ -4,6 +4,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { ApiConfig } from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { apiMutator } from 'lib/api-orval-mutator'
 import { FacetSearchValue, ServerFacet, serializeFacetSearch } from 'lib/components/FacetSearchBar/facetSearch'
 import { urls } from 'scenes/urls'
@@ -30,7 +31,7 @@ const SEARCH_DEBOUNCE_MS = 300
 // pinned: URL search param holding the recipient search, shared links depend on it
 const SEARCH_URL_PARAM = 'q'
 
-export type RecipientsView = 'loading' | 'error' | 'empty' | 'no-match' | 'results'
+export type RecipientsView = 'loading' | 'error' | 'rejected-filter' | 'empty' | 'no-match' | 'results'
 
 /** One page of one search: `query` is the serialized pills and text, `pageCursors` holds the cursor of every page before it. */
 export interface RecipientsRequest {
@@ -57,6 +58,7 @@ export interface recipientsLogicValues {
     personsWithoutEmail: number
     recipients: RecipientApi[]
     recipientsView: RecipientsView
+    rejectedFilter: string | null
     searchPending: boolean
     searchQuery: string
     searchValue: FacetSearchValue
@@ -132,6 +134,7 @@ export interface recipientsLogicMeta {
         recipientsView: (
             pageLoading: boolean,
             loadFailed: boolean,
+            rejectedFilter: any,
             recipients: RecipientApi[],
             shownRequest: RecipientsRequest,
             lastRequest: RecipientsRequest | null
@@ -174,6 +177,14 @@ function searchQueryFromUrl(searchParams: Record<string, unknown>): string {
     return typeof query === 'string' ? query : JSON.stringify(query)
 }
 
+/** The API names a filter it can't read, such as `person:non` typed and closed with a space. */
+function rejectedFilterOf(error: unknown): string | null {
+    if (error instanceof ApiError && error.status === 400 && error.attr === 'filter' && error.detail) {
+        return error.detail.replaceAll('`', '"')
+    }
+    return null
+}
+
 function pillsOf(query: string): string {
     return recipientFilterParams(parseRecipientSearch(query)).join(' ')
 }
@@ -202,6 +213,13 @@ export const recipientsLogic = kea<recipientsLogicType>([
         ],
         lastRequest: [null as RecipientsRequest | null, { loadAudienceRecipients: (_, request) => request }],
         shownRequest: [firstPage(''), { loadAudienceRecipientsSuccess: (shown, { payload }) => payload ?? shown }],
+        rejectedFilter: [
+            null as string | null,
+            {
+                loadAudienceRecipients: () => null,
+                loadAudienceRecipientsFailure: (_, { errorObject }) => rejectedFilterOf(errorObject),
+            },
+        ],
         loadFailed: [
             false,
             {
@@ -266,14 +284,18 @@ export const recipientsLogic = kea<recipientsLogicType>([
         ],
         personsWithoutEmail: [(s) => [s.coverage], (coverage: number | null): number => coverage ?? 0],
         recipientsView: [
-            (s) => [s.pageLoading, s.loadFailed, s.recipients, s.shownRequest, s.lastRequest],
+            (s) => [s.pageLoading, s.loadFailed, s.rejectedFilter, s.recipients, s.shownRequest, s.lastRequest],
             (
                 pageLoading: boolean,
                 loadFailed: boolean,
+                rejectedFilter: string | null,
                 recipients: RecipientApi[],
                 shownRequest: RecipientsRequest,
                 lastRequest: RecipientsRequest | null
             ): RecipientsView => {
+                if (rejectedFilter) {
+                    return 'rejected-filter'
+                }
                 const failedWhilePaging = recipients.length > 0 && lastRequest?.query === shownRequest.query
                 if (loadFailed && !failedWhilePaging) {
                     return 'error'
@@ -288,41 +310,50 @@ export const recipientsLogic = kea<recipientsLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
-        setSearchValue: async (_, breakpoint) => {
-            await breakpoint(SEARCH_DEBOUNCE_MS)
-            const pillsChanged = pillsOf(values.searchQuery) !== pillsOf(values.lastRequest?.query ?? '')
-            if (pillsChanged && values.searchValue.filters.length > 0) {
-                // pinned: feature usage event name, renaming it breaks the Audience funnel. Facet keys only, values can hold an address.
-                posthog.capture('audience recipients filtered', { facets: facetKeysInUse(values.searchValue) })
+    listeners(({ actions, values }) => {
+        const loadFirstPage = (query: string): void => {
+            const { lastRequest, loadFailed } = values
+            const alreadyRequested = lastRequest?.query === query && lastRequest.pageCursors.length === 0 && !loadFailed
+            if (!alreadyRequested) {
+                actions.loadAudienceRecipients(firstPage(query))
             }
-            actions.loadAudienceRecipients(firstPage(values.searchQuery))
-        },
-        restoreSearchValue: () => actions.loadAudienceRecipients(firstPage(values.searchQuery)),
-        clearSearch: () => actions.loadAudienceRecipients(firstPage('')),
-        loadNextPage: () => {
-            const nextCursor = values.page.next_cursor
-            if (values.hasNextPage && nextCursor) {
-                const { query, pageCursors } = values.shownRequest
-                actions.loadAudienceRecipients({ query, pageCursors: [...pageCursors, nextCursor] })
-            }
-        },
-        loadPreviousPage: () => {
-            if (values.hasPreviousPage) {
-                const { query, pageCursors } = values.shownRequest
-                actions.loadAudienceRecipients({ query, pageCursors: pageCursors.slice(0, -1) })
-            }
-        },
-        retryLoadRecipients: () => {
-            if (values.lastRequest) {
-                actions.loadAudienceRecipients(values.lastRequest)
-            }
-        },
-        openUnreachablePersons: () => {
-            // pinned: feature usage event name, renaming it breaks the Audience funnel
-            posthog.capture('audience unreachable persons opened', { count: values.personsWithoutEmail })
-        },
-    })),
+        }
+        return {
+            setSearchValue: async (_, breakpoint) => {
+                await breakpoint(SEARCH_DEBOUNCE_MS)
+                const pillsChanged = pillsOf(values.searchQuery) !== pillsOf(values.lastRequest?.query ?? '')
+                if (pillsChanged && values.searchValue.filters.length > 0) {
+                    // pinned: feature usage event name, renaming it breaks the Audience funnel. Facet keys only, values can hold an address.
+                    posthog.capture('audience recipients filtered', { facets: facetKeysInUse(values.searchValue) })
+                }
+                loadFirstPage(values.searchQuery)
+            },
+            restoreSearchValue: () => loadFirstPage(values.searchQuery),
+            clearSearch: () => loadFirstPage(''),
+            loadNextPage: () => {
+                const nextCursor = values.page.next_cursor
+                if (values.hasNextPage && nextCursor) {
+                    const { query, pageCursors } = values.shownRequest
+                    actions.loadAudienceRecipients({ query, pageCursors: [...pageCursors, nextCursor] })
+                }
+            },
+            loadPreviousPage: () => {
+                if (values.hasPreviousPage) {
+                    const { query, pageCursors } = values.shownRequest
+                    actions.loadAudienceRecipients({ query, pageCursors: pageCursors.slice(0, -1) })
+                }
+            },
+            retryLoadRecipients: () => {
+                if (values.lastRequest) {
+                    actions.loadAudienceRecipients(values.lastRequest)
+                }
+            },
+            openUnreachablePersons: () => {
+                // pinned: feature usage event name, renaming it breaks the Audience funnel
+                posthog.capture('audience unreachable persons opened', { count: values.personsWithoutEmail })
+            },
+        }
+    }),
     actionToUrl(({ values }) => {
         const searchToUrl = (): [string, Record<string, any>, Record<string, any>, { replace: true }] => {
             const { [SEARCH_URL_PARAM]: _, ...otherParams } = router.values.searchParams
