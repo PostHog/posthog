@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-10-01 10:06:07 UTC
+// Generated at: 2026-10-02 10:06:03 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -60,13 +60,11 @@ export type CanonicalProvider =
     | 'decart-fast'
     | 'decart-fp4'
     | 'decart-mxfp4'
-    | 'deepinfra-base'
     | 'deepinfra-bf16'
     | 'deepinfra-fp16'
     | 'deepinfra-fp4'
     | 'deepinfra-fp8'
     | 'deepinfra-turbo'
-    | 'deepinfra-us'
     | 'deepseek'
     | 'dekallm'
     | 'dekallm-bf16'
