@@ -22,7 +22,12 @@ from posthog.event_usage import (
     sanitize_header_value,
 )
 from posthog.models.oauth import OAuthAccessToken
-from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, POSTHOG_AI_APP_CLIENT_ID_DEV, SIGNALS_APP_CLIENT_ID_DEV
+from posthog.temporal.oauth import (
+    ARRAY_APP_CLIENT_ID_DEV,
+    POSTHOG_AI_APP_CLIENT_ID_DEV,
+    SIGNALS_APP_CLIENT_ID_DEV,
+    WEBMCP_APP_CLIENT_ID,
+)
 
 # The MCP server's catch-all consumer, sent by every sandbox agent and by the agent PostHog
 # Desktop hosts locally.
@@ -321,13 +326,19 @@ class TestGetEventSource(BaseTest):
         request = factory.get("/fake", HTTP_X_POSTHOG_CLIENT="mcp")
         assert get_event_source(request) == EventSource.MCP
 
-    def test_posthog_ai_oauth_app_beats_the_mcp_header(self):
+    @parameterized.expand(
+        [
+            ("posthog_ai", POSTHOG_AI_APP_CLIENT_ID_DEV, EventSource.POSTHOG_AI),
+            ("webmcp", WEBMCP_APP_CLIENT_ID, EventSource.WEBMCP),
+        ]
+    )
+    def test_server_minted_oauth_app_beats_the_mcp_header(self, _name, client_id, expected):
         request = SimpleNamespace(
             META={},
             headers={"X-Posthog-Client": "mcp"},
-            successful_authenticator=_oauth_authenticator(POSTHOG_AI_APP_CLIENT_ID_DEV),
+            successful_authenticator=_oauth_authenticator(client_id),
         )
-        assert get_event_source(request) == EventSource.POSTHOG_AI
+        assert get_event_source(request) == expected
 
     @parameterized.expand(
         [
@@ -406,7 +417,7 @@ class TestGetEventSource(BaseTest):
         # that is not an EventSource drops out of every breakdown that joins the two. This list is
         # EVENT_SOURCE in `services/mcp/src/lib/event-source.ts`, which its own test pins; removing
         # a surface here without removing it there fails this.
-        mcp_server_sources = {"mcp", "cli", "wizard", "slack", "posthog_ai", "posthog_code", "self_driving"}
+        mcp_server_sources = {"mcp", "cli", "wizard", "slack", "posthog_ai", "posthog_code", "self_driving", "webmcp"}
         assert mcp_server_sources <= {source.value for source in EventSource}
 
     @parameterized.expand(

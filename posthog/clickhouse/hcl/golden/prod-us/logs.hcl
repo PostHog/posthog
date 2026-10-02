@@ -464,12 +464,6 @@ database "posthog" {
     column "pattern_version" {
       type = "UInt8"
     }
-    column "_source_topic" {
-      type = "String"
-    }
-    column "_source_partition" {
-      type = "UInt32"
-    }
     index "idx_severity_text_set" {
       expr        = "severity_text"
       type        = "set(10)"
@@ -697,12 +691,6 @@ SQL
     }
     column "pattern_version" {
       type = "UInt8"
-    }
-    column "_source_topic" {
-      type = "String"
-    }
-    column "_source_partition" {
-      type = "UInt32"
     }
     engine "distributed" {
       cluster_name    = "logs"
@@ -2121,6 +2109,11 @@ SQL
       type        = "ngrambf_v1(3, 32768, 3, 0)"
       granularity = 1
     }
+    index "idx_time_bucket_minmax" {
+      expr        = "time_bucket"
+      type        = "minmax"
+      granularity = 1
+    }
     engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/noshard/posthog.metrics4_attributes"
       replica_name = "{replica}-{shard}"
@@ -2285,8 +2278,9 @@ SQL
     partition_by = "toStartOfWeek(original_expiry_timestamp)"
     ttl          = "original_expiry_timestamp"
     settings = {
-      index_granularity   = "1024"
-      ttl_only_drop_parts = "1"
+      deduplicate_merge_projection_mode = "rebuild"
+      index_granularity                 = "1024"
+      ttl_only_drop_parts               = "1"
     }
     column "team_id" {
       type = "Int32"
@@ -2366,6 +2360,20 @@ SQL
       expr        = "time_bucket"
       type        = "minmax"
       granularity = 1
+    }
+    projection "services_by_hour" {
+      query = <<SQL
+SELECT
+  team_id,
+  time_bucket,
+  service_name,
+  uniqExact(metric_name),
+  uniq(series_fingerprint),
+  max(timestamp)
+GROUP BY
+  team_id, time_bucket, service_name
+SQL
+
     }
     engine "replicated_replacing_merge_tree" {
       zoo_path       = "/clickhouse/tables/noshard/posthog.metrics4_series"
@@ -3542,27 +3550,16 @@ SQL
     to_table = "posthog.logs_kafka_metrics"
     query    = <<SQL
 SELECT
-  kafka_partition AS _partition,
-  kafka_topic AS _topic,
-  maxSimpleState(kafka_offset) AS max_offset,
+  _partition,
+  _topic,
+  maxSimpleState(_offset) AS max_offset,
   maxSimpleState(observed_timestamp) AS max_observed_timestamp,
   maxSimpleState(timestamp) AS max_timestamp,
   maxSimpleState(now()) AS max_created_at,
   maxSimpleState(now() - observed_timestamp) AS max_lag
-FROM
-  (
-    SELECT
-      kafka_source.1 AS kafka_topic,
-      kafka_source.2 AS kafka_partition,
-      kafka_source.3 AS kafka_offset,
-      observed_timestamp,
-      timestamp
-    FROM
-      posthog.logs34 ARRAY JOIN [(_topic, _partition, _offset), (_source_topic, _source_partition, 0)] AS kafka_source
-    WHERE kafka_topic != ''
-  )
+FROM posthog.logs34
 GROUP BY
-  kafka_partition, kafka_topic
+  _partition, _topic
 SQL
 
     column "_partition" {

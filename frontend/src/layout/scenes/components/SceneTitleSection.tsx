@@ -2,7 +2,7 @@ import '../../panel-layout/ProjectTree/defaultTree'
 
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
 import {
@@ -17,6 +17,8 @@ import {
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { ProductSetupButton } from 'lib/components/ProductSetup'
+import { releaseStageProductForScene } from 'lib/components/ReleaseStageTag/releaseStage'
+import { ReleaseStageTag } from 'lib/components/ReleaseStageTag/ReleaseStageTag'
 import { RenderKeybind } from 'lib/components/Shortcuts/ShortcutMenu'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -246,6 +248,8 @@ type SceneMainTitleProps = {
     maxButtonLabel?: string
     /** Max character length for the description field */
     descriptionMaxLength?: number
+    /** The scene whose release stage the title shows, when the title is for a scene other than the active one */
+    sceneId?: string | null
 }
 
 export function SceneTitleSection({
@@ -273,9 +277,16 @@ export function SceneTitleSection({
     maxToolProps,
     maxButtonLabel,
     descriptionMaxLength,
+    sceneId,
 }: SceneMainTitleProps): JSX.Element | null {
     const { breadcrumbs } = useValues(breadcrumbsLogic)
     const { zenMode } = useValues(navigation3000Logic)
+    const { activeSceneId } = useValues(sceneLogic)
+    const releaseStageSceneId = sceneId ?? activeSceneId
+    const releaseStageProduct = useMemo(
+        () => releaseStageProductForScene(releaseStageSceneId, name),
+        [releaseStageSceneId, name]
+    )
     const { showDescription } = useValues(sceneLayoutLogic)
     const { toggleShowDescription } = useActions(sceneLayoutLogic)
     const willShowBreadcrumbs = forceBackTo || breadcrumbs.length > 2
@@ -382,6 +393,7 @@ export function SceneTitleSection({
                                     isGeneratingMetadata={isGeneratingMetadata}
                                     suffix={
                                         <>
+                                            {releaseStageProduct && <ReleaseStageTag product={releaseStageProduct} />}
                                             {nameSuffix}
                                             {hasDescription && !descriptionAlwaysVisible ? (
                                                 <ButtonPrimitive
@@ -407,6 +419,7 @@ export function SceneTitleSection({
                                         </>
                                     }
                                 />
+                                {forceEdit && nameSuffix}
                             </>
                         )}
                     </div>

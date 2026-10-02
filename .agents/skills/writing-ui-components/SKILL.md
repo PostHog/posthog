@@ -214,7 +214,10 @@ acts on it.
   dashboards and Playwright find them. Once shipped it's frozen (see the table above).
 - **New presentational components ship with a story** (handbook rule). Each committed story
   shows a state that no other story shows. A story adds a light and a dark visual review
-  baseline, and every later change to that surface must re-approve both. A story written only
+  baseline, and every later change to that surface must re-approve both. A quarantined story's
+  diff does not gate the PR, so check for it and approve it by identifier
+  ([triaging-visual-review-runs](../../../products/visual_review/skills/triaging-visual-review-runs/SKILL.md#quarantined-stories-in-your-run)).
+  A story written only
   to look at a change or to take a PR screenshot is scratch: keep it out of the commit.
   Flag-gated components use the `featureFlags` story parameter
   ([setting-feature-flags-in-storybook](../setting-feature-flags-in-storybook/SKILL.md)).

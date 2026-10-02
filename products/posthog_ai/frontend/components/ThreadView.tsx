@@ -6,12 +6,18 @@ import { inStorybookTestRunner } from 'lib/utils/dom'
 
 import { isTerminalRunStatus, runStreamLogic } from '../logics/runStreamLogic'
 import { ReasoningAnswer } from '../messages/ReasoningAnswer'
-import type { ThreadItem } from '../types/streamTypes'
-import { groupThreadActivity, type ThreadDisplayItem } from '../utils/groupThreadActivity'
+import type { ThreadItem, ToolInvocation } from '../types/streamTypes'
+import {
+    groupThreadActivity,
+    groupToolRuns,
+    isRunningStatus,
+    isStartupStatus,
+    type ThreadDisplayItem,
+} from '../utils/groupThreadActivity'
 import { getRandomThinkingMessage } from '../utils/thinkingMessages'
 import { resolveToolCall } from '../utils/toolResolver'
 import { TurnHoverStore } from '../utils/turnHoverStore'
-import { type TurnTrailer, computeTurnTrailers, mapRowsToTurnSeparator } from '../utils/turnTrailers'
+import { type TurnTrailer, computeTurnTrailers, mapRowsToRevealGroup } from '../utils/turnTrailers'
 import { ContextUsageChip } from './ContextUsageChip'
 import { PullRequestCard } from './PullRequestCard'
 import { type ThreadSkin, ThreadSkinContext } from './quill/quillThreadContext'
@@ -47,6 +53,23 @@ const THREAD_ITEM_HEIGHT_ESTIMATES: Partial<Record<ThreadItem['type'], number>> 
     task_notification: 26,
     progress: 42,
     debug: 30,
+}
+
+/** The quill thread leaves a lone call or thought outside a group, and such a row shows its own live state. */
+function quillRowShowsProgress(item: ThreadDisplayItem, toolInvocations: ReadonlyMap<string, ToolInvocation>): boolean {
+    switch (item.type) {
+        case 'assistant_thought':
+            // An empty thought renders nothing, so the bottom indicator still has to show.
+            return !!item.text?.trim()
+        case 'tool_invocation': {
+            const status = item.toolCallId ? toolInvocations.get(item.toolCallId)?.status : undefined
+            return status === 'pending' || status === 'in_progress'
+        }
+        case 'status':
+            return isStartupStatus(item) || isRunningStatus(item)
+        default:
+            return false
+    }
 }
 
 function estimateThreadItemHeight(item: ThreadDisplayItem): number {
@@ -129,15 +152,22 @@ export function ThreadView({
     // still going, so it keeps the softer title.
     const runEnded = isTerminalRunStatus(currentRunStatus)
     const displayItems = useMemo(() => {
-        const standaloneToolIds = new Set<string>()
+        const pinnedToolIds = new Set<string>()
+        const widgetToolIds = new Set<string>()
         for (const [id, invocation] of toolInvocations) {
             const resolved = resolveToolCall(invocation)
-            if (lookupToolRenderer(resolved.resolvedKey, !!resolved.innerToolName).keepVisible) {
-                standaloneToolIds.add(id)
+            const entry = lookupToolRenderer(resolved.resolvedKey, !!resolved.innerToolName)
+            if (entry.pinned) {
+                pinnedToolIds.add(id)
+            } else if (entry.keepVisible) {
+                widgetToolIds.add(id)
             }
         }
-        return groupThreadActivity(threadItems, standaloneToolIds)
-    }, [threadItems, toolInvocations])
+        if (skin === 'quill') {
+            return groupToolRuns(threadItems, toolInvocations, { pinnedToolIds, widgetToolIds, settled: !isThinking })
+        }
+        return groupThreadActivity(threadItems, new Set([...pinnedToolIds, ...widgetToolIds]))
+    }, [threadItems, toolInvocations, skin, isThinking])
     // The last human message anchors the thread. Reopening a saved conversation lands on it — the last
     // meaningful turn, response below — when at least a viewport of content follows it (otherwise the
     // bottom); a fresh send (a new key) pins the thread to the bottom to follow the streaming response.
@@ -146,13 +176,11 @@ export function ThreadView({
         [threadItems]
     )
     // Only computed when a trailer renderer is supplied — bare ThreadViews pay nothing.
-    const turns = useMemo(
-        () =>
-            renderTurnTrailer
-                ? { trailers: computeTurnTrailers(threadItems), rowTurnIds: mapRowsToTurnSeparator(displayItems) }
-                : null,
-        [threadItems, displayItems, renderTurnTrailer]
+    const trailers = useMemo(
+        () => (renderTurnTrailer ? computeTurnTrailers(threadItems) : null),
+        [threadItems, renderTurnTrailer]
     )
+    const revealGroups = useMemo(() => mapRowsToRevealGroup(displayItems), [displayItems])
     const [turnHoverStore] = useState(() => new TurnHoverStore())
 
     // Header/footer are kept as memoized leaf components with stable element identity so they don't rebuild
@@ -172,11 +200,12 @@ export function ThreadView({
     // The connection banner (reconnecting / connection-failed) owns the footer line when present, so it
     // takes precedence over the thinking indicator (a mid-run reconnect otherwise reads as normal thinking).
     const showConnectionStatus = !!runConnectionState
+    const lastItem = displayItems.at(-1)
+    const lastRowShowsProgress =
+        lastItem?.type === 'activity_group' ||
+        (skin === 'quill' && !!lastItem && quillRowShowsProgress(lastItem, toolInvocations))
     const showThinking =
-        showThinkingIndicator &&
-        !showConnectionStatus &&
-        !pendingPermissionRequest &&
-        displayItems.at(-1)?.type !== 'activity_group'
+        showThinkingIndicator && !showConnectionStatus && !pendingPermissionRequest && !lastRowShowsProgress
     const thinkingPhase = streamPhase === 'provisioning' ? 'provisioning' : 'thinking'
     // Post-turn only: a reconnect refetch can fold in a pr_url mid-run, so gate on !isThinking.
     const pullRequestUrl = !isThinking ? runArtifacts.prUrl : undefined
@@ -216,7 +245,7 @@ export function ThreadView({
                 const isLast = index === displayItems.length - 1
                 return (
                     <VirtualizedThread.Row className={rowClassName}>
-                        <TurnReveal store={turnHoverStore} turnId={turns?.rowTurnIds.get(item.id)}>
+                        <TurnReveal store={turnHoverStore} turnId={revealGroups.get(item.id)}>
                             <ThreadActivityGroup
                                 group={item}
                                 toolInvocations={toolInvocations}
@@ -239,7 +268,7 @@ export function ThreadView({
                 )
             }
             if (item.type === 'turn_separator' && renderTurnTrailer) {
-                const trailer = turns?.trailers.get(item.id)
+                const trailer = trailers?.get(item.id)
                 return (
                     <VirtualizedThread.Row className={rowClassName}>
                         {trailer ? (
@@ -252,7 +281,7 @@ export function ThreadView({
             }
             return (
                 <VirtualizedThread.Row className={rowClassName}>
-                    <TurnReveal store={turnHoverStore} turnId={turns?.rowTurnIds.get(item.id)}>
+                    <TurnReveal store={turnHoverStore} turnId={revealGroups.get(item.id)}>
                         <ThreadRow
                             item={item}
                             isLast={index === displayItems.length - 1}
@@ -274,7 +303,8 @@ export function ThreadView({
             turnCancelled,
             rowClassName,
             renderTurnTrailer,
-            turns,
+            trailers,
+            revealGroups,
             turnHoverStore,
             pendingPermissionRequest,
             currentRunStatus,

@@ -92,6 +92,7 @@ class Command(BaseCommand):
         self.stdout.write(f"{verb} mode {mode.value} ({mode.label}) on {len(organizations)} organization(s).")
         changed_count = 0
         left_above_count = 0
+        stopped_experiments_count = 0
         with transaction.atomic():
             for organization in organizations:
                 change = set_organization_flag_evaluations_mode(
@@ -99,6 +100,8 @@ class Command(BaseCommand):
                 )
                 changed_count += change.changed
                 left_above_count += change.left_above_mode
+                if change.changed and mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY:
+                    stopped_experiments_count += change.running_experiments_on_feature_flag_called
                 outcome = (
                     f"mode {change.current_mode} -> {change.target_mode}"
                     if change.changed
@@ -106,7 +109,8 @@ class Command(BaseCommand):
                 )
                 self.stdout.write(
                     f"  organization {change.organization_id} (created {change.organization_created_at:%Y-%m-%d}, "
-                    f"{change.team_count} team(s)): {outcome}"
+                    f"{change.team_count} team(s), "
+                    f"{change.running_experiments_on_feature_flag_called} experiment(s) on $feature_flag_called): {outcome}"
                 )
 
         self.stdout.write(f"{verb} mode {mode.value} on {changed_count} organization(s).")
@@ -114,4 +118,9 @@ class Command(BaseCommand):
             self.stdout.write(
                 f"Left {left_above_count} organization(s) above mode {mode.value}. "
                 "Pass --allow-downgrade to lower them."
+            )
+        if stopped_experiments_count:
+            self.stdout.write(
+                f"{stopped_experiments_count} running experiment(s) count exposures on $feature_flag_called. "
+                "On teams in the ingestion allowlist, those exposures stop on this mode."
             )

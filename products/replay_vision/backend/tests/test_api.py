@@ -338,6 +338,85 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         )
         self.assertEqual(resp.status_code, 201, resp.json())
 
+    def test_experiment_scanner_create_validates_the_experiment(self) -> None:
+        # The type is unusable without a resolvable exposed population, so the write path must
+        # refuse a draft experiment and an unknown variant with the linkage's own message, and
+        # must keep the experiment out of the legacy targeting column.
+        launched = create_experiment(self.team, "launched-flag", launched=True, variants=["control", "test"])
+        draft = create_experiment(self.team, "draft-flag", variants=["control", "test"])
+
+        def post(name: str, experiment_id: int, **config_overrides: Any) -> Any:
+            return self.client.post(
+                self.scanners_url,
+                data={
+                    "name": name,
+                    "scanner_type": ScannerType.EXPERIMENT,
+                    "scanner_config": {"prompt": "p", "experiment_id": experiment_id, **config_overrides},
+                    "model": ScannerModel.GEMINI_3_8_FLASH,
+                },
+                format="json",
+            )
+
+        draft_resp = post("draft-scanner", draft.id)
+        self.assertEqual(draft_resp.status_code, 400, draft_resp.json())
+        self.assertIn("hasn't launched", draft_resp.json()["detail"])
+
+        unknown_variant = post("unknown-variant", launched.id, variants=["control", "nope"])
+        self.assertEqual(unknown_variant.status_code, 400, unknown_variant.json())
+        self.assertIn("not a variant", unknown_variant.json()["detail"])
+
+        valid = post("experiment-scanner", launched.id, variants=["test"])
+        self.assertEqual(valid.status_code, 201, valid.json())
+        scanner = ReplayScanner.objects.get(id=valid.json()["id"])
+        self.assertEqual(scanner.experiment_scope(), {"experiment_id": launched.id, "variants": ["test"]})
+        exposure = scanner.targeted_recordings_query().experiment_exposure
+        assert exposure is not None
+        self.assertEqual(exposure.variants, ["test"])
+
+        with_column = self.client.post(
+            self.scanners_url,
+            data={
+                "name": "column-on-experiment-type",
+                "scanner_type": ScannerType.EXPERIMENT,
+                "scanner_config": {"prompt": "p", "experiment_id": launched.id},
+                "model": ScannerModel.GEMINI_3_8_FLASH,
+                "experiment_targeting": {"experiment_id": launched.id},
+            },
+            format="json",
+        )
+        self.assertEqual(with_column.status_code, 400, with_column.json())
+        self.assertEqual(with_column.json()["attr"], "experiment_targeting")
+
+    def test_experiment_scanner_experiment_is_fixed_after_creation(self) -> None:
+        # Retargeting would mix two experiments' populations under one scanner's history and
+        # readouts, so it is a new scanner, not an edit; `variants` stays editable.
+        watched = create_experiment(self.team, "watched-flag", launched=True, variants=["control", "test"])
+        other = create_experiment(self.team, "other-flag", launched=True, variants=["control", "test"])
+        scanner = self._create_scanner(
+            name="fixed-experiment",
+            scanner_type=ScannerType.EXPERIMENT,
+            scanner_config={"prompt": "p", "experiment_id": watched.id},
+        )
+
+        retarget = self.client.patch(
+            f"{self.scanners_url}{scanner.id}/",
+            data={"scanner_config": {"prompt": "p", "experiment_id": other.id}},
+            format="json",
+        )
+        self.assertEqual(retarget.status_code, 400, retarget.json())
+        self.assertIn("fixed after creation", retarget.json()["detail"])
+
+        narrowed = self.client.patch(
+            f"{self.scanners_url}{scanner.id}/",
+            data={"scanner_config": {"prompt": "sharper", "variants": ["test"]}},
+            format="json",
+        )
+        self.assertEqual(narrowed.status_code, 200, narrowed.json())
+        scanner.refresh_from_db()
+        self.assertEqual(
+            scanner.scanner_config, {"prompt": "sharper", "variants": ["test"], "experiment_id": watched.id}
+        )
+
     @parameterized.expand(
         [
             ("classifier_without_tags", ScannerType.CLASSIFIER, {"prompt": "p"}),
@@ -426,6 +505,24 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "Scale is required.",
             ),
             (
+                "experiment_missing_experiment",
+                ScannerType.EXPERIMENT,
+                {"prompt": "p"},
+                "Experiment is required.",
+            ),
+            (
+                "experiment_empty_variants",
+                ScannerType.EXPERIMENT,
+                {"prompt": "p", "experiment_id": 1, "variants": []},
+                "Variants must be a non-empty list, or null to watch every variant.",
+            ),
+            (
+                "experiment_duplicate_variants",
+                ScannerType.EXPERIMENT,
+                {"prompt": "p", "experiment_id": 1, "variants": ["test", "test"]},
+                "Variants must be unique.",
+            ),
+            (
                 "not_a_dict",
                 ScannerType.MONITOR,
                 "just a string",
@@ -454,6 +551,19 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 ScannerType.MONITOR,
                 {"prompt": "p", "alow_inconclusive": True},
                 "Unknown scanner configuration keys: alow_inconclusive.",
+            ),
+            (
+                "per_scan_field_in_config",
+                ScannerType.SUMMARIZER,
+                {"prompt": "p", "chapter_target": 50},
+                "Unknown scanner configuration keys: chapter_target.",
+            ),
+            # A saved value would fake the variant or hypothesis in every scan's prompt.
+            (
+                "experiment_scan_time_keys",
+                ScannerType.EXPERIMENT,
+                {"prompt": "p", "experiment_id": 1, "session_variant": "test", "experiment_context": {}},
+                "Unknown scanner configuration keys: experiment_context, session_variant.",
             ),
         ]
     )
@@ -4160,6 +4270,16 @@ class TestInlineScanAction(_VisionAPITestCase):
             status=ObservationStatus.SUCCEEDED,
             completed_at=timezone.now(),
         )
+
+    def test_experiment_type_is_refused(self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock) -> None:
+        # Inline scans skip the saved-scanner access check and the variant attribution, so an
+        # experiment-type inline scan would read an experiment's population with neither.
+        resp = self._scan(
+            scanner_type="experiment",
+            scanner_config={"experiment_id": 1},
+        )
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertEqual(resp.json()["attr"], "scanner_type")
 
     def test_a_fully_refused_scan_still_reports_the_request(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock

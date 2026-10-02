@@ -164,6 +164,25 @@ describe('RoutingPersonsStore', () => {
         })
 
         it.each([
+            ['empty properties', { properties: {} }, []],
+            ['another person', { uuid: 'other-uuid' }, [{ verb: 'fetchForChecking', field: 'uuid' }]],
+        ])(
+            'compares a checking read on identity only, given a shadow answer with %s',
+            async (_case, shadowDiff, expected) => {
+                const stores = makeStores()
+                stores.pg.fetchForChecking.mockResolvedValue({ ...person(1, '1'), properties: { plan: 'pro' } })
+                stores.personhogMock.fetchForChecking.mockResolvedValue({ ...person(1, '1'), ...shadowDiff })
+                const store = makeStore(stores, 'shadow')
+
+                await store.fetchForChecking(1, 'd1', 0)
+
+                // personhog answers a checking read from the identity service, without properties.
+                expect(divergences()).toEqual(expected)
+                expect(personhogStoreShadowComparedCounter.labels).toHaveBeenCalledWith({ verb: 'fetchForChecking' })
+            }
+        )
+
+        it.each([
             ['a nested object whose keys arrived in another order', { a: 1, b: 2 }, { b: 2, a: 1 }, false],
             ['an array whose order actually differs', [1, 2], [2, 1], true],
         ])('reads %s correctly', async (_case, pgValue, shadowValue, diverges) => {
