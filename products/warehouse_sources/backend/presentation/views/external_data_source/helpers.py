@@ -360,8 +360,8 @@ _CDC_EXPOSED_JOB_INPUT_KEYS = {
     "cdc_lag_warning_threshold_mb",
     "cdc_lag_critical_threshold_mb",
     "cdc_consistent_point",
-    # Set by CDC setup, Repair CDC and capture, never by the API. Losing it on an unrelated PATCH
-    # would make capture convert the source again, which empties its unconsumed buffer.
+    # Set by CDC setup and Repair CDC, never by the API. Nothing reads it now, but a rollback to the
+    # release that converted legacy sources would empty the buffer of a source that lost it on a PATCH.
     "cdc_ingest_mode",
 }
 

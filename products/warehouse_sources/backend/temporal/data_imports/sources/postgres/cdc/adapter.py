@@ -245,8 +245,8 @@ class PostgresCDCAdapter:
             _recreate, _retry_logger, is_retryable=_is_dropped_or_connect_timeout
         )
 
-        # Every schema is reset to snapshot before this runs, so nothing from the dead slot is owed:
-        # the new slot starts on the buffer, as a new source does, and capture has nothing to convert.
+        # Nothing reads the ingest mode now. It is still written because a rollback to the release that
+        # converted legacy sources would read a source without it as legacy and empty its buffer.
         return {"cdc_consistent_point": consistent_point, "cdc_ingest_mode": "buffered"}
 
     def setup_resources(
@@ -273,8 +273,7 @@ class PostgresCDCAdapter:
             "cdc_management_mode": management_mode,
             "cdc_slot_name": slot_name,
             "cdc_publication_name": pub_name,
-            # Written with the slot, before capture first runs, so capture never treats the new source
-            # as one the retired legacy lane still delivered for.
+            # Kept for the same rollback reason as in `recreate_slot`.
             "cdc_ingest_mode": "buffered",
         }
 

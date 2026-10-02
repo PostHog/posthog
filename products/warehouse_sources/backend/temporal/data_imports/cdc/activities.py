@@ -69,7 +69,6 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import 
     CDCSlotNotConfiguredError,
     classify_cdc_error,
 )
-from products.warehouse_sources.backend.temporal.data_imports.cdc.legacy_conversion import convert_legacy_cdc_state
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import has_engine_seq
 from products.warehouse_sources.backend.temporal.data_imports.cdc.naming import (
     CDC_EXTRACTION_WORKFLOW_ID_PREFIX,
@@ -510,25 +509,13 @@ class CDCExtractActivity:
         return True
 
     def _prepare_buffer(self) -> None:
-        """Convert leftover legacy state and start pending snapshots in the buffer, before the WAL read."""
-        assert self.source is not None and self.adapter is not None
-        convert_legacy_cdc_state(
-            self.source,
-            self.cdc_schemas,
-            ingest_mode=self.adapter.parse_cdc_config(self.source).ingest_mode,
-            logger=self.log,
-        )
-
+        """Start pending snapshots in the buffer, before the WAL read."""
         for schema in self.cdc_schemas:
             if not captures_to_buffer(schema):
                 # No lane writes this table mode, so the buffer could never deliver its changes.
                 self._schema_log(schema).warning("cdc_table_mode_not_captured", cdc_table_mode=schema.cdc_table_mode)
                 continue
-            # A table with deferred runs gets no buffered snapshot here: its old sync could still hand over
-            # into that buffer without its deferred changes. The reset the conversion staged restarts the
-            # snapshot instead, and holds the table out of capture until the old sync stops. Once that
-            # reset has run, which can be before this read, the table's changes belong in the buffer.
-            if snapshot_can_start_in_buffer(schema) and not (schema.sync_type_config or {}).get("cdc_deferred_runs"):
+            if snapshot_can_start_in_buffer(schema):
                 self._start_snapshot_in_buffer(schema)
             self._buffered_table_names.add(schema.name)
         self.log.info("cdc_buffered_ingress_active", buffered=sorted(self._buffered_table_names))

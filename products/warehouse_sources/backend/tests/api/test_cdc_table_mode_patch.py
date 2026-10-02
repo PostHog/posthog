@@ -175,7 +175,7 @@ def test_patch_cdc_table_mode_adding_target_triggers_resnapshot(
     schema.refresh_from_db()
     assert schema.cdc_table_mode == new_mode
     # The table's changes keep going to the buffer, which the new snapshot then replays.
-    assert (schema.sync_type_config.get("cdc_snapshot_lane") == "buffer") is (deferred_runs is None)
+    assert schema.sync_type_config.get("cdc_snapshot_lane") == "buffer"
     assert schema.sync_type_config.get("cdc_mode") == "snapshot"
     assert schema.sync_type_config.get("cdc_last_log_position") is None
     assert schema.sync_type_config.get("cdc_deferred_runs") is None
@@ -495,9 +495,8 @@ def test_a_cdc_table_syncs_before_its_captured_changes_expire(
         assert "must sync at least weekly" in str(response.json())
 
 
-@pytest.mark.parametrize("ingest_mode", [None, "buffered"])
-def test_resync_of_a_streaming_table_keeps_its_buffer_on_a_buffered_source(team, user, client: HttpClient, ingest_mode):
-    _, schema = _make_cdc_source_and_schema(team, cdc_table_mode="consolidated", ingest_mode=ingest_mode)
+def test_resync_of_a_streaming_table_keeps_its_buffer(team, user, client: HttpClient):
+    _, schema = _make_cdc_source_and_schema(team, cdc_table_mode="consolidated")
     client.force_login(user)
     with (
         mock.patch(_PATCH_TARGETS["is_any_external_data_schema_paused"], return_value=False),
@@ -510,7 +509,7 @@ def test_resync_of_a_streaming_table_keeps_its_buffer_on_a_buffered_source(team,
     schema.refresh_from_db()
     assert schema.sync_type_config.get("cdc_mode") == "snapshot"
     # Unmarked, the next capture run empties the buffer and can delete changes the snapshot never saw.
-    assert (schema.sync_type_config.get("cdc_snapshot_lane") == "buffer") is (ingest_mode == "buffered")
+    assert schema.sync_type_config.get("cdc_snapshot_lane") == "buffer"
 
 
 @pytest.mark.parametrize(

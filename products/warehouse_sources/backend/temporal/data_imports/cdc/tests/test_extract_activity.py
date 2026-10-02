@@ -144,7 +144,6 @@ def _stub_app_db_writes():
             "_update_schema_sync_type_config",
             side_effect=_fake_update_schema_sync_type_config,
         ),
-        patch(f"{_ACTIVITIES}.convert_legacy_cdc_state"),
         patch(f"{_ACTIVITIES}.cancel_running_sync", return_value=None),
     ):
         yield
@@ -2059,33 +2058,17 @@ class TestBufferedIngressCapture:
 
     @parameterized.expand(
         [
-            ("sync_still_stopping", "users-snapshot", {"clear_deferred_runs": False}, False, True),
-            ("sync_stopped", None, {"clear_deferred_runs": False}, False, False),
-            ("sync_stopped_after_a_request_reset", None, {"clear_deferred_runs": True, "trigger": True}, False, False),
-            (
-                "legacy_deferred_runs_old_sync_stopping",
-                "users-snapshot",
-                {"clear_deferred_runs": True, "trigger": True},
-                True,
-                True,
-            ),
-            (
-                "legacy_deferred_runs_old_sync_stopped",
-                None,
-                {"clear_deferred_runs": True, "trigger": True},
-                True,
-                False,
-            ),
+            ("sync_still_stopping", "users-snapshot", {"clear_deferred_runs": False}, True),
+            ("sync_stopped", None, {"clear_deferred_runs": False}, False),
+            ("sync_stopped_after_a_request_reset", None, {"clear_deferred_runs": True, "trigger": True}, False),
         ]
     )
     def test_a_pending_reset_finishes_before_the_read_once_the_sync_stopped(
-        self, _name, stopping_workflow_id, pending, deferred_runs, waits
+        self, _name, stopping_workflow_id, pending, waits
     ):
         source = _make_source()
-        schema = _make_schema("users", cdc_mode="snapshot" if deferred_runs else "streaming", source=source)
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
         schema.sync_type_config["cdc_reset_pending"] = pending
-        if deferred_runs:
-            schema.sync_type_config["cdc_deferred_runs"] = [{"run_uuid": "r1"}]
         events = [_make_event(op="I", position="0/100", columns={"id": 1})]
 
         with (
@@ -2104,7 +2087,6 @@ class TestBufferedIngressCapture:
         assert trigger.called is (not waits and bool(pending.get("trigger")))
         assert schema.sync_type_config.get("reset_pipeline") is (None if waits else True)
         assert ("cdc_reset_pending" in schema.sync_type_config) is waits
-        assert ("cdc_deferred_runs" in schema.sync_type_config) is (deferred_runs and waits)
         assert capture.buffer.write_batch.called is not waits
         capture.reader.confirm_position.assert_called_once_with("0/100")
 
