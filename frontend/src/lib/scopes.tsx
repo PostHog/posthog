@@ -268,7 +268,7 @@ API_SCOPES.sort((a, b) => a.objectName.localeCompare(b.objectName))
 
 // Scope objects deliberately absent from the key-creation modal above, each with the reason.
 // Every scope object in `ScopeObjectEnumApi` must be either offered in `API_SCOPES` or listed here,
-// except the OAuth-hidden ones in `OAUTH_HIDDEN_SCOPE_OBJECTS`, which no picker shows.
+// except the OAuth-hidden ones in `OAUTH_SCOPES_HIDDEN` (lib/oauthScopes.generated), which no picker shows.
 // scopes.test.ts enforces that partition so a newly added backend scope can't silently go missing.
 export const API_SCOPES_OMITTED_FROM_MODAL: Partial<Record<APIScopeObject, string>> = {
     // Umbrella access-control resource that `warehouse_view`/`warehouse_table` inherit from —
