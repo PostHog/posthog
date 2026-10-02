@@ -69,10 +69,6 @@ _COPIED_ROW_FILTER = "_partition = 0 AND _offset = 0 AND inserted_at = timestamp
 # rows now, so the time a row is written does not show how far the consumer is behind.
 # The lookback filters on inserted_at because only inserted_at has a skip index.
 _KAFKA_LOOKBACK_DAYS = 7
-# Ingestion retries a failed produce until librdkafka's message.timeout.ms, which defaults to five minutes.
-# A retried row keeps the Kafka time of its first attempt, so it can reach flag_evaluations after rows that
-# Kafka stamped later.
-_KAFKA_DELIVERY_TIMEOUT = timedelta(minutes=5)
 _KAFKA_POSITION_QUERY = f"""
 SELECT count(), max(lag_seconds)
 FROM (
@@ -82,6 +78,12 @@ FROM (
     GROUP BY _partition
 )
 """
+
+# Ingestion's producer sets each message's Kafka create time when it calls produce.
+# librdkafka retries a failed produce until message.timeout.ms, which defaults to five minutes.
+# A retried row keeps the create time of its first attempt, so it can reach flag_evaluations after rows
+# with a later create time.
+_KAFKA_DELIVERY_TIMEOUT = timedelta(minutes=5)
 
 _STORAGE_POLICY_DISKS_QUERY = f"""
 SELECT policy.volume_priority, policy.move_factor, disk.free_space, disk.total_space
@@ -248,11 +250,10 @@ def build_copy_query(*, dry_run: bool, filter_team_ids: bool, chunked: bool) -> 
     if chunked:
         team_filter += " AND modulo(team_id, %(team_id_chunks)s) = %(chunk)s"
     # The eligibility filter is the ingestion fork's rule, in the form PARITY_CHECK.md uses.
-    # Ingestion queues a call's fork row before its events row, so the fork row's Kafka time is never later
-    # than the events row's _timestamp. flag_evaluations holds every fork row stamped before delivered_before,
-    # so the anti-join finds the fork row of an older source row. A newer source row, such as a fresh import
-    # dated inside the window, can still have its fork row in Kafka. Copying it would store the call twice,
-    # so the job skips it. Kafka then delivers its fork row, or a later run copies it.
+    # Ingestion queues a call's fork row before its events row, so the fork row's Kafka create time is never
+    # later than the events row's _timestamp. A source row whose _timestamp is at or after delivered_before can
+    # still have its fork row in Kafka. Copying it would store the call twice, so the job skips it. Kafka then
+    # delivers its fork row, or a later run copies it.
     select = f"""
 SELECT {"count()" if dry_run else _COPIED_COLUMNS}
 FROM {EVENTS_DATA_TABLE()}
@@ -498,7 +499,7 @@ class ShardBackfill:
         return hosts_moving_parts
 
     def check_consumer_lag(self) -> datetime:
-        """Return an instant before which flag_evaluations holds every fork row that Kafka stamped."""
+        """Return a cutoff such that flag_evaluations holds every fork row whose Kafka create time is before it."""
         checked_at = datetime.now(UTC)
         kafka_partitions, lag_seconds = self._on_copy_host(partial(self._first_row, _KAFKA_POSITION_QUERY))
         if kafka_partitions == 0:

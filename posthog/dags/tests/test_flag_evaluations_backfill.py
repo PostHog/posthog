@@ -46,7 +46,7 @@ class SourceEvent:
     age: timedelta
     properties: Mapping[str, object]
     event: str = FLAG_EVALUATIONS_SOURCE_EVENT
-    # How long ago Kafka delivered the row to the events table, when that differs from its age.
+    # The age of the row's Kafka create time (_timestamp), when that differs from the event's age.
     reached_events_age: timedelta | None = None
 
     @property
@@ -94,7 +94,8 @@ def copied(event: SourceEvent) -> StoredRow:
 
 INSIDE_RECENT = flag_called("inside_recent", TEAM_ONE, timedelta(days=2, hours=12))
 INSIDE_TEAM_THREE = flag_called("inside_team_three", TEAM_THREE, timedelta(days=30))
-INSIDE_OLD = flag_called("inside_old", TEAM_TWO, timedelta(days=60))
+# An old call that reached events two hours ago. That is before the consumer-lag cutoff, so the job copies it.
+INSIDE_OLD = replace(flag_called("inside_old", TEAM_TWO, timedelta(days=60)), reached_events_age=timedelta(hours=2))
 ALREADY_FORKED = flag_called("already_forked", TEAM_ONE, timedelta(days=5))
 # An import dated inside the window that reached events just before the consumer-lag check. Its fork row
 # can still be in Kafka, so the job does not copy it.
@@ -636,9 +637,7 @@ def test_backfill_fails_without_copying_when_a_safety_check_fails(
 def test_consumer_lag_check_sets_the_cutoff_before_the_lag_limit_and_the_delivery_timeout() -> None:
     cluster = MagicMock()
     cluster.map_any_host_in_shards_by_role.return_value.result.return_value = {1: (2, 30)}
-    backfill = shard_backfill(
-        FlagEvaluationsBackfillConfig(max_consumer_lag_seconds=600, max_unmerged_parts=0), cluster=cluster
-    )
+    backfill = shard_backfill(FlagEvaluationsBackfillConfig(max_consumer_lag_seconds=600), cluster=cluster)
 
     with time_machine.travel(datetime(2026, 3, 10, 12, tzinfo=UTC), tick=False):
         delivered_before = backfill.check_consumer_lag()
