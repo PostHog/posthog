@@ -31,6 +31,7 @@ export type CanvasDashboardActionType =
     | 'promote_draft'
     | 'panel_tab_change'
     | 'panel_toggle'
+    | 'fullscreen_toggle'
     | 'comment_create'
     | 'comment_reply'
     | 'comment_resolve'

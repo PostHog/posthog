@@ -60,8 +60,11 @@ export const urls = {
     transformations: (): string => '/data-management/transformations',
     eventFiltering: (): string => '/data-management/event-filtering',
     activity: (tab: ActivityTab | ':tab' = ActivityTab.ExploreEvents): string => `/activity/${tab}`,
-    event: (id: string, timestamp: string): string =>
-        `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
+    event: (id: string, timestamp: string, eventName?: string): string =>
+        combineUrl(
+            `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
+            eventName ? { event: eventName } : {}
+        ).url,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
     ingestionWarningsV2: (): string => '/data-management/ingestion-warnings-v2',
     revenueSettings: (): string => '/data-management/revenue',

@@ -28,6 +28,7 @@ import {
     computeBulkPinDirection,
     computeRangeSelection,
     isEditableTarget,
+    isMenuEscape,
     pruneToVisible,
     toggleSelection,
 } from '~/layout/today/todaySessionSelection'
@@ -344,6 +345,7 @@ export const spaceFeedSelectionLogic: LogicWrapper<spaceFeedSelectionLogicType> 
                 if (
                     event.key === 'Escape' &&
                     !isEditableTarget(event.target) &&
+                    !isMenuEscape(event) &&
                     !values.bulkArchiveConfirm.open &&
                     values.selection.ids.length
                 ) {

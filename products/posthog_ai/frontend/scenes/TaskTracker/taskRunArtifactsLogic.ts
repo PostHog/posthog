@@ -13,7 +13,7 @@ import {
     selectors,
 } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
@@ -34,6 +34,7 @@ import type {
 import type { TaskRun } from '../../types/taskTypes'
 import { taskDetailSceneLogic } from './taskDetailSceneLogic'
 import {
+    ARTIFACT_PARAM,
     ArtifactFile,
     ArtifactPreviewKind,
     RunArtifact,
@@ -45,6 +46,8 @@ import {
     livingArtifactFiles,
     livingArtifactsFromResponse,
     postHogObjectRef,
+    taskArtifactPath,
+    VERSION_PARAM,
 } from './taskRunArtifacts'
 
 export interface TaskRunArtifactsLogicProps {
@@ -79,6 +82,7 @@ export interface taskRunArtifactsLogicValues {
     artifacts: RunArtifact[]
     chainRuns: TaskRunDetailDTOApi[]
     chainRunsLoading: boolean
+    commentsOpen: boolean
     files: ArtifactFile[]
     livingArtifacts: TaskRunLivingArtifactResponseApi[]
     livingArtifactsLoading: boolean
@@ -199,6 +203,9 @@ export interface taskRunArtifactsLogicActions {
     setActiveTab: (tab: TaskRunTab) => {
         tab: TaskRunTab
     }
+    setCommentsOpen: (open: boolean) => {
+        open: boolean
+    }
     stepArtifact: (delta: number) => {
         delta: number
     }
@@ -255,10 +262,6 @@ export function artifactDownloadUrl(projectId: number | null, taskId: string, ar
     return getTasksRunsArtifactsDownloadRetrieveUrl(String(projectId), taskId, artifact.runId, artifact.id)
 }
 
-// A shared link opens the tab on one file, and on one version when it is not the latest.
-const ARTIFACT_PARAM = 'artifact'
-const VERSION_PARAM = 'artifact_version'
-
 /** The standalone page puts the task in the path, an embedded runner in `?task=`. */
 function urlIsForTask(pathname: string, searchParams: Record<string, any>, taskId: string): boolean {
     return searchParams.task === taskId || pathname.split('/').includes(taskId)
@@ -288,6 +291,7 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
         openFromUrl: (fileKey: string, versionId: string | null) => ({ fileKey, versionId }),
         reportLinkCopied: true,
         reportObjectOpened: (objectKind: string) => ({ objectKind }),
+        setCommentsOpen: (open: boolean) => ({ open }),
     }),
     loaders(({ props, values }) => ({
         chainRuns: [
@@ -397,6 +401,8 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
             'conversation' as TaskRunTab,
             { setActiveTab: (_, { tab }) => tab, openFromUrl: () => 'artifacts' },
         ],
+        // The panel stays open across files, so a reviewer can read the comments on each one in turn.
+        commentsOpen: [false, { setCommentsOpen: (_, { open }) => open }],
         selectedFileKey: [
             null as string | null,
             { selectArtifact: (_, { fileKey }) => fileKey, openFromUrl: (_, { fileKey }) => fileKey },
@@ -503,11 +509,9 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
                 if (currentProjectId === null || !fileKey) {
                     return null
                 }
-                const params: Record<string, string> = { task: taskId, [ARTIFACT_PARAM]: fileKey }
-                if (selectedVersionId) {
-                    params[VERSION_PARAM] = selectedVersionId
-                }
-                return urls.absolute(urls.project(currentProjectId, combineUrl('/ai', params).url))
+                return urls.absolute(
+                    urls.project(currentProjectId, taskArtifactPath(taskId, fileKey, selectedVersionId))
+                )
             },
         ],
         selectedText: [
@@ -595,6 +599,12 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
                     kind: values.selectedKind,
                     is_latest_version: values.selectedVersionIndex === 0,
                 })
+            },
+            setCommentsOpen: ({ open }) => {
+                if (open) {
+                    // pinned: analytics event name and properties. Renaming them breaks insights.
+                    posthog.capture('task artifact comments opened', { kind: values.selectedKind })
+                }
             },
             openFromUrl: ({ versionId }) => {
                 // pinned: analytics event name and properties. Renaming them breaks insights.
