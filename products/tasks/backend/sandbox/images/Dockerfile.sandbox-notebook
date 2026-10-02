@@ -129,25 +129,6 @@ RUN python3 -m venv /opt/notebook-venv && \
     beautifulsoup4 && \
     /opt/notebook-venv/bin/python -m ipykernel install --sys-prefix
 
-# Machine learning and statistics. Kept in its own layer so the one above stays cached.
-# PyTorch comes from its CPU-only index: the default wheel pulls several GB of CUDA
-# libraries that a sandbox without a GPU never loads.
-RUN /opt/notebook-venv/bin/pip install --no-cache-dir \
-    --index-url https://download.pytorch.org/whl/cpu \
-    torch && \
-    /opt/notebook-venv/bin/pip install --no-cache-dir \
-    statsmodels \
-    xgboost-cpu \
-    lightgbm \
-    networkx \
-    sympy \
-    tqdm \
-    openpyxl \
-    tabulate \
-    pyyaml \
-    httpx && \
-    /opt/notebook-venv/bin/python -c "import torch, statsmodels, xgboost, lightgbm"
-
 ENV VIRTUAL_ENV=/opt/notebook-venv
 ENV PATH="/opt/notebook-venv/bin:$PATH"
 
