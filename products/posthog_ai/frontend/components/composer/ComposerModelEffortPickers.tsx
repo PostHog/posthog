@@ -74,7 +74,8 @@ export interface ComposerModelEffortPickersProps {
      */
     lockedRuntimeAdapter?: string | null
     /** The selection shown is the resolved default (user/project preference), not an explicit pick for
-     * this run — the model trigger renders a "Default ·" prefix so that's visible at a glance. */
+     * this run — the lemon model trigger renders a "Default ·" prefix so that's visible at a glance. The quill
+     * trigger shows only the model, like PostHog Desktop. */
     isDefaultSelection?: boolean
     /** Clears the explicit pick so the run falls back to the resolved default. Omit on a surface with no
      * configured default and the reset row falls back to the ladder's balanced notch. */
@@ -99,9 +100,12 @@ interface PickerSectionProps {
 }
 
 /** One `label … current ›` row of the cascade, opening a radio list. */
-const PICKER_CHROME: Record<ThreadSkin, { triggerVariant: 'outline' | 'default'; icons: boolean }> = {
-    lemon: { triggerVariant: 'outline', icons: true },
-    quill: { triggerVariant: 'default', icons: false },
+const PICKER_CHROME: Record<
+    ThreadSkin,
+    { triggerVariant: 'outline' | 'default'; icons: boolean; defaultPrefix: boolean }
+> = {
+    lemon: { triggerVariant: 'outline', icons: true, defaultPrefix: true },
+    quill: { triggerVariant: 'default', icons: false, defaultPrefix: false },
 }
 
 function PickerSection({ title, current, value, onValueChange, children, footer }: PickerSectionProps): JSX.Element {
@@ -242,7 +246,7 @@ export function ComposerModelEffortPickers({
             <DropdownMenuTrigger
                 render={
                     <Button variant={chrome.triggerVariant} size="sm">
-                        {isDefaultSelection ? `Default · ${modelLabel}` : modelLabel}
+                        {isDefaultSelection && chrome.defaultPrefix ? `Default · ${modelLabel}` : modelLabel}
                         {effortOptions.length > 0 && (
                             <span className="text-muted">{getEffortLabel(selectedEffort)}</span>
                         )}
