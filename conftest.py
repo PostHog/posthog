@@ -202,15 +202,19 @@ def _cache_fixture_parent_nodeids() -> None:
     from _pytest import fixtures, nodes  # noqa: PLC0415 — deferred until pytest_configure
 
     orig_matchfactories = fixtures.FixtureManager._matchfactories
-    parents: dict[int, tuple[nodes.Node, set[str]]] = {}
+    parents: dict[int, tuple[nodes.Node, set[nodes.Node], set[str]]] = {}
 
     def _matchfactories(self, fixturedefs, node):
         entry = parents.get(id(node))
         if entry is None:
-            entry = parents[id(node)] = (node, {n.nodeid for n in node.iter_parents()})
-        parentnodeids = entry[1]
+            parent_nodes = set(node.iter_parents())
+            entry = parents[id(node)] = (node, parent_nodes, {n.nodeid for n in parent_nodes})
+        _, parent_nodes, parentnodeids = entry
         for fixturedef in fixturedefs:
-            if fixturedef.baseid in parentnodeids:
+            if fixturedef.node is not None:
+                if fixturedef.node in parent_nodes:
+                    yield fixturedef
+            elif fixturedef.baseid in parentnodeids:
                 yield fixturedef
 
     _matchfactories.__wrapped__ = orig_matchfactories  # exposes the original for the canary tests
