@@ -31,7 +31,6 @@ from posthog.tasks.usage_report import (
     get_self_driving_credits_used_in_period_for_org,
     get_signals_credited_refund_credits_for_org,
     get_teams_with_api_queries_metrics,
-    get_teams_with_billable_sandbox_compute_usage_in_period,
 )
 from posthog.usage_counters import UsageCounter, UsageCounterService
 from posthog.utils import get_current_day
@@ -1218,6 +1217,7 @@ def update_all_orgs_billing_quotas(
             UsageCounter.AI_CREDITS,
             UsageCounter.SIGNALS_CREDITS,
             UsageCounter.POSTHOG_CODE_CREDITS,
+            UsageCounter.SANDBOX_COMPUTE_CREDITS,
             UsageCounter.REPLAY_VISION_CREDITS,
         ),
     )
@@ -1231,10 +1231,7 @@ def update_all_orgs_billing_quotas(
         "api_queries_metrics", get_teams_with_api_queries_metrics, period.start, period.end
     )
     token_credits = dict(counter_report.counts[UsageCounter.POSTHOG_CODE_CREDITS])
-    sandbox_compute_usage = _timed_query(
-        "sandbox_compute", get_teams_with_billable_sandbox_compute_usage_in_period, period.start, period.end
-    )
-    compute_credits = convert_team_usage_rows_to_dict(sandbox_compute_usage.credits)
+    compute_credits = dict(counter_report.counts[UsageCounter.SANDBOX_COMPUTE_CREDITS])
 
     # Clickhouse is good at counting things so we count across all teams rather than doing it one by one
     all_data = {
@@ -1259,11 +1256,11 @@ def update_all_orgs_billing_quotas(
         },
         "teams_with_posthog_code_token_credits_used_in_period": token_credits,
         "teams_with_sandbox_compute_credits_used_in_period": compute_credits,
-        "teams_with_sandbox_compute_cpu_millicore_seconds_in_period": convert_team_usage_rows_to_dict(
-            sandbox_compute_usage.cpu_millicore_seconds
+        "teams_with_sandbox_compute_cpu_millicore_seconds_in_period": dict(
+            counter_report.counts["teams_with_sandbox_compute_cpu_millicore_seconds_in_period"]
         ),
-        "teams_with_sandbox_compute_memory_mib_seconds_in_period": convert_team_usage_rows_to_dict(
-            sandbox_compute_usage.memory_mib_seconds
+        "teams_with_sandbox_compute_memory_mib_seconds_in_period": dict(
+            counter_report.counts["teams_with_sandbox_compute_memory_mib_seconds_in_period"]
         ),
         "teams_with_workflow_emails_sent_in_period": dict(counter_report.counts[UsageCounter.WORKFLOW_EMAILS]),
         "teams_with_workflow_push_sent_in_period": dict(counter_report.counts[UsageCounter.WORKFLOW_PUSH]),

@@ -42,6 +42,8 @@ from posthog.temporal.usage_report.types import AggregateInputs, AggregateResult
 from posthog.usage_counters import UsageCounter
 from posthog.utils import get_previous_day
 
+from products.tasks.backend.facade.billing import SandboxComputeUsageByTeam
+
 
 def _all_destination_keys() -> list[str]:
     """Every key `_get_team_report` reads, derived from the registry so we
@@ -80,6 +82,10 @@ def _seed_all_data(team_a_id: int, team_b_id: int, team_c_id: int) -> dict[str, 
         "teams_with_logs_bytes_in_period": {team_a_id: 3_500_000, team_b_id: 600_000},
         "teams_with_logs_retention_30d_bytes_in_period": {team_a_id: 2_500_000},
         "teams_with_posthog_code_credits_used_in_period": {team_a_id: 321},
+        "teams_with_sandbox_compute_credits_used_in_period": {team_a_id: 9},
+        "teams_with_sandbox_compute_cpu_millicore_seconds_in_period": {team_b_id: 1_000},
+        "teams_with_sandbox_compute_memory_mib_seconds_in_period": {team_b_id: 2_000},
+        "teams_with_logs_retention_byte_days_in_period": {team_a_id: 4_000_000},
         "teams_with_exceptions_captured_in_period": {team_a_id: 5, team_b_id: 1},
         "teams_with_web_exceptions_captured_in_period": {team_a_id: 5},
         "teams_with_node_exceptions_captured_in_period": {team_b_id: 1},
@@ -265,6 +271,7 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
         )
     for counter, query_name in (
         (UsageCounter.LOGS_BYTES, "get_teams_with_logs_bytes_in_period"),
+        (UsageCounter.LOGS_RETENTION_BYTE_DAYS, "get_teams_with_logs_retention_byte_days_in_period"),
         (UsageCounter.AI_CREDITS, "get_teams_with_ai_credits_used_in_period"),
         (UsageCounter.SIGNALS_CREDITS, "get_teams_with_signals_credits_used_in_period"),
         (UsageCounter.POSTHOG_CODE_CREDITS, "get_teams_with_posthog_code_credits_used_in_period"),
@@ -286,6 +293,19 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
         "get_teams_with_recording_count_in_period",
         lambda begin, end, snapshot_source: list(
             seeded[UsageCounter.RECORDINGS if snapshot_source == "web" else UsageCounter.MOBILE_RECORDINGS].items()
+        ),
+    )
+    monkeypatch.setattr(
+        usage_report,
+        "get_teams_with_billable_sandbox_compute_usage_in_period",
+        mock.Mock(
+            return_value=SandboxComputeUsageByTeam(
+                credits=list(seeded[UsageCounter.SANDBOX_COMPUTE_CREDITS].items()),
+                cpu_millicore_seconds=list(
+                    seeded["teams_with_sandbox_compute_cpu_millicore_seconds_in_period"].items()
+                ),
+                memory_mib_seconds=list(seeded["teams_with_sandbox_compute_memory_mib_seconds_in_period"].items()),
+            )
         ),
     )
     monkeypatch.setattr(
@@ -396,6 +416,9 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
     assert temporal_per_org[str(org_b.id)]["apm_tracing_spans_in_period"] == 5
     assert temporal_per_org[str(org_b.id)]["apm_tracing_mb_in_period"] == 0
     assert temporal_per_org[str(org_a.id)]["cdp_billable_invocations_in_period"] == (16 if mode == "realtime" else 24)
+    assert temporal_per_org[str(org_a.id)]["posthog_code_credits_used_in_period"] == 321 + 9
+    assert temporal_per_org[str(org_a.id)]["sandbox_compute_memory_mib_seconds_in_period"] == 2_000
+    assert temporal_per_org[str(org_a.id)]["logs_retention_mb_days_in_period"] == 4
     assert (str(idle_org.id) in temporal_per_org) == (mode == "realtime")
     assert (str(idle_org.id) in celery_per_org) == (mode == "realtime")
     assert scan.call_count == (0 if mode == "legacy" else 2)

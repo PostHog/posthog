@@ -24,6 +24,13 @@ from posthog.usage_counters import (
 )
 from posthog.utils import DayRange
 
+from products.tasks.backend.facade.billing import SandboxComputeUsageByTeam
+
+SANDBOX_COMPUTE_RESOURCE_KEYS = (
+    "teams_with_sandbox_compute_cpu_millicore_seconds_in_period",
+    "teams_with_sandbox_compute_memory_mib_seconds_in_period",
+)
+
 
 class TestUsageRecordQuery(SimpleTestCase):
     @parameterized.expand(
@@ -67,8 +74,17 @@ class TestUsageCounterReport(SimpleTestCase):
         self.logs_retention = Mock(
             side_effect=lambda begin, end: {"30d": self.legacy[UsageCounter.LOGS_RETENTION_30D_BYTES](begin, end)}
         )
+        self.sandbox_compute = Mock(
+            side_effect=lambda begin, end: SandboxComputeUsageByTeam(
+                credits=self.legacy[UsageCounter.SANDBOX_COMPUTE_CREDITS](begin, end),
+                cpu_millicore_seconds=[],
+                memory_mib_seconds=[],
+            )
+        )
         patches = {
             "get_teams_with_logs_retention_bytes_in_period": self.logs_retention,
+            "get_teams_with_logs_retention_byte_days_in_period": self.legacy[UsageCounter.LOGS_RETENTION_BYTE_DAYS],
+            "get_teams_with_billable_sandbox_compute_usage_in_period": self.sandbox_compute,
             "get_teams_with_rows_synced_in_period": self.legacy[UsageCounter.ROWS_SYNCED],
             "get_teams_with_free_historical_rows_synced_in_period": self.legacy[
                 UsageCounter.FREE_HISTORICAL_ROWS_SYNCED
@@ -146,7 +162,7 @@ class TestUsageCounterReport(SimpleTestCase):
             assert flag.call_count == len(COUNTER_FLAG_NAMES)
 
         assert report.counts == {
-            **{counter.value: [] for counter in UsageCounter},
+            **{key: [] for key in (*UsageCounter, *SANDBOX_COMPUTE_RESOURCE_KEYS)},
             UsageCounter.CDP_INVOCATIONS.value: [(1, 12)],
             UsageCounter.WORKFLOW_EMAILS.value: [(1, 3)],
         }
@@ -270,7 +286,7 @@ class TestUsageCounterReport(SimpleTestCase):
         ):
             plan = service.resolve_plan(period, caller=caller, complete=days_ago > 0)
         report = service.fetch_report(period, plan=plan)
-        assert set(report.counts) == {counter.value for counter in UsageCounter}
+        assert set(report.counts) == {*UsageCounter, *SANDBOX_COMPUTE_RESOURCE_KEYS}
         assert report.counts[UsageCounter.CDP_INVOCATIONS.value] == [
             (1, 9 if mode == UsageCounterMode.REALTIME else 12)
         ]
@@ -505,7 +521,7 @@ class TestUsageCounterReport(SimpleTestCase):
             self.exceptions.assert_called_once_with(period.start, period.end)
 
     @parameterized.expand([(mode,) for mode in UsageCounterMode])
-    def test_legacy_only_counters_preserve_values_and_log_retention_tiers(self, flag_mode: UsageCounterMode) -> None:
+    def test_legacy_only_counters_preserve_values_and_bundled_series(self, flag_mode: UsageCounterMode) -> None:
         period = DayRange(start=datetime(2026, 5, 4, tzinfo=UTC), end=datetime(2026, 5, 5, tzinfo=UTC))
         counters = (
             UsageCounter.ROWS_SYNCED,
@@ -513,9 +529,11 @@ class TestUsageCounterReport(SimpleTestCase):
             UsageCounter.ROWS_EXPORTED,
             UsageCounter.LOGS_BYTES,
             UsageCounter.LOGS_RETENTION_30D_BYTES,
+            UsageCounter.LOGS_RETENTION_BYTE_DAYS,
             UsageCounter.AI_CREDITS,
             UsageCounter.SIGNALS_CREDITS,
             UsageCounter.POSTHOG_CODE_CREDITS,
+            UsageCounter.SANDBOX_COMPUTE_CREDITS,
             UsageCounter.REPLAY_VISION_CREDITS,
         )
         expected = {counter.value: [(1, index + 1)] for index, counter in enumerate(counters)}
@@ -534,10 +552,18 @@ class TestUsageCounterReport(SimpleTestCase):
             "30d": expected[UsageCounter.LOGS_RETENTION_30D_BYTES],
             "90d": [(2, 23)],
         }
+        self.sandbox_compute.side_effect = None
+        self.sandbox_compute.return_value = SandboxComputeUsageByTeam(
+            credits=expected[UsageCounter.SANDBOX_COMPUTE_CREDITS],
+            cpu_millicore_seconds=[(1, 29)],
+            memory_mib_seconds=[(2, 31)],
+        )
         expected.update(
             {
                 "teams_with_logs_retention_14d_bytes_in_period": [(1, 17)],
                 "teams_with_logs_retention_90d_bytes_in_period": [(2, 23)],
+                "teams_with_sandbox_compute_cpu_millicore_seconds_in_period": [(1, 29)],
+                "teams_with_sandbox_compute_memory_mib_seconds_in_period": [(2, 31)],
             }
         )
         with patch("posthoganalytics.get_feature_flag", return_value=flag_mode) as flag:
@@ -554,3 +580,4 @@ class TestUsageCounterReport(SimpleTestCase):
         }
         self.records.assert_not_called()
         self.logs_retention.assert_called_once_with(period.start, period.end)
+        self.sandbox_compute.assert_called_once_with(period.start, period.end)

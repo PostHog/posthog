@@ -44,9 +44,11 @@ class UsageCounter(StrEnum):
     ROWS_EXPORTED = "teams_with_rows_exported_in_period"
     LOGS_BYTES = "teams_with_logs_bytes_in_period"
     LOGS_RETENTION_30D_BYTES = "teams_with_logs_retention_30d_bytes_in_period"
+    LOGS_RETENTION_BYTE_DAYS = "teams_with_logs_retention_byte_days_in_period"
     AI_CREDITS = "teams_with_ai_credits_used_in_period"
     SIGNALS_CREDITS = "teams_with_signals_credits_used_in_period"
     POSTHOG_CODE_CREDITS = "teams_with_posthog_code_credits_used_in_period"
+    SANDBOX_COMPUTE_CREDITS = "teams_with_sandbox_compute_credits_used_in_period"
     REPLAY_VISION_CREDITS = "teams_with_replay_vision_credits_used_in_period"
 
 
@@ -148,6 +150,7 @@ class UsageCounterPlan:
         bundles = {
             UsageCounter.EXCEPTIONS: "exceptions_captured",
             UsageCounter.LOGS_RETENTION_30D_BYTES: "logs_retention_bytes",
+            UsageCounter.SANDBOX_COMPUTE_CREDITS: "sandbox_compute_usage",
         }
         return {bundles.get(counter, counter.value) for counter in self.modes}
 
@@ -260,14 +263,17 @@ class UsageCounterService:
             UsageCounter.ROWS_EXPORTED: usage_report.get_teams_with_rows_exported_in_period,
             UsageCounter.LOGS_BYTES: usage_report.get_teams_with_logs_bytes_in_period,
             UsageCounter.LOGS_RETENTION_30D_BYTES: lambda begin, end: self._logs_retention_query(begin, end)["30d"],
+            UsageCounter.LOGS_RETENTION_BYTE_DAYS: usage_report.get_teams_with_logs_retention_byte_days_in_period,
             UsageCounter.AI_CREDITS: usage_report.get_teams_with_ai_credits_used_in_period,
             UsageCounter.SIGNALS_CREDITS: usage_report.get_teams_with_signals_credits_used_in_period,
             UsageCounter.POSTHOG_CODE_CREDITS: usage_report.get_teams_with_posthog_code_credits_used_in_period,
+            UsageCounter.SANDBOX_COMPUTE_CREDITS: lambda begin, end: self._sandbox_compute_query(begin, end).credits,
             UsageCounter.REPLAY_VISION_CREDITS: usage_report.get_teams_with_replay_vision_credits_used_in_period,
         }
         self._quota_events_query = usage_report.get_teams_with_billable_event_count_in_period
         self._exceptions_query = usage_report.get_teams_with_exceptions_captured_in_period
         self._logs_retention_query = usage_report.get_teams_with_logs_retention_bytes_in_period
+        self._sandbox_compute_query = usage_report.get_teams_with_billable_sandbox_compute_usage_in_period
         self._records_query = usage_report.get_usage_records_in_period
         self._team_counts = usage_report.convert_team_usage_rows_to_dict
 
@@ -320,6 +326,13 @@ class UsageCounterService:
                         for tier, rows in self._logs_retention_query(plan.period.start, plan.period.end).items()
                     }
                 )
+            elif counter == UsageCounter.SANDBOX_COMPUTE_CREDITS:
+                sandbox_compute = self._sandbox_compute_query(plan.period.start, plan.period.end)
+                counts[counter.value] = sandbox_compute.credits
+                counts["teams_with_sandbox_compute_cpu_millicore_seconds_in_period"] = (
+                    sandbox_compute.cpu_millicore_seconds
+                )
+                counts["teams_with_sandbox_compute_memory_mib_seconds_in_period"] = sandbox_compute.memory_mib_seconds
             elif mode == UsageCounterMode.REALTIME and not plan.complete:
                 # A realtime counter reads legacy only to compare a complete day, so partial-day runs skip it.
                 continue
