@@ -37,12 +37,6 @@ def register_routes(routers: RouterRegistry) -> None:
     routers.projects.register(
         r"tasks/@me/config", config.TasksUserConfigViewSet, "project_tasks_me_config", ["team_id"]
     )
-    routers.projects.register(
-        r"tasks/@me/agent_preferences",
-        config.TasksUserAgentPreferencesViewSet,
-        "project_tasks_me_agent_preferences",
-        ["team_id"],
-    )
     project_tasks_router = routers.projects.register(r"tasks", tasks.TaskViewSet, "project_tasks", ["team_id"])
     project_task_runs_router = project_tasks_router.register(
         r"runs", tasks.TaskRunViewSet, "project_task_runs", ["team_id", "task_id"]

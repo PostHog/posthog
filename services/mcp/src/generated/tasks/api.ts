@@ -1858,11 +1858,6 @@ export const TasksMeConfigListParams = () => zod.object({
         ),
 })
 
-export const TasksMeConfigListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
-    offset: zod.number().optional().describe('The initial index from which to return the results.'),
-})
-
 /**
  * Set your per-project default AI run preferences; they override the project default wholesale. Send all fields as null to clear and inherit the project default.
  */

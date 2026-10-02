@@ -239,7 +239,6 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.tasks.backend.presentation.views.channels_api.TaskMentionViewSet",
     "products.tasks.backend.presentation.views.channels_api.TaskThreadMessageViewSet",
     "products.tasks.backend.presentation.views.config_api.TasksTeamConfigViewSet",
-    "products.tasks.backend.presentation.views.config_api.TasksUserAgentPreferencesViewSet",
     "products.tasks.backend.presentation.views.config_api.TasksUserConfigViewSet",
     "products.tasks.backend.presentation.views.desktop.DesktopBetaTermsViewSet",
     "products.tasks.backend.presentation.views.loops.LoopViewSet",

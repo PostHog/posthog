@@ -815,10 +815,7 @@ const tasksMeConfigCreate = (): ToolBase<
     },
 })
 
-const TasksMeConfigListSchema = () => {
-    const TasksMeConfigListQueryParams = orvalSchemas.TasksMeConfigListQueryParams()
-    return TasksMeConfigListQueryParams
-}
+const TasksMeConfigListSchema = () => z.object({})
 
 const tasksMeConfigList = (): ToolBase<
     ReturnType<typeof TasksMeConfigListSchema>,
@@ -826,15 +823,11 @@ const tasksMeConfigList = (): ToolBase<
 > => ({
     name: 'tasks-me-config-list',
     schema: TasksMeConfigListSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof TasksMeConfigListSchema>>) => {
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof TasksMeConfigListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.TasksUserConfigResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/@me/config/`,
-            query: {
-                limit: params.limit,
-                offset: params.offset,
-            },
         })
         return result
     },

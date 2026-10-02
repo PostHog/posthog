@@ -9,7 +9,7 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="usertasksconfig",
-            name="agent_preferences",
+            name="task_defaults",
             field=models.JSONField(blank=True, null=True),
         ),
     ]

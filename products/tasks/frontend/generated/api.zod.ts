@@ -3689,22 +3689,6 @@ export const TasksThreadMessagesSendToAgentCreateBody = /* @__PURE__ */ zod
     .describe("Response shape for one message in a task's thread.")
 
 /**
- * Update your per-project task defaults. Fields you leave out keep their stored value.
- */
-export const TasksMeAgentPreferencesCreateBody = /* @__PURE__ */ zod
-    .object({
-        start_in_plan_mode: zod
-            .boolean()
-            .optional()
-            .describe('When true, new tasks start in plan mode: the agent makes a plan and waits for approval.'),
-        auto_publish_cloud_runs: zod
-            .boolean()
-            .optional()
-            .describe('When true, a cloud run that changes code always opens a draft pull request.'),
-    })
-    .describe("A partial update of the requesting user's agent preferences. Fields left out keep their stored value.")
-
-/**
  * Set your per-project default AI run preferences; they override the project default wholesale. Send all fields as null to clear and inherit the project default.
  */
 export const TasksMeConfigCreateBody = /* @__PURE__ */ zod
@@ -3760,6 +3744,22 @@ export const TasksMeConfigAgentInstructionsCreateBody = /* @__PURE__ */ zod
             ),
     })
     .describe('Markdown instructions that PostHog cloud agents load as their user-level AGENTS.md in Tasks runs.')
+
+/**
+ * Update your per-project defaults for new tasks. Fields you leave out keep their stored value.
+ */
+export const TasksMeConfigTaskDefaultsCreateBody = /* @__PURE__ */ zod
+    .object({
+        start_in_plan_mode: zod
+            .boolean()
+            .optional()
+            .describe('When true, new tasks start in plan mode: the agent makes a plan and waits for approval.'),
+        auto_publish_cloud_runs: zod
+            .boolean()
+            .optional()
+            .describe('When true, a cloud run that changes code always opens a draft pull request.'),
+    })
+    .describe("A partial update of the requesting user's task defaults. Fields left out keep their stored value.")
 
 /**
  * Set the project-wide default AI run preferences applied to task runs created without an explicit runtime selection. Send all fields as null to clear.

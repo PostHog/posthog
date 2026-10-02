@@ -20,15 +20,17 @@ DEFAULTS = {
 }
 
 
-class TestAgentPreferencesAPI(APIBaseTest):
+class TestTaskDefaultsAPI(APIBaseTest):
     def _url(self) -> str:
-        return f"/api/projects/{self.team.id}/tasks/@me/agent_preferences/"
+        return f"/api/projects/{self.team.id}/tasks/@me/config/task_defaults/"
+
+    def _read(self, client: APIClient | None = None) -> dict:
+        response = (client or self.client).get(f"/api/projects/{self.team.id}/tasks/@me/config/")
+        assert response.status_code == 200, response.content
+        return response.json()["task_defaults"]
 
     def test_returns_defaults_when_nothing_is_stored(self):
-        response = self.client.get(self._url())
-
-        assert response.status_code == 200
-        assert response.json() == DEFAULTS
+        assert self._read() == DEFAULTS
 
     @parameterized.expand([("json",), ("multipart",)])
     def test_partial_updates_keep_the_other_stored_values(self, body_format: str):
@@ -37,7 +39,7 @@ class TestAgentPreferencesAPI(APIBaseTest):
 
         assert response.status_code == 200
         assert response.json() == {"start_in_plan_mode": True, "auto_publish_cloud_runs": True}
-        assert self.client.get(self._url()).json() == response.json()
+        assert self._read() == response.json()
 
     def test_update_keeps_the_stored_model_preference_and_instructions(self):
         UserTasksConfig.objects.for_team(self.team.id).create(
@@ -52,15 +54,15 @@ class TestAgentPreferencesAPI(APIBaseTest):
         config = UserTasksConfig.objects.for_team(self.team.id).get(user=self.user)
         assert config.ai_run_preferences == {"runtime_adapter": "claude", "model": "m"}
         assert config.agent_instructions == "Use pnpm."
-        assert config.agent_preferences == {"start_in_plan_mode": True, "auto_publish_cloud_runs": False}
+        assert config.task_defaults == {"start_in_plan_mode": True, "auto_publish_cloud_runs": False}
 
-    def test_another_users_preferences_do_not_leak(self):
+    def test_another_users_defaults_do_not_leak(self):
         other = User.objects.create_and_join(self.organization, "other@example.com", "password")
         UserTasksConfig.objects.for_team(self.team.id).create(
-            team=self.team, user=other, agent_preferences={"start_in_plan_mode": True}
+            team=self.team, user=other, task_defaults={"start_in_plan_mode": True}
         )
 
-        assert self.client.get(self._url()).json() == DEFAULTS
+        assert self._read() == DEFAULTS
 
     @parameterized.expand(
         [
@@ -71,9 +73,9 @@ class TestAgentPreferencesAPI(APIBaseTest):
         response = self.client.post(self._url(), payload, format="json")
 
         assert response.status_code == 400
-        assert self.client.get(self._url()).json() == DEFAULTS
+        assert self._read() == DEFAULTS
 
-    def test_a_task_agent_token_cannot_change_preferences(self):
+    def test_a_task_agent_token_cannot_change_defaults(self):
         task = Task.objects.create(
             team=self.team,
             title="t",
@@ -106,5 +108,4 @@ class TestAgentPreferencesAPI(APIBaseTest):
         response = client.post(self._url(), {"auto_publish_cloud_runs": True}, format="json")
 
         assert response.status_code == 403, response.content
-        assert client.get(self._url()).status_code == 200
-        assert self.client.get(self._url()).json() == DEFAULTS
+        assert self._read(client) == DEFAULTS
