@@ -120392,7 +120392,7 @@ export namespace Schemas {
      */
     cursor?: string;
     /**
-     * Return only this address, matched case-insensitively. Responds 404 when the team does not know it.
+     * Return only this address, matched case-insensitively. The other parameters still narrow the lookup. Responds 404 when no recipient matches.
      * @minLength 1
      * @maxLength 512
      */
