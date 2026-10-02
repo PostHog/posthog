@@ -18,8 +18,9 @@ from rest_framework.request import Request
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import to_printed_hogql
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.printer.utils import print_prepared_ast
 
 from posthog.clickhouse.query_tagging import Product
@@ -521,15 +522,25 @@ class EndpointMaterializationService:
                 return q
 
             # Each call builds a fresh SelectQuery, so WHERE mutations don't leak between calls.
-            # Type resolution (to_printed_hogql) needs the materialized table to exist in the
+            # Type resolution needs the materialized table to exist in the
             # database, which only holds once materialization has completed. Previewing a
             # not-yet-materialized version means that table is absent, so we'd otherwise hit
             # "Unknown table". Fall back to printing without type resolution in that case — the
             # frontend uses execution_query only as a presence flag and renders the display variant.
             if version.is_materialized:
-                execution_query_str = to_printed_hogql(
-                    _build_exec_preview(version.materialized_view_name), team=self.team
-                )
+                # The materialized view is access-controlled as a warehouse view, and a database built
+                # without a user denies every warehouse view. Resolve it as the request user.
+                execution_query_str = prepare_and_print_ast(
+                    _build_exec_preview(version.materialized_view_name),
+                    context=HogQLContext(
+                        team_id=self.team.pk,
+                        user=self.user,
+                        enable_select_queries=True,
+                        modifiers=create_default_modifiers_for_team(self.team),
+                    ),
+                    dialect="hogql",
+                    pretty=True,
+                )[0]
             else:
                 execution_query_str = print_prepared_ast(
                     node=_build_exec_preview(version.materialized_view_name),
