@@ -27,6 +27,10 @@ let pollTimer = null
 let autoTimer = null
 let isPolling = false
 let isOpen = false
+let isOpening = false
+let isOpeningByTurn = false
+// Each open gets a number. A turn that ends while its pane still opens changes the number, and the open stops.
+let openNumber = 0
 let openedByTurn = false
 let hintShown = false
 
@@ -68,6 +72,12 @@ async function join($) {
             throw new Error('join ' + joined.status)
         }
         session = joined.data
+        if (!isOpen) {
+            // The pane closed while the join was on its way, so the new hedgehog leaves at once.
+            await request($, 'POST', '/api/leave', {})
+            session = null
+            return false
+        }
         problem = null
         return true
     } catch {
@@ -129,11 +139,26 @@ async function walk($, dx, dy) {
 }
 
 async function openClub($, byTurn) {
-    if (isOpen) {
+    if (isOpen || isOpening) {
         return
     }
+    isOpening = true
+    isOpeningByTurn = byTurn
+    const number = ++openNumber
+    try {
+        await showClub($, byTurn, number)
+    } finally {
+        isOpening = false
+    }
+}
+
+async function showClub($, byTurn, number) {
     const pane = { id: PANE, title: 'Club Hoguin', closeOnEscape: true }
     await $.ui.open(byTurn ? pane : { ...pane, focus: true })
+    if (number !== openNumber) {
+        await $.ui.close({ id: PANE })
+        return
+    }
     if (byTurn) {
         // A pane the mod opens by itself waits off screen in a narrow terminal. Do not join the club from there.
         const panes = await $.ui.panes()
@@ -291,6 +316,9 @@ export function register(on) {
         if (autoTimer) {
             autoTimer.cancel()
             autoTimer = null
+        }
+        if (isOpening && isOpeningByTurn) {
+            openNumber++
         }
         if (isOpen && openedByTurn) {
             await leaveClub($, true)

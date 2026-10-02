@@ -2,12 +2,18 @@ import { randomUUID } from 'node:crypto'
 import { readdir, readFile } from 'node:fs/promises'
 import { dirname, extname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { gzipSync } from 'node:zlib'
 
 import { Analytics } from './analytics.ts'
+import { RateLimiter } from './rate-limiter.ts'
 import { createClubHoguinServer, type StaticFile, trackDeparture, trackPoke } from './server.ts'
 import { World } from './world.ts'
 
 const TICK_MS = 50
+const PRUNE_MS = 30_000
+// A web client polls up to 10 times a second, and one address can hold 10 hedgehogs.
+const REQUESTS_PER_SECOND_PER_ADDRESS = 300
+const SHUTDOWN_GRACE_MS = 3_000
 
 const CONTENT_TYPES: Record<string, string> = {
     '.html': 'text/html; charset=utf-8',
@@ -44,7 +50,12 @@ async function loadStaticFiles(): Promise<Map<string, StaticFile>> {
     }
     const loaded = await Promise.all(
         files.map(async ([route, path, contentType, cacheControl]) => {
-            const file: StaticFile = { body: await readFile(path), contentType, cacheControl }
+            const body = await readFile(path)
+            const file: StaticFile = { body, contentType, cacheControl }
+            // A PNG is compressed already. Text gets a lot smaller.
+            if (contentType !== 'image/png') {
+                file.gzipBody = gzipSync(body)
+            }
             return [route, file] as const
         })
     )
@@ -59,16 +70,18 @@ async function main(): Promise<void> {
         throw new Error('TRUSTED_PROXY_HOPS must be a whole number, 0 or more')
     }
     const analytics = new Analytics(
-        process.env.POSTHOG_PROJECT_API_KEY || undefined,
-        process.env.POSTHOG_HOST ?? 'https://us.i.posthog.com'
+        process.env.CLUB_HOGUIN_POSTHOG_API_KEY || undefined,
+        process.env.CLUB_HOGUIN_POSTHOG_HOST ?? 'https://us.i.posthog.com'
     )
     const world = new World({ makeId: randomUUID, random: Math.random })
+    const rateLimiter = new RateLimiter(REQUESTS_PER_SECOND_PER_ADDRESS, REQUESTS_PER_SECOND_PER_ADDRESS * 2)
     const server = createClubHoguinServer({
         world,
         analytics,
         staticFiles: await loadStaticFiles(),
         now: Date.now,
         trustedProxyHops,
+        rateLimiter,
     })
 
     setInterval(() => {
@@ -76,6 +89,17 @@ async function main(): Promise<void> {
         departed.forEach((player) => trackDeparture(analytics, player))
         poked.forEach((event) => trackPoke(analytics, event))
     }, TICK_MS)
+    setInterval(() => rateLimiter.prune(Date.now()), PRUNE_MS)
+
+    // A container stops the server with SIGTERM. Node does not exit on SIGTERM by itself when it is process 1.
+    for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+        process.on(signal, () => {
+            console.info(`club-hoguin: ${signal}, shutting down`)
+            server.close(() => process.exit(0))
+            server.closeIdleConnections()
+            setTimeout(() => process.exit(0), SHUTDOWN_GRACE_MS).unref()
+        })
+    }
 
     server.listen(port, host, () => {
         console.info(`club-hoguin: listening on http://${host}:${port}`)

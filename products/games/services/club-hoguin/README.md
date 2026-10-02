@@ -33,15 +33,27 @@ Add `?embed=1` to the URL for the embed layout, which fills the frame and drops 
 <iframe src="http://localhost:8642/?embed=1" width="720" height="520"></iframe>
 ```
 
-| Variable                  | Default                    | What it does                                 |
-| ------------------------- | -------------------------- | -------------------------------------------- |
-| `PORT`                    | `8642`                     | The port the server listens on               |
-| `HOST`                    | `0.0.0.0`                  | The address the server binds to              |
-| `TRUSTED_PROXY_HOPS`      | `0`                        | The number of proxies in front of the server |
-| `POSTHOG_PROJECT_API_KEY` | not set                    | Sends usage events to PostHog when it is set |
-| `POSTHOG_HOST`            | `https://us.i.posthog.com` | The PostHog ingestion host                   |
+| Variable                      | Default                    | What it does                                 |
+| ----------------------------- | -------------------------- | -------------------------------------------- |
+| `PORT`                        | `8642`                     | The port the server listens on               |
+| `HOST`                        | `0.0.0.0`                  | The address the server binds to              |
+| `TRUSTED_PROXY_HOPS`          | `0`                        | The number of proxies in front of the server |
+| `CLUB_HOGUIN_POSTHOG_API_KEY` | not set                    | Sends usage events to PostHog when it is set |
+| `CLUB_HOGUIN_POSTHOG_HOST`    | `https://us.i.posthog.com` | The PostHog ingestion host                   |
 
 The server reads the files in `web/` when it starts, so restart it after you change one.
+
+## Run it in a container
+
+Build the image from the repo root, because pnpm needs the workspace lockfile:
+
+```bash
+docker build -f products/games/services/club-hoguin/Dockerfile -t posthog-club-hoguin .
+docker run -p 8642:8642 posthog-club-hoguin
+```
+
+The container runs as the `node` user, answers `GET /healthz`, and stops within a few seconds of `SIGTERM`.
+The town lives in the memory of one process, so run one container, and expect a restart to empty the town.
 
 ## How to play
 
@@ -77,9 +89,11 @@ A hedgehog walks at one speed along a path that goes around the pond, the campfi
 The server moves every hedgehog 20 times a second and removes a hedgehog after 20 seconds without a request.
 
 Clients poll `GET /api/state`, because a Claude Code mod can make HTTP requests but cannot hold a connection open.
+The server compresses the state with gzip.
 Each hedgehog in the state has its position and the rest of its path, so the web client moves it smoothly between polls.
 
 One network address can have 10 hedgehogs in the town at a time, so one client cannot take every place.
+One address can send 300 requests a second. After that the server answers `429` until the address slows down.
 Behind a proxy, every request comes from the address of the proxy.
 Set `TRUSTED_PROXY_HOPS` to the number of proxies, and the server reads the client address from `x-forwarded-for`.
 
@@ -96,5 +110,5 @@ Set `TRUSTED_PROXY_HOPS` to the number of proxies, and the server reads the clie
 
 Send the token from `/api/join` in the `x-hoguin-token` header.
 
-The server captures these events when `POSTHOG_PROJECT_API_KEY` is set, with no person profiles:
+The server captures these events when `CLUB_HOGUIN_POSTHOG_API_KEY` is set, with no person profiles:
 `club hoguin joined`, `club hoguin phrase said`, `club hoguin emote sent`, `club hoguin object poked`, and `club hoguin left` (with `duration_seconds`).

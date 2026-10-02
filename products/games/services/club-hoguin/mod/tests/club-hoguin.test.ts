@@ -53,7 +53,7 @@ type Club = {
     clock: ReturnType<typeof mock.clock>
 }
 
-function setUp(on: any, { placed = true } = {}): Club {
+function setUp(on: any, { placed = true, openGate = Promise.resolve() } = {}): Club {
     const calls: Call[] = []
     const panes: { opened: string[]; closed: string[] } = { opened: [], closed: [] }
     const toasts: string[] = []
@@ -70,7 +70,8 @@ function setUp(on: any, { placed = true } = {}): Club {
                     : { ok: true }
         return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify(data) } }
     })
-    on('ui.open', ($: unknown, e: any) => {
+    on('ui.open', async ($: unknown, e: any) => {
+        await openGate
         panes.opened.push(e.id)
         return { value: undefined }
     })
@@ -167,4 +168,20 @@ test('a terminal too narrow for the pane gets a hint instead of a hidden hedgeho
     expect(panes.closed).toEqual(['club-hoguin'])
     expect(posts(calls, '/api/join')).toEqual([])
     expect(toasts).toEqual(['Claude is busy. Run /hoguin to hang out in Club Hoguin while you wait.'])
+})
+
+test('a turn that ends while the pane still opens leaves no pane and no hedgehog', async ($, on) => {
+    let finishOpening = (): void => undefined
+    const openGate = new Promise<void>((resolve) => (finishOpening = resolve))
+    const { calls, panes, clock } = setUp(on, { openGate })
+    await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+
+    await $.turn.start({ text: 'refactor everything', turnId: 't1' })
+    await clock.advance(10_000)
+    await $.turn.complete({ turnId: 't1', answer: 'done', durationMs: 10_000, isAborted: false, usage: null })
+    finishOpening()
+    await clock.advance(1_000)
+
+    expect(panes.closed).toEqual(['club-hoguin'])
+    expect(posts(calls, '/api/join')).toEqual([])
 })

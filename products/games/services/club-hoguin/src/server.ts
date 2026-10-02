@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
+import { gzipSync } from 'node:zlib'
 
 import type { Analytics } from './analytics.ts'
 import {
@@ -19,6 +20,7 @@ import {
     WORLD_DEPTH,
     WORLD_WIDTH,
 } from './content.ts'
+import type { RateLimiter } from './rate-limiter.ts'
 import {
     type ClientKind,
     type DepartedPlayer,
@@ -52,6 +54,8 @@ const ERROR_STATUS: Record<string, number> = {
 
 export interface StaticFile {
     body: Buffer
+    // The body compressed with gzip, for the files that get smaller.
+    gzipBody?: Buffer
     contentType: string
     cacheControl: string
 }
@@ -62,6 +66,7 @@ export interface ServerDependencies {
     staticFiles: ReadonlyMap<string, StaticFile>
     now: () => number
     trustedProxyHops: number
+    rateLimiter: RateLimiter
 }
 
 class HttpError extends Error {
@@ -73,13 +78,25 @@ class HttpError extends Error {
     }
 }
 
-function sendJson(response: ServerResponse, status: number, payload: unknown): void {
+const MIN_GZIP_BYTES = 1_024
+
+function acceptsGzip(request: IncomingMessage): boolean {
+    return /\bgzip\b/.test(String(request.headers['accept-encoding'] ?? ''))
+}
+
+// Clients poll the state many times a second, and the state of a full town is tens of kilobytes of JSON.
+// Level 1 is fast, and JSON with many alike rows gets small at any level.
+function sendJson(request: IncomingMessage, response: ServerResponse, status: number, payload: unknown): void {
+    const body = Buffer.from(JSON.stringify(payload))
+    const isCompressed = body.length >= MIN_GZIP_BYTES && acceptsGzip(request)
     response.writeHead(status, {
         ...SECURITY_HEADERS,
         'content-type': 'application/json; charset=utf-8',
         'cache-control': 'no-store',
+        vary: 'accept-encoding',
+        ...(isCompressed ? { 'content-encoding': 'gzip' } : {}),
     })
-    response.end(JSON.stringify(payload))
+    response.end(isCompressed ? gzipSync(body, { level: 1 }) : body)
 }
 
 async function readJson(request: IncomingMessage): Promise<Record<string, unknown>> {
@@ -150,6 +167,7 @@ export function createClubHoguinServer({
     staticFiles,
     now,
     trustedProxyHops,
+    rateLimiter,
 }: ServerDependencies): Server {
     const worldDescription = JSON.stringify({
         width: WORLD_WIDTH,
@@ -183,15 +201,23 @@ export function createClubHoguinServer({
         throw new HttpError(ERROR_STATUS[error] ?? 400, error)
     }
 
+    const worldDescriptionGzip = gzipSync(worldDescription)
+
     async function handleApi(request: IncomingMessage, response: ServerResponse, pathname: string): Promise<void> {
         const method = request.method ?? 'GET'
+        if (!rateLimiter.allow(clientAddress(request, trustedProxyHops), now())) {
+            throw new HttpError(429, 'too_many_requests')
+        }
         if (pathname === '/api/world' && method === 'GET') {
+            const isCompressed = acceptsGzip(request)
             response.writeHead(200, {
                 ...SECURITY_HEADERS,
                 'content-type': 'application/json; charset=utf-8',
                 'cache-control': 'public, max-age=300',
+                vary: 'accept-encoding',
+                ...(isCompressed ? { 'content-encoding': 'gzip' } : {}),
             })
-            response.end(worldDescription)
+            response.end(isCompressed ? worldDescriptionGzip : worldDescription)
             return
         }
         if (pathname === '/api/state' && method === 'GET') {
@@ -199,7 +225,7 @@ export function createClubHoguinServer({
             if (token && !world.touch(token, now())) {
                 fail('unknown_player')
             }
-            sendJson(response, 200, world.snapshot(token))
+            sendJson(request, response, 200, world.snapshot(token))
             return
         }
         if (method !== 'POST') {
@@ -219,7 +245,7 @@ export function createClubHoguinServer({
                     fail(joined.error)
                 }
                 analytics.capture(joined.player.id, 'club hoguin joined', { client: body.client })
-                sendJson(response, 200, joined.player)
+                sendJson(request, response, 200, joined.player)
                 return
             }
             case '/api/move': {
@@ -232,7 +258,7 @@ export function createClubHoguinServer({
                 if (!result.ok) {
                     fail(result.error)
                 }
-                sendJson(response, 200, { ok: true })
+                sendJson(request, response, 200, { ok: true })
                 return
             }
             case '/api/emote': {
@@ -245,7 +271,7 @@ export function createClubHoguinServer({
                     client: player.client,
                     emote_id: String(body.emoteId),
                 })
-                sendJson(response, 200, { ok: true })
+                sendJson(request, response, 200, { ok: true })
                 return
             }
             case '/api/say': {
@@ -258,7 +284,7 @@ export function createClubHoguinServer({
                     client: player.client,
                     phrase_id: String(body.phraseId),
                 })
-                sendJson(response, 200, { ok: true })
+                sendJson(request, response, 200, { ok: true })
                 return
             }
             case '/api/poke': {
@@ -268,7 +294,7 @@ export function createClubHoguinServer({
                     fail(result.error)
                 }
                 trackPoke(analytics, { playerId: player.id, client: player.client, objectId: result.objectId })
-                sendJson(response, 200, { ok: true, objectId: result.objectId })
+                sendJson(request, response, 200, { ok: true, objectId: result.objectId })
                 return
             }
             case '/api/leave': {
@@ -277,7 +303,7 @@ export function createClubHoguinServer({
                 if (departed) {
                     trackDeparture(analytics, departed)
                 }
-                sendJson(response, 200, { ok: true })
+                sendJson(request, response, 200, { ok: true })
                 return
             }
         }
@@ -289,23 +315,28 @@ export function createClubHoguinServer({
         if (!file) {
             throw new HttpError(404, 'not_found')
         }
+        const isCompressed = file.gzipBody !== undefined && acceptsGzip(request)
         const headers: Record<string, string> = {
             ...SECURITY_HEADERS,
             'content-type': file.contentType,
             'cache-control': file.cacheControl,
+            vary: 'accept-encoding',
+        }
+        if (isCompressed) {
+            headers['content-encoding'] = 'gzip'
         }
         if (file.contentType.startsWith('text/html')) {
             headers['content-security-policy'] = PAGE_CSP
         }
         response.writeHead(200, headers)
-        response.end(request.method === 'HEAD' ? undefined : file.body)
+        response.end(request.method === 'HEAD' ? undefined : isCompressed ? file.gzipBody : file.body)
     }
 
     return createServer((request, response) => {
         const pathname = new URL(request.url ?? '/', 'http://club-hoguin.invalid').pathname
         const handle = async (): Promise<void> => {
             if (pathname === '/healthz') {
-                sendJson(response, 200, { ok: true })
+                sendJson(request, response, 200, { ok: true })
             } else if (pathname.startsWith('/api/')) {
                 await handleApi(request, response, pathname)
             } else {
@@ -318,11 +349,11 @@ export function createClubHoguinServer({
                 return
             }
             if (error instanceof HttpError) {
-                sendJson(response, error.status, { error: error.message })
+                sendJson(request, response, error.status, { error: error.message })
                 return
             }
             console.error('club-hoguin: request failed', error)
-            sendJson(response, 500, { error: 'internal_error' })
+            sendJson(request, response, 500, { error: 'internal_error' })
         })
     })
 }

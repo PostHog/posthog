@@ -2,6 +2,7 @@
 export class Analytics {
     private readonly apiKey: string | undefined
     private readonly host: string
+    private hasWarned = false
 
     constructor(apiKey: string | undefined, host: string) {
         this.apiKey = apiKey
@@ -24,8 +25,15 @@ export class Analytics {
             headers: { 'content-type': 'application/json' },
             body,
             signal: AbortSignal.timeout(5_000),
-        }).catch(() => {
-            // Analytics must never take the game down.
         })
+            .then((response) => {
+                if (!response.ok && !this.hasWarned) {
+                    this.hasWarned = true
+                    console.warn(`club-hoguin: PostHog refused an event with status ${response.status}`)
+                }
+            })
+            .catch(() => {
+                // Analytics must never take the game down.
+            })
     }
 }
