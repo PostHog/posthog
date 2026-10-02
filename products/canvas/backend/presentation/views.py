@@ -745,7 +745,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         """The comment threads on this canvas, newest first. Open threads only unless include_resolved is set."""
         params = CanvasCommentsQuerySerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
-        canvas = self.get_object()
+        canvas = self._canvas()
         try:
             page = tasks_facade.list_canvas_comments(
                 team_id=self.team_id,
@@ -777,7 +777,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         """One comment thread on this canvas: the root comment and its replies, oldest first."""
         params = CanvasCommentDetailQuerySerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
-        canvas = self.get_object()
+        canvas = self._canvas()
         try:
             parsed_comment_id = UUID(str(root_comment_id))
         except ValueError:
