@@ -112,6 +112,23 @@ class TestAnalyticsEndpoints:
             "2026-03-10T10:00:00.000Z",
             "2026-03-10T12:00:00.000Z",
         ]
+        manager.clear_state.assert_called_once_with()
+
+    def test_splits_a_dense_ten_minute_window(self):
+        start = NOW - timedelta(minutes=10)
+        middle = NOW - timedelta(minutes=5)
+        session = mock.MagicMock()
+        session.post.side_effect = [
+            _response({"totalHits": genesys_cloud.MAX_RESULTS_PER_WINDOW + 1, "conversations": []}),
+            _response({"totalHits": 1, "conversations": [_conversation("early", start)]}),
+            _response({"totalHits": 1, "conversations": [_conversation("late", middle)]}),
+        ]
+        manager = _manager(GenesysCloudResumeConfig(window_start=start.isoformat()))
+
+        rows = _run("conversations", session, manager)
+
+        assert [row["conversationId"] for row in rows] == ["early", "late"]
+        assert [_request_interval(c) for c in session.post.call_args_list[1:]] == [(start, middle), (middle, NOW)]
 
     @pytest.mark.parametrize(
         "resume,watermark,expected_start",
@@ -188,6 +205,7 @@ class TestListingEndpoints:
         assert [row["id"] for row in rows] == [f"q{page}" for page in expected_pages]
         saved = [c.args[0].page_number for c in manager.save_state.call_args_list]
         assert saved == ([2] if resume is None else [])
+        manager.clear_state.assert_called_once_with()
 
 
 class TestValidateCredentials:

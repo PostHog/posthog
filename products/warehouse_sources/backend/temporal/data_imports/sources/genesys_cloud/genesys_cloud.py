@@ -37,7 +37,7 @@ INCREMENTAL_LOOKBACK = timedelta(days=2)
 # The details query pages by page number, which does not scale to very large result sets. A window
 # with more hits than this is split in half until it fits, down to MIN_ANALYTICS_WINDOW.
 MAX_RESULTS_PER_WINDOW = 10_000
-MIN_ANALYTICS_WINDOW = timedelta(minutes=10)
+MIN_ANALYTICS_WINDOW = timedelta(seconds=1)
 
 
 class InvalidGenesysCloudRegionError(ValueError):
@@ -197,6 +197,9 @@ def _iter_analytics_rows(
                 yield rows
         start = window_end
 
+    # A later sync must derive a fresh start from its watermark instead of reusing this run's cursor.
+    resumable_source_manager.clear_state()
+
 
 def _iter_listing_rows(
     session: requests.Session,
@@ -224,6 +227,8 @@ def _iter_listing_rows(
         if entities:
             yield entities
         if not has_next_page:
+            # A later full refresh must restart at page one, not the last checkpoint from this run.
+            resumable_source_manager.clear_state()
             return
         page_number += 1
 
