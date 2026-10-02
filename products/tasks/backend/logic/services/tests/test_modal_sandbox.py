@@ -735,29 +735,59 @@ class TestModalSandboxAgentServer:
         assert "agentsh exec --client-timeout 2h --timeout 2h" in command
         assert "bash /tmp/agentsh-bash-env.sh" in command
 
-    def test_setup_agentsh_failure_binds_diagnostics_for_the_activity_capture(self, mock_sandbox: Any):
-        missing_binary = "nohup: failed to run command 'agentsh': No such file or directory"
-        mock_sandbox.write_file = MagicMock(return_value=ExecutionResult(stdout="", stderr="", exit_code=0))
+    @pytest.mark.parametrize(
+        ("setup_exit_code", "setup_stderr", "health_exit_code", "session_check", "expected_error"),
+        [
+            (
+                1,
+                "agentsh daemon failed to start\nnohup: failed to run command 'agentsh': No such file or directory\n",
+                1,
+                None,
+                "Failed to start agentsh daemon",
+            ),
+            (
+                2,
+                "agentsh session create failed\n",
+                0,
+                ExecutionResult(stdout="", stderr="cat: no session file", exit_code=1),
+                "Failed to create agentsh session",
+            ),
+        ],
+    )
+    def test_setup_agentsh_failure_binds_diagnostics_for_the_activity_capture(
+        self,
+        mock_sandbox: Any,
+        setup_exit_code: int,
+        setup_stderr: str,
+        health_exit_code: int,
+        session_check: ExecutionResult | None,
+        expected_error: str,
+    ):
+        log_end = "agentsh: fatal error"
+        ok = ExecutionResult(stdout="", stderr="", exit_code=0)
+        mock_sandbox.write_file = MagicMock(return_value=ok)
         mock_sandbox.execute = MagicMock(
             side_effect=[
-                ExecutionResult(stdout="", stderr="", exit_code=0),
-                ExecutionResult(stdout="", stderr="", exit_code=0),
-                ExecutionResult(stdout="", stderr="", exit_code=0),
-                ExecutionResult(stdout="", stderr=f"agentsh daemon failed to start\n{missing_binary}\n", exit_code=1),
-                ExecutionResult(stdout="", stderr="", exit_code=1),
-                ExecutionResult(stdout="x" * 5000 + missing_binary, stderr="", exit_code=0),
+                ok,
+                ok,
+                ok,
+                ExecutionResult(stdout="", stderr=setup_stderr, exit_code=setup_exit_code),
+                ExecutionResult(stdout="", stderr="", exit_code=health_exit_code),
+                *([session_check] if session_check else []),
+                ExecutionResult(stdout="x" * 5000 + log_end, stderr="", exit_code=0),
             ]
         )
 
         with exception_context():
-            with pytest.raises(SandboxExecutionError, match="Failed to start agentsh daemon"):
+            with pytest.raises(SandboxExecutionError, match=expected_error):
                 mock_sandbox._setup_agentsh("/tmp/workspace", ["example.com"])
             properties = ambient_exception_properties()
 
-        assert properties["agentsh_setup_exit_code"] == 1
-        assert properties["agentsh_setup_stderr"].endswith(missing_binary)
-        assert properties["agentsh_log_tail"].endswith(missing_binary)
-        assert len(properties["agentsh_log_tail"]) == 4000
+        log_tail = str(properties["agentsh_log_tail"])
+        assert properties["agentsh_setup_exit_code"] == setup_exit_code
+        assert properties["agentsh_setup_stderr"] == setup_stderr.strip()
+        assert log_tail.endswith(log_end)
+        assert len(log_tail) == 4000
 
     @pytest.mark.parametrize(
         ("create_pr", "expected_flag"),
