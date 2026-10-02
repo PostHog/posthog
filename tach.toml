@@ -1648,7 +1648,7 @@ layer = "modules"
 
 [[modules]]
 path = "products.alerts_platform"
-depends_on = ["posthog"]
+depends_on = ["posthog", "products.access_control"]
 layer = "modules"
 
 [[interfaces]]

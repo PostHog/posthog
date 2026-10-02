@@ -142,6 +142,35 @@ class TestPlatformAlertAPI(APIBaseTest):
         expected_retrieve_status = status.HTTP_200_OK if visible else status.HTTP_404_NOT_FOUND
         assert retrieve_response.status_code == expected_retrieve_status, retrieve_response.json()
 
+    def test_a_logs_denial_on_the_parent_survives_a_child_environment_url(self) -> None:
+        # The rows are read from the parent, so the access check has to be read from the parent
+        # too. Anchored on the URL's team instead, a deny written on the project is invisible to a
+        # request that names one of its environments, and the parent's `source_config` filters are
+        # exactly what the deny was protecting.
+        self._set_flag(True)
+        configuration = self._create_configuration(self.team, "API errors")
+        child_environment = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        member = User.objects.create_and_join(self.organization, "denied-logs@posthog.com", "testtest")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="logs",
+            resource_id=None,
+            access_level="none",
+            organization_member=OrganizationMembership.objects.get(user=member, organization=self.organization),
+        )
+        self.client.force_login(member)
+
+        list_response = self.client.get(f"/api/projects/{child_environment.id}/platform_alerts/")
+        retrieve_response = self.client.get(f"/api/projects/{child_environment.id}/platform_alerts/{configuration.id}/")
+
+        assert list_response.status_code == status.HTTP_200_OK, list_response.json()
+        assert [r["id"] for r in list_response.json()["results"]] == []
+        assert retrieve_response.status_code == status.HTTP_404_NOT_FOUND, retrieve_response.json()
+
     def test_a_malformed_id_is_refused_rather_than_raising(self) -> None:
         self._set_flag(True)
 

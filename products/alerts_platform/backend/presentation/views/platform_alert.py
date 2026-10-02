@@ -1,3 +1,4 @@
+from functools import cached_property
 from typing import cast
 
 from drf_spectacular.utils import extend_schema
@@ -8,9 +9,11 @@ from rest_framework.response import Response
 
 from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.models import Team, User
 from posthog.permissions import PostHogFeatureFlagPermission, get_authenticator_scopes
 from posthog.scopes import APIScopeObject, scopes_not_covered
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.alerts_platform.backend.facade import api as platform_api
 from products.alerts_platform.backend.facade.enums import PlatformAlertConfigurationSourceKind, PlatformAlertState
 from products.alerts_platform.backend.presentation.views.schedule_restriction import ScheduleRestrictionField
@@ -116,9 +119,29 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
     serializer_class = PlatformAlertConfigurationSerializer
     pagination_class = PrecountedLimitOffsetPagination
 
-    def _canonical_team_id(self) -> int:
+    @cached_property
+    def canonical_team(self) -> Team:
         # The rows live on the parent team, so a child environment reads its parent's.
-        return self.team.parent_team_id or self.team.id
+        if self.team.parent_team_id is None:
+            return self.team
+        parent_team = self.team.parent_team
+        assert parent_team is not None
+        return parent_team
+
+    @cached_property
+    def user_access_control(self) -> UserAccessControl:
+        # Anchored on the team the rows come from, not on the one the URL named. The mixin builds
+        # this from `self.team`, which filters access control rows by that team's id, so a deny
+        # written on the project would not be seen by a request naming one of its environments
+        # while the read still returned the project's rows.
+        return UserAccessControl(
+            user=cast(User, self.request.user),
+            team=self.canonical_team,
+            organization_id=self.organization_id,
+        )
+
+    def _canonical_team_id(self) -> int:
+        return self.canonical_team.id
 
     def _readable_source_kinds(self) -> list[str]:
         # Session auth carries no scopes, so only the access-control check applies to it.
