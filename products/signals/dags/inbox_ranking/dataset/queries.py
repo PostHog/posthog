@@ -26,6 +26,7 @@ from posthog.models import Team
 from products.signals.dags.inbox_ranking.common import (
     FIXED_DISMISSAL_REASONS,
     LABELS_EPOCH,
+    LOW_VALUE_DISMISSAL_REASONS,
     NOT_FIXED_RESOLUTION_REASONS,
     WRONG_DISMISSAL_REASONS,
     ensure_utc,
@@ -411,6 +412,7 @@ _FIXED_TRANSITION_SQL = (
     + _FIXED_DISMISSAL_REASONS_SQL
     + "))"
 )
+_LOW_VALUE_DISMISSAL_REASONS_SQL = ", ".join(f"'{reason}'" for reason in LOW_VALUE_DISMISSAL_REASONS)
 
 STATUS_COLUMNS = (
     "first_resolved_at",
@@ -427,6 +429,8 @@ STATUS_COLUMNS = (
     "first_reasoned_resolved_at",
     "fixed_count",
     "first_fixed_at",
+    "lowvalue_dismissal_count",
+    "first_lowvalue_dismissed_at",
     "status_event_priority",
     "status_event_actionability",
     "status_event_team_id",
@@ -513,6 +517,15 @@ SELECT
     -- with another reason cannot take the label back. The fixed head reads this column.
     countIf(bucket_fixed = 1 AND event_team_id = latest_event_team_id) AS fixed_count,
     minIf(bucket_first_fixed_at, event_team_id = latest_event_team_id) AS first_fixed_at,
+    -- The same cumulative count, timestamp and tenant restriction for the low-value reasons. The
+    -- dismiss_lowvalue head reads this column.
+    countIf(
+        outcome = 'dismissed' AND bucket_lowvalue_dismissal = 1 AND event_team_id = latest_event_team_id
+    ) AS lowvalue_dismissal_count,
+    minIf(
+        bucket_first_lowvalue_dismissed_at,
+        outcome = 'dismissed' AND event_team_id = latest_event_team_id
+    ) AS first_lowvalue_dismissed_at,
     -- These two must stay paired with latest_status_event, so coalesce/nullIf keeps argMax from
     -- skipping a null: a judgment artefact can be deleted, and then the latest transition
     -- genuinely carries none. Plain argMax would reach back to an older transition and present
@@ -581,6 +594,12 @@ FROM (
         nullIf(minIf(events.timestamp, """
     + _FIXED_TRANSITION_SQL
     + """), fromUnixTimestamp(0)) AS bucket_first_fixed_at,
+        max(toString(properties.dismissal_reason) IN ("""
+    + _LOW_VALUE_DISMISSAL_REASONS_SQL
+    + """)) AS bucket_lowvalue_dismissal,
+        nullIf(minIf(events.timestamp, toString(properties.dismissal_reason) IN ("""
+    + _LOW_VALUE_DISMISSAL_REASONS_SQL
+    + """)), fromUnixTimestamp(0)) AS bucket_first_lowvalue_dismissed_at,
         nullIf(argMax(toString(properties.priority), events.timestamp), '') AS event_priority,
         nullIf(argMax(toString(properties.actionability), events.timestamp), '') AS event_actionability,
         nullIf(toString(properties.team_id), '') AS event_team_id
@@ -756,6 +775,8 @@ LABEL_DEFAULTS: dict[str, Any] = {
     "first_wrong_dismissed_at": None,
     "fixed_count": 0,
     "first_fixed_at": None,
+    "lowvalue_dismissal_count": 0,
+    "first_lowvalue_dismissed_at": None,
     "status_event_priority": None,
     "status_event_actionability": None,
     "status_event_team_id": None,
@@ -829,6 +850,7 @@ OUTCOME_FIRST_EVENT_COLUMNS: dict[str, str] = {
     "feedback_negative_count": "first_negative_feedback_at",
     "wrong_dismissal_count": "first_wrong_dismissed_at",
     "fixed_count": "first_fixed_at",
+    "lowvalue_dismissal_count": "first_lowvalue_dismissed_at",
     "pr_created_count": "first_pr_created_at",
     "pr_merged_count": "first_pr_merged_at",
     "pr_closed_count": "first_pr_closed_at",

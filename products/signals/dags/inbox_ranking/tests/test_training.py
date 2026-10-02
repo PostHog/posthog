@@ -445,6 +445,19 @@ def test_dismissed_as_wrong_prefers_the_cumulative_count(frame, expected):
             [True, True, True, True],
             [True, True, False, True],
         ),
+        # dismiss_lowvalue: cohort is everyone, label is a low-value dismissal, never a wrong one.
+        (
+            "dismiss_lowvalue",
+            pd.DataFrame(
+                {
+                    "impression_unit_count": [1, 0, 1],
+                    "lowvalue_dismissal_count": [1, 1, 0],
+                    "wrong_dismissal_count": [0, 0, 1],
+                }
+            ),
+            [True, True, True],
+            [True, True, False],
+        ),
     ],
 )
 def test_new_heads_read_the_right_cohort_and_label_columns(head_name, frame, expected_cohort, expected_label):
@@ -479,6 +492,7 @@ class _ParquetS3:
         ("refund", "refund_count"),
         ("thumbs_up", "feedback_positive_count"),
         ("reviewer_fix", "reviewer_add_count"),
+        ("dismiss_lowvalue", "lowvalue_dismissal_count"),
         *(("action", column) for column in ACTION_LABEL_COLUMNS),
     ],
 )
@@ -497,6 +511,7 @@ def test_new_head_label_columns_survive_the_load_snapshots_projection(head_name,
             "refund_count",
             "feedback_positive_count",
             "reviewer_add_count",
+            "lowvalue_dismissal_count",
             *ACTION_LABEL_COLUMNS,
         )
     }
