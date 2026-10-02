@@ -58,9 +58,11 @@ class _FacadePageMixin:
         paginator.count = page.count
         return paginator.get_paginated_response(data)
 
-    def _page_bounds(self, request: Request) -> tuple[int, int]:
-        paginator = self.paginator  # type: ignore[attr-defined]
-        return paginator.get_offset(request), paginator.get_limit(request)
+    def _offset(self, request: Request) -> int:
+        return self.paginator.get_offset(request)  # type: ignore[attr-defined]
+
+    def _limit(self, request: Request) -> int:
+        return self.paginator.get_limit(request)  # type: ignore[attr-defined]
 
 
 class CrossProjectDashboardViewSet(TeamAndOrgViewSetMixin, _FacadePageMixin, viewsets.GenericViewSet):
@@ -83,8 +85,12 @@ class CrossProjectDashboardViewSet(TeamAndOrgViewSetMixin, _FacadePageMixin, vie
 
     @extend_schema(responses={200: CrossProjectDashboardSerializer(many=True)})
     def list(self, request: Request, **kwargs: Any) -> Response:
-        offset, limit = self._page_bounds(request)
-        page = api.list_dashboards(organization_id=self.organization_id, user=self._user(), offset=offset, limit=limit)
+        page = api.list_dashboards(
+            organization_id=self.organization_id,
+            user=self._user(),
+            offset=self._offset(request),
+            limit=self._limit(request),
+        )
         return self._paginated(request, page, CrossProjectDashboardSerializer(page.results, many=True).data)
 
     @extend_schema(request=CrossProjectDashboardSerializer, responses={201: CrossProjectDashboardSerializer})
@@ -160,13 +166,12 @@ class CrossProjectDashboardTileViewSet(TeamAndOrgViewSetMixin, _FacadePageMixin,
 
     @extend_schema(parameters=[PARENT_DASHBOARD_ID], responses={200: CrossProjectDashboardTileSerializer(many=True)})
     def list(self, request: Request, **kwargs: Any) -> Response:
-        offset, limit = self._page_bounds(request)
         page = api.list_tiles(
             organization_id=self.organization_id,
             dashboard_id=self._dashboard_id(),
             user=self._user(),
-            offset=offset,
-            limit=limit,
+            offset=self._offset(request),
+            limit=self._limit(request),
         )
         return self._paginated(request, page, CrossProjectDashboardTileSerializer(page.results, many=True).data)
 
