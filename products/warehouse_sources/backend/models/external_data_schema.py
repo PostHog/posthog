@@ -1790,7 +1790,9 @@ def _renamed_schema_names(
 
 def _apply_schema_renames[T](values: dict[str, T], renames: dict[str, str]) -> dict[str, T]:
     rename_destinations = set(renames.values())
-    remapped = {name: value for name, value in values.items() if name not in rename_destinations}
+    remapped = {
+        name: value for name, value in values.items() if name not in rename_destinations and name not in renames
+    }
     remapped.update({renames[name]: values[name] for name in renames})
     return remapped
 
