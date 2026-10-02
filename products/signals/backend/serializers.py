@@ -50,6 +50,7 @@ if TYPE_CHECKING:
     from products.signals.backend.report_claims import ReportClaim
 
 from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES, RankingScore, priority_from_judgment
+from .briefing_reports import SUMMARY_LEAD_LIMIT, summary_lead
 from .daily_limit import reports_generated_today, team_day_start
 from .models import (
     GITHUB_LABEL_NAME_MAX_LENGTH,
@@ -1184,6 +1185,12 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "would be accepted (see the field's schema for the reason values)."
         ),
     )
+    summary_lead = serializers.SerializerMethodField(
+        help_text=(
+            "The opening of `summary` as plain text on one line: the text before its first section heading, "
+            f"with chart links removed and other links reduced to their text. At most {SUMMARY_LEAD_LIMIT} characters."
+        ),
+    )
     priority = serializers.SerializerMethodField(
         help_text="P0–P4 from the latest priority judgment artefact (when present).",
     )
@@ -1287,6 +1294,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "id",
             "title",
             "summary",
+            "summary_lead",
             "status",
             "total_weight",  # Used for priority scoring
             "signal_count",  # Used for occurrence count
@@ -1350,6 +1358,9 @@ class SignalReportSerializer(serializers.ModelSerializer):
         except (json.JSONDecodeError, TypeError, ValueError):
             return None
         return data if isinstance(data, dict) else None
+
+    def get_summary_lead(self, obj: SignalReport) -> str:
+        return summary_lead(obj.summary, SUMMARY_LEAD_LIMIT)
 
     def get_priority(self, obj: SignalReport) -> str | None:
         prefetched = getattr(obj, "prefetched_priority_artefacts", None)
@@ -1660,6 +1671,36 @@ class SignalReportListQuerySerializer(serializers.Serializer):
     )
 
 
+MAX_FOR_YOU_REPORTS = 20
+
+
+class SignalReportsForYouQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        required=False,
+        default=5,
+        min_value=1,
+        max_value=MAX_FOR_YOU_REPORTS,
+        help_text=f"How many of the top reports to return, 1 to {MAX_FOR_YOU_REPORTS}. Defaults to 5.",
+    )
+
+
+class SignalReportsForYouResponseSerializer(serializers.Serializer):
+    results = SignalReportListSerializer(
+        many=True,
+        help_text=(
+            "The open, actionable reports that matter most to the current user, best first: reports "
+            "waiting for their input, reports they claimed, reports naming them as a reviewer, then P0 "
+            "reports that nobody owns. The Today briefing ranks reports the same way."
+        ),
+    )
+    count = serializers.IntegerField(
+        help_text=(
+            "How many open reports are for the current user: the reports in `results`, plus the other "
+            "open, actionable reports that name them as a reviewer."
+        ),
+    )
+
+
 # One list page, with room for a next page's ids that have not loaded yet.
 MAX_SOURCE_METADATA_REPORTS = 100
 
@@ -1925,8 +1966,8 @@ class SignalReportCheckSerializer(serializers.ModelSerializer):
             },
             "soak_minutes": {
                 "help_text": (
-                    "How long after the report resolves a `pending` check waits before its first run. "
-                    "Null on a check that named its own `next_run_at`."
+                    "Minimum wait after resolution, in minutes. Metric checks also wait for a full post-resolution "
+                    "query window. Null on legacy checks that did not record a soak."
                 )
             },
             "run_interval_minutes": {"help_text": "Gap between runs for a recurring check; null for a one-shot."},

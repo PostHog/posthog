@@ -1,9 +1,10 @@
 """Scheduling math for alert checks.
 
-Sub-daily checks preserve their existing cadence and skip missed intervals.
+Sub-daily checks skip missed intervals.
 Daily, weekly, and monthly checks anchor to calendar instants in the team's
-local timezone. Quiet hours and weekend skipping layer local-time restrictions
-on top of those schedules.
+local timezone. Automatic schedules except real time run each alert at a stable
+offset after the interval boundary (see `alert_check_offset`). Quiet hours and
+weekend skipping layer local-time restrictions on top of those schedules.
 
 Pure Python with no Django or model imports. Timezones are passed as IANA
 names, quiet-hours windows as parsed tuples.
@@ -12,7 +13,7 @@ names, quiet-hours windows as parsed tuples.
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from enum import StrEnum
 from math import ceil
 from typing import Any, cast
@@ -22,6 +23,8 @@ import pytz
 from dateutil.relativedelta import relativedelta
 from pytz.exceptions import AmbiguousTimeError, NonExistentTimeError
 from pytz.tzinfo import BaseTzInfo
+
+from posthog.scheduling.jitter import deterministic_offset
 
 DEFAULT_SCHEDULE_INTERVAL_SECONDS = 60
 
@@ -111,6 +114,32 @@ class CalendarInterval(StrEnum):
 REAL_TIME_CADENCE_MINUTES = 2
 EVERY_15_MINUTES_CADENCE_MINUTES = 15
 
+# (earliest offset, width) of the window after each interval boundary in which an alert's check runs.
+# The earliest offset gives ingestion time to deliver the interval that just closed.
+_CHECK_WINDOWS: dict[CalendarInterval, tuple[timedelta, timedelta]] = {
+    CalendarInterval.EVERY_15_MINUTES: (timedelta(minutes=1), timedelta(minutes=3)),
+    CalendarInterval.HOURLY: (timedelta(minutes=2), timedelta(minutes=12)),
+    CalendarInterval.DAILY: (timedelta(minutes=2), timedelta(minutes=58)),
+    CalendarInterval.WEEKLY: (timedelta(minutes=2), timedelta(minutes=58)),
+    CalendarInterval.MONTHLY: (timedelta(minutes=2), timedelta(minutes=58)),
+}
+
+
+def alert_check_offset(interval: CalendarInterval, alert_id: UUID | str) -> timedelta:
+    """How long after each interval boundary this alert's check runs.
+
+    The offset is the same for an alert on every check, and alerts that share an interval
+    spread evenly over the window, so the fleet does not query ClickHouse at the boundary.
+    Real-time checks run every two minutes, so they have no window.
+    """
+    window = _CHECK_WINDOWS.get(interval)
+    if window is None:
+        return timedelta(0)
+    earliest, width = window
+    offset = deterministic_offset(str(alert_id), width, floor=earliest)
+    # Whole minutes, because the scheduler collects due checks once a minute.
+    return timedelta(minutes=offset // timedelta(minutes=1))
+
 
 def to_calendar_interval(value: str | None) -> CalendarInterval:
     if value is None:
@@ -127,25 +156,58 @@ def is_weekend(now: datetime, tz_name: str) -> bool:
     return now_local.isoweekday() in [6, 7]
 
 
-def _localize_wall_time(team_timezone: BaseTzInfo, naive_local: datetime) -> datetime:
+def _localize_wall_time(team_timezone: BaseTzInfo, naive_local: datetime, *, repeated_is_dst: bool = True) -> datetime:
     localize = cast(Callable[[datetime, bool | None], datetime], team_timezone.localize)
     try:
         return localize(naive_local, None)
     except AmbiguousTimeError:
-        return localize(naive_local, True)
+        return localize(naive_local, repeated_is_dst)
     except NonExistentTimeError:
         return team_timezone.normalize(localize(naive_local, False))
 
 
 def _calendar_anchor_utc(
-    local_now: datetime,
     team_timezone: BaseTzInfo,
     *,
     target_date: date,
     hour: int,
+    offset: timedelta,
 ) -> datetime:
-    naive_local = datetime.combine(target_date, local_now.timetz().replace(tzinfo=None)).replace(hour=hour)
+    naive_local = datetime.combine(target_date, time(hour=hour)) + offset
     return _localize_wall_time(team_timezone, naive_local).astimezone(UTC)
+
+
+def _local_period_start(timestamp: datetime, team_timezone: BaseTzInfo, period_minutes: int) -> datetime:
+    """Start of the local-time period of `period_minutes` that contains `timestamp`.
+
+    The start is found on the local wall clock. A 30-minute DST change (Australia/Lord_Howe) moves the
+    wall clock to the half hour, so subtracting the local minutes from the absolute instant would find
+    a start in the previous hour. A start that a DST change repeats resolves to the occurrence that
+    `timestamp` is in. A start that a DST change skips moves forward by the size of the change, which
+    is the instant of the change when the change happens on a period boundary.
+    """
+    local = timestamp.astimezone(team_timezone)
+    wall_start = local.replace(
+        tzinfo=None, minute=local.minute - local.minute % period_minutes, second=0, microsecond=0
+    )
+    return _localize_wall_time(team_timezone, wall_start, repeated_is_dst=bool(local.dst())).astimezone(UTC)
+
+
+def _next_local_period_start(after: datetime, team_timezone: BaseTzInfo, period_minutes: int) -> datetime:
+    """First start of a local-time period of `period_minutes` that is later than `after`.
+
+    A DST change can make a local period longer or shorter than `period_minutes`. A 30-minute change
+    (Australia/Lord_Howe) leaves a local hour that lasts 30 minutes, so a probe that steps a full hour
+    can pass over it. The probe steps at most 15 minutes, which no local period is shorter than, and
+    the loop stops at the first later period.
+    """
+    step = timedelta(minutes=min(period_minutes, 15))
+    probe = after + step
+    start = _local_period_start(probe, team_timezone, period_minutes)
+    while start <= after:
+        probe += step
+        start = _local_period_start(probe, team_timezone, period_minutes)
+    return start
 
 
 def _next_check_at_for_schedule_start_time(
@@ -242,18 +304,21 @@ def next_calendar_check_time(
     now: datetime,
     tz_name: str,
     next_check_at: datetime | None,
+    alert_id: UUID | str,
     schedule_start_time: str | None = None,
 ) -> datetime:
     """Nominal next check instant, before quiet-hours snapping.
 
-    Sub-daily intervals keep their cadence from the previous next_check_at. If
+    Real-time checks keep their cadence from the previous next_check_at. If
     a check is late, the next check skips missed intervals and is after now.
-    Daily/weekly/monthly anchor to fixed local instants: 1am tomorrow, 3am next
-    Monday, 4am on the 1st of next month. Hour-only replacement keeps the
-    minute/second spread.
+    Daily/weekly/monthly anchor to fixed local hours: 1am tomorrow, 3am next
+    Monday, 4am on the 1st of next month. Except for real time, each check then
+    runs at the alert's offset after its local interval boundary. Explicit
+    schedule_start_time values keep the time the user selected.
     """
     team_timezone = pytz.timezone(tz_name)
     local_now = now.astimezone(team_timezone)
+    offset = alert_check_offset(interval, alert_id)
 
     if schedule_start_time is not None:
         return _next_check_at_for_schedule_start_time(
@@ -266,36 +331,40 @@ def next_calendar_check_time(
         )
 
     match interval:
-        case CalendarInterval.REAL_TIME | CalendarInterval.EVERY_15_MINUTES | CalendarInterval.HOURLY:
-            interval_delta = {
-                CalendarInterval.REAL_TIME: timedelta(minutes=REAL_TIME_CADENCE_MINUTES),
-                CalendarInterval.EVERY_15_MINUTES: timedelta(minutes=EVERY_15_MINUTES_CADENCE_MINUTES),
-                CalendarInterval.HOURLY: timedelta(hours=1),
-            }[interval]
+        case CalendarInterval.REAL_TIME:
+            interval_delta = timedelta(minutes=REAL_TIME_CADENCE_MINUTES)
             candidate = (next_check_at or now) + interval_delta
             if candidate <= now:
                 candidate += interval_delta * (int((now - candidate) // interval_delta) + 1)
             return candidate
+        case CalendarInterval.EVERY_15_MINUTES | CalendarInterval.HOURLY:
+            cadence_minutes = EVERY_15_MINUTES_CADENCE_MINUTES if interval == CalendarInterval.EVERY_15_MINUTES else 60
+            # The check runs at this alert's offset into the first local interval after the previous check,
+            # which also moves an alert off the minute it was created on.
+            candidate = _next_local_period_start(next_check_at or now, team_timezone, cadence_minutes) + offset
+            if candidate <= now:
+                candidate = _next_local_period_start(now - offset, team_timezone, cadence_minutes) + offset
+            return candidate
         case CalendarInterval.DAILY:
             return _calendar_anchor_utc(
-                local_now,
                 team_timezone,
                 target_date=local_now.date() + timedelta(days=1),
                 hour=1,
+                offset=offset,
             )
         case CalendarInterval.WEEKLY:
             return _calendar_anchor_utc(
-                local_now,
                 team_timezone,
                 target_date=local_now.date() + timedelta(days=7 - local_now.weekday()),
                 hour=3,
+                offset=offset,
             )
         case CalendarInterval.MONTHLY:
             if local_now.month == 12:
                 target_date = date(local_now.year + 1, 1, 1)
             else:
                 target_date = date(local_now.year, local_now.month + 1, 1)
-            return _calendar_anchor_utc(local_now, team_timezone, target_date=target_date, hour=4)
+            return _calendar_anchor_utc(team_timezone, target_date=target_date, hour=4, offset=offset)
         case _ as unreachable:
             raise ValueError(f"Unhandled alert calculation interval: {unreachable!r}")
 

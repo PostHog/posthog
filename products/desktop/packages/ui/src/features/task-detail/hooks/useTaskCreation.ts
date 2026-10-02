@@ -19,6 +19,7 @@ import {
   ANALYTICS_EVENTS,
   type ModelAccess,
   PROJECT_BLUEBIRD_FLAG,
+  SERVER_AGENT_INSTRUCTIONS_FLAG,
   type TaskCreationInput,
   type WorkspaceMode,
 } from "@posthog/shared";
@@ -63,6 +64,7 @@ import { useTaskInputHistoryStore } from "../../message-editor/taskInputHistoryS
 import type { EditorHandle } from "../../message-editor/types";
 import { toastError } from "../../notifications/errorDetails";
 import { useProvisioningStore } from "../../provisioning/store";
+import { cloudTaskCarriesLocalInstructions } from "../../settings/serverAgentInstructions";
 import {
   getEffectiveCustomInstructions,
   useSettingsStore,
@@ -269,6 +271,10 @@ export function useTaskCreation({
     PROJECT_BLUEBIRD_FLAG,
     import.meta.env.DEV,
   );
+  const serverInstructionsEnabled = useFeatureFlag(
+    SERVER_AGENT_INSTRUCTIONS_FLAG,
+  );
+  const currentProjectId = useAuthStateValue((state) => state.currentProjectId);
   const claudeTokenStore = useServiceOptional<ClaudeSubscriptionTokenSettings>(
     CLAUDE_SUBSCRIPTION_TOKEN_SETTINGS,
   );
@@ -503,7 +509,16 @@ export function useTaskCreation({
             channelName,
             channelId: channelId ?? defaultedChannelId,
             channelContextId,
-            customInstructions: getEffectiveCustomInstructions(settings),
+            customInstructions:
+              workspaceMode === "cloud" &&
+              !cloudTaskCarriesLocalInstructions({
+                flagEnabled: serverInstructionsEnabled,
+                projectId: currentProjectId,
+                onServerProjectIds:
+                  settings.customInstructionsOnServerProjectIds,
+              })
+                ? undefined
+                : getEffectiveCustomInstructions(settings),
             autoPublishCloudRuns: settings.autoPublishCloudRuns,
             rtkEnabledCloud: settings.rtkEnabledCloud,
             allowNoRepo,
@@ -677,6 +692,8 @@ export function useTaskCreation({
     [
       canSubmit,
       canSubmitBase,
+      serverInstructionsEnabled,
+      currentProjectId,
       editorRef,
       sessionId,
       selectedDirectory,

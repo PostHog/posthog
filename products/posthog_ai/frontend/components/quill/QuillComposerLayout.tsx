@@ -33,7 +33,8 @@ export function QuillComposerLayout({
                 className={
                     // The textarea is Lemon's, so quill's own focus rule, keyed to its input slot, never fires here.
                     'h-auto cursor-text bg-[var(--card)] focus-within:border-[color-mix(in_oklab,var(--ring)_50%,transparent)] focus-within:shadow-[0_0_0_3px_color-mix(in_oklab,var(--ring)_30%,transparent)] ' +
-                    '[&_[data-slot=composer-placeholder]]:top-2.5 [&_[data-slot=composer-placeholder]]:left-3.5 [&_textarea]:min-h-[37px]'
+                    // LemonTextArea puts the composer's padding on both its wrapper and the textarea. The wrapper keeps it, so the textarea drops it. The textarea keeps 2px on the left because it clips the caret at x=0.
+                    '[&_[data-slot=composer-placeholder]]:top-2 [&_[data-slot=composer-placeholder]]:left-2.5 [&_textarea]:min-h-[37px] [&_textarea]:p-0 [&_textarea]:pl-0.5'
                 }
             >
                 <InputGroupAddon align="block-start" className="flex-wrap">

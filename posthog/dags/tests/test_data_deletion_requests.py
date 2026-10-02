@@ -2648,7 +2648,9 @@ def test_delete_person_profiles_op_records_per_person_errors_in_metadata():
             deleted_count=0,
             failures=[
                 PersonDeletionFailure(
-                    step=PersonDeletionStep.TOMBSTONE_CLICKHOUSE, person_uuid=UUID(p_uuid), error="RuntimeError: x"
+                    step=PersonDeletionStep.PUBLISH_CLICKHOUSE_TOMBSTONE,
+                    person_uuid=UUID(p_uuid),
+                    error="RuntimeError: x",
                 )
             ],
         )
@@ -2664,7 +2666,7 @@ def test_delete_person_profiles_op_records_per_person_errors_in_metadata():
 
 
 @pytest.mark.django_db
-def test_delete_person_profiles_op_raises_when_the_postgres_delete_fails():
+def test_delete_person_profiles_op_raises_when_the_postgres_tombstone_fails():
     p_uuid = str(uuid4())
     create_person(team_id=TEAM_ID, uuid=p_uuid, distinct_ids=["a"])
     ctx = PersonRemovalContext(
@@ -2682,14 +2684,16 @@ def test_delete_person_profiles_op_raises_when_the_postgres_delete_fails():
             deleted_count=0,
             failures=[
                 PersonDeletionFailure(
-                    step=PersonDeletionStep.TOMBSTONE_CLICKHOUSE, person_uuid=tombstone_failed, error="RuntimeError: ch"
+                    step=PersonDeletionStep.PUBLISH_CLICKHOUSE_TOMBSTONE,
+                    person_uuid=tombstone_failed,
+                    error="RuntimeError: ch",
                 ),
                 PersonDeletionFailure(
-                    step=PersonDeletionStep.DELETE_POSTGRES, person_uuid=UUID(p_uuid), error="RuntimeError: down"
+                    step=PersonDeletionStep.TOMBSTONE_POSTGRES, person_uuid=UUID(p_uuid), error="RuntimeError: down"
                 ),
             ],
         )
-        with pytest.raises(dagster.Failure, match="Postgres delete failed for 1 persons") as raised:
+        with pytest.raises(dagster.Failure, match="Postgres tombstone failed for 1 persons") as raised:
             delete_person_profiles_op(build_op_context(), ctx)
     # The run metadata still carries every failure, not only the Postgres ones named in the description.
     assert raised.value.metadata["errors"].value == 2
@@ -2698,8 +2702,8 @@ def test_delete_person_profiles_op_raises_when_the_postgres_delete_fails():
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("postgres_delete_fails", [False, True])
-def test_data_deletion_request_person_removal_lifecycle(cluster: ClickhouseCluster, postgres_delete_fails: bool):
+@pytest.mark.parametrize("postgres_tombstone_fails", [False, True])
+def test_data_deletion_request_person_removal_lifecycle(cluster: ClickhouseCluster, postgres_tombstone_fails: bool):
     p_uuid = str(uuid4())
     create_person(team_id=TEAM_ID, uuid=p_uuid, distinct_ids=["a"])
     request = DataDeletionRequest.objects.create(
@@ -2721,11 +2725,11 @@ def test_data_deletion_request_person_removal_lifecycle(cluster: ClickhouseClust
                 deleted_count=0,
                 failures=[
                     PersonDeletionFailure(
-                        step=PersonDeletionStep.DELETE_POSTGRES, person_uuid=UUID(p_uuid), error="RuntimeError: down"
+                        step=PersonDeletionStep.TOMBSTONE_POSTGRES, person_uuid=UUID(p_uuid), error="RuntimeError: down"
                     )
                 ],
             )
-            if postgres_delete_fails
+            if postgres_tombstone_fails
             else PersonProfileDeletionResult(deleted_count=1)
         )
         result = data_deletion_request_person_removal.execute_in_process(
@@ -2740,9 +2744,9 @@ def test_data_deletion_request_person_removal_lifecycle(cluster: ClickhouseClust
 
     # A failed Postgres delete has to reach the request status through the skipped finalize op and
     # the failure hook, not only raise inside the op.
-    assert result.success is not postgres_delete_fails
+    assert result.success is not postgres_tombstone_fails
     request.refresh_from_db()
-    assert request.status == (RequestStatus.FAILED if postgres_delete_fails else RequestStatus.COMPLETED)
+    assert request.status == (RequestStatus.FAILED if postgres_tombstone_fails else RequestStatus.COMPLETED)
 
 
 @pytest.mark.django_db
@@ -2900,7 +2904,7 @@ def test_delete_person_profiles_op_raises_only_when_the_person_is_still_live(fai
             failures=[PersonDeletionFailure(step=failed_step, person_uuid=UUID(p_uuid), error="down")],
         )
         if raises:
-            with pytest.raises(dagster.Failure, match="Postgres delete failed for 1 persons"):
+            with pytest.raises(dagster.Failure, match="Postgres tombstone failed for 1 persons"):
                 delete_person_profiles_op(build_op_context(), ctx)
         else:
             assert delete_person_profiles_op(build_op_context(), ctx) is ctx

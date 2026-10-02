@@ -1,6 +1,7 @@
 import asyncio
 from collections.abc import Awaitable, Callable, Iterator
 from contextlib import AbstractContextManager
+from dataclasses import replace
 from uuid import UUID
 
 import pytest
@@ -26,6 +27,7 @@ from products.signals.backend.emission.pipeline import filter_actionable
 from products.signals.backend.emission.registry import SignalEmitterOutput
 from products.signals.backend.system_one_decision import (
     JEV_TIMEOUT_SECONDS,
+    SHADOW_MODEL_FLAG,
     ModelMode,
     SignalsDecision,
     SignalsDecisionError,
@@ -199,6 +201,91 @@ async def test_shadow_disagreement_keeps_primary_result_and_records_usage() -> N
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("stage", ["actionability", "signal_safety", "report_safety"])
+@pytest.mark.parametrize("variant", ["jevk", "jeeves"])
+async def test_shadow_model_split_calls_one_model_and_keeps_sonnet_deciding(stage: str, variant: str) -> None:
+    prompt = replace(
+        bundled_prompt("signals-actionability-issue", "policy", "question", 0.9), source="managed", version=2
+    )
+    model = DEFAULT_SYSTEM_ONE_MODEL if variant == "jevk" else "posthog/hogference/jeeves-0.1"
+    selected = replace(prompt, model=model, version=2 if variant == "jevk" else 3)
+    result = DecisionResult(model=model, answers={"actionable": NoulAnswer(probability=0.99)}, input_tokens=100)
+    if stage != "actionability":
+        result = DecisionResult(
+            model=model,
+            answers={
+                "safe": NoulAnswer(probability=0.99),
+                "category": ChoiceAnswer(choice="none", confidence=1.0, probabilities={"none": 1.0}),
+            },
+            input_tokens=100,
+        )
+    flags = MagicMock()
+    flags.get_flag.return_value = variant
+    flags.get_flag_payload.return_value = {"prompt_versions": {prompt.name: selected.version}}
+    sonnet = AsyncMock(return_value=False)
+    with (
+        patch(
+            "products.signals.backend.system_one_decision.posthoganalytics.get_feature_flag",
+            return_value="typesafe-shadow",
+        ),
+        patch(
+            "products.signals.backend.system_one_decision.posthoganalytics.evaluate_flags", return_value=flags
+        ) as evaluate,
+        patch("products.signals.backend.system_one_decision.model_experiment_prompt", return_value=selected),
+        patch("products.signals.backend.system_one_decision.posthoganalytics.capture") as capture,
+        patch(
+            "products.signals.backend.system_one_decision.decision_api.decide_when_available", return_value=result
+        ) as decide,
+    ):
+        assert await _run_actionability(stage=stage, prompt=prompt, traditional=sonnet) is False
+    sonnet.assert_awaited_once()
+    assert decide.call_count == 1
+    assert decide.call_args.args[0].model == model
+    properties = capture.call_args.kwargs["properties"]
+    assert properties["system_one_deciding_provider"] == "traditional"
+    assert properties["system_one_model_experiment_variant"] == variant
+    assert properties["system_one_model_experiment_status"] == "assigned"
+    assert properties["system_one_model"] == model
+    assert properties["disagreement"] is True
+    assert evaluate.call_args.args == (properties["signals_decision_id"],)
+    flags.get_flag.assert_called_once_with(SHADOW_MODEL_FLAG)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["disabled", "invalid_payload", "prompt_unavailable", "flag_error"])
+async def test_unavailable_shadow_experiment_falls_back_to_one_jevk_call(outcome: str) -> None:
+    prompt = replace(
+        bundled_prompt("signals-actionability-issue", "policy", "question", 0.9), source="managed", version=2
+    )
+    flags = MagicMock()
+    flags.get_flag.return_value = False if outcome == "disabled" else "jeeves"
+    flags.get_flag_payload.return_value = {
+        "prompt_versions": {prompt.name: True if outcome == "invalid_payload" else 3}
+    }
+    with (
+        patch(
+            "products.signals.backend.system_one_decision.posthoganalytics.get_feature_flag",
+            return_value="typesafe-shadow",
+        ),
+        patch(
+            "products.signals.backend.system_one_decision.posthoganalytics.evaluate_flags",
+            side_effect=RuntimeError("secret") if outcome == "flag_error" else None,
+            return_value=flags,
+        ),
+        patch("products.signals.backend.system_one_decision.model_experiment_prompt", return_value=None),
+        patch("products.signals.backend.system_one_decision.posthoganalytics.capture") as capture,
+        patch(
+            "products.signals.backend.system_one_decision.decision_api.decide_when_available",
+            return_value=_actionability_result(),
+        ) as decide,
+    ):
+        assert await _run_actionability(prompt=prompt, traditional=AsyncMock(return_value=False)) is False
+    assert decide.call_count == 1
+    assert decide.call_args.args[0].model == DEFAULT_SYSTEM_ONE_MODEL
+    assert capture.call_args.kwargs["properties"]["system_one_model_experiment_status"] != "assigned"
+
+
+@pytest.mark.asyncio
 async def test_managed_question_and_threshold_drive_the_decision() -> None:
     prompt = SystemOnePrompt(
         name="signals-actionability-issue",
@@ -215,6 +302,7 @@ async def test_managed_question_and_threshold_drive_the_decision() -> None:
             return_value="system-one-only",
         ),
         patch("products.signals.backend.system_one_decision.posthoganalytics.capture") as capture,
+        patch("products.signals.backend.system_one_decision.posthoganalytics.evaluate_flags") as evaluate,
         patch(
             "products.signals.backend.system_one_decision.decision_api.decide_when_available",
             return_value=_actionability_result(probability=0.9),
@@ -227,6 +315,7 @@ async def test_managed_question_and_threshold_drive_the_decision() -> None:
     assert request.questions["actionable"].instructions == "Managed question?"
     assert request.properties["$ai_prompt_version"] == "2"
     assert capture.call_args.kwargs["properties"]["$ai_prompt_version"] == "2"
+    evaluate.assert_not_called()
 
 
 @pytest.mark.asyncio

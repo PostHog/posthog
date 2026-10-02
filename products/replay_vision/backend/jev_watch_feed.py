@@ -76,8 +76,11 @@ JEV_SEEN_PENALTY = 0.3
 # Below this probability a judged row carries no evidence: it falls to the same recency filler tier
 # as an unjudged row, so its card never claims the model judged it worth watching, and a judged-low
 # row cannot outrank a fresh observation the sweep has not seen yet. Tier membership uses the raw
-# probability; the seen penalty only orders rows inside the evidence tier.
-JEV_WATCHABLE_MIN = 0.5
+# probability; the seen penalty only orders rows inside the evidence tier. JevK5 compresses the
+# scale: it scores sessions with real friction near 0.3 and routine sessions near 0.1, so a higher
+# bar empties the tier. Recalibrate from the judged event's watchability quantiles and top_scored
+# sample, and bump the cache version below with any change here.
+JEV_WATCHABLE_MIN = 0.3
 # One incident can put many near-identical watchable sessions on one scanner, and a pure probability
 # sort would fill the top of the feed with them. Hold each scanner to this share of the evidence
 # tier as it is placed (same intent as WATCH_FEED_MAX_SIGNAL_SHARE in the weighted ranker), with a
@@ -93,7 +96,10 @@ WINDOW_CHUNK_SIZE = MAX_QUESTIONS_PER_REQUEST
 _MAX_TITLE_CHARS = 300
 _MAX_PROSE_CHARS = 1500
 _MAX_TAGS = 20
-_WATCH_RANK_REDIS_PREFIX = "replay-vision:jev-watch-rank:"
+# The judged set records sub-threshold rows without their scores, so a JEV_WATCHABLE_MIN change
+# only reaches rows judged after it. Bump the version with the threshold: the sweep re-judges
+# every window into a fresh cache, and the old keys lapse by TTL.
+_WATCH_RANK_REDIS_PREFIX = "replay-vision:jev-watch-rank:v2:"
 # Judgments are append-only per observation and the sweep prunes entries that leave the window, so
 # a long lifetime is resilience, not staleness: the cache survives a day of failed sweeps before
 # the feed falls back to the recency filler tier and coverage rebuilds at the judging cap per hour.
@@ -172,6 +178,10 @@ class WindowJudgment:
     model: str | None
     chunks: int
     failed_chunks: int
+    # Failed chunks keyed by exception class name. The Prometheus counter carries the same
+    # breakdown, but prod workers do not ship their metrics into the product; the sweep's
+    # judged event does, so a failing sweep names its error without log or cluster access.
+    chunk_error_types: dict[str, int]
     input_tokens: int
     estimated_cost_usd: float
 
@@ -277,6 +287,7 @@ def judge_scanner_window(
     batch_failed_ids: list[str] = []
     model: str | None = None
     failed_chunks = 0
+    chunk_error_types: dict[str, int] = {}
     input_tokens = 0
     estimated_cost = 0.0
     for chunk in chunks:
@@ -288,8 +299,10 @@ def judge_scanner_window(
             )
         except Exception as error:
             _LATENCY.observe(perf_counter() - started)
-            _CALLS.labels(type(error).__name__).inc()
+            error_type = type(error).__name__
+            _CALLS.labels(error_type).inc()
             failed_chunks += 1
+            chunk_error_types[error_type] = chunk_error_types.get(error_type, 0) + 1
             # An invalid answer or a batch-caused gateway refusal charges the retry budget. A
             # missing gateway config raises a ValueError subclass and must not sneak in through
             # the invalid-answer check: it fails every chunk alike, so its rows retry free, the
@@ -304,7 +317,7 @@ def judge_scanner_window(
                 "Jev watch rank chunk failed",
                 team_id=team_id,
                 scanner_id=str(scanner_id),
-                error_type=type(error).__name__,
+                error_type=error_type,
             )
             continue
         _LATENCY.observe(perf_counter() - started)
@@ -323,6 +336,7 @@ def judge_scanner_window(
         model=model,
         chunks=len(chunks),
         failed_chunks=failed_chunks,
+        chunk_error_types=chunk_error_types,
         input_tokens=input_tokens,
         estimated_cost_usd=estimated_cost,
     )
