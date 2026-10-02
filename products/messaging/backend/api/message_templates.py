@@ -185,7 +185,7 @@ class MessageTemplateSerializer(serializers.ModelSerializer):
 
 
 class EmailTemplateSummarySerializer(EmailTemplateSerializer):
-    design = None
+    design = None  # type: ignore[assignment]
 
 
 class MessageTemplateContentSummarySerializer(MessageTemplateContentSerializer):

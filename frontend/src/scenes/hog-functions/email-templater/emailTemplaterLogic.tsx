@@ -4,6 +4,7 @@ import {
     afterMount,
     beforeUnmount,
     connect,
+    isBreakpoint,
     kea,
     listeners,
     path,
@@ -726,11 +727,16 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             }
         },
 
-        pickTemplate: async ({ template }) => {
+        pickTemplate: async ({ template }, breakpoint) => {
             // The list response omits the design JSON, so fetch the full template before applying it.
             try {
-                actions.applyTemplate(await api.messaging.getTemplate(template.id))
-            } catch {
+                const fullTemplate = await api.messaging.getTemplate(template.id)
+                breakpoint()
+                actions.applyTemplate(fullTemplate)
+            } catch (error) {
+                if (isBreakpoint(error)) {
+                    throw error
+                }
                 lemonToast.error('Failed to load template')
             }
         },

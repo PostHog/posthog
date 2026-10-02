@@ -29,7 +29,7 @@ describe('messageTemplatesLogic', () => {
         jest.spyOn(api.messaging, 'getTemplates').mockResolvedValue({ results: [listTemplate], count: 1 } as Awaited<
             ReturnType<typeof api.messaging.getTemplates>
         >)
-        jest.spyOn(api.messaging, 'getTemplate').mockResolvedValue(fullTemplate)
+        const getTemplate = jest.spyOn(api.messaging, 'getTemplate').mockResolvedValue(fullTemplate)
         const createTemplate = jest.spyOn(api.messaging, 'createTemplate').mockResolvedValue({
             ...fullTemplate,
             id: 'copy-id',
@@ -39,9 +39,11 @@ describe('messageTemplatesLogic', () => {
         const logic = messageTemplatesLogic()
         logic.mount()
 
-        await expectLogic(logic, () => logic.actions.duplicateTemplate(listTemplate)).toDispatchActions([
+        await expectLogic(logic).toDispatchActions(['loadTemplatesSuccess'])
+        await expectLogic(logic, () => logic.actions.duplicateTemplate(logic.values.templates[0])).toDispatchActions([
             'duplicateTemplateSuccess',
         ])
+        expect(getTemplate).toHaveBeenCalledWith('template-id')
         expect(createTemplate).toHaveBeenCalledWith(
             expect.objectContaining({ name: 'Welcome (copy)', content: fullTemplate.content })
         )
