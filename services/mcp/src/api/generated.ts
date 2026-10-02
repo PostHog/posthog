@@ -2599,6 +2599,8 @@ export namespace Schemas {
       optimizeProjections?: boolean | null;
       /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
       parserMode?: ParserMode | null;
+      /** Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. */
+      personIdPushdown?: boolean | null;
       personsArgMaxVersion?: PersonsArgMaxVersion | null;
       personsJoinMode?: PersonsJoinMode | null;
       personsOnEventsMode?: PersonsOnEventsMode | null;
@@ -122756,6 +122758,13 @@ export namespace Schemas {
      * Set to true when the client can rebuild the run from its durable log after the agent-proxy reports a trimmed stream cursor. Without it, runs that keep only a short live tail in Redis are read from the Django endpoint, which replays the durable backlog itself.
      */
     resync?: boolean;
+    };
+
+    export type TasksRunsLivingArtifactsVersionContentParams = {
+    /**
+     * Set to true to save the version. A stored file then redirects to a short-lived presigned URL, so a large file never passes through the app. Leave unset for an inline preview.
+     */
+    download?: boolean;
     };
 
     export type TasksThreadMessagesListParams = {
