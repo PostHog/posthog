@@ -192,8 +192,10 @@ pub enum ProcessingError {
 }
 
 impl ProcessingError {
+    /// Only `Unavailable` can succeed on a retry. `Internal` is a deterministic encode
+    /// failure, so replaying it would block a Kafka partition forever.
     pub fn is_retryable(&self) -> bool {
-        !matches!(self, Self::InvalidArgument(_))
+        matches!(self, Self::Unavailable(_))
     }
 }
 
@@ -403,5 +405,12 @@ mod tests {
             .expect_err("an unavailable lookup must fail the batch");
 
         assert!(matches!(status, ProcessingError::Unavailable(_)));
+    }
+
+    #[test]
+    fn only_unavailable_errors_are_retryable() {
+        assert!(ProcessingError::Unavailable("broker down".to_string()).is_retryable());
+        assert!(!ProcessingError::InvalidArgument("bad record").is_retryable());
+        assert!(!ProcessingError::Internal("encode failed".to_string()).is_retryable());
     }
 }
