@@ -38,6 +38,7 @@ from products.experiments.backend.hogql_queries.error_handling import (
 )
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.utils import sanitize_non_finite
+from products.experiments.backend.metric_calculation.results import MetricResultStore, compute_recalc_fingerprint
 from products.experiments.backend.metric_calculation.spec import plan_metric
 from products.experiments.backend.metric_resolution import build_metric, resolve_scheduled_metrics
 from products.experiments.backend.models.experiment import (
@@ -57,7 +58,6 @@ from products.experiments.backend.temporal.models import (
     MetricRecalculationResult,
     RecalculationProgressUpdate,
 )
-from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
 from products.experiments.stats.shared.statistics import StatisticError
 
 logger = structlog.get_logger(__name__)
@@ -730,14 +730,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
 
         # Skip the query if this metric is already computed for this exact config and window; a config change
         # changes the fingerprint, so a stale result won't match and recomputes.
-        already_computed = ExperimentMetricResult.objects.filter(
-            experiment_id=experiment_id,
-            metric_uuid=metric_uuid,
-            query_to=query_to_dt,
-            fingerprint=recalc_fp,
-            status=ExperimentMetricResult.Status.COMPLETED,
-        ).exists()
-        if already_computed:
+        if MetricResultStore(experiment_id=experiment_id).has_completed(spec, window=query_to_dt):
             # A crash between the result write and the retry cleanup on a prior attempt lands here on the
             # next one; clear so a completed metric can't keep reporting as retrying.
             _clear_retry(recalculation_id, metric_uuid)

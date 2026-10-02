@@ -9,6 +9,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from products.experiments.backend.facade.timeseries import metric_calculation_keys
+from products.experiments.backend.metric_calculation.results import compute_recalc_fingerprint
 from products.experiments.backend.metric_calculation.spec import plan_metric
 from products.experiments.backend.models.experiment import (
     Experiment,
@@ -18,7 +19,6 @@ from products.experiments.backend.models.experiment import (
     ExperimentToSavedMetric,
 )
 from products.experiments.backend.recalculation import get_run_results
-from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
 from products.experiments.backend.timeseries_sync import sync_timeseries_recalculation
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
