@@ -1,6 +1,7 @@
-import api from 'lib/api'
-
 import type { InsightModel } from '~/types'
+
+import { insightsRetrieve } from 'products/product_analytics/frontend/generated/api'
+import type { InsightsRetrieveParams } from 'products/product_analytics/frontend/generated/api.schemas'
 
 export type TileUnavailableReason = 'no-access' | 'not-found' | 'failed'
 
@@ -38,15 +39,16 @@ export async function fetchCrossProjectTile(
     insightId: number,
     filtersOverride?: Record<string, unknown>
 ): Promise<TileFetchResult> {
-    const params = new URLSearchParams({ refresh: 'blocking' })
+    const params: InsightsRetrieveParams = { refresh: 'blocking' }
     if (filtersOverride && Object.keys(filtersOverride).length > 0) {
-        params.set('filters_override', JSON.stringify(filtersOverride))
+        params.filters_override = JSON.stringify(filtersOverride)
     }
 
     await acquireSlot()
     try {
-        const insight = await api.get(`api/projects/${projectId}/insights/${insightId}/?${params.toString()}`)
-        return { insight, unavailable: null }
+        const insight = await insightsRetrieve(String(projectId), insightId, params)
+        // InsightCard needs an InsightModel. The endpoint returns one, but its schema leaves out `saved`.
+        return { insight: insight as unknown as InsightModel, unavailable: null }
     } catch (error: any) {
         if (error?.status === 403) {
             return { insight: null, unavailable: 'no-access' }

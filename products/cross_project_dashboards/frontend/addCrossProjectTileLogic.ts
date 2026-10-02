@@ -1,9 +1,10 @@
 import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { organizationLogic } from 'scenes/organizationLogic'
+
+import { insightsList } from 'products/product_analytics/frontend/generated/api'
 
 import { crossProjectDashboardLogic } from './crossProjectDashboardLogic'
 import { crossProjectDashboardsTilesCreate } from './generated/api'
@@ -127,14 +128,15 @@ export const addCrossProjectTileLogic = kea<addCrossProjectTileLogicType>([
         insights: [
             [] as InsightOption[],
             {
-                loadInsights: async () => {
+                loadInsights: async (): Promise<InsightOption[]> => {
                     if (!values.projectId) {
                         return []
                     }
-                    const response = await api.get(
-                        `api/projects/${values.projectId}/insights/?basic=true&limit=${INSIGHT_PAGE_SIZE}`
-                    )
-                    return (response.results ?? []).map((insight: any) => ({
+                    const response = await insightsList(String(values.projectId), {
+                        basic: true,
+                        limit: INSIGHT_PAGE_SIZE,
+                    })
+                    return response.results.map((insight) => ({
                         id: insight.id,
                         name: insight.name || insight.derived_name || `Insight ${insight.id}`,
                     }))

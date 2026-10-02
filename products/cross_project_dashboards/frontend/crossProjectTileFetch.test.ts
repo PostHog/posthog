@@ -1,27 +1,30 @@
-import api from 'lib/api'
+import { insightsRetrieve } from 'products/product_analytics/frontend/generated/api'
 
 import { fetchCrossProjectTile } from './crossProjectTileFetch'
 
-jest.mock('lib/api', () => ({ __esModule: true, default: { get: jest.fn() } }))
+jest.mock('products/product_analytics/frontend/generated/api', () => ({
+    __esModule: true,
+    insightsRetrieve: jest.fn(),
+}))
 
-const mockedGet = api.get as jest.Mock
+const mockedRetrieve = insightsRetrieve as jest.Mock
 
 describe('fetchCrossProjectTile', () => {
     beforeEach(() => {
-        mockedGet.mockReset()
+        mockedRetrieve.mockReset()
     })
 
     it('fetches from the tile own project, not the current one', async () => {
-        mockedGet.mockResolvedValue({ id: 7, name: 'Signups' })
+        mockedRetrieve.mockResolvedValue({ id: 7, name: 'Signups' })
 
         await fetchCrossProjectTile(42, 7)
 
-        expect(mockedGet).toHaveBeenCalledTimes(1)
-        expect(mockedGet.mock.calls[0][0]).toContain('api/projects/42/insights/7/')
+        expect(mockedRetrieve).toHaveBeenCalledTimes(1)
+        expect(mockedRetrieve).toHaveBeenCalledWith('42', 7, expect.anything())
     })
 
     it('returns the insight when the project endpoint answers', async () => {
-        mockedGet.mockResolvedValue({ id: 7, name: 'Signups' })
+        mockedRetrieve.mockResolvedValue({ id: 7, name: 'Signups' })
 
         const result = await fetchCrossProjectTile(42, 7)
 
@@ -30,7 +33,7 @@ describe('fetchCrossProjectTile', () => {
     })
 
     it('reports no access on 403 and carries no insight', async () => {
-        mockedGet.mockRejectedValue({ status: 403 })
+        mockedRetrieve.mockRejectedValue({ status: 403 })
 
         const result = await fetchCrossProjectTile(42, 7)
 
@@ -39,7 +42,7 @@ describe('fetchCrossProjectTile', () => {
     })
 
     it('reports not found on 404', async () => {
-        mockedGet.mockRejectedValue({ status: 404 })
+        mockedRetrieve.mockRejectedValue({ status: 404 })
 
         const result = await fetchCrossProjectTile(42, 7)
 
@@ -48,7 +51,7 @@ describe('fetchCrossProjectTile', () => {
     })
 
     it('reports a generic failure on any other error', async () => {
-        mockedGet.mockRejectedValue({ status: 500 })
+        mockedRetrieve.mockRejectedValue({ status: 500 })
 
         const result = await fetchCrossProjectTile(42, 7)
 
@@ -56,19 +59,18 @@ describe('fetchCrossProjectTile', () => {
     })
 
     it('passes dashboard filters through as filters_override', async () => {
-        mockedGet.mockResolvedValue({ id: 7 })
+        mockedRetrieve.mockResolvedValue({ id: 7 })
 
         await fetchCrossProjectTile(42, 7, { date_from: '-7d' })
 
-        expect(mockedGet.mock.calls[0][0]).toContain('filters_override=')
-        expect(decodeURIComponent(mockedGet.mock.calls[0][0])).toContain('"date_from":"-7d"')
+        expect(JSON.parse(mockedRetrieve.mock.calls[0][2].filters_override)).toEqual({ date_from: '-7d' })
     })
 
     it('omits filters_override when there are no filters', async () => {
-        mockedGet.mockResolvedValue({ id: 7 })
+        mockedRetrieve.mockResolvedValue({ id: 7 })
 
         await fetchCrossProjectTile(42, 7, {})
 
-        expect(mockedGet.mock.calls[0][0]).not.toContain('filters_override')
+        expect(mockedRetrieve.mock.calls[0][2]).not.toHaveProperty('filters_override')
     })
 })
