@@ -1,6 +1,8 @@
 import { hasScopes } from '@/lib/api'
 import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
 
+import { offlineItemPayloadGet, offlineResultPayloadGet } from 'products/ai_observability/mcp/offlinePayload'
+
 // AI observability
 import getLLMCosts from './aiObservability/getLLMCosts'
 import parserRecipeCreate from './aiObservability/parserRecipeCreate'
@@ -110,6 +112,8 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'get-llm-total-costs-for-project': getLLMCosts,
     'llma-parser-recipe-create': parserRecipeCreate,
     'llma-parser-recipe-reference': parserRecipeReference,
+    'llma-offline-experiment-item-payload-get': offlineItemPayloadGet,
+    'llma-offline-experiment-result-payload-get': offlineResultPayloadGet,
 
     // Notebooks
     'notebook-edit': notebookEdit,

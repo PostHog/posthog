@@ -146,7 +146,11 @@ def start_mcp_server(
         # needs its own lever, not this one. mcp-exec-skills follows the run's
         # skill delivery mode.
         "FEATURE_FLAG_OVERRIDES": json.dumps(
-            {"revamped-py-notebooks": True, MCP_EXEC_SKILLS_FEATURE_FLAG: exec_skills_enabled}
+            {
+                "revamped-py-notebooks": True,
+                "ai-observability-offline-evaluations": True,
+                MCP_EXEC_SKILLS_FEATURE_FLAG: exec_skills_enabled,
+            }
         ),
     }
 
