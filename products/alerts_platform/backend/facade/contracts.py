@@ -139,6 +139,8 @@ class PlatformAlertUpsert:
     schedule_restriction: dict[str, Any] | None
     next_check_at: datetime | None
     snooze_until: datetime | None
+    recurrence_unit: str | None = None
+    anchor_time: str | None = None
 
 
 class SkipReason(StrEnum):
@@ -362,6 +364,8 @@ class PlatformAlertConfigurationView:
     threshold_operator: str
     window_minutes: int
     check_interval_minutes: int
+    recurrence_unit: str | None
+    anchor_time: str | None
     evaluation_periods: int
     datapoints_to_alarm: int
     cooldown_minutes: int

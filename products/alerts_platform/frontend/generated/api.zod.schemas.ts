@@ -16,6 +16,13 @@ export type PlatformAlertConfigurationSourceKindEnumApiOutput = zod.output<
     typeof PlatformAlertConfigurationSourceKindEnumApi
 >
 
+export const CalendarUnitEnumApi = zod
+    .enum(['day', 'week', 'month'])
+    .describe('\* `day` - Day\n\* `week` - Week\n\* `month` - Month')
+
+export type CalendarUnitEnumApi = zod.input<typeof CalendarUnitEnumApi>
+export type CalendarUnitEnumApiOutput = zod.output<typeof CalendarUnitEnumApi>
+
 export const AlertScheduleRestrictionWindowApi = zod.object({
     start: zod
         .string()
@@ -109,7 +116,23 @@ export const PlatformAlertConfigurationApi = zod.object({
     threshold_count: zod.number().describe('Count the evaluated value is compared against.'),
     threshold_operator: zod.string().describe('Comparison operator applied between the value and threshold_count.'),
     window_minutes: zod.number().describe('Length of the evaluated time window, in minutes.'),
-    check_interval_minutes: zod.number().describe('Minutes between scheduled checks.'),
+    check_interval_minutes: zod
+        .number()
+        .describe('Minutes between scheduled checks. Applies when recurrence_unit is null.'),
+    recurrence_unit: zod
+        .union([
+            zod.enum(['day', 'week', 'month']).describe('\* `day` - Day\n\* `week` - Week\n\* `month` - Month'),
+            zod.null(),
+        ])
+        .describe(
+            'Calendar unit the alert recurs on. Null means it recurs on check_interval_minutes.\n\n\* `day` - Day\n\* `week` - Week\n\* `month` - Month'
+        ),
+    anchor_time: zod
+        .string()
+        .nullable()
+        .describe(
+            'Local time (HH:MM in the project timezone) a calendar recurrence lands on. Null means the default anchor for the unit.'
+        ),
     evaluation_periods: zod.number().describe('Number of recent checks considered when deciding to fire.'),
     datapoints_to_alarm: zod
         .number()
@@ -213,7 +236,23 @@ export const PaginatedPlatformAlertConfigurationListApi = zod.object({
                 .string()
                 .describe('Comparison operator applied between the value and threshold_count.'),
             window_minutes: zod.number().describe('Length of the evaluated time window, in minutes.'),
-            check_interval_minutes: zod.number().describe('Minutes between scheduled checks.'),
+            check_interval_minutes: zod
+                .number()
+                .describe('Minutes between scheduled checks. Applies when recurrence_unit is null.'),
+            recurrence_unit: zod
+                .union([
+                    zod.enum(['day', 'week', 'month']).describe('\* `day` - Day\n\* `week` - Week\n\* `month` - Month'),
+                    zod.null(),
+                ])
+                .describe(
+                    'Calendar unit the alert recurs on. Null means it recurs on check_interval_minutes.\n\n\* `day` - Day\n\* `week` - Week\n\* `month` - Month'
+                ),
+            anchor_time: zod
+                .string()
+                .nullable()
+                .describe(
+                    'Local time (HH:MM in the project timezone) a calendar recurrence lands on. Null means the default anchor for the unit.'
+                ),
             evaluation_periods: zod.number().describe('Number of recent checks considered when deciding to fire.'),
             datapoints_to_alarm: zod
                 .number()

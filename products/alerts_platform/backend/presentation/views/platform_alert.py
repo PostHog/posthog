@@ -15,7 +15,11 @@ from posthog.scopes import APIScopeObject, scopes_not_covered
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.alerts_platform.backend.facade import api as platform_api
-from products.alerts_platform.backend.facade.enums import PlatformAlertConfigurationSourceKind, PlatformAlertState
+from products.alerts_platform.backend.facade.enums import (
+    PlatformAlertConfigurationRecurrenceUnit,
+    PlatformAlertConfigurationSourceKind,
+    PlatformAlertState,
+)
 from products.alerts_platform.backend.presentation.views.schedule_restriction import ScheduleRestrictionField
 
 
@@ -68,7 +72,22 @@ class PlatformAlertConfigurationSerializer(serializers.Serializer):
     window_minutes = serializers.IntegerField(
         read_only=True, help_text="Length of the evaluated time window, in minutes."
     )
-    check_interval_minutes = serializers.IntegerField(read_only=True, help_text="Minutes between scheduled checks.")
+    check_interval_minutes = serializers.IntegerField(
+        read_only=True,
+        help_text="Minutes between scheduled checks. Applies when recurrence_unit is null.",
+    )
+    recurrence_unit = serializers.ChoiceField(
+        choices=PlatformAlertConfigurationRecurrenceUnit.choices,
+        read_only=True,
+        allow_null=True,
+        help_text="Calendar unit the alert recurs on. Null means it recurs on check_interval_minutes.",
+    )
+    anchor_time = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Local time (HH:MM in the project timezone) a calendar recurrence lands on. "
+        "Null means the default anchor for the unit.",
+    )
     evaluation_periods = serializers.IntegerField(
         read_only=True, help_text="Number of recent checks considered when deciding to fire."
     )

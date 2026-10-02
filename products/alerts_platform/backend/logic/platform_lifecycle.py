@@ -10,13 +10,20 @@ from datetime import datetime
 from django.db import transaction
 from django.db.models import Exists, OuterRef, Q
 
+from posthog.models import Team
+
 from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertCheckInput,
     PlatformAlertOutcome,
     PlatformAlertUpsert,
 )
 from products.alerts_platform.backend.facade.platform_metrics import increment_history_rows_dropped, safe_record
-from products.alerts_platform.backend.facade.scheduling import advance_next_check_at, compute_shard_offset_seconds
+from products.alerts_platform.backend.facade.scheduling import (
+    advance_schedule,
+    compute_shard_offset_seconds,
+    to_recurrence_interval,
+    validate_and_normalize_schedule_start_time,
+)
 from products.alerts_platform.backend.logic.platform_alert_events import PlatformAlertEventRow, insert_events
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
 
@@ -223,6 +230,9 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
         if not configurations:
             return 0
         alerts = _alerts_for_write(team_id, configurations)
+        # One read for the batch. Every configuration in it belongs to this team, and a
+        # calendar recurrence resolves its anchor against the team's zone.
+        team_timezone = Team.objects.filter(id=team_id).values_list("timezone", flat=True).first() or "UTC"
 
         rows: list[PlatformAlertEventRow] = []
         for configuration in configurations:
@@ -241,10 +251,14 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
             configuration.consecutive_failures = outcome.consecutive_failures
             if outcome.disable:
                 configuration.enabled = False
-            configuration.next_check_at = advance_next_check_at(
-                configuration.next_check_at,
-                configuration.check_interval_minutes,
-                now,
+            configuration.next_check_at = advance_schedule(
+                current_next_check_at=configuration.next_check_at,
+                check_interval_minutes=configuration.check_interval_minutes,
+                recurrence_unit=configuration.recurrence_unit,
+                anchor_time=configuration.anchor_time,
+                tz_name=team_timezone,
+                now=now,
+                configuration_id=configuration.id,
                 shard_offset_seconds=compute_shard_offset_seconds(
                     configuration.id, configuration.check_interval_minutes
                 ),
@@ -266,7 +280,14 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
     """Copies one source configuration in. Returns True when it created a row.
 
     Keyed on the row it came from, so a second run updates rather than duplicates.
+
+    The recurrence is checked here rather than where the schedule advances, because an
+    unparseable unit or anchor raised there would fail a whole batch of unrelated checks.
     """
+    if upsert.recurrence_unit is not None:
+        to_recurrence_interval(upsert.recurrence_unit)
+    anchor_time = validate_and_normalize_schedule_start_time(upsert.anchor_time)
+
     with transaction.atomic():
         configuration, created = PlatformAlertConfiguration.objects.unscoped().update_or_create(
             legacy_configuration_id=upsert.legacy_configuration_id,
@@ -280,6 +301,8 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
                 "threshold_operator": upsert.threshold_operator,
                 "window_minutes": upsert.window_minutes,
                 "check_interval_minutes": upsert.check_interval_minutes,
+                "recurrence_unit": upsert.recurrence_unit,
+                "anchor_time": anchor_time,
                 "evaluation_periods": upsert.evaluation_periods,
                 "datapoints_to_alarm": upsert.datapoints_to_alarm,
                 "cooldown_minutes": upsert.cooldown_minutes,

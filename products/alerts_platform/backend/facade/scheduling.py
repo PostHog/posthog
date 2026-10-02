@@ -16,7 +16,7 @@ from collections.abc import Callable
 from datetime import UTC, date, datetime, time, timedelta
 from enum import StrEnum
 from math import ceil
-from typing import Any, cast
+from typing import Any, Final, cast
 from uuid import UUID
 
 import pytz
@@ -367,6 +367,64 @@ def next_calendar_check_time(
             return _calendar_anchor_utc(team_timezone, target_date=target_date, hour=4, offset=offset)
         case _ as unreachable:
             raise ValueError(f"Unhandled alert calculation interval: {unreachable!r}")
+
+
+# A configuration stores the unit the recurrence repeats on. `CalendarInterval` names six
+# cadences, three of which this column must never hold, because minutes already express them.
+# The two vocabularies stay separate so a row cannot say "hourly" and carry a minute interval
+# that disagrees with it.
+_CALENDAR_UNITS: Final[dict[str, CalendarInterval]] = {
+    "day": CalendarInterval.DAILY,
+    "week": CalendarInterval.WEEKLY,
+    "month": CalendarInterval.MONTHLY,
+}
+
+
+def to_recurrence_interval(recurrence_unit: str) -> CalendarInterval:
+    """The calendar interval a stored recurrence unit means."""
+    try:
+        return _CALENDAR_UNITS[recurrence_unit]
+    except KeyError:
+        raise ValueError(f"Unhandled recurrence unit: {recurrence_unit!r}") from None
+
+
+def advance_schedule(
+    *,
+    current_next_check_at: datetime | None,
+    check_interval_minutes: int,
+    recurrence_unit: str | None,
+    anchor_time: str | None,
+    tz_name: str,
+    now: datetime,
+    configuration_id: UUID | str,
+    shard_offset_seconds: int = 0,
+) -> datetime:
+    """When a configuration is next due, by whichever recurrence it carries.
+
+    A calendar unit cannot be reached by adding minutes: a month is not a fixed number of them,
+    and a daylight saving change moves the boundary a local instant sits on.
+
+    `shard_offset_seconds` applies to the minute recurrence only. A calendar recurrence lands on
+    the instant its anchor names, so every configuration that shares an anchor and a timezone is
+    due in the same minute slot. Spreading those would move a time the user chose. A calendar
+    unit without an anchor has no chosen time, so `next_calendar_check_time` spreads it after the
+    interval boundary by `configuration_id`, as it does for an insight alert.
+    """
+    if recurrence_unit is None:
+        return advance_next_check_at(
+            current_next_check_at,
+            check_interval_minutes,
+            now,
+            shard_offset_seconds=shard_offset_seconds,
+        )
+    return next_calendar_check_time(
+        to_recurrence_interval(recurrence_unit),
+        now=now,
+        tz_name=tz_name,
+        next_check_at=current_next_check_at,
+        alert_id=configuration_id,
+        schedule_start_time=anchor_time,
+    )
 
 
 # --- Quiet hours (blocked local time windows) ---

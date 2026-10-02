@@ -13,7 +13,11 @@ from django.db import models
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
-from products.alerts_platform.backend.facade.enums import PlatformAlertConfigurationSourceKind, PlatformAlertState
+from products.alerts_platform.backend.facade.enums import (
+    PlatformAlertConfigurationRecurrenceUnit,
+    PlatformAlertConfigurationSourceKind,
+    PlatformAlertState,
+)
 
 
 class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDModel):
@@ -27,6 +31,7 @@ class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDModel):
     # import this module. The attribute stays so `PlatformAlertConfiguration.SourceKind` reads
     # the way every other model in the repo does.
     SourceKind = PlatformAlertConfigurationSourceKind
+    RecurrenceUnit = PlatformAlertConfigurationRecurrenceUnit
 
     # No database constraint: creating one takes a lock on `posthog_team` that queues behind
     # live writes. Django still cascades in Python, which is the only path that deletes a team.
@@ -47,7 +52,14 @@ class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDModel):
     threshold_operator = models.CharField(max_length=16)
 
     window_minutes = models.PositiveIntegerField()
+
     check_interval_minutes = models.PositiveIntegerField()
+
+    # Null means the recurrence is `check_interval_minutes`. Minutes cannot express a month, and
+    # DST moves the local instant a day or a week lands on, so the two take different paths.
+    recurrence_unit = models.CharField(max_length=8, choices=RecurrenceUnit.choices, null=True, blank=True)
+    # Local wall time, HH:MM, that a calendar recurrence lands on in the team's timezone.
+    anchor_time = models.CharField(max_length=5, null=True, blank=True)
     evaluation_periods = models.PositiveIntegerField(default=1, db_default=1)
     datapoints_to_alarm = models.PositiveIntegerField(default=1, db_default=1)
     cooldown_minutes = models.PositiveIntegerField(default=0, db_default=0)

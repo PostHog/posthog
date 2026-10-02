@@ -17,6 +17,19 @@ export const PlatformAlertConfigurationSourceKindEnumApi = {
     Logs: 'logs',
 } as const
 
+/**
+ * * `day` - Day
+ * * `week` - Week
+ * * `month` - Month
+ */
+export type CalendarUnitEnumApi = (typeof CalendarUnitEnumApi)[keyof typeof CalendarUnitEnumApi]
+
+export const CalendarUnitEnumApi = {
+    Day: 'day',
+    Week: 'week',
+    Month: 'month',
+} as const
+
 export interface AlertScheduleRestrictionWindowApi {
     /** Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)). */
     start: string
@@ -101,8 +114,19 @@ export interface PlatformAlertConfigurationApi {
     readonly threshold_operator: string
     /** Length of the evaluated time window, in minutes. */
     readonly window_minutes: number
-    /** Minutes between scheduled checks. */
+    /** Minutes between scheduled checks. Applies when recurrence_unit is null. */
     readonly check_interval_minutes: number
+    /** Calendar unit the alert recurs on. Null means it recurs on check_interval_minutes.
+     *
+     * * `day` - Day
+     * * `week` - Week
+     * * `month` - Month */
+    readonly recurrence_unit: CalendarUnitEnumApi | null
+    /**
+     * Local time (HH:MM in the project timezone) a calendar recurrence lands on. Null means the default anchor for the unit.
+     * @nullable
+     */
+    readonly anchor_time: string | null
     /** Number of recent checks considered when deciding to fire. */
     readonly evaluation_periods: number
     /** Number of breaching checks within evaluation_periods required to fire. */
