@@ -216,8 +216,32 @@ selectColumnExpr
 // `columnExprValue` (looser than every value operator, tighter than AND/OR) so it keeps sitting
 // *after* `ColumnExprFunction` in the same rule — ANTLR then still prefers the function form for
 // `not(args)` (a `not` function call) over the `NOT (args)` operator, matching the old grammar.
+// `ColumnExprAliasCompare` lets a comparison take an aliased expression as its left
+// operand (`x AS er > 0` → `(x AS er) > 0`), the one value-tier continuation ClickHouse
+// itself allows after an alias in nested contexts (`if(1 AS x > 0, …)` is valid CH).
+// It sits tightest in this tier, so the comparison folds before AND/OR/ternary. A plain
+// `a > b` never reaches it: the value passthrough consumes comparisons greedily, so this
+// alternative only fires when a comparison token follows an alias fold. Other value-tier
+// continuations after an alias (`+`, `::`, `IS NULL`, `??`, a call) stay rejected —
+// parenthesise as `(1 AS x) + 2`.
 columnExpr
-    : columnExpr AND columnExpr                                                           # ColumnExprAnd
+    : left=columnExpr ( operator=EQ_DOUBLE                                                // =
+                 | operator=EQ_SINGLE                                                     // ==
+                 | operator=NOT_EQ                                                        // !=
+                 | operator=LT_EQ                                                         // <=
+                 | operator=LT                                                            // <
+                 | operator=GT_EQ                                                         // >=
+                 | operator=GT                                                            // >
+                 | operator=NOT? IN COHORT?                                               // in, not in; in cohort; not in cohort
+                 | operator=NOT? (LIKE | ILIKE)                                           // like, not like, ilike, not ilike
+                 | operator=REGEX_SINGLE                                                  // ~
+                 | operator=REGEX_DOUBLE                                                  // =~
+                 | operator=NOT_REGEX                                                     // !~
+                 | operator=IREGEX_SINGLE                                                 // ~*
+                 | operator=IREGEX_DOUBLE                                                 // =~*
+                 | operator=NOT_IREGEX                                                    // !~*
+                 ) right=columnExprValue                                                  # ColumnExprAliasCompare
+    | columnExpr AND columnExpr                                                           # ColumnExprAnd
     | columnExpr OR columnExpr                                                            # ColumnExprOr
     | <assoc=right> columnExpr QUERY columnExpr COLON columnExpr                          # ColumnExprTernaryOp
     | columnExpr AS (identifier | STRING_LITERAL)                                         # ColumnExprAlias

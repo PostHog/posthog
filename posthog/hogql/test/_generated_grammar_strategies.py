@@ -1883,25 +1883,70 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
             return seed
         n_suffixes = draw(st.integers(min_value=0, max_value=_MAX_LR_CHAIN))
         for _ in range(n_suffixes):
-            suffix_idx = draw(st.integers(min_value=0, max_value=3))
+            suffix_idx = draw(st.integers(min_value=0, max_value=4))
             if suffix_idx == 0:
+                parts = []
+                group_idx = draw(st.integers(min_value=0, max_value=14))
+                if group_idx == 0:
+                    parts.append("==")
+                if group_idx == 1:
+                    parts.append("=")
+                if group_idx == 2:
+                    parts.append(draw(st.sampled_from(["!=", "<>"])))
+                if group_idx == 3:
+                    parts.append("<=")
+                if group_idx == 4:
+                    parts.append("<")
+                if group_idx == 5:
+                    parts.append(">=")
+                if group_idx == 6:
+                    parts.append(">")
+                if group_idx == 7:
+                    if _include_optional(draw):
+                        parts.append("not")
+                    parts.append("in")
+                    if _include_optional(draw):
+                        parts.append("cohort")
+                if group_idx == 8:
+                    if _include_optional(draw):
+                        parts.append("not")
+                    group_idx = draw(st.integers(min_value=0, max_value=1))
+                    if group_idx == 0:
+                        parts.append("like")
+                    if group_idx == 1:
+                        parts.append("ilike")
+                if group_idx == 9:
+                    parts.append("~")
+                if group_idx == 10:
+                    parts.append("=~")
+                if group_idx == 11:
+                    parts.append("!~")
+                if group_idx == 12:
+                    parts.append("~*")
+                if group_idx == 13:
+                    parts.append("=~*")
+                if group_idx == 14:
+                    parts.append("!~*")
+                parts.append(draw(columnExprValue_strategy(_dec(depth))))
+                seed = seed + " " + " ".join(p for p in parts if p)
+            if suffix_idx == 1:
                 parts = []
                 parts.append("and")
                 parts.append(draw(columnExpr_strategy(_dec(depth))))
                 seed = seed + " " + " ".join(p for p in parts if p)
-            if suffix_idx == 1:
+            if suffix_idx == 2:
                 parts = []
                 parts.append("or")
                 parts.append(draw(columnExpr_strategy(_dec(depth))))
                 seed = seed + " " + " ".join(p for p in parts if p)
-            if suffix_idx == 2:
+            if suffix_idx == 3:
                 parts = []
                 parts.append("?")
                 parts.append(draw(columnExpr_strategy(_dec(depth))))
                 parts.append(":")
                 parts.append(draw(columnExpr_strategy(_dec(depth))))
                 seed = seed + " " + " ".join(p for p in parts if p)
-            if suffix_idx == 3:
+            if suffix_idx == 4:
                 parts = []
                 parts.append("as")
                 group_idx = draw(st.integers(min_value=0, max_value=1))
