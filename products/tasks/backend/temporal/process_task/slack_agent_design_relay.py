@@ -59,6 +59,7 @@ _ACTIVITY_TIMEOUT = timedelta(seconds=30)
 _ACTIVITY_RETRY = RetryPolicy(maximum_attempts=3)
 # The parent's progress step that the first setup line shows.
 _SANDBOX_SETUP_STEP = "sandbox"
+_PATCH_ID_STREAM_ENDED = "tasks-slack-relay-stream-ended"
 
 
 @frozen
@@ -98,6 +99,8 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
         self._narrative: str = ""
         self._last_burst: str = ""
         self._stream: Optional[SlackAgentDesignStream] = None
+        # Slack closed the stream early. Later appends to it can only fail.
+        self._stream_ended: bool = False
         self._last_dispatched_at: float = 0.0
         self._last_signal_at: Optional[datetime] = None
         self._started_at: datetime = datetime.min
@@ -311,7 +314,9 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
         self, input: SlackAgentDesignRelayInput, chunks: list[TaskUpdateChunk], plan_title: Optional[str] = None
     ) -> None:
         assert self._stream is not None
-        await workflow.execute_activity(
+        if self._stream_ended:
+            return
+        stream_open = await workflow.execute_activity(
             append_slack_agent_design_steps,
             AppendSlackAgentDesignStepsInput(
                 slack_thread_context=input.slack_thread_context,
@@ -322,6 +327,10 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
             start_to_close_timeout=_ACTIVITY_TIMEOUT,
             retry_policy=_ACTIVITY_RETRY,
         )
+        # An older activity returns None, which means the stream is still open. The patch keeps
+        # histories that older workflow code wrote on their recorded command sequence.
+        if stream_open is False and workflow.patched(_PATCH_ID_STREAM_ENDED):
+            self._stream_ended = True
 
     @workflow.run
     async def run(self, input: SlackAgentDesignRelayInput) -> None:
@@ -398,6 +407,14 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
         self._finish_setup(final_status)
         # Lines that never reached Slack because the turn ended inside the debounce window.
         pending = self._take_pending_chunks(allow_placeholder=False)
+        if self._stream_ended:
+            # The plan is gone with the closed stream, so the answer opens a new message of its own.
+            self._stream = None
+            pending = []
+            self._line_ids = {}
+            self._agent_plan = []
+            self._current_key = None
+            self._placeholder = None
         if self._stream is None and (final_answer or pending):
             # A turn with no flushed step still streams its answer in a stream of its own.
             self._stream = await self._start_stream(
