@@ -151,6 +151,7 @@ depends_on = [
     "products.actions",
     "products.alerts", "products.warehouse_sources", "products.data_tools", "products.exports", "products.annotations",
     "products.security",
+    "products.webmcp",
 ]
 layer = "modules"
 
@@ -1646,4 +1647,18 @@ expose = [
 ]
 from = [
     "products.today",
+]
+
+[[modules]]
+path = "products.webmcp"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.webmcp",
 ]
