@@ -78,9 +78,11 @@ describe('API_SCOPE_GROUPS', () => {
         expect({ duplicates, missing }).toEqual({ duplicates: [], missing: [] })
     })
 
-    it('keeps OAuth-hidden scope objects out of every group', () => {
-        // A group that exists only for hidden objects carries a label that no person should ever see.
-        const hidden = filed.filter((obj) => (OAUTH_HIDDEN_SCOPE_OBJECTS as readonly string[]).includes(obj))
+    it('keeps OAuth-hidden scope objects out of every picker', () => {
+        // A hidden object with a row would show in the key picker, and a group that exists only for
+        // hidden objects carries a label that no person should ever see.
+        const shown = [...filed, ...API_SCOPES.map(({ key }) => key)]
+        const hidden = shown.filter((obj) => (OAUTH_HIDDEN_SCOPE_OBJECTS as readonly string[]).includes(obj))
         expect(hidden).toEqual([])
     })
 
