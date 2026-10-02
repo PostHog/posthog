@@ -2057,6 +2057,9 @@ class InsightViewSet(
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         filters = request.GET.dict()
         search_term: str | None = None
+        tags_match = request.GET.get("tags_match", "any")
+        if tags_match not in MATCH_MODES:
+            raise ValidationError({"tags_match": f"Must be one of: {', '.join(MATCH_MODES)}."})
 
         for key in filters:
             if key == "saved":
@@ -2145,9 +2148,6 @@ class InsightViewSet(
                 tags_filter = request.GET["tags"]
                 if tags_filter:
                     tags_list = json.loads(tags_filter)
-                    tags_match = request.GET.get("tags_match", "any")
-                    if tags_match not in MATCH_MODES:
-                        raise ValidationError({"tags_match": f"Must be one of: {', '.join(MATCH_MODES)}."})
                     if tags_list:
                         # A semi-join returns one row per insight, so the list needs no
                         # `.distinct()` sort over the wide insight JSON columns.
