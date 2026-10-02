@@ -167,8 +167,8 @@ tools:
             measured baseline. The old check stays live if the replacement fails validation. A successful replacement
             starts unapproved and is scheduled independently of human approval. Do not use this to change an agent
             check. The replacement preserves the existing soak and remaining recurrence. The measurement also requires
-            event_definition:read for event series, action:read for action series,
-            and cohort:read for cohort filters when present.
+            event_definition:read for event series, action:read for action series, and cohort:read for cohort filters
+            when present.
         feature_flag: signals-report-checks-replace
         feature_flag_behavior: enable
     inbox-report-checks-retrieve:
