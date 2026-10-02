@@ -1,3 +1,4 @@
+import { ML_BLOCK_COMPRESSION } from '~/ingestion/pipelines/sessionreplay/ml-mirror/block-compression'
 import { MlMirrorMetrics } from '~/ingestion/pipelines/sessionreplay/ml-mirror/metrics'
 import { usesRawSessionIdentifiers } from '~/ingestion/pipelines/sessionreplay/ml-mirror/session-identifier-format'
 import {
@@ -109,7 +110,8 @@ export class MlKeyBatchController implements KeyStore, RecordingEncryptor {
             data: encryptEnvelope(
                 { identity: mlKey.mlIdentity, plaintext: key.plaintextKey, wrapped: key.encryptedKey },
                 'rrweb',
-                data
+                data,
+                { codec: ML_BLOCK_COMPRESSION.codec }
             ),
             sessionState: 'ciphertext',
         }

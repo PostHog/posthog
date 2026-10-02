@@ -32,6 +32,12 @@ Two mechanical facts anchor everything. First, **recording capture is config-gat
 
 You author reports directly via the report channel (`scout-emit-report` / `scout-edit-report`): you've done the research, so you own each report 1:1 end-to-end rather than firing weak signals for a pipeline to cluster. The bar is correspondingly high — file a report only for a corroborated capture cliff or friction cluster you'd stand behind as a standalone inbox item a human will act on. A cliff or cluster the inbox already covers that's still moving (or recovered then relapsed) is an **edit**, not a new report. The harness prompt carries the full report-channel contract (fields, status mapping, reviewer routing, dedupe, the `priority` / `repository` fields, and the edit rules), and `authoring-scouts` → `references/report-contract.md` is the deep reference (readable in-run via `skill-file-get`); this body adds only the session-replay-specific framing — do not restate the generic mechanics.
 
+## Activity-history availability
+
+Activity history is optional. Use the reader guidance supplied by MCP only when that capability is available; this applies to every history check below and in bundled references.
+
+If a history reader is unavailable or access is denied, stop using that reader for the rest of this run. Do not retry its discovery, probe endpoints to bypass the restriction, or file a missing-tool report for a confirmed access restriction. Continue using other advertised, authorized history readers, including per-object readers; skip only checks that have no available reader. Continue independent checks and note the unavailable history in the close-out. Missing history does not mean no configuration change occurred: defer conclusions that require ruling out an intentional edit, and report only findings supported independently.
+
 ## Replay SQL footguns (read first)
 
 Four mechanical traps that produce silently-wrong results — every replay query in this skill is shaped around them:
@@ -71,29 +77,74 @@ Four cheap reads cold-start a run:
 Then orient with two queries. Capture side — daily recordings against daily traffic:
 
 ```sql
-SELECT t.day AS day, coalesce(r.recorded_sessions, 0) AS recorded_sessions,
+SELECT t.traffic_day AS day,
+       coalesce(r.recorded_sessions, 0) AS recorded_sessions,
        t.event_sessions AS event_sessions,
-       round(coalesce(r.recorded_sessions, 0) / t.event_sessions, 4) AS capture_ratio
+       round(coalesce(r.recorded_sessions, 0) / t.event_sessions, 4) AS capture_ratio,
+       coalesce(r.recorded_sessions, 0) > t.event_sessions AS ratio_impossible
 FROM (
-    SELECT toStartOfDay(timestamp) AS day, uniq(properties.$session_id) AS event_sessions
+    SELECT toStartOfDay(timestamp) AS traffic_day, uniq(properties.$session_id) AS event_sessions
     FROM events
     WHERE timestamp >= now() - INTERVAL 14 DAY
       AND timestamp <= now() + INTERVAL 1 DAY
       AND properties.$session_id IS NOT NULL
       AND event = '$pageview'
-    GROUP BY day
+    GROUP BY traffic_day
 ) t
 LEFT JOIN (
-    SELECT toStartOfDay(min_first_timestamp) AS day, uniq(session_id) AS recorded_sessions
+    SELECT toStartOfDay(min_first_timestamp) AS recording_day, uniq(session_id) AS recorded_sessions
     FROM raw_session_replay_events
     WHERE min_first_timestamp >= now() - INTERVAL 14 DAY
       AND min_first_timestamp <= now() + INTERVAL 1 DAY
-    GROUP BY day
-) r ON r.day = t.day
+    GROUP BY recording_day
+) r ON r.recording_day = t.traffic_day
+ORDER BY t.traffic_day
+```
+
+Traffic drives the join: a zero-recording day — the exact cliff this scout exists to catch — must show `capture_ratio` 0, and an inner join would silently drop it.
+`$pageview` is the cheap denominator; if absent, substitute the project's top web event.
+Each side names its day column distinctly (`traffic_day`, `recording_day`) and the `ORDER BY` stays qualified.
+Two subqueries that both expose a column called `day` make every unqualified `day` after the join ambiguous, and the query then fails instead of returning the series.
+Keep the distinct names when you adapt the query.
+
+**Check `ratio_impossible` before you read the series: more recorded sessions than event sessions means the query is wrong, not that capture is high.**
+The two sides count different session populations.
+The numerator counts every recorded session, the denominator only sessions that fired a `$pageview`, so mobile SDK recordings and recordings of pageview-less sessions inflate the ratio.
+Read the flag, not `capture_ratio`: the displayed ratio rounds to four decimals, so a real 1.00004 prints as `1.0000` and hides the overshoot, while the flag compares the two raw counts.
+One flagged day discredits the whole series: the same mismatch distorts the days that stay under 1, and it can fake a drop as easily as a spike.
+Discard the series and rerun with the fallback below.
+
+The fallback counts both sides over one population — every session the event stream saw, marked by whether a recording exists for it — so the ratio is bounded by construction:
+
+```sql
+SELECT toStartOfDay(s.session_start) AS day,
+       uniq(s.session_id) AS event_sessions,
+       uniqIf(s.session_id, s.recorded) AS recorded_sessions,
+       round(uniqIf(s.session_id, s.recorded) / uniq(s.session_id), 4) AS capture_ratio
+FROM (
+    SELECT properties.$session_id AS session_id,
+           min(timestamp) AS session_start,
+           properties.$session_id IN (
+               SELECT session_id
+               FROM raw_session_replay_events
+               WHERE min_first_timestamp >= now() - INTERVAL 15 DAY
+                 AND min_first_timestamp <= now() + INTERVAL 1 DAY
+           ) AS recorded
+    FROM events
+    WHERE timestamp >= now() - INTERVAL 14 DAY
+      AND timestamp <= now() + INTERVAL 1 DAY
+      AND properties.$session_id IS NOT NULL
+    GROUP BY session_id, recorded
+) s
+GROUP BY day
 ORDER BY day
 ```
 
-Traffic drives the join: a zero-recording day — the exact cliff this scout exists to catch — must show `capture_ratio` 0, and an inner join would silently drop it. `$pageview` is the cheap denominator; if absent, substitute the project's top web event.
+The recording window runs one day wider than the traffic window, so a session that starts late in a day still matches its recording.
+This read costs more, so keep it for the fallback.
+It sees only sessions the event stream knows about, so a recording with no events falls outside it — that is the price of a bounded ratio, and the ratio's _change_ is the signal either way.
+Its level answers a different question than the primary query's, because the two differ in both session population and day attribution.
+Neither ratio is reliably the higher of the two, so baseline this one under its own `pattern:` key and never compare one query's ratio against the other's.
 
 Friction side — where rage clicks concentrate, last day vs the prior two weeks. Group by host plus an **ID-normalized path**, never the raw URL: full `$current_url` values carry query strings, fragments, and entity IDs that shatter one hot surface into dozens of single-count rows:
 
@@ -227,7 +278,7 @@ LIMIT 50
 Zero rows → the project doesn't use replay vision; skip this pattern without comment. Expect test/abandoned scanners in the tail — judge by `observations_7d`, and write a `noise:` entry for dead ones. Two angles on a live roster:
 
 - **Cross-session aggregation** — observations carry flattened `scanner_output_*` properties (`scanner_output_verdict`, `scanner_output_tags`, `scanner_output_friction_points`). The scanner judges one session at a time; nobody aggregates. A monitor's `'yes'` rate stepping up week-over-week, or the same friction point / tag recurring across many sessions with persons spread, is a finding the per-session scanner cannot surface.
-- **Watch gaps** — a previously-active scanner whose `observations_7d` went to zero is silently watching nothing. If the `vision-*` tools are available, confirm the mechanism (`vision-scanners-list` for enabled state, `-observations-list` for failed/ineligible rates — failures never reach the events stream, `vision-quota-retrieve` for quota); without them, report the silence itself. P3; bundle all scanner-health items into one finding.
+- **Watch gaps** — a previously-active scanner whose `observations_7d` went to zero is silently watching nothing. If the `vision-*` tools are available, confirm the mechanism (`vision-scanners-list` for enabled state, `-observations-list` for failed/ineligible rates — failures never reach the events stream, `vision-quota-get` for quota); without them, report the silence itself. P3; bundle all scanner-health items into one finding.
 - **Dedupe courtesy** — scanners with `emits_signals: true` already emit per-session signals into this same inbox: cite them, don't repeat them (check `inbox-reports-list` first).
 
 Don't create, update, or trigger scanners — your scopes are read-only there. If a friction cluster deserves continuous watching, _recommend_ a scanner (name the type, prompt sketch, and target query) as part of the finding and let the team decide.
@@ -273,6 +324,7 @@ Nearly everything this scout reads originates in end-user browsers: URLs, elemen
 
 - **Replay never adopted** — zero recordings ever isn't a gap to report; teams choose their products. `not-in-use:` entry and close out.
 - **Low capture ratio as a finding** — sampling is deliberate. Only an unexplained _change_ in the ratio is signal.
+- **Any capture series with a `ratio_impossible` day** — more recorded sessions than event sessions means the two are counting different session populations. Rerun with the same-population fallback; report from that or not at all.
 - **Cliffs explained by Team config edits** — an operator action; context, never a finding.
 - **Friction tracking traffic** — totals that rise with `event_sessions` are the product breathing. Always check the whole-stream trend before any per-URL claim.
 - **Cliffs and clusters below the volume gates** (< ~100 recordings/day baseline; < ~10 sessions / < ~5 persons per cluster) — low-volume surfaces wobble.
@@ -296,7 +348,7 @@ Direct calls (read-only):
 - `query-session-recordings-list` — resolve `$session_id`s to watchable recordings (pass `session_ids` + a matching `date_from`); order by `console_error_count` or `activity_score` when shortlisting.
 - `session-recording-get` — one recording's metadata for a finding's example links.
 - `heatmaps-list` / `heatmaps-events` — spatial corroboration for a cluster.
-- `vision-scanners-list` / `vision-scanners-observations-list` / `vision-observations-list` / `vision-quota-retrieve` — scanner config, observation health, and quota. Feature-gated and often absent even where replay vision is in use — lead with `$recording_observed` SQL; these are the optional mechanism-confirmation layer.
+- `vision-scanners-list` / `vision-scanners-observations-list` / `vision-observations-list` / `vision-quota-get` — scanner config, observation health, and quota. Feature-gated and often absent even where replay vision is in use — lead with `$recording_observed` SQL; these are the optional mechanism-confirmation layer.
 - `advanced-activity-logs-list` (`scopes: ["Team"]` + `start_date`/`end_date`) — dating recording-config changes against capture cliffs.
 - `read-data-schema` — confirm `$rageclick` / `$dead_click` / replay SDK properties exist before aggregating. Inbox & reviewer routing (mechanics in `authoring-scouts` → `references/report-contract.md`):
 

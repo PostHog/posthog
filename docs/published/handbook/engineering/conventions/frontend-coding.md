@@ -15,6 +15,7 @@ Hence the explicit separation between the data and view layers.
 
 #### General tips
 
+- The `tracing-ui-v2` feature flag replaces the tracing scene with a `Tracing UI v2` placeholder for targeted testing. When the flag is off or unavailable, the existing tracing UI remains unchanged.
 - Think data first: get [your mental model of the data flowing through the app](https://acco.io/i-escaped-node) right, and then everything else will be simpler.
 - Be practical, yet remember that you are balancing speed of delivery with ease of maintainability. If you have to choose: code should be easier to understand than it was to write.
 
@@ -40,12 +41,15 @@ Hence the explicit separation between the data and view layers.
   - Before building new UI, read a few comparable scenes or components and model yours on the ones that follow these conventions. The codebase contains legacy that predates them — an existing violation is not license to repeat it. Conventions outrank precedent, and compliant precedent outranks invention.
   - Extract a shared component once the same shape appears in several places and the call sites read as content, not markup. Keep new generics next to the feature that uses them, and promote to `lib/` only when a second feature needs them. Don't build wrappers with a single consumer, and don't add boolean variant props so one caller can switch half the component off — that's two components.
   - Interactive elements are real `<button>`/`<a>` elements (`LemonButton` renders one) — never `onClick` on a `<div>`.
+  - With `focusBasedKeyboardNavigation` enabled, `LemonMenu` moves focus between its trigger and menu items with the arrow keys, including after the menu reopens. Custom triggers must forward `onFocus` and `onKeyDown` to preserve keyboard navigation and focus return.
   - Loading, empty, and error are three different screens. Never show an empty state from data that hasn't resolved yet — branch on the loading state first.
   - In `createSetupDetectionLogic`, return `null` when a setup check cannot answer. Like a thrown error, it preserves an existing setup status or shows the product scene if no answer exists yet. Return `unknown` when the scene itself should handle the result, such as showing an access-denied screen. Successful checks can still advance setup when data arrives.
   - When renaming a feature, sweep code symbols completely — but analytics-facing strings (event names, property names and values, `data-attr` values) and persisted keys are a frozen API: leave them as-is, with a comment noting they're pinned.
 - Scenes
   - Our app is built of _scenes_, managed through a scene router in `sceneLogic`.
   - A scene is the smallest unit in the router and for code splitting. Usually we split scenes by resource type (dashboard, insight) and function (edit, index).
+  - Show available rows while other pages or sources load. Share concurrent requests for the same project and search across a scene and its sidebar.
+  - Load optional panes, hover cards, and alternative home screens with `lazyWithRetry` and `Suspense`. Keep their data loaders in the component that needs them. A closed dialog or preview provider must not start requests for another pane.
   - Each scene (e.g. Dashboards) exports an object of type `SceneExport`, containing the scene's root `logic` and its React `component`.
   - The scene's logic is automatically mounted and receives the scene's URL params as props (via `paramsToProps`).
   - Use `urlToAction` and `actionToUrl` on the scene's logic to sync state with the URL. Try to only use them on the scene's logic, not in any deeper logics.

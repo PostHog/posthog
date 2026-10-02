@@ -25,7 +25,12 @@ from posthog.hogql.visitor import clear_locations
 
 from posthog.models.scoping import team_scope
 
-from products.autoresearch.backend.inference.sandbox import fit_champion_model
+from products.autoresearch.backend.inference.sandbox import (
+    SandboxInferenceError,
+    fit_champion_model,
+    validate_runnable_feature_sql,
+)
+from products.autoresearch.backend.inference.scoring import check_recipe_estimator
 from products.autoresearch.backend.models import (
     AutoresearchIteration,
     AutoresearchModel,
@@ -33,11 +38,8 @@ from products.autoresearch.backend.models import (
     AutoresearchTrainingRun,
 )
 from products.autoresearch.backend.training import artifacts
-from products.autoresearch.backend.training.recipe_validation import (
-    RecipeValidationError,
-    validate_feature_sql,
-    validate_model_class,
-)
+from products.autoresearch.backend.training.recipe_validation import RecipeValidationError, validate_model_class
+from products.notebooks.backend.facade import api as notebooks_facade
 
 logger = structlog.get_logger(__name__)
 
@@ -112,9 +114,10 @@ def _build_recipe(iteration: AutoresearchIteration, *, trained_on: date) -> dict
     spec = iteration.model_spec or {}
     return {
         "feature_sql": snapshot.get("feature_sql", ""),
-        "feature_transforms": snapshot.get("feature_transforms", []),
+        "feature_transforms": snapshot.get("feature_transforms") or [],
         "model_class": spec.get("model_class", "sklearn.linear_model.LogisticRegression"),
-        "model_params": spec.get("model_params", {}),
+        # Recording accepts an absent or null model_params; both mean the constructor defaults.
+        "model_params": spec.get("model_params") or {},
         "fit_signature": (iteration.recipe_hash or "")[:16],
         "trained_on": trained_on.isoformat(),
         "holdout_score": iteration.holdout_score or 0.0,
@@ -164,6 +167,7 @@ def _build_run_summary(
     champion_model_class: str,
     recommended_next: str,
     distillation: str,
+    report_notebook_short_id: str,
 ) -> dict[str, Any]:
     """Tier-1 cross-run memory: backend derives the structural facts; the agent supplies the two
     judgment fields (recommended_next, distillation). Read back by a new run before it iterates."""
@@ -184,6 +188,7 @@ def _build_run_summary(
         "dead_ends": [_summary_item(it) for it in dead_ends],
         "recommended_next": recommended_next or "",
         "distillation": distillation or "",
+        "report_notebook_short_id": report_notebook_short_id,
     }
 
 
@@ -230,7 +235,26 @@ def _require_legacy_recipe_is_runnable(recipe: dict[str, Any]) -> None:
             "iteration recorded no feature_sql for the legacy scoring path."
         )
     try:
+        # Scoring runs the feature SQL as the top-level query and refuses a trailing LIMIT,
+        # OFFSET or SETTINGS, so a champion that would fail every cadence is refused here.
+        validate_runnable_feature_sql(str(recipe["feature_sql"]), source="feature_sql")
+    except SandboxInferenceError as exc:
+        raise PromotionError(f"Cannot persist a model on the legacy scoring path: {exc}") from exc
+    if recipe.get("feature_transforms"):
+        # The in-process scorer fits on the raw feature_sql columns and never applies the
+        # transforms, so the served model would not be the one the holdout score describes.
+        raise PromotionError(
+            "Cannot persist a model on the legacy scoring path: it does not apply feature_transforms, "
+            "so a recipe that needs them must ship as an uploaded bundle."
+        )
+    if not isinstance(recipe.get("model_params"), dict):
+        raise PromotionError(
+            "Cannot persist a model on the legacy scoring path: model_params must be a JSON object, "
+            "because the in-process scorer expands it into the estimator's constructor."
+        )
+    try:
         validate_model_class(str(recipe["model_class"]))
+        check_recipe_estimator(recipe)
     except RecipeValidationError as exc:
         raise PromotionError(f"Cannot persist a model on the legacy scoring path: {exc}") from exc
 
@@ -268,10 +292,11 @@ def _read_uploaded_bundle(training_run: AutoresearchTrainingRun) -> artifacts.Ar
         logger.exception("autoresearch_bundle_read_failed", training_run_id=str(training_run.id), prefix=prefix)
         raise
     # The uploaded features.sql is what fitting and scoring actually execute, and the agent
-    # can upload SQL that never went through iteration recording — validate the real file.
+    # can upload SQL that never went through iteration recording — validate the real file,
+    # with the rule inference adds, so a champion is never committed with SQL its fit refuses.
     try:
-        validate_feature_sql(bundle.features_sql)
-    except RecipeValidationError as exc:
+        validate_runnable_feature_sql(bundle.features_sql, source="features.sql")
+    except SandboxInferenceError as exc:
         raise PromotionError(f"Uploaded bundle's features.sql failed validation: {exc}") from exc
     return bundle
 
@@ -283,6 +308,7 @@ def complete_training_run(
     model_explanation: dict[str, Any] | None = None,
     recommended_next: str = "",
     distillation: str = "",
+    report_notebook_short_id: str = "",
 ) -> dict[str, Any]:
     """Finalize a run: pick the best iteration, decide champion vs challenger, persist the model."""
     # The TaskRun safety net calls this from a worker thread, where no request has set a
@@ -295,17 +321,32 @@ def complete_training_run(
         current = AutoresearchTrainingRun.objects.select_related("pipeline").get(pk=training_run.pk)
         if current.status not in _FINALIZABLE_STATUSES:
             return _already_finalized(current)
-        # Reading the bundle is three object-storage calls. It happens before the transaction
-        # so a slow or unavailable store cannot hold the training run and its pipeline locked.
-        bundle = _read_uploaded_bundle(current)
         return _finalize_under_lock(
             current,
-            bundle=bundle,
             best_iteration_id=best_iteration_id,
             model_explanation=model_explanation,
             recommended_next=recommended_next,
             distillation=distillation,
+            report_notebook_short_id=_verified_report_notebook(current, report_notebook_short_id),
         )
+
+
+def _verified_report_notebook(training_run: AutoresearchTrainingRun, short_id: str) -> str:
+    """
+    The agent's notebook short id if that notebook exists in the run's team, else "".
+    The model result matters more than the report, so a bad id or a failed check never fails completion.
+    """
+    short_id = (short_id or "").strip()
+    if not short_id:
+        return ""
+    try:
+        if notebooks_facade.notebook_exists(training_run.team_id, short_id, include_deleted=False):
+            return short_id
+    except Exception:
+        logger.exception("autoresearch_report_notebook_check_failed", training_run_id=str(training_run.pk))
+        return ""
+    logger.warning("autoresearch_report_notebook_not_found", training_run_id=str(training_run.pk))
+    return ""
 
 
 def _activate_pipeline(pipeline: AutoresearchPipeline) -> None:
@@ -319,19 +360,26 @@ def _activate_pipeline(pipeline: AutoresearchPipeline) -> None:
     pipeline.save(update_fields=["status", "updated_at"])
 
 
-def _schedule_champion_fit(*, pipeline: AutoresearchPipeline, prefix: str, training_run_id: str) -> None:
+def _schedule_champion_fit(
+    *, pipeline: AutoresearchPipeline, prefix: str, training_run: AutoresearchTrainingRun, model_id: str
+) -> None:
     """The train run produces the serving artifact: fit the champion and persist model.pkl so
     predict runs are pure inference. Deferred to on_commit, because the sandbox and the
     object-storage write are side effects that must not run inside the atomic block, and the
     fit only makes sense once the row is durably committed. A failure leaves the champion
-    without a model.pkl, and every scoring run then fails until a later promotion fits one."""
+    without a model.pkl, and every scoring run then fails until a later promotion fits one.
+    The fit labels at the run's anchor instant, so it sees the anchor set the agent scored."""
+    training_run_id = str(training_run.id)
+    anchor_ts = training_run.anchor_ts
 
     def _fit_after_commit() -> None:
         # Every failure is caught, not only SandboxInferenceError: the run is already
         # committed, so raising here would report a failed completion for a finished run
         # that a retry can only answer with its no-op.
         try:
-            fit_champion_model(team=pipeline.team, pipeline=pipeline, prefix=prefix)
+            fit_champion_model(
+                team=pipeline.team, pipeline=pipeline, prefix=prefix, anchor_ts=anchor_ts, model_id=model_id
+            )
         except Exception:
             logger.exception("autoresearch_champion_fit_failed", training_run_id=training_run_id, prefix=prefix)
 
@@ -342,11 +390,11 @@ def _schedule_champion_fit(*, pipeline: AutoresearchPipeline, prefix: str, train
 def _finalize_under_lock(
     training_run: AutoresearchTrainingRun,
     *,
-    bundle: artifacts.ArtifactBundle | None,
     best_iteration_id: UUID | None,
     model_explanation: dict[str, Any] | None,
     recommended_next: str,
     distillation: str,
+    report_notebook_short_id: str,
 ) -> dict[str, Any]:
     # Re-fetch under lock and re-check status inside the transaction. Both callers (the
     # complete API action and the TaskRun post_save safety net) guard on status outside
@@ -357,6 +405,11 @@ def _finalize_under_lock(
     )
     if training_run.status not in _FINALIZABLE_STATUSES:
         return _already_finalized(training_run)
+    # The artifact endpoints write the bundle under this same row lock, so a bundle read here
+    # is the bundle the champion will point at. Read before the lock, an upload landing in
+    # between would be fitted without ever being validated. The cost is three object-storage
+    # reads of agent-authored text while the row is locked.
+    bundle = _read_uploaded_bundle(training_run)
 
     pipeline = training_run.pipeline
     now = django_timezone.now()
@@ -370,6 +423,9 @@ def _finalize_under_lock(
         raise PromotionError("Agent recorded no iterations, so there is nothing to complete.")
 
     best = _select_best_iteration(training_run, best_iteration_id)
+    if best_iteration_id is not None and best.id != best_iteration_id:
+        # The explanation describes the nominated recipe, not the one the ranking selected.
+        model_explanation = {}
 
     # If the agent uploaded a runnable bundle, the champion's artifact is that bundle
     # (inference runs train.py/predict.py in a sandbox).
@@ -387,11 +443,13 @@ def _finalize_under_lock(
     candidate_score = best.holdout_score or 0.0
     current = AutoresearchModel.objects.filter(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION).first()
     is_cold_start = current is None
+    # A stub champion's score is a fixed placeholder, not a measurement, so any trained candidate replaces it.
+    replaces_stub = current is not None and bool((current.metrics or {}).get("stub"))
     beats_champion = current is not None and _beats_incumbent(candidate_score, current.holdout_score or 0.0)
 
     promoted = False
     role: str
-    if is_cold_start or beats_champion:
+    if is_cold_start or replaces_stub or beats_champion:
         if current is not None:
             AutoresearchModel.objects.filter(pk=current.pk).update(
                 role=AutoresearchModel.Role.ARCHIVED, archived_at=now
@@ -434,6 +492,7 @@ def _finalize_under_lock(
         champion_model_class=_serving_model_class(promoted=promoted, model=model, incumbent=current),
         recommended_next=recommended_next,
         distillation=distillation,
+        report_notebook_short_id=report_notebook_short_id,
     )
     training_run.save(update_fields=["status", "iteration_count", "best_holdout_score", "summary", "completed_at"])
 
@@ -442,7 +501,9 @@ def _finalize_under_lock(
         # A rejected challenger is not fitted: inference reads the champion only, and no path
         # promotes a challenger row later, so its fit would cost a sandbox run for nothing.
         if artifact_prefix:
-            _schedule_champion_fit(pipeline=pipeline, prefix=artifact_prefix, training_run_id=str(training_run.id))
+            _schedule_champion_fit(
+                pipeline=pipeline, prefix=artifact_prefix, training_run=training_run, model_id=str(model.pk)
+            )
 
     return {
         "promoted": promoted,

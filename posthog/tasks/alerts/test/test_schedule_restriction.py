@@ -1,15 +1,22 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import UUID
 
 import pytest
 import time_machine
 from unittest.mock import MagicMock
 
+from parameterized import parameterized
+
 from posthog.tasks.alerts import schedule_restriction as schedule_restriction_module
 from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked, next_unblocked_utc
 from posthog.tasks.alerts.utils import next_check_at_after_schedule_restriction_change
 
+from products.alerts.backend.facade.scheduling import CalendarInterval, alert_check_offset
 from products.alerts.backend.models.alert import AlertConfiguration
+
+ALERT_ID = UUID("0193f3c6-2a4b-7d2e-8f00-3c1b5d7e9a10")
+HOURLY_OFFSET = alert_check_offset(CalendarInterval.HOURLY, ALERT_ID)
 
 
 class TestIsUtcDatetimeBlockedAndNextUnblocked:
@@ -65,6 +72,7 @@ class TestIsUtcDatetimeBlockedAndNextUnblocked:
 class TestNextCheckAtAfterScheduleRestrictionChange:
     def _hourly_alert(self, **kwargs: Any) -> MagicMock:
         alert = MagicMock(spec=AlertConfiguration)
+        alert.id = ALERT_ID
         alert.team = MagicMock()
         alert.team.timezone = "UTC"
         alert.calculation_interval = "hourly"
@@ -78,17 +86,31 @@ class TestNextCheckAtAfterScheduleRestrictionChange:
             existing = datetime(2026, 4, 7, 18, 30, tzinfo=UTC)
             alert = self._hourly_alert(schedule_restriction=None, next_check_at=existing)
             out = next_check_at_after_schedule_restriction_change(alert)
-            assert out == datetime(2026, 4, 6, 15, 0, 0, tzinfo=UTC)
+            assert out == datetime(2026, 4, 6, 15, 0, 0, tzinfo=UTC) + HOURLY_OFFSET
             assert alert.next_check_at == existing
 
-    def test_future_next_check_inside_blocked_window_snaps_to_first_unblocked_minute(self) -> None:
+    @parameterized.expand(
+        [
+            # The first allowed minute is a window end on the hour, so the alert's offset moves the check past it.
+            ("offset_after_window_end", [{"start": "11:00", "end": "16:00"}], HOURLY_OFFSET),
+            # The offset would land inside the next quiet window, so the check stays on the first allowed minute.
+            (
+                "offset_inside_next_window",
+                [{"start": "11:00", "end": "16:00"}, {"start": "16:01", "end": "17:00"}],
+                timedelta(0),
+            ),
+        ]
+    )
+    def test_future_next_check_inside_blocked_window_snaps_to_first_unblocked_minute(
+        self, _name: str, blocked_windows: list[dict[str, str]], offset: timedelta
+    ) -> None:
         with time_machine.travel("2026-04-06T14:00:00Z", tick=False):
             alert = self._hourly_alert(
-                schedule_restriction={"blocked_windows": [{"start": "11:00", "end": "16:00"}]},
+                schedule_restriction={"blocked_windows": blocked_windows},
                 next_check_at=datetime(2026, 4, 6, 15, 30, tzinfo=UTC),
             )
             out = next_check_at_after_schedule_restriction_change(alert)
-            assert out == datetime(2026, 4, 6, 16, 0, 0, tzinfo=UTC)
+            assert out == datetime(2026, 4, 6, 16, 0, 0, tzinfo=UTC) + offset
 
     def test_custom_schedule_start_time_inside_blocked_window_snaps_to_first_unblocked_minute(self) -> None:
         with time_machine.travel("2026-04-06T20:00:00Z", tick=False):
@@ -108,4 +130,4 @@ class TestNextCheckAtAfterScheduleRestrictionChange:
                 next_check_at=datetime(2026, 4, 6, 20, 0, 0, tzinfo=UTC),
             )
             out = next_check_at_after_schedule_restriction_change(alert)
-            assert out == datetime(2026, 4, 6, 17, 44, 0, tzinfo=UTC)
+            assert out == datetime(2026, 4, 6, 17, 0, 0, tzinfo=UTC) + HOURLY_OFFSET

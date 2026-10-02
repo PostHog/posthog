@@ -19,7 +19,7 @@ const PANEL_TRIGGER_ITEMS: {
 }[] = [
     { identifier: 'DataAndPeople', configKey: 'data', label: 'Data', icon: <IconDatabase /> },
     { identifier: 'Project', configKey: 'files', label: 'Files', icon: <IconFolderOpen className="stroke-[1.2]" /> },
-    { identifier: 'Products', configKey: 'tools', label: 'Tools', icon: <IconApps /> },
+    { identifier: 'Products', configKey: 'tools', label: 'Products', icon: <IconApps /> },
     { identifier: 'Shortcuts', configKey: 'starred', label: 'Starred', icon: <IconStar /> },
 ]
 

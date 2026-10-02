@@ -26,11 +26,14 @@ type Statement struct {
 	budget             *projectionBudget
 	scopes             []*queryScope
 	tables             []TableReference
+	resolvedTables     []TableReference
 	analyzed           bool
 }
 
 type TableReference struct {
 	Name       string
+	Canonical  string
+	CTE        bool
 	Start, End int
 	Known      bool
 }
@@ -80,6 +83,9 @@ func (d *Document) LimitError() error {
 	if d.budget.lookupExceeded {
 		return querylimits.ErrFieldLookupTooLarge
 	}
+	if d.budget.relationExceeded {
+		return querylimits.ErrRelationTraversalTooDeep
+	}
 	return nil
 }
 
@@ -111,11 +117,13 @@ func (s *Statement) analyze() {
 		}
 		if cte := resolveCTE(scope, name, start); cte != nil {
 			addBinding(scope, name, alias, Relation{name: cte.name, cte: cte}, start, end)
+			s.resolvedTables = append(s.resolvedTables, TableReference{Name: name, Canonical: cte.name, CTE: true, Start: start, End: end, Known: true})
 			return true
 		}
 		table, exists := s.schema.Table(name)
 		s.tables = append(s.tables, TableReference{Name: name, Start: start, End: end, Known: exists})
 		if exists {
+			s.resolvedTables = append(s.resolvedTables, TableReference{Name: name, Canonical: table.Name, Start: start, End: end, Known: true})
 			if alias == "" && implicitAlias != name {
 				// HogQL registers multi-part table paths under a double-underscore alias.
 				alias = implicitAlias
@@ -134,6 +142,10 @@ func (s *Statement) Walk(visit func(clickhouse.Expr) bool) {
 
 func (s *Statement) Tables() iter.Seq[TableReference] {
 	return slices.Values(s.tables)
+}
+
+func (s *Statement) ResolvedTables() iter.Seq[TableReference] {
+	return slices.Values(s.resolvedTables)
 }
 
 func (s *Statement) DuplicateSources() iter.Seq[Source] {
@@ -214,6 +226,33 @@ func (b Bindings) Relation(name string) (Relation, bool) {
 	return relation, ok
 }
 
+func (b Bindings) UnambiguousRelation(name string) (Relation, bool) {
+	relation, ok := b.Relation(name)
+	return relation, ok && b.scope != nil && !b.scope.hasDuplicateSource(name)
+}
+
+func (b Bindings) ResolvedField(name string) (catalog.Entry, bool) {
+	if b.scope == nil {
+		return catalog.Entry{}, false
+	}
+	var found catalog.Entry
+	matches := 0
+	for source := range b.sources() {
+		if b.scope.hasDuplicateSource(source.name) {
+			return catalog.Entry{}, false
+		}
+		if _, ok := source.relation.Field(name); ok {
+			matches++
+			field, resolved := source.relation.ResolvedField(name)
+			if !resolved {
+				return catalog.Entry{}, false
+			}
+			found = field
+		}
+	}
+	return found, matches == 1 && !b.scope.budget.lookupExceeded
+}
+
 func (b Bindings) All() iter.Seq2[string, Relation] {
 	return func(yield func(string, Relation) bool) {
 		for name, relation := range b.relations {
@@ -232,6 +271,12 @@ func (b Bindings) UniqueRelations() iter.Seq[Relation] {
 }
 
 func (b Bindings) PropertyNamespace(parts []string) (string, bool) {
+	if len(parts) < 2 {
+		return "", false
+	}
+	if target := b.Traversal(parts[:len(parts)-1]); target.Explicit {
+		return target.PropertyNamespace, target.Valid && target.PropertyNamespace != "" && !target.HasProperty
+	}
 	if len(parts) > 2 && b.scope.hasDuplicateSource(parts[0]) {
 		return "", false
 	}
@@ -291,12 +336,128 @@ func (b Bindings) PropertyNamespace(parts []string) (string, bool) {
 	return propertyresolver.Resolve(parts, names)
 }
 
+type TraversalTarget struct {
+	Fields            *catalog.PreparedFields
+	PropertyNamespace string
+	Explicit          bool
+	Valid             bool
+	Failed            bool
+	FailureAt         int
+	HasProperty       bool
+	PropertyAt        int
+}
+
+func (b Bindings) Traversal(parts []string) TraversalTarget {
+	if len(parts) == 0 || b.scope == nil {
+		return TraversalTarget{}
+	}
+	var fields *catalog.PreparedFields
+	var relationView *catalog.PreparedRelation
+	index := 0
+	if relation, ok := b.Relation(parts[0]); ok {
+		if b.scope.hasDuplicateSource(parts[0]) {
+			return TraversalTarget{Explicit: true}
+		}
+		if relation.table == nil {
+			return TraversalTarget{}
+		}
+		fields = &relation.table.Fields
+		index = 1
+	} else {
+		matches := 0
+		annotated := 0
+		for source := range b.sources() {
+			if _, ok := source.relation.Field(parts[0]); !ok {
+				continue
+			}
+			matches++
+			if b.scope.hasDuplicateSource(source.name) {
+				return TraversalTarget{Explicit: true}
+			}
+			if source.relation.table != nil {
+				if _, ok := source.relation.table.Fields.Traversal(parts[0]); ok {
+					fields = &source.relation.table.Fields
+					annotated++
+				}
+			}
+		}
+		if annotated == 0 {
+			return TraversalTarget{}
+		}
+		if alias, ok := b.selectAlias(parts[0]); ok {
+			if len(parts) == 1 && alias.propertyNamespace != "" {
+				return TraversalTarget{PropertyNamespace: alias.propertyNamespace, Explicit: true, Valid: true}
+			}
+			return TraversalTarget{Explicit: true}
+		}
+		if matches != 1 || annotated != 1 {
+			return TraversalTarget{Explicit: true}
+		}
+	}
+	hops := 0
+	explicit := false
+	for ; index < len(parts); index++ {
+		if !b.scope.budget.lookup(len(parts[index]) + 1) {
+			return TraversalTarget{Explicit: explicit}
+		}
+		entry, ok := fields.Exact(parts[index])
+		if !ok {
+			return TraversalTarget{Fields: fields, Explicit: explicit, Failed: explicit, FailureAt: index}
+		}
+		var traversal catalog.FieldTraversal
+		if relationView != nil {
+			traversal, ok = relationView.Traversal(parts[index])
+		} else {
+			traversal, ok = fields.Traversal(parts[index])
+		}
+		if !ok {
+			if explicit && strings.EqualFold(entry.Type, "JSON") {
+				return TraversalTarget{Explicit: true}
+			}
+			return TraversalTarget{Fields: fields, Explicit: explicit, Failed: explicit, FailureAt: index + 1}
+		}
+		explicit = true
+		if traversal.PropertyNamespace != "" {
+			if index != len(parts)-1 {
+				return TraversalTarget{
+					PropertyNamespace: traversal.PropertyNamespace,
+					Explicit:          true,
+					Valid:             true,
+					HasProperty:       true,
+					PropertyAt:        index + 1,
+				}
+			}
+			return TraversalTarget{PropertyNamespace: traversal.PropertyNamespace, Explicit: true, Valid: true}
+		}
+		hops++
+		if hops > querylimits.MaxRelationTraversalHops {
+			b.scope.budget.relationExceeded = true
+			return TraversalTarget{Explicit: true}
+		}
+		if traversal.Relation == nil {
+			return TraversalTarget{Explicit: true}
+		}
+		relationView = traversal.Relation
+		fields = traversal.Relation.Fields
+	}
+	return TraversalTarget{Fields: fields, Explicit: explicit, Valid: fields != nil}
+}
+
 func (r Relation) Name() string {
 	return r.name
 }
 
 func (r Relation) Field(name string) (catalog.Entry, bool) {
 	return bindingField(r, name)
+}
+
+func (r Relation) ResolvedField(name string) (catalog.Entry, bool) {
+	field, ok := bindingField(r, name)
+	if !ok || r.cte == nil {
+		return field, ok
+	}
+	projected, exists := r.cte.fieldIndex[foldedFieldName(name)]
+	return field, exists && !projected.ambiguous
 }
 
 // Fields yields values without copying catalog indexes or exposing their backing slices.

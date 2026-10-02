@@ -2,8 +2,9 @@ import json
 
 import pytest
 
+from personhog.types.v1 import cohort_pb2, common_pb2, group_pb2, person_pb2
+
 from posthog.personhog_client.fake_client import FakePersonHogClient, fake_personhog_client
-from posthog.personhog_client.proto.generated.personhog.types.v1 import cohort_pb2, common_pb2, group_pb2, person_pb2
 
 
 class TestFakePersonHogClientPersons:
@@ -508,9 +509,10 @@ class TestFakePersonHogClientDeleteTombstonedPersons:
         )
 
     def _present(self, uuid: str) -> bool:
-        return self.client.get_person_by_uuid(
-            person_pb2.GetPersonByUuidRequest(team_id=self.TEAM_ID, uuid=uuid)
-        ).HasField("person")
+        return self.client.stored_person(self.TEAM_ID, uuid) is not None
+
+    def _mapped(self, distinct_id: str) -> bool:
+        return self.client.stored_person_by_distinct_id(self.TEAM_ID, distinct_id) is not None
 
     @pytest.mark.parametrize(
         "uuid,expected,expect_present",
@@ -536,9 +538,7 @@ class TestFakePersonHogClientDeleteTombstonedPersons:
             deleted_count=1, rows_deleted=1
         )
         assert not self._present("big")
-        assert not self.client.get_person_by_distinct_id(
-            person_pb2.GetPersonByDistinctIdRequest(team_id=self.TEAM_ID, distinct_id="o-0")
-        ).HasField("person")
+        assert not self._mapped("o-0")
 
     def test_small_persons_in_the_same_request_never_wait_behind_a_big_one(self):
         # tombstoned (2 rows) and blocked (2 rows) are admitted first, in id order, leaving 2
@@ -569,9 +569,7 @@ class TestFakePersonHogClientDeleteTombstonedPersons:
 
         assert resp == person_pb2.DeleteTombstonedPersonsResponse(blocked_person_uuids=["big-live"])
         for distinct_id in ("x-0", "x-4"):
-            assert self.client.get_person_by_distinct_id(
-                person_pb2.GetPersonByDistinctIdRequest(team_id=self.TEAM_ID, distinct_id=distinct_id)
-            ).HasField("person")
+            assert self._mapped(distinct_id)
 
     def test_max_rows_defaults_and_clamps_like_the_server(self):
         self.client.tombstoned_delete_max_rows = 3
@@ -591,16 +589,31 @@ class TestFakePersonHogClientDeleteTombstonedPersons:
 
         assert self._delete("tombstoned").deleted_count == 1
 
-        by_did = self.client.get_person_by_distinct_id(
-            person_pb2.GetPersonByDistinctIdRequest(team_id=self.TEAM_ID, distinct_id="t-1")
-        )
-        assert not by_did.HasField("person")
+        assert not self._mapped("t-1")
         membership = self.client.check_cohort_membership(
             cohort_pb2.CheckCohortMembershipRequest(person_id=1, cohort_ids=[9])
         )
         assert list(membership.memberships) == []
         assert self.client.count_cohort_members(cohort_pb2.CountCohortMembersRequest(cohort_ids=[9])).count == 0
         assert self._delete("tombstoned") == person_pb2.DeleteTombstonedPersonsResponse()
+
+    def test_a_re_added_distinct_id_resolves_to_its_new_person(self):
+        self.client.delete_persons(
+            person_pb2.DeletePersonsRequest(
+                team_id=self.TEAM_ID, person_uuids=["live"], mode=person_pb2.DELETE_PERSONS_MODE_TOMBSTONE
+            )
+        )
+        hidden = self.client.get_person_by_distinct_id(
+            person_pb2.GetPersonByDistinctIdRequest(team_id=self.TEAM_ID, distinct_id="l-1")
+        )
+        assert not hidden.HasField("person")
+
+        self.client.add_person(team_id=self.TEAM_ID, person_id=9, uuid="revived", distinct_ids=["l-1"])
+
+        resolved = self.client.get_person_by_distinct_id(
+            person_pb2.GetPersonByDistinctIdRequest(team_id=self.TEAM_ID, distinct_id="l-1")
+        )
+        assert resolved.person.uuid == "revived"
 
     def test_wrong_team_touches_nothing(self):
         resp = self.client.delete_tombstoned_persons(
@@ -618,3 +631,36 @@ class TestFakePersonHogClientDeleteTombstonedPersons:
         assert resp.deleted_count == 3
         for uuid in ("tombstoned", "live", "blocked"):
             assert not self._present(uuid)
+
+    def test_delete_persons_tombstone_mode_keeps_rows_and_reports_versions(self):
+        resp = self.client.delete_persons(
+            person_pb2.DeletePersonsRequest(
+                team_id=self.TEAM_ID,
+                person_uuids=["live", "tombstoned"],
+                mode=person_pb2.DELETE_PERSONS_MODE_TOMBSTONE,
+            )
+        )
+
+        # The live person reports what it wrote. The already tombstoned one is not counted, but it
+        # is reported with the versions it holds, like the replica, so a retry can republish them.
+        assert resp.tombstoned
+        assert resp.deleted_count == 1
+        assert [t.person_uuid for t in resp.tombstones] == ["live", "tombstoned"]
+        assert resp.tombstones[0].version == 1
+        assert [(d.distinct_id, d.version) for d in resp.tombstones[0].distinct_ids] == [("l-1", 1)]
+        assert [(d.distinct_id, d.version) for d in resp.tombstones[1].distinct_ids] == [("t-1", 0), ("t-2", 0)]
+        stored = self.client.stored_person(self.TEAM_ID, "live")
+        assert stored is not None and stored.is_deleted
+        assert stored.version == 1
+
+        hard = self.client.delete_persons(
+            person_pb2.DeletePersonsRequest(
+                team_id=self.TEAM_ID, person_uuids=["live"], mode=person_pb2.DELETE_PERSONS_MODE_HARD
+            )
+        )
+        assert hard.deleted_count == 1
+        assert not hard.tombstoned
+        assert (
+            self.client.get_person(person_pb2.GetPersonRequest(team_id=self.TEAM_ID, person_id=2)).HasField("person")
+            is False
+        )

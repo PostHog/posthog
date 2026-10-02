@@ -200,7 +200,18 @@ class TestReadyTrinoCatalogName:
 
 
 class TestCompileHogQLToTrinoSQL:
-    def test_preserves_sql_bind_values_and_diagnostics_across_the_transpiler_boundary(self) -> None:
+    @pytest.mark.parametrize(
+        "limit_clause, trino_limit_clause",
+        [
+            ("", ""),
+            (" LIMIT 1", " LIMIT 1"),
+            (" LIMIT 75000", " LIMIT 75000"),
+            (" LIMIT 75000 OFFSET 3", " OFFSET 3 ROWS LIMIT 75000"),
+        ],
+    )
+    def test_preserves_sql_bind_values_and_diagnostics_across_the_transpiler_boundary(
+        self, limit_clause: str, trino_limit_clause: str
+    ) -> None:
         team = _team()
         membership = _membership(team_id=team.pk, organization_id=str(team.organization_id))
 
@@ -221,7 +232,9 @@ class TestCompileHogQLToTrinoSQL:
         ):
             compiled = compile_hogql_to_trino_sql(
                 team.pk,
-                HogQLQuery(query="SELECT event FROM events WHERE event = {event}", values={"event": "signup"}),
+                HogQLQuery(
+                    query="SELECT event FROM events WHERE event = {event}" + limit_clause, values={"event": "signup"}
+                ),
                 team=team,
                 include_hogql=True,
             )
@@ -233,14 +246,25 @@ class TestCompileHogQLToTrinoSQL:
         assert compiled.sql == (
             'SELECT "org_catalog"."posthog"."events_production"."event" '
             'FROM "org_catalog"."posthog"."events_production" '
-            'WHERE ("org_catalog"."posthog"."events_production"."event" = %(hogql_val_0)s) LIMIT 50000'
+            'WHERE ("org_catalog"."posthog"."events_production"."event" = %(hogql_val_0)s)' + trino_limit_clause
         )
         assert compiled.values == {"hogql_val_0": "signup"}
-        assert compiled.hogql == "SELECT event FROM events WHERE equals(event, 'signup') LIMIT 50000"
+        assert compiled.hogql == "SELECT event FROM events WHERE equals(event, 'signup')" + limit_clause
 
     @pytest.mark.django_db
     @pytest.mark.parametrize("include_hogql", [False, True])
-    def test_populates_core_table_locators_from_control_plane_state(self, include_hogql: bool) -> None:
+    @pytest.mark.parametrize(
+        "limit_clause, trino_limit_clause",
+        [
+            ("", ""),
+            (" LIMIT 1", " LIMIT 1"),
+            (" LIMIT 75000", " LIMIT 75000"),
+            (" LIMIT 75000 OFFSET 3", " OFFSET 3 ROWS LIMIT 75000"),
+        ],
+    )
+    def test_populates_core_table_locators_from_control_plane_state(
+        self, include_hogql: bool, limit_clause: str, trino_limit_clause: str
+    ) -> None:
         organization = Organization.objects.create(name="trino-core-locators")
         team = Team.objects.create(organization=organization)
         membership = _membership(team_id=team.pk, organization_id=str(organization.pk))
@@ -258,7 +282,7 @@ class TestCompileHogQLToTrinoSQL:
         ):
             compiled = compile_hogql_to_trino_sql(
                 team.pk,
-                HogQLQuery(query="SELECT event FROM events LIMIT 1"),
+                HogQLQuery(query="SELECT event FROM events" + limit_clause),
                 team=team,
                 include_hogql=include_hogql,
                 expansion_mode=TrinoExpansionMode.DJANGO,
@@ -266,10 +290,10 @@ class TestCompileHogQLToTrinoSQL:
 
         assert compiled.sql == (
             'SELECT "org_catalog"."posthog"."events_production"."event" '
-            'FROM "org_catalog"."posthog"."events_production" LIMIT 1'
+            'FROM "org_catalog"."posthog"."events_production"' + trino_limit_clause
         )
         assert compiled.values == {}
-        assert compiled.hogql == ("SELECT event FROM events LIMIT 1" if include_hogql else None)
+        assert compiled.hogql == ("SELECT event FROM events" + limit_clause if include_hogql else None)
 
     @pytest.mark.django_db
     @pytest.mark.parametrize(

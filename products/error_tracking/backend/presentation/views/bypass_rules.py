@@ -1,6 +1,6 @@
 import structlog
 import posthoganalytics
-from drf_spectacular.utils import OpenApiResponse, extend_schema_field
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
@@ -81,6 +81,13 @@ class ErrorTrackingBypassRuleUpdateRequestSerializer(serializers.Serializer):
     )
 
 
+class ErrorTrackingBypassRuleReorderRequestSerializer(serializers.Serializer):
+    orders = serializers.DictField(
+        child=serializers.IntegerField(),
+        help_text="Mapping from bypass rule UUID to its new evaluation order.",
+    )
+
+
 class ErrorTrackingBypassRuleViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "error_tracking"
     scope_object_write_actions = ["create", "update", "partial_update", "destroy", "reorder"]
@@ -158,6 +165,7 @@ class ErrorTrackingBypassRuleViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
         )
         return Response(self.get_serializer(rule).data, status=status.HTTP_201_CREATED)
 
+    @extend_schema(request=ErrorTrackingBypassRuleReorderRequestSerializer, responses={204: None})
     @action(methods=["PATCH"], detail=False)
     def reorder(self, request, **kwargs) -> Response:
         orders: dict[str, int] = request.data.get("orders", {})

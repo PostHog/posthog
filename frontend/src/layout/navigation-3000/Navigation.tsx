@@ -15,6 +15,8 @@ import { Scene, SceneConfig } from 'scenes/sceneTypes'
 import { PanelLayout } from '~/layout/panel-layout/PanelLayout'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { ProjectDragAndDropProvider } from '~/layout/panel-layout/ProjectTree/ProjectDragAndDropContext'
+import { TodayShell } from '~/layout/today/TodayShell'
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
 import { navigationLogic } from '../navigation/navigationLogic'
 import { ProjectNotice } from '../navigation/ProjectNotice'
@@ -48,6 +50,12 @@ export function Navigation({
     const { scenePanelIsPresent, scenePanelOpenManual, sceneTakeoverActive } = useValues(sceneLayoutLogic)
     const { sidePanelOpen } = useValues(sidePanelStateLogic)
     const { sidePanelWidth } = useValues(panelLayoutLogic)
+    const {
+        leftNavWidth: todayLeftNavWidth,
+        todayRailEnabled: todayRail,
+        sidebarVisible: todaySidebarVisible,
+    } = useValues(todayShellLogic)
+    const todayDrawerOpen = todayRail && mobileLayout && todaySidebarVisible
 
     // SceneMenuBar (when enabled) replaces ProjectNotice's role of conveying project-level
     // context above scene content, so we hide the notice for users on the new menu bar.
@@ -126,7 +134,17 @@ export function Navigation({
                 }
             >
                 {showMinimalNavigation && <MinimalNavigation />}
-                <main className={mode === 'zen' ? 'p-4' : undefined}>{children}</main>
+                <main
+                    className={
+                        mode === 'zen'
+                            ? 'p-4'
+                            : mode === 'embedded'
+                              ? '@container/main-content min-h-screen p-4'
+                              : undefined
+                    }
+                >
+                    {children}
+                </main>
             </div>
         )
     }
@@ -143,7 +161,8 @@ export function Navigation({
             </a>
             <div
                 className={cn('app-layout bg-surface-tertiary', {
-                    'app-layout--mobile': mobileLayout,
+                    'app-layout--mobile': mobileLayout && !todayRail,
+                    TodayAppLayout: todayRail,
                 })}
                 style={
                     {
@@ -163,22 +182,28 @@ export function Navigation({
                         // --project-navbar-width. Collapsed/mobile fall back to the base default.
                         '--project-navbar-width':
                             !mobileLayout && !isLayoutNavCollapsed ? `${navbarWidth}px` : undefined,
-                        '--left-nav-width': isLayoutNavCollapsed
-                            ? 'var(--project-navbar-width-collapsed)'
-                            : 'var(--project-navbar-width)',
+                        '--left-nav-width': todayRail
+                            ? `${todayLeftNavWidth}px`
+                            : isLayoutNavCollapsed
+                              ? 'var(--project-navbar-width-collapsed)'
+                              : 'var(--project-navbar-width)',
                     } as React.CSSProperties
                 }
             >
                 <ProjectDragAndDropProvider>
-                    <PanelLayout className="left-nav" />
+                    {todayRail ? <TodayShell className="left-nav" /> : <PanelLayout className="left-nav" />}
 
                     <div
                         className={cn(
-                            '@container/main-content-container main-content-container flex overflow-hidden lg:rounded border-t lg:border border-primary relative lg:mr-1 lg:mb-1 lg:mt-1',
-                            {
-                                'rounded-r-none': sidePanelOpen,
-                            }
+                            '@container/main-content-container main-content-container flex overflow-hidden border-primary relative',
+                            todayRail
+                                ? 'border-l'
+                                : [
+                                      'lg:rounded border-t lg:border lg:mr-1 lg:mb-1 lg:mt-1',
+                                      sidePanelOpen && 'rounded-r-none',
+                                  ]
                         )}
+                        {...(todayDrawerOpen ? { inert: '' } : {})}
                     >
                         <main
                             ref={mainRef}

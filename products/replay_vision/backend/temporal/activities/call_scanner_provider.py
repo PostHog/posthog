@@ -36,10 +36,10 @@ from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
+from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ScannerModel
 from products.replay_vision.backend.tags import slugify_tag
-from products.replay_vision.backend.temporal.constants import replay_vision_distinct_id
 from products.replay_vision.backend.temporal.conversation import (
     DEFAULT_MAX_TOOL_ITERATIONS,
     function_calls,
@@ -75,6 +75,7 @@ from products.replay_vision.backend.temporal.network_tool import (
 from products.replay_vision.backend.temporal.scanners import scanner_from_snapshot
 from products.replay_vision.backend.temporal.scanners.base import (
     STEP_CORE,
+    STEP_MAX_OUTPUT_TOKENS,
     STEP_SIGNALS,
     TIMESTAMP_CITATION_RE,
     BaseScanner,
@@ -142,6 +143,10 @@ class _MissionOutcome:
     finalized: BaseScannerOutput
     signals: list[SignalFinding]
     verification: VerificationRecord | None = None
+    thumbnail_video_s: int | None = None
+    key_moment_video_s: int | None = None
+    # The core turn's raw answer, for fields the scanner still has to move onto the session clock.
+    core_response: BaseModel | None = None
 
 
 @activity.defn
@@ -292,6 +297,8 @@ async def run_scan(
     # Built before the preamble so one object decides both the wording and the tool list, which keeps the
     # prompt from describing a tool the conversation does not carry.
     network_index = build_network_index(network_payload, llm_inputs.metadata.start_time, video_clock)
+    duration_ms = int(llm_inputs.metadata.duration_seconds * 1000)
+    scanner = scanner.bind_session(video_clock, duration_ms)
 
     preamble_text = scanner.preamble(
         team_name=team_name,
@@ -318,10 +325,20 @@ async def run_scan(
         network_index=network_index,
         trace_id=trace_id if trace_id is not None else str(uuid4()),
     )
-    duration_ms = int(llm_inputs.metadata.duration_seconds * 1000)
     finalized = _resolve_citations(outcome.finalized, scanner, duration_ms, video_clock)
+    finalized = finalized.model_copy(
+        update={"key_moment_ms": _key_moment_session_ms(outcome.key_moment_video_s, duration_ms, video_clock)}
+    )
+    finalized = scanner.resolve_session_clock(finalized, outcome.core_response, video_clock, duration_ms)
     signals = [_signal_on_session_clock(signal, video_clock) for signal in outcome.signals]
-    return ScannerCallOutput(model_output=finalized, signals=signals, verification=outcome.verification)
+    return ScannerCallOutput(
+        model_output=finalized,
+        signals=signals,
+        verification=outcome.verification,
+        thumbnail_video_s=outcome.thumbnail_video_s,
+        # Read off `outcome.signals`, which is still on the video clock; `signals` above is not.
+        signal_video_spans=[(s.start_time, s.end_time) for s in outcome.signals],
+    )
 
 
 def _scan_trace_id(inputs: CallScannerProviderInputs) -> str:
@@ -354,6 +371,17 @@ def _resolve_citations(
     return finalized
 
 
+def _key_moment_session_ms(video_s: int | None, duration_ms: int, clock: VideoClock) -> int | None:
+    """Move the model's key moment onto the session clock, or None when it skipped the pick or named a time past
+    the video. Same bound as a citation, because the clock would clamp an invented time onto the recording's end."""
+    if video_s is None:
+        return None
+    longest_citable_s = duration_ms / 1000 if clock.is_identity else clock.video_duration_s
+    if longest_citable_s is not None and video_s > longest_citable_s:
+        return None
+    return min(clock.video_s_to_session_ms(video_s), duration_ms)
+
+
 def _extract_segments(text: str, duration_ms: int, clock: VideoClock) -> tuple[str, list[Segment]]:
     """Walk `(t <sec>)` markers in `text`; drop times past the recording; return (plain text, render-ready text/chip segments).
 
@@ -374,7 +402,7 @@ def _extract_segments(text: str, duration_ms: int, clock: VideoClock) -> tuple[s
             # Drop citations past the video's end (a time the model invented) before converting, because the
             # clock clamps past its last span and would turn any such value into the recording endpoint. No
             # slack: a moment the model can see has a video second inside the video. The marker is stripped either way.
-            longest_citable_s = duration_ms / 1000 if clock.is_identity else clock.video_duration_s
+            longest_citable_s = clock.citable_duration_s(duration_ms / 1000)
             if longest_citable_s is not None and video_s <= longest_citable_s:
                 segments.append(ChipSegment(timestamp_ms=clock.video_s_to_session_ms(video_s)))
         last_end = match.end()
@@ -576,9 +604,7 @@ async def _run_mission(
             step,
             validate=functools.partial(
                 _validate_signal_timestamps,
-                duration_seconds=llm_inputs.metadata.duration_seconds
-                if video_clock.is_identity
-                else video_clock.video_duration_s,
+                duration_seconds=video_clock.citable_duration_s(llm_inputs.metadata.duration_seconds),
             ),
         )
         if step.name == STEP_SIGNALS
@@ -629,7 +655,14 @@ async def _run_mission(
             await _delete_video_cache(cache_client, cache.name)
 
     finalized, signals = scanner.assemble(step_outputs)
-    return _MissionOutcome(finalized=finalized, signals=signals, verification=verification)
+    return _MissionOutcome(
+        finalized=finalized,
+        signals=signals,
+        verification=verification,
+        thumbnail_video_s=getattr(step_outputs.get(STEP_CORE), "thumbnail_t", None),
+        key_moment_video_s=getattr(step_outputs.get(STEP_CORE), "key_moment_t", None),
+        core_response=step_outputs.get(STEP_CORE),
+    )
 
 
 async def _verify_positive_verdict(
@@ -794,21 +827,29 @@ async def _run_steps(
     for step in steps:
         checkpoint = len(convo)
         convo.append(types.Part(text=step.instruction))
-        result = await _run_step(
-            client=client,
-            model=model,
-            step=step,
-            convo=convo,
-            cache_name=cache_name,
-            video_part=video_part,
-            preamble_text=preamble_text,
-            dispatch=dispatch,
-            team_id=team_id,
-            tools=tools,
-            metric_labels=metric_labels,
-            trace_id=trace_id,
-            on_round=on_round,
-        )
+        try:
+            result = await _run_step(
+                client=client,
+                model=model,
+                step=step,
+                convo=convo,
+                cache_name=cache_name,
+                video_part=video_part,
+                preamble_text=preamble_text,
+                dispatch=dispatch,
+                team_id=team_id,
+                tools=tools,
+                metric_labels=metric_labels,
+                trace_id=trace_id,
+                on_round=on_round,
+            )
+        except Exception as exc:
+            if step.required:
+                raise
+            # A provider error arrives here, not as an empty output, and must not sink a paid-for scan.
+            logger.warning("replay_vision.call_scanner_provider.optional_step_failed", step=step.name, error=str(exc))
+            del convo[checkpoint:]
+            continue
         if result.output is None:
             # Roll the failed step's half-finished exchange back so the next instruction follows the last good
             # model turn, not a dangling correction/tool call (which would leave two user turns in a row).
@@ -1017,7 +1058,7 @@ def _step_config(
         # Return thought summaries so the model's reasoning is visible in LLM analytics. Answer parsing is
         # unaffected (`response.text` skips thought parts); models with thinking off just return none.
         "thinking_config": types.ThinkingConfig(include_thoughts=True),
-        "max_output_tokens": step.max_output_tokens,
+        "max_output_tokens": STEP_MAX_OUTPUT_TOKENS,
     }
     if not allow_tools:
         return types.GenerateContentConfig(**kwargs)  # inline, no tool to call — the model must answer now

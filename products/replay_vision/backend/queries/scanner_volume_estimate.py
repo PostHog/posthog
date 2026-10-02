@@ -1,5 +1,6 @@
 import datetime as dt
 from dataclasses import dataclass
+from typing import Any
 
 from django.utils import timezone
 
@@ -22,7 +23,7 @@ from posthog.models import Team, User
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 
 from products.replay_vision.backend.billing import ESTIMATE_MONTH_DAYS
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner, SamplingMode
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, SamplingMode, ScannerType
 from products.replay_vision.backend.queries.scanner_candidate_query import (
     eligibility_predicates,
     surfacing_score_predicate,
@@ -322,16 +323,21 @@ def refresh_scanner_estimate(
     estimated_at = timezone.now()
     # Filtered write so a config edit racing the (slow) estimate query can't get stamped fresh with stale numbers.
     # JSONField quirk: `field=None` filters for JSON null, not SQL NULL, so the no-targeting case needs isnull.
+    guard_fields: dict[str, Any] = (
+        {"experiment_targeting__isnull": True}
+        if scanner.experiment_targeting is None
+        else {"experiment_targeting": scanner.experiment_targeting}
+    )
+    if scanner.scanner_type == ScannerType.EXPERIMENT:
+        # The experiment type keeps its scope in scanner_config, so a racing config edit must
+        # invalidate the stamp the way an experiment_targeting edit does for the other types.
+        guard_fields["scanner_config"] = scanner.scanner_config
     updated = ReplayScanner.objects.filter(
         pk=scanner.pk,
         query=scanner.query,
         sampling_rate=scanner.sampling_rate,
         sampling_mode=scanner.sampling_mode,
-        **(
-            {"experiment_targeting__isnull": True}
-            if scanner.experiment_targeting is None
-            else {"experiment_targeting": scanner.experiment_targeting}
-        ),
+        **guard_fields,
     ).update(estimated_monthly_observations=projection, estimated_at=estimated_at)
     if updated:
         scanner.estimated_monthly_observations = projection
@@ -346,8 +352,8 @@ def is_experiment_linkage_unresolved(scanner: ReplayScanner, error: Exception) -
     reference; no launch heals that, so callers keep it on their error path. Both groups raise
     the same DRF ValidationError type inside the recordings query, so this re-resolves the
     linkage to tell them apart. The extra resolution runs on the failure path only."""
-    targeting = scanner.experiment_targeting if isinstance(scanner.experiment_targeting, dict) else {}
-    experiment_id = targeting.get("experiment_id")
+    scope = scanner.experiment_scope() or {}
+    experiment_id = scope.get("experiment_id")
     if experiment_id is None:
         return False
     if isinstance(error, PermissionDenied):
@@ -358,7 +364,12 @@ def is_experiment_linkage_unresolved(scanner: ReplayScanner, error: Exception) -
     from products.experiments.backend.facade.replay import resolve_exposure_linkage  # noqa: PLC0415
 
     try:
-        resolve_exposure_linkage(scanner.team, experiment_id=experiment_id, variant=targeting.get("variant"))
+        resolve_exposure_linkage(
+            scanner.team,
+            experiment_id=experiment_id,
+            variant=scope.get("variant"),
+            variants=scope.get("variants"),
+        )
     except ValidationError:
         return True
     except Exception:

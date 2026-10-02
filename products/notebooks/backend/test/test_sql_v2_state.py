@@ -272,16 +272,30 @@ class TestCellCountLimit(SimpleTestCase):
             ("under", MAX_NOTEBOOK_CELLS - 1, True),
             ("at_the_limit", MAX_NOTEBOOK_CELLS, True),
             ("over", MAX_NOTEBOOK_CELLS + 1, False),
+            ("prepared_insights_at_limit", MAX_NOTEBOOK_CELLS, True, "Query"),
+            ("prepared_insights_over_limit", MAX_NOTEBOOK_CELLS + 1, False, "Insight"),
         ]
     )
-    def test_growth_is_refused_past_the_ceiling(self, _name: str, next_count: int, allowed: bool) -> None:
+    def test_growth_is_refused_past_the_ceiling(
+        self, _name: str, next_count: int, allowed: bool, insight_tag: str | None = None
+    ) -> None:
         # Without a ceiling an agent adds cells in a loop, and every SQL or Python cell it adds
         # is a query or a sandbox execution. Nothing else bounds that.
+        content = (
+            cells_markdown(next_count)
+            if insight_tag is None
+            else markdown_content(
+                "\n\n".join(
+                    f'<{insight_tag} nodeId="i{index}" dataframeQuery="select 1" returnVariable="df_{index}" />'
+                    for index in range(next_count)
+                )
+            )
+        )
         if allowed:
-            validate_cell_count(None, cells_markdown(next_count))
+            validate_cell_count(None, content)
             return
         with self.assertRaises(NotebookCellLimitExceeded):
-            validate_cell_count(None, cells_markdown(next_count))
+            validate_cell_count(None, content)
 
     @parameterized.expand([("unchanged", 0), ("shrinking", -1)])
     def test_a_notebook_already_over_the_ceiling_stays_editable(self, _name: str, delta: int) -> None:

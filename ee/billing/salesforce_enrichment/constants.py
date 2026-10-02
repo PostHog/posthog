@@ -131,6 +131,9 @@ POSTHOG_ORG_ID_FIELD = "Posthog_Org_ID__c"
 POSTHOG_USAGE_ENRICHMENT_BATCH_SIZE = 100
 POSTHOG_FETCH_MAPPINGS_PAGE_SIZE = 10_000  # Page size for fetching org mappings, kept under Temporal's 4 MB gRPC limit
 
+POSTHOG_ORG_REGION_FIELD = "Posthog_Org_Region__c"
+ORG_REGION_BY_LICENSE_ID: dict[int, str] = {1: "EU", 2: "US"}
+
 # Salesforce field mappings for PostHog usage signals
 # Format: internal_field_name -> salesforce_custom_field_name
 POSTHOG_USAGE_FIELD_MAPPINGS = {
@@ -145,6 +148,10 @@ POSTHOG_USAGE_FIELD_MAPPINGS = {
     "products_activated_30d": "posthog_products_30d__c",
     "events_30d_momentum": "posthog_events_30d_momentum__c",
 }
+
+# Both momentum fields are Number(7, 2) in Salesforce, which rejects the whole record for a value above
+# 99,999.99. Momentum is a percentage change, so growth from a nearly empty previous period exceeds it.
+SALESFORCE_MOMENTUM_MAX = 99_999.99
 
 STRIPE_ENRICHMENT_PAGE_SIZE: int = 5_000
 

@@ -47,6 +47,19 @@ class TestClerkSource:
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable_errors)
 
+    @pytest.mark.parametrize(
+        ("observed_error", "expected_substring"),
+        [
+            ("403 Client Error: Forbidden for url: https://api.clerk.com/v1/users?limit=100", "secret key"),
+            ("403 Client Error: Forbidden for url: https://api.clerk.com/v1/role_sets?limit=100", "feature it needs"),
+        ],
+    )
+    def test_403_message_depends_on_the_endpoint(self, observed_error, expected_substring):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        first_match = next(message for key, message in non_retryable_errors.items() if key in observed_error)
+
+        assert first_match is not None and expected_substring in first_match
+
     def test_non_retryable_errors_does_not_match_400_on_other_clerk_endpoints(self):
         # A 400 from a different endpoint is a genuinely bad request worth investigating, not the
         # known api_keys limitation — the match must stay scoped to `api_keys`.
@@ -70,7 +83,7 @@ class TestClerkSource:
     def test_non_retryable_errors_does_not_match_404_on_other_clerk_endpoints(self):
         # A 404 from an endpoint we don't classify may be a genuinely missing record worth
         # investigating — the matches must stay scoped to the paths where a 404 is deterministic.
-        other_endpoint_error = "404 Client Error: Not Found for url: https://api.clerk.com/v1/organizations?limit=100"
+        other_endpoint_error = "404 Client Error: Not Found for url: https://api.clerk.com/v1/api_keys?limit=100"
 
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_endpoint_error for key in non_retryable_errors)

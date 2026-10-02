@@ -1,10 +1,10 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 
-import { IconCheck } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 
-import { EnrichedEarlyAccessFeature, featurePreviewsLogic } from 'lib/components/FeaturePreviews/featurePreviewsLogic'
+import { ConceptWaitlistCTA } from 'lib/components/FeaturePreviews/ConceptWaitlistCTA'
+import { featurePreviewsLogic } from 'lib/components/FeaturePreviews/featurePreviewsLogic'
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { supportLogic } from 'lib/components/Support/supportLogic'
@@ -86,7 +86,8 @@ function FeaturePreviewGateContent({
     justEnrolled: boolean
 }): JSX.Element {
     const { earlyAccessFeatures } = useValues(featurePreviewsLogic)
-    const { loadEarlyAccessFeatures, updateEarlyAccessFeatureEnrollment } = useActions(featurePreviewsLogic)
+    const { loadEarlyAccessFeatures, updateEarlyAccessFeatureEnrollment, addProductIntentForCrossSell } =
+        useActions(featurePreviewsLogic)
     const { startSettling } = useActions(featurePreviewGateSettlingLogic({ flag: config.flag }))
     const { activeSceneId } = useValues(sceneLogic)
     const { preflight } = useValues(preflightLogic)
@@ -100,19 +101,21 @@ function FeaturePreviewGateContent({
     const sceneIdForHeader = config.sceneId ?? activeSceneId
     const sceneConfig = sceneIdForHeader ? sceneConfigurations[sceneIdForHeader] : undefined
     const flagsHonored = areClientFeatureFlagsHonored(preflight)
+    const sceneTitle = sceneConfig?.name ? (
+        <SceneTitleSection
+            name={sceneConfig.name}
+            description={sceneConfig.description}
+            resourceType={{ type: sceneConfig.iconType || 'default' }}
+            sceneId={sceneIdForHeader}
+        />
+    ) : null
 
     // The user just opted in: the flag is on locally but the API still 403s until ingestion
     // catches up. Hold here instead of mounting a scene whose every request fails.
     if (justEnrolled) {
         return (
             <SceneContent>
-                {sceneConfig?.name && (
-                    <SceneTitleSection
-                        name={sceneConfig.name}
-                        description={sceneConfig.description}
-                        resourceType={{ type: sceneConfig.iconType || 'default' }}
-                    />
-                )}
+                {sceneTitle}
                 <div
                     className="flex items-center gap-2 text-secondary"
                     data-attr="feature-preview-enabling"
@@ -132,19 +135,27 @@ function FeaturePreviewGateContent({
     if (feature?.stage === 'concept' && feature.payload?.survey_id) {
         return (
             <SceneContent>
-                {sceneConfig?.name && (
-                    <SceneTitleSection
-                        name={sceneConfig.name}
-                        description={sceneConfig.description}
-                        resourceType={{ type: sceneConfig.iconType || 'default' }}
-                    />
-                )}
+                {sceneTitle}
                 <ProductIntroduction
                     thingName="feature"
                     titleOverride={config.title}
                     description={config.description}
                     isEmpty
-                    actionElementOverride={<ConceptWaitlistForm feature={feature} config={config} />}
+                    actionElementOverride={
+                        <ConceptWaitlistCTA
+                            feature={feature}
+                            size="medium"
+                            onSignUp={() => {
+                                if (config.productIntent) {
+                                    void addProductIntentForCrossSell({
+                                        from: ProductKey.EARLY_ACCESS_FEATURES,
+                                        to: config.productIntent,
+                                        intent_context: ProductIntentContext.FEATURE_PREVIEW_ENABLED,
+                                    })
+                                }
+                            }}
+                        />
+                    }
                     docsURL={config.docsURL}
                 />
             </SceneContent>
@@ -153,13 +164,7 @@ function FeaturePreviewGateContent({
 
     return (
         <SceneContent>
-            {sceneConfig?.name && (
-                <SceneTitleSection
-                    name={sceneConfig.name}
-                    description={sceneConfig.description}
-                    resourceType={{ type: sceneConfig.iconType || 'default' }}
-                />
-            )}
+            {sceneTitle}
             <ProductIntroduction
                 thingName="feature"
                 titleOverride={config.title}
@@ -218,83 +223,5 @@ function FeaturePreviewGateContent({
                 docsURL={config.docsURL}
             />
         </SceneContent>
-    )
-}
-
-function ConceptWaitlistForm({
-    feature,
-    config,
-}: {
-    feature: EnrichedEarlyAccessFeature
-    config: FeaturePreviewGateConfig
-}): JSX.Element {
-    const { waitlistSurveysEnabled, conceptSurveySubmissions } = useValues(featurePreviewsLogic)
-    const { submitConceptSurvey, updateEarlyAccessFeatureEnrollment, addProductIntentForCrossSell } =
-        useActions(featurePreviewsLogic)
-    const [email, setEmail] = useState('')
-
-    const surveySubmitted = !!conceptSurveySubmissions[feature.flagKey] || feature.enabled
-
-    // Mirrors the previews page's ConceptPreview: email collection only when the waitlist
-    // surveys gate is on, otherwise the plain one-click registration.
-    const hasWaitlistSurvey = waitlistSurveysEnabled
-
-    const recordIntent = (): void => {
-        // submitConceptSurvey refuses impersonated sessions; skip the intent too so a
-        // rejected signup never records a false adoption signal.
-        if (config.productIntent && !window.IMPERSONATED_SESSION) {
-            void addProductIntentForCrossSell({
-                from: ProductKey.EARLY_ACCESS_FEATURES,
-                to: config.productIntent,
-                intent_context: ProductIntentContext.FEATURE_PREVIEW_ENABLED,
-            })
-        }
-    }
-
-    if (surveySubmitted) {
-        return (
-            <span role="status" className="flex items-center gap-1 text-success font-medium">
-                <IconCheck /> Thanks — we'll email you when it's ready.
-            </span>
-        )
-    }
-
-    if (hasWaitlistSurvey) {
-        return (
-            <form
-                className="flex items-center gap-2"
-                onSubmit={(e) => {
-                    e.preventDefault()
-                    if (email) {
-                        submitConceptSurvey(feature.flagKey, email)
-                        recordIntent()
-                    }
-                }}
-            >
-                <LemonInput
-                    type="email"
-                    value={email}
-                    onChange={setEmail}
-                    placeholder="email@yourcompany.com"
-                    aria-label="Email address"
-                    autoComplete="email"
-                />
-                <LemonButton type="primary" htmlType="submit" disabledReason={!email ? 'Enter your email' : undefined}>
-                    Get notified
-                </LemonButton>
-            </form>
-        )
-    }
-
-    return (
-        <LemonButton
-            type="primary"
-            onClick={() => {
-                updateEarlyAccessFeatureEnrollment(feature.flagKey, true, feature.stage)
-                recordIntent()
-            }}
-        >
-            Get notified
-        </LemonButton>
     )
 }
