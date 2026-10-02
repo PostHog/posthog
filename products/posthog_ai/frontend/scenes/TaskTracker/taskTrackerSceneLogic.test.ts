@@ -436,7 +436,7 @@ describe('taskTrackerSceneLogic', () => {
     })
 
     describe('task defaults', () => {
-        const mockTaskDefaults = (): void => {
+        const useTaskDefaultsMocks = (): void => {
             useMocks({
                 get: {
                     '/api/projects/:team/tasks/@me/agent_preferences/': {
@@ -453,7 +453,7 @@ describe('taskTrackerSceneLogic', () => {
         ])(
             'applies the stored defaults to a new task with today-rail-nav %s',
             async (_state, flagOn, expectedMode, expectedAutoPublish) => {
-                mockTaskDefaults()
+                useTaskDefaultsMocks()
                 featureFlagLogic.mount()
                 featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TODAY_RAIL_NAV], {
                     [FEATURE_FLAGS.TODAY_RAIL_NAV]: flagOn,
@@ -472,7 +472,7 @@ describe('taskTrackerSceneLogic', () => {
         )
 
         it('keeps a mode the person picked over the plan mode default', async () => {
-            mockTaskDefaults()
+            useTaskDefaultsMocks()
             featureFlagLogic.mount()
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TODAY_RAIL_NAV], {
                 [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
