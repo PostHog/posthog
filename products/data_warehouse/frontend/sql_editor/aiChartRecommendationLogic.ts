@@ -325,7 +325,9 @@ export const aiChartRecommendationLogic: LogicWrapper<aiChartRecommendationLogic
             enabled: [
                 (s) => [s.dataProcessingAccepted, s.featureFlags, s.preflight],
                 (consent: boolean, flags: FeatureFlagsSet, preflight: PreflightStatus | null): boolean =>
-                    consent && !!(preflight?.is_debug || flags[FEATURE_FLAGS.ML_INFERENCE_DECISIONS]),
+                    consent &&
+                    !!flags[FEATURE_FLAGS.JEV_CHART_AUTODETECTION] &&
+                    !!(preflight?.is_debug || flags[FEATURE_FLAGS.ML_INFERENCE_DECISIONS]),
             ],
             choosingChart: [
                 (s) => [s.recommendationPending, s.enabled, s.responseLoading],

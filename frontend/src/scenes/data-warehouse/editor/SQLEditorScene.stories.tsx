@@ -390,7 +390,7 @@ const CHART_EXPERIMENT_RESULTS = {
 }
 
 const chartExperimentParameters = (approved: boolean, decisionDelay = 0, queryDelay = 0): Record<string, unknown> => ({
-    featureFlags: ['ml-inference-decisions'],
+    featureFlags: ['ml-inference-decisions', 'jev-chart-autodetection'],
     pageUrl: urls.sqlEditor({ query: 'SELECT category, revenue FROM example_sales' }),
     msw: {
         mocks: {
