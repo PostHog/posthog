@@ -122,7 +122,11 @@ A deep queue held by a few groups is therefore serial by construction, while a d
 `warehouse_pg_queue_slot_waiting_batches` counts claimable batches whose group has nothing executing; they start as soon as a slot frees.
 `warehouse_pg_queue_serialized_batches` counts claimable batches waiting behind an executing batch of their own group.
 All four exclude batches whose run already holds a failed batch, the population `warehouse_pg_queue_blocked_batches` reports and the age gauge excludes, so `slot_waiting + serialized` is the depth minus the blocked batches.
-Every pod reports the same queue-wide values on the reconcile cadence; aggregate all of these gauges with `max()`.
+These gauges are queue-wide, so one pod per fleet samples them on the reconcile cadence: the pod that holds the fleet's gauge slot (a sentinel lease row, like the reconcile-sweep slot).
+The other pods export NaN, which `max()` skips, so aggregate all of these gauges with `max()`; `sum()` and `avg()` return NaN.
+In multiprocess pods each process is exported separately with a `pid` label, and the same `max()` must aggregate over that label too, so one process's NaN cannot hide the elected process's sample during a restart.
+A pod clears its gauges to NaN before each round, so a value from an earlier round never looks fresh.
+Each gauge statement runs with a 5-second server-side `statement_timeout`; a probe that times out skips its sample, except that the age gauge saturates at the probe window.
 Failed polls record their elapsed time in `poll_duration_seconds`, so degraded polls stay visible in the latency percentiles; `poll_failures_total` carries the reason label and is the alertable poll-health counter.
 The maintenance queries (sweeps, reconcile passes, probes) report through `warehouse_pg_queue_query_duration_seconds` (labeled per query, observed on failure and timeout too) and `warehouse_pg_queue_query_failures_total`; the August 2026 stall came from a query with no latency signal at all.
 
@@ -145,3 +149,15 @@ For ad-hoc inspection (state summaries, active runs, leases, force-release), use
 Followers returned by a successful handler (`sdk.Success(followers=...)`) are enqueued in the same transaction as the terminal status write. Dedup of live `(kind, dedup_key)` pairs is enforced by the insert statement's `NOT EXISTS` guard rather than a unique index — a partitioned table cannot carry a unique index that omits the partition key.
 
 SQL lives in `core/generic_jobs.py`; the SDK wiring (`JobHandler`, `Outcome`, `GenericJobAdapter`, `JobConsumer`) in `sdk/jobs.py`. Nothing produces or consumes these tables yet; the run orchestrator lands on them in later phases.
+
+## Scheduler state (phase 2, shadow mode)
+
+`queueschedulerstate` holds one row per `(kind, schedule_key)` with its cadence and epoch-aligned `next_due_at`.
+`queueschedulerdecision` records one decision per `(kind, schedule_key, due_at)`.
+The warehouse scheduler uses `sync.extract` as its kind and the schema ID as its schedule key.
+SQL lives in `core/scheduler_state.py`.
+The tick loop, scope predicate, and due-time math live in `products/warehouse_sources/backend/scheduling/`.
+The `run_warehouse_scheduler` command runs the tick loop.
+The scheduler uses sentinel rows in `queuejoblease` (lane `scheduler`) to select one leader across the fleet.
+It starts no syncs.
+The `report_warehouse_scheduler_shadow` command compares decisions with the `ExternalDataJob` rows that Temporal schedules created.
