@@ -204,7 +204,6 @@ posthog/test/test_cache_utils.py::TestCacheUtils
 posthog/test/test_check_product_migrations.py::TestCheckProductMigrations
 posthog/test/test_dbrouter.py::TestReplicaRouter
 posthog/test/test_domain_connect.py::TestBuildSyncApplyUrl
-posthog/test/test_domain_connect.py::TestDiscoverDomainConnect
 posthog/test/test_domain_connect.py::TestExtractRootDomainAndHost
 posthog/test/test_domain_connect.py::TestGenerateApplyUrl
 posthog/test/test_domain_connect.py::TestGetAvailableProviders

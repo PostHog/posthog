@@ -29,6 +29,9 @@ from products.workflows.backend.services.email_sending_controls import (
     suspend_email_sending,
     unsuspend_email_sending,
 )
+from products.workflows.backend.services.existing_email_tools import (
+    lookup_existing_email_tools as _lookup_existing_email_tools,
+)
 from products.workflows.backend.services.integration_usage import get_active_hog_flows_using_integration
 from products.workflows.backend.services.template_input_usage import (
     filter_hog_flow_references_by_access_level,
@@ -309,6 +312,10 @@ def get_maildev_email_domain_status(domain: str, *, mail_from_subdomain: str) ->
     from products.workflows.backend import providers  # noqa: PLC0415
 
     return providers.maildev_email_domain_status(domain, mail_from_subdomain=mail_from_subdomain)
+
+
+def lookup_existing_email_tools(root_domain: str) -> list[str]:
+    return _lookup_existing_email_tools(root_domain)
 
 
 def delete_ses_identity(identity: str) -> None:

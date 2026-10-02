@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    EmailDomainConnectCheckApi,
     EmailDomainStatusApi,
     GitHubAvailableInstallationsResponseApi,
     GitHubBranchesResponseApi,
@@ -880,8 +881,8 @@ export const getIntegrationsDomainConnectCheckRetrieveUrl = (projectId: string) 
 export const integrationsDomainConnectCheckRetrieve = async (
     projectId: string,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getIntegrationsDomainConnectCheckRetrieveUrl(projectId), {
+): Promise<EmailDomainConnectCheckApi> => {
+    return apiMutator<EmailDomainConnectCheckApi>(getIntegrationsDomainConnectCheckRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

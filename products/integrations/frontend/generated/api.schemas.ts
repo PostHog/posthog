@@ -645,6 +645,36 @@ export interface SlackUsersResponseApi {
     has_more?: boolean
 }
 
+export interface EmailDomainConnectProviderApi {
+    /** Domain Connect endpoint of the provider. */
+    endpoint: string
+    /** Display name of the provider. */
+    name: string
+}
+
+export interface EmailDomainDnsHostApi {
+    /** Name of the company that hosts the domain's DNS, such as Cloudflare. */
+    name: string
+    /** Link to the DNS settings page at that host. */
+    dns_settings_url: string
+}
+
+export interface EmailDomainConnectCheckApi {
+    /** Whether the domain's DNS provider supports automatic setup through Domain Connect. */
+    supported: boolean
+    /**
+     * Domain Connect provider that hosts the domain. Null when not supported.
+     * @nullable
+     */
+    provider_name: string | null
+    /** Providers the user can pick manually when automatic detection fails. Empty when supported. */
+    available_providers: EmailDomainConnectProviderApi[]
+    /** The detected DNS host of the root domain, from its nameservers. Null when unknown. */
+    dns_host: EmailDomainDnsHostApi | null
+    /** Email tools that already send for the root domain, detected from SPF and DKIM records. Best effort, empty when none are found. */
+    existing_email_tools: string[]
+}
+
 /**
  * * `ok` - Ok
  * * `not_connected` - Not Connected

@@ -9,6 +9,8 @@ See https://www.domainconnect.org/ for the protocol specification.
 
 import base64
 import logging
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 from urllib.parse import urlencode
 
 from django.conf import settings
@@ -17,6 +19,7 @@ from django.core.cache import cache
 import requests
 import tldextract
 import dns.resolver
+import dns.exception
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
@@ -25,6 +28,9 @@ from dns.rdtypes.txtbase import TXTBase
 from posthog.schema import DomainConnectProviderName
 
 from posthog.dataclasses import frozen
+
+if TYPE_CHECKING:
+    from posthog.models.integration import Integration
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +62,13 @@ class DomainConnectSigningKeyMissing(Exception):
     pass
 
 
+TRANSIENT_HTTP_STATUSES = frozenset({408, 429})
+
+
+class _ProviderUnreachable(Exception):
+    """The discovery record or the provider settings could not be read this time, so the answer is unknown."""
+
+
 def discover_domain_connect(domain: str) -> dict | None:
     """Discover whether a domain's DNS provider supports Domain Connect.
 
@@ -72,14 +85,16 @@ def discover_domain_connect(domain: str) -> dict | None:
         # We cache both hits (dict) and misses (False) to avoid repeated lookups
         return cached if cached is not False else None
 
-    endpoint = _lookup_domain_connect_endpoint(domain)
-    if not endpoint or endpoint not in DOMAIN_CONNECT_PROVIDERS:
-        cache.set(cache_key, False, 60 * 60)
+    try:
+        endpoint = _lookup_domain_connect_endpoint(domain)
+        if not endpoint or endpoint not in DOMAIN_CONNECT_PROVIDERS:
+            cache.set(cache_key, False, 60 * 60)
+            return None
+        provider_settings = _fetch_provider_settings(endpoint, domain)
+    except _ProviderUnreachable:
         return None
 
     provider_name = DOMAIN_CONNECT_PROVIDERS[endpoint]
-
-    provider_settings = _fetch_provider_settings(endpoint, domain)
     if not provider_settings:
         cache.set(cache_key, False, 60 * 60)
         return None
@@ -234,7 +249,12 @@ class DomainConnectContext:
 EMAIL_TEMPLATE_GROUPS_WITHOUT_DMARC: tuple[str, ...] = ("verification", "dkim", "spf", "mailfrom")
 
 
-def resolve_email_context(integration_id: int, team_id: int) -> DomainConnectContext:
+def resolve_email_context(
+    integration_id: int,
+    team_id: int,
+    *,
+    on_domain_verified: Callable[["Integration"], None] | None = None,
+) -> DomainConnectContext:
     """Resolve Domain Connect parameters for an email integration.
 
     Triggers SES verification to get current tokens, then extracts the
@@ -247,7 +267,9 @@ def resolve_email_context(integration_id: int, team_id: int) -> DomainConnectCon
         raise ValueError("Integration must be of kind 'email'")
 
     email_integration = EmailIntegration(instance)
-    verification_result = email_integration.verify()
+    verification_result = email_integration.verify(
+        on_domain_verified=(lambda: on_domain_verified(instance)) if on_domain_verified else None
+    )
 
     dns_records = verification_result.get("dnsRecords", [])
     domain_parts = extract_root_domain_and_host(instance.config.get("domain", ""))
@@ -351,7 +373,10 @@ def generate_apply_url(
         )
 
     # 3. Fetch provider settings to get urlSyncUX (cached by _fetch_provider_settings)
-    provider_settings = _fetch_provider_settings(endpoint, domain)
+    try:
+        provider_settings = _fetch_provider_settings(endpoint, domain)
+    except _ProviderUnreachable as error:
+        raise ValueError(f"Could not reach provider: {endpoint}") from error
     if not provider_settings:
         raise ValueError(f"Could not fetch settings from provider: {endpoint}")
 
@@ -395,8 +420,10 @@ def _lookup_domain_connect_endpoint(domain: str) -> str | None:
             txt_value = _txt_value(rdata)
             if txt_value:
                 return txt_value
-    except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer, dns.resolver.NoNameservers, dns.resolver.Timeout):
+    except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
         pass
+    except dns.exception.DNSException as error:
+        raise _ProviderUnreachable(f"No DNS answer for _domainconnect.{domain}") from error
     except Exception:
         logger.exception("Unexpected error during Domain Connect DNS lookup for %s", domain)
     return None
@@ -416,14 +443,24 @@ def _fetch_provider_settings(endpoint: str, domain: str) -> dict | None:
     url = f"https://{endpoint}/v2/{domain}/settings"
     try:
         resp = requests.get(url, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
-        if "urlSyncUX" not in data:
-            cache.set(cache_key, False, 60 * 60)
-            return None
-        cache.set(cache_key, data, 60 * 60)
-        return data
-    except (requests.RequestException, ValueError):
+    except requests.RequestException as error:
         logger.warning("Failed to fetch Domain Connect settings from %s", url)
+        raise _ProviderUnreachable(f"Could not reach {url}") from error
+    # A 4xx means the provider does not serve this domain. A timeout, a rate limit, a 5xx or a garbled
+    # body says nothing about it.
+    if resp.status_code in TRANSIENT_HTTP_STATUSES or resp.status_code >= 500:
+        logger.warning("Domain Connect settings at %s answered %s", url, resp.status_code)
+        raise _ProviderUnreachable(f"{url} answered {resp.status_code}")
+    if not resp.ok:
         cache.set(cache_key, False, 60 * 60)
         return None
+    try:
+        data = resp.json()
+    except ValueError as error:
+        logger.warning("Domain Connect settings at %s are not JSON", url)
+        raise _ProviderUnreachable(f"{url} answered malformed JSON") from error
+    if not isinstance(data, dict) or "urlSyncUX" not in data:
+        cache.set(cache_key, False, 60 * 60)
+        return None
+    cache.set(cache_key, data, 60 * 60)
+    return data
