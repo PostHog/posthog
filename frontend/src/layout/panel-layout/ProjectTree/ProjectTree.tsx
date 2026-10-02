@@ -471,7 +471,12 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                 if (showDropdownMenu) {
                     if (item.name === 'Product analytics' || item.name === 'Dashboards') {
                         return (
-                            <ButtonPrimitive iconOnly isSideActionRight className="z-2 -outline-offset-2">
+                            <ButtonPrimitive
+                                iconOnly
+                                isSideActionRight
+                                className="z-2 -outline-offset-2"
+                                data-attr={`menu-item-${item.name.toLowerCase().replace(/\s+/g, '-')}-menu-button`}
+                            >
                                 <IconPlusSmall className="text-tertiary" />
                             </ButtonPrimitive>
                         )

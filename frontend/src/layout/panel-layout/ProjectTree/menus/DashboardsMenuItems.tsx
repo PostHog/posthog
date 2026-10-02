@@ -58,7 +58,7 @@ export function DashboardsMenuItems({
                 }}
             >
                 <MenuSubTrigger asChild>
-                    <ButtonPrimitive menuItem>
+                    <ButtonPrimitive menuItem data-attr="tree-item-menu-pinned-dashboards">
                         Pinned dashboards
                         <IconChevronRight className="ml-auto size-3" />
                     </ButtonPrimitive>
@@ -85,6 +85,7 @@ export function DashboardsMenuItems({
                                         }}
                                         to={urls.dashboard(dashboard.id)}
                                         tooltip={dashboard.name}
+                                        data-attr="tree-item-menu-pinned-dashboard"
                                         tooltipPlacement="right"
                                         onClick={(e) => {
                                             e.stopPropagation()

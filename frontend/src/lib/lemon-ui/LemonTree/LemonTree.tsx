@@ -499,6 +499,7 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
                                 <ButtonPrimitive
                                     iconOnly
                                     isSideActionRight
+                                    data-attr={`menu-item-${item.name.toLowerCase().replace(/\s+/g, '-')}-menu-button`}
                                     className="
                                         absolute right-0
                                         opacity-0

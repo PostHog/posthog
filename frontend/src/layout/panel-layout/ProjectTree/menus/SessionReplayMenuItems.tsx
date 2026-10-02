@@ -58,7 +58,7 @@ export function SessionReplayMenuItems({
                 }}
             >
                 <MenuSubTrigger asChild>
-                    <ButtonPrimitive menuItem>
+                    <ButtonPrimitive menuItem data-attr="tree-item-menu-saved-filters">
                         Saved filters
                         <IconChevronRight className="ml-auto size-3" />
                     </ButtonPrimitive>
@@ -89,6 +89,7 @@ export function SessionReplayMenuItems({
                                             }).url
                                         )}
                                         tooltip={savedFilter.name || savedFilter.derived_name || 'Unnamed'}
+                                        data-attr="tree-item-menu-saved-filter"
                                         tooltipPlacement="right"
                                         onKeyDown={handleKeyDown}
                                         onClick={() => onLinkClick?.(false)}
@@ -108,6 +109,7 @@ export function SessionReplayMenuItems({
                                             menuItem: true,
                                         }}
                                         to={`${urls.replay(ReplayTabs.Home)}?showFilters=true&filtersTab=saved`}
+                                        data-attr="tree-item-menu-all-saved-filters"
                                         onKeyDown={handleKeyDown}
                                         onClick={() => onLinkClick?.(false)}
                                     >
@@ -128,7 +130,7 @@ export function SessionReplayMenuItems({
                 }}
             >
                 <MenuSubTrigger asChild>
-                    <ButtonPrimitive menuItem>
+                    <ButtonPrimitive menuItem data-attr="tree-item-menu-collections">
                         Collections
                         <IconChevronRight className="ml-auto size-3" />
                     </ButtonPrimitive>
@@ -153,6 +155,7 @@ export function SessionReplayMenuItems({
                                         }}
                                         to={urls.replayPlaylist(playlist.short_id)}
                                         tooltip={playlist.name || playlist.derived_name || 'Unnamed'}
+                                        data-attr="tree-item-menu-collection"
                                         tooltipPlacement="right"
                                         onKeyDown={handleKeyDown}
                                         onClick={() => onLinkClick?.(false)}
@@ -173,6 +176,7 @@ export function SessionReplayMenuItems({
                                             menuItem: true,
                                         }}
                                         to={urls.replay(ReplayTabs.Playlists)}
+                                        data-attr="tree-item-menu-all-collections"
                                         onKeyDown={handleKeyDown}
                                         onClick={() => onLinkClick?.(false)}
                                     >
@@ -191,6 +195,7 @@ export function SessionReplayMenuItems({
                         menuItem: true,
                     }}
                     to={urls.replay(ReplayTabs.Home)}
+                    data-attr="tree-item-menu-all-recordings"
                     onKeyDown={handleKeyDown}
                     onClick={() => onLinkClick?.(false)}
                 >
