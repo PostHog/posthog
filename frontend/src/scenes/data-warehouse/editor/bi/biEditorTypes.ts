@@ -658,6 +658,7 @@ function filterExpression(filter: BIFilter): string | null {
 interface BIConfiguredValue {
     value: BIValue
     expression: string
+    alias: string
 }
 
 interface BIQueryParts {
@@ -674,8 +675,41 @@ function computeBIQueryParts(config: BIConfig): BIQueryParts {
         .map((field, index) => ({ alias: dimensionAlias('column', field, index), field }))
         .filter(({ field }) => field.expression.trim() || field.name.trim())
     const configuredValues = config.values
-        .map((value) => ({ value, expression: aggregationExpression(value) }))
+        .map((value) => ({ value, expression: aggregationExpression(value), alias: '' }))
         .filter((configuredValue): configuredValue is BIConfiguredValue => !!configuredValue.expression)
+
+    const expressions = [
+        ...rowDimensions.map(({ field }) => fieldExpression(field)),
+        ...columnDimensions.map(({ field }) => fieldExpression(field)),
+        ...configuredValues.map(({ expression }) => expression),
+        ...config.filters.map((filter) => filter.customExpression || fieldExpression(filter.field)),
+    ]
+    const usedAliases = new Set([
+        ...rowDimensions.map(({ alias }) => alias),
+        ...columnDimensions.map(({ alias }) => alias),
+        'bi_rows',
+        'bi_columns',
+    ])
+    const reservedAliases = new Set(configuredValues.map(({ value }, index) => aggregationAlias(value, index)))
+    configuredValues.forEach((configuredValue, index) => {
+        const preferred = aggregationAlias(configuredValue.value, index)
+        let alias = preferred
+        let suffix = 2
+        // Avoid shadowing identifiers even inside authored formulas and SQL filters.
+        while (
+            usedAliases.has(alias) ||
+            expressions.some(
+                (expression) =>
+                    expression.includes(alias) || expression.includes(escapeRawPropertyAsHogQLIdentifier(alias))
+            )
+        ) {
+            do {
+                alias = `${preferred}_${suffix++}`
+            } while (reservedAliases.has(alias))
+        }
+        configuredValue.alias = alias
+        usedAliases.add(alias)
+    })
 
     return { rowDimensions, columnDimensions, configuredValues }
 }
@@ -723,13 +757,13 @@ export function getBISortOptions(config: BIConfig): BISortOption[] {
             expression: fieldExpression(field),
         })),
         ...(configuredValues.length > 0
-            ? configuredValues.map(({ value }, index) => {
+            ? configuredValues.map(({ value, alias }) => {
                   const occurrence = valueOccurrences.get(value.field.id) ?? 0
                   valueOccurrences.set(value.field.id, occurrence + 1)
                   return {
                       key: occurrence === 0 ? `values:${value.field.id}` : `values:${value.field.id}:${occurrence + 1}`,
                       label: sortValueLabel(value),
-                      expression: escapeRawPropertyAsHogQLIdentifier(aggregationAlias(value, index)),
+                      expression: escapeRawPropertyAsHogQLIdentifier(alias),
                   }
               })
             : [{ key: 'values:count', label: 'Count', expression: 'count' }]),
@@ -804,9 +838,7 @@ function buildOrderByExpression(
     }
 
     const firstValueAlias =
-        configuredValues.length > 0
-            ? escapeRawPropertyAsHogQLIdentifier(aggregationAlias(configuredValues[0].value, 0))
-            : 'count'
+        configuredValues.length > 0 ? escapeRawPropertyAsHogQLIdentifier(configuredValues[0].alias) : 'count'
     return `${firstValueAlias} DESC`
 }
 
@@ -829,8 +861,7 @@ export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
     const valueExpressions =
         configuredValues.length > 0
             ? configuredValues.map(
-                  ({ value, expression }, index) =>
-                      `${expression} AS ${escapeRawPropertyAsHogQLIdentifier(aggregationAlias(value, index))}`
+                  ({ expression, alias }) => `${expression} AS ${escapeRawPropertyAsHogQLIdentifier(alias)}`
               )
             : ['count(*) AS count']
     const selectExpressions = [...dimensionSelectExpressions, ...valueExpressions]
@@ -869,7 +900,7 @@ export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
               heatmap: {
                   xAxisColumn: pivotColumnAxis?.alias,
                   yAxisColumn: pivotRowAxis?.alias,
-                  valueColumn: configuredValues[0] ? aggregationAlias(configuredValues[0].value, 0) : 'count',
+                  valueColumn: configuredValues[0]?.alias ?? 'count',
                   xAxisLabel: pivotColumnAxis?.label ?? 'Columns',
                   yAxisLabel: pivotRowAxis?.label ?? 'Rows',
               },

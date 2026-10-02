@@ -21,6 +21,7 @@ Use field names from the selected table. Filters apply before the formula runs f
 The measure appears on Rows. Its menu lets you edit the name and formula, sort by the measure, or remove it.
 Cancel discards the draft. Names and formulas persist with the worksheet's BI configuration; measures are not shared across worksheets.
 Calculated measures cannot become dimensions or row filters.
+If a measure name conflicts with a field or another result column, the generated query adds a numeric suffix to its column name. The worksheet keeps the name you entered on the measure pill and sort menu.
 
 ## Apple Ads in Marketing analytics
 
