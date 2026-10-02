@@ -1,13 +1,15 @@
 """Pydantic OpenAPI types for alert quiet hours (schedule_restriction JSONField).
 
-Adopter products reuse them to describe the same JSON field on their own alert APIs.
-They carry drf-spectacular meaning rather than data a consumer reads, so they sit on the
-presentation surface, not in the facade.
+The field belongs to this product's configuration, and adopter products reuse these to describe
+their own alert APIs. They carry drf-spectacular meaning rather than data a consumer reads, so
+they sit on the presentation surface, not in the facade.
 """
 
 from __future__ import annotations
 
+from drf_spectacular.utils import extend_schema_field
 from pydantic import BaseModel, ConfigDict, Field
+from rest_framework import serializers
 
 
 class AlertScheduleRestrictionWindow(BaseModel):
@@ -39,3 +41,12 @@ class AlertScheduleRestriction(BaseModel):
             "At most five windows before normalization; empty array clears quiet hours."
         ),
     )
+
+
+@extend_schema_field(AlertScheduleRestriction)  # type: ignore[arg-type]
+class ScheduleRestrictionField(serializers.JSONField):
+    """The quiet hours column, described to drf-spectacular by the model above.
+
+    Every alert product declares this field, so it lives beside the type it points at rather
+    than being redeclared once per adopter.
+    """

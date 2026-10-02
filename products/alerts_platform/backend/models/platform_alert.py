@@ -13,6 +13,8 @@ from django.db import models
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
+from products.alerts_platform.backend.facade.enums import PlatformAlertConfigurationSourceKind, PlatformAlertState
+
 
 class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDModel):
     """What to evaluate, how often, and against what bound.
@@ -21,8 +23,10 @@ class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDModel):
     fails the whole evaluation rather than one group of its results.
     """
 
-    class SourceKind(models.TextChoices):
-        LOGS = "logs", "Logs"
+    # The facade owns the vocabulary, because presentation needs the same list and may not
+    # import this module. The attribute stays so `PlatformAlertConfiguration.SourceKind` reads
+    # the way every other model in the repo does.
+    SourceKind = PlatformAlertConfigurationSourceKind
 
     # No database constraint: creating one takes a lock on `posthog_team` that queues behind
     # live writes. Django still cascades in Python, which is the only path that deletes a team.
@@ -73,6 +77,13 @@ class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDModel):
                 fields=["team_id", "enabled", "source_kind", "next_check_at"],
                 name="platform_alert_cfg_batch_idx",
             ),
+            # The read API's page. `source_kind` stays out of it: the API filters that column
+            # with IN, which cannot yield globally ordered rows, so including it would put
+            # back the sort this index exists to remove.
+            models.Index(
+                fields=["team_id", "-created_at", "-id"],
+                name="platform_alert_cfg_list_idx",
+            ),
         ]
 
 
@@ -83,18 +94,15 @@ class PlatformAlert(TeamScopedRootMixin, UUIDModel):
     makes one row per group, so grouping needs no schema change beyond writing a real key.
     """
 
-    class State(models.TextChoices):
-        NOT_FIRING = "not_firing", "Not firing"
-        FIRING = "firing", "Firing"
-        ERRORED = "errored", "Errored"
-        SNOOZED = "snoozed", "Snoozed"
-        BROKEN = "broken", "Broken"
+    State = PlatformAlertState
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     configuration = models.ForeignKey(PlatformAlertConfiguration, on_delete=models.CASCADE, related_name="alerts")
 
     grouping_key = models.CharField(max_length=255, default="", db_default="")
-    state = models.CharField(max_length=32, choices=State.choices, default=State.NOT_FIRING, db_default="not_firing")
+    state = models.CharField(
+        max_length=32, choices=State.choices, default=State.NOT_FIRING.value, db_default="not_firing"
+    )
     last_notified_at = models.DateTimeField(null=True, blank=True)
     snooze_until = models.DateTimeField(null=True, blank=True)
     # Identifies one firing, from the transition into FIRING to the transition out. A timestamp
