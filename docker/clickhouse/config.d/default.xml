@@ -1,4 +1,6 @@
 <clickhouse>
+    <!-- The schema tooling compares dictionary source passwords, which ClickHouse only shows with this. -->
+    <display_secrets_in_show_and_select>1</display_secrets_in_show_and_select>
     <tcp_port>9000</tcp_port>
 
     <remote_servers>
@@ -67,6 +69,14 @@
                 </replica>
             </shard>
         </ops>
+        <logs>
+            <shard>
+                <replica>
+                    <host>clickhouse</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </logs>
         <sessions>
             <shard>
                 <replica>
@@ -113,4 +123,10 @@
         <hostClusterType>online</hostClusterType>
         <hostClusterRole>data</hostClusterRole>
     </macros>
+    <!-- The custom_metrics views read these system tables, so they must exist before the schema is applied. -->
+    <part_log>
+        <database>system</database>
+        <table>part_log</table>
+    </part_log>
+    <prepare_system_log_tables_on_startup>true</prepare_system_log_tables_on_startup>
 </clickhouse>
