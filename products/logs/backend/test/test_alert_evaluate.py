@@ -12,7 +12,7 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.models.scoping import team_scope
 
-from products.alerts.backend.facade.contracts import AlertEventKind, GroupTransition, SourceBatchEvaluation, SourceKind
+from products.alerts.backend.facade.contracts import AlertEventKind, SourceBatchEvaluation, SourceKind
 from products.alerts.backend.facade.platform_alerts import due_checks, record_outcomes, slot_of
 from products.alerts.backend.facade.temporal import SOURCE_EVALUATION_TIMEOUT
 from products.alerts.backend.models import PlatformAlert, PlatformAlertConfiguration
@@ -88,9 +88,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
         evaluation, _ = self._run(configuration)
         self._record(evaluation)
 
-        assert [t for preview in evaluation.previews for t in preview.transitions] == [
-            GroupTransition(grouping_key="", kind=AlertEventKind.FIRING, value=500.0)
-        ]
+        assert [(o.kind, o.value) for o in evaluation.outcomes] == [(AlertEventKind.FIRING, 500.0)]
         with team_scope(self.team.id):
             alert = PlatformAlert.objects.get(configuration=configuration, grouping_key="")
             configuration.refresh_from_db()
@@ -112,7 +110,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
 
         evaluation, _ = self._run(configuration)
 
-        assert evaluation.previews
+        assert evaluation.deliveries
         with team_scope(self.team.id):
             configuration.refresh_from_db()
             assert not PlatformAlert.objects.filter(configuration=configuration).exists()
@@ -121,13 +119,13 @@ class TestLogsAlertEvaluation(APIBaseTest):
     def test_a_delivery_the_batch_cannot_carry_leaves_its_alert_due(self) -> None:
         configurations = [self._configuration(), self._configuration()]
 
-        with patch(f"{_MODULE}.MAX_PREVIEWS_PER_CYCLE", 1):
+        with patch(f"{_MODULE}.MAX_DELIVERIES_PER_CYCLE", 1):
             evaluation, _ = self._run(*configurations)
         self._record(evaluation)
 
         # A firing alert does not fire again, so recording the second outcome would retire its
         # breach with no delivery to announce it.
-        assert len(evaluation.previews) == 1
+        assert len(evaluation.deliveries) == 1
         assert evaluation.omitted == 1
         with team_scope(self.team.id):
             still_due = PlatformAlertConfiguration.objects.filter(
@@ -174,7 +172,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
         self._record(evaluation)
 
         query.assert_called_once()
-        assert evaluation.previews == ()
+        assert evaluation.deliveries == ()
         with team_scope(self.team.id):
             alert = PlatformAlert.objects.get(configuration=configuration, grouping_key="")
             configuration.refresh_from_db()
@@ -190,7 +188,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
         # firing reaching it, a FIRING alert does not fire again on its own and stays silent.
         unmuted, _ = self._run(configuration, now=datetime(2026, 9, 16, 12, 30, tzinfo=UTC))
 
-        assert [t.kind for preview in unmuted.previews for t in preview.transitions] == [AlertEventKind.FIRING]
+        assert [o.kind for o in unmuted.outcomes] == [AlertEventKind.FIRING]
 
     def test_a_broken_filter_config_stops_being_discovered(self) -> None:
         configuration = self._configuration(source_config={"filterGroup": {"type": "nonsense"}})
@@ -229,28 +227,13 @@ class TestLogsAlertEvaluation(APIBaseTest):
     def test_a_failure_the_batch_cannot_record_leaves_the_whole_batch_due(self) -> None:
         configuration = self._configuration(consecutive_failures=4)
 
-        with patch(f"{_MODULE}.list_active_alert_destinations", side_effect=RuntimeError("destinations unreachable")):
+        with patch(f"{_MODULE}._delivery", side_effect=RuntimeError("something after the query failed")):
             with pytest.raises(RuntimeError):
                 self._run(configuration, query_error=ExposedHogQLError("unknown field"))
 
         with team_scope(self.team.id):
             configuration.refresh_from_db()
             assert not PlatformAlert.objects.filter(configuration=configuration).exists()
-        assert configuration.next_check_at == self.cutoff - timedelta(minutes=1)
-
-    def test_a_destination_lookup_failure_is_not_the_checks_own_failure(self) -> None:
-        configuration = self._configuration()
-
-        # The second answer is what a retry inside the evaluation would reach. Reaching it means
-        # a lookup failure was recorded as a failed check, after a query that succeeded.
-        with patch(f"{_MODULE}.list_active_alert_destinations", side_effect=[RuntimeError("unreachable"), []]):
-            with pytest.raises(RuntimeError):
-                self._run(configuration)
-
-        with team_scope(self.team.id):
-            configuration.refresh_from_db()
-            assert not PlatformAlert.objects.filter(configuration=configuration).exists()
-        assert configuration.consecutive_failures == 0
         assert configuration.next_check_at == self.cutoff - timedelta(minutes=1)
 
     def test_the_logs_product_rows_are_never_written(self) -> None:
@@ -294,7 +277,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
         # same window end, and a key without it makes them one evaluation to any reader.
         expected = f"slot:{self.cutoff.isoformat()}|window:{self.cutoff.isoformat()}"
         assert evaluation.outcomes[0].evaluation_key == expected
-        assert [p.evaluation_key for p in evaluation.previews] == [expected]
+        assert [d.evaluation_key for d in evaluation.deliveries] == [expected]
 
 
 class TestEvaluationTimeoutLadder(SimpleTestCase):

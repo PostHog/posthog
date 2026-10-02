@@ -23,7 +23,14 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.cloud_utils import is_cloud
 from posthog.models import Team
 
-from products.signals.dags.inbox_ranking.common import LABELS_EPOCH, WRONG_DISMISSAL_REASONS, ensure_utc
+from products.signals.dags.inbox_ranking.common import (
+    FIXED_DISMISSAL_REASONS,
+    LABELS_EPOCH,
+    LOW_VALUE_DISMISSAL_REASONS,
+    NOT_FIXED_RESOLUTION_REASONS,
+    WRONG_DISMISSAL_REASONS,
+    ensure_utc,
+)
 
 # All regions' label telemetry lands in the US dogfood project (PostHog internal, team 2).
 LABELS_TEAM_ID = 2
@@ -394,6 +401,18 @@ GROUP BY report_id
 """
 
 _WRONG_DISMISSAL_REASONS_SQL = ", ".join(f"'{reason}'" for reason in WRONG_DISMISSAL_REASONS)
+_NOT_FIXED_RESOLUTION_REASONS_SQL = ", ".join(f"'{reason}'" for reason in NOT_FIXED_RESOLUTION_REASONS)
+_FIXED_DISMISSAL_REASONS_SQL = ", ".join(f"'{reason}'" for reason in FIXED_DISMISSAL_REASONS)
+# A transition that says the problem was real and is fixed, by anyone: a resolve without a not-fixed
+# reason (a reason-less resolve is the PR-merge webhook), or a dismissal with a fixed reason.
+_FIXED_TRANSITION_SQL = (
+    "(toString(properties.status) = 'resolved' AND coalesce(toString(properties.dismissal_reason), '') NOT IN ("
+    + _NOT_FIXED_RESOLUTION_REASONS_SQL
+    + ")) OR (toString(properties.status) = 'suppressed' AND toString(properties.dismissal_reason) IN ("
+    + _FIXED_DISMISSAL_REASONS_SQL
+    + "))"
+)
+_LOW_VALUE_DISMISSAL_REASONS_SQL = ", ".join(f"'{reason}'" for reason in LOW_VALUE_DISMISSAL_REASONS)
 
 STATUS_COLUMNS = (
     "first_resolved_at",
@@ -408,6 +427,10 @@ STATUS_COLUMNS = (
     "first_wrong_dismissed_at",
     "reasoned_resolution_count",
     "first_reasoned_resolved_at",
+    "fixed_count",
+    "first_fixed_at",
+    "lowvalue_dismissal_count",
+    "first_lowvalue_dismissed_at",
     "status_event_priority",
     "status_event_actionability",
     "status_event_team_id",
@@ -490,6 +513,19 @@ SELECT
         bucket_first_reasoned_at,
         outcome = 'resolved' AND event_team_id = latest_event_team_id
     ) AS first_reasoned_resolved_at,
+    -- Cumulative and tenant-scoped like wrong_dismissal_count, so a reopen or a later re-dismissal
+    -- with another reason cannot take the label back. The fixed head reads this column.
+    countIf(bucket_fixed = 1 AND event_team_id = latest_event_team_id) AS fixed_count,
+    minIf(bucket_first_fixed_at, event_team_id = latest_event_team_id) AS first_fixed_at,
+    -- The same cumulative count, timestamp and tenant restriction for the low-value reasons. The
+    -- dismiss_lowvalue head reads this column.
+    countIf(
+        outcome = 'dismissed' AND bucket_lowvalue_dismissal = 1 AND event_team_id = latest_event_team_id
+    ) AS lowvalue_dismissal_count,
+    minIf(
+        bucket_first_lowvalue_dismissed_at,
+        outcome = 'dismissed' AND event_team_id = latest_event_team_id
+    ) AS first_lowvalue_dismissed_at,
     -- These two must stay paired with latest_status_event, so coalesce/nullIf keeps argMax from
     -- skipping a null: a judgment artefact can be deleted, and then the latest transition
     -- genuinely carries none. Plain argMax would reach back to an older transition and present
@@ -552,6 +588,18 @@ FROM (
         nullIf(
             minIf(events.timestamp, coalesce(toString(properties.dismissal_reason), '') != ''), fromUnixTimestamp(0)
         ) AS bucket_first_reasoned_at,
+        max("""
+    + _FIXED_TRANSITION_SQL
+    + """) AS bucket_fixed,
+        nullIf(minIf(events.timestamp, """
+    + _FIXED_TRANSITION_SQL
+    + """), fromUnixTimestamp(0)) AS bucket_first_fixed_at,
+        max(toString(properties.dismissal_reason) IN ("""
+    + _LOW_VALUE_DISMISSAL_REASONS_SQL
+    + """)) AS bucket_lowvalue_dismissal,
+        nullIf(minIf(events.timestamp, toString(properties.dismissal_reason) IN ("""
+    + _LOW_VALUE_DISMISSAL_REASONS_SQL
+    + """)), fromUnixTimestamp(0)) AS bucket_first_lowvalue_dismissed_at,
         nullIf(argMax(toString(properties.priority), events.timestamp), '') AS event_priority,
         nullIf(argMax(toString(properties.actionability), events.timestamp), '') AS event_actionability,
         nullIf(toString(properties.team_id), '') AS event_team_id
@@ -725,6 +773,10 @@ LABEL_DEFAULTS: dict[str, Any] = {
     "first_dismissal_reason": None,
     "wrong_dismissal_count": 0,
     "first_wrong_dismissed_at": None,
+    "fixed_count": 0,
+    "first_fixed_at": None,
+    "lowvalue_dismissal_count": 0,
+    "first_lowvalue_dismissed_at": None,
     "status_event_priority": None,
     "status_event_actionability": None,
     "status_event_team_id": None,
@@ -797,6 +849,8 @@ OUTCOME_FIRST_EVENT_COLUMNS: dict[str, str] = {
     "feedback_positive_count": "first_positive_feedback_at",
     "feedback_negative_count": "first_negative_feedback_at",
     "wrong_dismissal_count": "first_wrong_dismissed_at",
+    "fixed_count": "first_fixed_at",
+    "lowvalue_dismissal_count": "first_lowvalue_dismissed_at",
     "pr_created_count": "first_pr_created_at",
     "pr_merged_count": "first_pr_merged_at",
     "pr_closed_count": "first_pr_closed_at",

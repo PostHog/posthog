@@ -28,6 +28,7 @@ from posthog.sync import database_sync_to_async
 from products.data_modeling.backend.facade.api import UnsatisfiableFrequencyError, get_declared_target
 from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
 from products.data_modeling.backend.facade.models import DAG, DataModelingJob, DataWarehouseSavedQuery, Node
+from products.endpoints.backend.insight_transformers import transform_materialized_insight_response
 from products.endpoints.backend.logic.execution import EndpointExecutionService
 from products.endpoints.backend.logic.materialization import (
     EndpointMaterializationService,
@@ -64,6 +65,15 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
     def tearDown(self):
         self.v2_dag_ids_patcher.stop()
         super().tearDown()
+
+    def _trends_query(self, **overrides: Any) -> dict[str, Any]:
+        query: dict[str, Any] = {
+            "kind": "TrendsQuery",
+            "series": [{"kind": "EventsNode", "event": "$pageview"}],
+            "dateRange": {"date_from": "-7d"},
+        }
+        query.update(overrides)
+        return query
 
     def test_enable_materialization_creates_saved_query(self):
         """Test that enabling materialization creates a SavedQuery."""
@@ -479,6 +489,29 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
         self.assertIn("Unresolved placeholder", str(response.json()))
 
+    def test_compare_mode_materialization_requires_rollout_flag(self):
+        endpoint = create_endpoint_with_version(
+            name="test_compare_mode_rollout",
+            team=self.team,
+            query=self._trends_query(compareFilter={"compare": True}),
+            created_by=self.user,
+        )
+
+        with mock.patch(
+            "products.endpoints.backend.models.posthoganalytics.feature_enabled",
+            return_value=False,
+        ) as feature_enabled_mock:
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+                {"is_materialized": True, "data_freshness_seconds": 86400},
+                format="json",
+            )
+
+        feature_enabled_mock.assert_called_once()
+        self.assertEqual(feature_enabled_mock.call_args.args[0], "endpoints-materialized-compare-mode")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Compare mode is not supported", response.json()["detail"])
+
     @parameterized.expand(
         [
             (
@@ -566,6 +599,21 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
         can_materialize, reason = version.can_materialize()
         self.assertTrue(can_materialize, reason)
+
+        runner = mock.Mock()
+        runner.query = object()
+        materialized_result: dict[str, Any] = {"results": []}
+        with mock.patch(
+            "products.endpoints.backend.insight_transformers.get_query_runner",
+            return_value=runner,
+        ):
+            transform_materialized_insight_response(
+                materialized_result,
+                query,
+                self.team,
+                now=timezone.now(),
+            )
+        self.assertEqual(materialized_result["results"], [])
 
     @parameterized.expand(
         [
@@ -1859,12 +1907,11 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         _create_event(team=self.team, event="$pageview", distinct_id="u1")
         flush_persons_and_events()
 
-        trends_query = {
-            "kind": "TrendsQuery",
-            "series": [{"kind": "EventsNode", "event": "$pageview", "math": "total"}],
-            "dateRange": {"date_from": "-30d"},
-            "interval": "day",
-        }
+        trends_query = self._trends_query(
+            series=[{"kind": "EventsNode", "event": "$pageview", "math": "total"}],
+            dateRange={"date_from": "-30d"},
+            interval="day",
+        )
 
         with time_machine.travel("2026-04-20T12:00:00Z", tick=False):
             endpoint = create_endpoint_with_version(

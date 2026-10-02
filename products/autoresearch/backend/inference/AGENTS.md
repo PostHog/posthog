@@ -30,6 +30,21 @@ The cardinal rule: **inference never refits a persisted model.** A bundle is fit
   Inference rows are checked against the anchor count on both paths (`count_inference_anchors()`), and training rows against the labeled anchor count (`count_training_anchors()`, at the negative sample rate the rows were drawn at), because feature SQL that inner joins or filters a joined table in `WHERE` drops people without any row looking wrong.
   `_resolve_distinct_ids()` maps the `person_id` everything is keyed on back to one current `distinct_id` through personhog (`get_persons_by_uuids`), never from event history, because an id read off old events can belong to someone else after a merge or split.
 
+## Query budget
+
+Every HogQL query goes through `run_hogql()` in `../query.py` with a `QueryContext`: a limit context, which sets `max_execution_time`, and a ClickHouse workload. The entry point chooses it and passes it down explicitly. No code decides it from where it runs.
+
+| Path                                                                                                                    | Context                           | Limit and workload                                                     |
+| ----------------------------------------------------------------------------------------------------------------------- | --------------------------------- | ---------------------------------------------------------------------- |
+| Scoring from `activity_run_inference` (sweep and manual `/score`), both routes, with their anchor and population counts | `BATCH_QUERY`                     | `QUERY_ASYNC` (`HOGQL_INCREASED_MAX_EXECUTION_TIME`, 600 s), `OFFLINE` |
+| Online validation from `activity_run_validation`                                                                        | `BATCH_QUERY`                     | `QUERY_ASYNC`, `OFFLINE`                                               |
+| `fit_champion_model()` at training completion, `materialize-features`, `/validate`, `/validate_online`                  | `INTERACTIVE_QUERY` (the default) | `QUERY` (60 s), `DEFAULT`                                              |
+| Management commands                                                                                                     | `INTERACTIVE_QUERY` (the default) | `QUERY`, `DEFAULT`                                                     |
+
+Scoring and validation are batch work that nobody waits on, so they get the batch limit. A path inside a web request keeps the interactive limit, because a 600 s query would outlive the request.
+Training stays interactive on purpose: feature SQL that materializes within 60 s at training has ten times that budget at scoring, so the stricter bar is at the gate. When a request path moves to Temporal, give it `BATCH_QUERY`.
+The activity timeouts in `../temporal/workflows.py` cover several batch queries in sequence at the full limit. Keep them that way when you add a query to either path.
+
 ## The emitted event
 
 ```text

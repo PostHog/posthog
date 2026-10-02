@@ -1,5 +1,6 @@
 import gc
 import asyncio
+import threading
 from collections.abc import AsyncGenerator, AsyncIterable, AsyncIterator, Iterator
 from http import HTTPStatus
 from typing import cast
@@ -21,6 +22,8 @@ from posthog.api.streaming import (
     sse_streaming_response,
     streaming_response,
 )
+
+from ee.hogai.utils.asgi import SyncIterableToAsync
 
 
 def _gen() -> Iterator[bytes]:
@@ -144,9 +147,15 @@ class TestSSEStreamMetrics:
         assert _closed_total("test_async_complete", "completed") == 1.0
 
     async def test_async_stream_early_close_counts_client_disconnect(self):
+        closed = False
+
         async def endless():
-            while True:
-                yield b": ping\n\n"
+            nonlocal closed
+            try:
+                while True:
+                    yield b": ping\n\n"
+            finally:
+                closed = True
 
         # An abandoned async stream is aclosed by the event loop's async
         # generator finalizer, not by response.close() (Django's resource
@@ -161,6 +170,7 @@ class TestSSEStreamMetrics:
         await inner.__anext__()
         assert _open_connections("test_async_disconnect") == 1.0
         await inner.aclose()
+        assert closed
         assert _open_connections("test_async_disconnect") == 0.0
         assert _closed_total("test_async_disconnect", "client_disconnect") == 1.0
         assert streaming._active_stream_count == baseline
@@ -177,36 +187,55 @@ class TestStreamingResponse:
 
 
 class TestSSEAsyncCancellation:
-    async def test_task_cancellation_counts_client_disconnect_not_error(self):
-        first_chunk_pulled = asyncio.Event()
+    @pytest.mark.parametrize("synchronous", [False, True])
+    async def test_task_cancellation_counts_client_disconnect_not_error(self, synchronous: bool) -> None:
+        loop = asyncio.get_running_loop()
+        read_started = asyncio.Event()
+        read_finished = asyncio.Event()
+        release_read = threading.Event()
 
-        async def blocking():
+        async def blocking() -> AsyncIterator[bytes]:
             yield b": ping\n\n"
+            read_started.set()
             await asyncio.Event().wait()  # park forever; cancellation lands here
+
+        def blocking_sync() -> Iterator[bytes]:
+            try:
+                yield b": ping\n\n"
+                loop.call_soon_threadsafe(read_started.set)
+                assert release_read.wait(10)
+                yield b": ping\n\n"
+            finally:
+                loop.call_soon_threadsafe(read_finished.set)
 
         # ASGI cancellation is a path where response.close() never runs, so the
         # generator's finally is the only thing releasing the cap slot; pin it
         # (baseline-relative: this test runs outside the slot-isolation fixture).
         baseline = streaming._active_stream_count
-        stream = _instrument_stream(blocking(), "test_async_cancel", _reserve_slot())
+        endpoint = f"test_async_cancel_{synchronous}"
+        source = SyncIterableToAsync(blocking_sync()) if synchronous else blocking()
+        stream = _instrument_stream(source, endpoint, _reserve_slot())
         assert isinstance(stream, AsyncIterable)
 
-        async def consume():
+        async def consume() -> None:
             async for _ in stream:
-                first_chunk_pulled.set()
+                pass
 
         task = asyncio.ensure_future(consume())
-        await first_chunk_pulled.wait()
-        assert _open_connections("test_async_cancel") == 1.0
-        task.cancel()
         try:
-            await task
-        except asyncio.CancelledError:
-            pass
-        assert _open_connections("test_async_cancel") == 0.0
-        assert _closed_total("test_async_cancel", "client_disconnect") == 1.0
-        assert _closed_total("test_async_cancel", "error") == 0.0
-        assert streaming._active_stream_count == baseline
+            await asyncio.wait_for(read_started.wait(), 5)
+            assert _open_connections(endpoint) == 1.0
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await asyncio.wait_for(task, 5)
+            assert _open_connections(endpoint) == 0.0
+            assert _closed_total(endpoint, "client_disconnect") == 1.0
+            assert _closed_total(endpoint, "error") == 0.0
+            assert streaming._active_stream_count == baseline
+        finally:
+            release_read.set()
+            if synchronous:
+                await asyncio.wait_for(read_finished.wait(), 5)
 
 
 class TestSSEConcurrencyCap:
