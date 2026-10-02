@@ -1,9 +1,6 @@
-import clsx from 'clsx'
 import { useValues } from 'kea'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
-import { MetricCard } from '@posthog/quill-charts'
-
+import { AnalyticsMetricCard } from 'lib/components/AnalyticsMetricCard/AnalyticsMetricCard'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -46,57 +43,28 @@ export function HomeTabStatTile({ stat, compare, selected, onSelect }: HomeTabSt
             stat.title
         )
 
-    let content: JSX.Element
-    if (loading) {
-        content = (
-            <span className="flex w-full flex-col gap-2">
-                <LemonSkeleton className="h-3 w-16" />
-                <LemonSkeleton className="h-9 w-24" />
-                <LemonSkeleton className="h-3 w-24" />
-            </span>
-        )
-    } else if (responseError) {
-        content = <span className="text-sm text-danger">Could not load</span>
-    } else if (value == null) {
-        content = <span className="text-sm text-secondary">No data for this period</span>
-    } else {
-        let subtitle: string
-        if (!compare) {
-            subtitle = 'For selected period'
-        } else if (previousValue == null) {
-            subtitle = 'No previous period data'
-        } else {
-            subtitle = `vs. ${formatItem(previousValue, stat.kind)} prior`
-        }
-
-        content = (
-            <MetricCard
-                title={<span className={selected ? 'text-accent' : undefined}>{label}</span>}
-                value={value}
-                change={changeFromPreviousPct ? { value: changeFromPreviousPct } : null}
-                goodDirection="up"
-                formatValue={(statValue) => formatItem(statValue, stat.kind)}
-                subtitle={<span translate="no">{subtitle}</span>}
-            />
-        )
-    }
+    const subtitle = !compare
+        ? 'For selected period'
+        : previousValue == null
+          ? 'No previous period data'
+          : `vs. ${formatItem(previousValue, stat.kind)} prior`
 
     return (
-        <button
-            type="button"
+        <AnalyticsMetricCard
+            className="h-full w-full"
+            title={label}
+            ariaLabel={stat.title}
             onClick={onSelect}
-            aria-pressed={selected}
-            aria-busy={loading}
-            data-attr={`home-tab-metric-${stat.key}`}
-            className={clsx(
-                'relative flex h-full w-full min-w-0 flex-col rounded border p-3 text-left transition-colors focus-visible:ring-2 focus-visible:ring-accent',
-                selected
-                    ? 'border-accent bg-accent-highlight-secondary'
-                    : 'border-primary bg-surface-primary hover:border-accent'
-            )}
-        >
-            {!loading && (responseError || value == null) && <span className="mb-2 text-sm font-medium">{label}</span>}
-            {content}
-        </button>
+            selected={selected}
+            loading={loading}
+            error={responseError ? 'Could not load' : undefined}
+            dataAttr={`home-tab-metric-${stat.key}`}
+            value={value ?? undefined}
+            showChange={compare}
+            change={changeFromPreviousPct ? { value: changeFromPreviousPct } : null}
+            goodDirection="up"
+            formatValue={(statValue) => formatItem(statValue, stat.kind)}
+            subtitle={<span translate="no">{subtitle}</span>}
+        />
     )
 }
