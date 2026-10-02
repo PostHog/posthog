@@ -767,7 +767,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         setFeedbackNoteSubmitting: (submitting: boolean) => ({ submitting }),
     }),
 
-    loaders(({ props, values, actions }) => ({
+    loaders(({ props, values, actions, cache }) => ({
         monitoringUpdate: [
             false,
             {
@@ -779,15 +779,17 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                     const response = await signalsReportsStateCreate(String(teamId), props.reportId, {
                         state: 'monitoring',
                     })
-                    if (values.report) {
+                    // Reconcile the lists first: the user can close this detail while the request runs,
+                    // and an unmounted logic has no values to read.
+                    lemonToast.success('Fix marked as implemented. Follow-up checks will confirm its outcome.')
+                    inboxBulkActionsLogic.findMounted()?.actions.reportStateChanged()
+                    if (!cache.disposables.isDisposed && values.report) {
                         actions.setReport({
                             ...values.report,
                             status: response.status as SignalReportStatus,
                             monitoring_started_at: response.monitoring_started_at,
                         })
                     }
-                    lemonToast.success('Fix marked as implemented. Follow-up checks will confirm its outcome.')
-                    inboxBulkActionsLogic.findMounted()?.actions.reportStateChanged()
                     return true
                 },
             },
