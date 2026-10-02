@@ -395,8 +395,12 @@ export function SavedInsights(): JSX.Element {
         >
             <NewInsightShortcuts />
             <SceneTitleSection
-                name={sceneConfigurations[Scene.SavedInsights].name}
-                description={sceneConfigurations[Scene.SavedInsights].description}
+                name={tab === SavedInsightsTabs.Home ? 'Product analytics' : 'Insights'}
+                description={
+                    tab === SavedInsightsTabs.Home
+                        ? sceneConfigurations[Scene.SavedInsights].description
+                        : 'Explore your data with custom analyses and reports.'
+                }
                 resourceType={{
                     type: sceneConfigurations[Scene.SavedInsights].iconType || 'default_icon_type',
                 }}
@@ -418,26 +422,29 @@ export function SavedInsights(): JSX.Element {
                     }
                     setSavedInsightsFilters({ tab })
                 }}
-                tabs={[
-                    ...(showHomeTab ? [{ key: SavedInsightsTabs.Home, label: 'Home' }] : []),
-                    { key: SavedInsightsTabs.All, label: 'All insights' },
-                    { key: SavedInsightsTabs.Yours, label: 'My insights' },
-                    { key: SavedInsightsTabs.Alerts, label: 'Alerts' },
-                    {
-                        key: SavedInsightsTabs.Notifications,
-                        label: (
-                            <span className="flex items-center gap-1.5">
-                                Notifications
-                                {notificationCount > 0 && (
-                                    <LemonTag type="completion" size="small">
-                                        {notificationCount}
-                                    </LemonTag>
-                                )}
-                            </span>
-                        ),
-                    },
-                    { key: SavedInsightsTabs.History, label: 'History' },
-                ]}
+                tabs={
+                    tab === SavedInsightsTabs.Home
+                        ? [{ key: SavedInsightsTabs.Home, label: 'Home' }]
+                        : [
+                              { key: SavedInsightsTabs.All, label: 'All insights' },
+                              { key: SavedInsightsTabs.Yours, label: 'My insights' },
+                              { key: SavedInsightsTabs.Alerts, label: 'Alerts' },
+                              {
+                                  key: SavedInsightsTabs.Notifications,
+                                  label: (
+                                      <span className="flex items-center gap-1.5">
+                                          Notifications
+                                          {notificationCount > 0 && (
+                                              <LemonTag type="completion" size="small">
+                                                  {notificationCount}
+                                              </LemonTag>
+                                          )}
+                                      </span>
+                                  ),
+                              },
+                              { key: SavedInsightsTabs.History, label: 'History' },
+                          ]
+                }
                 sceneInset
                 rightSlot={homeDashboardActions}
                 rightSlotClassName="hidden @min-[48rem]/saved-insights:flex"

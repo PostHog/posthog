@@ -43,7 +43,7 @@ export function NavProductRow({ item, pinned = false }: { item: FileSystemImport
     const disabledReason = getProductAccessDisabledReason(item)
 
     const isHome = item.path === 'Home'
-    const hasProductMenu = ['Product analytics', 'Dashboards', 'Session replay'].includes(item.path)
+    const hasProductMenu = ['Insights', 'Dashboards', 'Session replay'].includes(item.path)
     const hasSideAction = isHome || !pinned
     const starAction = {
         label: shortcut ? 'Remove from starred' : 'Add to starred',
@@ -121,12 +121,12 @@ export function NavProductRow({ item, pinned = false }: { item: FileSystemImport
                     <LemonButton
                         size="xsmall"
                         className={sideActionClassName}
-                        icon={item.path === 'Product analytics' ? <IconPlusSmall /> : <IconChevronDown />}
+                        icon={item.path === 'Insights' ? <IconPlusSmall /> : <IconChevronDown />}
                         tooltip={`Open ${label} menu`}
                         aria-label={`Open ${label} menu`}
                         disabledReason={disabledReason}
                         data-attr={
-                            item.path === 'Product analytics'
+                            item.path === 'Insights'
                                 ? 'flat-nav-tool-menu-insight'
                                 : item.path === 'Dashboards'
                                   ? 'flat-nav-tool-menu-dashboards'

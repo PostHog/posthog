@@ -92,8 +92,15 @@
             "intents": ["customer_analytics"]
         },
         {
+            "path": "Collections",
+            "category": "Business intelligence",
+            "iconType": "folder",
+            "type": null,
+            "intents": ["product_analytics"]
+        },
+        {
             "path": "Dashboards",
-            "category": "Analytics",
+            "category": "Business intelligence",
             "iconType": "dashboard",
             "type": "dashboard",
             "intents": ["product_analytics"]
@@ -180,7 +187,7 @@
         { "path": "Logs", "category": "Monitoring", "iconType": null, "type": null, "intents": ["logs"] },
         {
             "path": "Marketing analytics",
-            "category": "Data",
+            "category": "Analytics",
             "iconType": null,
             "type": null,
             "intents": ["marketing_analytics"]
@@ -199,6 +206,13 @@
             "path": "Product analytics",
             "category": "Analytics",
             "iconType": "product_analytics",
+            "type": "insight",
+            "intents": ["product_analytics"]
+        },
+        {
+            "path": "Insights",
+            "category": "Business intelligence",
+            "iconType": "insight/trends",
             "type": "insight",
             "intents": ["product_analytics"]
         },

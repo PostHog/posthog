@@ -40525,6 +40525,7 @@
         "ProductItemCategory": {
             "enum": [
                 "Analytics",
+                "Business intelligence",
                 "Data",
                 "AI engineering",
                 "Product engineering",

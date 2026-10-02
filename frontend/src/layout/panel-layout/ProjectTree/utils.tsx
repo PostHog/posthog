@@ -15,6 +15,7 @@ import { FolderState } from './types'
 // Hardcoded category order - categories not in this list will be sorted alphabetically after these
 export const CATEGORY_ORDER = [
     'Analytics',
+    'Business intelligence',
     'AI engineering',
     'Data',
     'Monitoring',

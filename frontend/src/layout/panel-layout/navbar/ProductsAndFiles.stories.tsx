@@ -52,7 +52,7 @@ const files: FileSystemEntry[] = [
 const ownedFileIds = new Set(['dashboard-1', 'notebook-1'])
 const starred: FileSystemEntry[] = [
     { id: 'star-home', path: 'Alex Example', type: 'folder', ref: 'Users/Alex Example' },
-    { id: 'star-1', path: 'Product analytics', type: 'product_analytics', href: '/insights' },
+    { id: 'star-1', path: 'Product analytics', type: 'product_analytics', href: '/product-analytics' },
     { id: 'star-2', path: 'Overview', type: 'dashboard', ref: '1', href: '/dashboard/1' },
     { id: 'star-3', path: 'Product research', type: 'folder', ref: 'Product research' },
     { id: 'star-4', path: 'Ideas', type: 'folder', ref: 'Product research/Ideas' },

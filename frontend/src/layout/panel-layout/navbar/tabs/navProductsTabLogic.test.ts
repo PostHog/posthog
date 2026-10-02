@@ -61,7 +61,10 @@ describe('navProductsTabLogic', () => {
     })
 
     it('searches display names and sorts categories in a fixed order and products alphabetically', async () => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true })
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
+            [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING]: true,
+        })
         expect(navProductsTabLogic.values.pinnedItems.map(productsItemName)).toEqual([
             'Home',
             'Self-driving',
@@ -69,13 +72,20 @@ describe('navProductsTabLogic', () => {
             'People and groups',
         ])
         expect(navProductsTabLogic.values.configurableProducts.map(productsItemName)).not.toContain('Home')
-        const [popular] = navProductsTabLogic.values.groupedItems
+        const [analytics, bi, popular] = navProductsTabLogic.values.groupedItems
+        expect(analytics.label).toBe('Analytics')
+        expect(analytics.items.map(productsItemName)).toEqual([
+            'Product analytics',
+            'Web analytics',
+            'Marketing analytics',
+        ])
+        expect([bi.label, bi.items.map(productsItemName)]).toEqual([
+            'Business intelligence',
+            ['Collections', 'Dashboards', 'Insights'],
+        ])
         expect([popular.label, popular.items.map(productsItemName)]).toEqual([
             'Popular',
             [
-                'Dashboards',
-                'Product analytics',
-                'Web analytics',
                 'AI observability',
                 'Session replay',
                 'Replay vision',
@@ -202,7 +212,7 @@ describe('navProductsTabLogic', () => {
         projectTreeDataLogic.actions.loadShortcutsSuccess([
             { id: 'folder', path: 'Feature flags', type: 'folder', ref: 'Feature flags' },
             { id: 'file', path: 'Feature flags', type: 'insight', ref: 'insight-1', href: '/insights/insight-1' },
-            { id: 'analytics', path: 'Insights', type: 'product_analytics', href: '/insights' },
+            { id: 'analytics', path: 'Insights', type: 'product_analytics', href: '/product-analytics' },
         ])
 
         navProductsTabLogic.actions.setAllProductsOpen(true)
@@ -244,7 +254,7 @@ describe('navProductsTabLogic', () => {
         })
         await expectLogic(projectTreeDataLogic).toFinishAllListeners()
         projectTreeDataLogic.actions.loadShortcutsSuccess([
-            { id: 'analytics', path: 'Product analytics', type: 'product_analytics', href: '/insights' },
+            { id: 'analytics', path: 'Product analytics', type: 'product_analytics', href: '/product-analytics' },
         ])
         customProductsLogic.actions.loadCustomProductsSuccess([
             { id: '1', product_path: 'Session replay', enabled: true, created_at: '', updated_at: '' },
@@ -293,7 +303,7 @@ describe('navProductsTabLogic', () => {
         await expectLogic(projectTreeDataLogic).toFinishAllListeners()
         projectTreeDataLogic.actions.loadShortcutsSuccess([
             { id: 'folder', path: 'Research', type: 'folder', ref: 'Research' },
-            { id: 'analytics', path: 'Product analytics', type: 'product_analytics', href: '/insights' },
+            { id: 'analytics', path: 'Product analytics', type: 'product_analytics', href: '/product-analytics' },
             // Listed in the sidebar but not in the dialog, like a product the user lost access to.
             { id: 'activity', path: 'Activity', type: 'activity', href: urls.activity(ActivityTab.ExploreEvents) },
         ])
@@ -313,7 +323,7 @@ describe('navProductsTabLogic', () => {
     it('unselects every star, including preselected custom products, until the dialog reopens', async () => {
         await expectLogic(projectTreeDataLogic).toFinishAllListeners()
         projectTreeDataLogic.actions.loadShortcutsSuccess([
-            { id: 'analytics', path: 'Product analytics', type: 'product_analytics', href: '/insights' },
+            { id: 'analytics', path: 'Product analytics', type: 'product_analytics', href: '/product-analytics' },
         ])
         customProductsLogic.actions.loadCustomProductsSuccess([
             { id: '1', product_path: 'Session replay', enabled: true, created_at: '', updated_at: '' },
@@ -338,7 +348,7 @@ describe('navProductsTabLogic', () => {
         [undefined, ['Product analytics', 'Overview', 'Research']],
     ] as const)('keeps starred items in their own section: %s', (shortcutScope, expected) => {
         projectTreeDataLogic.actions.loadShortcutsSuccess([
-            { id: 'product', path: 'Product analytics', type: 'product_analytics', href: '/insights' },
+            { id: 'product', path: 'Product analytics', type: 'product_analytics', href: '/product-analytics' },
             { id: 'file', path: 'Overview', type: 'dashboard', ref: '1', href: '/dashboard/1' },
             { id: 'folder', path: 'Research', type: 'folder', ref: 'Research' },
         ])

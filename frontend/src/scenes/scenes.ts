@@ -771,6 +771,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.insightAlerts(':shortId' as InsightShortId)]: [Scene.Insight, 'insightAlerts'],
     [urls.insightSharing(':shortId' as InsightShortId)]: [Scene.Insight, 'insightSharing'],
     [urls.savedInsights()]: [Scene.SavedInsights, 'savedInsights'],
+    [urls.productAnalytics()]: [Scene.SavedInsights, 'productAnalytics'],
     [urls.webAnalytics()]: [Scene.WebAnalytics, 'webAnalytics'],
     [urls.webAnalyticsWebVitals()]: [Scene.WebAnalytics, 'webAnalyticsWebVitals'],
     [urls.webAnalyticsBotAnalytics()]: [Scene.WebAnalytics, 'webAnalyticsBotAnalytics'],

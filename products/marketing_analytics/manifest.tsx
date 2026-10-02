@@ -14,7 +14,8 @@ export const manifest: ProductManifest = {
         {
             path: 'Marketing analytics',
             intents: [ProductKey.MARKETING_ANALYTICS],
-            category: ProductItemCategory.DATA,
+            category: ProductItemCategory.ANALYTICS,
+            visualOrder: 2,
             href: urls.marketingAnalyticsApp(),
             iconType: 'marketing_analytics' as FileSystemIconType,
             iconColor: ['var(--color-product-marketing-analytics-light)'] as FileSystemIconColor,

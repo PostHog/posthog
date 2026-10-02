@@ -65,7 +65,8 @@ describe('FlatNavProducts', () => {
     // the button from the row
     it.each<[string, string | null]>([
         ['dashboards', 'flat-nav-tool-menu-dashboards'],
-        ['product-analytics', 'flat-nav-tool-menu-insight'],
+        ['insights', 'flat-nav-tool-menu-insight'],
+        ['product-analytics', null],
         ['session-replay', 'flat-nav-tool-menu-session-replay'],
         ['feature-flags', null],
     ])('renders the inline menu button the %s row resolves to', async (slug, menuAttr) => {

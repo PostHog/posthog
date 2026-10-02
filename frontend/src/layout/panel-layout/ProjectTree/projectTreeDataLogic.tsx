@@ -58,6 +58,7 @@ import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { Noun } from '../../../models/groupsModel'
 import type { UserProductListItem } from '../../../queries/schema/schema-general'
 import type { GroupType, GroupTypeIndex, ProjectTreeRef, UserType } from '../../../types'
+import { getProductNavigationPaths } from '../navbar/tabs/productsCatalog'
 import { customProductsLogic } from './customProductsLogic'
 
 const MOVE_ALERT_LIMIT = 50
@@ -1730,7 +1731,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         orderedSelectedProductPaths.push(item.product_path)
                     }
 
-                    const selectedProducts = orderedSelectedProductPaths
+                    const selectedProducts = getProductNavigationPaths(orderedSelectedProductPaths)
                         .map((productPath) => {
                             const product = productMap.get(productPath)
                             if (!product) {

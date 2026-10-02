@@ -9,6 +9,8 @@ import { getCategoryOrder, splitPath, unescapePath } from '~/layout/panel-layout
 import { FileSystemIconType, UserProductListItem } from '~/queries/schema/schema-general'
 import { FileSystemIconColor } from '~/types'
 
+import { getProductNavigationPaths } from '../productsCatalog'
+
 export interface FlatNavProductItem {
     path: string
     label: string
@@ -55,7 +57,8 @@ export const flatNavLogic = kea<flatNavLogicType>([
                 const catalog = new Map(getDefaultTreeProducts().map((product) => [product.path, product]))
                 const seenPaths = new Set<string>()
                 const selected: (FlatNavProductItem & { category: string; sortOrder: number })[] = []
-                for (const { product_path: productPath } of customProducts) {
+                const products = getProductNavigationPaths(customProducts.map(({ product_path }) => product_path))
+                for (const productPath of products) {
                     if (seenPaths.has(productPath)) {
                         continue
                     }

@@ -2,6 +2,17 @@ import { FileSystemImport, ProductItemCategory } from '~/queries/schema/schema-g
 
 import { splitPath, unescapePath } from '../../ProjectTree/utils'
 
+// BI destinations accompany the analytics tools in sidebars saved before the split.
+export function getProductNavigationPaths(selectedPaths: string[]): string[] {
+    return [
+        ...new Set(
+            selectedPaths.some((path) => ['Product analytics', 'Dashboards'].includes(path))
+                ? [...selectedPaths, 'Insights', 'Collections']
+                : selectedPaths
+        ),
+    ]
+}
+
 export interface ProductsItemGroup {
     label: string
     items: FileSystemImport[]
@@ -23,9 +34,6 @@ export const POPULAR_CATEGORY = 'Popular'
 
 // Matched by path, not label: 'LLM analytics' is the path of the entry shown as "AI observability".
 export const POPULAR_PRODUCT_PATHS = [
-    'Dashboards',
-    'Product analytics',
-    'Web analytics',
     'LLM analytics',
     'Session replay',
     'Replay vision',
@@ -36,8 +44,9 @@ export const POPULAR_PRODUCT_PATHS = [
 ]
 
 const CATEGORY_ORDER: string[] = [
-    POPULAR_CATEGORY,
     ProductItemCategory.ANALYTICS,
+    ProductItemCategory.BUSINESS_INTELLIGENCE,
+    POPULAR_CATEGORY,
     ProductItemCategory.AI_ENGINEERING,
     ProductItemCategory.DATA,
     ProductItemCategory.MONITORING,
@@ -75,7 +84,9 @@ export function groupProducts(items: FileSystemImport[], search: string): Produc
             items: entries.sort((a, b) =>
                 label === POPULAR_CATEGORY
                     ? POPULAR_PRODUCT_PATHS.indexOf(a.path) - POPULAR_PRODUCT_PATHS.indexOf(b.path)
-                    : compareNames(productsItemName(a), productsItemName(b))
+                    : (label === ProductItemCategory.ANALYTICS
+                          ? (a.visualOrder ?? 9999) - (b.visualOrder ?? 9999)
+                          : 0) || compareNames(productsItemName(a), productsItemName(b))
             ),
         }))
 }
