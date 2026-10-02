@@ -6,8 +6,7 @@
     "dependencies": {
         "@posthog/products-mcp-store": "workspace:*",
         "@posthog/quill": "workspace:*",
-        "kea-disposables": "catalog:",
-        "react-intersection-observer": "9.5.3"
+        "kea-disposables": "catalog:"
     },
     "devDependencies": {
         "kea-test-utils": "catalog:",
