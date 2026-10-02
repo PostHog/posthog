@@ -9,9 +9,8 @@ The file header explains the case format.
 
 ## Before you start
 
-The command calls Jev the way production does: through the ai-gateway when `AI_GATEWAY_URL` and `AI_GATEWAY_API_KEY` are set, and through TypeSafe with `TYPESAFE_API_KEY` otherwise.
+The command calls Jev the way production does: through the ai-gateway, which needs `AI_GATEWAY_URL` and `AI_GATEWAY_API_KEY`.
 Set them in the environment or in `.env.local` at the repo root.
-The two serve different Jev models, and the judge's label names the one that answered.
 Other endpoints need neither, so `--skip-jev` runs without them.
 
 Every run sends the invented cases to the judge. It sends no data from your local database.
@@ -66,8 +65,7 @@ To choose the judges for one run:
 - `--skip-jev` judges with the endpoints only.
 - `--jev-only` ignores the variable and judges with Jev alone, which gives the single-judge output above.
 
-An endpoint must accept the same request body as TypeSafe's `POST /v1/systemone` and return answers in the same shape.
-Endpoint requests skip the TypeSafe egress budget and its metrics, because they do not go to TypeSafe.
+An endpoint must accept the same request body as the ai-gateway's `POST /v1/systemone` and return answers in the same shape.
 
 ### Read the comparison
 
