@@ -8,6 +8,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { userLogic } from 'scenes/userLogic'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 import type { DashboardTemplateListParams, DashboardTemplateType } from '~/types'
 
@@ -35,6 +36,7 @@ describe('dashboardTemplatesLogic', () => {
         logic?.unmount()
         logic = undefined
         jest.restoreAllMocks()
+        resumeKeaLoadersErrors()
     })
 
     it.each([
@@ -240,6 +242,7 @@ describe('dashboardTemplatesLogic', () => {
     )
 
     it('flags a failed load until a reload succeeds, so an error does not read as an empty list', async () => {
+        silenceKeaLoadersErrors()
         const listMock = (api.dashboardTemplates.list as jest.Mock).mockRejectedValueOnce(new Error('Network error'))
         const mounted = dashboardTemplatesLogic({ scope: 'default', templatesTabList: true })
         logic = mounted

@@ -217,11 +217,14 @@ describe('DashboardTemplatesTable', () => {
     it.each([
         { label: 'staff', isStaff: true, showsOfficial: true },
         { label: 'customers', isStaff: false, showsOfficial: false },
-    ])('only mentions and filters official templates for staff ($label)', ({ isStaff, showsOfficial }) => {
+    ])('$label sees official templates mentioned and filterable: $showsOfficial', ({ isStaff, showsOfficial }) => {
         mountTable({ isStaff, templates: [makeTemplate('team')] })
+        const expectedCount = showsOfficial ? 1 : 0
 
-        expect(screen.queryByText(/PostHog's official templates/) !== null).toBe(showsOfficial)
-        expect(document.querySelector('[data-attr="dashboard-templates-filter-official"]') !== null).toBe(showsOfficial)
+        expect(screen.queryAllByText(/PostHog's official templates/)).toHaveLength(expectedCount)
+        expect(document.querySelectorAll('[data-attr="dashboard-templates-filter-official"]')).toHaveLength(
+            expectedCount
+        )
     })
 
     describe('empty states', () => {

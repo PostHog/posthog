@@ -374,7 +374,7 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                                             scope === 'global'
                                                 ? builtInOfficial
                                                     ? 'Built-in official templates cannot be deleted'
-                                                    : 'Cannot delete a global template until it is team-only'
+                                                    : 'Make this template visible to this project only before deleting it'
                                                 : undefined
                                         }
                                     >
