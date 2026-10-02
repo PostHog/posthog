@@ -325,8 +325,8 @@ export interface taskRunArtifactsLogicMeta {
             selectedVersionId: string | null,
             arg: any
         ) => string | null
-        isEditing: (editSession: any) => boolean
-        editDirty: (editSession: any, editDraft: any) => boolean
+        isEditing: (editSession: ArtifactEditSession | null) => boolean
+        editDirty: (editSession: ArtifactEditSession | null, editDraft: string) => boolean
         selectedEditableKind: (selectedArtifact: RunArtifact | null) => EditableArtifactKind | null
         editDisabledReason: (
             selectedEditableKind: EditableArtifactKind | null,
