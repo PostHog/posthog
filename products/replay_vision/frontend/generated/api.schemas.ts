@@ -2480,6 +2480,11 @@ export interface VariantReadoutApi {
      */
     sampling_rate: number | null
     /**
+     * Summaries of this variant the latest synthesis counted: the denominator of its digest and difference counts. Read those counts as shares of this, not of `observations`. Null before one runs.
+     * @nullable
+     */
+    synthesis_observations: number | null
+    /**
      * This variant's digest from the latest synthesis; null before one runs.
      * @nullable
      */
@@ -2507,10 +2512,10 @@ export interface VariantDifferenceApi {
  * * `succeeded` - Succeeded
  * * `failed` - Failed
  */
-export type ExperimentSynthesisStatusEnumApi =
-    (typeof ExperimentSynthesisStatusEnumApi)[keyof typeof ExperimentSynthesisStatusEnumApi]
+export type ReplayExperimentSynthesisStatusEnumApi =
+    (typeof ReplayExperimentSynthesisStatusEnumApi)[keyof typeof ReplayExperimentSynthesisStatusEnumApi]
 
-export const ExperimentSynthesisStatusEnumApi = {
+export const ReplayExperimentSynthesisStatusEnumApi = {
     Running: 'running',
     Succeeded: 'succeeded',
     Failed: 'failed',
@@ -2522,7 +2527,7 @@ export interface VariantsSynthesisStateApi {
      * * `running` - Running
      * * `succeeded` - Succeeded
      * * `failed` - Failed */
-    status: ExperimentSynthesisStatusEnumApi
+    status: ReplayExperimentSynthesisStatusEnumApi
     /** The scanner version that run covered. */
     scanner_version: number
     /**

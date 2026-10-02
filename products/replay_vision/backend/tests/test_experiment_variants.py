@@ -6,7 +6,10 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from products.replay_vision.backend.experiment_variants import UNATTRIBUTED_VARIANT
-from products.replay_vision.backend.models.experiment_synthesis import ExperimentSynthesis, ExperimentSynthesisStatus
+from products.replay_vision.backend.models.replay_experiment_synthesis import (
+    ReplayExperimentSynthesis,
+    ReplayExperimentSynthesisStatus,
+)
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -93,27 +96,28 @@ class TestExperimentVariants(_VisionAPITestCase):
         assert body["experiment"]["id"] == self.experiment.id
         assert body["experiment"]["current_day"] >= 1
         assert body["differences"] is None and body["synthesis"] is None
-        assert all(v["digest"] is None for v in body["variants"])
+        assert all(v["digest"] is None and v["synthesis_observations"] is None for v in body["variants"])
 
     def test_readout_shows_the_current_versions_synthesis(self) -> None:
         # A prompt edit bumps the version; an older version's synthesis summarized differently focused
         # summaries, so it must not describe the current ones.
-        def synthesis(version: int, status: str, digest_statement: str) -> ExperimentSynthesis:
-            return ExperimentSynthesis.objects.for_team(self.team.id).create(
+        def synthesis(version: int, status: str, digest_statement: str) -> ReplayExperimentSynthesis:
+            return ReplayExperimentSynthesis.objects.for_team(self.team.id).create(
                 scanner=self.scanner,
                 scanner_version=version,
                 status=status,
-                computed_at=timezone.now() if status != ExperimentSynthesisStatus.RUNNING else None,
+                computed_at=timezone.now() if status != ReplayExperimentSynthesisStatus.RUNNING else None,
+                observations_considered={"control": 30, "test": 25},
                 digests={"control": [{"theme_key": "hesitate", "statement": digest_statement, "count": 4}]},
                 differences=[{"statement": "diff", "theme_key": "hesitate", "counts": {"control": 4, "test": 1}}],
             )
 
-        synthesis(self.scanner.scanner_version - 1 or 1, ExperimentSynthesisStatus.SUCCEEDED, "old version")
+        synthesis(self.scanner.scanner_version - 1 or 1, ReplayExperimentSynthesisStatus.SUCCEEDED, "old version")
         self.scanner.scanner_config = {**self.scanner.scanner_config, "prompt": "sharper"}
         self.scanner.save()
         self.scanner.refresh_from_db()
-        synthesis(self.scanner.scanner_version, ExperimentSynthesisStatus.SUCCEEDED, "current version")
-        synthesis(self.scanner.scanner_version, ExperimentSynthesisStatus.RUNNING, "in flight")
+        synthesis(self.scanner.scanner_version, ReplayExperimentSynthesisStatus.SUCCEEDED, "current version")
+        synthesis(self.scanner.scanner_version, ReplayExperimentSynthesisStatus.RUNNING, "in flight")
 
         body = self.client.get(self.variants_url).json()
 
@@ -123,9 +127,15 @@ class TestExperimentVariants(_VisionAPITestCase):
             {"statement": "diff", "theme_key": "hesitate", "counts": {"control": 4, "test": 1}}
         ]
         # The state reports the newest run, even while the prose still comes from the last finished one.
-        assert body["synthesis"]["status"] == ExperimentSynthesisStatus.RUNNING
+        assert body["synthesis"]["status"] == ReplayExperimentSynthesisStatus.RUNNING
         # A variant the synthesis said nothing about gets an empty digest, not a missing one.
         assert next(v for v in body["variants"] if v["key"] == "test")["digest"] == []
+        # Digest counts are read against what the synthesis counted, not against every observation.
+        assert {v["key"]: v["synthesis_observations"] for v in body["variants"]} == {
+            "control": 30,
+            "test": 25,
+            "beta": 0,
+        }
 
     def test_a_non_experiment_scanner_has_no_variants(self) -> None:
         monitor = self._create_scanner(name="monitor")

@@ -44235,20 +44235,6 @@ export namespace Schemas {
       prompt_version?: string | null;
     }
 
-    /**
-     * * `running` - Running
-     * * `succeeded` - Succeeded
-     * * `failed` - Failed
-     */
-    export type ExperimentSynthesisStatusEnum = typeof ExperimentSynthesisStatusEnum[keyof typeof ExperimentSynthesisStatusEnum];
-
-
-    export const ExperimentSynthesisStatusEnum = {
-      Running: 'running',
-      Succeeded: 'succeeded',
-      Failed: 'failed',
-    } as const;
-
     export interface VariantsExperiment {
       /** The experiment's id. */
       id: number;
@@ -44587,6 +44573,11 @@ export namespace Schemas {
          */
       sampling_rate: number | null;
       /**
+         * Summaries of this variant the latest synthesis counted: the denominator of its digest and difference counts. Read those counts as shares of this, not of `observations`. Null before one runs.
+         * @nullable
+         */
+      synthesis_observations: number | null;
+      /**
          * This variant's digest from the latest synthesis; null before one runs.
          * @nullable
          */
@@ -44609,13 +44600,27 @@ export namespace Schemas {
       counts: VariantDifferenceCounts;
     }
 
+    /**
+     * * `running` - Running
+     * * `succeeded` - Succeeded
+     * * `failed` - Failed
+     */
+    export type ReplayExperimentSynthesisStatusEnum = typeof ReplayExperimentSynthesisStatusEnum[keyof typeof ReplayExperimentSynthesisStatusEnum];
+
+
+    export const ReplayExperimentSynthesisStatusEnum = {
+      Running: 'running',
+      Succeeded: 'succeeded',
+      Failed: 'failed',
+    } as const;
+
     export interface VariantsSynthesisState {
       /** The latest synthesis run's state.
        *
        * * `running` - Running
        * * `succeeded` - Succeeded
        * * `failed` - Failed */
-      status: ExperimentSynthesisStatusEnum;
+      status: ReplayExperimentSynthesisStatusEnum;
       /** The scanner version that run covered. */
       scanner_version: number;
       /**
