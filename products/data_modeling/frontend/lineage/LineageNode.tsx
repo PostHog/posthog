@@ -55,7 +55,7 @@ export interface LineageNodeState {
 }
 
 export interface LineageNodeCallbacks {
-    onClick?: () => void
+    onClick?: (event: React.MouseEvent | React.KeyboardEvent) => void
     onEdit?: () => void
     onMaterialize?: () => void
     onRunUpstream?: () => void
@@ -270,7 +270,7 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
     const handleKeyDown = (e: React.KeyboardEvent): void => {
         if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault()
-            callbacks.onClick?.()
+            callbacks.onClick?.(e)
         }
     }
 

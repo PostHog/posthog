@@ -192,8 +192,7 @@ describe('modelsLineageLogic', () => {
     it('keeps manual node positions through filtering until the layout is reset', async () => {
         const position = { x: 120, y: 80 }
 
-        logic.actions.setNodePosition('1', position)
-        logic.actions.nodeDragStopped('1')
+        logic.actions.nodeDragStopped('1', position)
         logic.actions.setTypeFilter(['view'])
 
         await expectLogic(logic)

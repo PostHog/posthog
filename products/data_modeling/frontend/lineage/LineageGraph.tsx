@@ -7,7 +7,6 @@ import {
     Controls,
     FitViewOptions,
     MiniMap,
-    type NodeChange,
     Panel,
     PanelPosition,
     ReactFlow,
@@ -16,7 +15,7 @@ import {
     type XYPosition,
 } from '@xyflow/react'
 import { useValues } from 'kea'
-import { ReactNode, useEffect, useMemo, useRef } from 'react'
+import { type KeyboardEvent, type MouseEvent, ReactNode, useEffect, useMemo, useRef } from 'react'
 
 import { IconArchive, IconRefresh } from '@posthog/icons'
 
@@ -45,8 +44,7 @@ export interface LineageGraphProps {
     interactive?: boolean
     nodesDraggable?: boolean
     nodePositions?: Record<string, XYPosition>
-    onNodePositionChange?: (nodeId: string, position: XYPosition) => void
-    onNodeDragStop?: (node: DataModelingNode) => void
+    onNodeDragStop?: (node: DataModelingNode, position: XYPosition) => void
     onResetNodePositions?: () => void
     fitViewOptions?: FitViewOptions
     focusNodeIds?: Set<string> | null
@@ -70,7 +68,7 @@ export interface LineageGraphProps {
 }
 
 function LineageGraphContent(props: LineageGraphProps): JSX.Element {
-    const { fitView, viewportInitialized } = useReactFlow()
+    const { fitView, setNodes, viewportInitialized } = useReactFlow()
     const nodesMeasured = useNodesMeasured()
     const { isDarkModeOn } = useValues(themeLogic)
     const { currentNodeId, nodeState, nodeCallbacks, onNodeClick, focusNodeIds, searchFocusRequest } = props
@@ -83,7 +81,10 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
         })
     )
     const fittedLayout = useRef<typeof layout>(null)
-    const lastNodeDragStoppedAt = useRef(0)
+    const fittedFocus = useRef<{ focusNodeIds: Set<string>; layout: typeof layout } | null>(null)
+    const fittedSearchRequest = useRef<{ requestId: number; layout: typeof layout } | null>(null)
+    const lastNodeDrag = useRef<{ nodeId: string; stoppedAt: number } | null>(null)
+    const resetRequested = useRef(false)
 
     // Decorating on every render would hand react-flow new node objects, which drops the sizes it
     // measured — so the fit below would keep waiting and the edges would keep being redrawn.
@@ -104,9 +105,14 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
                         callbacks: {
                             ...callbacks,
                             onClick: onClick
-                                ? () => {
-                                      if (Date.now() - lastNodeDragStoppedAt.current > 200) {
-                                          onClick()
+                                ? (event: MouseEvent | KeyboardEvent) => {
+                                      const lastDrag = lastNodeDrag.current
+                                      const isDragClick =
+                                          event.detail > 0 &&
+                                          lastDrag?.nodeId === node.id &&
+                                          Date.now() - lastDrag.stoppedAt <= 200
+                                      if (!isDragClick) {
+                                          onClick(event)
                                       }
                                   }
                                 : undefined,
@@ -117,20 +123,31 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
         [currentNodeId, layout, nodeCallbacks, nodeState, onNodeClick, props.nodePositions]
     )
 
-    const handleNodesChange = (changes: NodeChange[]): void => {
-        for (const change of changes) {
-            if (change.type === 'position' && change.position) {
-                props.onNodePositionChange?.(change.id, change.position)
+    useEffect(() => {
+        setNodes((currentNodes) => {
+            if (currentNodes === decoratedNodes) {
+                return currentNodes
             }
-        }
-    }
+            const currentNodesById = new Map(currentNodes.map((node) => [node.id, node]))
+            return decoratedNodes.map((node) => {
+                const currentNode = currentNodesById.get(node.id)
+                return currentNode?.measured ? { ...node, measured: currentNode.measured } : node
+            })
+        })
+    }, [decoratedNodes, setNodes])
 
     const resetLayout = (): void => {
+        resetRequested.current = true
         props.onResetNodePositions?.()
-        if (layout) {
-            void fitView({ nodes: layout.nodes, padding: props.fitViewOptions?.padding ?? 0.2, duration: 400 })
-        }
     }
+
+    useEffect(() => {
+        if (!resetRequested.current || Object.keys(props.nodePositions ?? {}).length > 0) {
+            return
+        }
+        resetRequested.current = false
+        void fitView({ nodes: decoratedNodes, padding: props.fitViewOptions?.padding ?? 0.2, duration: 400 })
+    }, [decoratedNodes, fitView, props.fitViewOptions?.padding, props.nodePositions])
 
     useEffect(() => {
         if (!viewportInitialized || !nodesMeasured || !layout || props.loading || fittedLayout.current === layout) {
@@ -142,13 +159,14 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
         }
         void fitView({
             ...props.fitViewOptions,
-            nodes: layout.nodes,
+            nodes: decoratedNodes,
             padding: props.fitViewOptions?.padding ?? 0.2,
             duration: 400,
         })
     }, [
         fitView,
         focusNodeIds,
+        decoratedNodes,
         layout,
         nodesMeasured,
         props.fitViewOptions,
@@ -158,13 +176,22 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
     ])
 
     useEffect(() => {
-        if (!viewportInitialized || !focusNodeIds || !layout || props.loading) {
+        if (!focusNodeIds) {
+            fittedFocus.current = null
+            return
+        }
+        if (!viewportInitialized || !nodesMeasured || !layout || props.loading) {
+            return
+        }
+        if (fittedFocus.current?.focusNodeIds === focusNodeIds && fittedFocus.current.layout === layout) {
             return
         }
         // An empty focusNodeIds means the search was cleared, so fit the whole graph again rather
         // than leave the viewport where the last selector zoomed it.
-        const nodes = focusNodeIds.size > 0 ? layout.nodes.filter((node) => focusNodeIds.has(node.id)) : layout.nodes
+        const nodes =
+            focusNodeIds.size > 0 ? decoratedNodes.filter((node) => focusNodeIds.has(node.id)) : decoratedNodes
         if (nodes.length > 0) {
+            fittedFocus.current = { focusNodeIds, layout }
             void fitView({
                 nodes,
                 padding: 0.2,
@@ -172,17 +199,24 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
                 maxZoom: focusNodeIds.size > 0 ? 2 : undefined,
             })
         }
-    }, [fitView, viewportInitialized, focusNodeIds, layout, props.loading])
+    }, [decoratedNodes, fitView, viewportInitialized, nodesMeasured, focusNodeIds, layout, props.loading])
 
     useEffect(() => {
-        if (!viewportInitialized || !searchFocusRequest || !layout || props.loading) {
+        if (!viewportInitialized || !nodesMeasured || !searchFocusRequest || !layout || props.loading) {
             return
         }
-        const node = layout.nodes.find((layoutNode) => layoutNode.id === searchFocusRequest.nodeId)
+        if (
+            fittedSearchRequest.current?.requestId === searchFocusRequest.requestId &&
+            fittedSearchRequest.current.layout === layout
+        ) {
+            return
+        }
+        const node = decoratedNodes.find((renderedNode) => renderedNode.id === searchFocusRequest.nodeId)
         if (node) {
+            fittedSearchRequest.current = { requestId: searchFocusRequest.requestId, layout }
             void fitView({ nodes: [node], padding: 0.2, duration: 400, maxZoom: 2 })
         }
-    }, [fitView, viewportInitialized, searchFocusRequest, layout, props.loading])
+    }, [decoratedNodes, fitView, viewportInitialized, nodesMeasured, searchFocusRequest, layout, props.loading])
 
     if (props.loading || !layout) {
         const center = props.loadingCenter ?? props.nodes.find((node) => node.id === currentNodeId)
@@ -199,16 +233,16 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
     return (
         <ReactFlow
             colorMode={isDarkModeOn ? 'dark' : 'light'}
-            nodes={decoratedNodes}
+            defaultNodes={decoratedNodes}
             edges={layout.edges}
             nodeTypes={LINEAGE_NODE_TYPES}
             nodesDraggable={props.nodesDraggable ?? false}
-            onNodesChange={handleNodesChange}
             onNodeDragStop={(_, node) => {
-                lastNodeDragStoppedAt.current = Date.now()
-                props.onNodeDragStop?.(node.data.node as DataModelingNode)
+                lastNodeDrag.current = { nodeId: node.id, stoppedAt: Date.now() }
+                props.onNodeDragStop?.(node.data.node as DataModelingNode, node.position)
             }}
             nodesConnectable={false}
+            elementsSelectable={false}
             // The card inside each node is the focus target and carries the key handler. A focusable
             // wrapper would add a second tab stop per node that only selects and never navigates.
             nodesFocusable={false}

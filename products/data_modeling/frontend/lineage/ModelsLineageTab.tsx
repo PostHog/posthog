@@ -56,7 +56,6 @@ export function ModelsLineageTab(): JSX.Element {
         focusSearchResult,
         toggleLegendCollapsed,
         resetFilters,
-        setNodePosition,
         nodeDragStopped,
         resetNodePositions,
     } = useActions(modelsLineageLogic)
@@ -165,8 +164,7 @@ export function ModelsLineageTab(): JSX.Element {
                     interactive
                     nodesDraggable={nodesDraggable}
                     nodePositions={nodesDraggable ? nodePositions : undefined}
-                    onNodePositionChange={nodesDraggable ? setNodePosition : undefined}
-                    onNodeDragStop={nodesDraggable ? (node) => nodeDragStopped(node.id) : undefined}
+                    onNodeDragStop={nodesDraggable ? (node, position) => nodeDragStopped(node.id, position) : undefined}
                     onResetNodePositions={nodesDraggable ? resetNodePositions : undefined}
                     showControls
                     showMinimap

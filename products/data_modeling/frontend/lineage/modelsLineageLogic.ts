@@ -74,8 +74,7 @@ export interface modelsLineageLogicActions {
     }
     toggleLegendCollapsed: () => Record<string, never>
     resetFilters: () => Record<string, never>
-    setNodePosition: (nodeId: string, position: XYPosition) => { nodeId: string; position: XYPosition }
-    nodeDragStopped: (nodeId: string) => { nodeId: string }
+    nodeDragStopped: (nodeId: string, position: XYPosition) => { nodeId: string; position: XYPosition }
     resetNodePositions: () => Record<string, never>
 }
 
@@ -95,8 +94,7 @@ export const modelsLineageLogic = kea<modelsLineageLogicType>([
         focusSearchResult: (nodeId: string, trigger: SearchResultFocusTrigger) => ({ nodeId, trigger }),
         toggleLegendCollapsed: true,
         resetFilters: true,
-        setNodePosition: (nodeId: string, position: XYPosition) => ({ nodeId, position }),
-        nodeDragStopped: (nodeId: string) => ({ nodeId }),
+        nodeDragStopped: (nodeId: string, position: XYPosition) => ({ nodeId, position }),
         resetNodePositions: true,
     }),
     reducers({
@@ -150,7 +148,7 @@ export const modelsLineageLogic = kea<modelsLineageLogicType>([
         nodePositions: [
             {} as Record<string, XYPosition>,
             {
-                setNodePosition: (positions, { nodeId, position }) => ({ ...positions, [nodeId]: position }),
+                nodeDragStopped: (positions, { nodeId, position }) => ({ ...positions, [nodeId]: position }),
                 resetNodePositions: () => ({}),
             },
         ],

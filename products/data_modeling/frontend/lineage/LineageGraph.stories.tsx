@@ -1,5 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { fireEvent, waitFor, within } from '@testing-library/dom'
+import type { XYPosition } from '@xyflow/react'
+import { useState } from 'react'
+
+import { FEATURE_FLAGS } from 'lib/constants'
 
 import { mswDecorator } from '~/mocks/browser'
 import { DataModelingEdge, DataModelingNode } from '~/types'
@@ -60,6 +64,30 @@ const GRAPH_EDGES: DataModelingEdge[] = [
     mockEdge('e4', '3', '5'),
     mockEdge('e5', '4', '6'),
 ]
+
+const MOVED_NODE_POSITIONS: Record<string, XYPosition> = { '6': { x: 1500, y: 700 } }
+
+function DraggableLineageGraphStory({ focusMovedNode = false }: { focusMovedNode?: boolean }): JSX.Element {
+    const [nodePositions, setNodePositions] = useState(MOVED_NODE_POSITIONS)
+
+    return (
+        <LineageGraph
+            nodes={GRAPH_NODES}
+            edges={GRAPH_EDGES}
+            variant="canvas"
+            interactive
+            nodesDraggable
+            nodePositions={nodePositions}
+            onNodeDragStop={(node, position) =>
+                setNodePositions((positions) => ({ ...positions, [node.id]: position }))
+            }
+            onResetNodePositions={() => setNodePositions({})}
+            searchFocusRequest={focusMovedNode ? { nodeId: '6', requestId: 1 } : undefined}
+            showControls
+            showMinimap
+        />
+    )
+}
 
 // Pruning the graph rekeys `lineageGraphLogic`, so react-flow unmounts while ELK lays the cone
 // out again. Read the canvas on every poll — a node captured before the relayout is detached,
@@ -149,6 +177,36 @@ export const Canvas: Story = {
     render: () => (
         <LineageGraph nodes={GRAPH_NODES} edges={GRAPH_EDGES} variant="canvas" showControls showMinimap interactive />
     ),
+}
+
+export const DraggableNodes: Story = {
+    parameters: { featureFlags: [FEATURE_FLAGS.DATA_MODELING_LINEAGE_NODE_DRAGGING] },
+    render: () => <ModelsLineageTab />,
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/data_modeling_nodes/': { count: GRAPH_NODES.length, results: GRAPH_NODES },
+                '/api/environments/:team_id/data_modeling_edges/': { count: GRAPH_EDGES.length, results: GRAPH_EDGES },
+            },
+        }),
+    ],
+}
+
+export const MovedNodeFocus: Story = {
+    render: () => <DraggableLineageGraphStory focusMovedNode />,
+    play: async ({ canvasElement }) => {
+        await expectNodeCentered(canvasElement, '6', 'Search focus must center the moved node, not its ELK position')
+    },
+}
+
+export const ResetMovedNodes: Story = {
+    render: () => <DraggableLineageGraphStory />,
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await canvas.findByText('monthly_recurring_revenue')
+        fireEvent.click(canvas.getByLabelText('Reset layout'))
+        await expectNodesCentered(canvasElement, 'Reset layout must restore and center the ELK positions')
+    },
 }
 
 export const Loading: Story = {
