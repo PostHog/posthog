@@ -168,29 +168,35 @@ def get_tile(
 def create_tile(
     *, organization_id: UUID | str, dashboard_id: UUID, user: User, tile: contracts.NewTile
 ) -> contracts.CrossProjectTile:
-    dashboard = CrossProjectDashboard.objects.filter(
-        id=dashboard_id, organization_id=organization_id, deleted=False
-    ).first()
-    if dashboard is None:
+    live = CrossProjectDashboard.objects.filter(id=dashboard_id, organization_id=organization_id, deleted=False)
+    if not live.exists():
         raise contracts.DashboardNotFoundError()
-    if CrossProjectDashboardTile.objects.filter(dashboard=dashboard, deleted=False).count() >= MAX_TILES_PER_DASHBOARD:
-        raise serializers.ValidationError({"insight_id": TOO_MANY_TILES})
     assert_can_reference_insight(user, organization_id, tile.project_id, tile.insight_id)
-    try:
-        # The savepoint keeps a duplicate from breaking an enclosing transaction.
-        with transaction.atomic():
-            created = CrossProjectDashboardTile.objects.create(
-                dashboard=dashboard,
-                organization_id=dashboard.organization_id,
-                created_by=user,
-                project_id=tile.project_id,
-                insight_id=tile.insight_id,
-                layouts=tile.layouts,
-                color=tile.color,
-                filters_overrides=tile.filters_overrides,
-            )
-    except IntegrityError as error:
-        raise serializers.ValidationError({"insight_id": DUPLICATE_TILE}) from error
+    # The dashboard row is the lock, so two concurrent creates cannot both pass the tile ceiling.
+    with transaction.atomic():
+        dashboard = live.select_for_update().first()
+        if dashboard is None:
+            raise contracts.DashboardNotFoundError()
+        if (
+            CrossProjectDashboardTile.objects.filter(dashboard=dashboard, deleted=False).count()
+            >= MAX_TILES_PER_DASHBOARD
+        ):
+            raise serializers.ValidationError({"insight_id": TOO_MANY_TILES})
+        try:
+            # The savepoint keeps a duplicate from breaking the enclosing transaction.
+            with transaction.atomic():
+                created = CrossProjectDashboardTile.objects.create(
+                    dashboard=dashboard,
+                    organization_id=dashboard.organization_id,
+                    created_by=user,
+                    project_id=tile.project_id,
+                    insight_id=tile.insight_id,
+                    layouts=tile.layouts,
+                    color=tile.color,
+                    filters_overrides=tile.filters_overrides,
+                )
+        except IntegrityError as error:
+            raise serializers.ValidationError({"insight_id": DUPLICATE_TILE}) from error
     return _to_tile(created)
 
 
