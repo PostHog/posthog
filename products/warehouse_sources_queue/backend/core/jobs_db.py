@@ -327,33 +327,29 @@ FAIL_RUN_SCOPED_SQL = _bulk_fail_dual_write_sql(
 
 
 def _state_claim_candidates_sql(sync_type_scope: str = "") -> str:
-    """Claimable-batch candidates read from the denormalized state columns.
+    """Claimable batches read from the denormalized state columns, before any gate.
 
-    The claimable scan and every NOT EXISTS gate are answered by the partial
-    indexes (sb_claimable_idx, sb_run_gate_idx, sb_schema_busy_idx), so the
-    work tracks the claimable set instead of everything retained. 'pending'
-    means no status row yet; 'waiting' is deliberately not claimable.
+    Answered by ``sb_claimable_idx``, so the scan tracks the claimable set
+    instead of everything retained. 'pending' means no status row yet;
+    'waiting' is deliberately not claimable.
 
-    ``sync_type_scope`` (from :func:`sync_type_scope_sql`) narrows only the outer
-    candidate set to this fleet's classes. It must never be applied inside the
-    NOT EXISTS gates below: they have to see other fleets' batches so one
-    schema's runs stay mutually exclusive across fleets.
+    ``sync_type_scope`` (from :func:`sync_type_scope_sql`) narrows only this
+    candidate set to this fleet's classes. It must never be applied to the
+    gates in :func:`_claim_window_sql`: they have to see other fleets' batches
+    so one schema's runs stay mutually exclusive across fleets.
 
-    The outer candidate set is likewise bounded by
-    ``CLAIM_ELIGIBILITY_INTERVAL``: a batch older than that may already have
-    lost its parquet to retention, so it must never be claimed. The gates keep
-    ``PARTITION_PRUNING_INTERVAL`` for the same reason the sync-type scope
-    stays out of them — they must see every row that still exists.
+    The candidate set is likewise bounded by ``CLAIM_ELIGIBILITY_INTERVAL``: a
+    batch older than that may already have lost its parquet to retention, so it
+    must never be claimed. The gates keep ``PARTITION_PRUNING_INTERVAL`` for the
+    same reason the sync-type scope stays out of them — they must see every row
+    that still exists.
 
-    Selects only the join-back keys ``(id, created_at)``. The caller's fairness
-    ranking sorts the entire claimable set before its LIMIT can apply, so the
-    sort input must stay narrow: selecting the wide row here (``metadata``
-    alone is ~1 KB per batch) made every poll sort megabytes-to-gigabytes of
-    payload to keep ~50 rows, spilling past ``work_mem`` to disk once a backlog
-    built up and degrading the whole fleet's polls with it.
+    Selects only the narrow keys that the gates and the fairness ranking need.
+    Selecting the wide row here (``metadata`` alone is ~1 KB per batch) made
+    every poll sort megabytes-to-gigabytes of payload to keep ~50 rows.
     """
     return f"""
-        SELECT b.id, b.created_at
+        SELECT b.id, b.created_at, b.batch_index, b.team_id, b.schema_id, b.run_uuid
         FROM {BATCH_TABLE} b
         WHERE
             b.created_at > now() - interval '{CLAIM_ELIGIBILITY_INTERVAL}'
@@ -367,37 +363,106 @@ def _state_claim_candidates_sql(sync_type_scope: str = "") -> str:
                     )
                 )
             )
-            AND NOT EXISTS (
-                SELECT 1
-                FROM {BATCH_TABLE} b_prev
-                WHERE b_prev.run_uuid = b.run_uuid
-                    AND b_prev.batch_index < b.batch_index
-                    AND b_prev.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                    AND (
-                        b_prev.latest_state = 'executing'
-                        OR (
-                            b_prev.latest_state = 'waiting_retry'
-                            AND b_prev.state_changed_at > now() - make_interval(
-                                secs => %(backoff)s * GREATEST(b_prev.latest_attempt, 1)
+    """
+
+
+def _claim_window_sql(sync_type_scope: str = "") -> str:
+    """CTEs that end in ``narrow``: the gated, fairness-ranked ``(id, created_at)`` claim window.
+
+    The gates are evaluated once per group and once per run, never once per
+    candidate batch. A per-batch correlated probe is only cheap while the
+    planner answers it from the partial indexes. On a hot daily partition
+    those indexes churn and bloat, and after an analyze the planner can pick
+    ``sb_run_uuid_idx``, ``sb_run_uuid_bi_idx`` or ``sb_team_schema_idx``
+    instead. Each probe then reads every batch of its run or group, so a
+    backlog of long runs costs (batches x run length) per poll. Here a bad
+    index choice costs at most one run-length read per candidate run.
+
+    Each gate keeps the semantics of the per-batch form:
+
+    - ``busy_groups``: a group with an 'executing' batch is not claimable. It
+      is one scan of the executing set, which only ``sb_schema_busy_idx``
+      answers cheaply.
+    - ``open_groups``: the busy gate, plus no live lease of another owner.
+    - ``open_runs``: one ``sb_run_gate_idx`` probe per candidate run. A run
+      with a 'failed' batch is not claimable. ``first_blocked_index`` is the
+      lowest batch_index that is 'executing' or 'waiting_retry' inside its
+      backoff. "No such batch earlier than mine" is the same as "my
+      batch_index <= that minimum". The probe is an aggregate in a LATERAL,
+      so the planner cannot flatten it into an anti-join whose hash side is
+      every failed batch in the pruning window.
+
+    The fairness ranking then runs over the gated rows only, which is the set
+    the per-batch form ranked. Per team, oldest first; round-robin across
+    teams; the LIMIT applies last.
+    """
+    return f"""
+        claimable AS MATERIALIZED (
+            {_state_claim_candidates_sql(sync_type_scope)}
+        ),
+        busy_groups AS MATERIALIZED (
+            SELECT DISTINCT b_busy.team_id, b_busy.schema_id
+            FROM {BATCH_TABLE} b_busy
+            WHERE b_busy.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                AND b_busy.latest_state = 'executing'
+        ),
+        open_groups AS MATERIALIZED (
+            SELECT g.team_id, g.schema_id
+            FROM (SELECT DISTINCT c.team_id, c.schema_id FROM claimable c) g
+            WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM busy_groups x
+                    WHERE x.team_id = g.team_id AND x.schema_id = g.schema_id
+                )
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM {LEASE_TABLE} l_live
+                    WHERE l_live.team_id = g.team_id
+                        AND l_live.schema_id = g.schema_id
+                        AND l_live.expires_at > now()
+                        AND l_live.owner_token != %(owner)s
+                )
+        ),
+        open_runs AS MATERIALIZED (
+            SELECT r.run_uuid, gate.first_blocked_index
+            FROM (
+                SELECT DISTINCT c.run_uuid
+                FROM claimable c
+                JOIN open_groups g ON g.team_id = c.team_id AND g.schema_id = c.schema_id
+            ) r
+            CROSS JOIN LATERAL (
+                SELECT
+                    bool_or(b_gate.latest_state = 'failed') AS has_failed,
+                    min(b_gate.batch_index) FILTER (
+                        WHERE b_gate.latest_state = 'executing'
+                            OR (
+                                b_gate.latest_state = 'waiting_retry'
+                                AND b_gate.state_changed_at > now() - make_interval(
+                                    secs => %(backoff)s * GREATEST(b_gate.latest_attempt, 1)
+                                )
                             )
-                        )
-                    )
-            )
-            AND NOT EXISTS (
-                SELECT 1
-                FROM {BATCH_TABLE} b2
-                WHERE b2.run_uuid = b.run_uuid
-                    AND b2.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                    AND b2.latest_state = 'failed'
-            )
-            AND NOT EXISTS (
-                SELECT 1
-                FROM {BATCH_TABLE} b_busy
-                WHERE b_busy.team_id = b.team_id
-                    AND b_busy.schema_id = b.schema_id
-                    AND b_busy.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                    AND b_busy.latest_state = 'executing'
-            )
+                    ) AS first_blocked_index
+                FROM {BATCH_TABLE} b_gate
+                WHERE b_gate.run_uuid = r.run_uuid
+                    AND b_gate.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                    AND b_gate.latest_state IN ('executing', 'waiting_retry', 'failed')
+            ) gate
+            WHERE gate.has_failed IS NOT TRUE
+        ),
+        narrow AS MATERIALIZED (
+            SELECT c.id, c.created_at
+            FROM claimable c
+            JOIN open_groups g ON g.team_id = c.team_id AND g.schema_id = c.schema_id
+            JOIN open_runs r ON r.run_uuid = c.run_uuid
+            WHERE r.first_blocked_index IS NULL OR c.batch_index <= r.first_blocked_index
+            ORDER BY
+                row_number() OVER (
+                    PARTITION BY c.team_id ORDER BY c.created_at ASC, c.batch_index ASC
+                ) ASC,
+                c.created_at ASC,
+                c.batch_index ASC
+            LIMIT %(limit)s
+        )
     """
 
 
@@ -1019,7 +1084,9 @@ class BatchQueue:
         join-back, ~LIMIT primary-key probes): the fairness sort has to process
         the whole claimable set, so its input must stay narrow or a backlog
         turns every poll into a disk-spilling sort of full rows (see
-        :func:`_state_claim_candidates_sql`).
+        :func:`_state_claim_candidates_sql`). The gates below run once per
+        group and once per run, not once per candidate batch (see
+        :func:`_claim_window_sql`).
 
         Uses a MATERIALIZED CTE so that candidate selection (with LIMIT) is
         fully resolved before the lease claim runs. ``candidate_groups`` is
@@ -1067,28 +1134,11 @@ class BatchQueue:
         sync_type_scope, scope_params = sync_type_scope_sql(
             sync_types=sync_types, exclude_sync_types=exclude_sync_types
         )
-        candidates_sql = _state_claim_candidates_sql(sync_type_scope)
+        window_sql = _claim_window_sql(sync_type_scope)
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
                 f"""
-                WITH narrow AS MATERIALIZED (
-                    {candidates_sql}
-                        AND NOT EXISTS (
-                            SELECT 1
-                            FROM {LEASE_TABLE} l_live
-                            WHERE l_live.team_id = b.team_id
-                                AND l_live.schema_id = b.schema_id
-                                AND l_live.expires_at > now()
-                                AND l_live.owner_token != %(owner)s
-                        )
-                    ORDER BY
-                        row_number() OVER (
-                            PARTITION BY b.team_id ORDER BY b.created_at ASC, b.batch_index ASC
-                        ) ASC,
-                        b.created_at ASC,
-                        b.batch_index ASC
-                    LIMIT %(limit)s
-                ),
+                WITH {window_sql},
                 candidates AS MATERIALIZED (
                     SELECT
                         b.id, b.team_id, b.schema_id, b.source_id, b.job_id,
