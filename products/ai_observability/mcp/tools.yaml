@@ -668,7 +668,8 @@ tools:
             'inactivity' settle strategy. Pass `enabled` as a boolean (true to start scoring new $ai_generation events
             immediately, false to create it paused). To organize the evaluation, pass a `directory_id` returned by
             llma-evaluation-directory-list. Omit `directory_id` or pass null to keep it at the top level. Results are
-            '$ai_evaluation' events.
+            '$ai_evaluation' events. An evaluation only scores data that arrives after it is enabled, so once it is
+            enabled, offer the user a backfill over past data with llma-evaluation-backfill-estimate.
     llma-evaluation-delete:
         operation: evaluations_destroy
         enabled: true
@@ -979,7 +980,8 @@ tools:
             sentiment, set model_configuration to null. Legacy llm_judge evaluations without a model remain editable.
             provider_key_id may be null when no key is pinned. `target` accepts 'generation', 'trace', or 'session'.
             Pass a `directory_id` returned by llma-evaluation-directory-list to move the evaluation into a directory, or
-            pass null to move it to the top level.
+            pass null to move it to the top level. After you enable an evaluation for the first time, offer the user a
+            backfill over past data with llma-evaluation-backfill-estimate.
         param_overrides:
             id:
                 aliases:
