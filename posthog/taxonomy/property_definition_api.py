@@ -15,7 +15,7 @@ from rest_framework import mixins, request, response, serializers, status, views
 from rest_framework.exceptions import ValidationError
 
 from posthog.api.documentation import extend_schema
-from posthog.api.pagination import PrecountedLimitOffsetPagination
+from posthog.api.pagination import CappedCountLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.statement_timeout import statement_timeout
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
@@ -33,7 +33,13 @@ from posthog.taxonomy.definition_listing import (
     DefinitionListTimedOut,
     definition_read_db_alias,
 )
-from posthog.taxonomy.definition_search import search_plan
+from posthog.taxonomy.definition_search import (
+    LARGE_PROJECT_COUNT_CAP,
+    PROJECT_SCAN_MAX_DEFINITIONS,
+    bounded_count_sql,
+    property_definitions_are_large,
+    search_plan,
+)
 from posthog.taxonomy.taxonomy import (
     CORE_FILTER_DEFINITIONS_BY_GROUP,
     PROPERTY_NAME_ALIASES,
@@ -225,6 +231,9 @@ class QueryContext:
     excluded_properties_filter: str = ""
 
     order_by_search_relevance: bool = False
+
+    # Pages in name order and stops the count at %(count_cap)s, see `with_bounded_paging`.
+    bounded: bool = False
 
     event_property_join_type: str = ""
     event_property_field: str = "NULL"
@@ -437,21 +446,47 @@ class QueryContext:
             },
         )
 
+    def with_bounded_paging(self, bounded: bool) -> Self:
+        """Lets the project-unique name index return the page directly, instead of a sort of every row.
+
+        The seen-first and verified-first orders need every row of the type before the first page is known.
+        The event property join also hashes, which drops the index order, so the seen flag becomes a lookup
+        for each row of the page instead.
+        """
+        if not bounded:
+            return self
+        event_property_field = self.event_property_field
+        if self.should_join_event_property and event_property_field != "NULL":
+            event_property_field = f"""EXISTS (
+                SELECT 1 FROM posthog_eventproperty
+                WHERE coalesce(posthog_eventproperty.project_id, posthog_eventproperty.team_id) = %(project_id)s
+                  AND posthog_eventproperty.event = ANY(%(event_names)s)
+                  AND posthog_eventproperty.property = {self.property_definition_table}.name
+            )"""
+        return dataclasses.replace(
+            self,
+            bounded=True,
+            should_join_event_property=False,
+            event_property_field=event_property_field,
+            params={**self.params, "count_cap": LARGE_PROJECT_COUNT_CAP},
+        )
+
     def as_sql(self, order_by_verified: bool):
+        if self.bounded:
+            return f"""
+            SELECT {self.property_definition_fields}, {self.event_property_field} AS is_seen_on_filtered_events
+            {self._source_sql()}
+            ORDER BY {self.property_definition_table}.name ASC
+            LIMIT %(limit)s OFFSET %(offset)s
+            """
+
         verified_ordering = "verified DESC NULLS LAST," if order_by_verified else ""
         length_ordering = (
             f"length({self.property_definition_table}.name) ASC," if self.order_by_search_relevance else ""
         )
         query = f"""
             SELECT {self.property_definition_fields}, {self.event_property_field} AS is_seen_on_filtered_events
-            FROM {self.table}
-            {self._join_on_event_property()}
-            WHERE coalesce({self.property_definition_table}.project_id, {self.property_definition_table}.team_id) = %(project_id)s
-              AND type = %(type)s
-              AND coalesce(group_type_index, -1) = %(group_type_index)s
-              {self.excluded_properties_filter}
-             {self.name_filter} {self.numerical_filter} {self.search_query} {self.event_property_filter} {self.is_feature_flag_filter}
-             {self.event_name_filter}
+            {self._source_sql()}
             ORDER BY is_seen_on_filtered_events DESC, {length_ordering} {verified_ordering} {self.property_definition_table}.name ASC
             LIMIT %(limit)s OFFSET %(offset)s
             """
@@ -459,8 +494,12 @@ class QueryContext:
         return query
 
     def as_count_sql(self):
-        query = f"""
-            SELECT count(*) as full_count
+        if self.bounded:
+            return bounded_count_sql(self._source_sql(), f"{self.property_definition_table}.name")
+        return f"SELECT count(*) as full_count {self._source_sql()}"
+
+    def _source_sql(self) -> str:
+        return f"""
             FROM {self.table}
             {self._join_on_event_property()}
             WHERE coalesce({self.property_definition_table}.project_id, {self.property_definition_table}.team_id) = %(project_id)s
@@ -469,8 +508,6 @@ class QueryContext:
              {self.excluded_properties_filter} {self.name_filter} {self.numerical_filter} {self.search_query} {self.event_property_filter} {self.is_feature_flag_filter}
              {self.event_name_filter}
             """
-
-        return query
 
     def _join_on_event_property(self):
         return (
@@ -601,7 +638,7 @@ class PropertyDefinitionViewSet(
     filter_backends = [TermSearchFilterBackend]
     ordering = "name"
     search_fields = ["name"]
-    pagination_class = PrecountedLimitOffsetPagination
+    pagination_class = CappedCountLimitOffsetPagination
     queryset = PropertyDefinition.objects.all()
 
     @staticmethod
@@ -664,7 +701,7 @@ class PropertyDefinitionViewSet(
 
             span.set_attribute("ee_available", EE_AVAILABLE)
 
-            assert isinstance(self.paginator, PrecountedLimitOffsetPagination)
+            assert isinstance(self.paginator, CappedCountLimitOffsetPagination)
             limit = self.paginator.get_limit(self.request)
             offset = self.paginator.get_offset(self.request)
 
@@ -734,7 +771,27 @@ class PropertyDefinitionViewSet(
                 .with_verified_filter(query.validated_data.get("verified"), use_enterprise_taxonomy=EE_AVAILABLE)
             )
 
+            # A filter that matches few rows makes `ORDER BY name LIMIT` walk most of the type in name order before
+            # it fills a page or reaches the count cap. The full sort and the exact count read those rows once, so
+            # only the filters that leave most rows matching take the bounded path on a large project.
+            sparse_filter = (
+                bool(search and search.strip())
+                or bool(filter_by_event_names)
+                or bool(query.validated_data.get("properties"))
+                or bool(query.validated_data.get("is_numerical"))
+                or bool(query.validated_data.get("is_feature_flag"))
+                or query.validated_data.get("verified") is not None
+            )
+            bounded = not sparse_filter and property_definitions_are_large(
+                self.project_id,
+                query_context.params["type"],
+                query_context.params["group_type_index"],
+                read_db_alias(),
+            )
+            query_context = query_context.with_bounded_paging(bounded)
+
             span.set_attribute("joins_event_property", query_context.should_join_event_property)
+            span.set_attribute("bounded", bounded)
 
             with tracer.start_as_current_span("property_definitions_count_query") as count_span:
                 with connections[read_db_alias()].cursor() as cursor:
@@ -742,7 +799,8 @@ class PropertyDefinitionViewSet(
                     full_count = cursor.fetchone()[0]
                 count_span.set_attribute("full_count", full_count)
 
-            self.paginator.set_count(full_count)
+            # Only a count that reached the cap is a lower bound; a filtered large project can be under it.
+            self.paginator.set_count(full_count, is_capped=bounded and full_count >= LARGE_PROJECT_COUNT_CAP)
             span.set_attribute("full_count", full_count)
 
             # nosemgrep: python.django.security.audit.custom-expression-as-sql.custom-expression-as-sql (all user input goes through query_context.params)
@@ -805,7 +863,15 @@ class PropertyDefinitionViewSet(
             return new_enterprise_property
         return non_enterprise_property
 
-    @extend_schema(parameters=[PropertyDefinitionQuerySerializer])
+    @extend_schema(
+        description=(
+            "List the property definitions of a project. When a property type has more than "
+            f"{PROJECT_SCAN_MAX_DEFINITIONS} definitions in the project, results are ordered by name, `count` stops "
+            f"at {LARGE_PROJECT_COUNT_CAP} and `count_is_capped` is true. This does not apply when the request sets "
+            "`search`, `filter_by_event_names`, `properties`, `is_numerical`, `is_feature_flag=true` or `verified`."
+        ),
+        parameters=[PropertyDefinitionQuerySerializer],
+    )
     def list(self, request, *args, **kwargs):
         event_type = request.query_params.get("type", "event")
 
@@ -823,7 +889,7 @@ class PropertyDefinitionViewSet(
         # Inject virtual event/person/group properties to the end of the results
         if event_type in ["event", "person", "group"]:
             paginator = self.paginator
-            assert isinstance(paginator, PrecountedLimitOffsetPagination)
+            assert isinstance(paginator, CappedCountLimitOffsetPagination)
 
             query = PropertyDefinitionQuerySerializer(data=request.query_params)
             query.is_valid(raise_exception=True)
@@ -846,7 +912,8 @@ class PropertyDefinitionViewSet(
 
             db_count = response.data["count"]
             page_end_index = (paginator.offset or 0) + len(response.data["results"])
-            is_last_page = page_end_index >= db_count
+            # A capped count is a lower bound, so only the missing `next` link marks the end of the rows.
+            is_last_page = response.data["next"] is None if paginator.count_is_capped else page_end_index >= db_count
 
             # Add virtual properties to the end of the results
             # Technically, this means that the last page can be longer than the others, but as the number of virtual properties is small, this is acceptable

@@ -103,6 +103,42 @@ def _cached_search_plan(table: DefinitionTable, project_id: int, db_alias: str) 
     return plan
 
 
+def property_definitions_are_large(project_id: int, property_type: int, group_type_index: int, db_alias: str) -> bool:
+    """Whether one property type of a project has more than `PROJECT_SCAN_MAX_DEFINITIONS` definitions.
+
+    The property list pages one type at a time, so the check counts that type only. A project with millions
+    of event properties can have few person properties, and those still sort cheaply.
+    """
+    cache_key = f"taxonomy_property_definition_count:{project_id}:{property_type}:{group_type_index}"
+    # A cache outage must only cost the count query, never the list itself.
+    cached = get_safe_cache(cache_key)
+    if cached is None:
+        with connections[db_alias].cursor() as cursor:
+            # No ORDER BY: in name order the probe reads the heap in random order, see `project_definition_scale`.
+            cursor.execute(
+                """
+                SELECT count(*) FROM (
+                    SELECT 1 FROM posthog_propertydefinition
+                    WHERE COALESCE(project_id, team_id) = %(project_id)s
+                      AND type = %(type)s
+                      AND COALESCE(group_type_index, -1) = %(group_type_index)s
+                    LIMIT %(limit)s
+                ) bounded
+                """,
+                {
+                    "project_id": project_id,
+                    "type": property_type,
+                    "group_type_index": group_type_index,
+                    "limit": PROJECT_SCAN_MAX_DEFINITIONS + 1,
+                },
+            )
+            cached = cursor.fetchone()[0]
+        safe_cache_set(cache_key, cached, SEARCH_PLAN_CACHE_SECONDS)
+
+    trace.get_current_span().set_attribute("taxonomy_definition_count", cached)
+    return cached > PROJECT_SCAN_MAX_DEFINITIONS
+
+
 def _cached_definition_count(table: Literal["posthog_eventdefinition"], project_id: int, db_alias: str) -> int:
     # The key is not `taxonomy_search_plan:*`, which holds a plan name, so a release that reads the count
     # never reads an entry an earlier release wrote, in either direction.
