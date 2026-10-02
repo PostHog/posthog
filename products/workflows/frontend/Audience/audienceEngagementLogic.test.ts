@@ -42,7 +42,11 @@ const EXPECTED_TILE_QUERIES = [
             interval: 'week',
             dateRange: { date_from: '-30d' },
             series: [
-                { event: '$workflows_email_unsubscribed' },
+                {
+                    event: '$workflows_email_unsubscribed',
+                    math: 'hogql',
+                    math_hogql: 'count(DISTINCT properties.$email)',
+                },
                 { event: '$workflows_email_bounced' },
                 { event: '$workflows_email_blocked' },
             ],
