@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { mockToolCallsInc, mockToolDurationObserve, mockToolDurationStartTimer, mockToolErrorsInc } = vi.hoisted(() => {
     const mockStop = vi.fn()
@@ -37,7 +37,8 @@ vi.mock('@/resources', () => ({
 
 import { z } from 'zod'
 
-import { trackToolCall } from '@/hono/analytics'
+import { ApiClient } from '@/api/client'
+import { trackExecuteSqlGeneration, trackToolCall, trackToolSpan } from '@/hono/analytics'
 import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
@@ -49,6 +50,7 @@ import {
     ToolInputValidationError,
     wrapError,
 } from '@/lib/errors'
+import { getPostHogClient } from '@/lib/posthog'
 import { URI_MAP } from '@/resources/ui-apps.generated'
 import { normalizeParamAliases } from '@/tools/cast-helpers'
 
@@ -99,11 +101,79 @@ describe('ToolExecutor metrics', () => {
         mockToolDurationStartTimer.mockClear()
         mockToolErrorsInc.mockClear()
         mockTrackToolCall.mockClear()
+        vi.mocked(trackExecuteSqlGeneration).mockClear()
+        vi.mocked(trackToolSpan).mockClear()
 
         catalog = new ToolCatalog()
         await catalog.warmup()
         executor = new ToolExecutor(catalog, new InstructionsBuilder(''))
     })
+
+    afterEach(() => {
+        vi.unstubAllGlobals()
+        vi.restoreAllMocks()
+    })
+
+    it.each([
+        { tool: 'execute-sql', useSingleExec: false, type: 'api_5xx' },
+        { tool: 'execute-sql', useSingleExec: false, type: 'internal' },
+        { tool: 'execute-sql', useSingleExec: true, type: 'internal' },
+        { tool: 'execute-sql', useSingleExec: true, type: 'validation' },
+        { tool: 'execute-sql', useSingleExec: false, type: 'memory_limit' },
+        { tool: 'execute-sql', useSingleExec: true, type: 'memory_limit' },
+        { tool: 'read-data-schema', useSingleExec: false, type: 'permission' },
+        { tool: 'read-data-schema', useSingleExec: true, type: 'api_5xx' },
+    ])(
+        'classifies backend result errors without capturing caller content: %j',
+        async ({ tool, useSingleExec, type }) => {
+            const captureException = vi.spyOn(getPostHogClient(), 'captureException').mockImplementation(() => {})
+            const tools = catalog
+                .getPreBuiltEntries()
+                .map((entry) => toolFromPreBuilt(catalog.getToolByName(entry.name)!, entry))
+            const state = makeToolExecutorState(tools, { useSingleExec })
+            state.context.api = new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' })
+            state.context.stateManager.getProjectId = vi.fn().mockResolvedValue(2)
+            const content = 'Tool failed: private caller query. You may retry with adjusted inputs.'
+            vi.stubGlobal(
+                'fetch',
+                vi.fn().mockResolvedValue(
+                    new Response(
+                        JSON.stringify({
+                            success: false,
+                            content,
+                            error_type: type,
+                        })
+                    )
+                )
+            )
+            const args = { query: tool === 'execute-sql' ? 'SELECT 1' : { kind: 'events' } }
+            const result = await executor.handleToolCall(
+                useSingleExec
+                    ? { name: 'exec', arguments: { command: `call ${tool} ${JSON.stringify(args)}` } }
+                    : { name: tool, arguments: args },
+                state
+            )
+
+            expect(result).toMatchObject({
+                isError: true,
+                content: [{ type: 'text', text: `Error: [${tool}]: ${content}` }],
+            })
+            expect(mockToolErrorsInc).toHaveBeenCalledWith({ tool, error_type: type })
+            expect(captureException).toHaveBeenCalledTimes(['validation', 'permission'].includes(type) ? 0 : 1)
+            const properties = trackToolCallExtras(tool)
+            expect(properties).toMatchObject({ $mcp_error_type: type, $mcp_error_message: `Tool failed: ${type}` })
+            expect(JSON.stringify(properties)).not.toContain('private caller query')
+            const errorMetadata = {
+                isError: true,
+                errorMessage: `Tool failed: ${type}`,
+            }
+            expect(trackToolSpan).toHaveBeenCalledWith(tool, state, expect.objectContaining(errorMetadata))
+            if (tool === 'execute-sql') {
+                expect(trackExecuteSqlGeneration).toHaveBeenCalledOnce()
+                expect(vi.mocked(trackExecuteSqlGeneration).mock.calls[0]?.[3]).toMatchObject(errorMetadata)
+            }
+        }
+    )
 
     describe('direct tool calls', () => {
         it('records success counter and duration timer', async () => {
