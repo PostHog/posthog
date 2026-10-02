@@ -24,7 +24,7 @@ function RankingTooltip({
         (name) => typeof ranking.scores[name] === 'number'
     )
     return (
-        <div className="flex min-w-56 flex-col gap-1 text-xs">
+        <div className="flex min-w-72 flex-col gap-1 text-xs">
             {heads.map((name) => {
                 const probability = ranking.scores[name]
                 const lift = rankingLift(ranking, name)
