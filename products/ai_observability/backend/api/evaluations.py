@@ -543,6 +543,27 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "deleted": {"help_text": "Set to true to soft-delete the evaluation."},
         }
 
+    def _uses_system_one(self, data: dict[str, object]) -> bool:
+        should_validate_model = (
+            self.instance is None
+            or bool({"model_configuration", "evaluation_type", "output_type", "output_config"} & data.keys())
+            or data.get("enabled", False)
+        )
+        if not should_validate_model:
+            return False
+
+        model_configuration = self._effective_model_configuration(data) or {}
+        model_provider = model_configuration.get("provider")
+        try:
+            return is_system_one_model(
+                model_provider,
+                model_configuration.get("model"),
+                openrouter_enabled=model_provider == "openrouter"
+                and system_one_evaluations_enabled(self.context["get_team"]().id, base_url=OPENROUTER_BASE_URL),
+            )
+        except ProviderConnectionError as e:
+            raise serializers.ValidationError({"model_configuration": str(e)}) from e
+
     def validate(self, data):
         evaluation_type = data.get("evaluation_type") or getattr(self.instance, "evaluation_type", None)
         output_type = data.get("output_type") or getattr(self.instance, "output_type", None)
@@ -568,32 +589,7 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "model_configuration",
             getattr(self.instance, "model_configuration", None) if self.instance else None,
         )
-        model_provider = (
-            model_configuration.get("provider")
-            if isinstance(model_configuration, dict)
-            else getattr(model_configuration, "provider", None)
-        )
-        model = (
-            model_configuration.get("model")
-            if isinstance(model_configuration, dict)
-            else getattr(model_configuration, "model", None)
-        )
-        should_validate_model = (
-            self.instance is None
-            or bool({"model_configuration", "evaluation_type", "output_type", "output_config"} & data.keys())
-            or data.get("enabled", False)
-        )
-        uses_system_one = False
-        if should_validate_model:
-            try:
-                uses_system_one = is_system_one_model(
-                    model_provider,
-                    model,
-                    openrouter_enabled=model_provider == "openrouter"
-                    and system_one_evaluations_enabled(self.context["get_team"]().id, base_url=OPENROUTER_BASE_URL),
-                )
-            except ProviderConnectionError as e:
-                raise serializers.ValidationError({"model_configuration": str(e)}) from e
+        uses_system_one = self._uses_system_one(data)
         if uses_system_one and output_type not in ("boolean", "categorical", "numeric"):
             raise serializers.ValidationError(
                 {"model_configuration": "Select a model that supports this evaluation output type."}
