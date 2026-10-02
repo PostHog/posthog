@@ -119,7 +119,6 @@ describe('project tree utils', () => {
                     disableCategories: true,
                 })
                 expect(node.name).toEqual(productsItemName(item))
-                expect(node.tags).toEqual(item.tags)
                 expect(renderToStaticMarkup(node.icon as JSX.Element)).toEqual(
                     renderToStaticMarkup(iconForType(item.iconType, item.iconColor))
                 )

@@ -8,6 +8,7 @@ from opentelemetry import trace
 from rest_framework.exceptions import PermissionDenied
 
 from posthog.schema import (
+    EventMatchScope,
     HogQLQueryModifiers,
     PropertyOperator,
     RecordingOrder,
@@ -29,7 +30,10 @@ from posthog.models import Team, User
 from posthog.session_recordings.models.metadata import ONGOING_SESSION_WINDOW_MINUTES
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
 from posthog.session_recordings.queries.sub_queries.cohort_subquery import CohortPropertyGroupsSubQuery
-from posthog.session_recordings.queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
+from posthog.session_recordings.queries.sub_queries.events_subquery import (
+    ReplayFiltersEventsSubQuery,
+    SessionIdMatchPlan,
+)
 from posthog.session_recordings.queries.sub_queries.person_ids_subquery import PersonsIdCompareOperation
 from posthog.session_recordings.queries.sub_queries.person_props_subquery import PersonsPropertiesSubQuery
 from posthog.session_recordings.queries.utils import (
@@ -159,6 +163,9 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         # Opt-in: resolve group property filters to group keys instead of joining the groups table.
         # Naming the ClickHouse user is the opt-in, since the resolution is itself a heavy query.
         resolve_group_properties: ClickHouseUser | None = None,
+        # Opt-in for the flagged combined event scan. Only the recordings list opts in, so deletes and
+        # background scans keep the separate queries while the flag is tested.
+        allow_combined_event_filters: bool = False,
         **_,
     ):
         self._user = user
@@ -169,6 +176,8 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         self._events_timestamp_floor = events_timestamp_floor
         self._resolve_group_properties = resolve_group_properties
         self.events_subqueries_sampled = False
+        self._allow_combined_event_filters = allow_combined_event_filters
+        self._event_match_plan: SessionIdMatchPlan | None = None
         self._bypass_date_window_for_session_ids = bypass_date_window_for_session_ids
         # TRICKY: we need to make sure we init test account filters only once,
         # otherwise we'll end up with a lot of duplicated test account filters in the query
@@ -276,7 +285,22 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             # Tagged around the listing execution only, so the tag marks exactly the queries that
             # carry the evidence scan and its GLOBAL IN set: the precompute builds that run during
             # linkage resolution and the blocklist probe below stay untagged.
-            with tags_context(**({"experiment_exposures_in_session": True} if in_session_narrowed else {})):
+            listing_tags: dict[str, Any] = {}
+            if in_session_narrowed:
+                listing_tags["experiment_exposures_in_session"] = True
+            if self._query.event_match_scope == EventMatchScope.RECORDING:
+                listing_tags["replay_event_match_scope"] = EventMatchScope.RECORDING.value
+            plan = self._event_match_plan
+            if plan is not None and plan.filter_count:
+                listing_tags["replay_event_query_strategy"] = plan.strategy
+                listing_tags["replay_event_filter_count"] = plan.filter_count
+                listing_tags["replay_event_query_property_filter_count"] = plan.property_filter_count
+                listing_tags["replay_combined_event_query_eligible"] = plan.combined_eligible
+                listing_tags["replay_event_query_operand"] = self._query.operand
+                listing_tags["replay_event_query_range_days"] = (
+                    self.query_date_range.date_to() - self.query_date_range.date_from()
+                ).total_seconds() / 86400
+            with tags_context(**listing_tags):
                 paginated_response = self._paginator.execute_hogql_query(
                     # TODO I guess the paginator needs to know how to handle union queries or all callers are supposed to collapse them or .... 🤷
                     query=cast(ast.SelectQuery, query),
@@ -292,12 +316,18 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         # nothing to probe when the caller excluded against its own rows instead, where the scoped
         # query is bounded by the ids it was given rather than by the cap.
         if not self._skip_negative_blocklists:
-            ReplayFiltersEventsSubQuery(
-                self._team,
-                self._query,
-                self._allow_event_property_expansion,
-                hogql_query_modifiers=self._hogql_query_modifiers,
-            ).check_negative_blocklist_truncation()
+            # Under recording scope the probe re-runs the blocklist scan with its bounds join, so it
+            # carries the scope tag too; without it the query log undercounts what the scope costs.
+            probe_tags: dict[str, Any] = {}
+            if self._query.event_match_scope == EventMatchScope.RECORDING:
+                probe_tags["replay_event_match_scope"] = EventMatchScope.RECORDING.value
+            with tags_context(**probe_tags):
+                ReplayFiltersEventsSubQuery(
+                    self._team,
+                    self._query,
+                    self._allow_event_property_expansion,
+                    hogql_query_modifiers=self._hogql_query_modifiers,
+                ).check_negative_blocklist_truncation()
 
         with tracer.start_as_current_span("SessionRecordingListFromQuery._data_to_return"):
             next_cursor = None
@@ -388,6 +418,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             self._team,
             experiment_id=self._query.experiment_exposure.experiment_id,
             variant=self._query.experiment_exposure.variant,
+            variants=self._query.experiment_exposure.variants,
             in_session=bool(self._query.experiment_exposure.in_session),
         )
         if self._experiment_exposure_linkage.population_filters_test_accounts:
@@ -662,8 +693,10 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             events_timestamp_floor=self._events_timestamp_floor,
             resolve_group_properties=self._resolve_group_properties,
         )
-        events_sub_queries = events_sub_query_builder.get_queries_for_session_id_matching()
-        for events_sub_query in events_sub_queries:
+        self._event_match_plan = events_sub_query_builder.get_session_id_match_plan(
+            allow_combined_filters=self._allow_combined_event_filters
+        )
+        for events_sub_query in self._event_match_plan.queries:
             optional_exprs.append(
                 ast.CompareOperation(
                     # this hits the distributed events table from the distributed session_replay_events table
@@ -757,7 +790,10 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                     )
                 )
 
+            # DISTINCT: this IN is promoted to GLOBAL IN, which ships the subquery's rows to every shard as
+            # a temporary table; without it each matching log line adds a duplicate session id.
             console_logs_subquery = ast.SelectQuery(
+                distinct=True,
                 select=[ast.Field(chain=["log_source_id"])],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["console_logs_log_entries"])),
                 where=ast.And(exprs=console_logs_where_exprs),

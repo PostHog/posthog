@@ -23,12 +23,10 @@ _RE_SLACK_ITALIC = re.compile(r"(?<!_)_([^_\n]+)_(?!_)")
 _RE_SLACK_STRIKE = re.compile(r"(?<!~)~([^~\n]+)~(?!~)")
 
 # Markdown patterns
-_RE_MD_IMAGE = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
 _RE_MD_BOLD_ITALIC = re.compile(r"\*\*\*(.+?)\*\*\*")
 _RE_MD_BOLD = re.compile(r"\*\*(.+?)\*\*")
 _RE_MD_ITALIC = re.compile(r"(?<!\*)\*([^*]+?)\*(?!\*)")
 _RE_MD_STRIKE = re.compile(r"~~(.+?)~~")
-_RE_MD_LINK = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 _RE_MD_MENTION = re.compile(r"@member:([a-f0-9-]+)")
 _RE_INLINE_MENTION = re.compile(r"@\[([^\][\n]+)\]\(([^\s()@]+@[^\s()@]+)\)")
 _RE_SINGLE_NEWLINE = re.compile(r"(?<!\n)\n(?!\n)")
@@ -188,6 +186,123 @@ def _markdown_breaks_to_mrkdwn(text: str) -> str:
     return "".join(parts)
 
 
+def _balanced_closers(text: str, opener: str, closer: str) -> dict[int, int]:
+    """Map the index of each ``opener`` in ``text`` to the index of the ``closer`` that balances it.
+
+    An opener that never closes gets no entry. A nested pair keeps the run open, because a
+    markdown link destination can hold balanced parentheses: a HogQL share link carries the whole
+    query in its fragment, so a scan that stops at the first ``)`` cuts the URL in half. One pass
+    serves every link, because a scan from each opener rereads the rest of the text at every
+    unclosed ``[`` or ``(`` and makes the conversion quadratic.
+    """
+    closers: dict[int, int] = {}
+    open_indices: list[int] = []
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if char == "\\":
+            index += 2
+            continue
+        if char == opener:
+            open_indices.append(index)
+        elif char == closer and open_indices:
+            closers[open_indices.pop()] = index
+        index += 1
+    return closers
+
+
+def _unbalanced_destination_closers(text: str) -> dict[int, int]:
+    """Map the index of each ``(`` to the first ``)`` that follows it with no whitespace between.
+
+    A destination that holds a lone ``(`` is not a CommonMark link, but the markdown serializer
+    writes an href without escapes, so an href such as ``https://example.com?q=foo(`` arrives here
+    unbalanced. Closing such a destination at the first ``)`` keeps the link clickable. A bare
+    CommonMark destination holds no whitespace, so the search stops at the first one, which keeps
+    a stray ``(`` from pulling the prose that follows into the URL.
+    """
+    closers: dict[int, int] = {}
+    waiting: list[int] = []
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if char == "\\":
+            index += 2
+            continue
+        if char == "(":
+            waiting.append(index)
+        elif char == ")":
+            for open_index in waiting:
+                closers[open_index] = index
+            waiting.clear()
+        elif char.isspace():
+            waiting.clear()
+        index += 1
+    return closers
+
+
+def _link_at(
+    text: str,
+    start: int,
+    *,
+    label_closers: dict[int, int],
+    destination_closers: dict[int, int],
+    images: bool,
+) -> tuple[str, int] | None:
+    """The mrkdwn for the markdown link that starts at ``start``, and the index after that link.
+
+    The label and the destination are read only after both delimiters are known. A run of nested
+    brackets gives every ``[`` a closer far to its right, so a slice taken before the destination
+    is checked copies the rest of the run at every opener and costs quadratic time.
+    """
+    label_start = start + 1 if images else start
+    label_end = label_closers.get(label_start)
+    if label_end is None:
+        return None
+    destination_start = label_end + 1
+    destination_end = destination_closers.get(destination_start)
+    if destination_end is None:
+        return None
+    # An empty destination, or a link with no label, stays as the author wrote it.
+    if destination_end == destination_start + 1 or (label_end == label_start + 1 and not images):
+        return None
+
+    label = text[label_start + 1 : label_end]
+    destination = text[destination_start + 1 : destination_end]
+    return f"<{destination}|{label}>", destination_end + 1
+
+
+def _markdown_links_to_mrkdwn(text: str, *, images: bool) -> str:
+    """Rewrite markdown ``[label](url)`` links, or ``![alt](url)`` images, into mrkdwn ``<url|label>``."""
+    marker = "!" if images else "["
+    label_closers = _balanced_closers(text, "[", "]")
+    # A balanced destination wins. The unbalanced map only fills the openers it leaves out.
+    destination_closers = _unbalanced_destination_closers(text) | _balanced_closers(text, "(", ")")
+    out: list[str] = []
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if char == "\\":
+            out.append(text[index : index + 2])
+            index += 2
+            continue
+        if char == marker:
+            link = _link_at(
+                text,
+                index,
+                label_closers=label_closers,
+                destination_closers=destination_closers,
+                images=images,
+            )
+            if link is not None:
+                mrkdwn, end = link
+                out.append(mrkdwn)
+                index = end
+                continue
+        out.append(char)
+        index += 1
+    return "".join(out)
+
+
 def content_to_slack_mrkdwn(
     content: str,
     organization_id: str | UUID | None = None,
@@ -228,7 +343,7 @@ def content_to_slack_mrkdwn(
 
     text = _RE_MD_ESCAPED_CHAR.sub(capture_escaped_char, text)
 
-    text = _RE_MD_IMAGE.sub(r"<\2|\1>", text)
+    text = _markdown_links_to_mrkdwn(text, images=True)
 
     bold_italic_matches: list[str] = []
 
@@ -260,7 +375,7 @@ def content_to_slack_mrkdwn(
         return f"@{name}"
 
     text = _RE_INLINE_MENTION.sub(render_inline_mention, text)
-    text = _RE_MD_LINK.sub(r"<\2|\1>", text)
+    text = _markdown_links_to_mrkdwn(text, images=False)
 
     for index, value in enumerate(bold_matches):
         text = text.replace(f"\x00B{index}\x00", f"*{value}*")

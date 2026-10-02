@@ -34,7 +34,7 @@ from posthog.permissions import is_service_auth
 from posthog.utils import convert_property_value, flatten
 
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
-from products.batch_exports.backend.facade.models import BatchExportRun
+from products.batch_exports.backend.facade import api as batch_exports_api
 from products.cdp.backend.facade.models import HogFunction, HogFunctionState, HogFunctionType
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
 from products.data_quality.backend.presentation.serializers import DataQualityGateConfigSerializer
@@ -63,6 +63,7 @@ from products.data_warehouse.backend.presentation.pipeline_stats import (
     PipelineErrorSerializer,
     PipelineJobStatsResponseSerializer,
     PipelineRowsStatsResponseSerializer,
+    RunningActivityQuerySerializer,
 )
 from products.managed_warehouse.backend.presentation import views as managed_warehouse
 from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
@@ -175,6 +176,12 @@ FAILED_EXTERNAL_JOB_STATUSES = [
 # this is one parameter rather than a second near-copy of the union query.
 ACTIVITY_OUTCOME_COMPLETED = "completed"
 ACTIVITY_OUTCOME_FAILED = "failed"
+ACTIVITY_OUTCOME_ALL = "all"
+
+ACTIVITY_KIND_ALL = "all"
+ACTIVITY_KIND_IMPORT = "import"
+ACTIVITY_KIND_MODEL = "model"
+ACTIVITY_KINDS = {ACTIVITY_KIND_ALL, ACTIVITY_KIND_IMPORT, ACTIVITY_KIND_MODEL}
 
 ACTIVITY_OUTCOME_STATUSES: dict[str, tuple[list[str], list[str]]] = {
     ACTIVITY_OUTCOME_COMPLETED: (
@@ -184,6 +191,12 @@ ACTIVITY_OUTCOME_STATUSES: dict[str, tuple[list[str], list[str]]] = {
     ACTIVITY_OUTCOME_FAILED: (
         list(FAILED_EXTERNAL_JOB_STATUSES),
         [DataModelingJob.Status.FAILED],
+    ),
+    # Every run that finished, however it finished. Running jobs are not here; they come
+    # from `running_activity`.
+    ACTIVITY_OUTCOME_ALL: (
+        [ExternalDataJobStatus.COMPLETED, *FAILED_EXTERNAL_JOB_STATUSES],
+        [DataModelingJob.Status.COMPLETED, DataModelingJob.Status.FAILED],
     ),
 }
 
@@ -453,10 +466,11 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return breakdown
 
     @extend_schema(
+        parameters=[RunningActivityQuerySerializer],
         responses={
             200: PipelineActivityResponseSerializer,
             500: OpenApiResponse(response=PipelineErrorSerializer, description="The activity query failed."),
-        }
+        },
     )
     @action(methods=["GET"], detail=False)
     def running_activity(self, request: Request, **kwargs) -> Response:
@@ -464,6 +478,13 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         Returns currently running activities (jobs with status 'Running').
         Supports pagination and cutoff time filtering.
         """
+        kind = request.GET.get("kind", ACTIVITY_KIND_ALL)
+        if kind not in ACTIVITY_KINDS:
+            supported = ", ".join(sorted(ACTIVITY_KINDS))
+            return Response(
+                {"error": f"Invalid kind parameter. Must be one of: {supported}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         DEFAULT_LIMIT = 20
         MAX_LIMIT = 50
         DEFAULT_CUTOFF_DAYS = 30
@@ -490,10 +511,10 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 cursor.execute(
                     """
                     WITH external_jobs AS (
-                        SELECT edj.id, edsrc.source_type as type, eds.name, edj.status,
+                        SELECT edj.id, edsrc.source_type as type, COALESCE(NULLIF(eds.label, ''), eds.name) as name, edj.status,
                                COALESCE(edj.rows_synced, 0) as rows, edj.created_at,
                                edj.finished_at, edj.latest_error, edj.workflow_run_id,
-                               null as origin
+                               null as origin, edj.pipeline_id as source_id
                         FROM posthog_externaldatajob edj
                         LEFT JOIN posthog_externaldataschema eds ON edj.schema_id = eds.id
                         LEFT JOIN posthog_externaldatasource edsrc ON eds.source_id = edsrc.id
@@ -505,15 +526,17 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         SELECT dmj.id, 'Materialized view' as type, dwsq.name, dmj.status,
                                COALESCE(dmj.rows_materialized, 0) as rows, dmj.created_at,
                                dmj.last_run_at as finished_at, dmj.error as latest_error, dmj.workflow_run_id,
-                               dwsq.origin as origin
+                               dwsq.origin as origin, null::uuid as source_id
                         FROM posthog_datamodelingjob dmj
                         LEFT JOIN posthog_datawarehousesavedquery dwsq ON dmj.saved_query_id = dwsq.id
                         WHERE dmj.team_id = %s AND dmj.status = 'Running' AND dmj.created_at >= %s
                           AND (dwsq.id IS NULL OR dwsq.id = ANY(%s::uuid[]))
                     )
                     SELECT * FROM external_jobs
+                    WHERE %s IN (%s, %s)
                     UNION ALL
                     SELECT * FROM modeling_jobs
+                    WHERE %s IN (%s, %s)
                     ORDER BY created_at DESC
                     LIMIT %s OFFSET %s
                 """,
@@ -525,6 +548,14 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         self.team_id,
                         cutoff_time,
                         saved_query_ids,
+                        # Placeholders bind in SQL text order, so both kind filters come after
+                        # every CTE parameter, not next to the CTE they read.
+                        kind,
+                        ACTIVITY_KIND_ALL,
+                        ACTIVITY_KIND_IMPORT,
+                        kind,
+                        ACTIVITY_KIND_ALL,
+                        ACTIVITY_KIND_MODEL,
                         limit + 1,
                         offset,
                     ],
@@ -581,6 +612,16 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 {"error": "Invalid limit, offset, or cutoff_days parameter"}, status=status.HTTP_400_BAD_REQUEST
             )
 
+        # Without this a caller that only wants imports has to over-fetch and drop the rest, and
+        # a team with enough view failures fills every page with them.
+        kind = request.GET.get("kind", ACTIVITY_KIND_ALL)
+        if kind not in ACTIVITY_KINDS:
+            supported = ", ".join(sorted(ACTIVITY_KINDS))
+            return Response(
+                {"error": f"Invalid kind parameter. Must be one of: {supported}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         outcome = request.GET.get("outcome", ACTIVITY_OUTCOME_COMPLETED)
         if outcome not in ACTIVITY_OUTCOME_STATUSES:
             supported = ", ".join(sorted(ACTIVITY_OUTCOME_STATUSES))
@@ -603,10 +644,10 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 cursor.execute(
                     """
                     WITH external_jobs AS (
-                        SELECT edj.id, edsrc.source_type as type, eds.name, edj.status,
+                        SELECT edj.id, edsrc.source_type as type, COALESCE(NULLIF(eds.label, ''), eds.name) as name, edj.status,
                                COALESCE(edj.rows_synced, 0) as rows, edj.created_at,
                                edj.finished_at, edj.latest_error, edj.workflow_run_id,
-                               null as origin
+                               null as origin, edj.pipeline_id as source_id
                         FROM posthog_externaldatajob edj
                         LEFT JOIN posthog_externaldataschema eds ON edj.schema_id = eds.id
                         LEFT JOIN posthog_externaldatasource edsrc ON eds.source_id = edsrc.id
@@ -618,15 +659,17 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         SELECT dmj.id, 'Materialized view' as type, dwsq.name, dmj.status,
                                COALESCE(dmj.rows_materialized, 0) as rows, dmj.created_at,
                                dmj.last_run_at as finished_at, dmj.error as latest_error, dmj.workflow_run_id,
-                               dwsq.origin
+                               dwsq.origin, null::uuid as source_id
                         FROM posthog_datamodelingjob dmj
                         LEFT JOIN posthog_datawarehousesavedquery dwsq ON dmj.saved_query_id = dwsq.id
                         WHERE dmj.team_id = %s AND dmj.status = ANY(%s) AND dmj.created_at >= %s
                           AND (dwsq.id IS NULL OR dwsq.id = ANY(%s::uuid[]))
                     )
                     SELECT * FROM external_jobs
+                    WHERE %s IN (%s, %s)
                     UNION ALL
                     SELECT * FROM modeling_jobs
+                    WHERE %s IN (%s, %s)
                     ORDER BY created_at DESC
                     LIMIT %s OFFSET %s
                 """,
@@ -640,6 +683,14 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         modeling_statuses,
                         cutoff_time,
                         saved_query_ids,
+                        # Placeholders bind in SQL text order, so both kind filters come after
+                        # every CTE parameter, not next to the CTE they read.
+                        kind,
+                        ACTIVITY_KIND_ALL,
+                        ACTIVITY_KIND_IMPORT,
+                        kind,
+                        ACTIVITY_KIND_ALL,
+                        ACTIVITY_KIND_MODEL,
                         limit + 1,
                         offset,
                     ],
@@ -658,9 +709,9 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         next_url = None
         prev_url = None
         if has_more:
-            next_url = f"?limit={limit}&offset={offset + limit}&cutoff_days={cutoff_days}&outcome={outcome}"
+            next_url = f"?limit={limit}&offset={offset + limit}&cutoff_days={cutoff_days}&outcome={outcome}&kind={kind}"
         if offset > 0:
-            prev_url = f"?limit={limit}&offset={max(0, offset - limit)}&cutoff_days={cutoff_days}&outcome={outcome}"
+            prev_url = f"?limit={limit}&offset={max(0, offset - limit)}&cutoff_days={cutoff_days}&outcome={outcome}&kind={kind}"
 
         return Response(
             {
@@ -906,11 +957,15 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 results.append(
                     {
                         "id": str(schema.id),
-                        "name": schema.name,
+                        # A Slack schema's name is the raw channel id; `label` is the human one.
+                        "name": schema.label or schema.name,
                         "type": "external_data_sync",
                         "source_type": schema.source.source_type if schema.source else None,
                         "status": sync_status,
                         "error": schema.latest_error,
+                        # A webhook table is pushed to, never pulled on a schedule, so a surface
+                        # about scheduled imports can drop it rather than call it stopped.
+                        "sync_type": schema.sync_type,
                         "failed_at": schema.last_synced_at.isoformat() if schema.last_synced_at else None,
                         # The source scene keys on a prefixed id, so a bare UUID renders a
                         # broken page. Every ExternalDataSource uses the `managed-` prefix,
@@ -936,41 +991,16 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     }
                 )
 
-            # Get failed batch exports
-            # get latest run per export, then filter for failures
-            # Exclude paused exports since their last failure is no longer actionable
-            latest_run_ids = (
-                BatchExportRun.objects.filter(
-                    batch_export__team_id=self.team_id,
-                    batch_export__deleted=False,
-                    batch_export__paused=False,
-                )
-                .order_by("batch_export_id", "-created_at")
-                .distinct("batch_export_id")
-                .values_list("id", flat=True)
-            )
-
-            # nosemgrep: idor-lookup-without-team (IDs from team-scoped queryset)
-            failed_runs = BatchExportRun.objects.filter(
-                id__in=latest_run_ids,
-                status__in=[
-                    BatchExportRun.Status.FAILED,
-                    BatchExportRun.Status.FAILED_RETRYABLE,
-                    BatchExportRun.Status.TIMEDOUT,
-                    BatchExportRun.Status.TERMINATED,
-                ],
-            ).select_related("batch_export")
-
-            for run in failed_runs:
+            for failed_run in batch_exports_api.list_latest_failed_runs(self.team_id):
                 results.append(
                     {
-                        "id": str(run.parent.id),
-                        "name": getattr(run.parent, "name", "Batch export on demand"),
+                        "id": str(failed_run.export_id),
+                        "name": failed_run.export_name,
                         "type": "destination",
                         "status": "failed",
-                        "error": run.latest_error,
-                        "failed_at": run.finished_at.isoformat() if run.finished_at else None,
-                        "url": f"/pipeline/batch-exports/{run.parent.id}",
+                        "error": failed_run.error,
+                        "failed_at": failed_run.failed_at.isoformat() if failed_run.failed_at else None,
+                        "url": f"/pipeline/batch-exports/{failed_run.export_id}",
                     }
                 )
 

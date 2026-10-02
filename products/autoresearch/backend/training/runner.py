@@ -35,8 +35,8 @@ from posthog.hogql.property import action_to_expr
 from posthog.dataclasses import frozen
 
 from products.actions.backend.models.action import Action
-from products.autoresearch.backend.dataset.labeling import build_target_condition
-from products.autoresearch.backend.inference.sandbox import _resolve_acting_user
+from products.autoresearch.backend.dataset.labeling import TrainingSample, build_target_condition
+from products.autoresearch.backend.inference.sandbox import _resolve_acting_user, measure_training_sample
 from products.autoresearch.backend.models import AutoresearchPipeline, AutoresearchSuggestion, AutoresearchTrainingRun
 from products.tasks.backend.facade import (
     api as tasks_facade,
@@ -68,9 +68,10 @@ MAX_SUGGESTION_PROMPT_CHARS = 1500
 MAX_PENDING_SUGGESTIONS = 10
 
 # The agent explores with execute-sql (query:read, insight:read) and writes only through
-# the autoresearch tools. The brief carries user-authored text, so the token grants
-# nothing beyond that.
-TRAINING_MCP_SCOPES = ["query:read", "insight:read", "autoresearch:read", "autoresearch:write"]
+# the autoresearch tools. The PostHog MCP server reads /api/users/@me/ to start a session,
+# so without user:read it refuses the connection and the agent gets none of those tools.
+# The brief carries user-authored text, so the token grants nothing beyond that.
+TRAINING_MCP_SCOPES = ["query:read", "insight:read", "user:read", "autoresearch:read", "autoresearch:write"]
 
 # Task.title is a 255-character column, and a pipeline name and target event can each
 # take all of it.
@@ -123,11 +124,29 @@ def _describe_target(pipeline: AutoresearchPipeline) -> _TargetDescription:
     return _TargetDescription(spec_line=f"event `{wrapped_event}`", inline_ref=f"`{wrapped_event}`")
 
 
+def _describe_training_sample(sample: TrainingSample | None) -> str:
+    """The brief's training sample bullets: sample size, positive count, and negative sample rate."""
+    if sample is None:
+        return ""
+    clause = (
+        f"\n- **Training sample**: about {sample.expected_size} people, {sample.positives} of them positive"
+        f"\n- **Negative sample rate (r)**: {sample.negative_sample_rate:.4g}"
+    )
+    if sample.negative_sample_rate < 1.0:
+        clause += (
+            f" — the population has {sample.population} people, so the framework keeps every positive and"
+            " this fraction of the negatives. Holdout AUC is not affected. Do not reweight classes to undo it:"
+            " scoring corrects each score with logit(p) + log(r)."
+        )
+    return clause
+
+
 def build_agent_description(
     pipeline: AutoresearchPipeline,
     iteration_budget: int,
     training_run_id: str,
     pending_suggestions: list[AutoresearchSuggestion] | None = None,
+    training_sample: TrainingSample | None = None,
 ) -> str:
     """Build the Claude Code agent prompt for the autoresearch training loop."""
     pop_clause = ""
@@ -149,6 +168,8 @@ def build_agent_description(
             f"\n- **Early stop**: once you have met the minimum iterations below, stop and complete the run "
             f"when {' or when '.join(stop_parts)}."
         )
+
+    sample_clause = _describe_training_sample(training_sample)
 
     today_iso = date.today().isoformat()
     min_iters = min(3, iteration_budget)
@@ -179,7 +200,7 @@ def build_agent_description(
         - **Target**: {target.spec_line}
         - **Prediction horizon**: {pipeline.horizon_days} days
         - **Output person property**: `{_wrap_untrusted(pipeline.output_person_property)}`
-        - **Iteration budget**: {iteration_budget}{stop_clause}{pop_clause}
+        - **Iteration budget**: {iteration_budget}{stop_clause}{pop_clause}{sample_clause}
         - **Today's date**: {today_iso}
 
         ## Identifiers for every tool call
@@ -571,6 +592,18 @@ def _cancel_dispatched_task_run(task_run_id: UUID, task_id: UUID, *, team_id: in
 # ── Main entry point ──────────────────────────────────────────────────────────
 
 
+def _training_sample_for_brief(pipeline: AutoresearchPipeline) -> TrainingSample | None:
+    """
+    The training sample, for the brief only. Materialization measures it again, so a count that
+    fails here leaves the bullets out rather than failing the launch.
+    """
+    try:
+        return measure_training_sample(team=pipeline.team, pipeline=pipeline)
+    except Exception:
+        logger.warning("autoresearch_training_sample_unmeasured", pipeline_id=str(pipeline.pk), exc_info=True)
+        return None
+
+
 def run_training(
     pipeline: AutoresearchPipeline,
     iteration_budget: int,
@@ -628,6 +661,7 @@ def run_training(
             iteration_budget=iteration_budget,
             training_run_id=str(training_run.id),
             pending_suggestions=pending_suggestions or None,
+            training_sample=_training_sample_for_brief(pipeline),
         )
 
         title = f"[autoresearch] {pipeline.name}: learn to predict '{pipeline.target_event}'"
