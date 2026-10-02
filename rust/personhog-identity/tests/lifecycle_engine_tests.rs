@@ -451,7 +451,7 @@ async fn lease_is_live(pool: &PgPool, op_id: Uuid) -> bool {
 
 /// Driver whose first step gets its lease stolen mid-run. `fail_after_steal`
 /// picks the exit: Err exercises the engine's release path, Ok without
-/// advancing (a lost CAS) exercises the renew path.
+/// advancing (a lost CAS) exercises the attempt check on the reloaded row.
 struct StolenLeaseDriver {
     steps_run: AtomicUsize,
     fail_after_steal: bool,
@@ -917,8 +917,7 @@ fn database_conflicts_classify_as_retriable() {
 
 /// Driver whose first attempts lose a deadlock; every later attempt
 /// behaves like [`DummyDriver`]. Failing more than once exercises the
-/// repeated backoff-and-renew passes of the retry loop, not just the
-/// first.
+/// repeated backoff passes of the retry loop, not just the first.
 struct DeadlockingDriver {
     inner: DummyDriver,
     fail_first: usize,

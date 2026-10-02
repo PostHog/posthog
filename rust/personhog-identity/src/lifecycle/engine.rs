@@ -41,6 +41,7 @@ const STEP_FAILURES_TOTAL: &str = "personhog_lifecycle_step_failures_total";
 const OPS_PARKED_TOTAL: &str = "personhog_lifecycle_ops_parked_total";
 const OPS_PARKED: &str = "personhog_lifecycle_ops_parked";
 const STEP_DURATION_MS: &str = "personhog_lifecycle_step_duration_ms";
+const LEASES_LOST_TOTAL: &str = "personhog_lifecycle_leases_lost_total";
 
 /// How many abandoned ops one sweep pass will pick up.
 const SWEEP_BATCH_SIZE: i64 = 100;
@@ -214,6 +215,26 @@ pub struct Engine {
     pools: IdentityPools,
     config: EngineConfig,
     tables: IdentityTables,
+}
+
+/// Records a driver displaced from its op. Another driver can then repeat
+/// the step this one was on, so a climb for one step shows which step outlives
+/// the lease left at its start.
+fn lease_lost(row: &OpRow) {
+    tracing::warn!(
+        op_id = %row.op_id,
+        op_type = %row.op_type,
+        step = %row.step,
+        "lifecycle op driver lost its lease; going back to claiming"
+    );
+    common_metrics::inc(
+        LEASES_LOST_TOTAL,
+        &[
+            ("op_type".to_string(), row.op_type.clone()),
+            ("step".to_string(), row.step.clone()),
+        ],
+        1,
+    );
 }
 
 impl Engine {
@@ -408,6 +429,7 @@ impl Engine {
                     // shows a stolen lease without a write. Go back to
                     // claiming instead of running a step we would lose.
                     if row.attempt != attempt {
+                        lease_lost(&row);
                         claim_attempt = None;
                         continue;
                     }
@@ -417,6 +439,7 @@ impl Engine {
                     if lease_set_at.elapsed() >= self.config.lease / 3 {
                         let sent = tokio::time::Instant::now();
                         if !self.renew_lease(op_id, attempt).await? {
+                            lease_lost(&row);
                             claim_attempt = None;
                             continue;
                         }
