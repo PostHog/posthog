@@ -39,6 +39,10 @@ export interface AnnotationsOverlayLogicProps extends Omit<InsightLogicProps, 'd
      *  would share the same kea instance and the second mount's `dates`/`ticks` would
      *  overwrite the first. */
     kind?: string
+    /** Interval for charts outside an insight, which have no insight interval to read. Such charts
+     *  can use buckets that span several units (e.g. 10-second log buckets), so badge positions
+     *  come from the bucket timestamps. */
+    interval?: IntervalType
 }
 
 /** Week/month charts bucket annotations by day so distinct dates don't collapse into one badge. */
@@ -48,6 +52,19 @@ export function getGroupingUnit(intervalUnit: IntervalType): IntervalType {
 
 export function determineAnnotationsDateGroup(date: Dayjs, intervalUnit: IntervalType): string {
     return date.startOf(getGroupingUnit(intervalUnit)).format('YYYY-MM-DD HH:mm:ssZZ')
+}
+
+/** Fractional index of `timestampMs` among ascending bucket start times, or -1 before the first bucket. */
+function bucketDataIndex(timestampMs: number, bucketStartsMs: number[]): number {
+    let index = -1
+    while (index + 1 < bucketStartsMs.length && bucketStartsMs[index + 1] <= timestampMs) {
+        index++
+    }
+    if (index === -1 || index === bucketStartsMs.length - 1) {
+        return index
+    }
+    const bucketSpanMs = bucketStartsMs[index + 1] - bucketStartsMs[index]
+    return index + (timestampMs - bucketStartsMs[index]) / bucketSpanMs
 }
 
 function hasPersonPropertyFiltersOrBreakdown(
@@ -94,6 +111,7 @@ export interface annotationsOverlayLogicValues {
         dateKey: string
     }>
     annotationsOverlayProps: AnnotationsOverlayLogicProps
+    bucketStartsMs: number[] | null
     dateRange: [Dayjs, Dayjs] | null
     groupedAnnotations: Record<number | string, DatedAnnotationType[]>
     groupingUnit: IntervalType
@@ -143,7 +161,10 @@ export interface annotationsOverlayLogicMeta {
     key: number | string
     __keaTypeGenInternalSelectorTypes: {
         annotationsOverlayProps: (arg: any) => AnnotationsOverlayLogicProps
-        intervalUnit: (interval: IntervalType | null | undefined) => IntervalType
+        intervalUnit: (
+            interval: IntervalType | null | undefined,
+            intervalOverride: IntervalType | undefined
+        ) => IntervalType
         groupingUnit: (intervalUnit: IntervalType) => IntervalType
         tickPositions: (
             ticks: {
@@ -151,7 +172,13 @@ export interface annotationsOverlayLogicMeta {
             }[]
         ) => number[]
         tickDates: (timezone: string, arg: string[], tickPositions: number[]) => Dayjs[]
-        dateRange: (timezone: string, arg: string[], intervalUnit: IntervalType) => [Dayjs, Dayjs] | null
+        bucketStartsMs: (timezone: string, arg: string[], intervalOverride: IntervalType | undefined) => number[] | null
+        dateRange: (
+            timezone: string,
+            arg: string[],
+            intervalUnit: IntervalType,
+            bucketStartsMs: number[] | null
+        ) => [Dayjs, Dayjs] | null
         relevantAnnotations: (
             annotations: AnnotationType[],
             dateRange: [Dayjs, Dayjs] | null,
@@ -172,7 +199,8 @@ export interface annotationsOverlayLogicMeta {
             groupedAnnotations: Record<number | string, DatedAnnotationType[]>,
             intervalUnit: IntervalType,
             timezone: string,
-            arg: string[]
+            arg: string[],
+            bucketStartsMs: number[] | null
         ) => Array<{
             dataIndex: number
             date: Dayjs
@@ -252,7 +280,11 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
             () => [(_, props) => props],
             (props: AnnotationsOverlayLogicProps): AnnotationsOverlayLogicProps => props,
         ],
-        intervalUnit: [(s) => [s.interval], (interval: IntervalType | null | undefined) => interval || 'day'],
+        intervalUnit: [
+            (s) => [s.interval, (_, props: AnnotationsOverlayLogicProps) => props.interval],
+            (interval: IntervalType | null | undefined, intervalOverride: IntervalType | undefined): IntervalType =>
+                intervalOverride || interval || 'day',
+        ],
         groupingUnit: [
             (s) => [s.intervalUnit],
             (intervalUnit: IntervalType): IntervalType => getGroupingUnit(intervalUnit),
@@ -270,15 +302,39 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
             (timezone: string, dates: string[], tickPositions: number[]): Dayjs[] =>
                 tickPositions.map((dateIndex) => parseDateInTimezone(dates[dateIndex], timezone)),
         ],
+        bucketStartsMs: [
+            (s) => [
+                s.timezone,
+                (_, props: AnnotationsOverlayLogicProps) => props.dates,
+                (_, props: AnnotationsOverlayLogicProps) => props.interval,
+            ],
+            (timezone: string, dates: string[], intervalOverride: IntervalType | undefined): number[] | null =>
+                intervalOverride ? dates.map((date) => parseDateInTimezone(date, timezone).valueOf()) : null,
+        ],
         dateRange: [
-            (s) => [s.timezone, (_, props: AnnotationsOverlayLogicProps) => props.dates, s.intervalUnit],
-            (timezone: string, dates: string[], intervalUnit: IntervalType): [Dayjs, Dayjs] | null => {
+            (s) => [
+                s.timezone,
+                (_, props: AnnotationsOverlayLogicProps) => props.dates,
+                s.intervalUnit,
+                s.bucketStartsMs,
+            ],
+            (
+                timezone: string,
+                dates: string[],
+                intervalUnit: IntervalType,
+                bucketStartsMs: number[] | null
+            ): [Dayjs, Dayjs] | null => {
                 if (dates.length === 0) {
                     return null
                 }
                 const first = parseDateInTimezone(dates[0], timezone)
-                const last = parseDateInTimezone(dates[dates.length - 1], timezone).add(1, intervalUnit)
-                return [first, last]
+                const lastStart = parseDateInTimezone(dates[dates.length - 1], timezone)
+                if (bucketStartsMs && bucketStartsMs.length > 1) {
+                    const lastBucketMs =
+                        bucketStartsMs[bucketStartsMs.length - 1] - bucketStartsMs[bucketStartsMs.length - 2]
+                    return [first, lastStart.add(lastBucketMs, 'millisecond')]
+                }
+                return [first, lastStart.add(1, intervalUnit)]
             },
         ],
         relevantAnnotations: [
@@ -388,15 +444,26 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                 s.intervalUnit,
                 s.timezone,
                 (_, props: AnnotationsOverlayLogicProps) => props.dates,
+                s.bucketStartsMs,
             ],
             (
                 groupedAnnotations: Record<number | string, DatedAnnotationType[]>,
                 intervalUnit: IntervalType,
                 timezone: string,
-                dates: string[]
+                dates: string[],
+                bucketStartsMs: number[] | null
             ): Array<{ dateKey: string; date: Dayjs; dataIndex: number }> => {
                 if (dates.length === 0) {
                     return []
+                }
+                if (bucketStartsMs) {
+                    return Object.entries(groupedAnnotations)
+                        .map(([dateKey, annotations]) => {
+                            const date = annotations[0].date_marker.startOf(getGroupingUnit(intervalUnit))
+                            return { dateKey, date, dataIndex: bucketDataIndex(date.valueOf(), bucketStartsMs) }
+                        })
+                        .filter(({ dataIndex }) => dataIndex >= 0)
+                        .sort((a, b) => a.dataIndex - b.dataIndex)
                 }
                 // Don't startOf(intervalUnit) here — dayjs uses Sunday-start weeks, which would
                 // drift Monday-aligned dates backward and bias every fractional index by 1/7.
