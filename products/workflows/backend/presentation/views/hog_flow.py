@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from django.conf import settings
 from django.core.cache import cache
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
-from django.db import IntegrityError, models, transaction
+from django.db import models, transaction
 from django.db.models import Q, QuerySet
 from django.db.models.expressions import RawSQL
 from django.http import Http404, HttpResponse
@@ -128,10 +128,12 @@ from products.workflows.backend.facade.blast_radius import (
 from products.workflows.backend.facade.contracts import (
     EmailDesignRenderFailed,
     EmailDesignRenderingNotConfigured,
+    LiveWorkflowContent,
     StaffPausedError,
     WorkflowBatchJobNotFound,
     WorkflowDraftChanged,
     WorkflowDraftExists,
+    WorkflowProposalRecord,
     WorkflowRevisionNotFound,
     WorkflowRevisionSummary,
     WorkflowScheduleNotFound,
@@ -151,11 +153,25 @@ from products.workflows.backend.facade.email_health import (
     resume_email_sending,
     team_email_sending_allowance,
 )
-from products.workflows.backend.facade.enums import HogFlowBatchJobState, HogFlowScheduleStatus
+from products.workflows.backend.facade.enums import HogFlowBatchJobState, HogFlowScheduleStatus, WorkflowProposalStatus
 from products.workflows.backend.facade.message_assets import fetch_message_asset_html, fetch_message_assets
 from products.workflows.backend.facade.proposals import (
+    PROPOSAL_MERGE_BY_ID_FIELDS,
+    PROPOSAL_WHOLE_LIST_FIELDS,
     UNAVAILABLE_GUARDRAILS,
+    _item_id,
+    base_content_of,
+    conflicting_parts,
+    count_proposals,
+    create_proposal,
+    describe_steps,
+    get_proposal,
+    get_proposal_by_source_id,
     is_optimization_enabled,
+    list_proposals,
+    lock_proposal,
+    proposal_changes,
+    resolve_proposal,
     set_optimization_enabled,
     unstage_workflow_proposals,
     version_outcome,
@@ -375,6 +391,10 @@ def snapshot_flow_content(flow: HogFlow) -> dict:
     # secret inputs in `actions`, and this snapshot feeds revision content — which must never carry
     # secrets. New rows are already stripped, so this is a no-op for them.
     return strip_content_secrets(snapshot)
+
+
+def live_flow_content(flow: HogFlow) -> LiveWorkflowContent:
+    return LiveWorkflowContent(hog_flow_id=flow.pk, version=flow.version, content=snapshot_flow_content(flow))
 
 
 def existing_secret_map(instance: "HogFlow", template_cache: Optional[TemplateCache] = None) -> dict[str, dict]:
@@ -3528,13 +3548,6 @@ SELF_OPTIMISING_FEATURE_FLAG = "self-optimising-workflows"
 # `trigger` and `abort_action` are read-only on the workflow serializer, so publish would drop them.
 PROPOSAL_CONTENT_FIELDS = tuple(field for field in DRAFT_CONTENT_FIELDS if field not in ("trigger", "abort_action"))
 
-
-# Fields a proposal replaces wholesale. `actions` merges per step instead, since steps carry stable
-# ids; edges have no id, and a variable list is short enough to carry whole.
-PROPOSAL_WHOLE_LIST_FIELDS = ("edges", "variables")
-
-PROPOSAL_MERGE_BY_ID_FIELDS = ("actions",)
-
 # Their items reach helpers that read each item as a mapping, so anything else has to fail here as a 400.
 PROPOSAL_LIST_OF_OBJECT_FIELDS = ("actions", "edges", "variables")
 
@@ -3586,46 +3599,59 @@ class HogFlowOptimizationSerializer(serializers.Serializer):
     )
 
 
-class WorkflowProposalSerializer(serializers.ModelSerializer):
-    resolved_by = UserBasicSerializer(read_only=True, allow_null=True)
+class WorkflowProposalSerializer(serializers.Serializer):
+    # Needs the workflow in context as "hog_flow", to tell whether the proposal is stale.
+    id = serializers.UUIDField(read_only=True)
+    title = serializers.CharField(read_only=True, help_text="Short summary of the proposed change.")
+    rationale = serializers.CharField(read_only=True, help_text="Why the producer thinks this change is worth making.")
     content = WorkflowProposalContentField(read_only=True)
     evidence = WorkflowProposalEvidenceField(read_only=True)
+    step_id = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "The workflow step this is about. Set for a change to one step: the evidence and the "
+            "outcome then read that step's metrics, so a change to one email in a sequence is not "
+            "measured against the rest. Null only for a change that spans the workflow, such as its "
+            "exit condition or a step being taken out, which is measured on the workflow's own numbers."
+        ),
+    )
+    base_version = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "Live workflow version this was authored against. Approving compares the steps and fields "
+            "this changes against that version to tell whether somebody else already changed them."
+        ),
+    )
     is_stale = serializers.SerializerMethodField(
         help_text=(
             "Whether approving this would undo an edit made since it was proposed. False while the "
             "workflow only changed elsewhere, because approving merges per step."
         )
     )
-
-    class Meta:
-        model = WorkflowProposal
-        fields = [
-            "id",
-            "title",
-            "rationale",
-            "content",
-            "evidence",
-            "step_id",
-            "base_version",
-            "is_stale",
-            "status",
-            "source_id",
-            "created_at",
-            "resolved_at",
-            "resolved_by",
-            "applied_version",
-        ]
-        read_only_fields = fields
+    status = serializers.ChoiceField(choices=WorkflowProposalStatus.choices, read_only=True)
+    source_id = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Stable id of the producing agent run or finding, e.g. 'run:<run id>:finding:<finding id>'.",
+    )
+    created_at = serializers.DateTimeField(read_only=True)
+    resolved_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    resolved_by = UserBasicSerializer(read_only=True, allow_null=True)
+    applied_version = serializers.IntegerField(
+        read_only=True, allow_null=True, help_text="Workflow version the approved change went live as."
+    )
 
     @extend_schema_field(serializers.BooleanField)
-    def get_is_stale(self, proposal: WorkflowProposal) -> bool:
-        if (proposal.hog_flow.version or 0) <= proposal.base_version:
+    def get_is_stale(self, proposal: WorkflowProposalRecord) -> bool:
+        hog_flow = self.context["hog_flow"]
+        if (hog_flow.version or 0) <= proposal.base_version:
             return False
         # One revision read per base version, shared across the page.
         cache = self.context.setdefault("proposal_conflicts", {})
-        key = (proposal.hog_flow_id, proposal.base_version, json.dumps(proposal.content, sort_keys=True))
+        key = (hog_flow.pk, proposal.base_version, json.dumps(proposal.content, sort_keys=True))
         if key not in cache:
-            cache[key] = conflicting_parts(proposal.hog_flow, proposal)
+            cache[key] = conflicting_parts(live_flow_content(hog_flow), proposal)
         return bool(cache[key])
 
 
@@ -3881,10 +3907,6 @@ def _merge_by_id(live_items: list, changed_items: list) -> list:
     return merged
 
 
-def _item_id(item: Any) -> Any:
-    return item.get("id") if isinstance(item, dict) else None
-
-
 def _validate_merge_keys(field: str, items: Any) -> None:
     """Merging is keyed on `id`, so a missing or repeated one has no defined meaning. Reject it here
     rather than picking a winner and staging a draft the author did not write."""
@@ -3900,136 +3922,6 @@ def _validate_merge_keys(field: str, items: Any) -> None:
         if item_id in seen:
             raise exceptions.ValidationError(f"`{field}` names `{item_id}` twice.")
         seen.add(item_id)
-
-
-def describe_steps(hog_flow: HogFlow, step_ids: list[str]) -> list[str]:
-    """Step names for a person to read. A step deleted since has no name left, so it keeps its id."""
-    names = {_item_id(item): item.get("name") for item in snapshot_flow_content(hog_flow).get("actions") or []}
-    return [names.get(step_id) or step_id for step_id in step_ids]
-
-
-def conflicting_parts(hog_flow: HogFlow, proposal: WorkflowProposal, content: Optional[dict] = None) -> list[str]:
-    """Parts of the workflow the proposal changes that someone else already changed since it was
-    written: step ids for `actions`, field names for everything else.
-
-    The check follows merge semantics. A step merges per field, so only the fields the proposal sets
-    on the steps it names are compared, as they were at `base_version` against as they are now. A
-    whole-list field replaces the list, so any publish since counts. Every other field replaces one
-    value, so that value is compared. An edit elsewhere merges cleanly, and an edit that already made
-    the proposed change is nothing to undo, so neither is a reason to refuse."""
-    if hog_flow.version == proposal.base_version:
-        return []
-    base_content = base_content_of(hog_flow, proposal)
-    content = proposal_changes(proposal, base_content) if content is None else content
-    touched_steps = {_item_id(item) for item in content.get("actions") or []} - {None}
-    touched_lists = [field for field in PROPOSAL_WHOLE_LIST_FIELDS if field in content]
-    touched_fields = [
-        field
-        for field in content
-        if field not in PROPOSAL_MERGE_BY_ID_FIELDS and field not in PROPOSAL_WHOLE_LIST_FIELDS
-    ]
-    if touched_lists:
-        # A whole-list field replaces the list, so any publish since counts.
-        return sorted({*touched_steps, *touched_lists, *touched_fields})
-    if base_content is None:
-        # Without the snapshot the proposal read, "changed since" is unanswerable.
-        return sorted({*touched_steps, *touched_fields})
-    live_content = snapshot_flow_content(hog_flow)
-    base_actions = {_item_id(item): item for item in base_content.get("actions") or []}
-    live_actions = {_item_id(item): item for item in live_content.get("actions") or []}
-    proposed_actions = {_item_id(item): item for item in content.get("actions") or []}
-    moved_steps = [
-        step_id
-        for step_id in touched_steps
-        # A step the proposal adds is only a conflict if that id now exists.
-        if not (step_id not in base_actions and step_id not in live_actions)
-        and _moved_since(base_actions.get(step_id), live_actions.get(step_id), proposed_actions[step_id])
-    ]
-    moved_fields = [
-        field
-        for field in touched_fields
-        # These replace the whole value, so a key the proposal does not name still goes with it.
-        if base_content.get(field) != live_content.get(field) and live_content.get(field) != content[field]
-    ]
-    return sorted({*moved_steps, *moved_fields})
-
-
-def base_content_of(hog_flow: HogFlow, proposal: WorkflowProposal) -> dict | None:
-    """The workflow as the proposal read it. That is the live workflow while its version has not
-    moved; after a publish it is the revision snapshot, which a workflow that has never been
-    published under revision tracking may not have."""
-    if hog_flow.version == proposal.base_version:
-        return snapshot_flow_content(hog_flow)
-    revision = HogFlowRevision.objects.filter(hog_flow=hog_flow, version=proposal.base_version).first()
-    return dict(revision.content) if revision is not None else None
-
-
-def proposal_changes(proposal: WorkflowProposal, base_content: dict | None) -> dict:
-    """The proposal's content reduced to what it changes against the workflow as it read it: a
-    step keeps only the fields that read differently there, and a step that reads the same drops
-    out. A producer that sends a whole step therefore still merges as the one-field change it made,
-    and never writes the rest of that step back over a later edit. Without the snapshot the content
-    stands as sent."""
-    content = dict(proposal.content)
-    if base_content is None or "actions" not in content:
-        return content
-    base_steps = {_item_id(item): item for item in base_content.get("actions") or []}
-    changed_steps = []
-    for item in content.get("actions") or []:
-        base_step = base_steps.get(_item_id(item))
-        if not isinstance(item, dict) or base_step is None:
-            changed_steps.append(item)
-            continue
-        changed = _changed_leaves(base_step, {key: value for key, value in item.items() if key != "id"})
-        if changed is not _ABSENT:
-            changed_steps.append({"id": item["id"], **changed})
-    content["actions"] = changed_steps
-    return content
-
-
-_ABSENT = object()
-
-
-def _changed_leaves(base: Any, patch: Any) -> Any:
-    """`patch` without every leaf that already reads the same in `base`, read the way `_deep_merge`
-    writes it; `_ABSENT` when nothing is left."""
-    if isinstance(patch, dict) and isinstance(base, dict):
-        kept = {}
-        for key, value in patch.items():
-            changed = _changed_leaves(base.get(key), value)
-            if changed is not _ABSENT:
-                kept[key] = changed
-        return kept if kept else _ABSENT
-    if patch is None:
-        return _ABSENT if base is None else None
-    return _ABSENT if patch == base else patch
-
-
-def _moved_since(base: Any, live: Any, proposed: Any) -> bool:
-    """Whether someone changed, since `base`, something the proposal sets, and to a value other than
-    the proposed one. Reads the patch the way `_deep_merge` writes it: a dict compares leaf by leaf,
-    anything else as one value."""
-    if not isinstance(proposed, dict) or base is None or live is None:
-        return base != live and live != proposed
-    return any(
-        _leaf(live, path) != _leaf(base, path) and _leaf(live, path) != _leaf(proposed, path)
-        for path in _patch_paths(proposed)
-    )
-
-
-def _patch_paths(patch: Any, prefix: tuple[str, ...] = ()) -> list[tuple[str, ...]]:
-    if not isinstance(patch, dict) or not patch:
-        return [prefix]
-    return [path for key, value in patch.items() for path in _patch_paths(value, (*prefix, key))]
-
-
-def _leaf(item: Any, path: tuple[str, ...]) -> Any:
-    for key in path:
-        if not isinstance(item, dict) or key not in item:
-            return _ABSENT
-        item = item[key]
-    # A null leaf in a patch deletes the key, so it reads as the key being absent.
-    return _ABSENT if item is None else item
 
 
 class CommaSeparatedListFilter(BaseInFilter, CharFilter):
@@ -4141,6 +4033,21 @@ class _RevisionPages:
 
     def __getitem__(self, page: slice) -> list[WorkflowRevisionSummary]:
         return list_revisions(self.hog_flow_id, offset=page.start or 0, limit=page.stop - (page.start or 0))
+
+
+class _ProposalPages:
+    """Lets LimitOffsetPagination page proposals in the database, as it did over a queryset."""
+
+    def __init__(self, hog_flow_id: uuid_mod.UUID, status: Optional[str]) -> None:
+        self.hog_flow_id = hog_flow_id
+        self.status = status
+
+    def count(self) -> int:
+        return count_proposals(hog_flow_id=self.hog_flow_id, status=self.status)
+
+    def __getitem__(self, page: slice) -> list[WorkflowProposalRecord]:
+        offset = page.start or 0
+        return list_proposals(hog_flow_id=self.hog_flow_id, status=self.status, offset=offset, limit=page.stop - offset)
 
 
 class HogFlowPagination(LimitOffsetPagination):
@@ -5464,7 +5371,7 @@ class HogFlowViewSet(
                 "status",
                 OpenApiTypes.STR,
                 description="Only return proposals in this status (suggested, approved, rejected, applied).",
-                enum=[choice.value for choice in WorkflowProposal.Status],
+                enum=[choice.value for choice in WorkflowProposalStatus],
             )
         ],
         responses={200: WorkflowProposalSerializer(many=True)},
@@ -5485,19 +5392,14 @@ class HogFlowViewSet(
         # DRF routes HEAD to the GET handler, and the scope gate reads it as a read.
         if request.method in ("GET", "HEAD"):
             requested_status = request.query_params.get("status")
-            if requested_status and requested_status not in WorkflowProposal.Status.values:
+            if requested_status and requested_status not in WorkflowProposalStatus.values:
                 raise exceptions.ValidationError(
-                    {"status": f"Must be one of: {', '.join(WorkflowProposal.Status.values)}."}
+                    {"status": f"Must be one of: {', '.join(WorkflowProposalStatus.values)}."}
                 )
-            # Applied ones order by the version that shipped them; the rest read as a queue, newest first.
-            applied_only = requested_status == WorkflowProposal.Status.APPLIED
-            ordering = ("-applied_version", "-created_at") if applied_only else ("-created_at",)
-            queryset = WorkflowProposal.objects.filter(hog_flow=instance).order_by(*ordering)
-            if requested_status:
-                queryset = queryset.filter(status=requested_status)
-            queryset = queryset.select_related("resolved_by", "hog_flow")
-            page = self.paginate_queryset(queryset)
-            return self.get_paginated_response(WorkflowProposalSerializer(page, many=True).data)
+            page = self.paginate_queryset(cast(Sequence[Any], _ProposalPages(instance.pk, requested_status or None)))
+            return self.get_paginated_response(
+                WorkflowProposalSerializer(page, many=True, context={"hog_flow": instance}).data
+            )
 
         param_serializer = WorkflowProposalCreateSerializer(data=request.data)
         param_serializer.is_valid(raise_exception=True)
@@ -5506,11 +5408,11 @@ class HogFlowViewSet(
         source_id = params.get("source_id") or None
 
         # A retry names the suggestion it already made, which is still in someone's queue whatever the switch says now.
-        retry_of = (
-            WorkflowProposal.objects.filter(hog_flow=instance, source_id=source_id).first() if source_id else None
-        )
+        retry_of = get_proposal_by_source_id(hog_flow_id=instance.pk, source_id=source_id) if source_id else None
         if retry_of:
-            return Response(WorkflowProposalSerializer(retry_of).data, status=status.HTTP_200_OK)
+            return Response(
+                WorkflowProposalSerializer(retry_of, context={"hog_flow": instance}).data, status=status.HTTP_200_OK
+            )
 
         # Reading the queue stays open while the flag is on; the workflow's opt-in only gates producing a new one.
         if not is_optimization_enabled(instance.pk):
@@ -5537,8 +5439,8 @@ class HogFlowViewSet(
                     }
                 )
 
-        proposal = WorkflowProposal(
-            hog_flow=instance,
+        created = create_proposal(
+            hog_flow_id=instance.pk,
             title=params["title"],
             rationale=params["rationale"],
             content=content,
@@ -5547,23 +5449,19 @@ class HogFlowViewSet(
             base_version=params.get("base_version") or instance.version or 1,
             source_id=source_id,
         )
-        try:
-            with transaction.atomic():
-                proposal.save()
-        except IntegrityError:
-            # A concurrent create with the same source_id landed between the read and this save.
-            existing = (
-                WorkflowProposal.objects.filter(hog_flow=instance, source_id=source_id).first() if source_id else None
+        proposal = created.proposal
+        if not created.created:
+            return Response(
+                WorkflowProposalSerializer(proposal, context={"hog_flow": instance}).data, status=status.HTTP_200_OK
             )
-            if existing is None:
-                raise
-            return Response(WorkflowProposalSerializer(existing).data, status=status.HTTP_200_OK)
         self._report_workflow_action(
             "hog_flow_proposal_created",
             instance,
             {"proposal_id": str(proposal.id)},
         )
-        return Response(WorkflowProposalSerializer(proposal).data, status=status.HTTP_201_CREATED)
+        return Response(
+            WorkflowProposalSerializer(proposal, context={"hog_flow": instance}).data, status=status.HTTP_201_CREATED
+        )
 
     @extend_schema(
         parameters=[
@@ -5576,18 +5474,16 @@ class HogFlowViewSet(
         self._require_self_optimising_enabled()
         instance = self.get_object()
         proposal = self._get_proposal_or_404(instance, proposal_id)
-        return Response(WorkflowProposalSerializer(proposal).data)
+        return Response(WorkflowProposalSerializer(proposal, context={"hog_flow": instance}).data)
 
-    def _get_proposal_or_404(self, hog_flow: HogFlow, proposal_id: Optional[str]) -> WorkflowProposal:
+    def _get_proposal_or_404(self, hog_flow: HogFlow, proposal_id: Optional[str]) -> WorkflowProposalRecord:
         parsed = _parse_uuid_or_none(proposal_id)
         if parsed is None:
             raise exceptions.NotFound("No such suggestion for this workflow.")
-        try:
-            return WorkflowProposal.objects.select_related("resolved_by", "hog_flow").get(
-                team_id=self.team_id, hog_flow_id=hog_flow.pk, id=parsed
-            )
-        except WorkflowProposal.DoesNotExist:
+        proposal = get_proposal(team_id=self.team_id, hog_flow_id=hog_flow.pk, proposal_id=parsed)
+        if proposal is None:
             raise exceptions.NotFound("No such suggestion for this workflow.")
+        return proposal
 
     @extend_schema(
         parameters=[
@@ -5616,15 +5512,16 @@ class HogFlowViewSet(
             locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
             proposal = self._get_proposal_or_404(locked, proposal_id)
             # The row lock serializes concurrent approvals; the second sees what the first wrote.
-            locked_proposal = WorkflowProposal.objects.select_for_update().get(pk=proposal.pk)
-            if locked_proposal.status != WorkflowProposal.Status.SUGGESTED:
+            locked_proposal = lock_proposal(team_id=self.team_id, proposal_id=proposal.id)
+            if locked_proposal.status != WorkflowProposalStatus.SUGGESTED:
                 raise ProposalAlreadyResolvedError()
             if locked.draft and not param_serializer.validated_data["overwrite"]:
                 raise DraftExistsError()
-            changes = proposal_changes(locked_proposal, base_content_of(locked, locked_proposal))
-            conflicts = conflicting_parts(locked, locked_proposal, changes)
+            live = live_flow_content(locked)
+            changes = proposal_changes(locked_proposal, base_content_of(live, locked_proposal))
+            conflicts = conflicting_parts(live, locked_proposal, changes)
             if conflicts:
-                raise ProposalOutOfDateError(describe_steps(locked, conflicts))
+                raise ProposalOutOfDateError(describe_steps(live, conflicts))
             expected_draft_updated_at = param_serializer.validated_data.get("expected_draft_updated_at")
             if (
                 locked.draft
@@ -5637,7 +5534,7 @@ class HogFlowViewSet(
             # The draft is a full snapshot (live plus what the suggestion changes), so publish stays
             # a plain copy. A field the suggestion merely echoed is not staged, since writing it back
             # would undo a later edit the conflict check let through.
-            merged = merge_proposal_content(snapshot_flow_content(locked), changes)
+            merged = merge_proposal_content(live.content, changes)
             try:
                 # Create validated the merge against the graph as it was then; it can have moved since.
                 validate_graph(merged.get("actions") or [], merged.get("edges") or [], merged.get("abort_action"))
@@ -5652,15 +5549,17 @@ class HogFlowViewSet(
             # The new draft replaces what was staged; an earlier approval stays only if the draft still carries it.
             unstage_workflow_proposals(locked.pk)
 
-            locked_proposal.status = WorkflowProposal.Status.APPROVED
-            locked_proposal.resolved_at = timezone.now()
-            locked_proposal.resolved_by = request.user if request.user.is_authenticated else None
-            locked_proposal.save(update_fields=["status", "resolved_at", "resolved_by"])
+            locked_proposal = resolve_proposal(
+                team_id=self.team_id,
+                proposal_id=locked_proposal.id,
+                status=WorkflowProposalStatus.APPROVED,
+                resolved_by_id=request.user.pk if request.user.is_authenticated else None,
+            )
 
         log_activity_from_viewset(self, locked, activity="proposal_approved", name=locked.name, previous=before_update)
         self._emit_resource_edited(locked)
         self._report_workflow_action("hog_flow_proposal_approved", locked, {"proposal_id": str(locked_proposal.id)})
-        return Response(WorkflowProposalSerializer(locked_proposal).data)
+        return Response(WorkflowProposalSerializer(locked_proposal, context={"hog_flow": locked}).data)
 
     @extend_schema(
         parameters=[
@@ -5738,17 +5637,19 @@ class HogFlowViewSet(
         instance = self.get_object()
         with transaction.atomic():
             proposal = self._get_proposal_or_404(instance, proposal_id)
-            locked_proposal = WorkflowProposal.objects.select_for_update().get(pk=proposal.pk)
-            if locked_proposal.status != WorkflowProposal.Status.SUGGESTED:
+            locked_proposal = lock_proposal(team_id=self.team_id, proposal_id=proposal.id)
+            if locked_proposal.status != WorkflowProposalStatus.SUGGESTED:
                 raise ProposalAlreadyResolvedError()
-            locked_proposal.status = WorkflowProposal.Status.REJECTED
-            locked_proposal.resolved_at = timezone.now()
-            locked_proposal.resolved_by = request.user if request.user.is_authenticated else None
-            locked_proposal.save(update_fields=["status", "resolved_at", "resolved_by"])
+            locked_proposal = resolve_proposal(
+                team_id=self.team_id,
+                proposal_id=locked_proposal.id,
+                status=WorkflowProposalStatus.REJECTED,
+                resolved_by_id=request.user.pk if request.user.is_authenticated else None,
+            )
 
         log_activity_from_viewset(self, instance, activity="proposal_rejected", name=instance.name)
         self._report_workflow_action("hog_flow_proposal_rejected", instance, {"proposal_id": str(locked_proposal.id)})
-        return Response(WorkflowProposalSerializer(locked_proposal).data)
+        return Response(WorkflowProposalSerializer(locked_proposal, context={"hog_flow": instance}).data)
 
     @extend_schema(request=HogFlowOptimizationSerializer, responses={200: HogFlowOptimizationSerializer})
     @action(detail=True, methods=["GET", "POST"], url_path="optimization", filter_backends=[])
