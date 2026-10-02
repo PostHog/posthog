@@ -4817,6 +4817,49 @@ export interface TaskThreadMessageWriteApi {
 }
 
 /**
+ * The requesting user's per-project agent preferences, shared by PostHog Desktop and the web app.
+ */
+export interface TasksAgentPreferencesApi {
+    /**
+     * Instructions the user's agents follow in every task the user starts. Empty when unset.
+     * @maxLength 10000
+     */
+    custom_instructions: string
+    /** When true, agents write in ASD-STE100 Simplified Technical English. */
+    simplified_technical_english: boolean
+    /** When true, new tasks start in plan mode: the agent makes a plan and waits for approval. */
+    start_in_plan_mode: boolean
+    /** When true, a cloud run that changes code always opens a draft pull request. */
+    auto_publish_cloud_runs: boolean
+}
+
+export interface PaginatedTasksAgentPreferencesListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TasksAgentPreferencesApi[]
+}
+
+/**
+ * A partial update of the requesting user's agent preferences. Fields left out keep their stored value.
+ */
+export interface TasksAgentPreferencesUpdateApi {
+    /**
+     * Instructions the user's agents follow in every task the user starts. Empty when unset.
+     * @maxLength 10000
+     */
+    custom_instructions?: string
+    /** When true, agents write in ASD-STE100 Simplified Technical English. */
+    simplified_technical_english?: boolean
+    /** When true, new tasks start in plan mode: the agent makes a plan and waits for approval. */
+    start_in_plan_mode?: boolean
+    /** When true, a cloud run that changes code always opens a draft pull request. */
+    auto_publish_cloud_runs?: boolean
+}
+
+/**
  * The default AI run selection stored at team or user level.
  *
  * Write payload for the tasks config endpoints and the `ai_run_preferences` block of
@@ -6139,6 +6182,17 @@ export type TasksRunsStreamTokenRetrieveParams = {
 }
 
 export type TasksThreadMessagesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type TasksMeAgentPreferencesListParams = {
     /**
      * Number of results to return per page.
      */

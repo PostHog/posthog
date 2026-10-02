@@ -17,12 +17,14 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.models.user import User
 from posthog.permissions import APIScopePermission, TeamMemberStrictManagementPermission
 
-from products.tasks.backend.facade import ai_run_defaults
+from products.tasks.backend.facade import agent_preferences, ai_run_defaults
 from products.tasks.backend.facade.agent_instructions import AgentInstructionsStore
 from products.tasks.backend.facade.client_provenance import is_sandbox_oauth_request
 from products.tasks.backend.facade.run_config import get_model_access_error
 from products.tasks.backend.presentation.serializers import (
     TasksAgentInstructionsSerializer,
+    TasksAgentPreferencesSerializer,
+    TasksAgentPreferencesUpdateSerializer,
     TasksAIRunPreferencesSerializer,
     TasksTeamConfigResponseSerializer,
     TasksUserConfigResponseSerializer,
@@ -210,3 +212,32 @@ class TasksUserConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self.team_id, _user_id(request), _validated_agent_instructions(request)
         )
         return Response(TasksAgentInstructionsSerializer({"agent_instructions": instructions}).data)
+
+class TasksUserAgentPreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    scope_object = "task"
+    authentication_classes = _AUTH_CLASSES
+    permission_classes = [IsAuthenticated, APIScopePermission]
+    serializer_class = TasksAgentPreferencesSerializer
+
+    @extend_schema(
+        operation_id="tasks_me_agent_preferences_list",
+        responses={200: TasksAgentPreferencesSerializer},
+        description="Retrieve your per-project agent preferences. Unset preferences return their defaults.",
+    )
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        preferences = agent_preferences.get_user_agent_preferences(self.team_id, _user_id(request))
+        return Response(TasksAgentPreferencesSerializer(preferences).data)
+
+    @extend_schema(
+        operation_id="tasks_me_agent_preferences_create",
+        request=TasksAgentPreferencesUpdateSerializer,
+        responses={200: TasksAgentPreferencesSerializer},
+        description="Update your per-project agent preferences. Fields you leave out keep their stored value.",
+    )
+    def create(self, request: Request, *args, **kwargs) -> Response:
+        serializer = TasksAgentPreferencesUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        preferences = agent_preferences.update_user_agent_preferences(
+            self.team_id, _user_id(request), dict(serializer.validated_data)
+        )
+        return Response(TasksAgentPreferencesSerializer(preferences).data)

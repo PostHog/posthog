@@ -5197,6 +5197,26 @@ class TasksUserConfigResponseSerializer(serializers.Serializer):
     )
 
 
+class TasksAgentPreferencesSerializer(serializers.Serializer):
+    """The requesting user's per-project task defaults, shared by PostHog Desktop and the web app."""
+
+    start_in_plan_mode = serializers.BooleanField(
+        help_text="When true, new tasks start in plan mode: the agent makes a plan and waits for approval.",
+    )
+    auto_publish_cloud_runs = serializers.BooleanField(
+        help_text="When true, a cloud run that changes code always opens a draft pull request.",
+    )
+
+
+class TasksAgentPreferencesUpdateSerializer(TasksAgentPreferencesSerializer):
+    """A partial update of the requesting user's agent preferences. Fields left out keep their stored value."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        for field in self.fields.values():
+            field.required = False
+
+
 class DesktopGatewayTokenRefusalSerializer(serializers.Serializer):
     enabled = serializers.BooleanField()
     reason = serializers.CharField()

@@ -51,6 +51,7 @@ import type {
     PaginatedTaskRunDetailDTOListApi,
     PaginatedTaskSummaryDTOListApi,
     PaginatedTaskThreadMessageDTOListApi,
+    PaginatedTasksAgentPreferencesListApi,
     PatchedChannelInstructionsWriteApi,
     PatchedChannelUpdateApi,
     PatchedLoopWriteApi,
@@ -149,11 +150,17 @@ import type {
     TaskUserBasicInfoApi,
     TaskWriteApi,
     TasksAIRunPreferencesApi,
+<<<<<<< HEAD
     TasksAgentInstructionsApi,
+=======
+    TasksAgentPreferencesApi,
+    TasksAgentPreferencesUpdateApi,
+>>>>>>> ca2c7d62 (feat(tasks): store per-user agent preferences on the server)
     TasksCommentsListParams,
     TasksCommentsRetrieveParams,
     TasksConfigListParams,
     TasksListParams,
+    TasksMeAgentPreferencesListParams,
     TasksMeConfigListParams,
     TasksRepositoryReadinessRetrieveParams,
     TasksReviewRetrieveParams,
@@ -2805,6 +2812,56 @@ export const tasksThreadMessagesSendToAgentCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(taskThreadMessageDTOApi),
+    })
+}
+
+export const getTasksMeAgentPreferencesListUrl = (projectId: string, params?: TasksMeAgentPreferencesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/@me/agent_preferences/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/@me/agent_preferences/`
+}
+
+/**
+ * Retrieve your per-project agent preferences. Unset preferences return their defaults.
+ */
+export const tasksMeAgentPreferencesList = async (
+    projectId: string,
+    params?: TasksMeAgentPreferencesListParams,
+    options?: RequestInit
+): Promise<PaginatedTasksAgentPreferencesListApi> => {
+    return apiMutator<PaginatedTasksAgentPreferencesListApi>(getTasksMeAgentPreferencesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksMeAgentPreferencesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tasks/@me/agent_preferences/`
+}
+
+/**
+ * Update your per-project agent preferences. Fields you leave out keep their stored value.
+ */
+export const tasksMeAgentPreferencesCreate = async (
+    projectId: string,
+    tasksAgentPreferencesUpdateApi?: TasksAgentPreferencesUpdateApi,
+    options?: RequestInit
+): Promise<TasksAgentPreferencesApi> => {
+    return apiMutator<TasksAgentPreferencesApi>(getTasksMeAgentPreferencesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tasksAgentPreferencesUpdateApi),
     })
 }
 

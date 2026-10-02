@@ -3689,6 +3689,33 @@ export const TasksThreadMessagesSendToAgentCreateBody = /* @__PURE__ */ zod
     .describe("Response shape for one message in a task's thread.")
 
 /**
+ * Update your per-project agent preferences. Fields you leave out keep their stored value.
+ */
+export const tasksMeAgentPreferencesCreateBodyCustomInstructionsMax = 10000
+
+export const TasksMeAgentPreferencesCreateBody = /* @__PURE__ */ zod
+    .object({
+        custom_instructions: zod
+            .string()
+            .max(tasksMeAgentPreferencesCreateBodyCustomInstructionsMax)
+            .optional()
+            .describe("Instructions the user's agents follow in every task the user starts. Empty when unset."),
+        simplified_technical_english: zod
+            .boolean()
+            .optional()
+            .describe('When true, agents write in ASD-STE100 Simplified Technical English.'),
+        start_in_plan_mode: zod
+            .boolean()
+            .optional()
+            .describe('When true, new tasks start in plan mode: the agent makes a plan and waits for approval.'),
+        auto_publish_cloud_runs: zod
+            .boolean()
+            .optional()
+            .describe('When true, a cloud run that changes code always opens a draft pull request.'),
+    })
+    .describe("A partial update of the requesting user's agent preferences. Fields left out keep their stored value.")
+
+/**
  * Set your per-project default AI run preferences; they override the project default wholesale. Send all fields as null to clear and inherit the project default.
  */
 export const TasksMeConfigCreateBody = /* @__PURE__ */ zod
