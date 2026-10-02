@@ -2,6 +2,7 @@ import sys
 import math
 import asyncio
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -37,8 +38,13 @@ clear_queue_sample_gauges()
 if sys.argv[2] == "holder":
     OLDEST_UNCLAIMED_BATCH_SECONDS.set(37)
 """
+    repository_root = Path(__file__).resolve().parents[4]
     for process in process_order:
-        subprocess.run([sys.executable, "-c", script, str(tmp_path), process], check=True)
+        subprocess.run(
+            [sys.executable, "-c", script, str(tmp_path), process],
+            check=True,
+            cwd=repository_root,
+        )
 
     registry = CollectorRegistry()
     multiprocess.MultiProcessCollector(registry, path=str(tmp_path))
