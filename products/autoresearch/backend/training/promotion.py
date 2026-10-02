@@ -39,6 +39,7 @@ from products.autoresearch.backend.models import (
 )
 from products.autoresearch.backend.training import artifacts
 from products.autoresearch.backend.training.recipe_validation import RecipeValidationError, validate_model_class
+from products.notebooks.backend.facade import api as notebooks_facade
 
 logger = structlog.get_logger(__name__)
 
@@ -166,6 +167,7 @@ def _build_run_summary(
     champion_model_class: str,
     recommended_next: str,
     distillation: str,
+    report_notebook_short_id: str,
 ) -> dict[str, Any]:
     """Tier-1 cross-run memory: backend derives the structural facts; the agent supplies the two
     judgment fields (recommended_next, distillation). Read back by a new run before it iterates."""
@@ -186,6 +188,7 @@ def _build_run_summary(
         "dead_ends": [_summary_item(it) for it in dead_ends],
         "recommended_next": recommended_next or "",
         "distillation": distillation or "",
+        "report_notebook_short_id": report_notebook_short_id,
     }
 
 
@@ -305,6 +308,7 @@ def complete_training_run(
     model_explanation: dict[str, Any] | None = None,
     recommended_next: str = "",
     distillation: str = "",
+    report_notebook_short_id: str = "",
 ) -> dict[str, Any]:
     """Finalize a run: pick the best iteration, decide champion vs challenger, persist the model."""
     # The TaskRun safety net calls this from a worker thread, where no request has set a
@@ -323,7 +327,26 @@ def complete_training_run(
             model_explanation=model_explanation,
             recommended_next=recommended_next,
             distillation=distillation,
+            report_notebook_short_id=_verified_report_notebook(current, report_notebook_short_id),
         )
+
+
+def _verified_report_notebook(training_run: AutoresearchTrainingRun, short_id: str) -> str:
+    """
+    The agent's notebook short id if that notebook exists in the run's team, else "".
+    The model result matters more than the report, so a bad id or a failed check never fails completion.
+    """
+    short_id = (short_id or "").strip()
+    if not short_id:
+        return ""
+    try:
+        if notebooks_facade.notebook_exists(training_run.team_id, short_id, include_deleted=False):
+            return short_id
+    except Exception:
+        logger.exception("autoresearch_report_notebook_check_failed", training_run_id=str(training_run.pk))
+        return ""
+    logger.warning("autoresearch_report_notebook_not_found", training_run_id=str(training_run.pk))
+    return ""
 
 
 def _activate_pipeline(pipeline: AutoresearchPipeline) -> None:
@@ -371,6 +394,7 @@ def _finalize_under_lock(
     model_explanation: dict[str, Any] | None,
     recommended_next: str,
     distillation: str,
+    report_notebook_short_id: str,
 ) -> dict[str, Any]:
     # Re-fetch under lock and re-check status inside the transaction. Both callers (the
     # complete API action and the TaskRun post_save safety net) guard on status outside
@@ -468,6 +492,7 @@ def _finalize_under_lock(
         champion_model_class=_serving_model_class(promoted=promoted, model=model, incumbent=current),
         recommended_next=recommended_next,
         distillation=distillation,
+        report_notebook_short_id=report_notebook_short_id,
     )
     training_run.save(update_fields=["status", "iteration_count", "best_holdout_score", "summary", "completed_at"])
 
