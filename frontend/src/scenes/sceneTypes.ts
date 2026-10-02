@@ -104,6 +104,7 @@ export enum Scene {
     LegalDocuments = 'LegalDocuments',
     LegalDocumentNew = 'LegalDocumentNew',
     Library = 'Library',
+    Views = 'Views',
     Link = 'Link',
     Links = 'Links',
     LiveDebugger = 'LiveDebugger',
@@ -217,6 +218,7 @@ export enum Scene {
     Endpoints = 'Endpoints',
     Endpoint = 'Endpoint',
     Workflow = 'Workflow',
+    Audience = 'Audience',
     Broadcasts = 'Broadcasts',
     Workflows = 'Workflows',
     Broadcast = 'Broadcast',
@@ -442,6 +444,7 @@ export const sceneToAccessControlResourceType: Partial<
 
     // Workflows
     [Scene.Workflow]: AccessControlResourceType.Workflow,
+    [Scene.Audience]: AccessControlResourceType.Workflow,
     [Scene.Broadcasts]: AccessControlResourceType.Workflow,
     [Scene.Workflows]: AccessControlResourceType.Workflow,
     [Scene.Broadcast]: AccessControlResourceType.Workflow,

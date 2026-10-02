@@ -56,6 +56,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/business_knowledge/frontend/scenes/settings/BusinessKnowledgeSettingsScene'),
     BusinessKnowledgeSource: () =>
         import('../../products/business_knowledge/frontend/scenes/source/KnowledgeSourceScene'),
+    CanvasNew: () => import('../../products/canvas/frontend/newCanvas/CanvasNewScene'),
+    CanvasDetail: () => import('../../products/canvas/frontend/scene/CanvasScene'),
     Transformations: () => import('../../frontend/src/scenes/data-pipelines/TransformationsScene'),
     EventFiltering: () => import('../../frontend/src/scenes/data-pipelines/event-filtering/EventFilterScene'),
     CohortsStaffTools: () => import('../../products/cohorts/frontend/staff/CohortsStaffToolsScene'),
@@ -202,4 +204,5 @@ export const productScenes: Record<string, () => Promise<any>> = {
     WorkflowsLibraryTemplate: () => import('../../products/workflows/frontend/TemplateLibrary/MessageTemplate'),
     Broadcasts: () => import('../../products/workflows/frontend/Broadcasts/BroadcastsScene'),
     Broadcast: () => import('../../products/workflows/frontend/Broadcasts/BroadcastScene'),
+    Audience: () => import('../../products/workflows/frontend/Audience/AudienceScene'),
 }

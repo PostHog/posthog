@@ -953,6 +953,9 @@ const scoutConfigUpdate = (): ToolBase<
         if (params.write_scopes !== undefined) {
             body['write_scopes'] = params.write_scopes
         }
+        if (params.suggestion_id !== undefined) {
+            body['suggestion_id'] = params.suggestion_id
+        }
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/`,
@@ -1932,6 +1935,9 @@ const signalsScoutConfigUpdate = (): ToolBase<
         }
         if (params.write_scopes !== undefined) {
             body['write_scopes'] = params.write_scopes
+        }
+        if (params.suggestion_id !== undefined) {
+            body['suggestion_id'] = params.suggestion_id
         }
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'PATCH',
