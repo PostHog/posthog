@@ -63,6 +63,7 @@ const FALLBACK_MODEL_IDS: Record<
     "claude-opus-5",
     "claude-opus-5-5",
     "claude-sonnet-5",
+    "claude-sonnet-5-5",
     "claude-fable-5",
     "claude-fable-5-1",
     "zai-org/glm-5.3",
@@ -77,6 +78,7 @@ const FALLBACK_MODEL_IDS: Record<
     "gpt-5.6-luna",
     "gpt-6-astra",
     "gpt-6-sol",
+    "gpt-6.1-sol",
     "gpt-6-luna",
   ],
 };

@@ -195,8 +195,8 @@ async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSwe
                 **{oid: p for oid, p in cached_watchable.items() if oid in window_strs},
                 **{oid: p for oid, p in judgment.probabilities.items() if p >= JEV_WATCHABLE_MIN},
             }
-            # A row whose judgment failed through its own batch (an invalid answer, a non-rate-limit
-            # gateway refusal) retries on later sweeps, but only MAX_JUDGE_ATTEMPTS times: the
+            # A row whose judgment failed through its own batch (an invalid answer, a gateway
+            # refusal the batch caused) retries on later sweeps, but only MAX_JUDGE_ATTEMPTS times: the
             # newest-first pick would otherwise retry a deterministically failing batch every hour
             # and starve older rows. An exhausted row is recorded as judged with no score, so it
             # settles into the filler tier like a prose-less row. An outage charges nothing — its
@@ -228,6 +228,15 @@ async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSwe
             input_tokens += judgment.input_tokens
             estimated_cost += judgment.estimated_cost_usd
             with suppress(Exception):
+                # Sub-threshold scores are cached nowhere, so this event is the only record of the
+                # score distribution — it is the data JEV_WATCHABLE_MIN is calibrated from.
+                scores = sorted(judgment.probabilities.values())
+                top_scored = [
+                    {"id": oid, "p": round(probability, 3)}
+                    for oid, probability in sorted(
+                        judgment.probabilities.items(), key=lambda entry: entry[1], reverse=True
+                    )[:5]
+                ]
                 posthoganalytics.capture(
                     event="replay_vision_jev_watch_rank_judged",
                     distinct_id=f"team-{team_id}",
@@ -239,8 +248,13 @@ async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSwe
                         "mean_watchability": (
                             fmean(judgment.probabilities.values()) if judgment.probabilities else None
                         ),
+                        "watchable_count": sum(1 for probability in scores if probability >= JEV_WATCHABLE_MIN),
+                        "watchability_p90": scores[int(0.9 * (len(scores) - 1))] if scores else None,
+                        "watchability_max": scores[-1] if scores else None,
+                        "top_scored": top_scored,
                         "chunks": judgment.chunks,
                         "failed_chunks": judgment.failed_chunks,
+                        "chunk_error_types": judgment.chunk_error_types,
                         "jev_model": judgment.model,
                         "input_tokens": judgment.input_tokens,
                         "estimated_cost_usd": judgment.estimated_cost_usd,

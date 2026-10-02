@@ -49,6 +49,7 @@ import { PullRequestDiffPending, PullRequestDiffStat, PullRequestDiffStatSkeleto
 import { PullRequestFilesChanged } from './PullRequestFilesChanged'
 import { ReportActivitySection } from './ReportActivitySection'
 import { ReportChart } from './ReportChart'
+import { ReportChartsContext } from './reportChartsContext'
 import { ReportChecksSection } from './ReportChecksSection'
 import { useReportDetailActions } from './ReportDetailActions'
 import { ReportExpectedImpact } from './ReportExpectedImpact'
@@ -232,6 +233,7 @@ export function InboxDetailFrame({
         evidenceExpanded,
         priorityExplanation,
         chartPlacements,
+        chartsById,
         trailingCharts,
         detailTab,
         reportTaskToOpen,
@@ -348,34 +350,36 @@ export function InboxDetailFrame({
         <div className="flex flex-1 flex-col gap-6">
             {titleHeading}
 
-            <div>
-                {report.summary ? (
-                    <ReportSummaryBody
-                        summary={report.summary}
-                        chartPlacements={chartPlacements}
-                        implementButton={implementButton}
-                        pullRequestNote={pullRequestNote}
-                        impactMetrics={impactMetrics}
-                        expectedImpact={expectedImpact}
-                    />
-                ) : (
-                    <div className="flex flex-col gap-6">
-                        <p className={`text-sm text-tertiary m-0${summaryPending ? ' italic' : ''}`}>
-                            No summary yet. An agent is still investigating.
-                        </p>
-                        {pullRequestNote}
-                        {impactMetrics}
-                        {expectedImpact}
-                    </div>
-                )}
-                {trailingCharts.length > 0 && (
-                    <div className="flex flex-col gap-4 mt-5">
-                        {trailingCharts.map((chart) => (
-                            <ReportChart key={chart.chart_id} chartId={chart.chart_id} />
-                        ))}
-                    </div>
-                )}
-            </div>
+            <ReportChartsContext.Provider value={chartsById}>
+                <div>
+                    {report.summary ? (
+                        <ReportSummaryBody
+                            summary={report.summary}
+                            chartPlacements={chartPlacements}
+                            implementButton={implementButton}
+                            pullRequestNote={pullRequestNote}
+                            impactMetrics={impactMetrics}
+                            expectedImpact={expectedImpact}
+                        />
+                    ) : (
+                        <div className="flex flex-col gap-6">
+                            <p className={`text-sm text-tertiary m-0${summaryPending ? ' italic' : ''}`}>
+                                No summary yet. An agent is still investigating.
+                            </p>
+                            {pullRequestNote}
+                            {impactMetrics}
+                            {expectedImpact}
+                        </div>
+                    )}
+                    {trailingCharts.length > 0 && (
+                        <div className="flex flex-col gap-4 mt-5">
+                            {trailingCharts.map((chart) => (
+                                <ReportChart key={chart.chart_id} chartId={chart.chart_id} />
+                            ))}
+                        </div>
+                    )}
+                </div>
+            </ReportChartsContext.Provider>
             {/* The rating closes out the report body, pinned to the bottom of the column. */}
             <div className="mt-auto">
                 <ReportFeedbackFooter report={report} align="end" />

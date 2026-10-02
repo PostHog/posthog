@@ -53,13 +53,13 @@
   WITH latest_events AS (
     SELECT events.distinct_id AS distinct_id, argMax(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$os_version`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$os_version`)), if(isNull(nullIf(toString(events.properties.`$os_version`), '')), NULL, if(and(in(ascii(toString(events.properties.`$os_version`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$os_version`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$os_version`), '[]'), '{}'), toString(events.properties.`$os_version`)))), toTimeZone(events.timestamp, %(hogql_val_0)s)) AS latest_os_version 
     FROM events_json AS events 
-    WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$os`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$os`)), if(isNull(nullIf(toString(events.properties.`$os`), '')), NULL, if(and(in(ascii(toString(events.properties.`$os`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$os`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$os`), '[]'), '{}'), toString(events.properties.`$os`)))), %(hogql_val_1)s), 0), greaterOrEquals(events.timestamp, minus(now64(6, %(hogql_val_2)s), toIntervalDay(30)))) 
+    WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$os`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$os`)), if(isNull(nullIf(toString(events.properties.`$os`), '')), NULL, if(and(in(ascii(toString(events.properties.`$os`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$os`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$os`), '[]'), '{}'), toString(events.properties.`$os`)))), %(hogql_val_1)s), 0), greaterOrEquals(events.timestamp, toDateTime64(minus(now64(6, %(hogql_val_2)s), toIntervalDay(30)), 6, %(hogql_val_3)s))) 
     GROUP BY events.distinct_id), major_versions AS (
-    SELECT latest_events.distinct_id AS distinct_id, latest_events.latest_os_version AS latest_os_version, splitByChar(%(hogql_val_3)s, ifNull(latest_events.latest_os_version, %(hogql_val_4)s))[1] AS major_version 
+    SELECT latest_events.distinct_id AS distinct_id, latest_events.latest_os_version AS latest_os_version, splitByChar(%(hogql_val_4)s, ifNull(latest_events.latest_os_version, %(hogql_val_5)s))[1] AS major_version 
     FROM latest_events) 
   SELECT major_versions.major_version AS major_version, count() AS user_count, round(divide(multiply(100, count()), sum(count()) OVER ()), 2) AS percentage 
   FROM major_versions 
-  WHERE in(major_versions.major_version, tuple(%(hogql_val_5)s, %(hogql_val_6)s, %(hogql_val_7)s)) 
+  WHERE in(major_versions.major_version, tuple(%(hogql_val_6)s, %(hogql_val_7)s, %(hogql_val_8)s)) 
   GROUP BY major_versions.major_version 
   ORDER BY major_versions.major_version ASC 
   LIMIT 100 

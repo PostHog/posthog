@@ -17,7 +17,11 @@ import { MessageTemplate } from '../messages/MessageTemplate'
 import { ReasoningAnswer } from '../messages/ReasoningAnswer'
 import type { ProgressStep, ThreadItem } from '../types/streamTypes'
 import { resolveToolCall } from '../utils/toolResolver'
+import { userMessageDisplayText } from '../utils/userMessageDisplay'
 import { Activity } from './ActivityPrimitives'
+import { QuillAssistantMessage, QuillHumanMessage } from './quill/QuillMessages'
+import { QuillSeparatorRow } from './quill/QuillSeparatorRow'
+import { useQuillThread } from './quill/quillThreadContext'
 import { RunErrorRow } from './RunErrorRow'
 import { ThreadAttachments } from './ThreadAttachments'
 import { CompactBoundaryItem, ConversationClearedItem, StatusItem, TaskNotificationItem } from './ThreadItems'
@@ -145,19 +149,27 @@ export const ThreadRow = memo(function ThreadRow({
     turnCancelled,
     runEnded = true,
 }: ThreadRowProps): JSX.Element | null {
+    const quill = useQuillThread()
     if (item.type === 'human_message') {
+        if (quill) {
+            return <QuillHumanMessage item={item} />
+        }
+        const text = userMessageDisplayText(item.text ?? '')
         return (
             <MessageTemplate
                 type="human"
                 className="group"
-                action={<HumanMessageFooter startedAt={item.startedAt} text={item.text} />}
+                action={<HumanMessageFooter startedAt={item.startedAt} text={text} />}
             >
-                <MarkdownMessage content={item.text || '*No text.*'} id={item.id} />
+                <MarkdownMessage content={text || '*No text.*'} id={item.id} />
                 {item.attachments && <ThreadAttachments attachments={item.attachments} />}
             </MessageTemplate>
         )
     }
     if (item.type === 'assistant_message') {
+        if (quill) {
+            return <QuillAssistantMessage item={item} />
+        }
         return (
             <MessageTemplate type="ai" wrapperClassName="max-w-4/5">
                 <MarkdownMessage content={item.text ?? ''} id={item.id} />
@@ -184,6 +196,9 @@ export const ThreadRow = memo(function ThreadRow({
     }
     if (item.type === 'error') {
         return <RunErrorRow item={item} isLast={isLast && runEnded} />
+    }
+    if (quill && (item.type === 'status' || item.type === 'compact_boundary' || item.type === 'conversation_cleared')) {
+        return <QuillSeparatorRow item={item} live={isLast && isThinking} />
     }
     if (item.type === 'status') {
         return <StatusItem item={item} />

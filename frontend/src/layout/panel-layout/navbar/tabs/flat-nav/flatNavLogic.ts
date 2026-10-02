@@ -16,7 +16,6 @@ export interface FlatNavProductItem {
     type?: string
     iconType?: FileSystemIconType
     iconColor?: FileSystemIconColor
-    tag?: 'alpha' | 'beta'
 }
 
 export interface FlatNavProductGroup {
@@ -77,7 +76,6 @@ export const flatNavLogic = kea<flatNavLogicType>([
                         type: product.type,
                         iconType: product.iconType ?? (product.type as FileSystemIconType | undefined),
                         iconColor: product.iconColor,
-                        tag: product.tags?.[0],
                         category: product.category ?? '',
                         sortOrder: product.visualOrder ?? UNORDERED_VISUAL_ORDER,
                     })
