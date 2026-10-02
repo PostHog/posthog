@@ -10,7 +10,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.replay_vision.backend.api.observations import ReplayObservationSerializer
 from products.replay_vision.backend.experiment_variants import experiment_variants_readout
-from products.replay_vision.backend.models.experiment_synthesis import ExperimentSynthesisStatus
+from products.replay_vision.backend.models.replay_experiment_synthesis import ReplayExperimentSynthesisStatus
 from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.scanner_access import scanner_for_recording_derived_read
 
@@ -70,6 +70,13 @@ class VariantReadoutSerializer(serializers.Serializer):
             "counts against it: balanced sampling gives a small variant a higher rate."
         ),
     )
+    synthesis_observations = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "Summaries of this variant the latest synthesis counted: the denominator of its digest and "
+            "difference counts. Read those counts as shares of this, not of `observations`. Null before one runs."
+        ),
+    )
     digest = VariantDigestLineSerializer(
         many=True, allow_null=True, help_text="This variant's digest from the latest synthesis; null before one runs."
     )
@@ -80,7 +87,7 @@ class VariantReadoutSerializer(serializers.Serializer):
 
 class VariantsSynthesisStateSerializer(serializers.Serializer):
     status = serializers.ChoiceField(
-        choices=ExperimentSynthesisStatus.choices, help_text="The latest synthesis run's state."
+        choices=ReplayExperimentSynthesisStatus.choices, help_text="The latest synthesis run's state."
     )
     scanner_version = serializers.IntegerField(help_text="The scanner version that run covered.")
     computed_at = serializers.DateTimeField(allow_null=True, help_text="When that run finished.")

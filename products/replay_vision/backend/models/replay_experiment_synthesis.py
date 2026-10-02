@@ -4,13 +4,13 @@ from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
 
-class ExperimentSynthesisStatus(models.TextChoices):
+class ReplayExperimentSynthesisStatus(models.TextChoices):
     RUNNING = "running", "Running"
     SUCCEEDED = "succeeded", "Succeeded"
     FAILED = "failed", "Failed"
 
 
-class ExperimentSynthesis(TeamScopedRootMixin, UUIDModel):
+class ReplayExperimentSynthesis(TeamScopedRootMixin, UUIDModel):
     """One synthesis run over an experiment scanner's summaries: what users in each variant do differently.
 
     Themes are shared across variants, so a count like "11 of 31 test vs 2 of 34 control" is computable.
@@ -25,7 +25,7 @@ class ExperimentSynthesis(TeamScopedRootMixin, UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     scanner_version = models.PositiveIntegerField(help_text="The scanner version whose summaries this run covered.")
     status = models.CharField(
-        max_length=16, choices=ExperimentSynthesisStatus.choices, default=ExperimentSynthesisStatus.RUNNING
+        max_length=16, choices=ReplayExperimentSynthesisStatus.choices, default=ReplayExperimentSynthesisStatus.RUNNING
     )
     observations_considered = models.JSONField(
         default=dict, help_text="Summaries the run read per variant, `{variant: n}`: the denominator of each count."
@@ -41,7 +41,6 @@ class ExperimentSynthesis(TeamScopedRootMixin, UUIDModel):
         default=list, help_text="What differs between variants: `[{statement, theme_key, counts: {variant: n}}]`."
     )
     error = models.TextField(blank=True, default="", help_text="Why the run failed, when it did.")
-    workflow_id = models.CharField(max_length=400, blank=True, default="")
     created_by = models.ForeignKey(
         "posthog.User",
         on_delete=models.SET_NULL,
@@ -73,7 +72,7 @@ class ExperimentSynthesis(TeamScopedRootMixin, UUIDModel):
             scanner_team_id = self.scanner.team_id
             if self.team_id and self.team_id != scanner_team_id:
                 raise ValueError(
-                    f"ExperimentSynthesis.team_id ({self.team_id}) must match scanner.team_id ({scanner_team_id})"
+                    f"ReplayExperimentSynthesis.team_id ({self.team_id}) must match scanner.team_id ({scanner_team_id})"
                 )
             self.team_id = scanner_team_id
         super().save(*args, **kwargs)

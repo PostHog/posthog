@@ -1,4 +1,4 @@
-from products.replay_vision.backend.models.experiment_synthesis import ExperimentSynthesis
+from products.replay_vision.backend.models.replay_experiment_synthesis import ReplayExperimentSynthesis
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
 from products.replay_vision.backend.models.replay_observation_media import ReplayObservationMedia
@@ -15,7 +15,7 @@ from products.replay_vision.backend.models.vision_alert import (
 )
 
 __all__ = [
-    "ExperimentSynthesis",
+    "ReplayExperimentSynthesis",
     "ReplayObservation",
     "ReplayObservationLabel",
     "ReplayObservationMedia",

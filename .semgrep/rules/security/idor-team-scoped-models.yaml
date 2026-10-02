@@ -330,6 +330,7 @@ rules:
                               |QueueSchedulerState
                               |QuickFilter
                               |QuickFilterContext
+                              |ReplayExperimentSynthesis
                               |ReplayObservation
                               |ReplayObservationLabel
                               |ReplayObservationMedia
@@ -338,7 +339,6 @@ rules:
                               |ReplayScanner
                               |ReplayScannerBackfill
                               |ReplayScannerPromptSuggestion
-                              |ExperimentSynthesis
                               |Repo
                               |RepoRoutingRule
                               |ReviewReport
@@ -768,6 +768,7 @@ rules:
                         |QueueSchedulerState
                         |QuickFilter
                         |QuickFilterContext
+                        |ReplayExperimentSynthesis
                         |ReplayObservation
                         |ReplayObservationLabel
                         |ReplayObservationMedia
@@ -776,7 +777,6 @@ rules:
                         |ReplayScanner
                         |ReplayScannerBackfill
                         |ReplayScannerPromptSuggestion
-                        |ExperimentSynthesis
                         |Repo
                         |RepoRoutingRule
                         |ReviewReport
