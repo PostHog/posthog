@@ -6,6 +6,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
+import botocore.exceptions
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer import (
@@ -49,6 +50,23 @@ class TestWriteParquetToS3:
             _write_parquet_to_s3(s3, "bucket/part-0000.parquet", pa.table({"id": [1]}), "zstd")
 
         assert mock_write_table.call_count == 4
+
+    @patch("tenacity.nap.time.sleep")
+    @patch("pyarrow.parquet.write_table")
+    def test_retries_read_timeout_then_succeeds(self, mock_write_table, _mock_sleep) -> None:
+        # A read/connect timeout never gets s3fs's OSError translation (there's no response to
+        # translate), so it reaches here as the raw botocore exception rather than an OSError.
+        # It's exactly the transient blip this retry exists for and shouldn't fail the batch.
+        f = MagicMock()
+        s3 = _fake_s3([f, f])
+        mock_write_table.side_effect = [
+            botocore.exceptions.ReadTimeoutError(endpoint_url="https://example.com/part-0000.parquet"),
+            None,
+        ]
+
+        _write_parquet_to_s3(s3, "bucket/part-0000.parquet", pa.table({"id": [1]}), "zstd")
+
+        assert mock_write_table.call_count == 2
 
     @patch("pyarrow.parquet.write_table")
     def test_does_not_retry_permission_error(self, mock_write_table) -> None:
