@@ -6,6 +6,7 @@ import {
     IconClock,
     IconCode2,
     IconDatabase,
+    IconDecisionTree,
     IconEndpoints,
     IconGraph,
     IconLive,
@@ -47,6 +48,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope, EndpointVersionType } from '~/types'
 
 import { EndpointConfiguration } from './endpoint-tabs/EndpointConfiguration'
+import { EndpointLineage } from './endpoint-tabs/EndpointLineage'
 import { EndpointLogs } from './endpoint-tabs/EndpointLogs'
 import { EndpointOverview } from './endpoint-tabs/EndpointOverview'
 import { EndpointPlayground } from './endpoint-tabs/EndpointPlayground'
@@ -123,6 +125,15 @@ export function EndpointScene(): JSX.Element {
                 : undefined,
         },
         {
+            key: EndpointTab.LINEAGE,
+            label: 'Lineage',
+            'data-attr': 'endpoint-lineage-tab',
+            content: <EndpointLineage />,
+            link: endpoint
+                ? combineUrl(urls.endpoint(endpoint.name), { ...searchParams, tab: EndpointTab.LINEAGE }).url
+                : undefined,
+        },
+        {
             key: EndpointTab.HISTORY,
             label: 'History',
             'data-attr': 'endpoint-history-tab',
@@ -187,6 +198,8 @@ export function EndpointScene(): JSX.Element {
                 return <EndpointPlayground />
             case EndpointTab.LOGS:
                 return <EndpointLogs />
+            case EndpointTab.LINEAGE:
+                return <EndpointLineage />
             case EndpointTab.HISTORY:
                 return <ActivityLog scope={[ActivityScope.ENDPOINT, ActivityScope.ENDPOINT_VERSION]} id={endpoint.id} />
             case EndpointTab.QUERY:
@@ -248,6 +261,17 @@ export function EndpointScene(): JSX.Element {
                             >
                                 <IconLive />
                                 View logs
+                            </SceneMenuBarItem>
+                            <SceneMenuBarItem
+                                onClick={() =>
+                                    router.actions.push(
+                                        combineUrl(urls.endpoint(endpoint.name), { tab: EndpointTab.LINEAGE }).url
+                                    )
+                                }
+                                data-attr="endpoint-menubar-view-lineage"
+                            >
+                                <IconDecisionTree />
+                                View lineage
                             </SceneMenuBarItem>
                             <SceneMenuBarItem
                                 onClick={() =>
