@@ -159,6 +159,8 @@ class ScoutTrialComparisons:
     def assert_can_start(self, *, launch_ids: Sequence[UUID] = ()) -> None:
         assert_trial_environment_ready()
         assert_trial_work_enabled(self.config.team)
+        # TODO: Before widening access beyond team 2, add limits across concurrent trials and
+        # a separate trial budget to protect scheduled scouts from overlapping trial workloads.
         requested_ids = {str(launch_id) for launch_id in launch_ids}
         if requested_ids:
             # A resume must not charge runs that already started against the budget twice.
