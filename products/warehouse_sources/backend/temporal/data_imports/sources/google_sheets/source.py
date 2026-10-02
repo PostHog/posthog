@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
     api_docs_url = "https://developers.google.com/sheets/api"
+    uses_stable_schema_resource_ids = True
 
     # "v1" is the framework's legacy UNVERSIONED default kept so pre-existing sources stay pinned
     # and unchanged; "v4" names Google's current stable REST API version and is the default for new

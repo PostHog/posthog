@@ -503,7 +503,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
             discovered = source_impl.get_schemas(
                 config,
                 self.team_id,
-                names=None if source.source_type == ExternalDataSourceType.GOOGLESHEETS else names,
+                names=None if source_impl.uses_stable_schema_resource_ids else names,
                 api_version=source_impl.resolve_api_version(source.api_version),
             )
         except Exception as e:
