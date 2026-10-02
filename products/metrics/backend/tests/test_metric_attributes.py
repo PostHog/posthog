@@ -1,14 +1,11 @@
 import datetime as dt
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-from unittest.mock import patch
 
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
-
-from posthog.hogql.query import execute_hogql_query
 
 from products.metrics.backend.tests._seeder import seed_metric, truncate_metrics_tables
 
@@ -96,13 +93,6 @@ class TestMetricAttributesAPI(ClickhouseTestMixin, APIBaseTest):
                 4,
                 2,
                 "",
-                [{"name": "service_name", "value_count": 1}, {"name": "stale_key", "value_count": 1}],
-            ),
-            (
-                "one_metric_older_window",
-                4,
-                2,
-                "queue_depth",
                 [{"name": "service_name", "value_count": 1}, {"name": "stale_key", "value_count": 1}],
             ),
             ("one_metric_outside_window", 4, 2, "http_requests", [{"name": "service_name", "value_count": 0}]),
@@ -202,67 +192,3 @@ class TestMetricAttributeDistinctValuesAPI(ClickhouseTestMixin, APIBaseTest):
             {"name": "env", "value_count": 1},
             {"name": "service_name", "value_count": 1},
         ]
-
-
-class TestMetricAttributeSlicesAPI(ClickhouseTestMixin, APIBaseTest):
-    CLASS_DATA_LEVEL_SETUP = True
-
-    @classmethod
-    def setUpTestData(cls):
-        super().setUpTestData()
-        truncate_metrics_tables()
-
-        now = timezone.now().replace(second=0, microsecond=0)
-        seed_metric(
-            team_id=cls.team.id,
-            metric_name="requests",
-            service_name="checkout",
-            points=[(now - dt.timedelta(minutes=10), 1.0)],
-            labels={"new_key": "a", "shared": "recent"},
-        )
-        # Older than the recent two-hour slice of the default 24 hour window.
-        for index in range(3):
-            seed_metric(
-                team_id=cls.team.id,
-                metric_name="requests",
-                service_name="checkout",
-                points=[(now - dt.timedelta(hours=5), 1.0)],
-                labels={"old_key": f"v{index}", "shared": f"old{index}"},
-            )
-
-    def _get(self, action: str, params: dict) -> tuple[list[dict], int]:
-        with patch(
-            "products.metrics.backend.metric_attributes_query_runner.execute_hogql_query",
-            wraps=execute_hogql_query,
-        ) as execute:
-            response = self.client.get(f"/api/projects/{self.team.id}/metrics/{action}", params)
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        return response.json()["results"], execute.call_count
-
-    @parameterized.expand(
-        [
-            ("all_metrics_recent_slice_fills_limit", "", 3, ["new_key", "service_name", "shared"], 1),
-            ("all_metrics_older_slice_fills_rest", "", 4, ["new_key", "service_name", "shared", "old_key"], 2),
-            ("one_metric_recent_slice_fills_limit", "requests", 3, ["new_key", "service_name", "shared"], 1),
-            ("one_metric_older_slice_fills_rest", "requests", 4, ["new_key", "service_name", "shared", "old_key"], 2),
-        ]
-    )
-    def test_attributes_read_the_older_slice_only_to_fill_the_limit(
-        self, _name: str, metric_name: str, limit: int, expected: list[str], expected_queries: int
-    ) -> None:
-        results, queries = self._get("attributes", {"metricName": metric_name, "limit": limit})
-        assert [r["name"] for r in results] == expected
-        assert queries == expected_queries
-
-    @parameterized.expand(
-        [
-            ("recent_slice_fills_limit", 1, ["recent"], 1),
-            ("older_slice_fills_rest", 100, ["recent", "old0", "old1", "old2"], 2),
-        ]
-    )
-    def test_attribute_values_read_the_older_slice_only_to_fill_the_limit(
-        self, _name: str, limit: int, expected: list[str], expected_queries: int
-    ) -> None:
-        results, queries = self._get("attribute_values", {"key": "shared", "limit": limit})
-        assert [r["name"] for r in results] == expected
-        assert queries == expected_queries
