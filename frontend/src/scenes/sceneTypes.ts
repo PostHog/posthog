@@ -104,6 +104,7 @@ export enum Scene {
     LegalDocuments = 'LegalDocuments',
     LegalDocumentNew = 'LegalDocumentNew',
     Library = 'Library',
+    Views = 'Views',
     Link = 'Link',
     Links = 'Links',
     LiveDebugger = 'LiveDebugger',
@@ -436,6 +437,12 @@ export const sceneToAccessControlResourceType: Partial<
     // Support (conversations)
     [Scene.SupportTickets]: AccessControlResourceType.Ticket,
     [Scene.SupportTicketDetail]: AccessControlResourceType.Ticket,
+
+    // Business knowledge
+    [Scene.BusinessKnowledge]: AccessControlResourceType.BusinessKnowledge,
+    [Scene.BusinessKnowledgePlayground]: AccessControlResourceType.BusinessKnowledge,
+    [Scene.BusinessKnowledgeSettings]: AccessControlResourceType.BusinessKnowledge,
+    [Scene.BusinessKnowledgeSource]: AccessControlResourceType.BusinessKnowledge,
 
     // Endpoints
     [Scene.EndpointsScene]: AccessControlResourceType.Endpoint,

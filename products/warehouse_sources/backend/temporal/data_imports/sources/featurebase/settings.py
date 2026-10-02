@@ -63,9 +63,10 @@ class FeaturebaseEndpointConfig:
     full_refresh_params: dict[str, str] = field(default_factory=dict)
     # Extra query params merged into every request (e.g. privacy=all).
     extra_params: dict[str, str] = field(default_factory=dict)
-    # Whether the endpoint paginates with limit/cursor. Boards, post statuses, ticket
-    # statuses and ticket categories return everything in one response (a bare JSON array,
-    # no `data` envelope).
+    # Whether the endpoint accepts a `limit` query param. Boards, post statuses, ticket
+    # statuses and ticket categories return everything in one response as a bare JSON
+    # array (no `data` envelope); conversation tags return an enveloped response but,
+    # like those, document no query params at all.
     paginated: bool = True
     partition_key: Optional[str] = None  # Stable creation-time field, never updatedAt
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
@@ -205,6 +206,9 @@ FEATUREBASE_ENDPOINTS: dict[str, FeaturebaseEndpointConfig] = {
     "conversation_tags": FeaturebaseEndpointConfig(
         name="conversation_tags",
         path="/tags",
+        # Documented with no query parameters at all (not even limit/cursor) — it's the
+        # workspace's whole tag catalog in one enveloped response. Sending `limit` 400s.
+        paginated=False,
     ),
     "surveys": FeaturebaseEndpointConfig(
         name="surveys",

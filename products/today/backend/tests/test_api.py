@@ -47,7 +47,8 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
 
     def test_first_open_creates_one_briefing_and_starts_generation_once(self, sync_connect: MagicMock) -> None:
         sync_connect.return_value.start_workflow = AsyncMock()
-        with self._flag(True):
+        # At noon UTC it is past eight in Prague and in the project's UTC, so both calls read the same briefing day.
+        with self._flag(True), time_machine.travel(datetime(2026, 9, 30, 12, 0, tzinfo=UTC), tick=False):
             first = self.client.get(f"/api/projects/{self.team.id}/today/briefing/?timezone=Europe/Prague")
             # An MCP call sends no timezone; it must not move the person's mornings to the project's.
             second = self.client.get(f"/api/projects/{self.team.id}/today/briefing/")
@@ -87,10 +88,13 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
                 early = self.client.get(url).json()
             with time_machine.travel(datetime(2026, 9, 30, 7, 0, tzinfo=UTC), tick=False):
                 today = self.client.get(url).json()
+                # A call without a timezone uses the project's UTC, where it is still before eight.
+                without_timezone = self.client.get(f"/api/projects/{self.team.id}/today/briefing/").json()
 
         assert early["local_day"] == "2026-09-29"
         assert today["local_day"] == "2026-09-30"
         assert early["id"] != today["id"]
+        assert without_timezone["id"] == early["id"]
         assert sync_connect.return_value.start_workflow.call_count == 2
 
     def test_a_refresh_while_one_is_being_written_starts_nothing_new(self, sync_connect: MagicMock) -> None:

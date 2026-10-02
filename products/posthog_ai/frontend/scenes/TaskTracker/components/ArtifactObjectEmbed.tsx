@@ -8,11 +8,7 @@ import { DashboardPlacement, InsightShortId } from '~/types'
 
 import type { PostHogObjectRef } from '../taskRunArtifacts'
 
-/**
- * The live object a reference points at, rendered with the same components its own page uses.
- * Kept in its own module so the insight, dashboard and replay code loads only when one opens.
- */
-export default function ArtifactObjectEmbed({ objectKind, objectId }: PostHogObjectRef): JSX.Element | null {
+function EmbedBody({ objectKind, objectId }: PostHogObjectRef): JSX.Element | null {
     if (objectKind === 'insight') {
         return (
             <div className="flex min-h-full flex-col p-4">
@@ -61,4 +57,17 @@ export default function ArtifactObjectEmbed({ objectKind, objectId }: PostHogObj
         )
     }
     return null
+}
+
+/**
+ * The live object a reference points at, rendered with the same components its own page uses.
+ * Kept in its own module so the insight, dashboard and replay code loads only when one opens.
+ */
+export function ArtifactObjectEmbed(ref: PostHogObjectRef): JSX.Element {
+    // These are LemonUI page components inside the quill artifacts pane, so they need PostHog's own color tokens back.
+    return (
+        <div data-not-quill className="h-full">
+            <EmbedBody {...ref} />
+        </div>
+    )
 }
