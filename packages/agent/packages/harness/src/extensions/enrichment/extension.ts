@@ -4,7 +4,10 @@ import {
   type ExtensionFactory,
   isReadToolResult,
 } from "@earendil-works/pi-coding-agent";
-import { appendRichOutputPrompt } from "@posthog/agent-contracts/rich-output-prompt";
+import {
+  appendRichOutputPrompt,
+  getProjectWebUrl,
+} from "@posthog/agent-contracts/rich-output-prompt";
 import { createEnrichment, enrichFileForAgent } from "./file-enricher";
 
 export interface PiEnrichmentConfig {
@@ -26,6 +29,10 @@ export function createPiEnrichmentExtension(config: PiEnrichmentConfig): {
         systemPrompt: appendRichOutputPrompt(
           event.systemPrompt,
           config.interactionOrigin,
+          getProjectWebUrl(
+            config.publicApiUrl ?? config.apiUrl,
+            config.projectId,
+          ),
         ),
       }));
 
