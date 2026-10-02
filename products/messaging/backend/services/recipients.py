@@ -15,7 +15,7 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.dataclasses import frozen
 from posthog.models.message_assets.sql import MESSAGE_ASSETS_TTL_DAYS
 
-from products.messaging.backend.models.message_category import MessageCategory
+from products.messaging.backend.models.message_category import ALL_MARKETING_TOPIC_KEY, MessageCategory
 from products.messaging.backend.models.message_preferences import ALL_MESSAGE_PREFERENCE_CATEGORY_ID, PreferenceStatus
 from products.messaging.backend.models.message_suppression import SuppressionSource
 
@@ -44,7 +44,7 @@ FROM (
         '' AS person_id,
         '' AS person_name
     FROM system.message_recipient_preferences
-    WHERE deleted = 0 AND {address_filter}
+    WHERE deleted = 0 AND address != '' AND {address_filter}
     UNION ALL
     SELECT
         'suppression' AS source_kind,
@@ -56,7 +56,7 @@ FROM (
         '' AS person_id,
         '' AS person_name
     FROM system.message_suppressions
-    WHERE deleted = 0 AND suppressed AND {address_filter}
+    WHERE deleted = 0 AND suppressed AND address != '' AND {address_filter}
     UNION ALL
     SELECT
         'person' AS source_kind,
@@ -111,7 +111,6 @@ _PERSONS_WITHOUT_EMAIL_QUERY = (
     "SELECT count() FROM persons WHERE coalesce(trim(persons.properties.email, {whitespace}), '') = ''"
 )
 
-ALL_MARKETING_TOPIC_KEY = "all-marketing"
 
 LAST_SENT_WINDOW_DAYS = MESSAGE_ASSETS_TTL_DAYS
 

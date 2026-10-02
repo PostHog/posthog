@@ -9,7 +9,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.integration import Integration
 
-from products.messaging.backend.models.message_category import MessageCategory
+from products.messaging.backend.models.message_category import ALL_MARKETING_TOPIC_KEY, MessageCategory
 from products.messaging.backend.models.optout_sync_config import OptOutSyncConfig
 from products.messaging.backend.services.customerio_import_service import CustomerIOImportService
 
@@ -17,6 +17,10 @@ from products.messaging.backend.services.customerio_import_service import Custom
 class MessageCategorySerializer(serializers.ModelSerializer):
     def validate(self, data):
         if self.instance is None:
+            if data["key"] == ALL_MARKETING_TOPIC_KEY:
+                raise serializers.ValidationError(
+                    {"key": f"`{ALL_MARKETING_TOPIC_KEY}` is reserved for all marketing messages. Choose another key."}
+                )
             # Ensure key is unique per team for new instances
             if MessageCategory.objects.filter(team_id=self.context["team_id"], key=data["key"], deleted=False).exists():
                 raise serializers.ValidationError({"key": "A message category with this key already exists."})
