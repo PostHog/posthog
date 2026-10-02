@@ -142,6 +142,9 @@ a billing-specific tool wrapper.
 The billing usage/spend tools accept `usage_types` as an array of strings.
 Their field description lists the accepted identifiers from `ee/billing/billing_types.py`, through the generated API schema.
 The MCP client JSON-encodes the array for the HTTP API.
+When both dates are omitted, the shared billing request serializer defaults usage/spend reads to the last 30 complete UTC days, ending yesterday.
+Explicit date ranges are unchanged; a start date without an end date still ends today.
+This also applies to the organization usage/spend time-series endpoints and CSV exports.
 The billing overview, usage, and spend tools do not need a rollout flag.
 API scopes and billing access checks still apply.
 
