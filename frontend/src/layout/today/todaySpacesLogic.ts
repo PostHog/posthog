@@ -1,10 +1,11 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { combineUrl, router } from 'kea-router'
+import { router } from 'kea-router'
 import type { LocationChangedPayload } from 'kea-router/lib/types'
 
 import { toast } from '@posthog/quill'
 
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { writeToClipboard } from 'lib/utils/writeToClipboard'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -79,11 +80,10 @@ const SPACE_PRESENCE_POLL_INTERVAL_MS = 90_000
 
 export type TodayWorkSectionId = 'pinned' | 'recent' | 'spaces'
 
-/** The space page reads this search param once and focuses its new-session composer. */
-export const SPACE_COMPOSE_PARAM = 'compose'
-
-export function spaceNewSessionUrl(spaceId: string): string {
-    return combineUrl(urls.taskSpace(spaceId), { [SPACE_COMPOSE_PARAM]: 1 }).url
+/** The space a path is in, like PostHog Desktop's scoped space. `/spaces/new` is in no space. */
+export function spaceIdForPath(pathname: string): string | null {
+    const match = removeProjectIdIfPresent(pathname).match(/^\/spaces\/([^/]+)/)
+    return match && match[1] !== 'new' ? match[1] : null
 }
 
 /** The personal space first, then the team's general space, then starred spaces, then the rest by name. */
@@ -133,6 +133,7 @@ export interface todaySpacesLogicValues {
     user: UserType | null // userLogic
     allRecentItems: TodayWorkItem[]
     collapsedSections: TodayWorkSectionId[]
+    lastSpaceId: string | null
     pendingSpaceIds: string[]
     pinnedItems: TodayWorkItem[]
     pinnedTasks: TaskListItemApi[]
@@ -325,6 +326,9 @@ export interface todaySpacesLogicActions {
     setSectionHeights: (heights: Partial<Record<TodayWorkSectionId, number>>) => {
         heights: Partial<Record<TodayWorkSectionId, number>>
     }
+    spaceVisited: (spaceId: string) => {
+        spaceId: string
+    }
     starFailed: (spaceId: string) => {
         spaceId: string
     }
@@ -408,6 +412,7 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
         toggleSection: (sectionId: TodayWorkSectionId) => ({ sectionId }),
         setSectionHeights: (heights: Partial<Record<TodayWorkSectionId, number>>) => ({ heights }),
         resetSectionPair: (upper: TodayWorkSectionId, lower: TodayWorkSectionId) => ({ upper, lower }),
+        spaceVisited: (spaceId: string) => ({ spaceId }),
         setRecentQuery: (query: string) => ({ query }),
         setRecentSearchOpen: (open: boolean) => ({ open }),
         setRecentFilters: (filters: TodayRecentFilters) => ({ filters }),
@@ -529,6 +534,8 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
                 },
             },
         ],
+        // A generic New session files here, like PostHog Desktop's scoped space. A stale id falls back to personal.
+        lastSpaceId: [null as string | null, { persist: true }, { spaceVisited: (_, { spaceId }) => spaceId }],
         recentQuery: ['', { setRecentQuery: (_, { query }) => query, clearRecentSearchAndFilters: () => '' }],
         recentSearchOpen: [
             false,
@@ -709,7 +716,13 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
             }
         }
         return {
-            locationChanged: markOpenSessionRead,
+            locationChanged: ({ pathname }) => {
+                const spaceId = spaceIdForPath(pathname)
+                if (spaceId) {
+                    actions.spaceVisited(spaceId)
+                }
+                markOpenSessionRead()
+            },
             loadTaskActivitySuccess: markOpenSessionRead,
             loadRecentTasks: () => actions.loadTaskActivity(),
             markSessionRead: async ({ marker, activityIds }) => {
@@ -758,6 +771,10 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
         },
     })),
     afterMount(({ actions, cache }) => {
+        const spaceId = spaceIdForPath(router.values.location.pathname)
+        if (spaceId) {
+            actions.spaceVisited(spaceId)
+        }
         actions.loadSpaces()
         actions.loadPinnedTasks()
         actions.loadRecentTasks()
