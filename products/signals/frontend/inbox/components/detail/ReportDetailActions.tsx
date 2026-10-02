@@ -11,10 +11,11 @@ import { urls } from 'scenes/urls'
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
+import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from '../../logics/reportListLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { canResolveReport } from '../../utils/reportActions'
-import { hasMergedReportPullRequest } from '../../utils/reportPullRequests'
+import { hasActiveReportPullRequest, hasMergedReportPullRequest } from '../../utils/reportPullRequests'
 import { useReportDismiss } from '../cards/useReportDismiss'
 import { useReportRefund } from '../cards/useReportRefund'
 import { useReportResolve } from './useReportResolve'
@@ -38,6 +39,8 @@ export interface ReportDetailAction {
 }
 
 export function useReportDetailActions(report: SignalReport): ReportDetailAction[] {
+    const { startReportMonitoring } = useActions(inboxReportDetailLogic({ reportId: report.id, report }))
+    const { monitoringUpdateLoading } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
     const { reportStateChanged } = useActions(inboxBulkActionsLogic)
     const { activeTab } = useValues(inboxSceneLogic)
     const { loadSelectedReport } = useActions(inboxSceneLogic)
@@ -46,10 +49,8 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
     const isDismissed = report.status === SignalReportStatus.SUPPRESSED
     // Resolved reports are terminal – nothing to dismiss, restore, or resolve.
     const isResolved = report.status === SignalReportStatus.RESOLVED
-    // Refund leaves a report in place only when a merged PR resolved it; anything else it dismisses
-    // (so the open PR gets closed), which means the view has to navigate away. Mirrors the
-    // `resolved_via_merged_pr` branch in the refund endpoint.
-    const staysPutOnRefund = isResolved && hasMergedReportPullRequest(report)
+    const staysPutOnRefund =
+        (isResolved || report.status === SignalReportStatus.MONITORING) && hasMergedReportPullRequest(report)
 
     // Once a verdict persists, broadcast so every mounted list reconciles against the server (the
     // report leaves Needs decision / Review and merge and joins Resolved or Dismissed), then return to
@@ -173,6 +174,21 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
     }
 
     const actions: ReportDetailAction[] = [
+        ...(report.monitoring_enabled && canResolve && report.status !== SignalReportStatus.MONITORING
+            ? [
+                  {
+                      key: 'monitoring',
+                      label: 'Fix implemented',
+                      icon: <IconCheckCircle />,
+                      loading: monitoringUpdateLoading,
+                      disabledReason: hasActiveReportPullRequest(report)
+                          ? "Merge or close this report's pull requests first"
+                          : undefined,
+                      tooltip: 'Start follow-up checks to confirm the outcome',
+                      onClick: () => startReportMonitoring(),
+                  },
+              ]
+            : []),
         ...(canResolve ? [resolve] : []),
         {
             key: 'dismiss',

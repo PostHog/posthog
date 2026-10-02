@@ -229,15 +229,33 @@ class TestSignalReportRefundAPI(APIBaseTest):
     @parameterized.expand(
         [
             # A merged PR is a genuine terminal state — the work shipped — so refund leaves it RESOLVED.
-            ("merged_pr", {"pr_url": "https://github.com/x/y/pull/1", "pr_merged": True}, SignalReport.Status.RESOLVED),
+            (
+                "merged_pr",
+                {"pr_url": "https://github.com/x/y/pull/1", "pr_merged": True},
+                SignalReport.Status.RESOLVED,
+                SignalReport.Status.RESOLVED,
+            ),
+            (
+                "monitoring_merged_pr",
+                {"pr_url": "https://github.com/x/y/pull/1", "pr_merged": True},
+                SignalReport.Status.MONITORING,
+                SignalReport.Status.MONITORING,
+            ),
             # Resolved manually without a merged PR: refund must suppress it, otherwise the linked PR
             # is never closed and the caller keeps the implementation work after being refunded.
-            ("resolved_without_merge", {"pr_url": "https://github.com/x/y/pull/1"}, SignalReport.Status.SUPPRESSED),
+            (
+                "resolved_without_merge",
+                {"pr_url": "https://github.com/x/y/pull/1"},
+                SignalReport.Status.RESOLVED,
+                SignalReport.Status.SUPPRESSED,
+            ),
         ]
     )
     @time_machine.travel(_NOW, tick=False)
-    def test_refund_of_resolved_report_suppresses_unless_pr_merged(self, _flag, _name, output, expected_status):
-        report = _make_report(self.team, status=SignalReport.Status.RESOLVED)
+    def test_refund_of_implemented_report_suppresses_unless_pr_merged(
+        self, _flag, _name, output, initial_status, expected_status
+    ):
+        report = _make_report(self.team, status=initial_status)
         _make_pr_run(self.team, report, created_at=datetime(2026, 6, 10, tzinfo=UTC), output=output)
         response = self._refund(report)
         assert response.status_code == status.HTTP_200_OK, response.json()

@@ -1,12 +1,13 @@
 import json
 import time
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 
 import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -44,7 +45,6 @@ from products.signals.backend.report_check_agent import (
 )
 from products.signals.backend.report_check_authoring import (
     CheckCreationError,
-    arm_pending_checks,
     cancel_check,
     create_check,
     create_checks_from_specs,
@@ -89,6 +89,7 @@ from products.signals.backend.report_checks import (
 from products.signals.backend.report_merge import merge_reports
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
 from products.signals.backend.report_metric_refresh import MetricMeasurement
+from products.signals.backend.report_monitoring import resolve_verified_monitoring_report
 from products.signals.backend.scout_harness.tools.checks import (
     InvalidCheckResultError,
     InvalidCheckWriteError,
@@ -473,7 +474,7 @@ class TestReportCheckExecution(APIBaseTest):
             "title": "Checkout errors stay low",
             "kind": SignalReportCheck.Kind.METRIC_THRESHOLD,
             "config": _threshold_config(),
-            "measurement_start_at": now - timedelta(days=32),
+            "measurement_start_at": self.report.monitoring_started_at or now - timedelta(days=32),
             "next_run_at": now - timedelta(minutes=1),
             "expires_at": now + timedelta(days=30),
         }
@@ -486,6 +487,82 @@ class TestReportCheckExecution(APIBaseTest):
                 report=self.report, type=SignalReportArtefact.ArtefactType.CHECK_RESULT
             ).order_by("created_at")
         )
+
+    @parameterized.expand([("metric", "metric_threshold"), ("agent", "agent")])
+    def test_monitoring_resolves_only_after_the_whole_schedule_passes(self, _name: str, kind: str) -> None:
+        self.report.status = SignalReport.Status.MONITORING
+        self.report.monitoring_started_at = timezone.now()
+        self.report.save(update_fields=["status", "monitoring_started_at"])
+        check = self._check(
+            kind=kind,
+            config=_threshold_config() if kind == "metric_threshold" else {"instructions": "Verify the fix."},
+            run_interval_minutes=MIN_CHECK_INTERVAL_MINUTES,
+            runs_remaining=2,
+        )
+        other = self._check()
+        anchor = check.measurement_start_at
+        with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=False):
+            with self.captureOnCommitCallbacks(execute=True):
+                record_check_verdict(check, CheckVerdict(outcome="passed", explanation="The check holds."))
+            self.report.refresh_from_db()
+            self.assertEqual(self.report.status, SignalReport.Status.MONITORING)
+            check.refresh_from_db()
+            with self.captureOnCommitCallbacks(execute=True):
+                record_check_verdict(check, CheckVerdict(outcome="passed", explanation="The check still holds."))
+            self.report.refresh_from_db()
+            self.assertEqual(self.report.status, SignalReport.Status.MONITORING)
+            with self.captureOnCommitCallbacks(execute=True):
+                record_check_verdict(other, CheckVerdict(outcome="passed", explanation="The other check holds."))
+        self.report.refresh_from_db()
+        check.refresh_from_db()
+        assert self.report.status == SignalReport.Status.RESOLVED
+        assert check.measurement_start_at == anchor
+
+    @parameterized.expand([("failed",), ("errored",), ("inconclusive",)])
+    def test_unsuccessful_verification_stays_on_the_monitoring_report(
+        self, outcome: Literal["failed", "errored", "inconclusive"]
+    ) -> None:
+        self.report.status = SignalReport.Status.MONITORING
+        self.report.monitoring_started_at = timezone.now()
+        self.report.save(update_fields=["status", "monitoring_started_at"])
+        check = self._check()
+        verdict = CheckVerdict(
+            outcome=outcome,
+            explanation="The check could not confirm the outcome.",
+            reason="unmeasurable" if outcome == "inconclusive" else None,
+        )
+        with self.captureOnCommitCallbacks(execute=True):
+            record_check_verdict(check, verdict)
+        self.report.refresh_from_db()
+        assert self.report.status == SignalReport.Status.MONITORING
+        assert json.loads(self._results()[0].content)["outcome"] == outcome
+
+    def test_touching_an_old_failed_check_does_not_block_the_current_monitoring_period(self) -> None:
+        self.report.status = SignalReport.Status.MONITORING
+        self.report.monitoring_started_at = timezone.now()
+        self.report.save(update_fields=["status", "monitoring_started_at"])
+        old = self._check(
+            status=SignalReportCheck.Status.FAILED,
+            measurement_start_at=timezone.now() - timedelta(days=1),
+        )
+        old.save(update_fields=["updated_at"])
+        current = self._check()
+        with self.captureOnCommitCallbacks(execute=True):
+            record_check_verdict(current, CheckVerdict(outcome="passed", explanation="The current fix holds."))
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.status, SignalReport.Status.RESOLVED)
+
+    def test_a_partial_pass_at_the_horizon_does_not_resolve_monitoring(self) -> None:
+        self.report.status = SignalReport.Status.MONITORING
+        self.report.monitoring_started_at = timezone.now()
+        self.report.save(update_fields=["status", "monitoring_started_at"])
+        check = self._check(
+            runs_remaining=2, run_interval_minutes=MIN_CHECK_INTERVAL_MINUTES, expires_at=timezone.now()
+        )
+        with self.captureOnCommitCallbacks(execute=True):
+            record_check_verdict(check, CheckVerdict(outcome="passed", explanation="One run passed."))
+        self.report.refresh_from_db()
+        assert self.report.status == SignalReport.Status.MONITORING
 
     @parameterized.expand(
         [
@@ -748,7 +825,7 @@ class TestReportCheckExecution(APIBaseTest):
 
         assert collect_due_checks(timezone.now()) == []
 
-    @parameterized.expand([("cancelled",), ("reopened",)])
+    @parameterized.expand([("cancelled",), ("reopened",), ("new_monitoring_period",)])
     def test_a_check_invalidated_while_its_query_ran_records_nothing(self, reason: str) -> None:
         check = self._check()
         if reason == "cancelled":
@@ -757,15 +834,44 @@ class TestReportCheckExecution(APIBaseTest):
         else:
             self.report.status = SignalReport.Status.READY
             self.report.save(update_fields=["status"])
+            if reason == "new_monitoring_period":
+                with (
+                    patch(
+                        "products.signals.backend.report_content_gates.team_report_monitoring_enabled",
+                        return_value=True,
+                    ),
+                    self.captureOnCommitCallbacks(execute=True),
+                ):
+                    self.report.save(update_fields=self.report.transition_to(SignalReport.Status.MONITORING))
 
         record_check_verdict(check, CheckVerdict(outcome="passed", explanation="held", observed_value=1.0))
 
         check.refresh_from_db()
-        assert check.status == (
-            SignalReportCheck.Status.CANCELLED if reason == "cancelled" else SignalReportCheck.Status.ACTIVE
-        )
+        expected_status = {
+            "cancelled": SignalReportCheck.Status.CANCELLED,
+            "reopened": SignalReportCheck.Status.PENDING,
+            "new_monitoring_period": SignalReportCheck.Status.ACTIVE,
+        }[reason]
+        assert check.status == expected_status
         assert check.last_run_at is None
         assert self._results() == []
+        if reason == "new_monitoring_period":
+            assert self.report.monitoring_started_at is not None
+            assert check.measurement_start_at == self.report.monitoring_started_at
+            assert check.next_run_at == metric_check_ready_at(_PAGEVIEWS, self.team, self.report.monitoring_started_at)
+
+    @parameterized.expand([("no_checks", False), ("cancelled_only", True)])
+    def test_monitoring_without_a_successful_check_requires_confirmation(self, _name: str, cancelled: bool) -> None:
+        self.report.status = SignalReport.Status.MONITORING
+        self.report.monitoring_started_at = timezone.now()
+        self.report.save(update_fields=["status", "monitoring_started_at"])
+        if cancelled:
+            check = self._check()
+            with self.captureOnCommitCallbacks(execute=True):
+                cancel_check(check, reason="stopped_by_person", attribution=ArtefactAttribution.system())
+        assert not resolve_verified_monitoring_report(team_id=self.team.id, report_id=str(self.report.id))
+        self.report.refresh_from_db()
+        assert self.report.status == SignalReport.Status.MONITORING
 
     def test_awaiting_data_backs_off_without_spending_the_error_budget_then_ends_inconclusive(self) -> None:
         check = self._check(
@@ -1797,6 +1903,22 @@ class TestCheckResultTool(APIBaseTest):
         assert "fired 30 times yesterday" in artefact.content
         assert f'"run_id":"{self.scout_run.id}"' in artefact.content
 
+    def test_a_previous_monitoring_periods_agent_run_cannot_answer_the_new_check(self) -> None:
+        self.report.status = SignalReport.Status.MONITORING
+        self.report.monitoring_started_at = self.scout_run.created_at + timedelta(minutes=1)
+        self.report.save(update_fields=["status", "monitoring_started_at"])
+        check = self._check()
+        self.scout_run.metadata = {"check_id": str(check.id)}
+        self.scout_run.save(update_fields=["metadata"])
+
+        with self.assertRaisesRegex(InvalidCheckResultError, "newer monitoring period"):
+            self._record(check)
+        check.refresh_from_db()
+        assert check.status == SignalReportCheck.Status.ACTIVE
+        assert not SignalReportArtefact.objects.filter(
+            report=self.report, type=SignalReportArtefact.ArtefactType.CHECK_RESULT
+        ).exists()
+
     @parameterized.expand([("on_its_lane", False), ("bound_to_the_run", True)])
     def test_a_pass_rearms_a_recurring_check_for_its_next_look(self, _name, bind_run) -> None:
         check = self._check(run_interval_minutes=MIN_CHECK_INTERVAL_MINUTES, runs_remaining=2)
@@ -1954,11 +2076,69 @@ class TestPendingChecks(APIBaseTest):
             self.report.status = SignalReport.Status.RESOLVED
             self.report.save(update_fields=["status"])
 
+    @parameterized.expand([("enabled", True, 200), ("disabled", False, 400)])
+    @override_settings(DEBUG=False)
+    def test_monitoring_entry_is_gated_and_starts_the_measurement_window(
+        self, _name: str, enabled: bool, expected_code: int
+    ) -> None:
+        check = self._pending()
+        url = f"/api/projects/{self.team.id}/signals/reports/{self.report.id}/state/"
+        with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=enabled):
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.post(url, {"state": "monitoring"}, format="json")
+        assert response.status_code == expected_code, response.json()
+        self.report.refresh_from_db()
+        check.refresh_from_db()
+        if not enabled:
+            assert self.report.status == SignalReport.Status.READY
+            assert self.report.monitoring_started_at is None
+            assert check.status == SignalReportCheck.Status.PENDING
+            return
+        assert self.report.status == SignalReport.Status.MONITORING
+        assert check.measurement_start_at == self.report.monitoring_started_at
+        assert collect_due_checks(check.next_run_at) == [check]
+        anchor = check.measurement_start_at
+        with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=False):
+            with self.captureOnCommitCallbacks(execute=True):
+                assert self.client.post(url, {"state": "monitoring"}, format="json").status_code == 200
+                assert self.client.post(url, {"state": "resolved"}, format="json").status_code == 200
+        check.refresh_from_db()
+        assert check.measurement_start_at == anchor
+
     def test_a_pending_check_is_never_due_while_its_report_is_unresolved(self) -> None:
         self._pending()
 
         # Well past the soak, but the clock has not started: the report is still open.
         assert collect_due_checks(timezone.now() + timedelta(days=7)) == []
+
+    @parameterized.expand([("metric", "metric_threshold"), ("agent", "agent")])
+    def test_restoring_monitoring_starts_a_fresh_window_even_when_the_flag_is_off(self, _name: str, kind: str) -> None:
+        check = create_check(
+            report=self.report,
+            title="Verify the fix",
+            kind=kind,
+            config=_threshold_config() if kind == "metric_threshold" else {"instructions": "Verify the fix."},
+            attribution=ArtefactAttribution.system(),
+            soak_minutes=DEFAULT_CHECK_SOAK_HOURS * 60,
+        )
+        with patch("products.signals.backend.report_content_gates.team_report_monitoring_enabled", return_value=True):
+            with self.captureOnCommitCallbacks(execute=True):
+                self.report.save(update_fields=self.report.transition_to(SignalReport.Status.MONITORING))
+        first_anchor = self.report.monitoring_started_at
+        self.report.save(update_fields=self.report.transition_to(SignalReport.Status.SUPPRESSED))
+        assert self.report.monitoring_started_at is None
+        with time_machine.travel(timezone.now() + timedelta(days=10), tick=False):
+            restored_at = timezone.now()
+            with patch(
+                "products.signals.backend.report_content_gates.team_report_monitoring_enabled", return_value=False
+            ):
+                with self.captureOnCommitCallbacks(execute=True):
+                    self.report.save(update_fields=self.report.transition_to(self.report.restore_target_status()))
+        check.refresh_from_db()
+        assert check.status == SignalReportCheck.Status.ACTIVE
+        assert check.measurement_start_at == self.report.monitoring_started_at == restored_at
+        assert check.measurement_start_at != first_anchor
+        assert check.next_run_at > restored_at
 
     def test_resolving_the_report_waits_for_a_full_query_window_after_the_soak(self) -> None:
         check = self._pending()
@@ -2029,7 +2209,8 @@ class TestPendingChecks(APIBaseTest):
             soak_minutes=24 * 60,
         )
         resolved_at = timezone.now()
-        arm_pending_checks(team_id=self.team.id, report_id=self.report.id, resolved_at=resolved_at)
+        with time_machine.travel(resolved_at, tick=False), self.captureOnCommitCallbacks(execute=True):
+            self.report.save(update_fields=self.report.transition_to(SignalReport.Status.RESOLVED))
         metric.refresh_from_db()
         agent.refresh_from_db()
         assert metric.next_run_at == resolved_at + timedelta(days=3)
@@ -2698,7 +2879,8 @@ class TestReportCheckLifecycleLog(APIBaseTest):
             attribution=ArtefactAttribution.system(),
         )
 
-        arm_pending_checks(team_id=self.team.id, report_id=open_report.id, resolved_at=timezone.now())
+        with self.captureOnCommitCallbacks(execute=True):
+            open_report.save(update_fields=open_report.transition_to(SignalReport.Status.RESOLVED))
 
         entries = self._entries(SignalReportArtefact.ArtefactType.CHECK_SCHEDULED, open_report)
         check.refresh_from_db()

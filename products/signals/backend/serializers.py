@@ -1279,7 +1279,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
         ),
     )
     work_state = serializers.SerializerMethodField(
-        help_text="Derived remediation state: unclaimed, working, in_review, or done.",
+        help_text="Derived remediation state: unclaimed, working, in_review, monitoring, or done.",
     )
     assignee = serializers.SerializerMethodField(
         help_text="Current user, internal task, or external agent claim owner. Null when unclaimed.",
@@ -1308,6 +1308,21 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "place of the entries."
         ),
     )
+    monitoring_enabled = serializers.SerializerMethodField(
+        help_text="Whether this organization can mark an implemented fix as monitoring before confirming its outcome."
+    )
+    monitoring_started_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When this report's current monitoring period began."
+    )
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_monitoring_enabled(self, obj: SignalReport) -> bool:
+        from products.signals.backend.report_content_gates import team_report_monitoring_enabled
+
+        key = f"report_monitoring_enabled_{obj.team_id}"
+        if key not in self.context:
+            self.context[key] = team_report_monitoring_enabled(obj.team_id)
+        return bool(self.context[key])
 
     class Meta:
         model = SignalReport
@@ -1317,6 +1332,8 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "summary",
             "summary_lead",
             "status",
+            "monitoring_enabled",
+            "monitoring_started_at",
             "total_weight",  # Used for priority scoring
             "signal_count",  # Used for occurrence count
             "signals_at_run",  # Snooze threshold: re-promote when signal_count >= this value
@@ -1602,6 +1619,8 @@ class SignalReportSerializer(serializers.ModelSerializer):
     def get_work_state(self, obj: SignalReport) -> str:
         if obj.status == SignalReport.Status.RESOLVED:
             return "done"
+        if obj.status == SignalReport.Status.MONITORING:
+            return "monitoring"
         if any(pr.state in {"open", "draft", "unknown"} for pr in self._get_pull_requests(obj)):
             return "in_review"
         assignment = self._get_assignment(obj)

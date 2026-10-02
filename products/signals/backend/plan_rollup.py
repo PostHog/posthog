@@ -20,6 +20,7 @@ from products.signals.backend.models import (
     InvalidStatusTransition,
     SignalReport,
     SignalReportArtefact,
+    SignalReportCheck,
     SignalReportPullRequest,
 )
 from products.signals.backend.typed_report_links import incoming_links, outgoing_links
@@ -109,8 +110,24 @@ def _close_parent(*, parent: SignalReport, target: SignalReport.Status) -> bool:
     """
     if parent.status == target:
         return False
-    if target == SignalReport.Status.SUPPRESSED and parent.status == SignalReport.Status.RESOLVED:
+    if parent.status == SignalReport.Status.MONITORING and target == SignalReport.Status.RESOLVED:
+        from products.signals.backend.report_monitoring import resolve_verified_monitoring_report
+
+        changed = resolve_verified_monitoring_report(team_id=parent.team_id, report_id=str(parent.id))
+        parent.refresh_from_db(fields=["status"])
+        return changed
+    if target == SignalReport.Status.SUPPRESSED and parent.status in SignalReport.CHECK_EXECUTION_STATUSES:
         return False
+    if (
+        target == SignalReport.Status.RESOLVED
+        and SignalReportCheck.objects.for_team(parent.team_id)
+        .filter(report_id=parent.id, status=SignalReportCheck.Status.PENDING)
+        .exists()
+    ):
+        from products.signals.backend.report_content_gates import team_report_monitoring_enabled
+
+        if team_report_monitoring_enabled(parent.team_id):
+            target = SignalReport.Status.MONITORING
     try:
         updated_fields = parent.transition_to(target)
     except (InvalidStatusTransition, ValueError, TypeError):

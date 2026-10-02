@@ -396,10 +396,12 @@ export const signalsReportsStateCreateBodySnoozeForMax = 100000
 
 export const SignalsReportsStateCreateBody = /* @__PURE__ */ zod.object({
     state: zod
-        .enum(['suppressed', 'potential', 'resolved'])
-        .describe('\* `suppressed` - suppressed\n\* `potential` - potential\n\* `resolved` - resolved')
+        .enum(['suppressed', 'potential', 'resolved', 'monitoring'])
         .describe(
-            "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze\/reopen it for later review, or 'resolved' when the work this report asked for has been done. Resolving is allowed from ready, pending_input, or failed, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one.\n\n\* `suppressed` - suppressed\n\* `potential` - potential\n\* `resolved` - resolved"
+            '\* `suppressed` - suppressed\n\* `potential` - potential\n\* `resolved` - resolved\n\* `monitoring` - monitoring'
+        )
+        .describe(
+            "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze\/reopen it for later review, 'monitoring' when a fix is implemented but its outcome is not confirmed, or 'resolved' when the outcome is confirmed. Entering monitoring requires the signals-report-monitoring organization rollout flag. Resolving is allowed from ready, pending_input, monitoring, or failed, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one.\n\n\* `suppressed` - suppressed\n\* `potential` - potential\n\* `resolved` - resolved\n\* `monitoring` - monitoring"
         ),
     dismissal_reason: zod
         .enum([
@@ -590,10 +592,12 @@ export const signalsReportsBulkStateCreateBodyIdsMax = 100
 
 export const SignalsReportsBulkStateCreateBody = /* @__PURE__ */ zod.object({
     state: zod
-        .enum(['suppressed', 'potential', 'resolved'])
-        .describe('\* `suppressed` - suppressed\n\* `potential` - potential\n\* `resolved` - resolved')
+        .enum(['suppressed', 'potential', 'resolved', 'monitoring'])
         .describe(
-            "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze\/reopen it for later review, or 'resolved' when the work this report asked for has been done. Resolving is allowed from ready, pending_input, or failed, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one.\n\n\* `suppressed` - suppressed\n\* `potential` - potential\n\* `resolved` - resolved"
+            '\* `suppressed` - suppressed\n\* `potential` - potential\n\* `resolved` - resolved\n\* `monitoring` - monitoring'
+        )
+        .describe(
+            "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze\/reopen it for later review, 'monitoring' when a fix is implemented but its outcome is not confirmed, or 'resolved' when the outcome is confirmed. Entering monitoring requires the signals-report-monitoring organization rollout flag. Resolving is allowed from ready, pending_input, monitoring, or failed, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one.\n\n\* `suppressed` - suppressed\n\* `potential` - potential\n\* `resolved` - resolved\n\* `monitoring` - monitoring"
         ),
     dismissal_reason: zod
         .enum([

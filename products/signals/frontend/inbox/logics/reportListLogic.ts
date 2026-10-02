@@ -89,6 +89,7 @@ export interface ReportListLogicProps {
 export const INBOX_REPORT_SECTION_LIST_PARAMS: Record<InboxReportSectionKey, ReportListParams> = {
     // An implementation PR is open, waiting to be reviewed and merged.
     monitoring: { has_implementation_pr: 'true', status: 'ready' },
+    verifying: { status: 'monitoring' },
     'needs-decision': { view: 'needs_decision' },
     // Fixed by a merged implementation PR, or resolved by a person. Terminal, not restorable.
     resolved: { status: 'resolved' },
@@ -113,6 +114,9 @@ export function legacyTabListLogicProps(tabKey: InboxFlatListTabKey): ReportList
     const sectionKey = INBOX_LEGACY_TAB_SECTION[tabKey]
     if (tabKey === 'archived') {
         return { sectionKey, listParams: { status: 'suppressed,resolved' } }
+    }
+    if (tabKey === 'reports') {
+        return { sectionKey, listParams: { view: 'inbox' } }
     }
     return { sectionKey, listParams: INBOX_REPORT_SECTION_LIST_PARAMS[sectionKey] }
 }

@@ -44,6 +44,11 @@ describe('inboxReportDetailLogic', () => {
                     '/api/projects/:team_id/signals/reports/available_reviewers/': [],
                 },
                 post: {
+                    '/api/projects/:team_id/signals/reports/:id/state/': {
+                        ...REPORT,
+                        status: 'monitoring',
+                        monitoring_started_at: '2026-09-30T00:00:00Z',
+                    },
                     '/api/projects/:team_id/signals/reports/:id/checks/:check_id/approve/': {
                         ...openCheck,
                         approved_at: '2026-09-30T00:00:00Z',
@@ -57,6 +62,14 @@ describe('inboxReportDetailLogic', () => {
         })
 
         afterEach(() => logic.unmount())
+
+        it('records the server monitoring state and clears the update loading state', async () => {
+            logic.actions.startReportMonitoring()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.report?.status).toBe('monitoring')
+            expect(logic.values.report?.monitoring_started_at).toBe('2026-09-30T00:00:00Z')
+            expect(logic.values.monitoringUpdateLoading).toBe(false)
+        })
 
         it('updates only the approved row and clears its loading state', async () => {
             logic.actions.approveReportCheck(openCheck.id)

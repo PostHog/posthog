@@ -63,6 +63,7 @@ class SignalReportWorkState(models.TextChoices):
     UNCLAIMED = "unclaimed", "Unclaimed"
     WORKING = "working", "Working"
     IN_REVIEW = "in_review", "In review"
+    MONITORING = "monitoring", "Monitoring"
     DONE = "done", "Done"
 
 
@@ -297,10 +298,13 @@ class SignalReport(UUIDModel):
         IN_PROGRESS = "in_progress"
         PENDING_INPUT = "pending_input"
         READY = "ready"
+        MONITORING = "monitoring"
         RESOLVED = "resolved"
         FAILED = "failed"
         DELETED = "deleted"
         SUPPRESSED = "suppressed"
+
+    CHECK_EXECUTION_STATUSES = (Status.MONITORING, Status.RESOLVED)
 
     class BillingExemptReason(models.TextChoices):
         POSTHOG_HEALTH_CHECK = "posthog_health_check", "PostHog health check"
@@ -382,6 +386,7 @@ class SignalReport(UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
     promoted_at = models.DateTimeField(null=True, blank=True)
     last_run_at = models.DateTimeField(null=True, blank=True)
+    monitoring_started_at = models.DateTimeField(null=True, blank=True)
     # When the report first became user-visible (entered READY, PENDING_INPUT, or FAILED, the statuses the
     # inbox lists). Set once and never cleared, so re-research and suppress/restore cycles don't
     # recount it against SignalTeamConfig.max_reports_per_day. Null for reports that predate the
@@ -540,9 +545,14 @@ class SignalReport(UUIDModel):
                 updated_fields.add("error")
 
             # Reset to potential (from in_progress via actionability judge, from suppressed, or by user snooze)
-            case (S.IN_PROGRESS | S.PENDING_INPUT | S.SUPPRESSED | S.READY | S.RESOLVED | S.FAILED, S.POTENTIAL):
+            case (
+                S.IN_PROGRESS | S.PENDING_INPUT | S.SUPPRESSED | S.READY | S.MONITORING | S.RESOLVED | S.FAILED,
+                S.POTENTIAL,
+            ):
                 self.promoted_at = None
                 updated_fields.add("promoted_at")
+                self.monitoring_started_at = None
+                updated_fields.add("monitoring_started_at")
                 if self.status == S.SUPPRESSED:
                     self.status_before_suppression = None
                     updated_fields.add("status_before_suppression")
@@ -560,23 +570,42 @@ class SignalReport(UUIDModel):
             # before suppression. Title/summary/error are already set from the earlier research run,
             # so they are preserved as-is. In-flight states (candidate/in_progress) are never restored
             # here — they have no live workflow to resume and instead route back through POTENTIAL above.
-            case (S.SUPPRESSED, S.PENDING_INPUT | S.READY | S.RESOLVED | S.FAILED):
+            case (S.SUPPRESSED, S.PENDING_INPUT | S.READY | S.MONITORING | S.RESOLVED | S.FAILED):
                 self.status_before_suppression = None
                 updated_fields.add("status_before_suppression")
+                if new_status == S.MONITORING:
+                    self.monitoring_started_at = timezone.now()
+                    updated_fields.add("monitoring_started_at")
 
             # Any non-deleted status can fail
-            case (S.POTENTIAL | S.CANDIDATE | S.IN_PROGRESS | S.PENDING_INPUT | S.READY | S.RESOLVED, S.FAILED):
+            case (
+                S.POTENTIAL | S.CANDIDATE | S.IN_PROGRESS | S.PENDING_INPUT | S.READY | S.MONITORING | S.RESOLVED,
+                S.FAILED,
+            ):
                 if error is None:
                     raise ValueError("error is required for transition to failed")
                 self.error = error
+                if self.status == S.MONITORING:
+                    self.monitoring_started_at = None
+                    updated_fields.add("monitoring_started_at")
                 updated_fields.add("error")
 
             # Any non-deleted status can be suppressed
             case (
-                S.POTENTIAL | S.CANDIDATE | S.IN_PROGRESS | S.PENDING_INPUT | S.READY | S.RESOLVED | S.FAILED,
+                S.POTENTIAL
+                | S.CANDIDATE
+                | S.IN_PROGRESS
+                | S.PENDING_INPUT
+                | S.READY
+                | S.MONITORING
+                | S.RESOLVED
+                | S.FAILED,
                 S.SUPPRESSED,
             ):
                 # Remember where it was so "restore" can return it there (see restore_target_status).
+                if self.status == S.MONITORING:
+                    self.monitoring_started_at = None
+                    updated_fields.add("monitoring_started_at")
                 self.status_before_suppression = self.status
                 self.promoted_at = None
                 updated_fields.update(["status_before_suppression", "promoted_at"])
@@ -588,6 +617,7 @@ class SignalReport(UUIDModel):
                 | S.IN_PROGRESS
                 | S.PENDING_INPUT
                 | S.READY
+                | S.MONITORING
                 | S.RESOLVED
                 | S.FAILED
                 | S.SUPPRESSED,
@@ -595,15 +625,25 @@ class SignalReport(UUIDModel):
             ):
                 pass
 
-            case (S.RESOLVED, S.READY):
-                pass
+            case (S.RESOLVED | S.MONITORING, S.READY):
+                self.monitoring_started_at = None
+                updated_fields.add("monitoring_started_at")
+
+            case (S.PENDING_INPUT | S.READY | S.FAILED, S.MONITORING):
+                from products.signals.backend.report_content_gates import (
+                    team_report_monitoring_enabled,  # noqa: PLC0415 — keeps flag dependencies off startup
+                )
+
+                if not team_report_monitoring_enabled(self.team_id):
+                    raise ValueError("Report monitoring is not enabled for this organization.")
+                self.monitoring_started_at = timezone.now()
+                updated_fields.add("monitoring_started_at")
 
             # Only researched reports can resolve
-            # Reports are marked resolved when the linked implementation PR is merged (see tasks GitHub webhook)
             # FAILED resolves too: a run that died in processing still describes real work, and
             # whoever fixed it needs a way to say so. Without this edge the only exit is a
             # dismissal, which used to make the report a sink for every later recurrence.
-            case (S.PENDING_INPUT | S.READY | S.FAILED, S.RESOLVED):
+            case (S.PENDING_INPUT | S.READY | S.MONITORING | S.FAILED, S.RESOLVED):
                 # Just pass through to status setting
                 pass
 
@@ -662,7 +702,7 @@ class SignalReport(UUIDModel):
         back through POTENTIAL to re-enter the pipeline.
         """
         S = self.Status
-        researched = {S.READY, S.PENDING_INPUT, S.RESOLVED, S.FAILED}
+        researched = {S.READY, S.PENDING_INPUT, S.MONITORING, S.RESOLVED, S.FAILED}
         prior = self.status_before_suppression
         if prior in {s.value for s in researched}:
             return S(prior)
@@ -1018,6 +1058,8 @@ class SignalReportAssignment(TeamScopedRootMixin, UUIDModel):
     def work_state(self) -> SignalReportWorkState:
         if self.report.status == SignalReport.Status.RESOLVED:
             return SignalReportWorkState.DONE
+        if self.report.status == SignalReport.Status.MONITORING:
+            return SignalReportWorkState.MONITORING
         from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
 
         if any(

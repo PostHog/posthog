@@ -14,10 +14,13 @@ from products.signals.backend.models import (
     ArtefactAttribution,
     SignalReport,
     SignalReportArtefact,
+    SignalReportCheck,
     SignalReportPullRequest,
 )
 from products.signals.backend.plan_rollup import _rolled_up_status, roll_up_plan_parents
 from products.signals.backend.pull_requests import update_pull_request_state
+from products.signals.backend.report_check_authoring import create_check
+from products.signals.backend.report_check_execution import CheckVerdict, record_check_verdict
 from products.signals.backend.temporal.grouping import _link_check_follow_up
 from products.signals.backend.typed_report_links import outgoing_links
 
@@ -92,6 +95,38 @@ class TestPlanRollup(BaseTest):
 
         parent.refresh_from_db()
         assert parent.status == SignalReport.Status.READY
+
+    def test_a_monitoring_step_does_not_resolve_its_plan(self):
+        parent = self._report("plan")
+        child = self._report("step", SignalReport.Status.MONITORING)
+        self._part_of(child, parent)
+        roll_up_plan_parents(team_id=self.team.id, report_id=str(child.id))
+        parent.refresh_from_db()
+        assert parent.status == SignalReport.Status.READY
+
+    def test_a_plan_verifies_its_own_checks_after_its_steps_resolve(self):
+        parent = self._report("plan")
+        child = self._report("step")
+        self._part_of(child, parent)
+        check = create_check(
+            report=parent,
+            title="Verify the combined outcome",
+            kind=SignalReportCheck.Kind.AGENT,
+            config={"instructions": "Confirm that all changes work together."},
+            attribution=ArtefactAttribution.system(),
+            soak_minutes=0,
+        )
+        with patch("products.signals.backend.report_content_gates.team_report_monitoring_enabled", return_value=True):
+            self._close(child, SignalReport.Status.RESOLVED)
+        parent.refresh_from_db()
+        check.refresh_from_db()
+        assert parent.status == SignalReport.Status.MONITORING
+        assert check.status == SignalReportCheck.Status.ACTIVE
+
+        with self.captureOnCommitCallbacks(execute=True):
+            record_check_verdict(check, CheckVerdict(outcome="passed", explanation="The combined outcome holds."))
+        parent.refresh_from_db()
+        assert parent.status == SignalReport.Status.RESOLVED
 
     def test_a_merged_pull_request_on_the_last_step_closes_the_plan(self):
         parent = self._report("plan")

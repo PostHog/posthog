@@ -1936,6 +1936,7 @@ class TestSignalReportListAPI(APIBaseTest):
         self._create_report(title="No judgment")
         self._create_report(title="Dismissed", status=SignalReport.Status.SUPPRESSED)
         self._create_report(title="Resolved", status=SignalReport.Status.RESOLVED)
+        monitoring = self._create_report(title="Fix implemented", status=SignalReport.Status.MONITORING)
         with_pr = self._create_report(title="Has an implementation PR")
         self._actionability_artefact(with_pr, actionability="immediately_actionable")
         self._create_assignment(with_pr, pr_url="https://github.com/org/repo/pull/42")
@@ -1954,6 +1955,19 @@ class TestSignalReportListAPI(APIBaseTest):
         response = self.client.get(self._list_url(view="needs_decision", scope="entire_project", count_only="true"))
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["count"] == 4
+
+        response = self.client.get(self._list_url(view="inbox", scope="entire_project"))
+        assert response.status_code == status.HTTP_200_OK
+        assert {row["id"] for row in response.json()["results"]} == {
+            str(failed.id),
+            str(actionable.id),
+            str(needs_input.id),
+            str(failed_with_pr.id),
+            str(monitoring.id),
+        }
+        response = self.client.get(self._list_url(view="verifying", scope="entire_project"))
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["id"] for row in response.json()["results"]] == [str(monitoring.id)]
 
     def test_priority_preference_uses_personal_threshold_then_project_threshold(self):
         reports_by_priority: dict[str, SignalReport] = {}
@@ -3025,6 +3039,14 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
             # researched report; every other status keeps returning 409 (the model state machine is
             # not loosened).
             ("ready", SignalReport.Status.READY, None, status.HTTP_200_OK, SignalReport.Status.RESOLVED),
+            ("monitoring", SignalReport.Status.MONITORING, None, status.HTTP_200_OK, SignalReport.Status.RESOLVED),
+            (
+                "suppressed_from_monitoring",
+                SignalReport.Status.SUPPRESSED,
+                SignalReport.Status.MONITORING,
+                status.HTTP_200_OK,
+                SignalReport.Status.RESOLVED,
+            ),
             (
                 "pending_input",
                 SignalReport.Status.PENDING_INPUT,
@@ -3106,6 +3128,7 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
             # prior status before archiving, expected status after restore
             ("ready", SignalReport.Status.READY, SignalReport.Status.READY),
             ("pending_input", SignalReport.Status.PENDING_INPUT, SignalReport.Status.PENDING_INPUT),
+            ("monitoring", SignalReport.Status.MONITORING, SignalReport.Status.MONITORING),
             ("resolved", SignalReport.Status.RESOLVED, SignalReport.Status.RESOLVED),
             ("failed", SignalReport.Status.FAILED, SignalReport.Status.FAILED),
             # In-flight / pre-research states have no live workflow, so restore re-enters the pipeline.

@@ -29,7 +29,7 @@ const DEFAULT_STATE: InboxFilterState = {
     sourceProductFilter: [],
     scoutFilter: [],
     priorityFilter: [],
-    stateFilter: ['monitoring', 'needs-decision'],
+    stateFilter: ['monitoring', 'verifying', 'needs-decision'],
     sortField: 'priority',
     sortDirection: 'asc',
     searchQuery: '',

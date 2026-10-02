@@ -106,7 +106,7 @@ def create_check(
             soak_minutes = soak_minutes_from_gap(next_run_at, now)
         first_run_at = (
             next_run_at
-            if next_run_at is not None and locked_report.status == SignalReport.Status.RESOLVED
+            if next_run_at is not None and locked_report.status in SignalReport.CHECK_EXECUTION_STATUSES
             else now + timedelta(minutes=soak_minutes)
         )
         metric_ready_at = None
@@ -123,7 +123,7 @@ def create_check(
         )
         if open_checks.count() >= MAX_ACTIVE_CHECKS_PER_REPORT:
             raise CheckCreationError(f"A report may carry at most {MAX_ACTIVE_CHECKS_PER_REPORT} active checks.")
-        if locked_report.status == SignalReport.Status.RESOLVED:
+        if locked_report.status in SignalReport.CHECK_EXECUTION_STATUSES:
             status = SignalReportCheck.Status.ACTIVE
             next_run_at = first_run_at
             if metric_ready_at is not None:
@@ -152,7 +152,8 @@ def create_check(
             kind=kind,
             config=stored_config,
             measurement_start_at=now
-            if status == SignalReportCheck.Status.ACTIVE and metric_ready_at is not None
+            if status == SignalReportCheck.Status.ACTIVE
+            and (metric_ready_at is not None or locked_report.status == SignalReport.Status.MONITORING)
             else None,
             status=status,
             next_run_at=next_run_at,
@@ -416,12 +417,17 @@ def cancel_check(
     )
     if cancelled:
         write_check_cancelled(check, reason=reason, attribution=attribution)
+        from products.signals.backend.report_monitoring import resolve_verified_monitoring_report
+
+        transaction.on_commit(
+            lambda: resolve_verified_monitoring_report(team_id=check.team_id, report_id=str(check.report_id))
+        )
     check.refresh_from_db()
     return bool(cancelled)
 
 
-def arm_pending_checks(*, team_id: int, report_id: str | uuid.UUID, resolved_at: datetime) -> int:
-    """Start the clock on a resolved report's pending checks. Returns how many were armed.
+def _arm_pending_checks(*, team_id: int, report_id: str | uuid.UUID, resolved_at: datetime) -> int:
+    """Start the clock on pending checks after implementation. Returns how many were armed.
 
     Called from the report's `post_save` receiver, so every resolve path reaches it: the pull
     request merge webhook, a manual resolve in the inbox, and an MCP state write alike.
@@ -458,9 +464,22 @@ def arm_pending_checks(*, team_id: int, report_id: str | uuid.UUID, resolved_at:
             .update(
                 status=SignalReportCheck.Status.ACTIVE,
                 next_run_at=next_run_at,
-                measurement_start_at=resolved_at if check.kind == SignalReportCheck.Kind.METRIC_THRESHOLD else None,
+                measurement_start_at=resolved_at
+                if check.kind == SignalReportCheck.Kind.METRIC_THRESHOLD
+                or check.report.status == SignalReport.Status.MONITORING
+                else None,
                 expires_at=expires_at,
                 updated_at=resolved_at,
             )
         )
     return armed
+
+
+def arm_pending_checks(*, team_id: int, report_id: str | uuid.UUID, resolved_at: datetime) -> int:
+    with transaction.atomic():
+        report = SignalReport.objects.select_for_update().filter(team_id=team_id, id=report_id).first()
+        if report is None or report.status not in SignalReport.CHECK_EXECUTION_STATUSES:
+            return 0
+        if report.monitoring_started_at is not None and report.monitoring_started_at != resolved_at:
+            return 0
+        return _arm_pending_checks(team_id=team_id, report_id=report_id, resolved_at=resolved_at)

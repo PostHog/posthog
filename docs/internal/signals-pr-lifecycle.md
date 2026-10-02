@@ -3,7 +3,30 @@
 A report completes after all linked implementation PRs are closed or merged.
 At least one merged PR resolves the report; otherwise all closed PRs suppress it.
 
-Attaching a new open, draft, or unknown PR to a resolved report returns it to ready.
+With the organization-level `signals-report-monitoring` flag enabled, at least one merged PR instead
+puts the report in `monitoring`: implementation is complete, but the outcome is still being verified.
+The state API and the **Fix implemented** action also support fixes without a pull request, after any
+linked pull requests have merged or closed. Entry records `monitoring_started_at` and starts follow-up
+checks' soak and measurement windows. Repeated merge notifications do not reset this timestamp.
+The flag only controls new entry. Disabling it leaves existing monitoring reports visible and their
+checks running. Historical resolved reports are unchanged. Keep the flag off until Django and workers
+have fully deployed support for this state; local DEBUG environments enable it for development.
+
+A monitoring report automatically resolves once every applicable, non-cancelled check passes all its
+remaining runs. Failed, errored, inconclusive, expired, or partially completed checks leave the report
+in monitoring for review. Approval is a quality signal and does not gate verification. A report without
+checks needs explicit resolution. Failures during monitoring stay on that report rather than creating
+a follow-up report. New signals continue to attach without restarting implementation.
+The `verifying` inbox view displays monitoring reports; the existing `monitoring` view still means PR
+review. The legacy `inbox` view includes both reports awaiting a decision and monitoring reports.
+
+The follow-up timing descriptions below also apply to monitoring: its entry replaces resolution as the
+measurement anchor. Resolving a monitoring report keeps the anchor. Reopening immediately parks active
+checks and clears it; the next implementation starts a new window, and stale results cannot settle it.
+Archiving pauses monitoring checks; restoring monitoring starts a fresh window even if the rollout
+flag is disabled. Checks from earlier windows cannot confirm the restored report's outcome.
+
+Attaching a new open, draft, or unknown PR to a monitoring or resolved report returns it to ready.
 The shared PR-linking service applies this rule to task outputs and agent attachments.
 An existing attachment retry does not reopen a report, and importing legacy assignments preserves its status.
 Suppressed reports remain suppressed when another PR is attached.
@@ -21,6 +44,8 @@ The roll-up runs on the step's own status change, so a merged PR, a manual resol
 A `part_of` link written on a step that already closed runs the check as well, because that write changes no status.
 It continues up a plan of plans, and skips a plan that is waiting on a replacement.
 It also skips a plan that carries its own open, draft, or unknown PR, because that plan's own work decides its status.
+A monitoring step keeps its plan open. With monitoring enabled, a plan whose steps are resolved starts
+its own pending checks in monitoring and waits for their verdicts before resolving.
 
 ## Follow-up checks
 

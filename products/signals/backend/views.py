@@ -286,7 +286,12 @@ PR_CI_STATUS_MAX_REPORTS = 100
 _PR_CI_STATUS_UNREADABLE = "unreadable"
 # Report statuses whose pull request is no longer open, so its CI is not worth a GitHub call.
 _PR_CI_STATUS_TERMINAL_REPORT_STATUSES = frozenset(
-    {SignalReport.Status.FAILED, SignalReport.Status.SUPPRESSED, SignalReport.Status.RESOLVED}
+    {
+        SignalReport.Status.FAILED,
+        SignalReport.Status.SUPPRESSED,
+        SignalReport.Status.MONITORING,
+        SignalReport.Status.RESOLVED,
+    }
 )
 
 
@@ -685,6 +690,7 @@ _RESOLVABLE_STATUSES_BEFORE_SUPPRESSION = frozenset(
     {
         SignalReport.Status.READY,
         SignalReport.Status.PENDING_INPUT,
+        SignalReport.Status.MONITORING,
         SignalReport.Status.RESOLVED,
         SignalReport.Status.FAILED,
     }
@@ -695,6 +701,7 @@ class SignalReportState(models.TextChoices):
     SUPPRESSED = "suppressed", "suppressed"
     POTENTIAL = "potential", "potential"
     RESOLVED = "resolved", "resolved"
+    MONITORING = "monitoring", "monitoring"
 
 
 class SignalReportStateRequestSerializer(serializers.Serializer):
@@ -702,8 +709,10 @@ class SignalReportStateRequestSerializer(serializers.Serializer):
         choices=SignalReportState.choices,
         help_text=(
             "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, "
-            "'potential' to snooze/reopen it for later review, or 'resolved' when the work this report "
-            "asked for has been done. Resolving is allowed from ready, pending_input, or failed, "
+            "'potential' to snooze/reopen it for later review, 'monitoring' when a fix is implemented "
+            "but its outcome is not confirmed, or 'resolved' when the outcome is confirmed. "
+            "Entering monitoring requires the signals-report-monitoring organization rollout flag. "
+            "Resolving is allowed from ready, pending_input, monitoring, or failed, "
             "or from a suppressed report that previously held one of those statuses or resolved. "
             "Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). "
             "Dismissing or resolving closes the report's open implementation PR, if it has one."
@@ -1109,7 +1118,18 @@ class SignalReportViewSet(
         "oldest": "created_at,status,-updated_at",
     }
     _INBOX_VIEWS = frozenset(
-        {"actionable", "needs_input", "needs_decision", "monitoring", "resolved", "dismissed", "not_actionable", "all"}
+        {
+            "actionable",
+            "needs_input",
+            "needs_decision",
+            "inbox",
+            "monitoring",
+            "verifying",
+            "resolved",
+            "dismissed",
+            "not_actionable",
+            "all",
+        }
     )
     _SIGNAL_REPORT_ORDERING_FIELDS: dict[str, str] = {
         "status": "pipeline_status_rank",
@@ -1475,7 +1495,9 @@ class SignalReportViewSet(
             return queryset
         has_review_pr = implementation_pr_report_filter(team_id=self.team.id, active_only=True)
         is_unclaimed = (
-            ~Q(status=SignalReport.Status.RESOLVED) & ~reports_with_active_claim(team_id=self.team_id) & ~has_review_pr
+            ~Q(status__in=SignalReport.CHECK_EXECUTION_STATUSES)
+            & ~reports_with_active_claim(team_id=self.team_id)
+            & ~has_review_pr
         )
         return queryset.filter(is_unclaimed) if wants_unclaimed else queryset.exclude(is_unclaimed)
 
@@ -1655,22 +1677,24 @@ class SignalReportViewSet(
                 status=SignalReport.Status.PENDING_INPUT,
                 latest_actionability=ActionabilityChoice.REQUIRES_HUMAN_INPUT.value,
             )
-        if inbox_view == "needs_decision":
-            return queryset.filter(
-                Q(status=SignalReport.Status.FAILED)
-                | (
-                    Q(
-                        status__in=[SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT],
-                        latest_actionability__in=[
-                            ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value,
-                            ActionabilityChoice.REQUIRES_HUMAN_INPUT.value,
-                        ],
-                    )
-                    & ~self._implementation_pr_report_filter()
+        if inbox_view in {"needs_decision", "inbox"}:
+            needs_decision = Q(status=SignalReport.Status.FAILED) | (
+                Q(
+                    status__in=[SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT],
+                    latest_actionability__in=[
+                        ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value,
+                        ActionabilityChoice.REQUIRES_HUMAN_INPUT.value,
+                    ],
                 )
+                & ~self._implementation_pr_report_filter()
             )
+            if inbox_view == "inbox":
+                needs_decision |= Q(status=SignalReport.Status.MONITORING)
+            return queryset.filter(needs_decision)
         if inbox_view == "monitoring":
             return queryset.filter(status=SignalReport.Status.READY).filter(self._implementation_pr_report_filter())
+        if inbox_view == "verifying":
+            return queryset.filter(status=SignalReport.Status.MONITORING)
         if inbox_view == "resolved":
             return queryset.filter(status=SignalReport.Status.RESOLVED)
         if inbox_view == "dismissed":
@@ -1692,6 +1716,7 @@ class SignalReportViewSet(
                 When(status=SignalReport.Status.CANDIDATE, then=Value(4)),
                 When(status=SignalReport.Status.POTENTIAL, then=Value(5)),
                 When(status=SignalReport.Status.FAILED, then=Value(6)),
+                When(status=SignalReport.Status.MONITORING, then=Value(7)),
                 When(status=SignalReport.Status.RESOLVED, then=Value(7)),
                 When(status=SignalReport.Status.SUPPRESSED, then=Value(8)),
                 When(status=SignalReport.Status.DELETED, then=Value(9)),
@@ -2245,7 +2270,8 @@ class SignalReportViewSet(
                 location=OpenApiParameter.QUERY,
                 required=False,
                 description=(
-                    "Apply an inbox view: actionable, needs_input, needs_decision, monitoring, resolved, dismissed, "
+                    "Apply an inbox view: actionable, needs_input, needs_decision, monitoring (PR review), "
+                    "verifying (fix implemented), inbox, resolved, dismissed, "
                     "not_actionable, or all. Each view applies the corresponding status, actionability, and "
                     "implementation-PR filters. needs_decision also includes failed reports without a judgment."
                 ),
@@ -2339,7 +2365,7 @@ class SignalReportViewSet(
                 required=False,
                 description=(
                     "Filter by whether the report has no owner and no draft, open, or unknown PR. "
-                    "Resolved reports are never unclaimed."
+                    "Monitoring and resolved reports are never unclaimed."
                 ),
             ),
             OpenApiParameter(
@@ -3238,12 +3264,23 @@ class SignalReportViewSet(
 
             effective_snooze_for = snooze_for if target == "potential" else None
 
+            if effective_target == SignalReport.Status.MONITORING and report.status != effective_target:
+                prs = fetch_implementation_prs_for_reports([str(report.id)], team_id=self.team.id, using="default").get(
+                    str(report.id), []
+                )
+                if any(not pr.merged and pr.state not in {"closed", "merged"} for pr in prs):
+                    return (
+                        SignalReportBulkStateOutcome.SKIPPED,
+                        "Merge or close the report's open pull requests before marking the fix as implemented.",
+                    )
+
             # A verdict the report already holds is honoured, not refused: the open detail view lags
             # the server once GitHub closes the PR (webhook suppresses the report), and that click
             # still carries feedback for the agent. Skipping the save keeps every receiver quiet, so
             # no second PR close is queued. A repeat restore carries no feedback, so it stays a 409.
             already_holds_verdict = target_status == report.status and target_status in (
                 SignalReport.Status.SUPPRESSED,
+                SignalReport.Status.MONITORING,
                 SignalReport.Status.RESOLVED,
             )
 
@@ -3564,14 +3601,13 @@ class SignalReportViewSet(
 
             # Refund doubles as archive: suppress the report so it leaves the inbox, and so the
             # dismissal receiver closes the implementation PR that was paid for and then refunded.
-            # The one exception is a report resolved by a merged PR: that PR shipped, so the report
-            # stays put as a genuine terminal state and there is no open PR to close. A report
-            # resolved manually without a merged PR is NOT exempt — its PR may still be open, and
+            # Monitoring or resolved reports with a merged PR stay put: that PR shipped, and there
+            # is no open PR to close. A report resolved manually without a merged PR is NOT exempt,
             # leaving it resolved would let the caller keep the implementation work after the refund.
             # Already-suppressed reports need no transition. The dismissal artefact records the
             # rationale; the structured truth lives on the refund row.
-            resolved_via_merged_pr = report.status == SignalReport.Status.RESOLVED and pr_merged
-            if report.status != SignalReport.Status.SUPPRESSED and not resolved_via_merged_pr:
+            implemented_via_merged_pr = report.status in SignalReport.CHECK_EXECUTION_STATUSES and pr_merged
+            if report.status != SignalReport.Status.SUPPRESSED and not implemented_via_merged_pr:
                 updated_fields = report.transition_to(SignalReport.Status.SUPPRESSED)
                 report._transition_actor_user_id = attribution.user_id  # type: ignore[attr-defined]
                 report.save(update_fields=updated_fields)

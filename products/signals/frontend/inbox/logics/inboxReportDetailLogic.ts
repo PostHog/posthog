@@ -40,6 +40,7 @@ import {
     signalsReportPrReviewCommentUpdate,
     signalsReportsFeedbackCreate,
     signalsReportsSignalsRetrieve,
+    signalsReportsStateCreate,
 } from 'products/signals/frontend/generated/api'
 import type {
     CommitDiffResponseApi,
@@ -315,6 +316,8 @@ export interface inboxReportDetailLogicValues {
     isReportActive: boolean
     isUpdatingReviewers: boolean
     latestCommitArtefact: SignalReportArtefact | null
+    monitoringUpdate: boolean
+    monitoringUpdateLoading: boolean
     optimisticReviewers: EnrichedReviewer[] | null
     postingThreadKey: string | null
     prChecks: readonly PullRequestCheckApi[] | null
@@ -592,6 +595,21 @@ export interface inboxReportDetailLogicActions {
     setSelectedTaskId: (taskId: string | null) => {
         taskId: string | null
     }
+    startReportMonitoring: () => any
+    startReportMonitoringFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    startReportMonitoringSuccess: (
+        monitoringUpdate: boolean,
+        payload?: any
+    ) => {
+        monitoringUpdate: boolean
+        payload?: any
+    }
     submitFeedbackNote: (
         note: string,
         surface?: InboxReportActionSurface
@@ -749,7 +767,31 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         setFeedbackNoteSubmitting: (submitting: boolean) => ({ submitting }),
     }),
 
-    loaders(({ props, values }) => ({
+    loaders(({ props, values, actions }) => ({
+        monitoringUpdate: [
+            false,
+            {
+                startReportMonitoring: async () => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        throw new Error('Select a project before updating this report.')
+                    }
+                    const response = await signalsReportsStateCreate(String(teamId), props.reportId, {
+                        state: 'monitoring',
+                    })
+                    if (values.report) {
+                        actions.setReport({
+                            ...values.report,
+                            status: response.status as SignalReportStatus,
+                            monitoring_started_at: response.monitoring_started_at,
+                        })
+                    }
+                    lemonToast.success('Fix marked as implemented. Follow-up checks will confirm its outcome.')
+                    inboxBulkActionsLogic.findMounted()?.actions.reportStateChanged()
+                    return true
+                },
+            },
+        ],
         reportArtefacts: [
             null as SignalReportArtefact[] | null,
             {

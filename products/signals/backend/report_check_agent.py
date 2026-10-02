@@ -364,7 +364,7 @@ def _claim_for_dispatch(check: SignalReportCheck, now: datetime) -> bool:
     """
     with transaction.atomic():
         report = SignalReport.objects.select_for_update().filter(id=check.report_id, team_id=check.team_id).first()
-        if report is None or report.status != SignalReport.Status.RESOLVED:
+        if report is None or report.status not in SignalReport.CHECK_EXECUTION_STATUSES:
             return False
         claimed = (
             SignalReportCheck.objects.for_team(check.team_id)

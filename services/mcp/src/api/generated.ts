@@ -70845,6 +70845,7 @@ export namespace Schemas {
      * * `in_progress` - In Progress
      * * `pending_input` - Pending Input
      * * `ready` - Ready
+     * * `monitoring` - Monitoring
      * * `resolved` - Resolved
      * * `failed` - Failed
      * * `deleted` - Deleted
@@ -70859,6 +70860,7 @@ export namespace Schemas {
       InProgress: 'in_progress',
       PendingInput: 'pending_input',
       Ready: 'ready',
+      Monitoring: 'monitoring',
       Resolved: 'resolved',
       Failed: 'failed',
       Deleted: 'deleted',
@@ -71062,6 +71064,7 @@ export namespace Schemas {
       Unclaimed: 'unclaimed',
       Working: 'working',
       InReview: 'in_review',
+      Monitoring: 'monitoring',
       Done: 'done',
     } as const;
 
@@ -71207,6 +71210,13 @@ export namespace Schemas {
       /** The opening of `summary` as plain text on one line: the text before its first section heading, with chart links removed and other links reduced to their text. At most 450 characters. */
       readonly summary_lead: string;
       readonly status: SignalReportStatusEnum;
+      /** Whether this organization can mark an implemented fix as monitoring before confirming its outcome. */
+      readonly monitoring_enabled: boolean;
+      /**
+         * When this report's current monitoring period began.
+         * @nullable
+         */
+      readonly monitoring_started_at: string | null;
       readonly total_weight: number;
       readonly signal_count: number;
       readonly signals_at_run: number;
@@ -71285,7 +71295,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly tracker_issue_error: string | null;
-      /** Derived remediation state: unclaimed, working, in_review, or done. */
+      /** Derived remediation state: unclaimed, working, in_review, monitoring, or done. */
       readonly work_state: SignalReportWorkStateEnum;
       /** Current user, internal task, or external agent claim owner. Null when unclaimed. */
       readonly assignee: SignalReportAssignee | null;
@@ -91151,6 +91161,13 @@ export namespace Schemas {
       /** The opening of `summary` as plain text on one line: the text before its first section heading, with chart links removed and other links reduced to their text. At most 450 characters. */
       readonly summary_lead: string;
       readonly status: SignalReportStatusEnum;
+      /** Whether this organization can mark an implemented fix as monitoring before confirming its outcome. */
+      readonly monitoring_enabled: boolean;
+      /**
+         * When this report's current monitoring period began.
+         * @nullable
+         */
+      readonly monitoring_started_at: string | null;
       readonly total_weight: number;
       readonly signal_count: number;
       readonly signals_at_run: number;
@@ -91229,7 +91246,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly tracker_issue_error: string | null;
-      /** Derived remediation state: unclaimed, working, in_review, or done. */
+      /** Derived remediation state: unclaimed, working, in_review, monitoring, or done. */
       readonly work_state: SignalReportWorkStateEnum;
       /** Current user, internal task, or external agent claim owner. Null when unclaimed. */
       readonly assignee: SignalReportAssignee | null;
@@ -96217,6 +96234,7 @@ export namespace Schemas {
      * * `suppressed` - suppressed
      * * `potential` - potential
      * * `resolved` - resolved
+     * * `monitoring` - monitoring
      */
     export type SignalReportStateEnum = typeof SignalReportStateEnum[keyof typeof SignalReportStateEnum];
 
@@ -96225,14 +96243,16 @@ export namespace Schemas {
       Suppressed: 'suppressed',
       Potential: 'potential',
       Resolved: 'resolved',
+      Monitoring: 'monitoring',
     } as const;
 
     export interface SignalReportBulkStateRequest {
-      /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the work this report asked for has been done. Resolving is allowed from ready, pending_input, or failed, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one.
+      /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, 'monitoring' when a fix is implemented but its outcome is not confirmed, or 'resolved' when the outcome is confirmed. Entering monitoring requires the signals-report-monitoring organization rollout flag. Resolving is allowed from ready, pending_input, monitoring, or failed, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one.
        *
        * * `suppressed` - suppressed
        * * `potential` - potential
-       * * `resolved` - resolved */
+       * * `resolved` - resolved
+       * * `monitoring` - monitoring */
       state: SignalReportStateEnum;
       /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. Use 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
        *
@@ -96542,11 +96562,12 @@ export namespace Schemas {
     }
 
     export interface SignalReportStateRequest {
-      /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the work this report asked for has been done. Resolving is allowed from ready, pending_input, or failed, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one.
+      /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, 'monitoring' when a fix is implemented but its outcome is not confirmed, or 'resolved' when the outcome is confirmed. Entering monitoring requires the signals-report-monitoring organization rollout flag. Resolving is allowed from ready, pending_input, monitoring, or failed, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one.
        *
        * * `suppressed` - suppressed
        * * `potential` - potential
-       * * `resolved` - resolved */
+       * * `resolved` - resolved
+       * * `monitoring` - monitoring */
       state: SignalReportStateEnum;
       /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. Use 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
        *
@@ -123385,7 +123406,7 @@ export namespace Schemas {
      */
     teammate_uuid?: string;
     /**
-     * Filter by whether the report has no owner and no draft, open, or unknown PR. Resolved reports are never unclaimed.
+     * Filter by whether the report has no owner and no draft, open, or unknown PR. Monitoring and resolved reports are never unclaimed.
      */
     unclaimed?: boolean;
     /**
@@ -123397,7 +123418,7 @@ export namespace Schemas {
      */
     use_priority_preference?: boolean;
     /**
-     * Apply an inbox view: actionable, needs_input, needs_decision, monitoring, resolved, dismissed, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters. needs_decision also includes failed reports without a judgment.
+     * Apply an inbox view: actionable, needs_input, needs_decision, monitoring (PR review), verifying (fix implemented), inbox, resolved, dismissed, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters. needs_decision also includes failed reports without a judgment.
      */
     view?: string;
     };

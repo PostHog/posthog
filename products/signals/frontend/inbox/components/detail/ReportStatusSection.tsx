@@ -59,6 +59,16 @@ export function ReportStatusSection({
         <DetailSection icon={<IconInfo />} title="Status" rightSlot={rightSlot} collapsible>
             <dl className="m-0 flex flex-col gap-2">
                 <StatusRow label="Report status">{STATUS_LABELS[report.status] ?? report.status}</StatusRow>
+                {report.status === 'monitoring' && (
+                    <div className="text-xs text-secondary">
+                        The fix is implemented. Follow-up checks are confirming its outcome.
+                    </div>
+                )}
+                {report.monitoring_started_at && (
+                    <StatusRow label="Monitoring started">
+                        <TZLabel time={report.monitoring_started_at} timestampStyle="absolute" />
+                    </StatusRow>
+                )}
                 {externalClaim && <StatusRow label="In progress by">{externalClaim}</StatusRow>}
                 {report.priority && <StatusRow label="Priority">{report.priority}</StatusRow>}
                 {pullRequests.map((pullRequest, index) => {

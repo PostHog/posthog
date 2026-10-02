@@ -77,7 +77,7 @@ def _pause_reason(check: SignalReportCheck, report_status: str, now: datetime) -
     These are the filters `collect_due_checks` applies besides the clock, so an undispatched check
     is `due` to a run only when the coordinator would dispatch it too.
     """
-    if report_status != SignalReport.Status.RESOLVED:
+    if report_status not in SignalReport.CHECK_EXECUTION_STATUSES:
         return f"its report is `{report_status}`"
     if check.expires_at <= now:
         return "its horizon passed"
@@ -106,10 +106,12 @@ def _resolve_dispatched_check(team: Team, run: SignalScoutRun, check_id: str) ->
         raise InvalidCheckResultError(f"check {check_id} is a `{check.kind}` check, which the coordinator measures")
     if check.status == SignalReportCheck.Status.PENDING:
         raise InvalidCheckResultError(
-            f"check {check_id} waits for its report to resolve, so there is no fix to measure yet"
+            f"check {check_id} waits for its fix to be implemented, so there is no fix to measure yet"
         )
     if check.status != SignalReportCheck.Status.ACTIVE:
         raise InvalidCheckResultError(f"check {check_id} already finished as `{check.status}`")
+    if check.report.monitoring_started_at is not None and run.created_at < check.report.monitoring_started_at:
+        raise InvalidCheckResultError(f"check {check_id} belongs to a newer monitoring period than this run")
     # The dispatch stamps the check on the run it starts, so that run answers its check even when
     # the lane resolves differently now. It answers once: its verdict clears `dispatched_at`, and a
     # retry after a recurring check re-arms must not spend another run.

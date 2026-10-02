@@ -37,6 +37,7 @@ export function useReportImpressions(rows: MergedReportRow[], selectedSections: 
     // changes when the filter does; the effect below only consults the selected states.
     const sections: Record<InboxReportSectionKey, SectionImpressionState> = {
         monitoring: useSectionImpressionState('monitoring'),
+        verifying: useSectionImpressionState('verifying'),
         'needs-decision': useSectionImpressionState('needs-decision'),
         resolved: useSectionImpressionState('resolved'),
         dismissed: useSectionImpressionState('dismissed'),
