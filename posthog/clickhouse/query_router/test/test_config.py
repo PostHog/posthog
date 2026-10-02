@@ -5,7 +5,7 @@ import pytest
 from unittest.mock import patch
 
 from posthog.clickhouse.query_router import config
-from posthog.clickhouse.query_router.config import CLASS_POLICIES, Pool, PoolBounds, QueryClass, RouterMode
+from posthog.clickhouse.query_router.config import Pool, PoolBounds, QueryClass, RouterMode
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     "QUERY_ROUTER_MODE": "enforce",
@@ -23,11 +23,6 @@ def fresh_settings() -> Iterator[None]:
     with patch.object(config, "TEST", False):
         yield
     config._load_settings.cache_clear()
-
-
-def test_share_never_rises_with_the_class_number() -> None:
-    shares = [CLASS_POLICIES[query_class].share for query_class in sorted(QueryClass)]
-    assert shares == sorted(shares, reverse=True)
 
 
 def test_enforce_applies_only_to_the_listed_pool_and_class() -> None:

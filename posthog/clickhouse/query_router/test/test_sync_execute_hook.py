@@ -27,8 +27,8 @@ from posthog.clickhouse.query_tagging import tags_context
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.redis import get_client
 
-# BACKGROUND may use half the limit, so a limit of 2 is full for it with one query running.
-SMALL_LIMIT = 2
+# One held slot fills the pool.
+SMALL_LIMIT = 1
 
 
 class _FakeClock:

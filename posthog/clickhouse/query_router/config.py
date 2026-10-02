@@ -37,19 +37,17 @@ class RouterMode(StrEnum):
 
 @frozen
 class ClassPolicy:
-    # Fraction of the pool limit below which this class may start a query.
-    share: float
     max_wait_seconds: float
 
 
-# A waiting query holds a web thread or a worker slot, so the waits are short and a query joins the queue
-# only when it is likely to start within its wait.
-# Shares must not rise with the class number, or a waiter that cannot fit its share blocks every later class behind it.
+# Every class may start a query while the pool is under its limit; the class decides only the order of the
+# queue. A waiting query holds a web thread or a worker slot, so the waits are short and a query joins the
+# queue only when it is likely to start within its wait.
 CLASS_POLICIES: dict[QueryClass, ClassPolicy] = {
-    QueryClass.INTERACTIVE: ClassPolicy(share=1.0, max_wait_seconds=2.0),
-    QueryClass.API: ClassPolicy(share=0.9, max_wait_seconds=5.0),
-    QueryClass.ASYNC: ClassPolicy(share=0.7, max_wait_seconds=10.0),
-    QueryClass.BACKGROUND: ClassPolicy(share=0.5, max_wait_seconds=10.0),
+    QueryClass.INTERACTIVE: ClassPolicy(max_wait_seconds=2.0),
+    QueryClass.API: ClassPolicy(max_wait_seconds=5.0),
+    QueryClass.ASYNC: ClassPolicy(max_wait_seconds=10.0),
+    QueryClass.BACKGROUND: ClassPolicy(max_wait_seconds=10.0),
 }
 
 

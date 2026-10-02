@@ -91,13 +91,12 @@ local my_class = tonumber(ARGV[3])
 local rank = ARGV[4]
 local rank_class_multiplier = tonumber(ARGV[5])
 local ceiling = ARGV[6]
-local share_per_mille = tonumber(ARGV[7])
-local ttl_ms = tonumber(ARGV[8])
-local stale_ms = tonumber(ARGV[9])
-local enforcing = ARGV[10] == '1'
-local first_attempt = ARGV[11] == '1'
-local window_ms = tonumber(ARGV[12])
-local wait_budget_ms = tonumber(ARGV[13])
+local ttl_ms = tonumber(ARGV[7])
+local stale_ms = tonumber(ARGV[8])
+local enforcing = ARGV[9] == '1'
+local first_attempt = ARGV[10] == '1'
+local window_ms = tonumber(ARGV[11])
+local wait_budget_ms = tonumber(ARGV[12])
 local waiting = KEYS[5]
 local waiting_seen = KEYS[6]
 local released = KEYS[8]
@@ -131,13 +130,10 @@ local total = 0
 for i = 1, 4 do
     total = total + redis.call('ZCARD', KEYS[i])
 end
--- Integer arithmetic, because a float share puts some products just under a whole number
--- (90 * 0.7 is 62.99... in floating point).
-local allowed = math.floor(limit * share_per_mille / 1000)
 
 local ahead = redis.call('ZCOUNT', waiting, '-inf', '(' .. rank)
 
-if total + ahead < allowed then
+if total + ahead < limit then
     redis.call('ZADD', KEYS[my_class], now + ttl_ms, slot)
     redis.call('ZREM', waiting, slot)
     redis.call('ZREM', waiting_seen, slot)
@@ -148,7 +144,7 @@ end
 local refused = false
 if first_attempt then
     -- The pool must free this many slots, net, before this query fits.
-    local deficit = total + ahead - allowed + 1
+    local deficit = total + ahead - limit + 1
     local recent_releases = redis.call('ZCOUNT', released, now - window_ms, '+inf')
     -- A higher class takes a freed slot before this query, whether it starts at once or queues ahead.
     local higher_arrivals = redis.call('ZCOUNT', arrivals, '-inf', '(' .. rank_of(my_class, 0))
@@ -349,7 +345,6 @@ class QueryRouter:
                 rank,
                 RANK_CLASS_MULTIPLIER,
                 ceiling,
-                round(policy.share * 1000),
                 _SLOT_TTL_SECONDS * 1000,
                 STALE_WAITER_MS,
                 int(enforcing),

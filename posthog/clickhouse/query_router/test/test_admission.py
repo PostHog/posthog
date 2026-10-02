@@ -35,9 +35,8 @@ from posthog.clickhouse.query_router.config import (
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.redis import get_client
 
-# With a limit of 2, INTERACTIVE may run 2 queries and every other class 1, so one held slot is a
-# full pool for API and BACKGROUND.
-SMALL_LIMIT = 2
+# One held slot fills the pool.
+SMALL_LIMIT = 1
 
 # Enough releases in the drain window for every query these tests queue to pass the arrival estimate.
 DRAINING_RELEASES = 10
@@ -142,20 +141,16 @@ class TestQueryRouterAdmission(SimpleTestCase):
     def _running(self, query_class: QueryClass) -> int:
         return self.redis.zcard(running_key(Pool.OFFLINE, query_class))
 
-    def test_class_waits_above_its_share_while_a_higher_class_is_admitted(self) -> None:
+    def test_every_class_starts_while_the_pool_is_under_the_limit(self) -> None:
         self.get_pool_bounds.return_value = PoolBounds(floor=1, ceiling=1000)
         self.redis.set(limit_key(Pool.OFFLINE), 10)
-        self._drain()
-        background = _ParkedWaiter(self.clock, QueryClass.BACKGROUND)
 
         with ExitStack() as held:
-            self._hold(held, 5)
-            assert background.start() == "waiting"
-            with self._admit(QueryClass.API) as admission:
+            self._hold(held, 9)
+            with self._admit(QueryClass.BACKGROUND) as admission:
                 assert admission.outcome == AdmissionOutcome.ADMITTED
+                assert admission.total == 9
                 assert admission.limit == 10
-
-        background.finish()
 
     @parameterized.expand(
         [
@@ -265,15 +260,15 @@ class TestQueryRouterAdmission(SimpleTestCase):
     def test_query_queues_only_when_the_pool_drains_fast_enough_to_start_it_within_half_its_max_wait(
         self, _name: str, query_class: QueryClass, releases: int, releases_age_ms: int, queues: bool
     ) -> None:
-        # With a limit of 3 and two API queries running, an API query needs one freed slot and a
-        # BACKGROUND query needs two.
+        # With a limit of 3 and three API queries running, the next query needs one freed slot. For a
+        # BACKGROUND query the three API arrivals count against the drain.
         self.get_pool_bounds.return_value = PoolBounds(floor=1, ceiling=1000)
         self.redis.set(limit_key(Pool.OFFLINE), 3)
         self._drain(releases)
         self.clock.now += releases_age_ms / 1000
         started_at = self.clock.now
         with ExitStack() as held:
-            self._hold(held, 2, QueryClass.API)
+            self._hold(held, 3, QueryClass.API)
 
             def free_the_pool_and_sleep(seconds: float) -> None:
                 held.close()
