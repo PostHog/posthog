@@ -44,15 +44,19 @@ const RECIPIENT: RecipientApi = {
 }
 
 describe('Audience setup', () => {
-    function useAudience({ topics, recipients }: { topics: MessageCategoryApi[]; recipients: RecipientApi[] }): void {
+    function useAudience({
+        topics,
+        recipients,
+    }: {
+        topics: MessageCategoryApi[] | 'failing'
+        recipients: RecipientApi[]
+    }): void {
         useMocks({
             get: {
-                '/api/projects/:team_id/messaging_categories/': {
-                    count: topics.length,
-                    next: null,
-                    previous: null,
-                    results: topics,
-                },
+                '/api/projects/:team_id/messaging_categories/': () =>
+                    topics === 'failing'
+                        ? [500, { detail: 'Server error' }]
+                        : [200, { count: topics.length, next: null, previous: null, results: topics }],
                 '/api/projects/:team_id/messaging_recipients/': { results: recipients, next_cursor: null },
                 '/api/projects/:team_id/messaging_recipients/coverage/': { persons_without_email: 0 },
             },
@@ -95,6 +99,12 @@ describe('Audience setup', () => {
         { audience: 'no topics and no recipients', topics: [], recipients: [], shows: SETUP_HEADING },
         { audience: 'a topic', topics: [topic('newsletter')], recipients: [], shows: 'No recipients yet' },
         { audience: 'a recipient', topics: [], recipients: [RECIPIENT], shows: RECIPIENT.email },
+        {
+            audience: 'topics that failed to load',
+            topics: 'failing' as const,
+            recipients: [],
+            shows: 'No recipients yet',
+        },
     ])('with $audience, /audience shows "$shows"', async ({ topics, recipients, shows }) => {
         useAudience({ topics, recipients })
 
@@ -125,7 +135,8 @@ describe('Audience setup', () => {
         renderAudienceAt(urls.audienceSetup())
 
         await waitFor(() => expect(sendPreferencesStep()).toHaveTextContent("'product-updates': true"))
-        expect(sendPreferencesStep()).toHaveTextContent('newsletter: true')
+        expect(sendPreferencesStep()).toHaveTextContent('newsletter: false')
+        expect(sendPreferencesStep()).toHaveTextContent('Set each value from what the user picked')
         expect(sendPreferencesStep()).toHaveTextContent('posthog.messaging.setPreferences(email, {')
         expect(sendPreferencesStep()).toHaveTextContent('secretKey: process.env.POSTHOG_PERSONAL_API_KEY')
         expect(sendPreferencesStep()).not.toHaveTextContent('receipts')
@@ -141,6 +152,19 @@ describe('Audience setup', () => {
         await waitFor(() =>
             expect(capture).toHaveBeenCalledWith('audience snippet copied', { variant: 'agent_prompt' })
         )
+    })
+
+    it('offers a retry instead of a snippet without topic keys when the topics fail to load', async () => {
+        useAudience({ topics: 'failing', recipients: [RECIPIENT] })
+        renderAudienceAt(urls.audienceSetup())
+
+        expect(await screen.findByText(/Couldn't load your topics/)).toBeInTheDocument()
+        expect(sendPreferencesStep()).not.toHaveTextContent('setPreferences(email')
+
+        useAudience({ topics: [topic('newsletter')], recipients: [RECIPIENT] })
+        fireEvent.click(screen.getByText('Try again'))
+
+        await waitFor(() => expect(sendPreferencesStep()).toHaveTextContent('newsletter: false'))
     })
 
     it('links to a new personal API key with the hog_flow:write scope', async () => {
