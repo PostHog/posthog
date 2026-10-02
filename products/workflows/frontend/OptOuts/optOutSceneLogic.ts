@@ -57,7 +57,6 @@ export const optOutSceneLogic = kea<optOutSceneLogicType>([
             {
                 openPreferencesPage: (previewing, recipient) => (recipient ? previewing : true),
                 openPreferencesPageSuccess: (previewing, { payload }) => (payload ? previewing : false),
-                openPreferencesPageFailure: () => false,
             },
         ],
     }),

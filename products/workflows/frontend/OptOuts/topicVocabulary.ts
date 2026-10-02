@@ -160,7 +160,7 @@ export const AUDIENCE_TOPIC_WORDS: TopicVocabulary = {
     topicForm: {
         newTitle: 'New topic',
         editTitle: 'Edit topic',
-        keyInfo: 'Your app sends preferences by this key.',
+        keyInfo: 'Your app sets preferences by this key.',
         keyPlaceholder: 'e.g., product-updates',
         messageTypeInfo:
             'Recipients can unsubscribe from marketing topics. Transactional topics ignore recipient preferences.',
@@ -192,7 +192,7 @@ export const AUDIENCE_TOPIC_WORDS: TopicVocabulary = {
         importOtherTopic: 'unless the row names a different topic in a',
         importIsSafe:
             'Importing never resubscribes anyone, so you can upload the same file twice. A file exported from here imports back as it is.',
-        importResult: (added, total) => `Unsubscribed ${added} recipients from ${total} rows.`,
+        importResult: (added, total) => `Added ${added} unsubscribes from ${total} rows.`,
         added: (identifier) => `${identifier} is unsubscribed`,
         removed: (identifier, topicName) =>
             topicName
@@ -202,7 +202,7 @@ export const AUDIENCE_TOPIC_WORDS: TopicVocabulary = {
         removeFailed: "Couldn't resubscribe the recipient. Try again.",
         loadFailed: "Couldn't load unsubscribed recipients. Reload to try again.",
         exportFailed: "Couldn't export the list. Try again.",
-        imported: (count) => `Unsubscribed ${count} recipients`,
+        imported: (count) => `Added ${count} unsubscribes`,
         nothingImported: 'No one was unsubscribed. Check the file and try again.',
     },
     customerIOImport: {

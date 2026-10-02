@@ -214,7 +214,9 @@ export const newCategoryLogic = kea<newCategoryLogicType>([
             const keyFollowsName = values.speaksAudience && !props.category && !values.keyTypedByHand
             if (fieldName(name) === 'name' && keyFollowsName) {
                 actions.setCategoryFormValues({ key: topicKeyFromName(values.categoryForm.name) })
-                actions.setCategoryFormManualErrors(withoutKeyError(values.categoryFormManualErrors))
+                if ('key' in values.categoryFormManualErrors) {
+                    actions.setCategoryFormManualErrors(withoutKeyError(values.categoryFormManualErrors))
+                }
             }
         },
     })),
