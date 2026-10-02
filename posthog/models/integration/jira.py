@@ -15,31 +15,54 @@ from . import common, model, oauth
 
 logger = structlog.get_logger(__name__)
 
-FENCED_CODE_BLOCK = re.compile(
-    r"^(?P<fence>`{3,})(?P<language>[^`\n]*)\n(?P<code>.*?)\n(?P=fence)[ \t]*$", re.MULTILINE | re.DOTALL
-)
+OPENING_FENCE = re.compile(r"(?P<fence>`{3,})(?P<language>[^`]*)")
+CLOSING_FENCE = re.compile(r"(?P<fence>`{3,})[ \t]*")
 
 
 def description_to_adf(description: str) -> dict[str, Any]:
-    """Markdown code fences become ADF code blocks, because Jira shows the backticks literally otherwise."""
-    content: list[dict[str, Any]] = []
+    """Markdown code fences become ADF code blocks, because Jira shows the backticks literally otherwise.
 
-    def add_paragraph(text: str) -> None:
+    The fences follow CommonMark, so Jira shows the same blocks that GitHub would: a closing fence is at least as
+    long as its opening fence, and a fence without a closing line runs to the end. Each line is read once, so a
+    description with many unclosed fences still converts in linear time.
+    """
+    content: list[dict[str, Any]] = []
+    text_lines: list[str] = []
+    code_lines: list[str] = []
+    fence = ""
+    language = ""
+
+    def add_paragraph() -> None:
+        text = "\n".join(text_lines).strip("\n")
+        text_lines.clear()
         # Jira rejects an empty text node.
         if text.strip():
             content.append({"type": "paragraph", "content": [{"type": "text", "text": text}]})
 
-    position = 0
-    for match in FENCED_CODE_BLOCK.finditer(description):
-        add_paragraph(description[position : match.start()].strip("\n"))
+    def add_code_block(language: str) -> None:
         code_block: dict[str, Any] = {"type": "codeBlock", "content": []}
-        if language := match.group("language").strip():
+        if language:
             code_block["attrs"] = {"language": language}
-        if code := match.group("code"):
+        if code := "\n".join(code_lines):
             code_block["content"] = [{"type": "text", "text": code}]
+        code_lines.clear()
         content.append(code_block)
-        position = match.end()
-    add_paragraph(description[position:].strip("\n"))
+
+    for line in description.split("\n"):
+        if not fence:
+            if opening := OPENING_FENCE.fullmatch(line):
+                add_paragraph()
+                fence, language = opening["fence"], opening["language"].strip()
+            else:
+                text_lines.append(line)
+        elif (closing := CLOSING_FENCE.fullmatch(line)) and len(closing["fence"]) >= len(fence):
+            add_code_block(language)
+            fence = ""
+        else:
+            code_lines.append(line)
+    if fence:
+        add_code_block(language)
+    add_paragraph()
 
     return {"type": "doc", "version": 1, "content": content}
 

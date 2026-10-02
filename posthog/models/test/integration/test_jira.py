@@ -100,6 +100,26 @@ class TestJiraIntegrationModel:
                 ],
             ),
             (
+                "longer_closing_fence_closes_block",
+                "```\nboom\n````\nafter",
+                [
+                    {"type": "codeBlock", "content": [{"type": "text", "text": "boom"}]},
+                    {"type": "paragraph", "content": [{"type": "text", "text": "after"}]},
+                ],
+            ),
+            (
+                "unclosed_fence_runs_to_end",
+                "Details\n```js\nboom\n\nPostHog issue: https://example.com/issue/1",
+                [
+                    {"type": "paragraph", "content": [{"type": "text", "text": "Details"}]},
+                    {
+                        "type": "codeBlock",
+                        "attrs": {"language": "js"},
+                        "content": [{"type": "text", "text": "boom\n\nPostHog issue: https://example.com/issue/1"}],
+                    },
+                ],
+            ),
+            (
                 "shorter_inner_fence_stays_in_code",
                 "````python\nprint('x')\n```\n````",
                 [

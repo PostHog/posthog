@@ -1,9 +1,18 @@
+import { useValues } from 'kea'
+
 import { LemonCheckbox } from '@posthog/lemon-ui'
 
 import { CodeSnippet } from 'lib/components/CodeSnippet'
+import { stackFrameLogic } from 'lib/components/Errors/Frame/stackFrameLogic'
+import { ErrorEventType } from 'lib/components/Errors/types'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-export function IncludeStacktraceField({ stacktrace }: { stacktrace: string }): JSX.Element | null {
+import { getStacktrace } from './externalIssueBody'
+
+export function IncludeStacktraceField({ event }: { event: ErrorEventType | null }): JSX.Element | null {
+    const { stackFrameRecords } = useValues(stackFrameLogic)
+    const stacktrace = getStacktrace(event, stackFrameRecords)
+
     if (!stacktrace) {
         return null
     }

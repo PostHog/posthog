@@ -4,10 +4,8 @@ import posthog from 'posthog-js'
 import { IconPlus } from '@posthog/icons'
 import { LemonDialog, LemonInput, LemonInputSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
 
-import { isStoredCrashFirst } from 'lib/components/Errors/displayOrder'
 import { stackFrameLogic } from 'lib/components/Errors/Frame/stackFrameLogic'
 import { ErrorEventType, ErrorTrackingFingerprint } from 'lib/components/Errors/types'
-import { getExceptionList } from 'lib/components/Errors/utils'
 import { GitHubRepositoryPicker, GitHubRepositorySelectField } from 'lib/integrations/GitHubIntegrationHelpers'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { JiraProjectSelectField } from 'lib/integrations/JiraIntegrationHelpers'
@@ -34,8 +32,8 @@ import {
     ErrorTrackingExternalIssueResultApi,
     ErrorTrackingExternalIssueResultApiExternalContext,
 } from '../generated/api.schemas'
-import { generateStacktraceText } from '../hooks/use-stacktrace-display'
 import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
+import { appendStacktrace, getStacktrace } from './externalIssueBody'
 import { externalIssueSearchLogic } from './externalIssueSearchLogic'
 import { IncludeStacktraceField } from './IncludeStacktraceField'
 
@@ -48,9 +46,6 @@ type onSubmitLinkType = (
 ) => void
 type ErrorTrackingIntegrationKind = (typeof ERROR_TRACKING_INTEGRATIONS)[number]
 type ErrorTrackingIntegration = IntegrationType & { kind: ErrorTrackingIntegrationKind }
-
-// Jira rejects a description over 32,767 characters, so a long trace is cut to leave room for the rest of the body.
-const MAX_STACKTRACE_LENGTH = 20000
 
 // The dialog otherwise sizes to its widest line, so it would resize when the stack trace preview is shown or hidden.
 const CREATE_ISSUE_DIALOG_WIDTH = '40rem'
@@ -67,7 +62,7 @@ const EXTERNAL_REFERENCE_FORM_BUILDERS: Record<
     (
         issue: ErrorTrackingRelationalIssue,
         issueUrl: string,
-        stacktrace: string,
+        event: ErrorEventType | null,
         integration: ErrorTrackingIntegration,
         onSubmit: onSubmitFormType
     ) => void
@@ -81,7 +76,6 @@ const EXTERNAL_REFERENCE_FORM_BUILDERS: Record<
 export const ExternalReferences = (): JSX.Element | null => {
     const { issue, issueLoading, issueFingerprints, selectedEvent, initialEvent } =
         useValues(errorTrackingIssueSceneLogic)
-    const { stackFrameRecords } = useValues(stackFrameLogic)
     const { createExternalReference, linkExternalReference } = useActions(errorTrackingIssueSceneLogic)
     const { getIntegrationsByKind, integrationsLoading } = useValues(integrationsLogic)
 
@@ -106,7 +100,7 @@ export const ExternalReferences = (): JSX.Element | null => {
             buildForm(
                 issue,
                 getIssueUrl(issueFingerprints),
-                getStacktrace(selectedEvent ?? initialEvent, stackFrameRecords),
+                selectedEvent ?? initialEvent,
                 integration as ErrorTrackingIntegration,
                 createExternalReference
             )
@@ -248,39 +242,15 @@ function getIssueUrl(fingerprints: ErrorTrackingFingerprint[]): string {
     return `${window.location.origin}${window.location.pathname}`
 }
 
-function getStacktrace(event: ErrorEventType | null, stackFrameRecords: Record<string, any>): string {
-    if (!event) {
-        return ''
-    }
-    const stacktrace = generateStacktraceText(getExceptionList(event.properties), stackFrameRecords, {
-        includeInAppMarkers: false,
-        storedCrashFirst: isStoredCrashFirst(event.properties?.$lib, event.timestamp),
-    })
-    if (stacktrace.length <= MAX_STACKTRACE_LENGTH) {
-        return stacktrace
-    }
-    const lastLineBreak = stacktrace.lastIndexOf('\n', MAX_STACKTRACE_LENGTH)
-    return `${stacktrace.slice(0, lastLineBreak > 0 ? lastLineBreak : MAX_STACKTRACE_LENGTH)}\n...`
-}
-
-// Source lines in the stack trace can contain backticks, so the fence must be longer than any run of them.
-function markdownCodeBlock(text: string): string {
-    const longestBacktickRun = Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length))
-    const fence = '`'.repeat(Math.max(3, longestBacktickRun + 1))
-    return `${fence}\n${text}\n${fence}`
-}
-
-function appendStacktrace(text: string, stacktrace: string, includeStacktrace: boolean): string {
-    if (!includeStacktrace || !stacktrace) {
-        return text
-    }
-    return [text.trimEnd(), markdownCodeBlock(stacktrace)].filter(Boolean).join('\n\n')
+// Frame records can finish loading after the dialog opens, so the trace is built from the records at submit time.
+function getSubmittedStacktrace(event: ErrorEventType | null, includeStacktrace: boolean): string {
+    return includeStacktrace ? getStacktrace(event, stackFrameLogic.values.stackFrameRecords) : ''
 }
 
 function createGitHubIssueForm(
     issue: ErrorTrackingRelationalIssue,
     issueUrl: string,
-    stacktrace: string,
+    event: ErrorEventType | null,
     integration: ErrorTrackingIntegration,
     onSubmit: onSubmitFormType
 ): void {
@@ -291,7 +261,7 @@ function createGitHubIssueForm(
         initialValues: {
             title: issue.name,
             body: `**PostHog issue:** ${issueUrl}`,
-            includeStacktrace: !!stacktrace,
+            includeStacktrace: true,
             integrationId: integration.id,
             repositories: [],
         },
@@ -304,7 +274,7 @@ function createGitHubIssueForm(
                 <LemonField name="body" label="Body">
                     <LemonTextArea data-attr="issue-body" placeholder="Start typing..." maxRows={12} />
                 </LemonField>
-                <IncludeStacktraceField stacktrace={stacktrace} />
+                <IncludeStacktraceField event={event} />
             </div>
         ),
         errors: {
@@ -313,10 +283,11 @@ function createGitHubIssueForm(
                 repositories && repositories.length === 0 ? 'You must choose a repository' : undefined,
         },
         onSubmit: ({ title, body, includeStacktrace, repositories }) => {
+            const stacktrace = getSubmittedStacktrace(event, includeStacktrace)
             onSubmit(
                 integration.id,
-                { repository: repositories[0], title, body: appendStacktrace(body, stacktrace, includeStacktrace) },
-                includeStacktrace
+                { repository: repositories[0], title, body: appendStacktrace(body, stacktrace) },
+                !!stacktrace
             )
         },
     })
@@ -325,7 +296,7 @@ function createGitHubIssueForm(
 function createGitLabIssueForm(
     issue: ErrorTrackingRelationalIssue,
     issueUrl: string,
-    stacktrace: string,
+    event: ErrorEventType | null,
     integration: ErrorTrackingIntegration,
     onSubmit: onSubmitFormType
 ): void {
@@ -336,7 +307,7 @@ function createGitLabIssueForm(
         initialValues: {
             title: issue.name,
             body: `**PostHog issue:** ${issueUrl}`,
-            includeStacktrace: !!stacktrace,
+            includeStacktrace: true,
             integrationId: integration.id,
         },
         content: (
@@ -347,18 +318,15 @@ function createGitLabIssueForm(
                 <LemonField name="body" label="Body">
                     <LemonTextArea data-attr="issue-body" placeholder="Start typing..." maxRows={12} />
                 </LemonField>
-                <IncludeStacktraceField stacktrace={stacktrace} />
+                <IncludeStacktraceField event={event} />
             </div>
         ),
         errors: {
             title: (title) => (!title ? 'You must enter a title' : undefined),
         },
         onSubmit: ({ title, body, includeStacktrace }) => {
-            onSubmit(
-                integration.id,
-                { title, body: appendStacktrace(body, stacktrace, includeStacktrace) },
-                includeStacktrace
-            )
+            const stacktrace = getSubmittedStacktrace(event, includeStacktrace)
+            onSubmit(integration.id, { title, body: appendStacktrace(body, stacktrace) }, !!stacktrace)
         },
     })
 }
@@ -366,7 +334,7 @@ function createGitLabIssueForm(
 function createLinearIssueForm(
     issue: ErrorTrackingRelationalIssue,
     _issueUrl: string,
-    stacktrace: string,
+    event: ErrorEventType | null,
     integration: ErrorTrackingIntegration,
     onSubmit: onSubmitFormType
 ): void {
@@ -377,7 +345,7 @@ function createLinearIssueForm(
         initialValues: {
             title: issue.name,
             description: '',
-            includeStacktrace: !!stacktrace,
+            includeStacktrace: true,
             integrationId: integration.id,
             teamIds: [],
         },
@@ -390,7 +358,7 @@ function createLinearIssueForm(
                 <LemonField name="description" label="Description">
                     <LemonTextArea data-attr="issue-description" placeholder="Start typing..." maxRows={12} />
                 </LemonField>
-                <IncludeStacktraceField stacktrace={stacktrace} />
+                <IncludeStacktraceField event={event} />
             </div>
         ),
         errors: {
@@ -398,14 +366,11 @@ function createLinearIssueForm(
             teamIds: (teamIds) => (teamIds && teamIds.length === 0 ? 'You must choose a team' : undefined),
         },
         onSubmit: ({ title, description, includeStacktrace, teamIds }) => {
+            const stacktrace = getSubmittedStacktrace(event, includeStacktrace)
             onSubmit(
                 integration.id,
-                {
-                    team_id: teamIds[0],
-                    title,
-                    description: appendStacktrace(description, stacktrace, includeStacktrace),
-                },
-                includeStacktrace
+                { team_id: teamIds[0], title, description: appendStacktrace(description, stacktrace) },
+                !!stacktrace
             )
         },
     })
@@ -414,7 +379,7 @@ function createLinearIssueForm(
 function createJiraIssueForm(
     issue: ErrorTrackingRelationalIssue,
     issueUrl: string,
-    stacktrace: string,
+    event: ErrorEventType | null,
     integration: ErrorTrackingIntegration,
     onSubmit: onSubmitFormType
 ): void {
@@ -425,7 +390,7 @@ function createJiraIssueForm(
         initialValues: {
             title: issue.name,
             description: `PostHog issue: ${issueUrl}`,
-            includeStacktrace: !!stacktrace,
+            includeStacktrace: true,
             integrationId: integration.id,
             projectKeys: [],
         },
@@ -438,7 +403,7 @@ function createJiraIssueForm(
                 <LemonField name="description" label="Description">
                     <LemonTextArea data-attr="jira-issue-description" placeholder="Start typing..." maxRows={12} />
                 </LemonField>
-                <IncludeStacktraceField stacktrace={stacktrace} />
+                <IncludeStacktraceField event={event} />
             </div>
         ),
         errors: {
@@ -447,14 +412,11 @@ function createJiraIssueForm(
                 projectKeys && projectKeys.length === 0 ? 'You must choose a project' : undefined,
         },
         onSubmit: ({ title, description, includeStacktrace, projectKeys }) => {
+            const stacktrace = getSubmittedStacktrace(event, includeStacktrace)
             onSubmit(
                 integration.id,
-                {
-                    project_key: projectKeys[0],
-                    title,
-                    description: appendStacktrace(description, stacktrace, includeStacktrace),
-                },
-                includeStacktrace
+                { project_key: projectKeys[0], title, description: appendStacktrace(description, stacktrace) },
+                !!stacktrace
             )
         },
     })
