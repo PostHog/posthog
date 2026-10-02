@@ -917,3 +917,51 @@ class TestProxyRecordAPI(APIBaseTest):
         _exc, props = cap_mock.call_args[0]
         assert props["proxy_record_id"] == str(record.id)
         assert props["domain"] == record.domain
+
+    @parameterized.expand(
+        [
+            ("diagnose_with_org_write", "diagnose", ["organization:write"], status.HTTP_200_OK),
+            ("diagnose_with_org_read", "diagnose", ["organization:read"], status.HTTP_403_FORBIDDEN),
+            ("diagnose_with_unrelated_scope", "diagnose", ["feature_flag:write"], status.HTTP_403_FORBIDDEN),
+            ("retry_with_org_write", "retry", ["organization:write"], status.HTTP_200_OK),
+            ("retry_with_org_read", "retry", ["organization:read"], status.HTTP_403_FORBIDDEN),
+            ("retry_with_unrelated_scope", "retry", ["feature_flag:write"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    @patch("posthog.api.proxy_record.sync_connect")
+    @patch("posthog.api.proxy_record.diagnose_proxy_record")
+    def test_custom_actions_with_personal_api_key_require_organization_write(
+        self, _name, action, scopes, expected_status, mock_diagnose, mock_sync_connect
+    ):
+        import datetime as dt
+
+        from django.core.cache import cache
+
+        from posthog.api.proxy_record_diagnostics import DiagnosticReport, ReportSummary
+        from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+        from posthog.models.utils import generate_random_token_personal
+
+        cache.clear()
+        mock_sync_connect.return_value = AsyncMock()
+        mock_diagnose.return_value = DiagnosticReport(
+            ran_at=dt.datetime(2026, 5, 5, 12, 0, 0, tzinfo=dt.UTC),
+            summary=ReportSummary(status="healthy", primary_issue=None, next_action=None),
+            checks=[],
+        )
+        record = ProxyRecord.objects.create(
+            organization=self.organization,
+            created_by=self.user,
+            domain="scoped-token.example.com",
+            target_cname="abc123.proxy.posthog.com",
+            status=ProxyRecord.Status.ERRORING,
+        )
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="scoped", user=self.user, secure_value=hash_key_value(token), scopes=scopes)
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/{action}/",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+        assert response.status_code == expected_status, response.content

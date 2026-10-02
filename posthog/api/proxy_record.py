@@ -262,6 +262,7 @@ class DiagnosticReportSerializer(serializers.Serializer):
 @extend_schema(tags=["reverse_proxy"], extensions={"x-product": "proxy_records"})
 class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     scope_object = "organization"
+    scope_object_write_actions = ["create", "update", "partial_update", "patch", "destroy", "diagnose", "retry"]
     serializer_class = ProxyRecordSerializer
     permission_classes = [OrganizationAdminWritePermissions, TimeSensitiveActionPermission]
     queryset = ProxyRecord.objects.order_by("-created_at")
