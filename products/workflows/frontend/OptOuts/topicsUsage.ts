@@ -27,7 +27,6 @@ function currentTopicsSurface(): TopicsSurface {
     return 'workflows'
 }
 
-/** Captures a topic usage event with the surface (Workflows, Broadcasts or Audience) it happened on. */
 export function captureTopicsUsage(event: TopicsUsageEvent, properties: Record<string, string | number> = {}): void {
     posthog.capture(event, { ...properties, surface: currentTopicsSurface() })
 }

@@ -27,7 +27,6 @@ export type topicVocabularyLogicType = MakeLogicType<
     topicVocabularyLogicMeta
 >
 
-/** Picks the words the shared topic and opt-out components use: Audience words while workflows-audience is on. */
 export const topicVocabularyLogic = kea<topicVocabularyLogicType>([
     path(['products', 'workflows', 'frontend', 'OptOuts', 'topicVocabularyLogic']),
     connect(() => ({
