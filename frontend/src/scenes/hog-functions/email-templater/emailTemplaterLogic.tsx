@@ -21,13 +21,14 @@ import { Editor, EmailEditorProps, EditorRef as _EditorRef } from 'react-email-e
 
 import { LemonDialog } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { objectsEqual } from 'lib/utils/objects'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { PreflightStatus, PropertyDefinition, PropertyDefinitionType, Realm } from '~/types'
 
+import { messagingTemplatesRetrieve } from 'products/messaging/frontend/generated/api'
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 
 import type { EmailFieldErrors, EmailTemplate } from './types'
@@ -730,10 +731,10 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         pickTemplate: async ({ template }, breakpoint) => {
             // The list response omits the design JSON, so fetch the full template before applying it.
             try {
-                const fullTemplate = await api.messaging.getTemplate(template.id)
+                const fullTemplate = await messagingTemplatesRetrieve(String(ApiConfig.getCurrentTeamId()), template.id)
                 breakpoint()
-                actions.applyTemplate(fullTemplate)
-            } catch (error) {
+                actions.applyTemplate(fullTemplate as MessageTemplate)
+            } catch (error: any) {
                 if (isBreakpoint(error)) {
                     throw error
                 }
