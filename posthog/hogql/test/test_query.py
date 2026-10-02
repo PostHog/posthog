@@ -1,3 +1,4 @@
+import json
 import datetime
 from decimal import Decimal
 from typing import Any
@@ -1054,6 +1055,35 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response = execute_hogql_query(query, team=self.team, pretty=False)
             self.assertEqual(response.results, [])
             self.assertResponseMatchesSnapshot(response)
+
+    def test_json_return_type_reads_as_json_text(self):
+        _create_event(
+            team=self.team,
+            event="$exception",
+            distinct_id="d1",
+            properties={"$exception_list": [{"type": "TypeError", "value": "boom", "mechanism": {"handled": True}}]},
+        )
+        flush_persons_and_events()
+
+        query = """
+            SELECT
+                JSONExtract(properties, '$exception_list', 1, 'mechanism', 'JSON'),
+                JSONExtract(properties, '$exception_list', 1, 'mechanism', 'Nullable(JSON)'),
+                JSONExtract(properties, 'missing', 'Nullable(JSON)'),
+                JSONExtract(properties, '$exception_list', 'Array(JSON(max_dynamic_paths = 0))'),
+                JSONExtractKeysAndValues(properties, '$exception_list', 1, 'mechanism', 'JSON'),
+                accurateCastOrNull(JSONExtractRaw(properties, '$exception_list', 1, 'mechanism'), 'JSON')
+            FROM events
+        """
+        response = execute_hogql_query(query, team=self.team)
+
+        [row] = response.results
+        self.assertEqual(row[:3], ('{"handled":true}', '{"handled":true}', None))
+        self.assertEqual(
+            [json.loads(item) for item in row[3]],
+            [{"type": "TypeError", "value": "boom", "mechanism": {"handled": True}}],
+        )
+        self.assertEqual(row[4:], ([("handled", "true")], '{"handled":true}'))
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_hogql_proper_ifnull(self):
