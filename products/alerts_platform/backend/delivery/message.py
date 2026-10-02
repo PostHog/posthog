@@ -10,7 +10,11 @@ from typing import Any, Final
 from posthog.dataclasses import frozen
 from posthog.utils import pluralize
 
-from products.alerts_platform.backend.facade.contracts import AlertEventKind, AnnouncedTransition, EvaluationAnnouncement
+from products.alerts_platform.backend.facade.contracts import (
+    AlertEventKind,
+    AnnouncedTransition,
+    EvaluationAnnouncement,
+)
 
 _HEADLINES: Final[dict[AlertEventKind, str]] = {
     AlertEventKind.FIRING: "{name} is firing",

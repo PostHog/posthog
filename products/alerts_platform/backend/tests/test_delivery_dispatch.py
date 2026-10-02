@@ -224,5 +224,7 @@ class TestDeliveryTelemetry(SimpleTestCase):
         assert (payload["metric_kind"], payload["metric_name"]) == ("success", "succeeded")
 
     def test_a_broken_producer_does_not_fail_a_send_that_already_happened(self) -> None:
-        with patch("products.alerts_platform.backend.delivery.telemetry.get_producer", side_effect=RuntimeError("down")):
+        with patch(
+            "products.alerts_platform.backend.delivery.telemetry.get_producer", side_effect=RuntimeError("down")
+        ):
             record_delivery(team_id=2, configuration_id="cfg-1", provider="slack", succeeded=True)

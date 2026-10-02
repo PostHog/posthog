@@ -3,7 +3,11 @@ from typing import Any
 import pytest
 
 from products.alerts_platform.backend.delivery.message import MessageDetail, build_message
-from products.alerts_platform.backend.facade.contracts import AlertEventKind, AnnouncedTransition, EvaluationAnnouncement
+from products.alerts_platform.backend.facade.contracts import (
+    AlertEventKind,
+    AnnouncedTransition,
+    EvaluationAnnouncement,
+)
 
 CONDITION = {"threshold_count": 100, "threshold_operator": "above", "window_minutes": 5}
 

@@ -9,7 +9,11 @@ from products.alerts_platform.backend.delivery.message import AlertMessage, buil
 from products.alerts_platform.backend.delivery.telemetry import record_delivery
 from products.alerts_platform.backend.delivery.thread_store import ThreadBusy, ThreadKey, ThreadStore
 from products.alerts_platform.backend.delivery.transport import DeliveryTransport, MessageHandle
-from products.alerts_platform.backend.facade.contracts import AlertDestinationData, AnnouncedTransition, EvaluationAnnouncement
+from products.alerts_platform.backend.facade.contracts import (
+    AlertDestinationData,
+    AnnouncedTransition,
+    EvaluationAnnouncement,
+)
 
 
 def deliver(

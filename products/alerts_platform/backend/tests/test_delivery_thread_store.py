@@ -9,7 +9,12 @@ from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
 
-from products.alerts_platform.backend.delivery.thread_store import PENDING_CLAIM_TTL, DatabaseThreadStore, ThreadBusy, ThreadKey
+from products.alerts_platform.backend.delivery.thread_store import (
+    PENDING_CLAIM_TTL,
+    DatabaseThreadStore,
+    ThreadBusy,
+    ThreadKey,
+)
 from products.alerts_platform.backend.delivery.transport import MessageHandle
 from products.alerts_platform.backend.models import PlatformAlertConfiguration, PlatformAlertThread
 
