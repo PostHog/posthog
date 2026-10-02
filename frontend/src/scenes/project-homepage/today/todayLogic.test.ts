@@ -95,6 +95,27 @@ describe('todayLogic', () => {
         })
     })
 
+    it.each([
+        { shown: 'the briefing', hasBriefing: true, expected: ['briefing id: `briefing-1`', 'report id `a`'] },
+        { shown: 'the report list', hasBriefing: false, expected: ['briefing is not written yet', 'report id `r-1`'] },
+    ])('sends PostHog AI the question with $shown as context', async ({ hasBriefing, expected }) => {
+        listResponse = [200, { results: [makeReport({ id: 'r-1' })], count: 1 }]
+        if (hasBriefing) {
+            briefingResponses = [[200, makeBriefing()]]
+        }
+        const logic = todayLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.askAi('Why is signup broken?', 'ask_box')
+
+        const prompt = router.values.searchParams.ask as string
+        expect(prompt.startsWith('Why is signup broken?\n')).toBe(true)
+        for (const text of expected) {
+            expect(prompt.toLowerCase()).toContain(text.toLowerCase())
+        }
+    })
+
     it('keeps the last briefing on screen, polls while the next is written, and stops when it is ready', async () => {
         jest.useFakeTimers()
         const previous = makeBriefing({ id: 'b-previous', status: 'writing' })
