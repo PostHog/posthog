@@ -42,6 +42,7 @@ const OPS_PARKED_TOTAL: &str = "personhog_lifecycle_ops_parked_total";
 const OPS_PARKED: &str = "personhog_lifecycle_ops_parked";
 const STEP_DURATION_MS: &str = "personhog_lifecycle_step_duration_ms";
 const LEASES_LOST_TOTAL: &str = "personhog_lifecycle_leases_lost_total";
+const CLAIM_WAIT_MS: &str = "personhog_lifecycle_claim_wait_ms";
 
 /// How many abandoned ops one sweep pass will pick up.
 const SWEEP_BATCH_SIZE: i64 = 100;
@@ -391,7 +392,8 @@ impl Engine {
         op_id: Uuid,
         wait_for_lease: bool,
     ) -> Result<OpRow, SagaError> {
-        let deadline = tokio::time::Instant::now() + self.config.execute_timeout;
+        let drive_start = tokio::time::Instant::now();
+        let deadline = drive_start + self.config.execute_timeout;
         // The attempt number returned by our claim, used as a fencing token:
         // renew/release only touch the lease while `attempt` still matches,
         // so a driver whose lease was stolen (the stealer bumped `attempt`)
@@ -482,6 +484,12 @@ impl Engine {
                         Some(attempt) => {
                             claim_attempt = Some(attempt);
                             lease_set_at = sent;
+                            // Includes polling behind another driver's lease.
+                            common_metrics::histogram(
+                                CLAIM_WAIT_MS,
+                                &[("op_type".to_string(), row.op_type.clone())],
+                                drive_start.elapsed().as_secs_f64() * 1000.0,
+                            );
                             if attempt >= self.config.attempt_alert_threshold {
                                 tracing::warn!(
                                     op_id = %op_id,
