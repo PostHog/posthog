@@ -124,6 +124,10 @@ class MessageRecipientsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     serializer_class = _FallbackSerializer
     schema = _PageEnvelopeSchema()
 
+    def _require_hog_flow_viewer(self) -> None:
+        if not self.user_access_control.check_access_level_for_resource("hog_flow", "viewer"):
+            raise PermissionDenied("You need hog_flow viewer access to view recipients.")
+
     @validated_request(
         query_serializer=RecipientListQuerySerializer,
         responses={200: OpenApiResponse(response=RecipientPageSerializer)},
@@ -156,7 +160,3 @@ class MessageRecipientsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         self._require_hog_flow_viewer()
         coverage = {"persons_without_email": count_persons_without_email(self.team, cast(User, request.user))}
         return Response(RecipientCoverageSerializer(coverage).data)
-
-    def _require_hog_flow_viewer(self) -> None:
-        if not self.user_access_control.check_access_level_for_resource("hog_flow", "viewer"):
-            raise PermissionDenied("You need hog_flow viewer access to view recipients.")

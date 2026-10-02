@@ -36,13 +36,13 @@ class TestMessageRecipients(ClickhouseTestMixin, NonAtomicAPIBaseTest):
         ):
             sync_execute(statement)
 
+    def _get(self, **params: Any) -> Any:
+        return self.client.get(f"/api/projects/{self.team.id}/messaging_recipients/", params)
+
     def _list(self, **params: Any) -> dict[str, Any]:
         response = self._get(**params)
         assert response.status_code == status.HTTP_200_OK, response.json()
         return response.json()
-
-    def _get(self, **params: Any) -> Any:
-        return self.client.get(f"/api/projects/{self.team.id}/messaging_recipients/", params)
 
     def _emails(self, **params: Any) -> list[str]:
         return [row["email"] for row in self._list(**params)["results"]]

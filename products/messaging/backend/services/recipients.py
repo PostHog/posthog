@@ -233,47 +233,9 @@ def _normalize_address(email: str) -> str:
     return email.strip(_ADDRESS_WHITESPACE).lower()
 
 
-def list_recipients(team: "Team", user: "User", query: RecipientQuery) -> RecipientPage:
-    topics = _team_topics(team.id)
-    rows = _query_recipient_rows(team, user, query, topics)
-    page_rows = rows[: query.limit]
-    last_sent_at = _last_sent_at_by_address(team.id, [row[0] for row in page_rows])
-    distinct_ids = _first_distinct_id_by_person(team, user, _previewed_person_ids(page_rows))
-    keys_by_id = topics.keys_by_id
-    return RecipientPage(
-        results=[_build_recipient(row, keys_by_id, last_sent_at.get(row[0]), distinct_ids) for row in page_rows],
-        next_cursor=page_rows[-1][0] if len(rows) > query.limit else None,
-    )
-
-
-def count_persons_without_email(team: "Team", user: "User") -> int:
-    response = execute_hogql_query(
-        _PERSONS_WITHOUT_EMAIL_QUERY,
-        team=team,
-        user=user,
-        placeholders={"whitespace": ast.Constant(value=_ADDRESS_WHITESPACE)},
-        query_type="MessagingRecipientsCoverageQuery",
-    )
-    return response.results[0][0]
-
-
 def _team_topics(team_id: int) -> _Topics:
     categories = MessageCategory.objects.filter(team_id=team_id, deleted=False).values_list("key", "id")
     return _Topics(ids_by_key={key: str(category_id) for key, category_id in categories})
-
-
-def _query_recipient_rows(team: "Team", user: "User", query: RecipientQuery, topics: _Topics) -> list[tuple[Any, ...]]:
-    select = parse_select(
-        _RECIPIENTS_QUERY,
-        placeholders={
-            "address_filter": _address_filter(query),
-            "whitespace": ast.Constant(value=_ADDRESS_WHITESPACE),
-            "facet_filter": _facet_filter(query.filters, topics),
-            "limit": ast.Constant(value=query.limit + 1),
-        },
-    )
-    response = execute_hogql_query(select, team=team, user=user, query_type="MessagingRecipientsQuery")
-    return response.results or []
 
 
 def _address_filter(query: RecipientQuery) -> ast.Expr:
@@ -292,6 +254,48 @@ def _address_filter(query: RecipientQuery) -> ast.Expr:
             parse_expr("address = {email}", placeholders={"email": ast.Constant(value=_normalize_address(query.email))})
         )
     return ast.And(exprs=conditions)
+
+
+def _facet_condition(recipient_filter: RecipientFilter, topics: _Topics) -> ast.Expr:
+    if recipient_filter.facet in _TOPIC_CONDITIONS:
+        return parse_expr(
+            _TOPIC_CONDITIONS[recipient_filter.facet],
+            placeholders={"topic_id": ast.Constant(value=topics.id_for(recipient_filter.value))},
+        )
+    return parse_expr(
+        _VALUE_CONDITIONS[(recipient_filter.facet, recipient_filter.value)],
+        placeholders={"value": ast.Constant(value=recipient_filter.value)},
+    )
+
+
+def _facet_group_filter(filters: list[RecipientFilter], topics: _Topics) -> ast.Expr:
+    matches_any: list[ast.Expr] = [_facet_condition(f, topics) for f in filters if not f.negated]
+    conditions: list[ast.Expr] = [ast.Or(exprs=matches_any)] if matches_any else []
+    conditions += [ast.Not(expr=_facet_condition(f, topics)) for f in filters if f.negated]
+    return ast.And(exprs=conditions)
+
+
+def _facet_filter(filters: Iterable[RecipientFilter], topics: _Topics) -> ast.Expr:
+    filters_by_facet: dict[RecipientFacet, list[RecipientFilter]] = defaultdict(list)
+    for recipient_filter in filters:
+        filters_by_facet[recipient_filter.facet].append(recipient_filter)
+    return ast.And(
+        exprs=[_facet_group_filter(group, topics) for group in filters_by_facet.values()] or [ast.Constant(value=True)]
+    )
+
+
+def _query_recipient_rows(team: "Team", user: "User", query: RecipientQuery, topics: _Topics) -> list[tuple[Any, ...]]:
+    select = parse_select(
+        _RECIPIENTS_QUERY,
+        placeholders={
+            "address_filter": _address_filter(query),
+            "whitespace": ast.Constant(value=_ADDRESS_WHITESPACE),
+            "facet_filter": _facet_filter(query.filters, topics),
+            "limit": ast.Constant(value=query.limit + 1),
+        },
+    )
+    response = execute_hogql_query(select, team=team, user=user, query_type="MessagingRecipientsQuery")
+    return response.results or []
 
 
 def _last_sent_at_by_address(team_id: int, addresses: list[str]) -> dict[str, datetime]:
@@ -326,32 +330,18 @@ def _first_distinct_id_by_person(team: "Team", user: "User", person_ids: list[st
     return dict(response.results or [])
 
 
-def _facet_filter(filters: Iterable[RecipientFilter], topics: _Topics) -> ast.Expr:
-    filters_by_facet: dict[RecipientFacet, list[RecipientFilter]] = defaultdict(list)
-    for recipient_filter in filters:
-        filters_by_facet[recipient_filter.facet].append(recipient_filter)
-    return ast.And(
-        exprs=[_facet_group_filter(group, topics) for group in filters_by_facet.values()] or [ast.Constant(value=True)]
-    )
+def _parse_preference_map(raw: str) -> dict[str, str]:
+    preferences = json.loads(raw)
+    return preferences if isinstance(preferences, dict) else {}
 
 
-def _facet_group_filter(filters: list[RecipientFilter], topics: _Topics) -> ast.Expr:
-    matches_any: list[ast.Expr] = [_facet_condition(f, topics) for f in filters if not f.negated]
-    conditions: list[ast.Expr] = [ast.Or(exprs=matches_any)] if matches_any else []
-    conditions += [ast.Not(expr=_facet_condition(f, topics)) for f in filters if f.negated]
-    return ast.And(exprs=conditions)
-
-
-def _facet_condition(recipient_filter: RecipientFilter, topics: _Topics) -> ast.Expr:
-    if recipient_filter.facet in _TOPIC_CONDITIONS:
-        return parse_expr(
-            _TOPIC_CONDITIONS[recipient_filter.facet],
-            placeholders={"topic_id": ast.Constant(value=topics.id_for(recipient_filter.value))},
-        )
-    return parse_expr(
-        _VALUE_CONDITIONS[(recipient_filter.facet, recipient_filter.value)],
-        placeholders={"value": ast.Constant(value=recipient_filter.value)},
-    )
+def _merge_preferences(preference_maps: list[dict[str, str]]) -> dict[str, PreferenceStatus]:
+    merged: dict[str, PreferenceStatus] = {}
+    for preferences in preference_maps:
+        for topic_id, status in preferences.items():
+            if status == PreferenceStatus.OPTED_OUT or (status == PreferenceStatus.OPTED_IN and topic_id not in merged):
+                merged[topic_id] = PreferenceStatus(status)
+    return merged
 
 
 def _build_recipient(
@@ -395,15 +385,25 @@ def _build_recipient(
     )
 
 
-def _parse_preference_map(raw: str) -> dict[str, str]:
-    preferences = json.loads(raw)
-    return preferences if isinstance(preferences, dict) else {}
+def list_recipients(team: "Team", user: "User", query: RecipientQuery) -> RecipientPage:
+    topics = _team_topics(team.id)
+    rows = _query_recipient_rows(team, user, query, topics)
+    page_rows = rows[: query.limit]
+    last_sent_at = _last_sent_at_by_address(team.id, [row[0] for row in page_rows])
+    distinct_ids = _first_distinct_id_by_person(team, user, _previewed_person_ids(page_rows))
+    keys_by_id = topics.keys_by_id
+    return RecipientPage(
+        results=[_build_recipient(row, keys_by_id, last_sent_at.get(row[0]), distinct_ids) for row in page_rows],
+        next_cursor=page_rows[-1][0] if len(rows) > query.limit else None,
+    )
 
 
-def _merge_preferences(preference_maps: list[dict[str, str]]) -> dict[str, PreferenceStatus]:
-    merged: dict[str, PreferenceStatus] = {}
-    for preferences in preference_maps:
-        for topic_id, status in preferences.items():
-            if status == PreferenceStatus.OPTED_OUT or (status == PreferenceStatus.OPTED_IN and topic_id not in merged):
-                merged[topic_id] = PreferenceStatus(status)
-    return merged
+def count_persons_without_email(team: "Team", user: "User") -> int:
+    response = execute_hogql_query(
+        _PERSONS_WITHOUT_EMAIL_QUERY,
+        team=team,
+        user=user,
+        placeholders={"whitespace": ast.Constant(value=_ADDRESS_WHITESPACE)},
+        query_type="MessagingRecipientsCoverageQuery",
+    )
+    return response.results[0][0]
