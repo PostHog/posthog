@@ -897,6 +897,43 @@ class TestBalancedVariantSamplingAgainstClickHouse(ClickhouseTestMixin):
             active_milliseconds=30_000,
         )
 
+    def _experiment(self, team, creator, *, variants=("control", "test")):
+        flag = FeatureFlag.objects.create(
+            team=team,
+            key="balanced-flag",
+            created_by=creator,
+            filters={
+                "multivariate": {
+                    "variants": [{"key": key, "rollout_percentage": 100 // len(variants)} for key in variants]
+                }
+            },
+        )
+        return Experiment.objects.create(
+            team=team,
+            name="balanced",
+            feature_flag=flag,
+            created_by=creator,
+            start_date=_NOW - dt.timedelta(days=7),
+            exposure_criteria={},
+        )
+
+    @pytest.mark.django_db
+    def test_variant_exposure_counts_zero_fill_watched_variants(self, team) -> None:
+        # The plan's shares come from these counts; a variant miscounted (or dropped instead of
+        # zero-filled) plans the budget against the wrong population.
+        from products.replay_vision.backend.queries.variant_sampling import _variant_exposure_counts
+
+        creator = User.objects.create_and_join(team.organization, "counts@posthog.com", "testtest")
+        experiment = self._experiment(team, creator, variants=("control", "test", "beta"))
+        self._exposed_session(team, "counts-control-a", "control", "counts-session-a")
+        self._exposed_session(team, "counts-control-b", "control", "counts-session-b")
+        self._exposed_session(team, "counts-test", "test", "counts-session-c")
+        flush_persons_and_events()
+
+        counts = _variant_exposure_counts(team, experiment_id=experiment.id, selected=None, scanner_id="scanner-1")
+
+        assert counts == {"control": 2.0, "test": 1.0, "beta": 0.0}
+
     @pytest.mark.django_db
     def test_per_variant_rates_gate_candidates_by_attributed_variant(self, team) -> None:
         # Per-variant thresholds must select by each session's attributed variant, not by one
