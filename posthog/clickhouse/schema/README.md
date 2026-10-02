@@ -14,11 +14,9 @@ schema/
 
 ## Staged rollout
 
-This catalogue is additive during the foundation stage. Existing Python migrations, HCL checks, test setup and Hobby initialization remain the active paths. Run `bin/clickhouse-schema` only against a dedicated test database until ownership cutover.
+Local, test and Hobby setup now use OpenTofu. Cloud deployment hooks do not apply ClickHouse schema. The legacy Python definitions, migration history and HCL tools remain dormant pending cleanup.
 
-The companion infrastructure canary adopts only `dev/ops/custom_metrics_test`. Adoption must issue no DDL; a later schema-only pull request changes its help text to prove dispatch, reviewed planning and apply. The current Python definitions remain authoritative for all other objects.
-
-Switch local, test and Hobby setup only after the cloud handover is verified. Delete the legacy implementations in a separate cleanup pull request.
+Do not merge this cutover until the infrastructure canary migration succeeds and all cloud schemas have a verified owner, including objects intentionally outside the catalogue. Adopt existing objects with zero DDL before disabling their previous owner. Production rollout requires reviewed live plans; local convergence does not replace that review.
 
 ## Standard table families
 
