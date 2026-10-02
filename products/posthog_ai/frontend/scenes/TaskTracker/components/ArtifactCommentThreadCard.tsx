@@ -65,7 +65,7 @@ export function ArtifactCommentThreadCard({
                     {anchor?.kind === 'text' && (
                         <button
                             type="button"
-                            className="w-full min-w-0 cursor-pointer rounded-sm border-l-2 border-warning pl-2 text-left"
+                            className="w-full min-w-0 cursor-pointer border-l-2 border-warning py-0.5 pl-2 text-left"
                             onClick={() => activateThread(active ? null : rootId)}
                             aria-pressed={active}
                             data-attr="task-artifact-comment-thread-quote"
@@ -99,11 +99,12 @@ export function ArtifactCommentThreadCard({
                 ))}
             </ThreadItemGroup>
             {/* Like Desktop, the reply box opens on the picked thread, so a long list stays short. */}
+            {/* pl-9 lines the reply controls up with the comment text, past the avatar gutter. */}
             {!thread.resolved && !active && !drafts[rootId] && (
-                <div className="px-2">
+                <div className="pr-2 pl-9">
                     <Button
-                        size="sm"
-                        variant="link-muted"
+                        size="xs"
+                        variant="outline"
                         onClick={() => activateThread(rootId)}
                         data-attr="task-artifact-comment-reply-open"
                     >
@@ -112,7 +113,7 @@ export function ArtifactCommentThreadCard({
                 </div>
             )}
             {!thread.resolved && (active || !!drafts[rootId]) && (
-                <div className="px-2">
+                <div className="pr-2 pl-9">
                     <ArtifactCommentComposer
                         value={drafts[rootId] ?? ''}
                         onChange={(value) => setDraft(rootId, value)}

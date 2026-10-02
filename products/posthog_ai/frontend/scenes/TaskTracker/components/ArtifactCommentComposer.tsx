@@ -1,6 +1,8 @@
 import { ChangeEvent, KeyboardEvent } from 'react'
 
-import { Button, Text, Textarea } from '@posthog/quill-primitives'
+import { Button, Kbd, KbdGroup, Text, Textarea } from '@posthog/quill-primitives'
+
+import { isMac } from 'lib/utils/dom'
 
 /** A comment box with a send button. Cmd+Enter or Ctrl+Enter sends, and Escape cancels. */
 export function ArtifactCommentComposer({
@@ -77,32 +79,34 @@ export function ArtifactCommentComposer({
                 }}
                 data-attr={`${dataAttr}-input`}
             />
-            {(onCancel || value.trim()) && (
-                <div className="flex justify-end gap-2">
-                    {onCancel && (
-                        <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            disabled={saving}
-                            onClick={onCancel}
-                            data-attr={`${dataAttr}-cancel`}
-                        >
-                            Cancel
-                        </Button>
-                    )}
+            <div className="flex items-center justify-end gap-2">
+                <KbdGroup className="mr-auto text-muted-foreground" aria-label="Keyboard shortcut to send">
+                    <Kbd>{isMac() ? '⌘' : 'Ctrl'}</Kbd>
+                    <Kbd>Enter</Kbd>
+                </KbdGroup>
+                {onCancel && (
                     <Button
-                        type="submit"
+                        type="button"
                         size="sm"
-                        variant="primary"
-                        loading={saving}
-                        disabled={!value.trim() || busy}
-                        data-attr={`${dataAttr}-submit`}
+                        variant="outline"
+                        disabled={saving}
+                        onClick={onCancel}
+                        data-attr={`${dataAttr}-cancel`}
                     >
-                        {submitLabel}
+                        Cancel
                     </Button>
-                </div>
-            )}
+                )}
+                <Button
+                    type="submit"
+                    size="sm"
+                    variant="primary"
+                    loading={saving}
+                    disabled={!value.trim() || busy}
+                    data-attr={`${dataAttr}-submit`}
+                >
+                    {submitLabel}
+                </Button>
+            </div>
         </form>
     )
 }

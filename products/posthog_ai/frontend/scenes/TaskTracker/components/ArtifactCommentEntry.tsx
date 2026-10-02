@@ -17,16 +17,29 @@ import { dayjs } from 'lib/dayjs'
 import { fullNameOrEmail } from 'lib/utils/strings'
 
 import type { CommentApi } from 'products/platform_features/frontend/generated/api.schemas'
+import { TaskUserAvatar } from 'products/tasks/frontend/spaces/TaskUserAvatar'
 
 /** One comment in a thread: who wrote it, when, and what it says. `actions` show on hover and focus. */
 export function ArtifactCommentEntry({ comment, actions }: { comment: CommentApi; actions?: ReactNode }): JSX.Element {
     const name = comment.created_by ? fullNameOrEmail(comment.created_by) : 'Deleted user'
     return (
         <ThreadItem>
-            <ThreadItemGutter>
-                <Avatar size="sm">
-                    <AvatarFallback>{name.slice(0, 1).toUpperCase()}</AvatarFallback>
-                </Avatar>
+            {/* The narrow panel has no continuation timestamps, so the gutter only needs room for the avatar. */}
+            <ThreadItemGutter className="w-5">
+                {comment.created_by ? (
+                    <TaskUserAvatar
+                        user={{
+                            uuid: comment.created_by.uuid,
+                            email: comment.created_by.email,
+                            first_name: comment.created_by.first_name ?? '',
+                            last_name: comment.created_by.last_name ?? '',
+                        }}
+                    />
+                ) : (
+                    <Avatar size="xs">
+                        <AvatarFallback>?</AvatarFallback>
+                    </Avatar>
+                )}
             </ThreadItemGutter>
             <ThreadItemContent>
                 <ThreadItemHeader>
