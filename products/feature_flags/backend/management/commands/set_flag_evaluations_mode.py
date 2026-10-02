@@ -72,8 +72,8 @@ class Command(BaseCommand):
             action="store_true",
             help=(
                 "Also lower organizations that are above --mode. Lowering an organization from mode 2 restarts "
-                "the events writes that ingestion stopped for it, and the events table keeps a gap for the time "
-                "it spent on 2."
+                "the events writes that ingestion stopped for its teams in the ingestion allowlist. The events "
+                "table keeps a gap for those teams for the time the organization spent on 2."
             ),
         )
 

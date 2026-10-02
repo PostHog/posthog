@@ -256,7 +256,7 @@ export interface StaffFlagEvaluationsModeMutationApi {
      * @maxItems 50
      */
     team_ids: number[]
-    /** Also lower organizations that are above the target mode. Lowering an organization from 2 restarts the events writes that ingestion stopped for it, and the events table keeps a gap for the time it spent on 2. */
+    /** Also lower organizations that are above the target mode. Lowering an organization from 2 restarts the events writes that ingestion stopped for its teams in the ingestion allowlist. The events table keeps a gap for those teams for the time the organization spent on 2. */
     allow_downgrade?: boolean
     /** Report what the write would change, and write nothing. */
     dry_run?: boolean

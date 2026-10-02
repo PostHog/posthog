@@ -193,8 +193,8 @@ class StaffFlagEvaluationsModeMutationSerializer(serializers.Serializer):
         default=False,
         help_text=(
             "Also lower organizations that are above the target mode. Lowering an organization from 2 restarts "
-            "the events writes that ingestion stopped for it, and the events table keeps a gap for the time it "
-            "spent on 2."
+            "the events writes that ingestion stopped for its teams in the ingestion allowlist. The events table "
+            "keeps a gap for those teams for the time the organization spent on 2."
         ),
     )
     dry_run = serializers.BooleanField(
