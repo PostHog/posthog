@@ -1,6 +1,7 @@
 import type { TaskRunSessionLogsPage } from "@posthog/api-client/posthog-client";
 import type { CloudTaskEngine } from "@posthog/core/cloud-task/cloud-task-engine";
 import { CloudTaskEvent } from "@posthog/core/cloud-task/schemas";
+import { THINKING_ACTIVITIES } from "@posthog/core/sessions/thinkingActivities";
 import type {
   CloudTaskUpdatePayload,
   StoredLogEntry,
@@ -107,6 +108,13 @@ export function formatDuration(ms: number): string {
   return `${seconds}s`;
 }
 
+const IDLE_WORD_MS = 4_000;
+// The desktop app's hedgehog words for a wait, a new one every few seconds; the stride scatters their order.
+const idleWord = (now: number): string =>
+  THINKING_ACTIVITIES[
+    (Math.floor(now / IDLE_WORD_MS) * 7919) % THINKING_ACTIVITIES.length
+  ];
+
 export function runNotice(
   view: RunView,
   lines: TranscriptLine[],
@@ -142,7 +150,7 @@ export function runNotice(
     if (call?.detail) parts.unshift(call.detail.split("\n")[0]);
     if (tools > 0) parts.push(`${tools} tool${tools === 1 ? "" : "s"}`);
     return {
-      text: call ? activityOf(call.title) : "Working",
+      text: call ? activityOf(call.title) : idleWord(Date.now()),
       detail: parts.join(" · "),
       tone: "working",
     };

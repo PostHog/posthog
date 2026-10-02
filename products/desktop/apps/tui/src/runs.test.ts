@@ -1,8 +1,9 @@
 import { EventEmitter } from "node:events";
 import type { CloudTaskEngine } from "@posthog/core/cloud-task/cloud-task-engine";
 import { CloudTaskEvent } from "@posthog/core/cloud-task/schemas";
+import { THINKING_ACTIVITIES } from "@posthog/core/sessions/thinkingActivities";
 import type { CloudTaskUpdatePayload, StoredLogEntry } from "@posthog/shared";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   applyUpdate,
   CloudRuns,
@@ -322,7 +323,6 @@ describe("runNotice after a finished turn", () => {
 
 describe("runNotice during a turn", () => {
   it.each([
-    ["between calls", "completed", "Working", "30s · 2 tools"],
     [
       "during a call, naming it by its first line",
       "in_progress",
@@ -349,6 +349,30 @@ describe("runNotice during a turn", () => {
       Date.now() - 30_000,
     );
     expect(notice).toEqual({ text, detail, tone: "working" });
+  });
+});
+
+describe("runNotice between calls", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("names the wait with a hedgehog word that changes every few seconds", () => {
+    vi.useFakeTimers();
+    const words = [0, 4_000, 8_000].map((elapsed) => {
+      vi.setSystemTime(1_000_000_000_000 + elapsed);
+      return runNotice(
+        { ...emptyRunView, loaded: true, status: "in_progress" },
+        [
+          { kind: "user", id: "u", text: "hi" },
+          { kind: "assistant", id: "a", text: "On it" },
+        ],
+        true,
+        null,
+        1_000_000_000_000 - 30_000,
+      )?.text;
+    });
+
+    expect(new Set(words).size).toBe(3);
+    for (const word of words) expect(THINKING_ACTIVITIES).toContain(word);
   });
 });
 
