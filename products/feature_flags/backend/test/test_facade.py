@@ -1071,8 +1071,6 @@ class TestModelAccessorsRequireV1:
                 getattr(flag, accessor)
         with pytest.raises(ConfigFormatError):
             flag.get_payload("true")
-        with pytest.raises(ConfigFormatError):
-            flag.get_cohort_ids()
         assert flag.is_eligible_for_experiment is False
         assert flag.get_analytics_metadata() == {
             "created_at": flag.created_at,
@@ -1114,6 +1112,30 @@ class TestModelAccessorsRequireV1:
         assert flag.has_feature_enrollment is enrolled
         assert flag.get_payload("a") == (filters.get("payloads") or {}).get("a")
         assert flag.get_analytics_metadata()["groups_count"] == len(conditions)
+
+
+class TestGetCohortIdsReadsEitherFormat:
+    @parameterized.expand([(name, filters) for name, filters in UNSUPPORTED_DOCUMENTS if name != "v2_document"])
+    def test_rejects_documents_in_no_readable_format(self, _name, filters):
+        with pytest.raises(ConfigFormatError):
+            FeatureFlag(filters=filters).get_cohort_ids()
+
+    def test_reads_a_v2_document(self):
+        filters = {"version": 2, "return_type": "boolean", "default_value": False, "rules": []}
+        assert FeatureFlag(filters=filters).get_cohort_ids() == []
+
+    def test_a_non_integer_cohort_id_raises_in_v1_and_is_skipped_in_v2(self):
+        prop = {"key": "id", "type": "cohort", "value": "abc"}
+        with pytest.raises(ValueError):
+            FeatureFlag(filters={"groups": [{"properties": [prop]}]}).get_cohort_ids()
+        rule = {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "targeted_release",
+            "targeting": {"properties": [prop]},
+            "value": True,
+        }
+        filters = {"version": 2, "return_type": "boolean", "default_value": False, "rules": [rule]}
+        assert FeatureFlag(filters=filters).get_cohort_ids() == []
 
 
 class TestScheduledChangeBuilderRequiresV1:
