@@ -27,6 +27,13 @@ export type CategoryLogicProps = {
     onSuccess?: () => void
 }
 
+// Matches `MessageCategory.key` max_length in products/messaging/backend/models/message_category.py.
+const TOPIC_KEY_MAX_LENGTH = 64
+
+function topicKeyFromName(name: string): string {
+    return slugify(name).slice(0, TOPIC_KEY_MAX_LENGTH)
+}
+
 function fieldName(name: FieldName): string {
     return Array.isArray(name) ? name.join('.') : String(name)
 }
@@ -147,7 +154,9 @@ export const newCategoryLogic = kea<newCategoryLogicType>([
                         ? 'Key is required'
                         : !keyRegex.test(key)
                           ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed'
-                          : undefined,
+                          : key.length > TOPIC_KEY_MAX_LENGTH
+                            ? `Keys can be at most ${TOPIC_KEY_MAX_LENGTH} characters`
+                            : undefined,
                 }
             },
             submit: async (formValues: CategoryForm) => {
@@ -186,7 +195,7 @@ export const newCategoryLogic = kea<newCategoryLogicType>([
         setCategoryFormValue: ({ name }) => {
             const keyFollowsName = values.speaksAudience && !props.category && !values.keyTypedByHand
             if (fieldName(name) === 'name' && keyFollowsName) {
-                actions.setCategoryFormValues({ key: slugify(values.categoryForm.name) })
+                actions.setCategoryFormValues({ key: topicKeyFromName(values.categoryForm.name) })
             }
         },
     })),
