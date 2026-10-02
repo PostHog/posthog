@@ -122,6 +122,7 @@ class RunAgenticReportOutput:
     # Old activity results wrote an empty list when no checks were authored. The transition may
     # reconcile existing rows only when this marker came from a new verification turn.
     reconcile_checks: bool = False
+    checks_summary: str | None = None
     # The plan of dependent pull requests, as `ReportLayer` dicts. The ready transition turns each
     # one into a child report. `None` predates the field and creates none.
     layers: list[dict[str, Any]] | None = None
@@ -265,7 +266,10 @@ def _load_previous_checks(team_id: int, report_id: str) -> list[dict]:
             "rationale": check.rationale,
             "kind": check.kind,
             "config": {
-                key: value for key, value in check.config.items() if key != "query" or not check.config.get("metric_id")
+                key: value
+                for key, value in check.config.items()
+                if (key != "query" or not check.config.get("metric_id"))
+                and (key != "baseline_value" or check.config.get("query") is not None)
             },
             "stored_query": check.config.get("query")
             if check.kind == SignalReportCheck.Kind.METRIC_THRESHOLD
@@ -1049,10 +1053,11 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             repository=repository,
             charts=charts_payload,
             metrics=metrics_payload,
-            checks=[check.model_dump(mode="json", exclude_none=True) for check in result.checks]
+            checks=[check.model_dump(mode="json", exclude_none=True, exclude_unset=True) for check in result.checks]
             if result.checks is not None
             else None,
             reconcile_checks=result.checks is not None,
+            checks_summary=result.checks_summary,
             checks_snapshot=checks_snapshot,
             layers=[layer.model_dump(mode="json") for layer in result.layers],
             research_task_id=result.research_task_id,

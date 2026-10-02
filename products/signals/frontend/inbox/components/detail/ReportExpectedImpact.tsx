@@ -94,6 +94,9 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
                                     metric={metric}
                                     query={query.source}
                                     goalGrain="whole_window"
+                                    goalBounds={
+                                        config.comparison.operator === 'between' ? config.comparison.bounds : null
+                                    }
                                     version={check.id}
                                 />
                             ) : (

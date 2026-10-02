@@ -394,7 +394,8 @@ class CheckSpec(BaseModel):
         le=MAX_CHECK_SOAK_HOURS,
         description=(
             "How long after the report is resolved to wait before measuring. The fix has to have "
-            f"been live a while for the result to mean anything. Defaults to {DEFAULT_CHECK_SOAK_HOURS} hours."
+            f"been live a while for the result to mean anything. Defaults to {DEFAULT_CHECK_SOAK_HOURS} hours "
+            "for a new check; omission preserves an existing check’s wait."
         ),
     )
 

@@ -310,7 +310,10 @@ class TestBuildFixVerificationPrompt:
         assert '"outcome"' in prompt
 
     @pytest.mark.parametrize("with_check", [False, True])
-    def test_formats_plan_as_a_note_with_the_expected_headings(self, with_check: bool) -> None:
+    @pytest.mark.parametrize("existing_wait", [None, 72])
+    def test_formats_plan_as_a_note_with_the_expected_headings(
+        self, with_check: bool, existing_wait: int | None
+    ) -> None:
         current_state = (
             'Run query-trends with {"kind":"TrendsQuery","dateRange":{"date_from":"-1h"},'
             '"interval":"hour","series":[{"kind":"EventsNode","event":"upload_failed","math":"total"},'
@@ -332,16 +335,23 @@ class TestBuildFixVerificationPrompt:
                         "title": "Uploads recover",
                         "kind": "agent",
                         "config": {"instructions": "Check that uploads succeed."},
-                        "soak_hours": 24,
+                        **(
+                            {"existing_check_id": "00000000-0000-0000-0000-000000000001"}
+                            if existing_wait
+                            else {"soak_hours": 24}
+                        ),
                     }
                 ]
                 if with_check
                 else [],
-            }
+            },
+            context={"previous_checks": [{"id": "00000000-0000-0000-0000-000000000001", "soak_hours": existing_wait}]}
+            if existing_wait
+            else None,
         )
         proposed = (
             "\n\n_Proposed follow-up check: **Uploads recover**, with a minimum wait of "
-            "24 hours after this report is resolved._"
+            f"{existing_wait or 24} hours after this report is resolved._"
             if with_check
             else ""
         )

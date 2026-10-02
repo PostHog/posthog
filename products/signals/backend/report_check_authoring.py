@@ -25,8 +25,10 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.dataclasses import frozen
+
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.models import SignalReport, SignalReportCheck
+from products.signals.backend.models import SignalActorKind, SignalReport, SignalReportCheck
 from products.signals.backend.report_check_artefacts import write_check_cancelled, write_check_scheduled
 from products.signals.backend.report_check_execution import resolve_check_query
 from products.signals.backend.report_check_research import research_can_reconcile_checks
@@ -241,13 +243,20 @@ def _check_configs_match(report: SignalReport, check: SignalReportCheck, desired
     return stored == parse_check_config(check.kind, desired)
 
 
+@frozen
+class CheckReconciliation:
+    applied: bool
+    created: list[SignalReportCheck]
+
+
 def create_checks_from_specs(
     *,
     report: SignalReport,
     specs: list[CheckSpec],
     attribution: ArtefactAttribution,
     checks_snapshot: dict[str, str] | None = None,
-) -> list[SignalReportCheck]:
+    reconcile: bool = True,
+) -> CheckReconciliation:
     """Reconcile a successful verification turn with the report's open checks.
 
     Identical rows keep their schedule, results, and approval. A changed or omitted claim retires;
@@ -264,7 +273,7 @@ def create_checks_from_specs(
                 .filter(report_id=report.id, status__in=SignalReportCheck.OPEN_STATUSES)
                 .order_by("id")
             )
-            if not research_can_reconcile_checks(existing, checks_snapshot):
+            if reconcile and not research_can_reconcile_checks(existing, checks_snapshot):
                 logger.info(
                     "signals.report_check.research_reconciliation_skipped",
                     report_id=str(report.id),
@@ -272,7 +281,15 @@ def create_checks_from_specs(
                     reason="checks_changed_during_research",
                     spec_count=len(specs),
                 )
-                return []
+                return CheckReconciliation(applied=False, created=[])
+            if not reconcile:
+                existing = [
+                    check
+                    for check in existing
+                    if check.status == SignalReportCheck.Status.PENDING
+                    and check.actor_kind not in (SignalActorKind.USER, SignalActorKind.AGENT)
+                    and check.approved_at is None
+                ]
             retained_ids: set[uuid.UUID] = set()
             new_specs: list[tuple[CheckSpec, SignalReportCheck | None]] = []
             referenced_ids: set[uuid.UUID] = set()
@@ -292,7 +309,10 @@ def create_checks_from_specs(
                         and check.title == spec.title
                         and check.rationale == spec.rationale
                         and check.kind == spec.kind
-                        and max(1, round((check.soak_minutes or 60) / 60)) == spec.soak_hours
+                        and (
+                            "soak_hours" not in spec.model_fields_set
+                            or max(1, round((check.soak_minutes or 60) / 60)) == spec.soak_hours
+                        )
                         and _check_configs_match(report, check, config)
                     ),
                     None,
@@ -304,7 +324,7 @@ def create_checks_from_specs(
             for replaced in existing:
                 if replaced.id not in retained_ids:
                     cancel_check(replaced, reason="replaced_by_research", attribution=attribution)
-            return [
+            created = [
                 create_check(
                     report=report,
                     title=spec.title,
@@ -315,13 +335,18 @@ def create_checks_from_specs(
                     soak_minutes=(
                         previous.soak_minutes if previous.soak_minutes is not None else DEFAULT_CHECK_SOAK_HOURS * 60
                     )
-                    if previous is not None and spec.soak_hours == max(1, round((previous.soak_minutes or 60) / 60))
+                    if previous is not None
+                    and (
+                        "soak_hours" not in spec.model_fields_set
+                        or spec.soak_hours == max(1, round((previous.soak_minutes or 60) / 60))
+                    )
                     else spec.soak_hours * 60,
                     run_interval_minutes=previous.run_interval_minutes if previous is not None else None,
                     runs_remaining=previous.runs_remaining if previous is not None else 1,
                 )
                 for spec, previous in new_specs
             ]
+            return CheckReconciliation(applied=True, created=created)
     except (CheckCreationError, CheckConfigValidationError) as error:
         logger.warning(
             "signals.report_check.research_spec_dropped",
@@ -329,7 +354,7 @@ def create_checks_from_specs(
             team_id=report.team_id,
             reason=str(error) if isinstance(error, CheckCreationError) else "invalid_check_config",
         )
-        return []
+        return CheckReconciliation(applied=False, created=[])
 
 
 def replace_metric_check(

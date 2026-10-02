@@ -1146,8 +1146,9 @@ async def test_run_agentic_report_activity_resolves_metrics_payload(
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize("has_previous_research", [False, True])
+@pytest.mark.parametrize("has_query", [False, True])
 async def test_run_agentic_report_activity_supplies_existing_checks_to_reresearch(
-    monkeypatch, ateam, has_previous_research
+    monkeypatch, ateam, has_previous_research, has_query
 ):
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam, status=SignalReport.Status.IN_PROGRESS, signal_count=2, total_weight=1.3
@@ -1157,7 +1158,11 @@ async def test_run_agentic_report_activity_supplies_existing_checks_to_reresearc
         report=report,
         title="Affected users stay at zero",
         kind=SignalReportCheck.Kind.METRIC_THRESHOLD,
-        config={"query": _metric().query, "comparison": {"operator": "lte", "value": 0}},
+        config={
+            "query": _metric().query if has_query else None,
+            "baseline_value": 40,
+            "comparison": {"operator": "lte", "value": 0},
+        },
         status=SignalReportCheck.Status.PENDING,
         next_run_at=timezone.now() + timedelta(days=7),
         expires_at=timezone.now() + timedelta(days=37),
@@ -1179,6 +1184,7 @@ async def test_run_agentic_report_activity_supplies_existing_checks_to_reresearc
     assert isinstance(previous_checks[0], dict)
     assert previous_checks[0]["id"] == str(check.id)
     assert previous_checks[0]["approved"] is True
+    assert ("baseline_value" in previous_checks[0]["config"]) is has_query
     assert result.checks_snapshot == {str(check.id): check.updated_at.isoformat()}
 
 
@@ -1275,6 +1281,24 @@ async def test_mark_report_ready_activity_applies_metrics(ateam, name, metrics, 
         (True, [], True, None),
         (True, [], True, "before_research"),
         (True, [], False, "during_research"),
+        (
+            False,
+            [{"title": "Legacy proposal", "kind": "agent", "config": {"instructions": "Check again."}}],
+            False,
+            "before_research",
+        ),
+        (
+            True,
+            [
+                {
+                    "title": "Invalid metric",
+                    "kind": "metric_threshold",
+                    "config": {"metric_id": "missing", "comparison": {"operator": "lte", "value": 5}},
+                }
+            ],
+            False,
+            None,
+        ),
     ],
 )
 @pytest.mark.parametrize("pending_input", [False, True])
@@ -1322,6 +1346,7 @@ async def test_ready_transition_only_reconciles_explicit_new_check_payloads(
                 checks=checks,
                 checks_snapshot=snapshot,
                 reconcile_checks=reconcile_checks,
+                checks_summary="Reconciled summary",
             )
         )
     else:
@@ -1335,11 +1360,15 @@ async def test_ready_transition_only_reconciles_explicit_new_check_payloads(
                 checks=checks,
                 checks_snapshot=snapshot,
                 reconcile_checks=reconcile_checks,
+                checks_summary="Reconciled summary",
             )
         )
 
     await database_sync_to_async(check.refresh_from_db)()
     assert (check.status == SignalReportCheck.Status.CANCELLED) is retired
+
+    await database_sync_to_async(report.refresh_from_db)()
+    assert report.summary == ("Reconciled summary" if retired else "Summary")
 
 
 @pytest.mark.asyncio
@@ -1578,10 +1607,11 @@ async def test_run_multi_turn_research_requests_verification_note_as_the_final_a
             assert result.effective_actionability() == actionability_result
             assert result.effective_priority() == priority_result
             assert result.title == presentation_result.title
-            assert result.summary == (
+            assert result.summary == "Users cannot complete the tracked onboarding flow."
+            assert result.checks_summary == (
                 "Users cannot complete the tracked onboarding flow. Expected impact: completion returns to at least 80 users."
                 if _name == "revised_metric_summary"
-                else "Users cannot complete the tracked onboarding flow."
+                else None
             )
             assert result.research_task_id == "research-task-id"
             if actionability != ActionabilityChoice.NOT_ACTIONABLE and failure is None:

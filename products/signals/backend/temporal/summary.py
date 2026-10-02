@@ -159,6 +159,7 @@ class ReportDecision:
     # attributed to. Empty for the no-repo branch, which does no research.
     checks: list[dict[str, Any]] | None = None
     reconcile_checks: bool = False
+    checks_summary: str | None = None
     checks_snapshot: dict[str, str] | None = None
     layers: list[dict[str, Any]] = field(default_factory=list)
     research_task_id: str | None = None
@@ -469,6 +470,7 @@ class SignalReportSummaryWorkflow:
                     metrics=agentic_result.metrics,
                     checks=agentic_result.checks,
                     reconcile_checks=agentic_result.reconcile_checks,
+                    checks_summary=agentic_result.checks_summary,
                     checks_snapshot=agentic_result.checks_snapshot,
                     layers=agentic_result.layers or [],
                     research_task_id=agentic_result.research_task_id,
@@ -514,6 +516,7 @@ class SignalReportSummaryWorkflow:
                         checks=decision.checks,
                         checks_snapshot=decision.checks_snapshot,
                         reconcile_checks=decision.reconcile_checks,
+                        checks_summary=decision.checks_summary,
                         checks_task_id=decision.research_task_id,
                         suggested_prompts=decision.suggested_prompts,
                         charts_enabled=decision.charts_enabled,
@@ -540,6 +543,7 @@ class SignalReportSummaryWorkflow:
                     checks=decision.checks,
                     checks_snapshot=decision.checks_snapshot,
                     reconcile_checks=decision.reconcile_checks,
+                    checks_summary=decision.checks_summary,
                     checks_task_id=decision.research_task_id,
                     layers=decision.layers,
                     suggested_prompts=decision.suggested_prompts,
@@ -859,6 +863,7 @@ class MarkReportReadyInput:
     checks_snapshot: dict[str, str] | None = None
 
     reconcile_checks: bool = False
+    checks_summary: str | None = None
     # Task the check rows are attributed to: the research sandbox that authored the specs.
     checks_task_id: str | None = None
     # The research plan of dependent pull requests, as `ReportLayer` dicts. Each becomes a child
@@ -909,8 +914,9 @@ def _write_research_checks(report: SignalReport, input: "MarkReportReadyInput | 
         except Exception:
             logger.warning("signals report check spec did not validate", report_id=str(report.id))
             return
-    create_checks_from_specs(
+    result = create_checks_from_specs(
         report=report,
+        reconcile=input.reconcile_checks,
         specs=specs,
         checks_snapshot=input.checks_snapshot,
         attribution=(
@@ -919,6 +925,9 @@ def _write_research_checks(report: SignalReport, input: "MarkReportReadyInput | 
             else ArtefactAttribution.system()
         ),
     )
+    if input.reconcile_checks and result.applied and input.checks_summary is not None:
+        report.summary = input.checks_summary
+        report.save(update_fields=["summary"])
 
 
 def _write_stack_layers(report: SignalReport, input: MarkReportReadyInput) -> None:
@@ -1209,6 +1218,7 @@ class MarkReportPendingInput:
     checks: list[dict[str, Any]] | None = None
     checks_snapshot: dict[str, str] | None = None
     reconcile_checks: bool = False
+    checks_summary: str | None = None
     checks_task_id: str | None = None
     # See MarkReportReadyInput.suggested_prompts — same transaction, same three states.
     suggested_prompts: list[str] | None = None

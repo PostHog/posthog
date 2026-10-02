@@ -99,6 +99,12 @@ describe('reportCheckPresentation', () => {
                 'Gave up after 3 tries · Sep 27 · 11 rageclicks in the last 14 days.',
             ],
             [
+                'an inconclusive check preserves its explanation',
+                { status: 'inconclusive', last_run_at: '2026-09-27T09:00:00Z' },
+                'Inconclusive',
+                'Sep 27 · 11 rageclicks in the last 14 days.',
+            ],
+            [
                 'a check that expired before its first run says so',
                 { status: 'expired', updated_at: '2026-10-27T09:00:00Z' },
                 'Never ran',

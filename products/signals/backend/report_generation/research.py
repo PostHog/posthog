@@ -361,6 +361,20 @@ class FixVerificationOutput(BaseModel):
     def preserve_checks_on_invalid_proposals(
         cls, value: object, handler: ValidatorFunctionWrapHandler, info: ValidationInfo
     ) -> list[CheckSpec] | None:
+        previous = {
+            str(check["id"]): check["soak_hours"]
+            for check in (info.context or {}).get("previous_checks", [])
+            if "id" in check and "soak_hours" in check
+        }
+        if isinstance(value, list):
+            value = [
+                {**check, "soak_hours": previous[str(check["existing_check_id"])]}
+                if isinstance(check, dict)
+                and "soak_hours" not in check
+                and str(check.get("existing_check_id")) in previous
+                else check
+                for check in value
+            ]
         try:
             checks: list[CheckSpec] | None = handler(value)
             return checks
@@ -368,7 +382,8 @@ class FixVerificationOutput(BaseModel):
             logger.warning(
                 "fix verification check specs did not validate",
                 extra={
-                    **(info.context or {}),
+                    "report_id": (info.context or {}).get("report_id"),
+                    "team_id": (info.context or {}).get("team_id"),
                     "validation_rules": sorted({item["type"] for item in error.errors(include_input=False)}),
                 },
             )
@@ -398,6 +413,7 @@ ResearchArtefactContent = SignalFinding | ActionabilityAssessment | PriorityAsse
 class ReportResearchOutput(BaseModel):
     title: str = Field(description="Generated report title.")
     summary: str = Field(description="Generated factual report summary.")
+    checks_summary: str | None = Field(default=None, description="Summary to apply only with reconciled checks.")
     charts: list[ReportChart] = Field(
         default_factory=list,
         description="Charts the summary illustrates itself with. The report's whole set — the caller "
@@ -1538,6 +1554,7 @@ async def run_multi_turn_research(
 
         verification_note: NoteArtefact | None = None
         checks: list[CheckSpec] | None = None
+        checks_summary: str | None = None
         if actionability_result.actionability != ActionabilityChoice.NOT_ACTIONABLE:
             if output_fn:
                 output_fn("Generating fix verification steps...")
@@ -1553,7 +1570,11 @@ async def run_multi_turn_research(
                     verification_prompt,
                     FixVerificationOutput,
                     label="fix_verification",
-                    validation_context={"report_id": signal_report_id, "team_id": context.team_id},
+                    validation_context={
+                        "report_id": signal_report_id,
+                        "team_id": context.team_id,
+                        "previous_checks": previous_checks or [],
+                    },
                 )
                 verification_note = verification_result.to_note()
                 if (
@@ -1562,8 +1583,7 @@ async def run_multi_turn_research(
                     and verification_result.checks is not None
                 ):
                     checks = list(verification_result.checks)
-                    if verification_result.summary is not None:
-                        presentation_result.summary = verification_result.summary
+                    checks_summary = verification_result.summary
             except Exception:
                 logger.exception(
                     "multi_turn_research: failed to generate fix verification note",
@@ -1639,6 +1659,7 @@ async def run_multi_turn_research(
         research_task_id=str(session.task.id),
         verification_note=verification_note,
         checks=checks,
+        checks_summary=checks_summary,
         old_artefacts=old_artefacts,
         new_artefacts=new_artefacts,
     )

@@ -68,7 +68,18 @@ const meta: Meta<typeof ReportExpectedImpact> = {
                                             last_run_at: '2026-08-29T00:00:00Z',
                                             last_outcome: 'failed',
                                         }
-                                      : check,
+                                      : context.parameters.rangeGoal
+                                        ? {
+                                              ...check,
+                                              config: {
+                                                  ...check.config,
+                                                  comparison: {
+                                                      operator: 'between',
+                                                      bounds: { lower: 50, upper: 100 },
+                                                  },
+                                              },
+                                          }
+                                        : check,
                               ],
                           },
                     '/api/projects/:id/signals/reports/available_reviewers/': [],
@@ -96,6 +107,7 @@ export default meta
 type Story = StoryObj<typeof ReportExpectedImpact>
 
 export const MetricCheck: Story = {}
+export const RangeGoal: Story = { parameters: { rangeGoal: true } }
 export const Narrow: Story = { parameters: { narrow: true } }
 export const Failed: Story = { parameters: { failed: true } }
 export const LoadFailure: Story = { parameters: { loadFailure: true } }

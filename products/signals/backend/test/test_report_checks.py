@@ -2337,7 +2337,7 @@ class TestResearchAuthoredChecks(APIBaseTest):
         with patch(_CAPTURE) as capture, self.captureOnCommitCallbacks(execute=True):
             written = create_checks_from_specs(
                 report=self.report, specs=[self._spec()], attribution=ArtefactAttribution.system()
-            )
+            ).created
 
         assert len(written) == 1
         check = written[0]
@@ -2350,12 +2350,12 @@ class TestResearchAuthoredChecks(APIBaseTest):
     def test_a_newer_research_pass_replaces_the_pending_checks_of_an_older_one(self) -> None:
         older = create_checks_from_specs(
             report=self.report, specs=[self._spec()], attribution=ArtefactAttribution.system()
-        )
+        ).created
         newer = create_checks_from_specs(
             report=self.report,
             specs=[self._spec(title="Checkout errors stay under 5 a day")],
             attribution=ArtefactAttribution.system(),
-        )
+        ).created
         create_checks_from_specs(report=self.report, specs=[], attribution=ArtefactAttribution.system())
 
         older[0].refresh_from_db()
@@ -2372,6 +2372,8 @@ class TestResearchAuthoredChecks(APIBaseTest):
             ("omitted_metric_defaults", False, "unchanged", "metric_defaults"),
             ("omitted_agent_defaults", False, "unchanged", "agent_defaults"),
             ("revise_recurring", False, "revise", "recurring"),
+            ("omitted_existing_wait", False, "unchanged", "omitted_wait"),
+            ("revise_omitted_existing_wait", False, "revise", "omitted_wait"),
             ("longer_wait", False, "revise", "longer_wait"),
             ("invalid_stored_config", False, "revise", "invalid_stored"),
         ]
@@ -2384,9 +2386,9 @@ class TestResearchAuthoredChecks(APIBaseTest):
             spec.config["baseline_value"] = None
         elif variant == "agent_defaults":
             spec = self._spec(kind="agent", config={"instructions": "Check the issue again."})
-        existing = create_checks_from_specs(report=self.report, specs=[spec], attribution=ArtefactAttribution.system())[
-            0
-        ]
+        existing = create_checks_from_specs(
+            report=self.report, specs=[spec], attribution=ArtefactAttribution.system()
+        ).created[0]
         approved_at = timezone.now()
         stored_config = dict(existing.config)
         if variant == "metric_defaults":
@@ -2396,6 +2398,8 @@ class TestResearchAuthoredChecks(APIBaseTest):
             stored_config.update(probe_hints=[], skill_name=None)
         if variant == "invalid_stored":
             stored_config["retired_config_field"] = "obsolete"
+        if variant == "omitted_wait":
+            SignalReportCheck.objects.for_team(self.team.id).filter(id=existing.id).update(soak_minutes=72 * 60)
         if variant == "recurring":
             SignalReportCheck.objects.for_team(self.team.id).filter(id=existing.id).update(
                 soak_minutes=1450, run_interval_minutes=7 * 24 * 60, runs_remaining=3
@@ -2417,6 +2421,8 @@ class TestResearchAuthoredChecks(APIBaseTest):
             else [spec]
         )
 
+        if variant == "omitted_wait":
+            specs[0] = self._spec(title=specs[0].title, existing_check_id=existing.id)
         if variant == "invalid_stored":
             specs = [self._spec(existing_check_id=existing.id)]
         elif variant == "longer_wait":
@@ -2426,7 +2432,7 @@ class TestResearchAuthoredChecks(APIBaseTest):
             specs=specs,
             attribution=ArtefactAttribution.system(),
             checks_snapshot=check_versions([existing]),
-        )
+        ).created
 
         existing.refresh_from_db()
         assert existing.status == (
@@ -2449,7 +2455,7 @@ class TestResearchAuthoredChecks(APIBaseTest):
     def test_terminal_check_during_reconciliation_does_not_drop_new_specs(self) -> None:
         older = create_checks_from_specs(
             report=self.report, specs=[self._spec()], attribution=ArtefactAttribution.system()
-        )[0]
+        ).created[0]
 
         def expire_before_cancel(check: SignalReportCheck, **kwargs) -> bool:
             SignalReportCheck.objects.for_team(self.team.id).filter(id=check.id).update(
@@ -2462,7 +2468,7 @@ class TestResearchAuthoredChecks(APIBaseTest):
                 report=self.report,
                 specs=[self._spec(title="Replacement goal")],
                 attribution=ArtefactAttribution.system(),
-            )
+            ).created
         older.refresh_from_db()
         assert older.status == SignalReportCheck.Status.EXPIRED
         assert len(newer) == 1
@@ -2488,7 +2494,7 @@ class TestResearchAuthoredChecks(APIBaseTest):
             attribution=ArtefactAttribution.from_agent(self.user.id, "test-client")
             if selection == "external_agent"
             else ArtefactAttribution.system(),
-        )[0]
+        ).created[0]
         snapshot = check_versions([original]) if capture_snapshot else None
         url = f"/api/projects/{self.team.id}/signals/reports/{self.report.id}/checks/{original.id}/"
         if selection.startswith("replacement"):
@@ -2530,11 +2536,13 @@ class TestResearchAuthoredChecks(APIBaseTest):
     def test_research_keeps_a_check_with_a_minute_level_soak(self) -> None:
         existing = create_checks_from_specs(
             report=self.report, specs=[self._spec()], attribution=ArtefactAttribution.system()
-        )[0]
+        ).created[0]
         SignalReportCheck.objects.for_team(self.team.id).filter(id=existing.id).update(soak_minutes=1450)
 
         assert (
-            create_checks_from_specs(report=self.report, specs=[self._spec()], attribution=ArtefactAttribution.system())
+            create_checks_from_specs(
+                report=self.report, specs=[self._spec()], attribution=ArtefactAttribution.system()
+            ).created
             == []
         )
 
@@ -2547,7 +2555,7 @@ class TestResearchAuthoredChecks(APIBaseTest):
             report=self.report,
             specs=[self._spec(config={"metric_id": "invented", "comparison": {"operator": "lte", "value": 10}})],
             attribution=ArtefactAttribution.system(),
-        )
+        ).created
 
         assert written == []
         assert not SignalReportCheck.objects.for_team(self.team.id).filter(report=self.report).exists()
@@ -2559,7 +2567,7 @@ class TestResearchAuthoredChecks(APIBaseTest):
 
         written = create_checks_from_specs(
             report=self.report, specs=[self._spec()], attribution=ArtefactAttribution.system()
-        )
+        ).created
 
         assert written[0].status == SignalReportCheck.Status.ACTIVE
         assert written[0].measurement_start_at is not None
@@ -2570,7 +2578,7 @@ class TestResearchAuthoredChecks(APIBaseTest):
     def test_a_longer_soak_is_honoured_for_a_fix_that_reaches_users_slowly(self) -> None:
         written = create_checks_from_specs(
             report=self.report, specs=[self._spec(soak_hours=72)], attribution=ArtefactAttribution.system()
-        )
+        ).created
 
         assert written[0].soak_minutes == 72 * 60
 

@@ -130,6 +130,8 @@ function terminalCheckRow(
                 tag: { label: "Couldn't measure", type: 'warning' },
                 detail: joinDetail([`Gave up after ${check.consecutive_errors} tries`, ranOn, explanation]),
             }
+        case 'inconclusive':
+            return { tag: { label: 'Inconclusive', type: 'warning' }, detail: joinDetail([ranOn, explanation]) }
         case 'cancelled':
             return { tag: { label: 'Cancelled', type: 'muted' }, detail: `Stopped ${shortDate(check.updated_at)}` }
     }
