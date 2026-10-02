@@ -79,12 +79,13 @@ describe('audience routing', () => {
     })
 
     it.each([
-        { visited: ['/audience'], tab: 'topics' },
+        { visited: ['/audience'], tab: 'recipients' },
+        { visited: ['/audience/recipients'], tab: 'recipients' },
         { visited: ['/audience/topics'], tab: 'topics' },
         { visited: ['/audience/suppression'], tab: 'suppression' },
-        { visited: ['/audience/suppression', '/audience'], tab: 'topics' },
-        { visited: ['/audience/not-a-tab'], tab: 'topics' },
-        { visited: ['/audience/recipients/jamie%40example.com'], tab: 'topics' },
+        { visited: ['/audience/suppression', '/audience'], tab: 'recipients' },
+        { visited: ['/audience/not-a-tab'], tab: 'recipients' },
+        { visited: ['/audience/topics', '/audience/recipients/jamie%40example.com'], tab: 'recipients' },
     ])('after visiting $visited, Audience shows the $tab tab', ({ visited, tab }) => {
         audienceSceneLogic.mount()
 
