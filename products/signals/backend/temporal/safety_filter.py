@@ -24,7 +24,7 @@ from products.signals.backend.facade.api import _telemetry_props_from_extra
 from products.signals.backend.system_one_decision import SAFETY_CATEGORIES, ModelMode, model_mode, run_model_decision
 from products.signals.backend.system_one_prompts import SystemOnePrompt, bundled_prompt, current_prompt
 from products.signals.backend.temporal import metrics
-from products.signals.backend.temporal.llm import SAFETY_MODEL, EmptyLLMResponseError, call_llm
+from products.signals.backend.temporal.llm import SAFETY_MODEL, EmptyLLMResponseError, call_llm, parse_json_object
 
 logger = structlog.get_logger(__name__)
 
@@ -188,7 +188,7 @@ async def safety_filter(
     source_id: str | None = None,
 ) -> SafetyFilterJudgeResponse:
     def validate(text: str) -> SafetyFilterJudgeResponse:
-        data = json.loads(text)
+        data = parse_json_object(text)
         return SafetyFilterJudgeResponse.model_validate(data)
 
     signal_prompt = _build_safety_user_prompt(description, source_product, source_type)

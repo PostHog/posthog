@@ -1,4 +1,5 @@
 import os
+import json
 import importlib
 
 import pytest
@@ -9,7 +10,7 @@ from django.test import override_settings
 from anthropic.types import Message, TextBlock, Usage
 
 from products.signals.backend.temporal import llm
-from products.signals.backend.temporal.llm import call_llm
+from products.signals.backend.temporal.llm import call_llm, parse_json_object
 from products.signals.eval.llm_gen.client import CanonicalSignal, CanonicalSignalBatch, generate_canonical_signals
 
 MODULE_PATH = "products.signals.backend.temporal.llm"
@@ -188,6 +189,24 @@ async def test_request_shape_follows_model_capabilities(
     assert ("temperature" in kwargs) is expect_temperature
     assert (kwargs.get("thinking") or {}).get("type") == expect_thinking
     assert kwargs.get("output_config") == ({"effort": expect_effort} if expect_effort else None)
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ('{"match": true}', {"match": True}),
+        ('{"match": true}\n\nThe signal matches the report.', {"match": True}),
+        ('Here is my answer:\n{"match": false, "reason": "a {b}"}\nDone.', {"match": False, "reason": "a {b}"}),
+    ],
+)
+def test_parse_json_object_ignores_surrounding_text(text: str, expected: dict[str, object]) -> None:
+    assert parse_json_object(text) == expected
+
+
+@pytest.mark.parametrize("text", ["no json here", '{"match": true,, "x": 1}'])
+def test_parse_json_object_rejects_invalid_json(text: str) -> None:
+    with pytest.raises(json.JSONDecodeError):
+        parse_json_object(text)
 
 
 @pytest.mark.asyncio

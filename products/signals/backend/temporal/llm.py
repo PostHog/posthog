@@ -1,6 +1,7 @@
 import os
+import json
 from collections.abc import Callable, Mapping
-from typing import Final, Literal, Optional, TypedDict, TypeVar
+from typing import Any, Final, Literal, Optional, TypedDict, TypeVar
 
 from django.conf import settings
 
@@ -130,6 +131,15 @@ def _strip_markdown_json_fences(text: str) -> str:
     if stripped.startswith("```") and stripped.endswith("```"):
         return stripped[len("```") : -len("```")].strip()
     return text
+
+
+def parse_json_object(text: str) -> Any:
+    """Decode the first JSON object in the reply and ignore any text after it."""
+    start = text.find("{")
+    if start == -1:
+        return json.loads(text)
+    data, _ = json.JSONDecoder().raw_decode(text, start)
+    return data
 
 
 T = TypeVar("T")

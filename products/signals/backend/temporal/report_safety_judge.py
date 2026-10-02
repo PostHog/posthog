@@ -18,7 +18,7 @@ from products.signals.backend.artefact_schemas import SafetyJudgment
 from products.signals.backend.models import ArtefactAttribution, SignalReportArtefact
 from products.signals.backend.system_one_decision import SAFETY_CATEGORIES, ModelMode, model_mode, run_model_decision
 from products.signals.backend.system_one_prompts import bundled_prompt, current_prompt
-from products.signals.backend.temporal.llm import SAFETY_MODEL, call_llm
+from products.signals.backend.temporal.llm import SAFETY_MODEL, call_llm, parse_json_object
 from products.signals.backend.temporal.types import SignalData, render_signals_to_text
 
 logger = structlog.get_logger(__name__)
@@ -162,7 +162,7 @@ async def judge_report_safety(
         state: dict[str, JsonValue] = {"policy": system_one_prompt.policy, "report": user_prompt}
 
         def validate(text: str) -> SafetyJudgeResponse:
-            data = json.loads(text)
+            data = parse_json_object(text)
             return SafetyJudgeResponse.model_validate(data)
 
         async def sonnet_verdict(trace_id: str | None) -> SafetyJudgeResponse:
