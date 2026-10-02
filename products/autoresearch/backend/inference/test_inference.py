@@ -32,7 +32,7 @@ from products.autoresearch.backend.inference.scoring import (
     score_population,
 )
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline, AutoresearchRun
-from products.autoresearch.backend.query import HogQLResult
+from products.autoresearch.backend.query import BATCH_QUERY, HogQLResult
 from products.autoresearch.backend.testing import TeamScopedTestMixin
 
 _STUB_RECIPE = {
@@ -413,10 +413,16 @@ class TestRecipeRouting(TeamScopedTestMixin, BaseTest):
         scored = ScoredPopulation(rows=[{"distinct_id": "p1", "p_y": 0.5}], holdout_auc=0.66)
         with patch.object(scoring, "_score_via_anchors", return_value=scored) as anchored:
             result = score_population(
-                team=self.team, pipeline=pipeline, model=model, window=ScoringWindow.for_date(), user=self.user
+                team=self.team,
+                pipeline=pipeline,
+                model=model,
+                window=ScoringWindow.for_date(),
+                user=self.user,
+                query_context=BATCH_QUERY,
             )
         assert result == ScoredPopulation(rows=[{"distinct_id": "p1", "p_y": 0.5, "p_y_raw": 0.5}], holdout_auc=0.66)
         anchored.assert_called_once()
+        assert anchored.call_args.kwargs["query_context"] == BATCH_QUERY
 
     @parameterized.expand([("bundle", "score_via_sandbox"), ("recipe", "_score_via_anchors")])
     def test_live_run_binds_every_query_to_the_start_of_the_day(self, _name, scorer):
@@ -523,9 +529,12 @@ class TestStubFeatureRows(TeamScopedTestMixin, BaseTest):
         )
         mock_run.side_effect = self._feature_then_count([["user-1"], ["user-3"]], count=2)
 
-        rows = _fetch_stub_feature_rows(team=self.team, pipeline=pipeline, recipe=_STUB_RECIPE, user=self.user)
+        rows = _fetch_stub_feature_rows(
+            team=self.team, pipeline=pipeline, recipe=_STUB_RECIPE, user=self.user, query_context=BATCH_QUERY
+        )
 
         assert {r["distinct_id"] for r in rows} == {"user-1", "user-3"}
+        assert [call.kwargs["query_context"] for call in mock_run.call_args_list] == [BATCH_QUERY, BATCH_QUERY]
         sql, values = self._sent(mock_run)
         assert "f.distinct_id IN (SELECT person_id FROM (SELECT id AS person_id" in sql
         assert "argMax(ifNull((properties[{pop_k_0}] = {pop_0}), 0), version) = 1" in sql
@@ -720,9 +729,13 @@ class TestAnchorsRecipeQueries(TeamScopedTestMixin, BaseTest):
                 feature_sql=_ANCHORS_FEATURE_SQL,
                 cutoff_ts=1_700_000_000,
                 user=self.user,
+                query_context=BATCH_QUERY,
             )
         assert mock_run_hogql.call_args.kwargs["query"].values["cutoff_ts"] == 1_700_000_000
         assert count.call_args.kwargs["cutoff_ts"] == 1_700_000_000
+        assert (
+            mock_run_hogql.call_args.kwargs["query_context"] == count.call_args.kwargs["query_context"] == BATCH_QUERY
+        )
 
     def test_training_rows_and_anchor_count_bind_one_instant(self):
         pipeline = self._make_pipeline()
@@ -734,8 +747,18 @@ class TestAnchorsRecipeQueries(TeamScopedTestMixin, BaseTest):
                 return_value=HogQLResult(columns=["eligible", "positives"], rows=[[0, 0]]),
             ) as count_run,
         ):
-            _fetch_training_rows(team=self.team, pipeline=pipeline, feature_sql=_ANCHORS_FEATURE_SQL, user=self.user)
+            _fetch_training_rows(
+                team=self.team,
+                pipeline=pipeline,
+                feature_sql=_ANCHORS_FEATURE_SQL,
+                user=self.user,
+                query_context=BATCH_QUERY,
+            )
         features_query, count_query = features_run.call_args.kwargs["query"], count_run.call_args.kwargs["query"]
+        sent_contexts = [
+            call.kwargs["query_context"] for call in features_run.call_args_list + count_run.call_args_list
+        ]
+        assert sent_contexts == [BATCH_QUERY] * 3
         assert "now()" not in features_query.query and "now()" not in count_query.query
         assert features_query.values["anchor_ts"] == count_query.values["anchor_ts"]
 
