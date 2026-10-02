@@ -389,8 +389,8 @@ export interface taskTrackerSceneLogicActions {
 export interface taskTrackerSceneLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        startsInPlanMode: (featureFlags: FeatureFlagsSet, taskDefaults: any) => boolean
-        autoPublishCloudRuns: (featureFlags: FeatureFlagsSet, taskDefaults: any) => boolean
+        startsInPlanMode: (featureFlags: FeatureFlagsSet, taskDefaults: TasksTaskDefaultsApi | null) => boolean
+        autoPublishCloudRuns: (featureFlags: FeatureFlagsSet, taskDefaults: TasksTaskDefaultsApi | null) => boolean
         hasDesktopAccess: (desktopAccess: LegacyDesktopAccessResponseApi | null) => boolean
         displayHeadline: (overrideHeadlines: string[] | null, headlineSeed: number, arg: string[] | undefined) => string
         effectiveComposerOverride: (
