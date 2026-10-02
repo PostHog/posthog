@@ -118,7 +118,6 @@ def check_snapshot_baselines(scope: Scope) -> Outcome:
     )
 
 
-SEMGREP_WORKFLOW = ".github/workflows/ci-security.yaml"
 SEMGREP_RULES = ".semgrep/rules/devex"
 # The directories the `semgrep-devex` CI job scans.
 SEMGREP_SCOPE = [
@@ -138,23 +137,13 @@ SEMGREP_SCOPE = [
 ]
 # CI excludes this tree from its blocking pass over ERROR rules, and from no other pass.
 SEMGREP_ERROR_EXCLUDED = ["products/desktop/*"]
-_SEMGREP_IMAGE = re.compile(r"SEMGREP_IMAGE:\s*semgrep/semgrep:([0-9][0-9A-Za-z.\-]*)")
 _SEMGREP_TIMEOUT_SECONDS = 300
 
 # The rule, the file, and the source text the rule matched.
 Finding = tuple[str, str, str]
 
 
-def _semgrep_version() -> str | None:
-    """The version CI pins, so a local run and the CI job apply the same rule semantics."""
-    try:
-        match = _SEMGREP_IMAGE.search((REPO_ROOT / SEMGREP_WORKFLOW).read_text())
-    except OSError:
-        return None
-    return match.group(1) if match else None
-
-
-def _semgrep_findings(semgrep: list[str], contents: dict[str, bytes]) -> dict[Finding, list[int]] | None:
+def _semgrep_findings(contents: dict[str, bytes]) -> dict[Finding, list[int]] | None:
     """Findings in *contents* (path to file content), each with the lines it starts on.
 
     None when the scan did not complete. The files are written to a temporary directory
@@ -171,7 +160,7 @@ def _semgrep_findings(semgrep: list[str], contents: dict[str, bytes]) -> dict[Fi
         try:
             result = subprocess.run(
                 [
-                    *semgrep,
+                    "semgrep",
                     "--config",
                     str(REPO_ROOT / SEMGREP_RULES),
                     "--severity=WARNING",
@@ -189,7 +178,7 @@ def _semgrep_findings(semgrep: list[str], contents: dict[str, bytes]) -> dict[Fi
             )
         except (OSError, subprocess.TimeoutExpired):
             return None
-    # A missing uvx download, a rule that does not parse and a crash all exit non-zero.
+    # A rule that does not parse and a crash both exit non-zero.
     # An incomplete scan must not read as a clean one.
     if result.returncode != 0:
         return None
@@ -213,13 +202,9 @@ def _semgrep_findings(semgrep: list[str], contents: dict[str, bytes]) -> dict[Fi
 
 
 def check_semgrep_devex(scope: Scope) -> Outcome:
-    if shutil.which("uvx") is None:
-        return "skipped", "uvx not found"
-    version = _semgrep_version()
-    if version is None:
-        return "skipped", f"no semgrep version pinned in {SEMGREP_WORKFLOW}"
-    semgrep = ["uvx", f"semgrep@{version}"]
-    incomplete: Outcome = ("skipped", "semgrep did not complete (it needs network on its first run)")
+    if shutil.which("semgrep") is None:
+        return "skipped", "semgrep not found on PATH"
+    incomplete: Outcome = ("skipped", "semgrep did not complete")
 
     # Semgrep cannot scan a binary, and a snapshot update can carry hundreds of them.
     after_contents = {
@@ -229,7 +214,7 @@ def check_semgrep_devex(scope: Scope) -> Outcome:
     }
     if not after_contents:
         return "skipped", "no file to scan"
-    after = _semgrep_findings(semgrep, after_contents)
+    after = _semgrep_findings(after_contents)
     if after is None:
         return incomplete
     if not after:
@@ -245,7 +230,7 @@ def check_semgrep_devex(scope: Scope) -> Outcome:
         for path in {path for _, path, _ in after}
         if (content := _git("show", f"{scope.merge_base}:{renames.get(path, path)}")) is not None
     }
-    before = _semgrep_findings(semgrep, before_contents) if before_contents else {}
+    before = _semgrep_findings(before_contents) if before_contents else {}
     if before is None:
         return incomplete
 
@@ -257,7 +242,14 @@ def check_semgrep_devex(scope: Scope) -> Outcome:
     if not introduced:
         return "pass", "no new findings"
     more = f" (+{len(introduced) - 3} more)" if len(introduced) > 3 else ""
-    return "fail", f"{len(introduced)} new finding(s): {' · '.join(introduced[:3])}{more}"
+    # An advisory and not a failure: the local semgrep can be a different version from the one
+    # CI pins, and this comparison is a reconstruction of CI's, so a mismatch must not block a push.
+    return (
+        "advisory",
+        f"{len(introduced)} new finding(s) that the semgrep-devex CI job blocks on: "
+        f"{' · '.join(introduced[:3])}{more}. "
+        f"Run `semgrep --config {SEMGREP_RULES} <file>` to read the rule",
+    )
 
 
 LANE_TARGETS_SCRIPT = ".github/scripts/trunk-impacted-targets.js"

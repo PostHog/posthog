@@ -74,7 +74,7 @@ class TestSnapshotBaselines:
             assert removed in detail
 
 
-def _every_line_is_a_finding(semgrep: list[str], contents: dict[str, bytes]) -> dict[Finding, list[int]]:
+def _every_line_is_a_finding(contents: dict[str, bytes]) -> dict[Finding, list[int]]:
     found: dict[Finding, list[int]] = {}
     for path, content in contents.items():
         for number, line in enumerate(content.decode().splitlines(), start=1):
@@ -98,14 +98,14 @@ class TestSemgrepDevex:
                 {"abc123:posthog/a.py": b"old", "HEAD:posthog/a.py": b"old\nnew"},
                 {},
                 ["posthog/a.py"],
-                "fail",
+                "advisory",
                 "posthog/a.py:2",
             ),
             (
                 {"abc123:posthog/a.py": b"old", "HEAD:posthog/a.py": b"old\nold"},
                 {},
                 ["posthog/a.py"],
-                "fail",
+                "advisory",
                 "posthog/a.py:2",
             ),
             (
@@ -115,17 +115,15 @@ class TestSemgrepDevex:
                 "pass",
                 "no new findings",
             ),
-            ({"HEAD:posthog/new.py": b"new"}, {}, ["posthog/new.py"], "fail", "posthog/new.py:1"),
+            ({"HEAD:posthog/new.py": b"new"}, {}, ["posthog/new.py"], "advisory", "posthog/new.py:1"),
             ({"HEAD:frontend/a.png": b"\x89PNG\0\0"}, {}, ["frontend/a.png"], "skipped", "no file to scan"),
         ],
     )
     @patch("hogli_commands.preflight_checks._semgrep_findings", side_effect=_every_line_is_a_finding)
-    @patch("hogli_commands.preflight_checks._semgrep_version", return_value="1.0.0")
-    @patch("hogli_commands.preflight_checks.shutil.which", return_value="/usr/bin/uvx")
-    def test_only_findings_the_branch_introduced_block(
+    @patch("hogli_commands.preflight_checks.shutil.which", return_value="/usr/bin/semgrep")
+    def test_only_findings_the_branch_introduced_are_reported(
         self,
         mock_which: MagicMock,
-        mock_version: MagicMock,
         mock_findings: MagicMock,
         blobs: dict[str, bytes],
         renames: dict[str, str],
@@ -143,10 +141,9 @@ class TestSemgrepDevex:
         assert expected_fragment in detail
 
     @patch("hogli_commands.preflight_checks._semgrep_findings", return_value=None)
-    @patch("hogli_commands.preflight_checks._semgrep_version", return_value="1.0.0")
-    @patch("hogli_commands.preflight_checks.shutil.which", return_value="/usr/bin/uvx")
-    def test_an_incomplete_scan_skips_instead_of_blocking(
-        self, mock_which: MagicMock, mock_version: MagicMock, mock_findings: MagicMock
+    @patch("hogli_commands.preflight_checks.shutil.which", return_value="/usr/bin/semgrep")
+    def test_an_incomplete_scan_skips_instead_of_reporting(
+        self, mock_which: MagicMock, mock_findings: MagicMock
     ) -> None:
         with patch("hogli_commands.preflight_checks._git", side_effect=_git_show({"HEAD:posthog/a.py": b"new"})):
             status, _ = check_semgrep_devex(_scope(["posthog/a.py"]))
