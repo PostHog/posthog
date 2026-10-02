@@ -222,10 +222,8 @@ def _cache_fixture_parent_nodeids() -> None:
 
 
 def _report_subtest_failures_as_test_failures() -> None:
-    # pytest reports each unittest subTest through TestCaseFunction.addSubTest, separately from the
-    # test that contains it. pytest-rerunfailures does not retry a failure reported that way, so one
-    # flaky subTest fails the run. unittest only uses addSubTest when the method exists. Without it,
-    # a subTest failure propagates as a failure of the test, which stops at that subTest.
+    # pytest-rerunfailures does not retry a failure reported through addSubTest. Without the method,
+    # unittest raises a subTest failure as a failure of the test, which is retried.
     from _pytest import unittest as pytest_unittest  # noqa: PLC0415 — deferred until pytest_configure
 
     del pytest_unittest.TestCaseFunction.addSubTest

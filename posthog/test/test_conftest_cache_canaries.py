@@ -121,9 +121,8 @@ def test_fixture_parent_nodeids_cache_matches_unpatched_pytest(request):
 
 class TestSubtestFailureIsATestFailure(SimpleTestCase):
     def test_subtest_failure_propagates_out_of_the_subtest_block(self):
-        # Assumption: TestCaseFunction.addSubTest is the only hook through which pytest reports
-        # a subTest separately. If this fails after a pytest upgrade, find the new hook. Deleting
-        # the conftest.py patch would stop reruns of tests that fail inside a subTest.
+        # Assumption: pytest reports a subTest separately only through TestCaseFunction.addSubTest.
+        # If this fails, find the new hook, because a separately reported failure is not rerun.
         with self.assertRaises(AssertionError):
             with self.subTest():
                 self.fail()
