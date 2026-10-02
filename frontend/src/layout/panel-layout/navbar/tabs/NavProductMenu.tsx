@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
+import { IconPlusSmall } from '@posthog/icons'
+
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonMenuItems, LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu'
 import { sessionRecordingCollectionsLogic } from 'scenes/session-recordings/collections/sessionRecordingCollectionsLogic'
@@ -33,6 +35,16 @@ export function NavProductMenu({ product }: { product: string }): JSX.Element {
         ]
     } else if (product === 'Dashboards') {
         items = [
+            {
+                items: [
+                    {
+                        label: 'New dashboard',
+                        icon: <IconPlusSmall />,
+                        to: `${urls.dashboards()}#newDashboard=modal`,
+                        'data-attr': 'nav-apps-dashboards-menu-new-dashboard',
+                    },
+                ],
+            },
             {
                 title: 'Pinned dashboards',
                 items: loadDashboardsFailed

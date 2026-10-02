@@ -121,7 +121,7 @@ export function NavProductRow({ item, pinned = false }: { item: FileSystemImport
                     <LemonButton
                         size="xsmall"
                         className={sideActionClassName}
-                        icon={item.path === 'Product analytics' ? <IconPlusSmall /> : <IconChevronDown />}
+                        icon={item.path === 'Session replay' ? <IconChevronDown /> : <IconPlusSmall />}
                         tooltip={`Open ${label} menu`}
                         aria-label={`Open ${label} menu`}
                         disabledReason={disabledReason}
