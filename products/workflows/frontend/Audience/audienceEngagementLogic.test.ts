@@ -176,6 +176,32 @@ describe('audience engagement', () => {
         expect(hogQLQueries[0]).toContain("toDateTime('2026-10-01T09:00:00.000Z', 'UTC')")
     })
 
+    it('with engagement events off, shows why the totals failed and loads them on retry', async () => {
+        silenceKeaLoadersErrors()
+        let queryFails = true
+        useMocks({
+            post: {
+                '/api/environments/:team_id/query/:kind': () =>
+                    queryFails ? [500, { detail: 'Query timed out' }] : [200, { results: [[1200, 'email_sent']] }],
+            },
+        })
+        const totalsLogic = emailMetricsTotalsLogic()
+
+        await expectLogic(totalsLogic, () => {
+            totalsLogic.mount()
+        })
+            .toFinishAllListeners()
+            .toMatchValues({ metricsTotals: null, metricsTotalsError: 'Query timed out' })
+
+        queryFails = false
+        await expectLogic(totalsLogic, () => {
+            totalsLogic.actions.loadMetricsTotals()
+        })
+            .toFinishAllListeners()
+            .toMatchValues({ metricsTotals: expect.objectContaining({ sent: 1200 }), metricsTotalsError: null })
+        totalsLogic.unmount()
+    })
+
     it('tracks which tile was opened as an insight', () => {
         logic = audienceEngagementLogic()
         logic.mount()
