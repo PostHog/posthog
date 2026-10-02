@@ -12,17 +12,49 @@ import { optOutCategoriesLogic } from '../OptOuts/optOutCategoriesLogic'
 import { RECIPIENTS_PAGE_SIZE, recipientsLogic } from './recipientsLogic'
 import { TopicStatusTag } from './TopicStatusTag'
 
+// Below this width the persons and last sent columns fold into the recipient cell.
+const WIDE_ONLY = 'hidden @min-[44rem]/recipients:table-cell'
+const NARROW_ONLY = '@min-[44rem]/recipients:hidden'
+
+function PersonsSummary({ recipient }: { recipient: RecipientApi }): JSX.Element {
+    if (recipient.person_count === 0) {
+        return <span className="text-xs text-secondary">No person</span>
+    }
+    if (recipient.person_count === 1 && recipient.persons.length === 1) {
+        const [person] = recipient.persons
+        return <span className="wrap-anywhere">{person.name ?? person.distinct_id}</span>
+    }
+    return <span>{`${recipient.person_count.toLocaleString()} persons`}</span>
+}
+
+function LastSent({ recipient }: { recipient: RecipientApi }): JSX.Element {
+    return recipient.last_sent_at ? (
+        <TZLabel time={recipient.last_sent_at} />
+    ) : (
+        <span className="text-xs text-secondary">None</span>
+    )
+}
+
 function RecipientCell({ recipient }: { recipient: RecipientApi }): JSX.Element {
     return (
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
-            <Link to={urls.audienceRecipient(recipient.email)} className="font-medium truncate">
-                <span translate="no">{recipient.email}</span>
-            </Link>
-            {recipient.suppression && (
-                <LemonTag type="danger" size="small">
-                    Suppressed
-                </LemonTag>
-            )}
+        <div className="flex flex-col gap-1 min-w-0">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <Link to={urls.audienceRecipient(recipient.email)} className="font-medium wrap-anywhere">
+                    <span translate="no">{recipient.email}</span>
+                </Link>
+                {recipient.suppression && (
+                    <LemonTag type="danger" size="small">
+                        Suppressed
+                    </LemonTag>
+                )}
+            </div>
+            <div className={`${NARROW_ONLY} flex flex-wrap gap-x-2 text-xs text-secondary`}>
+                <PersonsSummary recipient={recipient} />
+                <span>
+                    <span>Last sent: </span>
+                    <LastSent recipient={recipient} />
+                </span>
+            </div>
         </div>
     )
 }
@@ -45,17 +77,6 @@ function TopicsCell({
             ))}
         </div>
     )
-}
-
-function PersonsCell({ recipient }: { recipient: RecipientApi }): JSX.Element {
-    if (recipient.person_count === 0) {
-        return <span className="text-xs text-secondary">No person</span>
-    }
-    if (recipient.person_count === 1 && recipient.persons.length === 1) {
-        const [person] = recipient.persons
-        return <span className="truncate">{person.name ?? person.distinct_id}</span>
-    }
-    return <span>{`${recipient.person_count.toLocaleString()} persons`}</span>
 }
 
 function openRecipientUnlessInnerLink(event: React.MouseEvent<HTMLElement>, email: string): void {
@@ -90,41 +111,40 @@ export function RecipientsTable(): JSX.Element {
         {
             title: 'Persons',
             key: 'persons',
-            render: (_, recipient) => <PersonsCell recipient={recipient} />,
+            className: WIDE_ONLY,
+            render: (_, recipient) => <PersonsSummary recipient={recipient} />,
         },
         {
             title: 'Last sent (30 days)',
             key: 'last_sent_at',
+            className: WIDE_ONLY,
             tooltip: 'When an email was last sent to this address. Sends older than 30 days are not shown.',
-            render: (_, recipient) =>
-                recipient.last_sent_at ? (
-                    <TZLabel time={recipient.last_sent_at} />
-                ) : (
-                    <span className="text-xs text-secondary">None</span>
-                ),
+            render: (_, recipient) => <LastSent recipient={recipient} />,
         },
     ]
 
     return (
-        <LemonTable
-            columns={columns}
-            dataSource={recipients}
-            rowKey="email"
-            loading={pageLoading}
-            loadingSkeletonRows={8}
-            nouns={['recipient', 'recipients']}
-            onRow={(recipient) => ({
-                className: 'cursor-pointer',
-                onClick: (event) => openRecipientUnlessInnerLink(event, recipient.email),
-            })}
-            pagination={{
-                controlled: true,
-                pageSize: RECIPIENTS_PAGE_SIZE,
-                useUrl: false,
-                onForward: hasNextPage ? loadNextPage : undefined,
-                onBackward: hasPreviousPage ? loadPreviousPage : undefined,
-            }}
-            data-attr="audience-recipients-table"
-        />
+        <div className="@container/recipients">
+            <LemonTable
+                columns={columns}
+                dataSource={recipients}
+                rowKey="email"
+                loading={pageLoading}
+                loadingSkeletonRows={8}
+                nouns={['recipient', 'recipients']}
+                onRow={(recipient) => ({
+                    className: 'cursor-pointer',
+                    onClick: (event) => openRecipientUnlessInnerLink(event, recipient.email),
+                })}
+                pagination={{
+                    controlled: true,
+                    pageSize: RECIPIENTS_PAGE_SIZE,
+                    useUrl: false,
+                    onForward: hasNextPage ? loadNextPage : undefined,
+                    onBackward: hasPreviousPage ? loadPreviousPage : undefined,
+                }}
+                data-attr="audience-recipients-table"
+            />
+        </div>
     )
 }
