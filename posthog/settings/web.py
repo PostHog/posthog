@@ -918,6 +918,10 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
 # We keep the number of buckets low to reduce resource usage on the Prometheus
 PROMETHEUS_LATENCY_BUCKETS = [0.1, 0.3, 0.9, 2.7, 8.1, float("inf")]
 
+# Chrome origin trial tokens, comma-separated. Each token is bound to one origin, so each deployment sets its own.
+# Tokens are base64, so they never contain a comma.
+ORIGIN_TRIAL_TOKENS = get_list(os.getenv("ORIGIN_TRIAL_TOKENS", ""))
+
 ####
 # Proxy and IP egress config
 
