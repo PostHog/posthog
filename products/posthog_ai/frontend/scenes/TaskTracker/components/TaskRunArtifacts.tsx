@@ -77,6 +77,7 @@ import { withStrictCsp } from '../artifactHtml'
 import { TaskArtifactCommentsLogicProps } from '../taskArtifactCommentsLogic'
 import {
     ArtifactFile,
+    ArtifactPreviewKind,
     RunArtifact,
     TaskRunTab,
     artifactPreviewKind,
