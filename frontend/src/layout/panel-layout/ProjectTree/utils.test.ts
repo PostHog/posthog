@@ -3,7 +3,6 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import { productsItemName } from '../navbar/tabs/productsCatalog'
-import { getCustomIcon } from './customIconRegistry'
 import { getDefaultTreeData, getDefaultTreeProducts, iconForType } from './defaultTree'
 import {
     convertFileSystemEntryToTreeDataItem,
@@ -16,7 +15,7 @@ import {
 } from './utils'
 
 const catalogProducts = [...getDefaultTreeProducts(), ...getDefaultTreeData()].filter(
-    (item) => item.href && item.iconType && !getCustomIcon(item.iconType, item.href)
+    (item) => item.href && item.iconType
 )
 
 describe('project tree utils', () => {

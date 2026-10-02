@@ -159,7 +159,6 @@ export interface Ticket {
     message_count: number
     last_message_at: string | null
     last_message_text: string | null
-    unread_team_count: number
     unread_customer_count: number
     session_id?: string
     session_context?: {

@@ -82,7 +82,7 @@ export function PanelLayout({ className }: { className?: string }): JSX.Element 
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
     const { showLayoutPanel, clearActivePanelIdentifier, showLayoutNavBar } = useActions(panelLayoutLogic)
     useMountedLogic(projectTreeLogic({ key: PROJECT_TREE_KEY }))
-    useMountedLogic(supportTicketCounterLogic) // Start polling for unread tickets on app load
+    useMountedLogic(supportTicketCounterLogic) // Start polling for new support messages on app load
 
     return (
         <>

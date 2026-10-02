@@ -39,7 +39,6 @@ describe('ConversationsWidget', () => {
                             },
                             updated_at: '2026-08-11T12:00:00Z',
                             last_message_text: 'I need help with my dashboard.',
-                            unread_team_count: 0,
                             email_subject: null,
                             requester_name: 'Jane Doe',
                             requester_email: 'jane@example.com',

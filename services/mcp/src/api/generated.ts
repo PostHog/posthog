@@ -72151,7 +72151,6 @@ export namespace Schemas {
       readonly last_message_at: string | null;
       /** @nullable */
       readonly last_message_text: string | null;
-      readonly unread_team_count: number;
       readonly unread_customer_count: number;
       /** @nullable */
       readonly session_id: string | null;
@@ -104802,7 +104801,7 @@ export namespace Schemas {
 
     export interface TicketUnreadCountResponse {
       /**
-         * Unread messages across the non-resolved tickets the caller can see.
+         * Customer messages across all tickets the caller can see, resolved ones included.
          * @minimum 0
          */
       count: number;

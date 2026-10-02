@@ -194,10 +194,16 @@ class TestTicketAPI(APIBaseTest):
         self.assertIn(str(other_ticket.id), ticket_ids)
 
     def test_retrieve_ticket(self, mock_on_commit):
+        self.ticket.unread_team_count = 3
+        self.ticket.save(update_fields=["unread_team_count"])
+
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["id"], str(self.ticket.id))
         self.assertEqual(response.json()["status"], Status.NEW)
+
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.unread_team_count, 3)
 
     def test_retrieve_ticket_by_ticket_number(self, mock_on_commit):
         """Test retrieving a ticket by ticket_number instead of UUID."""
@@ -225,17 +231,6 @@ class TestTicketAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["status"], "resolved")
-
-    def test_retrieve_ticket_marks_as_read(self, mock_on_commit):
-        self.ticket.unread_team_count = 5
-        self.ticket.save()
-
-        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["unread_team_count"], 0)
-
-        self.ticket.refresh_from_db()
-        self.assertEqual(self.ticket.unread_team_count, 0)
 
     def test_retrieve_ticket_includes_anonymous_traits(self, mock_on_commit):
         """Test that retrieve includes anonymous_traits."""
@@ -1468,7 +1463,7 @@ class TestUnreadCountEndpoint(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 5)
 
-    def test_unread_count_excludes_resolved_tickets(self, mock_on_commit):
+    def test_unread_count_includes_resolved_tickets(self, mock_on_commit):
         Ticket.objects.create_with_number(
             team=self.team,
             channel_source=Channel.WIDGET,
@@ -1488,7 +1483,7 @@ class TestUnreadCountEndpoint(APIBaseTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/unread_count/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 3)
+        self.assertEqual(response.json()["count"], 8)
 
     def test_unread_count_returns_zero_when_conversations_disabled(self, mock_on_commit):
         self.team.conversations_enabled = False
@@ -1505,34 +1500,6 @@ class TestUnreadCountEndpoint(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/unread_count/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 0)
-
-    @patch("products.conversations.backend.api.tickets.invalidate_unread_count_cache")
-    def test_retrieve_ticket_invalidates_cache_when_marking_as_read(self, mock_invalidate, mock_on_commit):
-        ticket = Ticket.objects.create_with_number(
-            team=self.team,
-            channel_source=Channel.WIDGET,
-            widget_session_id="session-1",
-            distinct_id="user-1",
-            unread_team_count=3,
-        )
-
-        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{ticket.id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        mock_invalidate.assert_called_once_with(self.team.id)
-
-    @patch("products.conversations.backend.api.tickets.invalidate_unread_count_cache")
-    def test_retrieve_ticket_does_not_invalidate_cache_when_already_read(self, mock_invalidate, mock_on_commit):
-        ticket = Ticket.objects.create_with_number(
-            team=self.team,
-            channel_source=Channel.WIDGET,
-            widget_session_id="session-1",
-            distinct_id="user-1",
-            unread_team_count=0,
-        )
-
-        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{ticket.id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        mock_invalidate.assert_not_called()
 
     @patch("products.conversations.backend.api.tickets.invalidate_unread_count_cache")
     def test_update_ticket_invalidates_cache_when_resolved(self, mock_invalidate, mock_on_commit):
@@ -3386,30 +3353,6 @@ class TestTicketAccessControl(APIBaseTest):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-    def test_viewer_does_not_clear_unread_state_on_retrieve(self) -> None:
-        # Retrieve is a read action, but it also marks the ticket read for the team - a viewer
-        # must not be able to clear that shared state just by opening the ticket.
-        self.ticket.unread_team_count = 3
-        self.ticket.save(update_fields=["unread_team_count"])
-        self._set_resource_level("viewer")
-
-        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.ticket.refresh_from_db()
-        self.assertEqual(self.ticket.unread_team_count, 3)
-
-    def test_editor_clears_unread_state_on_retrieve(self) -> None:
-        self.ticket.unread_team_count = 3
-        self.ticket.save(update_fields=["unread_team_count"])
-        self._set_resource_level("editor")
-
-        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.ticket.refresh_from_db()
-        self.assertEqual(self.ticket.unread_team_count, 0)
 
     def test_unread_count_excludes_tickets_blocked_at_object_level(self) -> None:
         # A member restricted to specific tickets must not see unread counts for tickets

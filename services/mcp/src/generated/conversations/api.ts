@@ -130,7 +130,7 @@ export const ConversationsTicketsListQueryParams = () => zod.object({
 })
 
 /**
- * Get single ticket and mark as read by team.
+ * Get single ticket.
  */
 export const ConversationsTicketsRetrieveParams = () => zod.object({
     id: zod.string().describe("The ticket's UUID or its numeric ticket number."),

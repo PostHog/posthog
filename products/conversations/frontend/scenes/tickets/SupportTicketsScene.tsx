@@ -1,4 +1,3 @@
-import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { useEffect, useMemo, useRef } from 'react'
@@ -184,11 +183,6 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
                     },
                 }
             }}
-            rowClassName={(ticket) =>
-                clsx({
-                    'bg-primary-alt-highlight': ticket.unread_team_count > 0,
-                })
-            }
             columns={columns}
         />
     )

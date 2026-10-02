@@ -30,7 +30,6 @@ const TICKET: Ticket = {
     message_count: 1,
     last_message_at: '2026-06-12T00:00:00Z',
     last_message_text: 'Hello',
-    unread_team_count: 0,
     unread_customer_count: 0,
 }
 

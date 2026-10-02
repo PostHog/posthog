@@ -6359,9 +6359,9 @@ snapshots:
     products-dashboards-add-insight-to-dashboard-modal--with-more-insight-types--light:
         hash: v1.k794b7964.6c001db5555f48832f11ae8d9dcc535dff4e22044bb6dfce15db3a2a522f1fa9.GQCxp64JkEqDCNEeSD6gPtc5rwlzjHFJ-QnZu4lRips
     products-dashboards-dashboard-widgets-overview--all-widget-types--dark:
-        hash: v1.k794b7964.c8ccf56e7a97ed764ef1b9feff1fbefb1e3b8677fbf34e950adb91fb8ad0c65a.SP6nwmHbLhfX64P11e8X6ceeDvQynhdRrSCHXsblts8
+        hash: v1.k794b7964.b2400f676c0e866957104ad12cdfb3ba7954f4f68e40161f41d769b546af34b3.5kzplAbAUvgZklXclgJPM8TMI5azrUsnutG7sLXanM0
     products-dashboards-dashboard-widgets-overview--all-widget-types--light:
-        hash: v1.k794b7964.76d3914773ce95c73661a095c09cd13d3886fc71ed8619b405b52d03af75309e.7h4Yavt5bAp86IDjoyzG4duYQRyU4pDb5kMndOnOut0
+        hash: v1.k794b7964.c94aaac8310639046a0f2a5ebd19d6a37ef9595080b421799b795c2b3b01c277.Am2LMb3SDFcoKLS8DJbeh46jCpYFKBRI0uqUxmGjHoY
     products-dashboards-dashboard-widgets-widget-types-activity-recent-events--default--dark:
         hash: v1.k794b7964.c69d28ef03335511de9b7dd75d5ad1c0458272d5d8f340083cdb86acc3b3c888.KB3MNhE9xEjVSl9hmVpz2jLC0IAmOTvaVZBmrl3pNKs
     products-dashboards-dashboard-widgets-widget-types-activity-recent-events--default--light:
@@ -6499,13 +6499,13 @@ snapshots:
     products-dashboards-dashboard-widgets-widget-types-support-recent-tickets--loading--light:
         hash: v1.k794b7964.9ffb00576b8540a26ff01ffb3d599b8d3a9c3a5c0d07051580d0c22f3b26fc40.g2iQbYSB4SdiJTJC8vq0bJ0qLh6P3jswZm0H6zysl3E
     products-dashboards-dashboard-widgets-widget-types-support-recent-tickets--populated--dark:
-        hash: v1.k794b7964.b698ef0bd9888650d9838388f2993fd3c8362ed68f9182356c813bbc9f8b172e.lLzi-qdo0bFp84LnyxBCjZNqNVG64mX-gxjtx_Wlw8w
+        hash: v1.k794b7964.979df60c21bf6656a68d9cc799caf06644bdfd55fd2ac0dd7f98b48cccaa4316.nrB5DghbAIANe_41K7-ezFxURU1eXyb0Lh57v43PaVM
     products-dashboards-dashboard-widgets-widget-types-support-recent-tickets--populated--light:
-        hash: v1.k794b7964.616bbac3b6935f3eb2b84799ecb96f2dc223a1159e54764afe1ecf535089b08d.ax0Re-jrqoE8hpb2fmMl0Tc3W-AbBvj8Url5lI71NgE
+        hash: v1.k794b7964.764b7e4a37f8ec9580bffe28d3a1d80e1a5d7db402f7ff5002cd5ad8e7913432.RBodzjxsSZAbikTFe-UTCr9V3qldN4KifbJ_VPhUVRc
     products-dashboards-dashboard-widgets-widget-types-support-recent-tickets--saved-view--dark:
-        hash: v1.k794b7964.c5da86ba4efbb6fe891dddb72607dd50d544bb650d75ef38dd16aa1d1d916ef4.E0dw0fzgKdORB_wwz-Tgzn6JWscScCwPXnlRrgfZSpo
+        hash: v1.k794b7964.b45d8106a6606799a39c6300bc4275db0927c9327e048a9748f6f70d8e0332c2.xSWAHdny1mW8rkmLLFE_30gT_JZ_SfN_RcCgzzI5cMQ
     products-dashboards-dashboard-widgets-widget-types-support-recent-tickets--saved-view--light:
-        hash: v1.k794b7964.449ea989fcb5a648522b53294187b0fbd3fe9e8c89e493a1ede28d9cbb404612.fJjN4BN46mnkpbJlZF7_XenJmTw4Dg7HaNPFRWpsE4M
+        hash: v1.k794b7964.19dad20dadc8f81d7a8fc6fbe15110ce336d8f4093e17c7e6e03c6bc5ea7ab6f.De8_YHsCVCoDwCaFi5hu7I0MbOc6ng0to2wphaesPkE
     products-dashboards-dashboard-widgets-widget-types-support-recent-tickets--setup-unavailable--dark:
         hash: v1.k794b7964.f6437c6e79da694e9059b48d310125320979d46dfba2a083dfc260dda69ae5ff.lP5W-nzWpHS8cKn3JYOVylt0aO4rxWAx_7lEORoLsIA
     products-dashboards-dashboard-widgets-widget-types-support-recent-tickets--setup-unavailable--light:
@@ -11803,9 +11803,9 @@ snapshots:
     scenes-app-notebooks-nodes-support-tickets--empty--light:
         hash: v1.k794b7964.bb48248fff1b42c87fbd7e92699f179de03310472e6d7d01f36133199078f55c.fJtx2y4bV1uT4LVO00bb4EvWIV1s0YcZYf8FJD0KzLk
     scenes-app-notebooks-nodes-support-tickets--with-tickets--dark:
-        hash: v1.k794b7964.d6c551c581824287879e157abaa61874713bb6389caaa015b1bac305a69c36cb.szC1MJRFAMY6z5Cr9uPHF3D39RLL7VUUFs3FiiemlsA
+        hash: v1.k794b7964.79d368fb03a15dc409b464432e0b308a912c60244b7fb42b186a59896f7bac32.hHbjmNv8jsMe82-9YkrlBPz3mjEQEtek4TSefZl2--k
     scenes-app-notebooks-nodes-support-tickets--with-tickets--light:
-        hash: v1.k794b7964.10a73c98dea8faa9011e00a7f44278e12216eb077e68ffefb4f2799f0ab519ad.yCkGWzRUKGODRvA_V0WHSn9Pdm5FhPyEfJVEcilSpP8
+        hash: v1.k794b7964.22284da30e10b26dd94e76620b60b6a2bb17fae88ca19a0deeca4f3d5a630523.ZUzdJl8RuqMCbTMh8L-qX0BalK47l9MhIcCztJGvAvc
     scenes-app-notebooks-run-all-banner--last-cell--dark:
         hash: v1.k794b7964.636c00625c3a849d8b3813e810c2d7aaf62d675049a772ff3d5543c27432ad8b.V2iZz-tdy7XiwDT6-yVJKOW3S3VyaMyoEn5toL5SeUI
     scenes-app-notebooks-run-all-banner--last-cell--light:

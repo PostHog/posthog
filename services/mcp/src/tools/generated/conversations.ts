@@ -63,7 +63,6 @@ const conversationsTicketsList = (): ToolBase<
                     'assignee',
                     'last_message_text',
                     'message_count',
-                    'unread_team_count',
                     'created_at',
                     'updated_at',
                 ])
@@ -222,7 +221,6 @@ const conversationsTicketsRetrieve = (): ToolBase<
             'assignee',
             'last_message_text',
             'message_count',
-            'unread_team_count',
             'tags',
             'sla_due_at',
             'anonymous_traits',

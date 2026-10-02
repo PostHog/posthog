@@ -1,7 +1,5 @@
-import clsx from 'clsx'
-
 import { IconClock } from '@posthog/icons'
-import { LemonBadge, LemonTableColumns, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonTableColumns, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -95,20 +93,12 @@ const TICKET_COLUMNS: Record<TicketColumnKey, TicketColumnDefinition> = {
                 <div className="flex items-center gap-2">
                     {ticket.last_message_text ? (
                         <TicketPreviewPopover ticketId={ticket.id}>
-                            <span
-                                className={clsx('inline-block text-xs truncate max-w-md', {
-                                    'text-muted-alt': ticket.unread_team_count === 0,
-                                    'font-medium': ticket.unread_team_count > 0,
-                                })}
-                            >
+                            <span className="inline-block text-xs truncate max-w-md text-muted-alt">
                                 {stripMarkdown(ticket.last_message_text)}
                             </span>
                         </TicketPreviewPopover>
                     ) : (
                         <span className="text-muted-alt text-xs">—</span>
-                    )}
-                    {ticket.unread_team_count > 0 && (
-                        <LemonBadge.Number count={ticket.unread_team_count} size="small" status="primary" />
                     )}
                 </div>
             ),
