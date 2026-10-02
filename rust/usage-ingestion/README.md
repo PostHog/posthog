@@ -43,6 +43,18 @@ The input topic can live on a different cluster from the ClickHouse output:
 | `USAGE_INGESTION_KAFKA_INPUT_TLS` | `KAFKA_TLS` |
 | `USAGE_INGESTION_KAFKA_INPUT_TOPIC` | `usage_ingestion` |
 | `USAGE_INGESTION_KAFKA_CONSUMER_GROUP` | `usage-ingestion` |
+| `USAGE_INGESTION_KAFKA_CONSUMER_CLIENT_ID` | `usage-ingestion-consumer` |
+| `USAGE_INGESTION_KAFKA_CONSUMER_TOPIC_METADATA_REFRESH_INTERVAL_MS` | `60000` |
+| `USAGE_INGESTION_KAFKA_CONSUMER_FETCH_MAX_BYTES` | `50242880` |
+| `USAGE_INGESTION_KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES` | `50242880` |
+| `USAGE_INGESTION_KAFKA_CONSUMER_FETCH_WAIT_MAX_MS` | `10000` |
+| `USAGE_INGESTION_KAFKA_CONSUMER_SOCKET_SEND_BUFFER_BYTES` | `0` |
+| `USAGE_INGESTION_KAFKA_CONSUMER_SOCKET_RECEIVE_BUFFER_BYTES` | `0` |
+| `USAGE_INGESTION_KAFKA_CONSUMER_RETRY_BACKOFF_MAX_MS` | `60000` |
+
+The consumer defaults follow [WarpStream's librdkafka recommendations](https://docs.warpstream.com/warpstream/kafka/configure-kafka-client/tuning-for-performance).
+The 10-second fetch wait only bounds idle long polls because `fetch.min.bytes`
+keeps librdkafka's low-latency default of 1.
 
 Analytics event ingestion uses the same `USAGE_INGESTION_MODE` setting. In
 Kafka mode it writes protobuf requests through the standard ingestion output
