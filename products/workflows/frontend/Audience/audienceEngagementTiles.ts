@@ -7,6 +7,7 @@ import {
     DashboardTemplateStoredInsightTile,
     FunnelConversionWindowTimeUnit,
     FunnelVizType,
+    HogQLMathType,
     TileLayout,
 } from '~/types'
 
@@ -21,7 +22,12 @@ const SENT = engagementSeries('$workflows_email_sent', 'Sent')
 const DELIVERED = engagementSeries('$workflows_email_delivered', 'Delivered')
 const OPENED = engagementSeries('$workflows_email_opened', 'Opened')
 const CLICKED = engagementSeries('$workflows_email_link_clicked', 'Clicked')
-const UNSUBSCRIBED = engagementSeries('$workflows_email_unsubscribed', 'Unsubscribed')
+// One preferences submit records an event per topic, so count the addresses that unsubscribed.
+const UNSUBSCRIBED: EventsNode = {
+    ...engagementSeries('$workflows_email_unsubscribed', 'Unsubscribed'),
+    math: HogQLMathType.HogQL,
+    math_hogql: 'count(DISTINCT properties.$email)',
+}
 const BOUNCED = engagementSeries('$workflows_email_bounced', 'Bounced')
 // The provider reports a spam complaint as a block, so `$workflows_email_blocked` is the spam report.
 const MARKED_AS_SPAM = engagementSeries('$workflows_email_blocked', 'Marked as spam')
