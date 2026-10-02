@@ -31,7 +31,7 @@ export function recipientFacets(topics: MessageCategoryApi[]): ServerFacet[] {
         {
             key: 'subscribed',
             label: 'Subscribed to',
-            description: 'Recorded as subscribed to a topic',
+            description: 'Recorded as subscribed',
             showOnFocus: true,
             order: 1,
             values: topicOptions,
@@ -39,7 +39,7 @@ export function recipientFacets(topics: MessageCategoryApi[]): ServerFacet[] {
         {
             key: 'unsubscribed',
             label: 'Unsubscribed from',
-            description: 'Recorded as unsubscribed from a topic',
+            description: 'Recorded as unsubscribed',
             showOnFocus: true,
             order: 2,
             values: topicOptions,
@@ -47,7 +47,7 @@ export function recipientFacets(topics: MessageCategoryApi[]): ServerFacet[] {
         {
             key: 'no-preference',
             label: 'No preference on',
-            description: 'Nothing recorded for a topic',
+            description: 'Nothing recorded',
             showOnFocus: true,
             order: 3,
             values: topicOptions,
@@ -84,24 +84,27 @@ export function recipientFacets(topics: MessageCategoryApi[]): ServerFacet[] {
     ]
 }
 
-const FACET_KEYS_ONLY = recipientFacets([])
+const FIXED_VALUE_FACETS = recipientFacets([])
+
+function withFixedValue(filter: FacetFilter): FacetFilter {
+    const typed = filter.value.toLowerCase()
+    const fixed = findFacet(FIXED_VALUE_FACETS, filter.facet)?.values?.find(
+        (option) => option.value.toLowerCase() === typed
+    )
+    return fixed ? { ...filter, value: fixed.value } : filter
+}
+
+/**
+ * The API matches values exactly, so a fixed value typed in another case becomes the API's: `suppressed:bounce` → `suppressed:BOUNCE`.
+ * Topic keys stay as typed, because the topics load later and a late change would leave the shown page out of date.
+ */
+export function withFixedValues(value: FacetSearchValue): FacetSearchValue {
+    const filters = new Map(value.filters.map(withFixedValue).map((filter) => [facetFilterKey(filter), filter]))
+    return { filters: [...filters.values()], text: value.text }
+}
 
 export function parseRecipientSearch(query: string): FacetSearchValue {
-    return parseFacetSearch(query, FACET_KEYS_ONLY)
-}
-
-function withListedValue(filter: FacetFilter, facets: ServerFacet[]): FacetFilter {
-    const typed = filter.value.toLowerCase()
-    const listed = findFacet(facets, filter.facet)?.values?.find((option) => option.value.toLowerCase() === typed)
-    return listed ? { ...filter, value: listed.value } : filter
-}
-
-/** The API matches values exactly, so a value typed in another case becomes the listed one: `suppressed:bounce` → `suppressed:BOUNCE`. */
-export function withListedValues(value: FacetSearchValue, facets: ServerFacet[]): FacetSearchValue {
-    const filters = new Map(
-        value.filters.map((filter) => withListedValue(filter, facets)).map((filter) => [facetFilterKey(filter), filter])
-    )
-    return { filters: [...filters.values()], text: value.text }
+    return withFixedValues(parseFacetSearch(query, FIXED_VALUE_FACETS))
 }
 
 /** One `facet:value` per value, `-facet:value` when negated, the way the listing API's repeated `filter` reads them. */
