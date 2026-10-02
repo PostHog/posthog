@@ -58,7 +58,7 @@ import { RESOURCE_EDITED_EVENT_TYPE, resourceEditedLogic } from 'products/notifi
 
 import type { FeatureFlagsSet } from '../../../../../lib/logic/featureFlagLogic'
 import type { OrganizationType } from '../../../../../types'
-import type { TeamPublicType, TeamType } from '../../../../../types'
+import type { ProjectType, TeamPublicType, TeamType } from '../../../../../types'
 import { sidePanelContextLogic } from '../../sidePanelContextLogic'
 import type { SidePanelSceneContext } from '../../types'
 
@@ -213,6 +213,13 @@ export interface sidePanelNotificationsLogicActions {
     resourceEdited: (event: ResourceEditedEvent) => {
         event: ResourceEditedEvent
     } // resourceEditedLogic
+    loadCurrentProjectSuccess: (
+        currentProject: ProjectType | null,
+        payload?: any
+    ) => {
+        currentProject: ProjectType | null
+        payload?: any
+    } // projectLogic
     loadCurrentTeamSuccess: (
         currentTeam: TeamPublicType | null,
         payload?: any
@@ -443,7 +450,14 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             organizationLogic,
             ['currentOrganization'],
         ],
-        actions: [teamLogic, ['loadCurrentTeamSuccess'], resourceEditedLogic, ['resourceEdited']],
+        actions: [
+            projectLogic,
+            ['loadCurrentProjectSuccess'],
+            teamLogic,
+            ['loadCurrentTeamSuccess'],
+            resourceEditedLogic,
+            ['resourceEdited'],
+        ],
     })),
     actions({
         togglePolling: (pageIsVisible: boolean) => ({ pageIsVisible }),
@@ -1147,6 +1161,16 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             },
             loadArchivedGroupChildren: async ({ group }) => {
                 await fetchGroupChildren(group, true)
+            },
+            loadCurrentProjectSuccess: () => {
+                if (
+                    values.realTimeNotificationsEnabled &&
+                    values.notificationsSSETransport === 'django' &&
+                    !cache.sseConnection
+                ) {
+                    cache.nextStartReason = 'project_load'
+                    actions.startSSE()
+                }
             },
             loadCurrentTeamSuccess: () => {
                 if (values.realTimeNotificationsEnabled && !cache.sseConnection) {
