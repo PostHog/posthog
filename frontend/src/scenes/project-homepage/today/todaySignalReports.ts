@@ -4,7 +4,6 @@ import type { TodayReportCard } from '~/layout/today/todayPreviewCards'
 
 import { isActionCapableReport } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
-import { displayConventionalCommitTitle } from 'products/signals/frontend/inbox/utils/reportPresentation'
 
 export type TodayReportIcon = 'pr' | 'replay' | 'error' | 'llm' | 'survey' | 'analytics' | 'trace' | 'inbox'
 
@@ -61,7 +60,7 @@ export const GENERAL_REPORT_PROMPTS = [
 ]
 
 export function reportTitle(report: Pick<SignalReport, 'title'>): string {
-    return displayConventionalCommitTitle(report.title, 'Untitled report')
+    return report.title?.trim() || 'Untitled report'
 }
 
 export function sourceLabel(source: string): string {
