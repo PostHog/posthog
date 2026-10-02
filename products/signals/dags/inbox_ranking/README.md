@@ -118,13 +118,13 @@ The reader is `score_reports` in `products/signals/backend/ranking/scorer.py`. I
 | --------------- | --------------------- | -------------- |
 | `open`          | Every report          | 3              |
 | `action`        | Every report          | 7              |
-| `dismiss_wrong` | Impressed reports     | 14             |
+| `dismiss_wrong` | Every report          | 21             |
 | `pr_created`    | Every report          | 7              |
 | `pr_merged`     | Every report          | 14             |
-| `discuss`       | Impressed reports     | 7              |
+| `discuss`       | Every report          | 7              |
 | `refund`        | Every report          | 14             |
-| `thumbs_up`     | Opened reports        | 7              |
-| `reviewer_fix`  | Impressed reports     | 14             |
+| `thumbs_up`     | Every report          | 7              |
+| `reviewer_fix`  | Every report          | 14             |
 
 `action` counts intent from every surface, not only the cloud inbox list.
 A report is a positive when someone clicked an intent action in the inbox UI (create PR, implement, copy the prompt, discuss, open or view a PR, edit the reviewers, restore), or when a person or an external agent claimed it, linked a PR, left a note, discussed it in Slack, or resolved it with a reason.
@@ -132,7 +132,7 @@ Self-driving's own `task` and `system` writes do not count: they are internal op
 A resolve without a reason is the automatic resolve after a tracked PR merges, so it does not count either.
 
 `thumbs_up` (a positive rating on the report body) and `reviewer_fix` (a suggested reviewer added or removed) are the explicit human-feedback pair.
-Both are rare — about 1% of opened reports and 1.5% of impressed reports — so neither clears its holdout bar on a single day.
+Both are rare, so neither clears its holdout bar on a single day.
 They are carried for the pooled newborn grade and as scorer inputs, not for a holdout AUC, and the promotion gate keeps ignoring an unreadable head.
 
 Every training series resets on the first partition after deploy.
