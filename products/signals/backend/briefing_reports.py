@@ -5,11 +5,9 @@ served ranking model. The Today briefing and the inbox `for_you` list share this
 """
 
 import re
-import math
 from collections.abc import Sequence
 from datetime import datetime
 from enum import StrEnum
-from fractions import Fraction
 from typing import Any
 
 from django.db.models import Case, CharField, Count, F, Func, JSONField, OuterRef, Q, QuerySet, Subquery, Value, When
@@ -42,16 +40,11 @@ _SUMMARY_LIMIT = 300
 # The hover card shows more of the summary than the briefing writer reads.
 SUMMARY_LEAD_LIMIT = 450
 PR_MERGED_HEAD = "pr_merged"
-ACTION_HEAD = "action"
 DISMISS_WRONG_HEAD = "dismiss_wrong"
 # A report the model expects to be dismissed as wrong at this many times the head's base rate is
 # left out. The rule only applies to a model that saved a classification threshold for the head,
 # because a raw probability is not calibrated and changes meaning with each model version.
 DISMISS_WRONG_HIDE_LIFT = 3.0
-# The share of the slots after P0 that goes to the reports waiting for the person, rounded up so the
-# first slot is always theirs. The rest goes to the reports most likely to end with a merged PR, so
-# the input queue cannot fill the whole list. A Fraction keeps the rounding exact.
-NEEDS_YOU_SHARE = Fraction(2, 5)
 # A bound on the candidates the briefing reads, so one person with a very large inbox cannot make
 # it slow. It is far above the number of open reports a person usually has.
 _CANDIDATE_LIMIT = 500
@@ -67,7 +60,6 @@ class BriefingReportRelation(StrEnum):
     URGENT_UNOWNED = "urgent_unowned"
 
 
-_RELATION_ORDER = {relation: index for index, relation in enumerate(BriefingReportRelation)}
 _PRIORITY_ORDER = {"P0": 0, "P1": 1, "P2": 2, "P3": 3, "P4": 4}
 
 
@@ -140,11 +132,10 @@ class _ServedScores:
     """The readable heads of a report's latest served score that the briefing ranks on."""
 
     pr_merged: float | None
-    action: float | None
     dismiss_wrong_lift: float | None
 
 
-_NO_SCORES = _ServedScores(pr_merged=None, action=None, dismiss_wrong_lift=None)
+_NO_SCORES = _ServedScores(pr_merged=None, dismiss_wrong_lift=None)
 
 
 def _json_object_content() -> Q:
@@ -250,7 +241,6 @@ def _served_scores(heads: dict[str, Any] | None) -> _ServedScores:
         return _NO_SCORES
     return _ServedScores(
         pr_merged=scores.get(PR_MERGED_HEAD) if PR_MERGED_HEAD in readable else None,
-        action=scores.get(ACTION_HEAD) if ACTION_HEAD in readable else None,
         dismiss_wrong_lift=lifts.get(DISMISS_WRONG_HEAD) if DISMISS_WRONG_HEAD in readable else None,
     )
 
@@ -297,14 +287,16 @@ class _BriefingCandidate:
     scores: _ServedScores
 
 
-def _lane_order(priority: str | None, chance: float | None, updated_at: datetime) -> tuple[float, ...]:
-    """The higher chance first, then priority, then newest. A report without a score follows the
-    scored ones, so with no scores at all the order falls back to priority."""
+def _briefing_order(candidate: _BriefingCandidate) -> tuple[float, ...]:
+    """P0 first, then the higher chance of a merged PR, then priority, then newest. A report without
+    a score follows the scored ones, so with no scores at all the order falls back to priority."""
+    merge_chance = candidate.scores.pr_merged
     return (
-        0 if chance is not None else 1,
-        -(chance or 0.0),
-        _PRIORITY_ORDER.get(priority or "", 5),
-        -updated_at.timestamp(),
+        0 if candidate.priority == "P0" else 1,
+        0 if merge_chance is not None else 1,
+        -(merge_chance or 0.0),
+        _PRIORITY_ORDER.get(candidate.priority or "", 5),
+        -candidate.updated_at.timestamp(),
     )
 
 
@@ -315,33 +307,13 @@ def _likely_dismissed_as_wrong(candidate: _BriefingCandidate) -> bool:
 
 
 def _briefing_pick(candidates: Sequence[_BriefingCandidate], limit: int | None) -> list[_BriefingCandidate]:
-    """P0 reports first. Then the reports that wait for the person's input, by the chance that they
-    act on it. Then the reports they can ship, by the chance of a merged PR.
+    """The candidates in `_briefing_order`, without the ones likely dismissed as wrong.
 
-    A report waiting for input needs a decision, not a merge, so its merge chance says little about
-    it. With a `limit`, the waiting reports get `NEEDS_YOU_SHARE` of the slots left after P0, and a
-    lane with too few reports gives its free slots to the other lane.
+    The order does not depend on `limit` or on the relation, so the top N reports are always the
+    first N of the same list.
     """
-    kept = [c for c in candidates if not _likely_dismissed_as_wrong(c)]
-    urgent = sorted(
-        (c for c in kept if c.priority == "P0"),
-        key=lambda c: (_RELATION_ORDER[c.relation], *_lane_order(c.priority, c.scores.pr_merged, c.updated_at)),
-    )
-    needs_you = sorted(
-        (c for c in kept if c.priority != "P0" and c.relation == BriefingReportRelation.WAITING_FOR_YOU),
-        key=lambda c: _lane_order(c.priority, c.scores.action, c.updated_at),
-    )
-    to_ship = sorted(
-        (c for c in kept if c.priority != "P0" and c.relation != BriefingReportRelation.WAITING_FOR_YOU),
-        key=lambda c: _lane_order(c.priority, c.scores.pr_merged, c.updated_at),
-    )
-    if limit is None:
-        return urgent + needs_you + to_ship
-    free = max(limit - len(urgent), 0)
-    to_ship_slots = min(len(to_ship), free - math.ceil(free * NEEDS_YOU_SHARE))
-    needs_you_slots = min(len(needs_you), free - to_ship_slots)
-    to_ship_slots = min(len(to_ship), free - needs_you_slots)
-    return (urgent + needs_you[:needs_you_slots] + to_ship[:to_ship_slots])[:limit]
+    ranked = sorted((c for c in candidates if not _likely_dismissed_as_wrong(c)), key=_briefing_order)
+    return ranked if limit is None else ranked[:limit]
 
 
 def reports_for_briefing(*, team_id: int, user_id: int, limit: int | None = None) -> list[BriefingReport]:
