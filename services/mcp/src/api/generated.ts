@@ -113197,6 +113197,10 @@ export namespace Schemas {
      */
     offset?: number;
     /**
+     * Sort order. -created_at (default) puts the newest canvases first. -updated_at puts the most recently changed canvases first.
+     */
+    ordering?: CanvasesListOrdering;
+    /**
      * Only return canvases whose name or description contains this text (case-insensitive).
      */
     search?: string;
@@ -113209,6 +113213,14 @@ export namespace Schemas {
       Component: 'component',
       Freeform: 'freeform',
       Grid: 'grid',
+    } as const;
+
+    export type CanvasesListOrdering = typeof CanvasesListOrdering[keyof typeof CanvasesListOrdering];
+
+
+    export const CanvasesListOrdering = {
+      CreatedAt: '-created_at',
+      UpdatedAt: '-updated_at',
     } as const;
 
     export type CanvasesBuildsRetrieveParams = {
@@ -114025,6 +114037,10 @@ export namespace Schemas {
      */
     offset?: number;
     /**
+     * Optional. `-last_viewed_at` puts the dashboards you viewed most recently first. A dashboard you never viewed sorts by its creation time. This order replaces the search relevance order.
+     */
+    ordering?: DashboardsListOrdering;
+    /**
      * Optional. Return only pinned dashboards.
      */
     pinned?: boolean;
@@ -114040,6 +114056,13 @@ export namespace Schemas {
     export const DashboardsListFormat = {
       Json: 'json',
       Txt: 'txt',
+    } as const;
+
+    export type DashboardsListOrdering = typeof DashboardsListOrdering[keyof typeof DashboardsListOrdering];
+
+
+    export const DashboardsListOrdering = {
+      LastViewedAt: '-last_viewed_at',
     } as const;
 
     export type DashboardsCreateParams = {
