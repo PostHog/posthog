@@ -1,6 +1,7 @@
 import type { TaskRunCommandRequestApi } from 'products/tasks/frontend/generated/api.schemas'
 
-import type { PermissionOption, PermissionRequestFrame, StoredLogEntry } from '../types/wireTypes'
+import type { PermissionRequestRecord } from '../types/streamTypes'
+import type { PermissionOption, StoredLogEntry } from '../types/wireTypes'
 
 export const PI_EXTENSION_UI_META_KEY = 'piExtensionUi'
 export const PI_EXTENSION_CONFIRM_OPTION_ID = 'confirm'
@@ -93,9 +94,6 @@ function mcpToolLabel(value: string): string {
     return label.charAt(0).toUpperCase() + label.slice(1)
 }
 
-// Pi calls every non-PostHog MCP tool through one proxy tool named `mcp`, so its title is always
-// `mcp`. The started frame names the real tool in `details`, and the completed frame names it in
-// `_meta.posthog`. This title matches the one PostHog Desktop shows.
 function piMcpProxyTitle(details: unknown, meta: unknown): string | undefined {
     const posthog = isRecord(meta) && isRecord(meta.posthog) ? meta.posthog : undefined
     const proxy = isRecord(details) && typeof details.kind === 'string' ? details : posthog?.mcpProxy
@@ -153,8 +151,6 @@ function toolCallUpdate(sessionUpdate: 'tool_call' | 'tool_call_update', toolCal
     return { method: 'session/update', params: { update } }
 }
 
-// The Pi agent server writes each non-image attachment to `<artifactId>-<name>` and lists the paths
-// under this heading at the end of the prompt text.
 const PI_ATTACHED_FILES_PATTERN = /(?:\n\n)?Attached files:\n((?:- [^\n]+\n?)+)$/
 const PI_ATTACHMENT_FILE_PATTERN = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-(.+)$/i
 
@@ -163,24 +159,21 @@ function piAttachedFiles(text: string): { text: string; files: Record<string, un
     if (!match) {
         return { text, files: [] }
     }
-    const files = match[1]
-        .split('\n')
-        .map((line) => line.replace(/^- /, '').trim())
-        .filter(Boolean)
-        .map((path) => {
-            const fileName = path.split('/').pop() ?? path
-            const named = PI_ATTACHMENT_FILE_PATTERN.exec(fileName)
-            return {
-                type: 'resource_link',
-                uri: path,
-                name: named ? named[2] : fileName,
-                ...(named ? { artifactId: named[1] } : {}),
-            }
-        })
+    const files: Record<string, unknown>[] = []
+    for (const line of match[1].split('\n')) {
+        const path = line.replace(/^- /, '').trim()
+        if (!path) {
+            continue
+        }
+        const named = PI_ATTACHMENT_FILE_PATTERN.exec(path.split('/').pop() ?? path)
+        if (!named) {
+            return { text, files: [] }
+        }
+        files.push({ type: 'resource_link', uri: path, name: named[2], artifactId: named[1] })
+    }
     return { text: text.slice(0, match.index), files }
 }
 
-/** Pi's echoed prompt, with its attachments as the attachment blocks the thread renders. */
 function piUserContent(content: unknown): unknown {
     if (!Array.isArray(content)) {
         return content
@@ -415,15 +408,18 @@ export function translatePiWireEntry(value: unknown): StoredLogEntry | null {
     }
 }
 
-export function withPiMcpOptions(frame: PermissionRequestFrame): PermissionRequestFrame {
-    const options = (Array.isArray(frame.options) ? frame.options : []).map((option) =>
-        option.kind.startsWith('reject') ? { ...option, _meta: { ...option._meta, hint: PI_MCP_REJECT_HINT } } : option
+export function withPiMcpOptions(record: PermissionRequestRecord): PermissionRequestRecord {
+    if (readPiExtensionUiMeta(record.rawToolCall.meta)) {
+        return record
+    }
+    const options = record.options.map((option) =>
+        option.kind.startsWith('reject') ? { ...option, hint: PI_MCP_REJECT_HINT } : option
     )
     const needsOneShotAllow =
         options.some((option) => option.optionId === 'allow_always') &&
         !options.some((option) => option.kind === 'allow_once')
     return {
-        ...frame,
+        ...record,
         options: needsOneShotAllow
             ? [{ optionId: PI_MCP_ALLOW_ONCE_OPTION_ID, name: 'Allow', kind: 'allow_once' }, ...options]
             : options,
@@ -438,7 +434,6 @@ export function readPiExtensionUiMeta(meta: unknown): PiExtensionUiMeta | null {
     return { id: value.id, method: value.method }
 }
 
-/** A `pi/rpc` relay request. The relay requires the request id to match the Pi command id. */
 export function piRpcRequest(
     command: Record<string, unknown> & { type: string },
     id: string
@@ -446,7 +441,6 @@ export function piRpcRequest(
     return { jsonrpc: '2.0', method: 'pi/rpc', id, params: { command: { ...command, id } } }
 }
 
-/** A Pi RPC response reports failure in its body, so a relay 200 can still carry a failed command. */
 export function piRpcResponseError(result: unknown): string | null {
     if (!isRecord(result) || result.success !== false) {
         return null

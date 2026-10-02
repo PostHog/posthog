@@ -154,7 +154,7 @@ describe('ComposerModelEffortPickers', () => {
         expect(screen.queryByText('Harness')).not.toBeInTheDocument()
         fireEvent.click(screen.getByText('Model'))
         expect(await screen.findByText('GPT-6 Sol')).toBeInTheDocument()
-        expect(screen.getByText('Claude Sonnet 5')).toBeInTheDocument()
+        expect(screen.getByText('Claude Sonnet 5.5')).toBeInTheDocument()
     })
 
     it('offers no way to change the default on a surface that has none to change', () => {

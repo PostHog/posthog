@@ -74,7 +74,6 @@ export interface PermissionOption {
     /** `_meta.customInput === true` — the option accepts optional free-text feedback. */
     customInput?: boolean
     hint?: string
-    /** Raw wire metadata; `parsePermissionOption` reads `customInput` and `hint` from it. */
     _meta?: { customInput?: boolean; hint?: string }
 }
 
