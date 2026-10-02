@@ -139,6 +139,7 @@ describe('Audience setup', () => {
         expect(sendPreferencesStep()).toHaveTextContent('Set each value from what the user picked')
         expect(sendPreferencesStep()).toHaveTextContent('posthog.messaging.setPreferences(email, {')
         expect(sendPreferencesStep()).toHaveTextContent('secretKey: process.env.POSTHOG_PERSONAL_API_KEY')
+        expect(sendPreferencesStep()).toHaveTextContent('enableLocalEvaluation: false')
         expect(sendPreferencesStep()).not.toHaveTextContent('receipts')
 
         fireEvent.click(screen.getByTestId('copy-code-button'))
