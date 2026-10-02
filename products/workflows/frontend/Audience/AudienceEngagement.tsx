@@ -30,7 +30,7 @@ function EngagementTiles(): JSX.Element {
                     type="primary"
                     icon={<IconDashboard />}
                     loading={createdDashboardLoading}
-                    onClick={createDashboard}
+                    onClick={() => createDashboard()}
                     data-attr="audience-engagement-create-dashboard"
                 >
                     Create dashboard from this
