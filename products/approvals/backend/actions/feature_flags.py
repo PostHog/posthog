@@ -177,6 +177,7 @@ class FeatureFlagActionBase(BaseAction):
     resource_type = "feature_flag"
     endpoint_serializer_class = FeatureFlagSerializer
     intent_fields = ["active"]
+    target_intent_field = "flag_key"
 
     # Subclasses define the target state
     target_active_state: bool
@@ -400,6 +401,7 @@ class UpdateFeatureFlagAction(BaseAction):
     description = "Update feature flag fields"
     resource_type = "feature_flag"
     endpoint_serializer_class = FeatureFlagSerializer
+    target_intent_field = "flag_key"
 
     GATEABLE_FIELDS: dict[str, dict[str, str]] = {
         "rollout_percentage": {

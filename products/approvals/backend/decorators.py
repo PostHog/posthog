@@ -101,14 +101,22 @@ def _check_policy_for_action(action_class, team, organization) -> Optional[Any]:
     return None
 
 
-def _check_for_duplicate(action_class, team, resource_id: Optional[str]) -> Optional[ChangeRequest]:
+def _check_for_duplicate(
+    action_class, team, resource_id: Optional[str], intent_data: dict[str, Any]
+) -> Optional[ChangeRequest]:
     """Check if there's already a pending/approved change request."""
+    target_filter: dict[str, Any] = {}
+    if resource_id is None and action_class.target_intent_field:
+        field = action_class.target_intent_field
+        target_filter[f"intent__{field}"] = intent_data.get(field)
+
     return ChangeRequest.objects.filter(
         action_key=action_class.key,
         team=team,
         resource_type=action_class.resource_type,
         resource_id=resource_id,
         state__in=[ChangeRequestState.PENDING, ChangeRequestState.APPROVED],
+        **target_filter,
     ).first()
 
 
@@ -321,7 +329,7 @@ def _evaluate_gate(
     # Step 5: REQUIRE_APPROVAL - check for duplicates and create change request
     resource_id = _extract_resource_id(request, args, kwargs)
 
-    existing = _check_for_duplicate(action_class, team, resource_id)
+    existing = _check_for_duplicate(action_class, team, resource_id, intent_data)
     if existing:
         logger.info(
             "Rejecting duplicate change request",
