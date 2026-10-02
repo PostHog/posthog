@@ -85,11 +85,11 @@ module "kafka_person_overrides" {
   source = "../../lib/table"
 
   deployment = local.deployment
-  enabled  = local.ingest && !contains(local.deployment.exclude, "kafka_person_overrides")
-  database = var.database
-  name     = "kafka_person_overrides"
-  engine   = "Kafka"
-  settings = "kafka_broker_list = 'kafka:9092', kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse-person-overrides', kafka_topic_list = 'clickhouse_person_override'"
+  enabled    = local.ingest && !contains(local.deployment.exclude, "kafka_person_overrides")
+  database   = var.database
+  name       = "kafka_person_overrides"
+  engine     = "Kafka"
+  settings   = "kafka_broker_list = 'kafka:9092', kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse-person-overrides', kafka_topic_list = 'clickhouse_person_override'"
   columns = [
     { name = "team_id", type = "Int32" },
     { name = "old_person_id", type = "UUID" },

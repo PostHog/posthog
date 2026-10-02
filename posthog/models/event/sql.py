@@ -115,6 +115,10 @@ def SHARDED_EVENTS_RECENT_DATA_TABLE():
     return "sharded_events_recent"
 
 
+def EVENTS_RECENT_DATA_TABLE() -> str:
+    return "events_recent"
+
+
 def BULK_INSERT_EVENT_SQL(table_name: str | None = None, *, values: str = "") -> str:
     if table_name is None:
         table_name = EVENTS_DATA_TABLE()

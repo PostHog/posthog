@@ -143,6 +143,8 @@ class TestRunInferencePipeline(TeamScopedTestMixin, BaseTest):
         assert kwargs["process_person_profile"] is True
         assert [e["event"] for e in events] == [PREDICTION_EVENT_NAME, PREDICTION_EVENT_NAME]
         by_person = {e["properties"]["$autoresearch_person_id"]: e for e in events}
+        assert {e["properties"]["$autoresearch_prediction_date"] for e in events} == {run.metrics["prediction_date"]}
+        assert {e["properties"]["$autoresearch_run_id"] for e in events} == {str(run.pk)}
         # A resolved person is attached to their real distinct_id and gets the output property;
         # an unresolved one stays person-less so a UUID never becomes a person.
         assert by_person["user-1"]["distinct_id"] == "real-distinct-id"
@@ -155,6 +157,33 @@ class TestRunInferencePipeline(TeamScopedTestMixin, BaseTest):
         assert "$set" not in by_person["user-2"]["properties"]
         pipeline.refresh_from_db()
         assert pipeline.last_scored_at is not None
+
+    def test_a_sampled_model_emits_prior_corrected_scores_with_the_raw_score_and_rate(self):
+        pipeline, model = self._make_pipeline_and_model()
+        model.artifact_prefix = "tasks/autoresearch/team_1/pipeline_x/run_y"
+        model.negative_sample_rate = 0.25
+        model.save(update_fields=["artifact_prefix", "negative_sample_rate"])
+        sandbox_result = SandboxScoreResult(
+            scored_rows=[{"distinct_id": "user-1", "events_total": 3, "p_y": 0.5}],
+            holdout_auc=0.7,
+            n_train=10,
+            n_features=1,
+        )
+        capture = _capture_accepting_everything()
+        with (
+            patch.object(scoring, "score_via_sandbox", return_value=sandbox_result),
+            patch.object(scoring, "_resolve_distinct_ids", return_value={"user-1": "real-distinct-id"}),
+            patch.object(scoring, "capture_batch_internal", capture),
+        ):
+            run = run_inference_for_pipeline(pipeline=pipeline, model=model)
+
+        props = capture.call_args.kwargs["events"][0]["properties"]
+        assert props["$autoresearch_p_y"] == 0.2
+        assert props["$autoresearch_p_y_raw"] == 0.5
+        assert props["$autoresearch_negative_sample_rate"] == 0.25
+        assert props["$set"] == {"predicted_p_pageview": 0.2}
+        run.refresh_from_db()
+        assert run.negative_sample_rate == 0.25
 
     def test_run_inference_zero_rows_completes_without_emitting(self):
         pipeline, model = self._make_pipeline_and_model()
@@ -386,7 +415,7 @@ class TestRecipeRouting(TeamScopedTestMixin, BaseTest):
             result = score_population(
                 team=self.team, pipeline=pipeline, model=model, window=ScoringWindow.for_date(), user=self.user
             )
-        assert result == scored
+        assert result == ScoredPopulation(rows=[{"distinct_id": "p1", "p_y": 0.5, "p_y_raw": 0.5}], holdout_auc=0.66)
         anchored.assert_called_once()
 
     @parameterized.expand([("bundle", "score_via_sandbox"), ("recipe", "_score_via_anchors")])
@@ -431,7 +460,7 @@ class TestRecipeRouting(TeamScopedTestMixin, BaseTest):
             {"distinct_id": "quiet", "events_total": 1, "plan": None},
         ]
         with (
-            patch.object(scoring, "_fetch_training_rows", return_value=training_rows),
+            patch.object(scoring, "_fetch_training_rows", return_value=(training_rows, 1.0)),
             patch.object(scoring, "_fetch_inference_rows", return_value=inference_rows),
             patch.object(scoring, "_resolve_distinct_ids", return_value={}),
             patch.object(scoring, "capture_batch_internal", _capture_accepting_everything()),
@@ -700,7 +729,9 @@ class TestAnchorsRecipeQueries(TeamScopedTestMixin, BaseTest):
         with (
             patch.object(scoring, "run_hogql", return_value=HogQLResult(columns=[], rows=[])) as features_run,
             patch.object(
-                sandbox_inference, "run_hogql", return_value=HogQLResult(columns=["eligible"], rows=[[0]])
+                sandbox_inference,
+                "run_hogql",
+                return_value=HogQLResult(columns=["eligible", "positives"], rows=[[0, 0]]),
             ) as count_run,
         ):
             _fetch_training_rows(team=self.team, pipeline=pipeline, feature_sql=_ANCHORS_FEATURE_SQL, user=self.user)
