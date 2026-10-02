@@ -281,21 +281,36 @@ describe('todayLogic', () => {
         expect(Object.fromEntries(listParams!.entries())).toEqual({ limit: String(TOP_REPORT_COUNT) })
     })
 
-    it('loads more reports past the briefing without the ones it shows, and counts the rest for the Inbox', async () => {
-        const [a, b, c] = ['a', 'b', 'c'].map((id) => makeReport({ id }))
-        listResponse = [200, { results: [a, b, c], count: 5 }]
-        briefingResponses = [[200, makeBriefing({ more_reports_count: 4 })]]
-        const logic = todayLogic()
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners().toMatchValues({ canLoadMoreReports: true })
+    it.each([
+        ['one the list returns too', 'report:a', ['b', 'c'], 2],
+        // The briefing can show a report the list ranks past its page; it is on screen, so it is not "more".
+        ['one the list does not return', 'report:z', ['a', 'b', 'c'], 1],
+    ])(
+        'loads more reports past the briefing without the ones it shows, and counts the rest for the Inbox, when the briefing shows %s',
+        async (_name, shownKey, listed, remaining) => {
+            const [a, b, c] = ['a', 'b', 'c'].map((id) => makeReport({ id }))
+            const byId = { a, b, c }
+            listResponse = [200, { results: [a, b, c], count: 5 }]
+            const briefing = makeBriefing({ more_reports_count: 4 })
+            briefing.items[0].key = shownKey
+            briefing.paragraphs[0][0].item_key = shownKey
+            briefingResponses = [[200, briefing]]
+            const logic = todayLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({ canLoadMoreReports: true })
 
-        await expectLogic(logic, () => {
-            logic.actions.loadMoreReports()
-        })
-            .toDispatchActions(['loadMoreReportsSuccess'])
-            .toMatchValues({ sidebarMoreReports: [b, c], moreReportsInInbox: 2, canLoadMoreReports: false })
-        expect(Object.fromEntries(listParams!.entries())).toEqual({ limit: String(MORE_REPORTS_LIMIT) })
-    })
+            await expectLogic(logic, () => {
+                logic.actions.loadMoreReports()
+            })
+                .toDispatchActions(['loadMoreReportsSuccess'])
+                .toMatchValues({
+                    sidebarMoreReports: listed.map((id) => byId[id as keyof typeof byId]),
+                    moreReportsInInbox: remaining,
+                    canLoadMoreReports: false,
+                })
+            expect(Object.fromEntries(listParams!.entries())).toEqual({ limit: String(MORE_REPORTS_LIMIT) })
+        }
+    )
 
     it('shows sample reports from ?sample=1 without asking the API, until ?sample=0', async () => {
         router.actions.push('/project/1/home', { sample: '1' })

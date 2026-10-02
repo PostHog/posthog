@@ -766,10 +766,17 @@ export const todayLogic = kea<todayLogicType>([
             },
         ],
         // The endpoint counts the loaded reports plus the other open reports that name the person.
+        // What is neither loaded nor already on screen: the count covers the whole set for the person,
+        // including briefing items the page ranked past the loaded ones.
         moreReportsInInbox: [
-            (s) => [s.moreReports],
-            (moreReports: TodayReports | null): number =>
-                moreReports ? Math.max(moreReports.count - moreReports.results.length, 0) : 0,
+            (s) => [s.moreReports, s.shownReportIds],
+            (moreReports: TodayReports | null, shownReportIds: string[]): number => {
+                if (!moreReports) {
+                    return 0
+                }
+                const visible = new Set([...moreReports.results.map((report) => report.id), ...shownReportIds])
+                return Math.max(moreReports.count - visible.size, 0)
+            },
         ],
         // While a newer briefing is written, the server returns the shown one as `writing`, so the
         // text stays on screen and the page keeps asking until the new one is ready.
