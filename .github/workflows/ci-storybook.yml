@@ -353,8 +353,8 @@ jobs:
                   if-no-files-found: error
 
     # A narrowed PR run renders only the stories its diff affects, so a PR can drop every baseline
-    # entry of a story outside that set and stay green. The merge queue renders every story, reports
-    # those snapshots as new, and fails each batch. This job finds such removals from the story
+    # entry of a story outside that set and stay green. The merge queue renders every story and
+    # rejects the batch that holds the PR. This job finds such removals on the PR, from the story
     # index, without rendering anything. A full PR run renders every story, so Visual Review shows
     # the removal there and this job skips.
     check-baseline-removals:
@@ -399,7 +399,8 @@ jobs:
 
             # Compare against the merge base, not the base tip, so entries the base branch gained after
             # this PR branched off do not count as removals. A base branch that predates the checker
-            # skips the check.
+            # skips the check. The merge queue also catches these removals, so an API error that
+            # persists after retries skips the check with a warning instead of failing the PR.
             - name: Check for removed baselines of existing stories
               env:
                   GH_TOKEN: ${{ github.token }}
@@ -414,10 +415,23 @@ jobs:
                       echo "::notice::The base branch has no $checker, so this check is skipped."
                       exit 0
                   fi
-                  merge_base=$(gh api "repos/$REPO/compare/$BASE_SHA...$HEAD_SHA" --jq '.merge_base_commit.sha')
+                  gh_api_to() {
+                      local out=$1
+                      shift
+                      for attempt in 1 2 3; do
+                          if gh api "$@" > "$out"; then
+                              return 0
+                          fi
+                          [ "$attempt" -lt 3 ] && sleep $((attempt * 10))
+                      done
+                      echo "::warning::The GitHub API call failed 3 times, so this check is skipped. The merge queue still catches removed baselines."
+                      exit 0
+                  }
+                  gh_api_to "$RUNNER_TEMP/merge-base.txt" "repos/$REPO/compare/$BASE_SHA...$HEAD_SHA" --jq '.merge_base_commit.sha'
+                  merge_base=$(cat "$RUNNER_TEMP/merge-base.txt")
                   echo "Comparing frontend/snapshots.yml at $HEAD_SHA with merge base $merge_base"
-                  gh api -H 'Accept: application/vnd.github.raw+json' \
-                      "repos/$REPO/contents/frontend/snapshots.yml?ref=$merge_base" > "$RUNNER_TEMP/base-snapshots.yml"
+                  gh_api_to "$RUNNER_TEMP/base-snapshots.yml" -H 'Accept: application/vnd.github.raw+json' \
+                      "repos/$REPO/contents/frontend/snapshots.yml?ref=$merge_base"
                   printf '%s' "$RENDERED_FILES_JSON" > "$RUNNER_TEMP/rendered-files.json"
                   node "$checker" \
                       --base-snapshots "$RUNNER_TEMP/base-snapshots.yml" \
@@ -1052,7 +1066,7 @@ jobs:
                   fi
 
                   if [[ "${{ needs.check-baseline-removals.result }}" != "success" && "${{ needs.check-baseline-removals.result }}" != "skipped" ]]; then
-                    echo "This PR removes frontend/snapshots.yml entries of stories that still exist (result: ${{ needs.check-baseline-removals.result }}). The Check snapshot baseline removals job lists them and how to restore them."
+                    echo "Check snapshot baseline removals did not pass (result: ${{ needs.check-baseline-removals.result }}). Its log shows why, and lists any removed entries with how to restore them."
                     exit 1
                   fi
 

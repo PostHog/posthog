@@ -10,10 +10,12 @@ import {
 
 const LONG_KEY_LENGTH = 60
 
-const entryLines = (id) =>
-    id.length > LONG_KEY_LENGTH
-        ? [`    ? ${id}`, `    :   hash: v1.k1.${id.length}.fake`]
-        : [`    ${id}:`, `        hash: v1.k1.${id.length}.fake`]
+const entryLines = (id) => {
+    const comment = id.endsWith('--light') ? ' # approved' : ''
+    return id.length > LONG_KEY_LENGTH
+        ? [`    ? ${id}${comment}`, `    :   hash: v1.k1.${id.length}.fake`]
+        : [`    ${id}:${comment}`, `        hash: v1.k1.${id.length}.fake`]
+}
 
 const baselineYaml = (ids) =>
     [

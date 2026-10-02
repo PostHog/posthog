@@ -23,7 +23,7 @@ export function readSnapshotEntries(yamlText) {
         if (!inSnapshots) {
             continue
         }
-        const key = /^ {4}(?:\? +(['"]?)([^\s'":?]+)\1|(['"]?)([^\s'":?]+)\3:)\s*$/.exec(line)
+        const key = /^ {4}(?:\? +(['"]?)([^\s'":?]+)\1|(['"]?)([^\s'":?]+)\3:)(?:\s+#.*)?\s*$/.exec(line)
         if (key) {
             current = [line]
             entries.set(key[2] ?? key[4], current)
@@ -76,7 +76,7 @@ export function formatFailure(removals, baseEntries) {
     return [
         `This PR removes every ${BASELINE_PATH} entry of ${storyCount} ${stories}.`,
         "This PR's Visual Review run does not render these stories, so it cannot show the removal.",
-        'The merge queue renders every story, reports these snapshots as new, and fails.',
+        'The merge queue renders every story and rejects the batch that holds this PR.',
         '',
         `To fix it, add these lines back to ${BASELINE_PATH} under snapshots, in alphabetical order:`,
         '',
