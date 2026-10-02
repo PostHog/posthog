@@ -69,6 +69,21 @@ class TestWriteParquetToS3:
         assert mock_write_table.call_count == 2
 
     @patch("pyarrow.parquet.write_table")
+    def test_does_not_retry_ssl_error(self, mock_write_table) -> None:
+        # SSLError is a ConnectionError subclass but usually means a bad/expired certificate,
+        # not a network blip — retrying just delays a failure that will happen on every attempt.
+        f = MagicMock()
+        s3 = _fake_s3([f])
+        mock_write_table.side_effect = botocore.exceptions.SSLError(
+            endpoint_url="https://example.com/part-0000.parquet", error="certificate verify failed"
+        )
+
+        with pytest.raises(botocore.exceptions.SSLError):
+            _write_parquet_to_s3(s3, "bucket/part-0000.parquet", pa.table({"id": [1]}), "zstd")
+
+        assert mock_write_table.call_count == 1
+
+    @patch("pyarrow.parquet.write_table")
     def test_does_not_retry_permission_error(self, mock_write_table) -> None:
         # PermissionError (e.g. AccessDenied/InvalidAccessKeyId) is an OSError subclass but not
         # transient — retrying it just delays a failure that will happen on every attempt.

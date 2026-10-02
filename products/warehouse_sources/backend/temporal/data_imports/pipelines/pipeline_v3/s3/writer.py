@@ -86,7 +86,11 @@ def _is_transient_s3_write_error(exc: BaseException) -> bool:
     # OSError, and a timed-out or refused connection never got one. It reaches here as the raw
     # botocore exception once those internal retries are exhausted, so it needs a type check of
     # its own (these are exactly the classes s3fs itself treats as retryable, see its
-    # S3_RETRYABLE_ERRORS/ClientError handling in s3fs.core._error_wrapper).
+    # S3_RETRYABLE_ERRORS/ClientError handling in s3fs.core._error_wrapper). SSLError is a
+    # ConnectionError subclass but usually means a persistent certificate problem, not a blip,
+    # so it's excluded rather than spending the whole retry budget before failing anyway.
+    if isinstance(exc, botocore.exceptions.SSLError):
+        return False
     if isinstance(exc, botocore.exceptions.HTTPClientError | botocore.exceptions.ConnectionError):
         return True
     return type(exc) is OSError
