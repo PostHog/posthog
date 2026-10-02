@@ -224,7 +224,7 @@ def set_optimization_enabled(*, hog_flow_id: UUID, enabled: bool) -> bool:
     return True
 
 
-def content_item_id(item: Any) -> Any:
+def content_item_id(item: object) -> object:
     return item.get("id") if isinstance(item, dict) else None
 
 
