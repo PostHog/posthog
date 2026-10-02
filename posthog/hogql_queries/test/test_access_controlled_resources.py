@@ -242,10 +242,11 @@ class TestQueriedAccessControlledResources(BaseTest):
         result = queried_access_controlled_resources(HogQLQuery(query="select * from my_warehouse_table"), self.team)
         assert result == {"external_data_source", "warehouse_table"}
 
-    def test_external_warehouse_table_matched_by_raw_name(self):
+    @parameterized.expand([("raw_name", "stripe_customers"), ("prefixed_name", "stripe.myprefix.customers")])
+    def test_external_warehouse_table_matched_by_either_name(self, _name, queried_name):
         # External tables are queryable under BOTH their raw name and the prefixed
-        # source_type.prefix.table key. A user denied the table could otherwise query the raw
-        # name and be served an allowed user's cached rows, since only the prefixed form was matched.
+        # source_type.prefix.table key. A user denied the table could otherwise query the unmatched
+        # form and be served an allowed user's cached rows.
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id="s",
@@ -261,7 +262,7 @@ class TestQueriedAccessControlledResources(BaseTest):
         # The two queryable names genuinely diverge, so matching only the prefixed form left a gap.
         assert get_data_warehouse_table_name(source, table.name) != table.name
 
-        result = queried_access_controlled_resources(HogQLQuery(query="select * from stripe_customers"), self.team)
+        result = queried_access_controlled_resources(HogQLQuery(query=f"select * from {queried_name}"), self.team)
         assert result == {"external_data_source", "warehouse_table"}
 
     def test_warehouse_view_scope(self):
