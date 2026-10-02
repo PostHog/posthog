@@ -602,6 +602,31 @@ class TestStatusStream(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
+            ("reasonless_resolve", "ready", "resolved", None, 1),
+            ("already_fixed_dismissal", "ready", "suppressed", "already_fixed", 1),
+            ("analysis_wrong_resolve", "ready", "resolved", "analysis_wrong", 0),
+            ("other_dismissal", "ready", "suppressed", "other", 0),
+        ]
+    )
+    def test_fixed_count_reads_the_transition_and_its_reason(self, _name, previous, status, reason, expected):
+        self._transition(T1, previous, status, reason)
+
+        row = self._status_row()
+        assert row["fixed_count"] == expected
+        assert row["first_fixed_at"] == (T1 if expected else None)
+
+    @parameterized.expand([(datetime.timedelta(hours=1),), (datetime.timedelta(minutes=1),)])
+    def test_fixed_count_survives_a_reopen(self, gap):
+        self._transition(T1, "ready", "resolved", None)
+        self._transition(T1 + gap, "resolved", "ready")
+
+        row = self._status_row()
+        assert row["latest_status_event"] == "ready"
+        assert row["fixed_count"] == 1
+        assert row["first_fixed_at"] == T1
+
+    @parameterized.expand(
+        [
             ("later_bucket", T2, "ready", "resolved", None),
             ("same_bucket", T1 + datetime.timedelta(minutes=1), "ready", "suppressed", "already_fixed"),
         ]
