@@ -1,6 +1,8 @@
 from types import SimpleNamespace
 from typing import cast
 
+from django.conf import settings
+
 from parameterized import parameterized
 from rest_framework.request import Request
 
@@ -18,7 +20,11 @@ from posthog.temporal.oauth import (
     POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_US,
 )
 
-from products.tasks.backend.facade.client_provenance import get_task_client_provenance, is_api_key_request
+from products.tasks.backend.facade.client_provenance import (
+    TASK_CLIENT_PROVENANCE_HEADER,
+    get_task_client_provenance,
+    is_api_key_request,
+)
 from products.tasks.backend.models import TaskClientProvenance
 
 
@@ -129,6 +135,11 @@ class TestTaskClientProvenance:
 
         assert is_sandbox_origin_request(request)
         assert not is_sandbox_oauth_request(request)
+
+    def test_provenance_header_is_allowed_in_cors_preflights(self) -> None:
+        allowed_headers = {header.lower() for header in settings.CORS_ALLOW_HEADERS}
+
+        assert TASK_CLIENT_PROVENANCE_HEADER.lower() in allowed_headers
 
 
 class TestIsApiKeyRequest:
