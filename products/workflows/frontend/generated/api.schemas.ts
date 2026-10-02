@@ -2493,13 +2493,6 @@ export const HogFlowsProposalsListStatus = {
     Suggested: 'suggested',
 } as const
 
-export type HogFlowsProposalsOutcomeRetrieveParams = {
-    /**
-     * Relative window, e.g. -7d. Defaults to -7d.
-     */
-    window?: string
-}
-
 export type HogFlowsRevisionsListParams = {
     /**
      * Number of results to return per page.

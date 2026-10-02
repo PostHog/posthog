@@ -6148,7 +6148,9 @@ class HogFlowViewSet(
                     }
                 )
             # Publish revalidates the draft with the workflow serializer; run it here, where the producer can fix what it refuses.
-            draft_serializer = self.get_serializer(instance, data=dict(merged), partial=True)
+            # Validation recovers stored secrets into the inputs it is given, and the merge shares
+            # the dicts of steps the proposal adds, so a shallow copy would leak a draft secret.
+            draft_serializer = self.get_serializer(instance, data=deepcopy(merged), partial=True)
             if not draft_serializer.is_valid():
                 raise exceptions.ValidationError(
                     {
@@ -6301,7 +6303,6 @@ class HogFlowViewSet(
             OpenApiParameter(
                 "proposal_id", OpenApiTypes.UUID, OpenApiParameter.PATH, description="Proposal to read outcomes for."
             ),
-            OpenApiParameter("window", OpenApiTypes.STR, description="Relative window, e.g. -7d. Defaults to -7d."),
         ],
         responses={200: WorkflowProposalOutcomeSerializer},
     )
@@ -6326,7 +6327,7 @@ class HogFlowViewSet(
         # The read below goes to ClickHouse, which refuses an untagged query.
         tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
         carrying, ended_at = self._versions_carrying_change(instance, proposal)
-        charted = self._outcome_versions(instance, proposal)
+        charted = self._outcome_versions(instance, proposal, carrying)
         totals = self._version_totals(instance, charted, proposal.step_id)
         history = self._version_history(instance, proposal, charted)
         target = target_metric_of(proposal)
@@ -6363,12 +6364,21 @@ class HogFlowViewSet(
             ).data
         )
 
-    def _outcome_versions(self, hog_flow: HogFlow, proposal: WorkflowProposal) -> list[int]:
+    def _outcome_versions(
+        self, hog_flow: HogFlow, proposal: WorkflowProposal, carrying: Sequence[int] = ()
+    ) -> list[int]:
         """The versions the card charts: the one the suggestion was written against, the one it went
-        live as, and everything published since, so a later edit is visible as its own point."""
+        live as, and everything published since, so a later edit is visible as its own point.
+
+        A version the after side sums is always in here. Past the recent range it would otherwise be
+        fetched for nobody and counted as zero, which reads as a change that stopped working.
+        """
         newest = hog_flow.version or proposal.base_version
         oldest = min(proposal.base_version, proposal.applied_version or proposal.base_version)
-        return sorted({*range(max(oldest, newest - OUTCOME_VERSION_LIMIT + 1), newest + 1), oldest})
+        pinned = {oldest, proposal.base_version, *carrying}
+        if proposal.applied_version is not None:
+            pinned.add(proposal.applied_version)
+        return sorted({*range(max(oldest, newest - OUTCOME_VERSION_LIMIT + 1), newest + 1), *pinned})
 
     def _version_history(self, hog_flow: HogFlow, proposal: WorkflowProposal, versions: list[int]) -> dict[int, dict]:
         """What each version changed against the one before it, and who published it.
@@ -6447,7 +6457,7 @@ class HogFlowViewSet(
         changes = proposal_changes(proposal, base_content_of(hog_flow, proposal))
         contents = {
             revision.version: revision.content
-            for revision in HogFlowRevision.objects.filter(hog_flow=hog_flow, version__gte=applied)[
+            for revision in HogFlowRevision.objects.filter(hog_flow=hog_flow, version__gte=applied).order_by("version")[
                 :OUTCOME_VERSION_LIMIT
             ]
         }
