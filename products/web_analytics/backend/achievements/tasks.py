@@ -15,6 +15,7 @@ from redis.exceptions import RedisError
 from posthog.celery_queues import CeleryQueue
 from posthog.clickhouse.client.execute import KillSwitchLevel, get_kill_switch_level
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.dataclasses import frozen
 from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
@@ -236,13 +237,19 @@ def _recompute_track(ctx: EvalContext, track: TrackDefinition) -> None:
     _apply_progress(ctx, track, progress, evaluation)
 
 
-def _next_value_and_stage(
+@frozen
+class _NextProgress:
+    value: int
+    stage: int
+
+
+def _next_progress(
     ctx: EvalContext, track: TrackDefinition, progress: WebAnalyticsAchievementProgress, evaluation: TrackEvaluation
-) -> tuple[int, int]:
+) -> _NextProgress:
     is_cumulative = track.evaluator_key != "streak"
     value = max(evaluation.value, progress.progress_value) if is_cumulative else evaluation.value
     arm = ctx.arm if track.is_experiment_track else None
-    return value, max(progress.current_stage, track.stage_for_value(value, arm))
+    return _NextProgress(value=value, stage=max(progress.current_stage, track.stage_for_value(value, arm)))
 
 
 def _changes_progress(
@@ -251,8 +258,8 @@ def _changes_progress(
     # Cheap tracks run on every visit and interaction request, so skip the row lock when nothing changes.
     if progress.last_computed_at is None:
         return True
-    value, stage = _next_value_and_stage(ctx, track, progress, evaluation)
-    if value != progress.progress_value or stage != progress.current_stage:
+    next_progress = _next_progress(ctx, track, progress, evaluation)
+    if next_progress.value != progress.progress_value or next_progress.stage != progress.current_stage:
         return True
     if track.evaluator_key == "streak":
         stored_streak = (progress.state or {}).get("streak") or {}
@@ -277,15 +284,15 @@ def _apply_progress(
             or (progress.state or {}).get("checkpoint") != (evaluated_progress.state or {}).get("checkpoint")
         ):
             return []
-        value, new_stage = _next_value_and_stage(ctx, track, progress, evaluation)
+        next_progress = _next_progress(ctx, track, progress, evaluation)
 
         state = dict(progress.state or {})
         unlocked_stages = dict(state.get("unlocked_stages", {}))
         pending_celebrations = list(state.get("pending_celebrations", []))
         newly_unlocked: list[int] = []
-        if new_stage > progress.current_stage:
+        if next_progress.stage > progress.current_stage:
             now_iso = timezone.now().isoformat()
-            for stage in range(progress.current_stage + 1, new_stage + 1):
+            for stage in range(progress.current_stage + 1, next_progress.stage + 1):
                 unlocked_stages[str(stage)] = now_iso
                 pending_celebrations.append(stage)
                 newly_unlocked.append(stage)
@@ -296,7 +303,7 @@ def _apply_progress(
         if evaluation.checkpoint is not None:
             state["checkpoint"] = evaluation.checkpoint
 
-        persist_progress(progress, value, new_stage, state)
+        persist_progress(progress, next_progress.value, next_progress.stage, state)
 
         if newly_unlocked:
             transaction.on_commit(partial(_send_unlock_notifications, ctx, track, newly_unlocked))
