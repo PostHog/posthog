@@ -1,9 +1,10 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Suspense, useEffect } from 'react'
 
 import { IconPullRequest } from '@posthog/icons'
 import {
     Badge,
+    Button,
     Item,
     ItemActions,
     ItemContent,
@@ -31,7 +32,9 @@ import {
 } from 'products/signals/frontend/inbox/utils/reportMetrics'
 import { pullRequestStateMeta } from 'products/tasks/frontend/spaces/TaskPullRequestChip'
 
-import { todayLogic } from './todayLogic'
+import { itemStateLabel } from './todayBriefingItems'
+import { TodayReportVerdict, todayLogic } from './todayLogic'
+import { isSampleReportId } from './todaySampleReports'
 
 // The charts load on the first hover: the card sits in the app shell, and the query and chart code
 // they need must stay out of the bundle every page loads.
@@ -53,12 +56,32 @@ const LISTED_METRIC_COUNT = 2
  */
 export function TodayReportHoverCard({ preview }: { preview: TodayReportPreview }): JSX.Element {
     const { card } = preview
-    const { reportPreviewed } = useActions(todayLogic)
+    const { reportStateOverrides } = useValues(todayLogic)
+    const { reportPreviewed, requestReportVerdict } = useActions(todayLogic)
     // Keyed on the report, not the card object: a poll replaces the object while the card stays open.
     useEffect(() => {
         reportPreviewed(card.key, preview.surface)
     }, [card.key, preview.surface, reportPreviewed])
 
+    // Read live, not from the card: the card stays open after a click, and keeps the payload it opened with.
+    const override = card.reportId ? reportStateOverrides[card.reportId] : undefined
+    const stateLabel = override ? itemStateLabel({ state: override }) : card.stateLabel
+    const resolved = override ? override === 'done' : card.resolved
+    const { reportId } = card
+    const giveVerdict = (verdict: TodayReportVerdict): void => {
+        if (reportId) {
+            requestReportVerdict(
+                {
+                    reportId,
+                    title: card.title,
+                    hasOpenPullRequest: card.pullRequestState === 'open' || card.pullRequestState === 'draft',
+                },
+                verdict,
+                preview.surface
+            )
+        }
+    }
+    const isSample = !!reportId && isSampleReportId(reportId)
     const pullRequestState = pullRequestStateMeta(card.pullRequestState)
     const metric = selectReportCardImpactMetric(card.metrics)
     const aggregateQuery = metric ? asReportMetricAggregateQuery(metric.query) : null
@@ -119,9 +142,9 @@ export function TodayReportHoverCard({ preview }: { preview: TodayReportPreview 
                         </ItemDescription>
                     )}
                 </ItemContent>
-                {card.stateLabel && (
+                {stateLabel && (
                     <ItemActions className="self-start">
-                        <Badge variant={card.resolved ? 'completed' : 'default'}>{card.stateLabel}</Badge>
+                        <Badge variant={resolved ? 'completed' : 'default'}>{stateLabel}</Badge>
                     </ItemActions>
                 )}
             </Item>
@@ -207,6 +230,31 @@ export function TodayReportHoverCard({ preview }: { preview: TodayReportPreview 
                     </Text>
                 )}
             </div>
+            {reportId && !stateLabel && (
+                <>
+                    <ItemSeparator className="my-0" />
+                    <div className="flex flex-wrap gap-1.5 px-3 py-2">
+                        <Button
+                            variant="outline"
+                            size="xs"
+                            disabled={isSample}
+                            onClick={() => giveVerdict('resolve')}
+                            data-attr="today-report-hover-card-resolve"
+                        >
+                            Resolve
+                        </Button>
+                        <Button
+                            variant="outline"
+                            size="xs"
+                            disabled={isSample}
+                            onClick={() => giveVerdict('dismiss')}
+                            data-attr="today-report-hover-card-dismiss"
+                        >
+                            Dismiss
+                        </Button>
+                    </div>
+                </>
+            )}
         </div>
     )
 }

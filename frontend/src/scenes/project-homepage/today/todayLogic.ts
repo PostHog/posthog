@@ -5,6 +5,7 @@ import type { LocationChangedPayload } from 'kea-router/lib/types'
 import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { navigateToHref } from 'lib/utils/navigateToHref'
@@ -16,10 +17,21 @@ import { userLogic } from 'scenes/userLogic'
 import type { TodayReportCard, TodayReportPreview } from '~/layout/today/todayPreviewCards'
 import { TeamType, UserType } from '~/types'
 
-import { signalsReportsForYouRetrieve } from 'products/signals/frontend/generated/api'
+import { signalsReportsForYouRetrieve, signalsReportsStateCreate } from 'products/signals/frontend/generated/api'
+import type {
+    SignalReportStateEnumApi,
+    SignalReportStateRequestApi,
+} from 'products/signals/frontend/generated/api.schemas'
+import { openDismissReportDialog } from 'products/signals/frontend/inbox/components/shell/DismissReportDialog'
+import { openResolveReportDialog } from 'products/signals/frontend/inbox/components/shell/ResolveReportDialog'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
+import { suppressDismissalPayload } from 'products/signals/frontend/inbox/utils/dismissalReasons'
 import { todayBriefingRefreshCreate, todayBriefingRetrieve } from 'products/today/frontend/generated/api'
-import type { BriefingApi, BriefingItemApi } from 'products/today/frontend/generated/api.schemas'
+import type {
+    BriefingApi,
+    BriefingItemApi,
+    BriefingItemStateEnumApi,
+} from 'products/today/frontend/generated/api.schemas'
 
 import type { TeamPublicType } from '../../../types'
 import { TodayAskContext, todayAskPrompt } from './todayAskPrompt'
@@ -31,6 +43,7 @@ import {
     isBriefingSettled,
     isExternalHref,
     itemHref,
+    itemReportId,
 } from './todayBriefingItems'
 import { SAMPLE_BRIEFING, parseSampleParam, sampleTopReports } from './todaySampleReports'
 import { TodayBriefingSegment, briefingForReports, teamReportCard } from './todaySignalReports'
@@ -46,6 +59,58 @@ export type TodayReportOpenSource = 'briefing' | 'chip' | 'sidebar'
 
 /** Where a question to PostHog AI came from, sent with the `today ai asked` event. */
 export type TodayAskSource = 'ask_box' | 'walk_through'
+
+/** What a person decides about a report from Today. */
+export type TodayReportVerdict = 'resolve' | 'dismiss'
+
+/** Where the person gave the verdict, sent with the `today report state changed` event. */
+export type TodayReportVerdictSurface = TodayReportPreview['surface'] | 'report_page'
+
+/** The report a verdict acts on. */
+export interface TodayReportVerdictTarget {
+    reportId: string
+    title: string
+    /** The backend closes an open implementation pull request on either verdict, so the person confirms first. */
+    hasOpenPullRequest: boolean
+}
+
+interface TodayReportVerdictCopy {
+    apiState: SignalReportStateEnumApi
+    itemState: BriefingItemStateEnumApi
+    success: string
+    successClosingPullRequest: string
+    failure: string
+    confirmTitle: string
+    confirmLabel: string
+    reasonTitle: string
+    reasonDescription: string
+}
+
+const VERDICTS: Record<TodayReportVerdict, TodayReportVerdictCopy> = {
+    resolve: {
+        apiState: 'resolved',
+        itemState: 'done',
+        success: 'Report resolved',
+        successClosingPullRequest: 'Report resolved. Its pull request is closing.',
+        failure: 'Couldn’t resolve the report. Try again, or resolve it from the Inbox.',
+        confirmTitle: 'Resolve this report?',
+        confirmLabel: 'Resolve and close PR',
+        reasonTitle: 'Why did you resolve this report?',
+        reasonDescription: 'The reason is saved on the report.',
+    },
+    dismiss: {
+        apiState: 'suppressed',
+        itemState: 'dismissed',
+        success: 'Report dismissed',
+        successClosingPullRequest: 'Report dismissed. Its pull request is closing.',
+        failure: 'Couldn’t dismiss the report. Try again, or dismiss it from the Inbox.',
+        confirmTitle: 'Dismiss this report?',
+        confirmLabel: 'Dismiss and close PR',
+        reasonTitle: 'Why did you dismiss this report?',
+        reasonDescription:
+            'The reason is saved on the report. The agent that filed it reads your note on its next run.',
+    },
+}
 
 /** The count behind the Inbox link: reports for the person beyond the shown ones, or open in the project. */
 export interface TodayInboxMore {
@@ -134,6 +199,7 @@ export interface todayLogicValues {
     refreshedBriefingLoading: boolean
     reloadingAfterRefresh: boolean
     reportId: string | null
+    reportStateOverrides: Record<string, BriefingItemStateEnumApi>
     reportPreviews: Record<TodayReportPreview['surface'], Record<string, TodayReportPreview>>
     reportSummary: string
     reports: SignalReport[]
@@ -168,6 +234,13 @@ export interface todayLogicActions {
         searchParams: Record<string, any>
         url: string
     } // router
+    addReportVerdictReason: (
+        target: TodayReportVerdictTarget,
+        verdict: TodayReportVerdict
+    ) => {
+        target: TodayReportVerdictTarget
+        verdict: TodayReportVerdict
+    }
     askAi: (
         prompt: string,
         source: TodayAskSource
@@ -258,11 +331,32 @@ export interface todayLogicActions {
         cardKey: string
         surface: 'briefing' | 'sidebar'
     }
+    requestReportVerdict: (
+        target: TodayReportVerdictTarget,
+        verdict: TodayReportVerdict,
+        surface: TodayReportVerdictSurface
+    ) => {
+        target: TodayReportVerdictTarget
+        verdict: TodayReportVerdict
+        surface: TodayReportVerdictSurface
+    }
     setHoveredItemKey: (itemKey: string | null) => {
         itemKey: string | null
     }
     setHoveredReportId: (reportId: string | null) => {
         reportId: string | null
+    }
+    setReportVerdict: (
+        target: TodayReportVerdictTarget,
+        verdict: TodayReportVerdict,
+        surface: TodayReportVerdictSurface
+    ) => {
+        target: TodayReportVerdictTarget
+        verdict: TodayReportVerdict
+        surface: TodayReportVerdictSurface
+    }
+    setReportVerdictFailure: (reportId: string) => {
+        reportId: string
     }
     setUseSampleData: (useSampleData: boolean) => {
         useSampleData: boolean
@@ -287,7 +381,11 @@ export interface todayLogicMeta {
         reportSummary: (hour: number, reports: SignalReport[]) => string
         showPersonalBriefing: (personalBriefing: BriefingApi | null, useSampleData: boolean) => boolean
         inboxMore: (personalBriefing: BriefingApi | null) => TodayInboxMore | null
-        briefingItems: (personalBriefing: BriefingApi | null, showPersonalBriefing: boolean) => BriefingItemApi[]
+        briefingItems: (
+            personalBriefing: BriefingApi | null,
+            showPersonalBriefing: boolean,
+            reportStateOverrides: Record<string, BriefingItemStateEnumApi>
+        ) => BriefingItemApi[]
         reportPreviews: (
             briefingItems: BriefingItemApi[]
         ) => Record<TodayReportPreview['surface'], Record<string, TodayReportPreview>>
@@ -334,6 +432,21 @@ export const todayLogic = kea<todayLogicType>([
         reportPreviewed: (cardKey: string, surface: TodayReportPreview['surface']) => ({ cardKey, surface }),
         pollBriefing: true,
         stopWaitingForBriefing: (briefingId: string) => ({ briefingId }),
+        requestReportVerdict: (
+            target: TodayReportVerdictTarget,
+            verdict: TodayReportVerdict,
+            surface: TodayReportVerdictSurface
+        ) => ({ target, verdict, surface }),
+        setReportVerdict: (
+            target: TodayReportVerdictTarget,
+            verdict: TodayReportVerdict,
+            surface: TodayReportVerdictSurface
+        ) => ({ target, verdict, surface }),
+        setReportVerdictFailure: (reportId: string) => ({ reportId }),
+        addReportVerdictReason: (target: TodayReportVerdictTarget, verdict: TodayReportVerdict) => ({
+            target,
+            verdict,
+        }),
     }),
     loaders(({ values }) => ({
         topReports: [
@@ -438,6 +551,21 @@ export const todayLogic = kea<todayLogicType>([
         ],
         // The refresh call returns before the page reloads the briefing. Until that reload returns
         // the `writing` briefing, the page still waits, so the badge does not flip back to the button.
+        // A verdict shows at once in the text, the left bar and the hover card. The next briefing load
+        // gives the same state from the server, and a failed request takes the verdict back.
+        reportStateOverrides: [
+            {} as Record<string, BriefingItemStateEnumApi>,
+            {
+                setReportVerdict: (overrides, { target, verdict }) => ({
+                    ...overrides,
+                    [target.reportId]: VERDICTS[verdict].itemState,
+                }),
+                setReportVerdictFailure: (overrides, { reportId }) => {
+                    const { [reportId]: _, ...rest } = overrides
+                    return rest
+                },
+            },
+        ],
         reloadingAfterRefresh: [
             false,
             {
@@ -495,9 +623,21 @@ export const todayLogic = kea<todayLogicType>([
             },
         ],
         briefingItems: [
-            (s) => [s.personalBriefing, s.showPersonalBriefing],
-            (personalBriefing: BriefingApi | null, showPersonalBriefing: boolean): BriefingItemApi[] =>
-                showPersonalBriefing && personalBriefing ? personalBriefing.items : [],
+            (s) => [s.personalBriefing, s.showPersonalBriefing, s.reportStateOverrides],
+            (
+                personalBriefing: BriefingApi | null,
+                showPersonalBriefing: boolean,
+                reportStateOverrides: Record<string, BriefingItemStateEnumApi>
+            ): BriefingItemApi[] => {
+                if (!showPersonalBriefing || !personalBriefing) {
+                    return []
+                }
+                return personalBriefing.items.map((item) => {
+                    const reportId = itemReportId(item)
+                    const state = reportId ? reportStateOverrides[reportId] : undefined
+                    return state ? { ...item, state } : item
+                })
+            },
         ],
         // The card stores its trigger's payload, so each report keeps one object per surface across renders.
         reportPreviews: [
@@ -692,6 +832,91 @@ export const todayLogic = kea<todayLogicType>([
                     report_count: topReports.results.length,
                     more_report_count: values.moreReportCount,
                 })
+            },
+            requestReportVerdict: ({ target, verdict, surface }) => {
+                if (!target.hasOpenPullRequest) {
+                    actions.setReportVerdict(target, verdict, surface)
+                    return
+                }
+                const copy = VERDICTS[verdict]
+                LemonDialog.open({
+                    title: copy.confirmTitle,
+                    description: 'This also closes the open pull request for this report.',
+                    primaryButton: {
+                        children: copy.confirmLabel,
+                        onClick: () => actions.setReportVerdict(target, verdict, surface),
+                        'data-attr': `today-report-${verdict}-confirm`,
+                    },
+                    secondaryButton: { children: 'Cancel' },
+                })
+            },
+            setReportVerdict: async ({ target, verdict, surface }) => {
+                const copy = VERDICTS[verdict]
+                try {
+                    await signalsReportsStateCreate(String(values.currentProjectId), target.reportId, {
+                        state: copy.apiState,
+                    })
+                } catch (error) {
+                    actions.setReportVerdictFailure(target.reportId)
+                    lemonToast.error((error instanceof ApiError && error.detail) || copy.failure)
+                    return
+                }
+                // pinned: analytics event name and properties. Renaming them breaks dashboards.
+                posthog.capture('today report state changed', {
+                    verdict,
+                    surface,
+                    closed_pull_request: target.hasOpenPullRequest,
+                })
+                // A reason is optional, so the verdict is one click and the reason is one more.
+                lemonToast.success(target.hasOpenPullRequest ? copy.successClosingPullRequest : copy.success, {
+                    button: { label: 'Add a reason', action: () => actions.addReportVerdictReason(target, verdict) },
+                })
+            },
+            addReportVerdictReason: ({ target, verdict }) => {
+                const copy = VERDICTS[verdict]
+                const dialogCopy = {
+                    title: copy.reasonTitle,
+                    description: copy.reasonDescription,
+                    submitLabel: 'Save reason',
+                }
+                // The state API takes the verdict the report already has and only saves the reason with it.
+                const saveReason = async (body: SignalReportStateRequestApi): Promise<void> => {
+                    try {
+                        await signalsReportsStateCreate(String(values.currentProjectId), target.reportId, body)
+                    } catch (error) {
+                        lemonToast.error(
+                            (error instanceof ApiError && error.detail) || 'Couldn’t save the reason. Try again.'
+                        )
+                        // The dialog stays open, so the reason and the note are kept for the next try.
+                        throw error
+                    }
+                    // pinned: analytics event name and properties. Renaming them breaks dashboards.
+                    posthog.capture('today report reason added', {
+                        verdict,
+                        reason: body.dismissal_reason,
+                        has_note: !!body.dismissal_note,
+                    })
+                    lemonToast.success('Reason saved')
+                }
+                if (verdict === 'resolve') {
+                    openResolveReportDialog({
+                        reportTitle: target.title,
+                        copy: dialogCopy,
+                        onConfirm: ({ reason, note }) =>
+                            saveReason({
+                                state: copy.apiState,
+                                dismissal_reason: reason,
+                                ...(note ? { dismissal_note: note } : {}),
+                            }),
+                    })
+                } else {
+                    openDismissReportDialog({
+                        reportTitle: target.title,
+                        copy: dialogCopy,
+                        onConfirm: (dismissal) =>
+                            saveReason({ state: copy.apiState, ...suppressDismissalPayload(dismissal) }),
+                    })
+                }
             },
             reportOpened: ({ report, source }) => {
                 if (values.useSampleData) {
