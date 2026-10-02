@@ -12,6 +12,7 @@ from products.alerts_platform.backend.temporal.workflows import (
     EVALUATION_WORKFLOWS,
     SHARED_ORCHESTRATION_ACTIVITIES,
     SHARED_ORCHESTRATION_WORKFLOWS,
+    SOURCE_QUEUE_ACTIVITIES,
 )
 
 __all__ = [
@@ -24,6 +25,7 @@ __all__ = [
     "SHARED_ORCHESTRATION_ACTIVITIES",
     "SHARED_ORCHESTRATION_WORKFLOWS",
     "SOURCE_BINDINGS",
+    "SOURCE_QUEUE_ACTIVITIES",
     "SourceBinding",
     "AlertsPlatformTelemetryInterceptor",
     "create_alerts_platform_tick_schedule",
