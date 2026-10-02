@@ -190,7 +190,7 @@ const DISCARD_INSIGHT = {
 const discardMocks = {
     get: {
         '/api/projects/:team_id/warehouse_saved_queries/': [200, { results: [DISCARD_VIEW] }],
-        '/api/environments/:team_id/warehouse_saved_queries/:id/': [200, DISCARD_VIEW],
+        '/api/:scope/:team_id/warehouse_saved_queries/:id/': [200, DISCARD_VIEW],
         '/api/environments/:team_id/insights/': [200, { results: [DISCARD_INSIGHT] }],
         '/api/projects/:team_id/warehouse_expressions/': [200, { results: [] }],
         '/api/projects/:team_id/data_modeling_nodes/lineage/': [200, { nodes: [], edges: [] }],

@@ -262,7 +262,7 @@ describe('sqlEditorLogic', () => {
                     return [200, { results: [] }]
                 },
                 '/api/projects/:team_id/warehouse_saved_queries/': { results: [MOCK_VIEW] },
-                '/api/environments/:team_id/warehouse_saved_queries/:id/': ({ params }) => {
+                '/api/:scope/:team_id/warehouse_saved_queries/:id/': ({ params }) => {
                     if (params.id === MOCK_VIEW.id) {
                         return [
                             200,

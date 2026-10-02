@@ -104,6 +104,7 @@ import {
     dataCatalogMetricsRetrieve,
 } from 'products/data_catalog/frontend/generated/api'
 import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
+import { warehouseSavedQueriesRetrieve } from 'products/data_warehouse/frontend/generated/api'
 import { sqlEditorDraftStorage } from 'products/data_warehouse/frontend/sqlEditorDraftStorage'
 import { validateEndpointName } from 'products/endpoints/frontend/common'
 
@@ -3106,7 +3107,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 const restoredQuery = values.queryInput
                 const restoredSourceQuery = values.sourceQuery
                 try {
-                    const view = tab.view ? await api.dataWarehouseSavedQueries.get(tab.view.id) : undefined
+                    const view = tab.view
+                        ? await warehouseSavedQueriesRetrieve(String(teamLogic.values.currentTeamId), tab.view.id)
+                        : undefined
                     const insight = tab.insight ? await insightsApi.getByShortId(tab.insight.short_id) : undefined
                     breakpoint()
                     if (
@@ -3116,7 +3119,21 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     ) {
                         return
                     }
-                    restore(view, insight ?? undefined)
+                    restore(
+                        view && tab.view
+                            ? {
+                                  ...tab.view,
+                                  name: view.name,
+                                  query: {
+                                      ...view.query,
+                                      kind: NodeKind.HogQLQuery,
+                                      query: view.query.query ?? '',
+                                  },
+                                  latest_history_id: view.latest_history_id ?? undefined,
+                              }
+                            : undefined,
+                        insight ?? undefined
+                    )
                 } catch (error) {
                     if (error instanceof Error && isBreakpoint(error)) {
                         throw error
