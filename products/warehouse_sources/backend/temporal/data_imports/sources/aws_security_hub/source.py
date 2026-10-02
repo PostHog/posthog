@@ -52,6 +52,10 @@ class AwsSecurityHubSource(ResumableSource[AwsSecurityHubSourceConfig, AwsSecuri
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.AWSSECURITYHUB
 
+    @property
+    def connection_host_fields(self) -> list[str]:
+        return ["region"]
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {f"AWS Security Hub request failed: {code}": message for code, message in ERROR_MESSAGES.items()}
 

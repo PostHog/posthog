@@ -1,6 +1,7 @@
 import json
 import datetime as dt
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
+from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -59,6 +60,10 @@ def manager(state: AwsSecurityHubResumeConfig | None = None) -> Mock:
     result.can_resume.return_value = state is not None
     result.load_state.return_value = state
     return result
+
+
+def test_region_is_a_connection_host_field() -> None:
+    assert AwsSecurityHubSource().connection_host_fields == ["region"]
 
 
 @pytest.mark.parametrize(
@@ -125,7 +130,7 @@ def test_pagination_empty_pages_and_terminal_checkpoint(session: Mock, terminal_
     ]
     resume = manager()
     source = aws_security_hub_source(config(), "findings", VERSION, resume, False, None)
-    items = iter(source.items())
+    items = iter(cast(Iterable[Any], source.items()))
     assert next(items) == [{"id": "first", "created_at": dt.datetime(2025, 1, 1, tzinfo=dt.UTC)}]
     assert resume.save_state.call_args.args[0].next_token == "second"
     assert list(items) == [[{"id": "last"}]]
@@ -279,7 +284,7 @@ def test_finding_identity_and_timestamps_survive_normalization(session: Mock) ->
         }
     )
     source = aws_security_hub_source(config(), "findings", VERSION, manager(), True, None)
-    rows = [row for batch in source.items() for row in batch]
+    rows = [row for batch in cast(Iterable[Any], source.items()) for row in batch]
     assert source.primary_keys
     assert len({tuple(row[key] for key in source.primary_keys) for row in rows}) == 4
     assert rows[0]["resources"] == finding["Resources"]
