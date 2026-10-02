@@ -94,10 +94,7 @@ export function PipelineOverviewScene(): JSX.Element {
                 </>
             ) : null}
 
-            <SceneSection
-                title="Rows synced by destination"
-                description="Rows written to each destination. A row that reaches two destinations counts against both, so the series stack."
-            >
+            <SceneSection title="Rows synced by destination">
                 <RowsByDestination />
             </SceneSection>
 
