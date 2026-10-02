@@ -239,10 +239,10 @@ tools:
             Inbox shows them. Use this to answer "what needs me" or "what should I look at first". Each row then has
             `personal_inbox` with the reasons, an action state, and a recommended next action; keep the order and use
             these fields instead of re-deriving them. Rows with a null `personal_inbox` mean the list is project-wide.
-            Any filter, sort, or scope turns this default off and keeps its literal meaning, so a search without
-            `scope` searches the whole project. Pass `scope=for_me` with `sort=relevance` to filter the personal Inbox,
-            and pass `scope=entire_project` explicitly when you need complete project data. Task agents always get
-            the project-wide list. Otherwise results are paginated and ordered by
+            Any filter, sort, or scope turns this default off and keeps its literal meaning, so a search without `scope`
+            searches the whole project. Pass `scope=for_me` with `sort=relevance` to filter the personal Inbox, and pass
+            `scope=entire_project` explicitly when you need complete project data. Task agents always get the
+            project-wide list. Otherwise results are paginated and ordered by
             '-is_suggested_reviewer,status,-updated_at'. To pick ready work for an agent to implement, pass
             `view=actionable` with `use_priority_preference=true`, `sort=priority`, and `limit=10`: that returns ready,
             actionable reports that have no implementation PR yet, at or above the requesting user's personal
