@@ -12,6 +12,8 @@ export const HEADER_GAP = 1;
 const BRAND_STRIPES = ["#1D4AFF", "#F04438", "#F7A501", "#151515"];
 
 const INDICATOR_COLORS: Record<Exclude<Indicator, "working">, string> = {
+  // PostHog orange.
+  waiting: "#F54E00",
   alive: "green",
   failed: "red",
   asleep: "gray",

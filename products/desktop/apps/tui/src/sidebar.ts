@@ -2,7 +2,8 @@ import type { Task } from "@posthog/shared";
 import { focusPane, type LayoutState, openTask, panes } from "./layout";
 import { LEGACY_PREFIX } from "./localChats";
 
-export type Indicator = "working" | "alive" | "failed" | "asleep";
+// "waiting" is a chat whose turn ended while the reader was elsewhere.
+export type Indicator = "working" | "waiting" | "alive" | "failed" | "asleep";
 
 export interface WorkPage {
   tasks: Task[] | null;
@@ -41,10 +42,12 @@ export type SidebarRow =
 export function indicatorFor(
   task: Task | undefined,
   working: boolean,
+  waiting = false,
 ): Indicator {
   if (working) return "working";
   const run = task?.latest_run;
   if (run?.status === "failed") return "failed";
+  if (waiting) return "waiting";
   const sandboxStopped =
     (run?.state as Record<string, unknown> | undefined)?.sandbox_alive ===
     false;
@@ -105,6 +108,7 @@ export function sidebarRows({
   work,
   collapsed,
   working,
+  waiting = new Set(),
   known = new Map(),
   signedIn = true,
   local = NO_LOCAL_CHATS,
@@ -113,6 +117,7 @@ export function sidebarRows({
   work: WorkPage;
   collapsed: Set<string>;
   working: Set<string>;
+  waiting?: Set<string>;
   /** Open tasks outside the recent page, fetched on their own. */
   known?: Map<string, Task>;
   signedIn?: boolean;
@@ -148,11 +153,13 @@ export function sidebarRows({
           : runsHere
             ? working.has(taskId)
               ? "working"
-              : local.running.has(taskId)
-                ? "alive"
-                : "asleep"
+              : waiting.has(taskId)
+                ? "waiting"
+                : local.running.has(taskId)
+                  ? "alive"
+                  : "asleep"
             : task
-              ? indicatorFor(task, working.has(taskId))
+              ? indicatorFor(task, working.has(taskId), waiting.has(taskId))
               : null,
       local: runsHere,
       nested,

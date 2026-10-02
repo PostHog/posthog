@@ -14,6 +14,7 @@ import { useSheets } from "../hooks/useSheets";
 import { useShell } from "../hooks/useShell";
 import { useSidebar } from "../hooks/useSidebar";
 import { useTerminalInput } from "../hooks/useTerminalInput";
+import { useTurns } from "../hooks/useTurns";
 import { useWorkList } from "../hooks/useWorkList";
 import {
   activeWorkspace,
@@ -188,6 +189,7 @@ export function App({
     logout,
   });
 
+  const turns = useTurns(layout);
   const sidebar = useSidebar({
     layout,
     setLayout,
@@ -198,6 +200,8 @@ export function App({
     localActive,
     localSessions,
     loadMore,
+    working: turns.working,
+    waiting: turns.waiting,
   });
   const workspace = activeWorkspace(layout);
   const sidebarFocused = layout.focus === "sidebar";
@@ -257,7 +261,10 @@ export function App({
       modal={modalFor(node.id) ?? null}
       model={modelLabel(node.id, node.taskId)}
       onRunLive={(taskId, runId) => onRunLive(node.id, taskId, runId)}
-      onTurn={(turn) => setTurn(node.id, turn)}
+      onTurn={(turn) => {
+        setTurn(node.id, turn);
+        turns.report(node.id, node.taskId, turn !== null);
+      }}
       chips={
         isLocal(node.taskId) || !node.taskId
           ? statusChips(

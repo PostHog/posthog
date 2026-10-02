@@ -35,6 +35,8 @@ export function useSidebar({
   localActive,
   localSessions,
   loadMore,
+  working,
+  waiting,
 }: {
   layout: LayoutState;
   setLayout: Dispatch<SetStateAction<LayoutState>>;
@@ -45,6 +47,8 @@ export function useSidebar({
   localActive: Map<string, number>;
   localSessions: Map<string, LocalSession>;
   loadMore: () => void;
+  working: Set<string>;
+  waiting: Set<string>;
 }): SidebarState {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   // The cursor follows a row's identity, since previewing a chat can move rows.
@@ -56,7 +60,8 @@ export function useSidebar({
         layout,
         work: page,
         collapsed,
-        working: new Set(),
+        working,
+        waiting,
         known: new Map([...known, ...fresh]),
         signedIn,
         local: { active: localActive, running: new Set(localSessions.keys()) },
@@ -70,6 +75,8 @@ export function useSidebar({
       signedIn,
       localActive,
       localSessions,
+      working,
+      waiting,
     ],
   );
   const selectedIndex = cursorIndex(rows, selected);

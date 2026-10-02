@@ -164,25 +164,39 @@ describe("sidebarRows", () => {
 
 describe("indicatorFor", () => {
   it.each([
-    ["mid-turn", task("a", { status: "in_progress" }), true, "working"],
-    ["queued", task("a", { status: "queued" }), false, "alive"],
+    ["mid-turn", task("a", { status: "in_progress" }), "working", "working"],
+    [
+      "a turn that ended unseen",
+      task("a", { status: "in_progress" }),
+      "waiting",
+      "waiting",
+    ],
+    [
+      "failed, though its turn ended unseen",
+      task("a", { status: "failed" }),
+      "waiting",
+      "failed",
+    ],
+    ["queued", task("a", { status: "queued" }), "idle", "alive"],
     [
       "running with a live sandbox",
       task("a", { status: "in_progress" }),
-      false,
+      "idle",
       "alive",
     ],
     [
       "running with a stopped sandbox",
       task("a", { status: "in_progress", state: { sandbox_alive: false } }),
-      false,
+      "idle",
       "asleep",
     ],
-    ["failed", task("a", { status: "failed" }), false, "failed"],
-    ["completed", task("a", { status: "completed" }), false, "asleep"],
-    ["never run", task("a"), false, "asleep"],
-  ])("%s", (_, subject, working, expected) => {
-    expect(indicatorFor(subject, working)).toBe(expected);
+    ["failed", task("a", { status: "failed" }), "idle", "failed"],
+    ["completed", task("a", { status: "completed" }), "idle", "asleep"],
+    ["never run", task("a"), "idle", "asleep"],
+  ])("%s", (_, subject, turn, expected) => {
+    expect(indicatorFor(subject, turn === "working", turn === "waiting")).toBe(
+      expected,
+    );
   });
 });
 
