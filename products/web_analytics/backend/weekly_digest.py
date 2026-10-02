@@ -67,6 +67,7 @@ def get_overview_for_team(
     *,
     execution_mode: ExecutionMode = DEFAULT_DIGEST_EXECUTION_MODE,
     user: User | None = None,
+    bypass_warehouse_access_control: bool = False,
 ) -> dict:
     tag_queries(product=ProductKey.WEB_ANALYTICS, team_id=team.pk, name="weekly_digest:web_overview")
     result = _default_overview()
@@ -77,7 +78,9 @@ def get_overview_for_team(
         filterTestAccounts=True,
         properties=[],
     )
-    runner = WebOverviewQueryRunner(team=team, query=query)
+    runner = WebOverviewQueryRunner(
+        team=team, query=query, bypass_warehouse_access_control=bypass_warehouse_access_control
+    )
     response = _require_digest_response(runner.run(execution_mode=execution_mode, user=user))
 
     items_by_key = {item.key: item for item in response.results}
@@ -151,6 +154,7 @@ def _run_stats_table_query(
     *,
     execution_mode: ExecutionMode,
     user: User | None,
+    bypass_warehouse_access_control: bool,
 ) -> WebStatsTableQueryResponse:
     query = WebStatsTableQuery(
         breakdownBy=breakdown_by,
@@ -161,7 +165,9 @@ def _run_stats_table_query(
         filterTestAccounts=True,
         properties=[],
     )
-    runner = WebStatsTableQueryRunner(team=team, query=query)
+    runner = WebStatsTableQueryRunner(
+        team=team, query=query, bypass_warehouse_access_control=bypass_warehouse_access_control
+    )
     return _require_digest_response(runner.run(execution_mode=execution_mode, user=user))
 
 
@@ -173,10 +179,18 @@ def get_top_pages(
     *,
     execution_mode: ExecutionMode = DEFAULT_DIGEST_EXECUTION_MODE,
     user: User | None = None,
+    bypass_warehouse_access_control: bool = False,
 ) -> list[dict]:
     tag_queries(product=ProductKey.WEB_ANALYTICS, team_id=team.pk, name="weekly_digest:top_pages")
     response = _run_stats_table_query(
-        team, WebStatsBreakdown.PAGE, limit, days, compare, execution_mode=execution_mode, user=user
+        team,
+        WebStatsBreakdown.PAGE,
+        limit,
+        days,
+        compare,
+        execution_mode=execution_mode,
+        user=user,
+        bypass_warehouse_access_control=bypass_warehouse_access_control,
     )
 
     return [
@@ -198,10 +212,18 @@ def get_top_sources(
     *,
     execution_mode: ExecutionMode = DEFAULT_DIGEST_EXECUTION_MODE,
     user: User | None = None,
+    bypass_warehouse_access_control: bool = False,
 ) -> list[dict]:
     tag_queries(product=ProductKey.WEB_ANALYTICS, team_id=team.pk, name="weekly_digest:top_sources")
     response = _run_stats_table_query(
-        team, WebStatsBreakdown.INITIAL_REFERRING_DOMAIN, limit, days, compare, execution_mode=execution_mode, user=user
+        team,
+        WebStatsBreakdown.INITIAL_REFERRING_DOMAIN,
+        limit,
+        days,
+        compare,
+        execution_mode=execution_mode,
+        user=user,
+        bypass_warehouse_access_control=bypass_warehouse_access_control,
     )
 
     return [
@@ -223,6 +245,7 @@ def get_goals_for_team(
     *,
     execution_mode: ExecutionMode = DEFAULT_DIGEST_EXECUTION_MODE,
     user: User | None = None,
+    bypass_warehouse_access_control: bool = False,
 ) -> list[dict]:
     tag_queries(product=ProductKey.WEB_ANALYTICS, team_id=team.pk, name="weekly_digest:goals")
 
@@ -232,7 +255,9 @@ def get_goals_for_team(
             compareFilter=CompareFilter(compare=compare),
             properties=[],
         )
-        runner = WebGoalsQueryRunner(team=team, query=query)
+        runner = WebGoalsQueryRunner(
+            team=team, query=query, bypass_warehouse_access_control=bypass_warehouse_access_control
+        )
         response = _require_digest_response(runner.run(execution_mode=execution_mode, user=user))
     except NoActionsError:
         return []
@@ -261,11 +286,40 @@ def build_team_digest(
     *,
     execution_mode: ExecutionMode = DEFAULT_DIGEST_EXECUTION_MODE,
     user: User | None = None,
+    bypass_warehouse_access_control: bool = False,
 ) -> dict:
-    overview = get_overview_for_team(team, days=days, compare=compare, execution_mode=execution_mode, user=user)
-    top_pages = get_top_pages(team, days=days, compare=compare, execution_mode=execution_mode, user=user)
-    top_sources = get_top_sources(team, days=days, compare=compare, execution_mode=execution_mode, user=user)
-    goals = get_goals_for_team(team, days=days, compare=compare, execution_mode=execution_mode, user=user)
+    overview = get_overview_for_team(
+        team,
+        days=days,
+        compare=compare,
+        execution_mode=execution_mode,
+        user=user,
+        bypass_warehouse_access_control=bypass_warehouse_access_control,
+    )
+    top_pages = get_top_pages(
+        team,
+        days=days,
+        compare=compare,
+        execution_mode=execution_mode,
+        user=user,
+        bypass_warehouse_access_control=bypass_warehouse_access_control,
+    )
+    top_sources = get_top_sources(
+        team,
+        days=days,
+        compare=compare,
+        execution_mode=execution_mode,
+        user=user,
+        bypass_warehouse_access_control=bypass_warehouse_access_control,
+    )
+    goals = get_goals_for_team(
+        team,
+        days=days,
+        compare=compare,
+        execution_mode=execution_mode,
+        user=user,
+        bypass_warehouse_access_control=bypass_warehouse_access_control,
+    )
 
     return {
         "team": team,
@@ -288,7 +342,10 @@ def build_team_digests(teams: Iterable[Team]) -> TeamDigestBuild:
     failed_teams: list[Team] = []
     for team in teams:
         try:
-            digests[team.id] = build_team_digest(team)
+            # The scheduled digest has no acting user, and it emits team-wide aggregates that recipients
+            # only receive for projects they can access. Without the bypass, a test-account or action
+            # filter that reads a warehouse join fails closed and the team section is lost.
+            digests[team.id] = build_team_digest(team, bypass_warehouse_access_control=True)
         except Exception as e:
             logger.warning("WA digest could not build a team section", team_id=team.id, error=str(e))
             capture_exception(e, {"team_id": team.id})

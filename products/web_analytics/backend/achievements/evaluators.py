@@ -160,7 +160,13 @@ def evaluate_cumulative_pageviews(ctx: EvalContext, prior: PriorProgress) -> Tra
                     "test": _test_account_filter_expr(team),
                 },
             )
-            response = execute_hogql_query(query=query, team=team, query_type="web_achievements_pageviews")
+            response = execute_hogql_query(
+                query=query,
+                team=team,
+                query_type="web_achievements_pageviews",
+                # The team-scoped sweep has no acting user, and only an aggregate count leaves the query.
+                bypass_warehouse_access_control=True,
+            )
             if response.results:
                 total += int(response.results[0][0] or 0)
     return TrackEvaluation(value=total, checkpoint={"counted_through": until.isoformat()})
@@ -241,7 +247,13 @@ def evaluate_conversions(ctx: EvalContext, prior: PriorProgress) -> TrackEvaluat
                 query.select[0],
                 *(ast.Call(name="countIf", args=[action_to_expr(action)]) for action in actions),
             ]
-            response = execute_hogql_query(query=query, team=team, query_type="web_achievements_conversions")
+            response = execute_hogql_query(
+                query=query,
+                team=team,
+                query_type="web_achievements_conversions",
+                # The team-scoped sweep has no acting user, and only per-day counts leave the query.
+                bypass_warehouse_access_control=True,
+            )
             for row in response.results or []:
                 day_counts = daily.setdefault(row[0].isoformat(), [0] * len(actions))
                 for index, value in enumerate(row[1:]):
