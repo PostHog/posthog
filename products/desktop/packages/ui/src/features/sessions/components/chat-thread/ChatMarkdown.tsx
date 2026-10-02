@@ -21,7 +21,7 @@ import {
   parseOpenFence,
   splitMarkdownBlocks,
 } from "@posthog/ui/features/editor/components/splitMarkdownBlocks";
-import { usePostHogLinkContext } from "@posthog/ui/features/editor/usePostHogLinkContext";
+import { useObjectTagRemarkPlugins } from "@posthog/ui/features/editor/usePostHogLinkContext";
 import {
   BareFileLink,
   hasDirectoryPath,
@@ -47,7 +47,6 @@ import {
   parseEvidenceLink,
 } from "@posthog/ui/utils/evidenceLinks";
 import { MERMAID_LANGUAGE } from "@posthog/ui/utils/mermaidBlocks";
-import { remarkObjectTags } from "@posthog/ui/utils/remarkObjectTags";
 import { IconButton } from "@radix-ui/themes";
 import { memo, type ReactNode, useEffect, useMemo, useRef } from "react";
 import Markdown, { type Components, defaultUrlTransform } from "react-markdown";
@@ -368,11 +367,7 @@ export const ChatMarkdown = memo(function ChatMarkdown({
   content,
   renderObjectTags = false,
 }: ChatMarkdownProps) {
-  const links = usePostHogLinkContext();
-  const objectTagRemarkPlugins = useMemo<PluggableList>(
-    () => [remarkGfm, [remarkObjectTags, { links }]],
-    [links],
-  );
+  const objectTagRemarkPlugins = useObjectTagRemarkPlugins();
   return (
     <div className="flex flex-col gap-3 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
       <Markdown

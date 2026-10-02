@@ -2,6 +2,7 @@ import {
   APP_HOST_ALIASES,
   OBJECT_KIND_DATA,
   type ObjectKindData,
+  type ObjectKindName,
   RESERVED_URL_IDS,
 } from "../inbox/objectKinds.generated";
 
@@ -155,4 +156,9 @@ export function parsePostHogObjectUrl(
     return { kind: template.kind, id, href: url.toString() };
   }
   return null;
+}
+
+export function objectUrlLabel(ref: PostHogObjectUrlRef): string {
+  const { kindLabel, idIsBody } = OBJECT_KIND_DATA[ref.kind as ObjectKindName];
+  return idIsBody ? kindLabel : `${kindLabel} ${ref.id}`;
 }

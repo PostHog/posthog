@@ -1,4 +1,5 @@
 import {
+  objectUrlLabel,
   type PostHogLinkContext,
   type PostHogObjectUrlRef,
   parsePostHogObjectUrl,
@@ -286,20 +287,13 @@ function objectLinkRef(
   return parsePostHogObjectUrl(node.url, state.links);
 }
 
-function objectLinkLabel(
-  node: Link,
-  ref: PostHogObjectUrlRef,
-): PhrasingContent[] {
-  if (!isAutoLink(node)) return node.children as PhrasingContent[];
-  const { kindLabel } = getObjectKind(ref.kind);
-  return [text(ref.kind === "hogql" ? kindLabel : `${kindLabel} ${ref.id}`)];
-}
-
 function inlineLinkNode(node: Link, ref: PostHogObjectUrlRef): PhrasingContent {
   return {
     type: "link",
     url: `evidence:${ref.kind}/${encodeURIComponent(ref.id)}`,
-    children: objectLinkLabel(node, ref),
+    children: isAutoLink(node)
+      ? [text(objectUrlLabel(ref))]
+      : (node.children as PhrasingContent[]),
     data: { hProperties: { [OBJECT_LINK_HREF]: ref.href } },
   };
 }
@@ -326,12 +320,12 @@ function liftParagraphObjectLink(
   paragraph: Parent,
   state: TransformState,
 ): RootContent | null {
-  if (state.blockBudget <= 0 || !state.links) return null;
+  if (state.blockBudget <= 0) return null;
   const kids = (paragraph.children as RootContent[]).filter(
     (kid) => !(kid.type === "text" && !kid.value.trim()),
   );
   if (kids.length !== 1 || kids[0].type !== "link") return null;
-  const ref = parsePostHogObjectUrl(kids[0].url, state.links);
+  const ref = objectLinkRef(kids[0], undefined, state);
   if (!ref) return null;
   const block = blockLinkNode(kids[0], ref);
   if (block) state.blockBudget--;

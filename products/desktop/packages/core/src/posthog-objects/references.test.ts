@@ -43,6 +43,11 @@ describe("extractPostHogObjectReferences", () => {
       ],
     ],
     [
+      "a SQL link with raw spaces in angle brackets",
+      "[Errors](<https://us.posthog.com/project/2/sql?open_query=SELECT count() FROM events>)",
+      [{ kind: "hogql", id: "SELECT count() FROM events", label: "Errors" }],
+    ],
+    [
       "a bare URL at the end of a sentence",
       "See https://us.posthog.com/project/2/feature_flags/42.",
       [{ kind: "flag", id: "42", label: "Feature flag 42" }],

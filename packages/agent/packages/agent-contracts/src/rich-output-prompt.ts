@@ -34,10 +34,6 @@ export function renderRichOutputPrompt(projectUrl?: string | null): string {
 - Recording card: a link to \`${base}/replay/<session_id>\` alone in its own paragraph renders the recording's details with a link into PostHog's player. Use it when a specific session is the evidence.`;
 }
 
-function hasLinkBlock(prompt: string): boolean {
-  return prompt.search(LINK_BLOCK) !== -1;
-}
-
 export function appendRichOutputPrompt(
   prompt: string,
   interactionOrigin?: string | null,
@@ -51,7 +47,7 @@ export function appendRichOutputPrompt(
   ) {
     return withoutLegacy.replace(LINK_BLOCK, "");
   }
-  if (!projectUrl && hasLinkBlock(withoutLegacy)) {
+  if (!projectUrl && withoutLegacy.search(LINK_BLOCK) !== -1) {
     return withoutLegacy;
   }
   return `${withoutLegacy.replace(LINK_BLOCK, "")}\n\n${RICH_OUTPUT_PROMPT_HEADING}\n${renderRichOutputPrompt(projectUrl)}`;

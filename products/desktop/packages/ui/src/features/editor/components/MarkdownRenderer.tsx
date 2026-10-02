@@ -3,7 +3,7 @@ import { ArtifactRefChip } from "@posthog/ui/features/editor/components/Artifact
 import { EvidenceRefChip } from "@posthog/ui/features/editor/components/EvidenceRefChip";
 import { githubRefChipFor } from "@posthog/ui/features/editor/components/githubRefChipFor";
 import { MessageChartCard } from "@posthog/ui/features/editor/components/MessageChartCard";
-import { usePostHogLinkContext } from "@posthog/ui/features/editor/usePostHogLinkContext";
+import { useObjectTagRemarkPlugins } from "@posthog/ui/features/editor/usePostHogLinkContext";
 import { CodeBlock } from "@posthog/ui/primitives/CodeBlock";
 import { Divider } from "@posthog/ui/primitives/Divider";
 import { HighlightedCode } from "@posthog/ui/primitives/HighlightedCode";
@@ -20,7 +20,6 @@ import {
   isMermaidCodeBlock,
   MERMAID_LANGUAGE,
 } from "@posthog/ui/utils/mermaidBlocks";
-import { remarkObjectTags } from "@posthog/ui/utils/remarkObjectTags";
 import { handleShareLinkClick } from "@posthog/ui/utils/shareLinks";
 import { Blockquote, Checkbox, Code, Kbd, Text } from "@radix-ui/themes";
 import { memo, useMemo } from "react";
@@ -276,11 +275,7 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
     () => preprocessMarkdown(content),
     [content],
   );
-  const links = usePostHogLinkContext();
-  const objectTagRemarkPlugins = useMemo<PluggableList>(
-    () => [...defaultRemarkPlugins, [remarkObjectTags, { links }]],
-    [links],
-  );
+  const objectTagRemarkPlugins = useObjectTagRemarkPlugins();
   const plugins =
     remarkPluginsOverride ??
     (renderObjectTags ? objectTagRemarkPlugins : defaultRemarkPlugins);
