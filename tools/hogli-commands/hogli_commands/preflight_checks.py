@@ -194,8 +194,9 @@ def _semgrep_findings(semgrep: list[str], contents: dict[str, bytes]) -> dict[Fi
     if result.returncode != 0:
         return None
     report = json.loads(result.stdout)
-    # Semgrep can exit zero and still list a rule or a file it could not process.
-    if report.get("errors"):
+    # Semgrep can exit zero and still list a failure. A file it parsed only in part is listed
+    # at "warn" level on ordinary TypeScript, and its other findings are still valid.
+    if any(error.get("level") == "error" for error in report.get("errors", [])):
         return None
     findings: dict[Finding, list[int]] = {}
     for item in report["results"]:
