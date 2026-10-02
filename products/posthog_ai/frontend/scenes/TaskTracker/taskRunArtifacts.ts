@@ -1,6 +1,3 @@
-import { posthogAiObjectEmbeds } from '~/posthogAiObjectEmbeds'
-
-import type { ObjectEmbedEntry } from 'products/posthog_ai/frontend/types/objectEmbedTypes'
 import type {
     TaskRunArtifactResponseApi,
     TaskRunLivingArtifactResponseApi,
@@ -35,21 +32,8 @@ export interface PostHogObjectRef {
     objectId: string
 }
 
-/** Live views that other products declare for the kinds they own. */
-export const PRODUCT_OBJECT_EMBEDS: ReadonlyMap<string, ObjectEmbedEntry['Embed']> = new Map(
-    posthogAiObjectEmbeds.map((entry) => [entry.kind, entry.Embed])
-)
-
 /** Object kinds the preview shows live, with the components their own pages use. Others show a card. */
-export const LIVE_OBJECT_KINDS: ReadonlySet<string> = new Set([
-    'insight',
-    'hogql',
-    'dashboard',
-    'replay',
-    'flag',
-    'cohort',
-    ...PRODUCT_OBJECT_EMBEDS.keys(),
-])
+export const LIVE_OBJECT_KINDS: ReadonlySet<string> = new Set(['insight', 'hogql', 'dashboard', 'replay'])
 
 export function postHogObjectRef(artifact: TaskRunArtifactResponseApi): PostHogObjectRef | null {
     const metadata = artifact.metadata

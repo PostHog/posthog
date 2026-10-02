@@ -4,7 +4,6 @@ import { HttpResponse } from 'msw'
 import { ReactNode, useEffect } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import FEATURE_FLAGS_FIXTURE from 'scenes/feature-flags/__mocks__/feature_flags.json'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -12,12 +11,8 @@ import { SceneLayout } from '~/layout/scenes/SceneLayout'
 import { TodayShell } from '~/layout/today/TodayShell'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { mswDecorator } from '~/mocks/browser'
-import EXPERIMENT_WITH_MEAN_METRIC from '~/mocks/fixtures/api/experiments/experiment_with_mean_metric.json'
-import EXPOSURE_QUERY_RESULT from '~/mocks/fixtures/api/experiments/exposure_query_result.json'
-import MEAN_METRIC_RESULT from '~/mocks/fixtures/api/experiments/mean_metric_result.json'
 import TRENDS_LINE_INSIGHT from '~/mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
 import type { MockSignature } from '~/mocks/utils'
-import { NodeKind } from '~/queries/schema/schema-general'
 
 import type {
     TaskRunArtifactResponseApi,
@@ -208,7 +203,7 @@ const WALKTHROUGH_WEBM_BASE64 =
 function objectReference(
     id: string,
     name: string,
-    objectKind: 'insight' | 'dashboard' | 'flag' | 'experiment' | 'cohort' | 'survey' | 'person' | 'error' | 'action',
+    objectKind: 'insight' | 'dashboard' | 'flag' | 'experiment' | 'cohort' | 'survey',
     objectId: string,
     uploadedAt: string
 ): TaskRunArtifactResponseApi {
@@ -229,222 +224,25 @@ function objectReference(
     } as TaskRunArtifactResponseApi
 }
 
-const SURVEY_ID = '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b'
-const PERSON_ID = '0190a1b2-c3d4-7e5f-8a9b-1c2d3e4f5a6b'
-const ISSUE_ID = '0190a1b2-c3d4-7e5f-8a9b-2c3d4e5f6a7b'
-
 const OBJECT_REFERENCES = [
     objectReference('phref_trial_funnel', 'Trial funnel by step', 'insight', 'aBcD1234', '2026-09-28T18:12:00Z'),
     objectReference('phref_growth', 'Growth review', 'dashboard', '42', '2026-09-28T18:11:00Z'),
     objectReference('phref_flag', 'new-plan-picker', 'flag', '7', '2026-09-28T18:10:00Z'),
     objectReference('phref_experiment', 'Plan picker layout test', 'experiment', '12', '2026-09-28T18:09:00Z'),
     objectReference('phref_cohort', 'Trial starters on laptops', 'cohort', '3', '2026-09-28T18:08:00Z'),
-    objectReference('phref_survey', 'Plan picker feedback', 'survey', SURVEY_ID, '2026-09-28T18:07:00Z'),
-    objectReference('phref_person', 'ada@example.com', 'person', PERSON_ID, '2026-09-28T18:06:00Z'),
-    objectReference('phref_error', 'TypeError in plan picker', 'error', ISSUE_ID, '2026-09-28T18:05:00Z'),
-    objectReference('phref_action', 'Started trial', 'action', '21', '2026-09-28T18:04:00Z'),
+    objectReference('phref_survey', 'Plan picker feedback', 'survey', 'survey-plan-picker', '2026-09-28T18:07:00Z'),
 ]
 
 const CITED_INSIGHT = { ...TRENDS_LINE_INSIGHT, short_id: 'aBcD1234', name: 'Trial funnel by step' }
 
-const CITED_FLAG = {
-    ...FEATURE_FLAGS_FIXTURE.results[0],
-    id: 7,
-    key: 'new-plan-picker',
-    name: 'Pin the start trial button to the top of the plan table',
-    active: true,
-    filters: {
-        groups: [
-            {
-                properties: [{ key: 'email', type: 'person', value: 'example.com', operator: 'icontains' }],
-                rollout_percentage: 100,
-                description: 'Internal testers',
-            },
-            { properties: [], rollout_percentage: 50 },
-        ],
-        multivariate: null,
-        payloads: {},
-    },
-}
-
-const CITED_COHORT = {
-    id: 3,
-    name: 'Trial starters on laptops',
-    count: 1009,
-    is_static: false,
-    is_calculating: false,
-    last_calculation: '2026-09-28T17:00:00Z',
-    created_at: '2026-09-21T10:00:00Z',
-    deleted: false,
-    filters: { properties: { type: 'AND', values: [] } },
-}
-
-const COHORT_PEOPLE = ['ada@example.com', 'grace@example.com', 'linus@example.com', 'margaret@example.com']
-
-const CITED_EXPERIMENT = { ...EXPERIMENT_WITH_MEAN_METRIC, id: 12, name: 'Plan picker layout test' }
-
-const CITED_SURVEY = {
-    id: SURVEY_ID,
-    name: 'Plan picker feedback',
-    description: 'Ask people who leave the plan picker what stopped them.',
-    type: 'popover',
-    questions: [
-        {
-            id: 'q-reason',
-            type: 'single_choice',
-            question: 'What stopped you from starting a trial?',
-            choices: ['I could not find the button', 'The price was not clear', 'I am still comparing', 'Other'],
-        },
-        { id: 'q-ease', type: 'rating', question: 'How easy was it to pick a plan?', display: 'number', scale: 5 },
-        { id: 'q-more', type: 'open', question: 'Anything else we should know?' },
-    ],
-    start_date: '2026-09-22T09:00:00Z',
-    end_date: null,
-    archived: false,
-    created_at: '2026-09-21T16:00:00Z',
-    linked_flag: null,
-    targeting_flag: null,
-    internal_targeting_flag: null,
-    conditions: null,
-    feature_flag_keys: [],
-}
-
-const CITED_PERSON_PROPERTIES = {
-    email: 'ada@example.com',
-    name: 'Ada Example',
-    $geoip_country_name: 'Portugal',
-    $geoip_city_name: 'Porto',
-    $browser: 'Firefox',
-    $os: 'Mac OS X',
-    plan: 'free',
-}
-
-const CITED_ISSUE = {
-    id: ISSUE_ID,
-    status: 'active',
-    severity: null,
-    name: 'TypeError',
-    description: "Cannot read properties of undefined (reading 'priceId')",
-    first_seen: '2026-09-22T09:14:00Z',
-    assignee: null,
-    external_issues: [],
-    cohort: null,
-}
-
-const ISSUE_VOLUME = [3, 4, 2, 5, 3, 4, 41, 58, 63, 49, 52, 47, 55, 50]
-
-/** The insight and cohort embeds each run their own query through the same endpoint. */
-async function queryByKind({ request }: { request: Request }): Promise<Record<string, unknown>> {
-    const { query } = (await request.json()) as {
-        query: { kind: string; source?: { kind: string }; query?: string; values?: Record<string, unknown> }
-    }
-    if (query.kind === NodeKind.ExperimentExposureQuery) {
-        return EXPOSURE_QUERY_RESULT
-    }
-    if (query.kind === NodeKind.ExperimentQuery) {
-        return MEAN_METRIC_RESULT
-    }
-    if (query.kind === NodeKind.ErrorTrackingQuery) {
-        const start = new Date('2026-09-21T18:00:00Z').getTime()
-        const bucketMs = 12 * 60 * 60 * 1000
-        return {
-            results: [
-                {
-                    ...CITED_ISSUE,
-                    last_seen: '2026-09-28T17:58:00Z',
-                    library: 'web',
-                    aggregations: {
-                        occurrences: 436,
-                        users: 212,
-                        sessions: 251,
-                        volume_buckets: ISSUE_VOLUME.map((value, index) => ({
-                            label: new Date(start + index * bucketMs).toISOString(),
-                            value,
-                        })),
-                    },
-                },
-            ],
-            hasMore: false,
-        }
-    }
-    if (query.kind === NodeKind.HogQLQuery && query.values?.id === PERSON_ID) {
-        return {
-            results: [
-                [
-                    PERSON_ID,
-                    ['ada@example.com', 'anon-7f3a9c'],
-                    JSON.stringify(CITED_PERSON_PROPERTIES),
-                    1,
-                    '2026-09-21T10:00:00Z',
-                    '2026-09-28T18:00:00Z',
-                ],
-            ],
-        }
-    }
-    if (query.kind === NodeKind.HogQLQuery && query.query?.includes('session_count')) {
-        return { results: [[14, 238]] }
-    }
-    if (query.kind === NodeKind.EventsQuery || query.source?.kind === NodeKind.EventsQuery) {
-        const events = ['$pageview', 'plan picker viewed', '$exception', '$pageleave']
-        return {
-            columns: [
-                '*',
-                'event',
-                'person_display_name -- Person',
-                'coalesce(properties.$current_url, properties.$screen_name) -- Url / Screen',
-                'properties.$lib',
-                'timestamp',
-            ],
-            types: ['Tuple', 'String', 'Tuple', 'String', 'String', 'DateTime'],
-            results: events.map((event, index) => [
-                {
-                    uuid: `event-${index}`,
-                    event,
-                    distinct_id: 'ada@example.com',
-                    properties: { $current_url: 'https://example.com/pricing' },
-                    timestamp: `2026-09-28T17:5${index}:00Z`,
-                },
-                event,
-                { display_name: 'ada@example.com', id: PERSON_ID, distinct_id: 'ada@example.com' },
-                'https://example.com/pricing',
-                'web',
-                `2026-09-28T17:5${index}:00Z`,
-            ]),
-            hasMore: false,
-        }
-    }
-    if (query.kind === NodeKind.ActorsQuery || query.source?.kind === NodeKind.ActorsQuery) {
-        return {
-            columns: ['person_display_name -- Person', 'id', 'created_at'],
-            results: COHORT_PEOPLE.map((email, index) => [
-                { display_name: email, id: `person-${index}` },
-                `person-${index}`,
-                '2026-09-21T10:00:00Z',
-            ]),
-            hasMore: false,
-        }
-    }
-    return { results: CITED_INSIGHT.result }
-}
-
-// Each live embed loads its object, then runs the queries its own page runs.
+// The live insight embed loads the saved insight, then runs its query.
 const OBJECT_MOCKS = {
     get: {
         '/api/environments/:team_id/insights/': { count: 1, results: [CITED_INSIGHT] },
         '/api/projects/:team_id/insights/': { count: 1, results: [CITED_INSIGHT] },
-        '/api/projects/:team_id/feature_flags/7/': CITED_FLAG,
-        '/api/projects/:team_id/feature_flags/7/status': { status: 'active', reason: 'Feature flag is active' },
-        '/api/projects/:team_id/cohorts/3/': CITED_COHORT,
-        '/api/projects/:team_id/experiments/12/': CITED_EXPERIMENT,
-        '/api/projects/:team_id/experiment_holdouts': [],
-        '/api/projects/:team_id/experiment_saved_metrics/': [],
-        [`/api/projects/:team_id/surveys/${SURVEY_ID}/`]: CITED_SURVEY,
-        '/api/projects/:team_id/surveys/responses_count': { [SURVEY_ID]: 214 },
-        [`/api/projects/:team_id/error_tracking/issues/${ISSUE_ID}/`]: CITED_ISSUE,
     },
     post: {
-        '/api/environments/:team_id/query/': queryByKind,
-        '/api/environments/:team_id/query/:kind': queryByKind,
+        '/api/environments/:team_id/query/': { results: CITED_INSIGHT.result },
     },
 }
 
@@ -697,39 +495,9 @@ export const PostHogObjects: Story = {
     render: () => <StoryPage fileName="phref_trial_funnel" />,
 }
 
-export const PostHogObjectFlag: Story = {
-    parameters: { msw: { mocks: objectMocks() } },
-    render: () => <StoryPage fileName="phref_flag" />,
-}
-
-export const PostHogObjectCohort: Story = {
-    parameters: { msw: { mocks: objectMocks() } },
-    render: () => <StoryPage fileName="phref_cohort" />,
-}
-
-export const PostHogObjectExperiment: Story = {
-    parameters: { msw: { mocks: objectMocks() } },
-    render: () => <StoryPage fileName="phref_experiment" />,
-}
-
-export const PostHogObjectSurvey: Story = {
-    parameters: { msw: { mocks: objectMocks() } },
-    render: () => <StoryPage fileName="phref_survey" />,
-}
-
-export const PostHogObjectPerson: Story = {
-    parameters: { msw: { mocks: objectMocks() } },
-    render: () => <StoryPage fileName="phref_person" />,
-}
-
-export const PostHogObjectErrorIssue: Story = {
-    parameters: { msw: { mocks: objectMocks() } },
-    render: () => <StoryPage fileName="phref_error" />,
-}
-
 export const PostHogObjectWithoutEmbed: Story = {
     parameters: { msw: { mocks: objectMocks() } },
-    render: () => <StoryPage fileName="phref_action" />,
+    render: () => <StoryPage fileName="phref_survey" />,
 }
 
 export const Versions: Story = {
