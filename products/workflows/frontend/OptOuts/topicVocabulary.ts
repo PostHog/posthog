@@ -19,6 +19,8 @@ export interface TopicVocabulary {
         publicDescriptionHelp: string
         created: string
         updated: string
+        keyTaken: string
+        saveFailed: string
     }
     topicSelect: {
         label: string
@@ -93,6 +95,8 @@ export const MESSAGE_CATEGORY_WORDS: TopicVocabulary = {
         publicDescriptionHelp: 'This description will be shown to users in the email preferences page.',
         created: 'Category created successfully',
         updated: 'Category updated successfully',
+        keyTaken: 'A message category with this key already exists',
+        saveFailed: "Couldn't save the message category. Try again.",
     },
     topicSelect: {
         label: 'Message category',
@@ -166,6 +170,8 @@ export const AUDIENCE_TOPIC_WORDS: TopicVocabulary = {
         publicDescriptionHelp: 'Recipients see this on their preferences page.',
         created: 'Topic created',
         updated: 'Topic updated',
+        keyTaken: 'Another topic already uses this key',
+        saveFailed: "Couldn't save the topic. Try again.",
     },
     topicSelect: {
         label: 'Topic',

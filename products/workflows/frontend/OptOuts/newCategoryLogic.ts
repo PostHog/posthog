@@ -3,6 +3,7 @@ import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 
 import { ApiConfig } from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { slugify } from 'lib/utils/strings'
 
@@ -191,6 +192,13 @@ export const newCategoryLogic = kea<newCategoryLogicType>([
     listeners(({ actions, props, values }) => ({
         resetForm: () => {
             actions.resetCategoryForm()
+        },
+        submitCategoryFormFailure: ({ error }) => {
+            if (error instanceof ApiError && error.attr === 'key') {
+                actions.setCategoryFormManualErrors({ key: values.words.topicForm.keyTaken })
+                return
+            }
+            lemonToast.error(values.words.topicForm.saveFailed)
         },
         setCategoryFormValue: ({ name }) => {
             const keyFollowsName = values.speaksAudience && !props.category && !values.keyTypedByHand
