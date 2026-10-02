@@ -98,6 +98,9 @@ from products.experiments.backend.models.experiment import Experiment
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.logs.backend.models import LogsAlertConfiguration, LogsView
+from products.messaging.backend.models.message_category import MessageCategory
+from products.messaging.backend.models.message_preferences import MessageRecipientPreference
+from products.messaging.backend.models.message_suppression import MessageSuppression
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerOrigin, ScannerType
@@ -552,22 +555,16 @@ def _create_hog_flow(team: Team, label: str) -> str:
 
 
 def _create_message_category(team: Team, label: str):
-    from products.messaging.backend.models.message_category import MessageCategory
-
     return MessageCategory.objects.create(team=team, key=f"category_{label}", name=f"Category {label}")
 
 
 def _create_message_recipient_preference(team: Team, label: str):
-    from products.messaging.backend.models.message_preferences import MessageRecipientPreference
-
     return MessageRecipientPreference.objects.create(
         team=team, identifier=f"{label}@example.com", preferences={"$all": "OPTED_OUT"}
     )
 
 
 def _create_message_suppression(team: Team, label: str, suppressed: bool = True, **fields: object):
-    from products.messaging.backend.models.message_suppression import MessageSuppression
-
     return MessageSuppression.objects.for_team(team.id).create(
         team=team, identifier=f"{label}@example.com", suppressed=suppressed, **fields
     )
