@@ -323,31 +323,35 @@ impl FlagEvaluationState {
     /// `is_condition_match` passes each filter on a failed flag on its own. This check finds the
     /// conflict that those separate passes miss.
     fn failed_dependency_filters_conflict(&self, filters: &[PropertyFilter]) -> bool {
-        let failed_filters: Vec<(FeatureFlagId, &PropertyFilter)> = filters
-            .iter()
-            .filter_map(|filter| Some((self.failed_dependency(filter)?, filter)))
-            .collect();
-        failed_filters.iter().any(|&(flag_id, _)| {
-            let filters_on_flag = || {
-                failed_filters
+        let mut filters_by_flag: HashMap<FeatureFlagId, Vec<&PropertyFilter>> = HashMap::new();
+        for filter in filters {
+            if let Some(flag_id) = self.failed_dependency(filter) {
+                filters_by_flag.entry(flag_id).or_default().push(filter);
+            }
+        }
+        filters_by_flag
+            .into_iter()
+            .any(|(flag_id, filters_on_flag)| {
+                if filters_on_flag.len() < 2 {
+                    return false;
+                }
+                let variants = filters_on_flag
                     .iter()
-                    .filter(move |(id, _)| *id == flag_id)
-                    .map(|(_, filter)| *filter)
-            };
-            let variants = filters_on_flag().filter_map(|filter| match &filter.value {
-                Some(Value::String(variant)) => Some(FlagValue::String(variant.clone())),
-                _ => None,
-            });
-            let can_match = [FlagValue::Boolean(false), FlagValue::Boolean(true)]
-                .into_iter()
-                .chain(variants)
-                .any(|value| {
-                    let results = HashMap::from([(flag_id, value)]);
-                    filters_on_flag()
-                        .all(|filter| match_flag_value_to_flag_filter(filter, &results))
-                });
-            !can_match
-        })
+                    .filter_map(|filter| match &filter.value {
+                        Some(Value::String(variant)) => Some(FlagValue::String(variant.clone())),
+                        _ => None,
+                    });
+                let can_match = [FlagValue::Boolean(false), FlagValue::Boolean(true)]
+                    .into_iter()
+                    .chain(variants)
+                    .any(|value| {
+                        let results = HashMap::from([(flag_id, value)]);
+                        filters_on_flag
+                            .iter()
+                            .all(|filter| match_flag_value_to_flag_filter(filter, &results))
+                    });
+                !can_match
+            })
     }
 }
 
@@ -454,10 +458,10 @@ pub struct FeatureFlagMatcher {
     rayon_dispatcher: Option<RayonDispatcher>,
     /// When true, skip all writes to PostgreSQL and Redis.
     skip_writes: bool,
-    /// When true, a dependent of a failed flag fails only when the failed flag could change
-    /// whether the dependent matches. A failed flag that could change only the variant does not
-    /// fail it.
-    ignore_variants_in_dependency_check: bool,
+    /// Keys of flags whose caller reads only `enabled`. A failed dependency fails one of these
+    /// flags only when it could change whether the flag matches. Every other flag keeps the
+    /// variant comparison, because a dependent can filter on its variant.
+    enabled_only_flag_keys: HashSet<String>,
     /// Flag IDs that should be skipped during evaluation.
     /// Populated once per request from `FeatureFlagList::filtered_out_flag_ids`.
     pub(crate) filtered_out_flag_ids: HashSet<i32>,
@@ -557,7 +561,7 @@ impl FeatureFlagMatcher {
             parallel_eval_threshold: DEFAULT_PARALLEL_EVAL_THRESHOLD,
             rayon_dispatcher: None,
             skip_writes: false,
-            ignore_variants_in_dependency_check: false,
+            enabled_only_flag_keys: HashSet::new(),
             filtered_out_flag_ids: HashSet::new(),
             enable_realtime_cohort_evaluation: false,
             use_explicit_exact_matching: false,
@@ -598,8 +602,8 @@ impl FeatureFlagMatcher {
         self
     }
 
-    pub fn with_ignore_variants_in_dependency_check(mut self, ignore_variants: bool) -> Self {
-        self.ignore_variants_in_dependency_check = ignore_variants;
+    pub fn with_enabled_only_flag_keys(mut self, flag_keys: HashSet<String>) -> Self {
+        self.enabled_only_flag_keys = flag_keys;
         self
     }
 
@@ -1863,31 +1867,23 @@ impl FeatureFlagMatcher {
                         failed_dependency,
                         answer: ConditionAnswer::NoMatch,
                     });
-                    let (new_highest_match, new_highest_index) = self
-                        .get_highest_priority_match_evaluation(
-                            highest_match.clone(),
-                            highest_index,
-                            reason.clone(),
-                            Some(index),
-                        );
-                    highest_match = new_highest_match;
-                    highest_index = new_highest_index;
-                    continue;
+                } else {
+                    if let Some(dependency) = self.dependency_that_changes_answer(
+                        flag,
+                        &answers_if_dependency_matched,
+                        &ConditionAnswer::NoMatch,
+                    ) {
+                        return Err(FlagError::DependencyFailed(dependency.into()));
+                    }
+                    return Ok(FeatureFlagMatch {
+                        matches: false,
+                        variant: None,
+                        reason: FeatureFlagMatchReason::OutOfRolloutBound,
+                        condition_index: Some(index),
+                        payload: None,
+                        evaluation_v2: None,
+                    });
                 }
-                if let Some(dependency) = self.dependency_that_changes_answer(
-                    &answers_if_dependency_matched,
-                    &ConditionAnswer::NoMatch,
-                ) {
-                    return Err(FlagError::DependencyFailed(dependency.into()));
-                }
-                return Ok(FeatureFlagMatch {
-                    matches: false,
-                    variant: None,
-                    reason: FeatureFlagMatchReason::OutOfRolloutBound,
-                    condition_index: Some(index),
-                    payload: None,
-                    evaluation_v2: None,
-                });
             }
 
             if is_match {
@@ -1928,6 +1924,7 @@ impl FeatureFlagMatcher {
                 )?;
                 if !answers_if_dependency_matched.is_empty() {
                     if let Some(dependency) = self.dependency_that_changes_answer(
+                        flag,
                         &answers_if_dependency_matched,
                         &ConditionAnswer::Match(variant.clone()),
                     ) {
@@ -1948,6 +1945,7 @@ impl FeatureFlagMatcher {
         }
 
         if let Some(dependency) = self.dependency_that_changes_answer(
+            flag,
             &answers_if_dependency_matched,
             &ConditionAnswer::NoMatch,
         ) {
@@ -2045,28 +2043,30 @@ impl FeatureFlagMatcher {
         })
     }
 
-    /// This function determines the highest priority match evaluation for feature flag conditions.
-    /// It compares the current match reason with a new match reason and returns the higher priority one.
-    /// The priority is determined by the ordering of FeatureFlagMatchReason variants.
-    /// It's used to keep track of the most significant reason why a flag matched or didn't match,
-    /// especially useful when multiple conditions are evaluated.
     fn dependency_that_changes_answer(
         &self,
+        flag: &FeatureFlag,
         answers_if_dependency_matched: &[AnswerIfDependencyMatched],
         answer: &ConditionAnswer,
     ) -> Option<FeatureFlagId> {
+        let compare_variants = !self.enabled_only_flag_keys.contains(&flag.key);
         answers_if_dependency_matched
             .iter()
             .find(|candidate| {
-                if self.ignore_variants_in_dependency_check {
-                    candidate.answer.is_match() != answer.is_match()
-                } else {
+                if compare_variants {
                     candidate.answer != *answer
+                } else {
+                    candidate.answer.is_match() != answer.is_match()
                 }
             })
             .map(|candidate| candidate.failed_dependency)
     }
 
+    /// This function determines the highest priority match evaluation for feature flag conditions.
+    /// It compares the current match reason with a new match reason and returns the higher priority one.
+    /// The priority is determined by the ordering of FeatureFlagMatchReason variants.
+    /// It's used to keep track of the most significant reason why a flag matched or didn't match,
+    /// especially useful when multiple conditions are evaluated.
     fn get_highest_priority_match_evaluation(
         &self,
         current_match: FeatureFlagMatchReason,

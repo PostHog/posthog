@@ -489,6 +489,7 @@ The check runs only after a flag has failed in the request.
 An unsupported non-v1 flag is the exception: it fails, but its dependents read it as false, as described above.
 The batch evaluation endpoint adds a person to the cohort when the target is enabled, and it never reads the variant.
 So it compares the two answers by match only, and a failed flag that could change only the variant does not fail the target.
+The target's dependencies keep the variant comparison, because the target can filter on their variants.
 The batch evaluation endpoint retries a target that failed with `dependency_failed` only when every failed dependency reports a transient code.
 
 ### Partial flag evaluation
