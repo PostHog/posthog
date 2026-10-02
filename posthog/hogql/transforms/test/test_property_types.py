@@ -37,7 +37,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.functions.clickhouse.json import JSON_FUNCTIONS
 from posthog.hogql.functions.udfs import JSON_DROP_KEYS_CLICKHOUSE_NAME
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.property_access_types import RestrictedProperty
@@ -2326,7 +2326,9 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         # The HAVING max(timestamp) comparison should preserve toTimeZone
         assert re.search(r"HAVING.*toTimeZone", sql), f"Expected toTimeZone preserved in HAVING, got:\n{sql}"
 
-    def _assert_correct_results(self, hogql: str | ast.SelectQuery, timezone: str, expected_count: int) -> None:
+    def _assert_correct_results(
+        self, hogql: str | ast.SelectQuery | ast.SelectSetQuery, timezone: str, expected_count: int
+    ) -> None:
         self.team.timezone = timezone
         self.team.save()
         response = execute_hogql_query(hogql, team=self.team)
@@ -2409,7 +2411,7 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
             _create_event(team=self.team, distinct_id="nano_user", event="nano_test", timestamp=timestamp)
         flush_persons_and_events()
 
-        bound = parse_select(f"SELECT {bound_sql}").select[0]
+        bound = parse_expr(bound_sql)
         for alias_index in range(alias_depth):
             bound = ast.Alias(alias=f"date_bound_{alias_index}", expr=bound, hidden=True)
         where = comparison.format(bound="{bound}")
