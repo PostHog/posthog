@@ -1458,6 +1458,18 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                           'linked_flag',
                                                                                           flag
                                                                                       )
+                                                                                      // Recent picks carry no filters, so fetch the full flag for the variant picker.
+                                                                                      if (!flag.filters) {
+                                                                                          api.featureFlags
+                                                                                              .get(id)
+                                                                                              .then((fullFlag) => {
+                                                                                                  setSurveyValue(
+                                                                                                      'linked_flag',
+                                                                                                      fullFlag
+                                                                                                  )
+                                                                                              })
+                                                                                              .catch(() => {})
+                                                                                      }
                                                                                       // Reset variant selection when flag changes
                                                                                       const {
                                                                                           linkedFlagVariant,
@@ -1495,7 +1507,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                       </div>
                                                                   )}
                                                               </LemonField>
-                                                              {survey.linked_flag?.filters.multivariate && (
+                                                              {survey.linked_flag?.filters?.multivariate && (
                                                                   <LemonField.Pure
                                                                       label="Link to a specific flag variant"
                                                                       info="Choose which variant of the feature flag to link to this survey.
@@ -1510,7 +1522,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                               }
                                                                               options={variantOptions(
                                                                                   survey.linked_flag?.filters
-                                                                                      .multivariate || undefined
+                                                                                      ?.multivariate || undefined
                                                                               )}
                                                                               onChange={(variant) => {
                                                                                   setSurveyValue('conditions', {
