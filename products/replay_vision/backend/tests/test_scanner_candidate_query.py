@@ -15,10 +15,13 @@ from posthog.schema import (
 from posthog.hogql import ast
 
 from posthog.clickhouse.client import sync_execute
+from posthog.models import User
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
 from posthog.test.persons import create_person
 
+from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.replay_vision.backend.queries.scanner_candidate_query import (
     BALANCED_SURFACING_THRESHOLD,
     DEFAULT_CANDIDATE_LIMIT,
@@ -898,11 +901,6 @@ class TestBalancedVariantSamplingAgainstClickHouse(ClickhouseTestMixin):
     def test_per_variant_rates_gate_candidates_by_attributed_variant(self, team) -> None:
         # Per-variant thresholds must select by each session's attributed variant, not by one
         # scanner-wide rate: a broken join projection or multiIf would sample both arms alike.
-        from posthog.models import User
-
-        from products.experiments.backend.models.experiment import Experiment
-        from products.feature_flags.backend.models.feature_flag import FeatureFlag
-
         creator = User.objects.create_and_join(team.organization, "balanced@posthog.com", "testtest")
         flag = FeatureFlag.objects.create(
             team=team,
