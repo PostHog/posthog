@@ -167,6 +167,7 @@ export function determineMergeMode(
         throw new Error(`PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT must be an integer, got ${personMergeMoveDistinctIdLimit}`)
     }
 
+    // If async merge is enabled, use async mode for over-limit merges
     if (personMergeAsyncEnabled && personMergeMoveDistinctIdLimit > 0) {
         return {
             type: 'ASYNC',
@@ -174,6 +175,7 @@ export function determineMergeMode(
         }
     }
 
+    // If no async and we have a limit, use limit mode (reject over-limit merges)
     if (personMergeMoveDistinctIdLimit > 0) {
         return {
             type: 'LIMIT',
