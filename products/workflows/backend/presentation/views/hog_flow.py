@@ -218,6 +218,7 @@ from products.workflows.backend.facade.writes import (
     edit_workflow_content,
     publish_confirm_value,
     publish_draft,
+    snapshot_content_fields,
     trigger_has_audience,
     update_workflow,
 )
@@ -349,17 +350,7 @@ def _reject_clock_based_wait(config: dict, team: Team) -> None:
 
 
 def snapshot_flow_content(flow: HogFlow) -> dict:
-    snapshot = {field: getattr(flow, field) for field in DRAFT_CONTENT_FIELDS}
-    # The model's legacy default for actions/edges is `{}`, but the API shape is a list — normalize
-    # so re-validation of a snapshot (draft publish, revision restore) doesn't choke on a
-    # never-edited column.
-    for field in ("actions", "edges"):
-        if not snapshot[field]:
-            snapshot[field] = []
-    # Defensively strip secrets: a legacy row written before encryption shipped still has plaintext
-    # secret inputs in `actions`, and this snapshot feeds revision content — which must never carry
-    # secrets. New rows are already stripped, so this is a no-op for them.
-    return strip_content_secrets(snapshot)
+    return snapshot_content_fields({field: getattr(flow, field) for field in DRAFT_CONTENT_FIELDS})
 
 
 def live_flow_content(flow: HogFlow) -> LiveWorkflowContent:

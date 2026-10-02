@@ -7,6 +7,7 @@ from products.workflows.backend.services.hog_flow_writes import (
     edit_workflow_content,
     publish_confirm_value,
     publish_draft,
+    snapshot_content_fields,
     trigger_has_audience,
     update_workflow,
 )
@@ -19,6 +20,7 @@ __all__ = [
     "edit_workflow_content",
     "publish_confirm_value",
     "publish_draft",
+    "snapshot_content_fields",
     "trigger_has_audience",
     "update_workflow",
 ]

@@ -42,7 +42,11 @@ DRAFT_CONTENT_FIELDS = (
 
 
 def snapshot_flow_content(flow: HogFlow) -> dict:
-    snapshot = {field: getattr(flow, field) for field in DRAFT_CONTENT_FIELDS}
+    return snapshot_content_fields({field: getattr(flow, field) for field in DRAFT_CONTENT_FIELDS})
+
+
+def snapshot_content_fields(values: dict[str, Any]) -> dict:
+    snapshot = {field: values[field] for field in DRAFT_CONTENT_FIELDS}
     # The model's legacy default for actions/edges is `{}`, but the API shape is a list - normalize
     # so re-validation of a snapshot (draft publish, revision restore) doesn't choke on a
     # never-edited column.
