@@ -282,7 +282,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
     def test_capped_pages_return_each_row_once_and_virtual_properties_last(self) -> None:
         cache.clear()
-        pages = []
+        pages: list[dict[str, Any]] = []
         with (
             patch.object(definition_search, "PROJECT_SCAN_MAX_DEFINITIONS", 2),
             patch("posthog.taxonomy.property_definition_api.LARGE_PROJECT_COUNT_CAP", 3),
