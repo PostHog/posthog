@@ -540,7 +540,7 @@ class _MetricAttributeKeysParamsSerializer(serializers.Serializer):
         default=100,
         min_value=1,
         max_value=1000,
-        help_text="Max number of keys to return. Defaults to 100; maximum 1000.",
+        help_text="Max number of keys to return. Defaults to 100; values above 100 return at most 100 keys.",
     )
 
 
@@ -573,7 +573,7 @@ class _MetricAttributeValuesParamsSerializer(serializers.Serializer):
         default=100,
         min_value=1,
         max_value=1000,
-        help_text="Max number of values to return. Defaults to 100; maximum 1000.",
+        help_text="Max number of values to return. Defaults to 100; values above 100 return at most 100 values.",
     )
 
 
