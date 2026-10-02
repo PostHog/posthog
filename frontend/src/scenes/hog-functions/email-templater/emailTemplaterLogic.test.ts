@@ -628,6 +628,41 @@ describe('emailTemplaterLogic', () => {
             expect(logic.values.isModalOpen).toBe(true)
         })
     })
+
+    describe('template picker', () => {
+        it('applies the full template, including the design that the list response omits', async () => {
+            const design = { body: { rows: [] }, schemaVersion: 16 }
+            const listRow = {
+                id: 'template-1',
+                name: 'Welcome',
+                description: '',
+                content: { templating: 'liquid' as const, email: { ...DEFAULT_EMAIL_TEMPLATE, design: null } },
+                created_at: null,
+                updated_at: null,
+                created_by: null,
+            }
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/messaging_templates/template-1/': {
+                        ...listRow,
+                        content: { ...listRow.content, email: { ...listRow.content.email, design } },
+                    },
+                },
+            })
+            logic = emailTemplaterLogic(makeProps())
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.pickTemplate(listRow)
+            })
+                .toDispatchActions(['pickTemplate', 'applyTemplate'])
+                .toMatchValues({
+                    appliedTemplate: expect.objectContaining({
+                        content: expect.objectContaining({ email: expect.objectContaining({ design }) }),
+                    }),
+                })
+        })
+    })
 })
 
 describe('buildPersonPropertyMergeValue', () => {

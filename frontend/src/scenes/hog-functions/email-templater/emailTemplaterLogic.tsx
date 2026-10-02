@@ -308,6 +308,9 @@ export interface emailTemplaterLogicActions {
     onEmailEditorReady: () => {
         value: true
     }
+    pickTemplate: (template: MessageTemplate) => {
+        template: MessageTemplate
+    }
     resetEmailTemplate: (values?: EmailTemplate) => {
         values?: EmailTemplate
     }
@@ -405,6 +408,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         setIsTemplatePickerOpen: (isOpen: boolean) => ({ isOpen }),
         designUpdated: true,
         designLoaded: true,
+        pickTemplate: (template: MessageTemplate) => ({ template }),
         applyTemplate: (template: MessageTemplate) => ({ template }),
         closeWithConfirmation: true,
         setTemplatingEngine: (templating: 'hog' | 'liquid') => ({ templating }),
@@ -719,6 +723,15 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 // Plain text only when the email is genuinely text-only; a blank email starts visual.
                 const plainTextOnly = !!props.value.text && !props.value.html && !props.value.design
                 actions.setActiveContentTab(plainTextOnly ? 'plaintext' : 'visual')
+            }
+        },
+
+        pickTemplate: async ({ template }) => {
+            // The list response omits the design JSON, so fetch the full template before applying it.
+            try {
+                actions.applyTemplate(await api.messaging.getTemplate(template.id))
+            } catch {
+                lemonToast.error('Failed to load template')
             }
         },
 

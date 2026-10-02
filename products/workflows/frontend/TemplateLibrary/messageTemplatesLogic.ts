@@ -202,10 +202,12 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                 },
                 duplicateTemplate: async (template: MessageTemplate) => {
                     try {
+                        // The list response omits the design JSON, so copy from the full template.
+                        const { content } = await api.messaging.getTemplate(template.id)
                         const duplicatedTemplate = await api.messaging.createTemplate({
                             name: `${template.name} (copy)`,
                             description: template.description,
-                            content: template.content,
+                            content,
                         })
                         lemonToast.success('Template duplicated successfully')
                         return [...values.templates, duplicatedTemplate]

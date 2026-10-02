@@ -90,9 +90,13 @@ class EmailTemplateSerializer(serializers.Serializer):
     )
 
 
+class MessageTemplateContentTemplating(models.TextChoices):
+    LIQUID = "liquid", "liquid"
+
+
 class MessageTemplateContentSerializer(serializers.Serializer):
     templating = serializers.ChoiceField(
-        choices=["liquid"],
+        choices=MessageTemplateContentTemplating.choices,
         default="liquid",
         help_text="Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.",
     )
@@ -178,6 +182,26 @@ class MessageTemplateSerializer(serializers.ModelSerializer):
 
         instance = MessageTemplate.objects.create(**validated_data, team_id=team_id, created_by=request.user)
         return instance
+
+
+class EmailTemplateSummarySerializer(EmailTemplateSerializer):
+    design = None
+
+
+class MessageTemplateContentSummarySerializer(MessageTemplateContentSerializer):
+    email = EmailTemplateSummarySerializer(
+        required=False,
+        allow_null=True,
+        help_text="Email message content without the design JSON. Fetch the template to get the design.",
+    )
+
+
+class MessageTemplateSummarySerializer(MessageTemplateSerializer):
+    # The design JSON can be hundreds of KB per template, and list views only need the rendered html.
+    content = MessageTemplateContentSummarySerializer(
+        read_only=True,
+        help_text="Template content keyed by channel, without content.email.design.",
+    )
 
 
 class EmailTemplateDesignOperation(models.TextChoices):
@@ -295,6 +319,11 @@ class MessageTemplatesViewSet(
 
     serializer_class = MessageTemplateSerializer
     queryset = MessageTemplate.objects.all()
+
+    def get_serializer_class(self) -> type[serializers.BaseSerializer]:
+        if self.action == "list":
+            return MessageTemplateSummarySerializer
+        return MessageTemplateSerializer
 
     def safely_get_queryset(self, queryset):
         return (

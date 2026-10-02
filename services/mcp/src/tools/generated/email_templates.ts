@@ -79,13 +79,13 @@ const WorkflowsListEmailTemplatesSchema = () => {
 
 const workflowsListEmailTemplates = (): ToolBase<
     ReturnType<typeof WorkflowsListEmailTemplatesSchema>,
-    WithPostHogUrl<Schemas.PaginatedMessageTemplateList>
+    WithPostHogUrl<Schemas.PaginatedMessageTemplateSummaryList>
 > => ({
     name: 'workflows-list-email-templates',
     schema: WorkflowsListEmailTemplatesSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsListEmailTemplatesSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedMessageTemplateList>({
+        const result = await context.api.request<Schemas.PaginatedMessageTemplateSummaryList>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_templates/`,
             query: {
