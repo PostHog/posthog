@@ -13,6 +13,7 @@ The other half is `../inference/`, which consumes what this package produces and
   The real path. `run_training()` creates the `AutoresearchTrainingRun` (status `RUNNING`) and fires `Task.create_and_run()` with `internal=True` and no repository, so the run shows up as an internal Task rather than in the normal Tasks list.
   The brief carries user-authored text, so the sandbox token holds only `TRAINING_MCP_SCOPES` (the `execute-sql` reads, the autoresearch scopes, and `user:read`, which the PostHog MCP server needs to start a session), and an empty connector allowlist keeps the team's shared MCP connectors out of the sandbox.
   `build_agent_description()` assembles the agent's brief — the target, the horizon, the population, and the contract for the bundle it must author.
+  When the `autoresearch-report-notebook` flag is on for the launching user, the token also holds `REPORT_NOTEBOOK_MCP_SCOPES` and the brief adds a Finalize step: the agent builds one report notebook from the `system.autoresearch_*` tables and passes its `short_id` to complete. `report.md` stays required either way.
   The agent drives the rest _itself_ through the `autoresearch-*` MCP tools: it records each iteration, uploads the bundle, and calls complete. Nothing polls it.
 - `stub.py`
   `run_stub_training()` — a hand-authored champion recipe with universal engagement features (event counts, distinct event types, days since first seen) that apply to any team and any target.
@@ -27,6 +28,7 @@ The other half is `../inference/`, which consumes what this package produces and
   `_detect_uploaded_bundle()` decides whether the new model gets an `artifact_prefix` (bundle path) or only a recorded recipe (legacy path).
   The bundle is written once per run, so a losing iteration can overwrite it: the uploaded `features.sql` must match the `feature_sql` recorded by the selected iteration, whitespace aside, or promotion raises rather than publishing a champion whose recipe and score describe other code.
   `complete_training_run()` reads the bundle and enters the run's `team_scope()` before it opens the transaction, because the `TaskRun` safety net calls it from a worker thread with no request scope, and object-storage calls must not run under the row lock.
+  The agent's `report_notebook_short_id` goes into the run summary only if that notebook exists in the run's team. A bad id or a failed check stores an empty value and never fails completion.
   Only a promoted model is fitted. A challenger's `model.pkl` would never be read, because inference serves the champion and no path promotes a challenger row later.
 - `artifacts.py`
   Object storage for the bundle: `features.sql`, `train.py`, `predict.py`, plus the fitted `model.pkl` written at completion.
