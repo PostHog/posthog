@@ -99,7 +99,7 @@ WHERE latest_is_deleted = 0
 GROUP BY address
 """
 
-_PERSONS_WITHOUT_EMAIL_QUERY = "SELECT count() FROM persons WHERE properties.email IS NULL"
+_PERSONS_WITHOUT_EMAIL_QUERY = "SELECT count() FROM persons WHERE coalesce(trim(persons.properties.email), '') = ''"
 
 ALL_MARKETING_TOPIC_KEY = "all-marketing"
 
