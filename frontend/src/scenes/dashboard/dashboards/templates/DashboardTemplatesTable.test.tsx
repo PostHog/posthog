@@ -159,15 +159,15 @@ describe('DashboardTemplatesTable', () => {
     it.each(VIEWERS)('offers the demote action on an organization template for $label', ({ isStaff }) => {
         mountTable({ isStaff, templates: [makeTemplate('organization')] })
 
-        expect(screen.getByText('Make visible to this team only')).toBeInTheDocument()
+        expect(screen.getByText('Make visible to this project only')).toBeInTheDocument()
     })
 
     // Global templates are not org-shareable, so the staff guard `scope === 'team' || scope === 'organization'`
-    // must keep the org toggle out. The global toggle ("...this team only") still renders, proving the menu mounted.
+    // must keep the org toggle out. The global toggle ("...this project only") still renders, proving the menu mounted.
     it('hides the organization toggle on a global template for staff', () => {
         mountTable({ isStaff: true, templates: [makeTemplate('global')] })
 
-        expect(screen.getByText('Make visible to this team only')).toBeInTheDocument()
+        expect(screen.getByText('Make visible to this project only')).toBeInTheDocument()
         expect(screen.queryByText('Make visible to whole organization')).not.toBeInTheDocument()
     })
 

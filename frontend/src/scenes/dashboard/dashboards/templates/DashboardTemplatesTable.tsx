@@ -172,7 +172,9 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
             fullWidth
             data-attr="dashboard-template-toggle-organization-visibility"
         >
-            {record.scope === 'organization' ? 'Make visible to this team only' : 'Make visible to whole organization'}
+            {record.scope === 'organization'
+                ? 'Make visible to this project only'
+                : 'Make visible to whole organization'}
         </LemonButton>
     )
 
@@ -263,7 +265,7 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
             title: 'Type',
             dataIndex: 'team_id',
             render: (_, { scope }) =>
-                scope === 'global' ? 'Official' : scope === 'organization' ? 'Organization' : 'Team',
+                scope === 'global' ? 'Official' : scope === 'organization' ? 'Organization' : 'Project',
         },
         {
             title: 'Created by',
@@ -349,7 +351,7 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                                         }}
                                         fullWidth
                                     >
-                                        Make visible to {scope === 'global' ? 'this team only' : 'everyone'}
+                                        Make visible to {scope === 'global' ? 'this project only' : 'everyone'}
                                     </LemonButton>
 
                                     {scope === 'team' || scope === 'organization'
@@ -450,9 +452,10 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                             onClick={() =>
                                 setTemplatesTabVisibility(templatesTabVisibility === 'project' ? 'all' : 'project')
                             }
+                            // Pinned analytics value: it keeps the old "team" name because insights match on it.
                             data-attr="dashboard-templates-filter-team"
                         >
-                            Team
+                            Project
                         </LemonButton>
                         <LemonButton
                             active={templatesTabVisibility === 'organization'}
