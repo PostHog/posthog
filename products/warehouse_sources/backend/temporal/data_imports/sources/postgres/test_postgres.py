@@ -4092,13 +4092,16 @@ class TestChunkedRereadAfterRecoveryConflict:
             return self._rows[pivot:] + self._rows[:pivot]
 
     class _PageCursor:
-        def __init__(self, scan, column_names: list[str], column_type: str):
+        def __init__(self, scan, column_names: list[str], column_type: str, error: BaseException | None = None):
             self.description = [_fake_column(name) for name in column_names]
             self._scan = scan
             self._column_type = column_type
+            self._error = error
             self._result: list[tuple[Any, ...]] = []
 
         def execute(self, query, *args, **kwargs):
+            if self._error is not None:
+                raise self._error
             text = query.as_string()
             # Only an ORDER BY that reaches the primary key is total. Anything short of it leaves
             # rows tied, and each page is its own statement, so the pages overlap and skip.
@@ -4186,6 +4189,7 @@ class TestChunkedRereadAfterRecoveryConflict:
         pages_to_take: int | None = None,
         arrow_schema: pa.Schema | None = None,
         column_type: str = "integer",
+        page_error: BaseException | None = None,
     ) -> list[int | str]:
         @contextmanager
         def fake_tunnel():
@@ -4214,7 +4218,8 @@ class TestChunkedRereadAfterRecoveryConflict:
         with (
             patch(f"{module}.psycopg.connect", return_value=connection),
             patch(
-                f"{module}.psycopg.Cursor", side_effect=lambda _conn: self._PageCursor(scan, column_names, column_type)
+                f"{module}.psycopg.Cursor",
+                side_effect=lambda _conn: self._PageCursor(scan, column_names, column_type, page_error),
             ),
             patch(f"{module}._get_table", return_value=fake_table),
             patch(f"{module}._is_read_replica", return_value=True),
@@ -4303,6 +4308,22 @@ class TestChunkedRereadAfterRecoveryConflict:
         )
 
         assert sorted(ids) == [1, 2, 3, 4, 5, 6]
+
+    def test_xmin_reread_that_times_out_is_non_retryable(self):
+        # The replica canceled the server cursor with a recovery conflict, and the chunked re-read
+        # then hit the statement timeout as well. A whole-activity retry would re-read into the same
+        # replica, so the error must be the non-retryable one that names the replica settings.
+        with pytest.raises(QueryTimeoutException) as exc_info:
+            self._read_ids(
+                should_use_incremental_field=False,
+                rows_before_conflict=0,
+                primary_keys=["id"],
+                is_xmin=True,
+                page_error=psycopg.errors.QueryCanceled("canceling statement due to statement timeout"),
+            )
+
+        assert "max_standby_streaming_delay" in str(exc_info.value)
+        assert type(exc_info.value).__name__ in PostgresSource().get_non_retryable_errors()
 
     def test_retried_full_refresh_seeks_instead_of_reopening_the_cursor(self):
         # The first attempt re-raised past its first row, so a second server cursor conflicts at the

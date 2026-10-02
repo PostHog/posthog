@@ -4517,31 +4517,12 @@ def postgres_source(
                     # If we hit a SerializationFailure and we're reading from a read replica, we fallback to offset chunking
                     if using_read_replica and "conflict with recovery" in "".join(e.args):
                         # Paging by OFFSET needs a query whose order is total, the precondition the
-                        # connection-dropped handler below also enforces. A full-table read orders
-                        # nothing, and an xmin read orders on a cursor that every row of one
-                        # transaction shares, so both seek on the primary key instead. Seeking can
-                        # only start from the top, because rows already yielded are already written.
-                        if not should_use_incremental_field:
-                            if keyset_primary_keys is not None and offset == 0:
-                                logger.debug(
-                                    f"Falling back to keyset chunking for table due to SerializationFailure error: {e}."
-                                )
-                                yield from offset_chunking(
-                                    0,
-                                    chunk_size,
-                                    from_recovery_conflict=True,
-                                    keyset_primary_keys=keyset_primary_keys,
-                                )
-                                return
-                            # An xmin read still has its cursor to page on, and it appends, so
-                            # restarting it would duplicate the rows it already wrote. Keep paging.
-                            if xmin_bounds is None:
-                                if keyset_primary_keys is None:
-                                    raise _unorderable_read_abort_error(schema, table_name) from e
-                                # Retryable, so Temporal restarts the read and the load overwrites
-                                # from the first batch. The next attempt can conflict before any row
-                                # is out, where seeking takes over.
-                                raise
+                        # connection-dropped handler below also enforces. A full-table read reaches
+                        # this server cursor only when the table has no seekable key, so it orders
+                        # nothing and cannot page. An xmin read still has its cursor to page on, and
+                        # it appends, so restarting it would duplicate the rows it already wrote.
+                        if not should_use_incremental_field and xmin_bounds is None:
+                            raise _unorderable_read_abort_error(schema, table_name) from e
 
                         logger.debug(
                             f"Falling back to offset chunking for table due to SerializationFailure error: {e}."
