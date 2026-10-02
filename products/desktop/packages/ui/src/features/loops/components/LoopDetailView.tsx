@@ -50,7 +50,7 @@ import type { ParsedHistoryState } from "@tanstack/history";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuthStateValue } from "../../auth/store";
-import { useLoop, useLoopHogFlow } from "../hooks/useLoop";
+import { isLoopNotFoundError, useLoop, useLoopHogFlow } from "../hooks/useLoop";
 import {
   useDeleteLoop,
   useRunLoop,
@@ -76,7 +76,7 @@ import { hogFlowTeamSkills, isLoopShapedHogFlow } from "../loopHogFlowMapping";
 import { formatLoopModel } from "../loopModels";
 import { loopSkillBundles, primaryLoopSkillBundle } from "../loopSkill";
 import { copyLoopLink } from "../utils/copyLoopLink";
-import { LoopLoadError } from "./LoopFallbacks";
+import { LoopLoadError, LoopNotFound } from "./LoopFallbacks";
 import { LoopForeignWorkflowNotice } from "./LoopForeignWorkflowNotice";
 import { LoopForm } from "./LoopForm";
 import { LoopHeaderTitle } from "./LoopHeaderTitle";
@@ -97,7 +97,8 @@ export function LoopDetailView({
   loopId: string;
   startEditing?: boolean;
 }) {
-  const { data: loop, isLoading, isError } = useLoop(loopId);
+  const { data: loop, isLoading, isError, error } = useLoop(loopId);
+  const notFound = isLoopNotFoundError(error);
   const scope = useLoopScope(loop);
   const spaceChannelId =
     scope?.kind === "space" && scope.available ? scope.channelId : null;
@@ -144,6 +145,13 @@ export function LoopDetailView({
       buildLoopViewedProps(loop, runs.length),
     );
   }, [isLoading, runsQuery.isLoading, runsQuery.isError, loop, runs.length]);
+
+  const notFoundTrackedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!notFound || notFoundTrackedFor.current === loopId) return;
+    notFoundTrackedFor.current = loopId;
+    track(ANALYTICS_EVENTS.LOOP_NOT_FOUND_VIEWED, { loop_id: loopId });
+  }, [notFound, loopId]);
 
   // A loop attached to a space gets a breadcrumb back to it; one that belongs
   // to the project (or any loop while the spaces layout is off) still names
@@ -384,6 +392,10 @@ export function LoopDetailView({
         <div className="h-24 animate-pulse rounded-(--radius-2) border border-border bg-(--gray-2)" />
       </div>
     );
+  }
+
+  if (notFound) {
+    return <LoopNotFound />;
   }
 
   if (isError || !loop) {
