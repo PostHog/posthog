@@ -106,17 +106,6 @@ describe('the Topics tab', () => {
         expect(screen.queryByText(/Key:/)).not.toBeInTheDocument()
     })
 
-    it('keeps the Customer.io import in the More menu while there are no topics yet', async () => {
-        useMocks({ get: { '/api/projects/:team_id/messaging_categories/': toPaginatedResponse([]) } })
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_AUDIENCE]: true })
-        render(<AudienceScene />)
-        await waitFor(() => expect(optOutCategoriesLogic.values.categoriesLoading).toBe(false))
-
-        expect(screen.getAllByText('New topic')).toHaveLength(1)
-        expect(screen.queryByText('Import from Customer.io')).not.toBeInTheDocument()
-        expect(screen.queryByText('Create topic')).not.toBeInTheDocument()
-    })
-
     it('fills the key from the name typed into the new topic modal', async () => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_AUDIENCE]: true })
         render(<AudienceScene />)
@@ -130,17 +119,42 @@ describe('the Topics tab', () => {
         expect(screen.getByPlaceholderText('e.g., product-updates')).toHaveValue('release-notes')
     })
 
-    it('makes New topic the one primary action and tucks the rest into a More menu', async () => {
+    it.each([
+        { state: 'with topics', topics: [PRODUCT_UPDATES] },
+        { state: 'with no topics yet', topics: [] },
+    ])('makes New topic the one primary action and tucks the rest into a More menu $state', async ({ topics }) => {
+        useMocks({ get: { '/api/projects/:team_id/messaging_categories/': toPaginatedResponse(topics) } })
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_AUDIENCE]: true })
+        render(<AudienceScene />)
+        await waitFor(() => expect(optOutCategoriesLogic.values.categoriesLoading).toBe(false))
+
+        expect(screen.getAllByText('New topic')).toHaveLength(1)
+        expect(screen.queryByText('Create topic')).not.toBeInTheDocument()
+        expect(screen.queryByText('Import from Customer.io')).not.toBeInTheDocument()
+
+        act(() => screen.getByTestId('audience-topics-more').click())
+        act(() => screen.getByText('Import from Customer.io').click())
+
+        expect(within(await screen.findByRole('dialog')).getByText('Customer.io integration')).toBeInTheDocument()
+    })
+
+    it('opens the preferences page from the More menu', async () => {
+        useMocks({
+            post: {
+                '/api/projects/:team_id/messaging_preferences/generate_link/': {
+                    preferences_url: 'https://example.com/preferences/abc',
+                },
+            },
+        })
+        const openTab = jest.spyOn(window, 'open').mockReturnValue(null)
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_AUDIENCE]: true })
         render(<AudienceScene />)
         await screen.findByText('Product updates')
 
-        expect(screen.getAllByText('New topic')).toHaveLength(1)
-        expect(screen.queryByText('Import from Customer.io')).not.toBeInTheDocument()
-
         act(() => screen.getByTestId('audience-topics-more').click())
+        act(() => screen.getByText('Preview preferences page').click())
 
-        expect(await screen.findByText('Import from Customer.io')).toBeInTheDocument()
-        expect(screen.getByText('Preview preferences page')).toBeInTheDocument()
+        await waitFor(() => expect(openTab).toHaveBeenCalledWith('https://example.com/preferences/abc', '_blank'))
+        openTab.mockRestore()
     })
 })
