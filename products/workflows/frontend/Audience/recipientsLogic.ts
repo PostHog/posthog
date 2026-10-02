@@ -83,6 +83,9 @@ export interface recipientsLogicActions {
     openUnreachablePersons: () => {
         value: true
     }
+    retryLoadRecipients: () => {
+        value: true
+    }
     setPageCursors: (pageCursors: string[]) => {
         pageCursors: string[]
     }
@@ -126,6 +129,7 @@ export const recipientsLogic = kea<recipientsLogicType>([
         loadPreviousPage: true,
         setPageCursors: (pageCursors: string[]) => ({ pageCursors }),
         loadAudienceRecipients: (request: RecipientsRequest) => request,
+        retryLoadRecipients: true,
         openUnreachablePersons: true,
     }),
     reducers({
@@ -197,27 +201,34 @@ export const recipientsLogic = kea<recipientsLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
-        setSearch: async (_, breakpoint) => {
-            await breakpoint(SEARCH_DEBOUNCE_MS)
-            actions.loadAudienceRecipients({ search: values.search })
-        },
-        loadNextPage: () => {
-            if (values.page.next_cursor) {
-                actions.setPageCursors([...values.pageCursors, values.page.next_cursor])
-                actions.loadAudienceRecipients({ search: values.search, cursor: values.page.next_cursor })
-            }
-        },
-        loadPreviousPage: () => {
-            const pageCursors = values.pageCursors.slice(0, -1)
-            actions.setPageCursors(pageCursors)
-            actions.loadAudienceRecipients({ search: values.search, cursor: pageCursors.at(-1) })
-        },
-        openUnreachablePersons: () => {
-            // pinned: feature usage event name, renaming it breaks the Audience funnel
-            posthog.capture('audience unreachable persons opened', { count: values.personsWithoutEmail })
-        },
-    })),
+    listeners(({ actions, values }) => {
+        const loadPageAt = (cursor: string | undefined): void => {
+            actions.loadAudienceRecipients({ search: values.search, cursor })
+        }
+        return {
+            setSearch: async (_, breakpoint) => {
+                await breakpoint(SEARCH_DEBOUNCE_MS)
+                loadPageAt(undefined)
+            },
+            loadNextPage: () => {
+                const nextCursor = values.page.next_cursor
+                if (nextCursor) {
+                    actions.setPageCursors([...values.pageCursors, nextCursor])
+                    loadPageAt(nextCursor)
+                }
+            },
+            loadPreviousPage: () => {
+                const pageCursors = values.pageCursors.slice(0, -1)
+                actions.setPageCursors(pageCursors)
+                loadPageAt(pageCursors.at(-1))
+            },
+            retryLoadRecipients: () => loadPageAt(values.pageCursors.at(-1)),
+            openUnreachablePersons: () => {
+                // pinned: feature usage event name, renaming it breaks the Audience funnel
+                posthog.capture('audience unreachable persons opened', { count: values.personsWithoutEmail })
+            },
+        }
+    }),
     afterMount(({ actions }) => {
         actions.loadAudienceRecipients({ search: '' })
         actions.loadCoverage()

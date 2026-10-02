@@ -7,15 +7,19 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import { toPaginatedResponse } from '~/mocks/handlers'
+import type { MockSignature } from '~/mocks/utils'
 
 import type {
     MessageCategoryApi,
     MessagePreferencesApi,
     MessageSuppressionApi,
+    RecipientApi,
+    RecipientPageApi,
 } from 'products/messaging/frontend/generated/api.schemas'
 
 import { AudienceScene } from './AudienceScene'
 import { AudienceTab } from './audienceSceneLogic'
+import { recipientsLogic } from './recipientsLogic'
 
 const CREATED_AT = '2026-09-01T10:00:00Z'
 
@@ -104,6 +108,72 @@ const suppressions: MessageSuppressionApi[] = [
     },
 ]
 
+const NO_ACTIVITY: Pick<RecipientApi, 'topics' | 'suppression' | 'persons' | 'person_count' | 'last_sent_at'> = {
+    topics: {},
+    suppression: null,
+    persons: [],
+    person_count: 0,
+    last_sent_at: null,
+}
+
+const recipients: RecipientApi[] = [
+    {
+        ...NO_ACTIVITY,
+        email: 'alex.rivera@example.com',
+        all_marketing: 'OPTED_IN',
+        topics: { 'product-updates': 'OPTED_IN', 'weekly-digest': 'OPTED_OUT' },
+        persons: [{ uuid: '0199c1dd-0000-7000-8000-000000000001', distinct_id: 'alex-r', name: 'Alex Rivera' }],
+        person_count: 1,
+        last_sent_at: '2026-09-29T15:20:00Z',
+        preferences_updated_at: '2026-09-12T08:00:00Z',
+    },
+    {
+        ...NO_ACTIVITY,
+        email: 'bounced@example.com',
+        all_marketing: 'NO_PREFERENCE',
+        suppression: {
+            source: 'BOUNCE',
+            reason: 'Suppressed after 5 soft bounces in a row',
+            suppressed_at: '2026-09-28T14:10:00Z',
+        },
+        preferences_updated_at: null,
+    },
+    {
+        ...NO_ACTIVITY,
+        email: 'jamie@example.com',
+        all_marketing: 'OPTED_OUT',
+        persons: [
+            { uuid: '0199c1dd-0000-7000-8000-000000000002', distinct_id: 'jamie-web', name: 'Jamie Chen' },
+            { uuid: '0199c1dd-0000-7000-8000-000000000003', distinct_id: 'jamie-ios', name: null },
+        ],
+        person_count: 2,
+        last_sent_at: '2026-09-03T09:00:00Z',
+        preferences_updated_at: '2026-09-20T08:30:00Z',
+    },
+    {
+        ...NO_ACTIVITY,
+        email: 'sam.okafor+newsletters@a-very-long-company-domain.example.com',
+        all_marketing: 'NO_PREFERENCE',
+        topics: { 'weekly-digest': 'OPTED_IN' },
+        persons: [{ uuid: '0199c1dd-0000-7000-8000-000000000004', distinct_id: 'sam-okafor', name: null }],
+        person_count: 1,
+        last_sent_at: '2026-09-30T18:45:00Z',
+        preferences_updated_at: '2026-08-30T10:00:00Z',
+    },
+    {
+        ...NO_ACTIVITY,
+        email: 'taylor@example.com',
+        all_marketing: 'NO_PREFERENCE',
+        persons: [{ uuid: '0199c1dd-0000-7000-8000-000000000005', distinct_id: 'taylor-1', name: 'Taylor Brooks' }],
+        person_count: 1,
+        preferences_updated_at: null,
+    },
+]
+
+function recipientsResponse(page: RecipientPageApi | [number, unknown]): MockSignature {
+    return () => (Array.isArray(page) ? page : [200, page])
+}
+
 const meta: Meta<typeof AudienceScene> = {
     title: 'Scenes-App/Workflows/Audience',
     component: AudienceScene,
@@ -120,6 +190,7 @@ const meta: Meta<typeof AudienceScene> = {
                 '/api/projects/:team_id/messaging_preferences/opt_outs/':
                     toPaginatedResponse(unsubscribedFromAllMarketing),
                 '/api/projects/:team_id/messaging_suppressions/suppressions/': toPaginatedResponse(suppressions),
+                '/api/projects/:team_id/messaging_recipients/coverage/': { persons_without_email: 1342 },
             },
         }),
     ],
@@ -131,11 +202,32 @@ type Story = StoryObj<typeof AudienceScene>
 // 520px is the scene width left by a 1280px window with the nav sidebar and the side panel open.
 const NARROW_SCENE_WIDTH = 520
 
-function audienceTabStory(tab: AudienceTab, containerWidth?: number): Story {
+interface AudienceStoryOptions {
+    containerWidth?: number
+    recipientsPage?: RecipientPageApi | [number, unknown]
+    search?: string
+}
+
+function audienceTabStory(
+    tab: AudienceTab,
+    {
+        containerWidth,
+        recipientsPage = { results: recipients, next_cursor: 'after-taylor' },
+        search,
+    }: AudienceStoryOptions = {}
+): Story {
     return {
+        decorators: [
+            mswDecorator({
+                get: { '/api/projects/:team_id/messaging_recipients/': recipientsResponse(recipientsPage) },
+            }),
+        ],
         render: function Render() {
             useEffect(() => {
                 router.actions.push(urls.audience(tab))
+                if (search) {
+                    recipientsLogic.actions.setSearch(search)
+                }
             }, [])
             return (
                 <div style={{ width: containerWidth ?? '100%' }}>
@@ -146,7 +238,19 @@ function audienceTabStory(tab: AudienceTab, containerWidth?: number): Story {
     }
 }
 
+export const Recipients: Story = audienceTabStory('recipients')
+export const RecipientsNarrow: Story = audienceTabStory('recipients', { containerWidth: NARROW_SCENE_WIDTH })
+export const RecipientsEmpty: Story = audienceTabStory('recipients', {
+    recipientsPage: { results: [], next_cursor: null },
+})
+export const RecipientsNoMatch: Story = audienceTabStory('recipients', {
+    recipientsPage: { results: [], next_cursor: null },
+    search: 'nobody@',
+})
+export const RecipientsError: Story = audienceTabStory('recipients', {
+    recipientsPage: [500, { detail: 'The query took too long.' }],
+})
 export const Topics: Story = audienceTabStory('topics')
-export const TopicsNarrow: Story = audienceTabStory('topics', NARROW_SCENE_WIDTH)
+export const TopicsNarrow: Story = audienceTabStory('topics', { containerWidth: NARROW_SCENE_WIDTH })
 export const SuppressionList: Story = audienceTabStory('suppression')
-export const SuppressionListNarrow: Story = audienceTabStory('suppression', NARROW_SCENE_WIDTH)
+export const SuppressionListNarrow: Story = audienceTabStory('suppression', { containerWidth: NARROW_SCENE_WIDTH })
