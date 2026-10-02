@@ -177,275 +177,293 @@ export function SpaceLoopFormScene({ id, loopId }: SpaceLoopFormLogicProps): JSX
                                 </Item>
                             )}
 
-                            <SpaceSettingsSection
-                                label="Prompt"
-                                description="Name the loop and write what the agent does on each run."
-                            >
-                                <div className="flex flex-col gap-4">
-                                    <LoopFormField label="Name" htmlFor="loop-form-name">
-                                        <Input
-                                            id="loop-form-name"
-                                            value={values.name}
-                                            placeholder="Daily standup summary"
-                                            disabled={disabled}
-                                            className="max-w-90"
-                                            onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                                                patch({ name: event.target.value })
-                                            }
-                                            data-attr="today-space-loop-form-name"
-                                        />
-                                    </LoopFormField>
-                                    <LoopFormField label="Description" htmlFor="loop-form-description">
-                                        <Textarea
-                                            id="loop-form-description"
-                                            value={values.description}
-                                            placeholder="A short summary shown in the list of loops"
-                                            disabled={disabled}
-                                            rows={2}
-                                            onChange={(event: ChangeEvent<HTMLTextAreaElement>) =>
-                                                patch({ description: event.target.value })
-                                            }
-                                        />
-                                    </LoopFormField>
-                                    {values.skill ? (
-                                        <>
-                                            <Item variant="outline" size="sm">
-                                                <ItemContent>
-                                                    <ItemTitle>{`Runs the /${values.skill.name} skill`}</ItemTitle>
-                                                    <ItemDescription>
-                                                        PostHog Desktop attached this skill. Detach it to write
-                                                        instructions instead.
-                                                    </ItemDescription>
-                                                </ItemContent>
-                                                <ItemActions>
-                                                    <Button
-                                                        size="sm"
-                                                        variant="outline"
-                                                        disabled={disabled}
-                                                        onClick={() =>
-                                                            patch({
-                                                                skill: null,
-                                                                instructions: values.skillContext,
-                                                                skillContext: '',
-                                                            })
-                                                        }
-                                                    >
-                                                        Detach skill
-                                                    </Button>
-                                                </ItemActions>
-                                            </Item>
-                                            <LoopFormField
-                                                label="Extra context"
-                                                htmlFor="loop-form-skill-context"
-                                                hint="Optional. Sent to the skill on each run."
-                                            >
-                                                <Textarea
-                                                    id="loop-form-skill-context"
-                                                    value={values.skillContext}
+                            {/* The form cannot show what the workflow editor added, so a changed workflow shows only the notice. */}
+                            {!foreign && (
+                                <>
+                                    <SpaceSettingsSection
+                                        label="Prompt"
+                                        description="Name the loop and write what the agent does on each run."
+                                    >
+                                        <div className="flex flex-col gap-4">
+                                            <LoopFormField label="Name" htmlFor="loop-form-name">
+                                                <Input
+                                                    id="loop-form-name"
+                                                    value={values.name}
+                                                    placeholder="Daily standup summary"
                                                     disabled={disabled}
-                                                    rows={4}
+                                                    className="max-w-90"
+                                                    onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                                                        patch({ name: event.target.value })
+                                                    }
+                                                    data-attr="today-space-loop-form-name"
+                                                />
+                                            </LoopFormField>
+                                            <LoopFormField label="Description" htmlFor="loop-form-description">
+                                                <Textarea
+                                                    id="loop-form-description"
+                                                    value={values.description}
+                                                    placeholder="A short summary shown in the list of loops"
+                                                    disabled={disabled}
+                                                    rows={2}
                                                     onChange={(event: ChangeEvent<HTMLTextAreaElement>) =>
-                                                        patch({ skillContext: event.target.value })
+                                                        patch({ description: event.target.value })
                                                     }
                                                 />
                                             </LoopFormField>
-                                        </>
-                                    ) : (
-                                        <LoopFormField label="Instructions" htmlFor="loop-form-instructions">
-                                            <Textarea
-                                                id="loop-form-instructions"
-                                                value={values.instructions}
-                                                placeholder="Summarize failing CI runs from the last 24 hours and post the summary to #eng-standup."
-                                                disabled={disabled}
-                                                rows={8}
-                                                onChange={(event: ChangeEvent<HTMLTextAreaElement>) =>
-                                                    patch({ instructions: event.target.value })
-                                                }
-                                                data-attr="today-space-loop-form-instructions"
-                                            />
-                                        </LoopFormField>
-                                    )}
-                                    {workflow && (
-                                        <LoopTeamSkillsField
-                                            value={values.teamSkills}
-                                            disabled={disabled}
-                                            onChange={(teamSkills) => patch({ teamSkills })}
-                                        />
-                                    )}
-                                </div>
-                            </SpaceSettingsSection>
-
-                            <SpaceSettingsSection
-                                label="When"
-                                description={
-                                    workflow
-                                        ? 'Pick a schedule or a GitHub event. Each loop has one trigger.'
-                                        : 'Add triggers, or leave none to run the loop only by hand.'
-                                }
-                            >
-                                <SpaceLoopTriggerEditor
-                                    triggers={values.triggers}
-                                    backend={formBackend}
-                                    endpointPath={endpointPath}
-                                    disabled={disabled}
-                                    onChange={(triggers) => patch({ triggers })}
-                                />
-                            </SpaceSettingsSection>
-
-                            <SpaceSettingsSection
-                                label="Options"
-                                description={
-                                    workflow
-                                        ? 'Where the agent works.'
-                                        : 'Who sees the loop, where it works, and who hears about it.'
-                                }
-                            >
-                                <div className="flex flex-col gap-4">
-                                    {!workflow && (
-                                        <LoopFormField
-                                            label="Visibility"
-                                            hint={
-                                                values.contextTarget
-                                                    ? 'A loop in a space is visible to the team.'
-                                                    : undefined
-                                            }
-                                        >
-                                            <LoopSelect
-                                                value={values.visibility}
-                                                options={VISIBILITY_OPTIONS}
-                                                onChange={(visibility) => patch({ visibility })}
-                                                disabled={disabled || !!values.contextTarget}
-                                                ariaLabel="Visibility"
-                                                className="w-48"
-                                            />
-                                        </LoopFormField>
-                                    )}
-                                    <LoopFormField
-                                        label="Repository"
-                                        hint={
-                                            values.repositories.length > 1
-                                                ? `${values.repositories.length - 1} more repositories stay attached.`
-                                                : 'Optional for loops that only report.'
-                                        }
-                                    >
-                                        <LoopRepositoryPicker
-                                            value={values.repositories[0] ?? null}
-                                            disabled={disabled}
-                                            onChange={(repository) =>
-                                                patch({
-                                                    repositories: repository
-                                                        ? [repository, ...values.repositories.slice(1)]
-                                                        : values.repositories.slice(1),
-                                                })
-                                            }
-                                        />
-                                    </LoopFormField>
-                                    {!workflow && (
-                                        <LoopFormField
-                                            label="Sandbox environment"
-                                            hint="Its environment variables, network access and image apply to every run."
-                                        >
-                                            <LoopSelect
-                                                value={values.sandboxEnvironmentId ?? DEFAULT_SANDBOX_VALUE}
-                                                options={sandboxOptions}
-                                                onChange={(next) =>
-                                                    patch({
-                                                        sandboxEnvironmentId:
-                                                            next === DEFAULT_SANDBOX_VALUE ? null : next,
-                                                    })
-                                                }
-                                                disabled={disabled || sandboxEnvironmentsLoading}
-                                                ariaLabel="Sandbox environment"
-                                            />
-                                        </LoopFormField>
-                                    )}
-                                    <LoopFormField label="Space" hint="The space whose feed shows each run.">
-                                        <LoopContextField
-                                            value={values.contextTarget}
-                                            canvases={spaceCanvases}
-                                            showOutputs={!workflow}
-                                            disabled={disabled}
-                                            onChange={(contextTarget) => patch({ contextTarget, visibility: 'team' })}
-                                        />
-                                    </LoopFormField>
-                                    {!workflow && (
-                                        <LoopFormField label="Notifications">
-                                            <LoopNotificationsFields
-                                                notifications={values.notifications}
-                                                disabled={disabled}
-                                                onChange={(notifications) => patch({ notifications })}
-                                            />
-                                        </LoopFormField>
-                                    )}
-                                </div>
-                            </SpaceSettingsSection>
-
-                            <SpaceSettingsSection
-                                label="Advanced"
-                                description={
-                                    workflow ? 'Model and reasoning.' : 'Pull request fixes, model and reasoning.'
-                                }
-                            >
-                                <div className="flex flex-col gap-4">
-                                    {!workflow && (
-                                        <ItemGroup combined>
-                                            <Item variant="outline" size="sm">
-                                                <ItemContent>
-                                                    <ItemTitle>Auto-fix pull requests</ItemTitle>
-                                                    <ItemDescription>
-                                                        Watch CI and review comments on pull requests this loop opens,
-                                                        and let PostHog push fixes.
-                                                    </ItemDescription>
-                                                </ItemContent>
-                                                <ItemActions>
-                                                    <Switch
-                                                        size="sm"
-                                                        checked={isAutoFixEnabled(values.behaviors)}
+                                            {values.skill ? (
+                                                <>
+                                                    <Item variant="outline" size="sm">
+                                                        <ItemContent>
+                                                            <ItemTitle>{`Runs the /${values.skill.name} skill`}</ItemTitle>
+                                                            <ItemDescription>
+                                                                PostHog Desktop attached this skill. Detach it to write
+                                                                instructions instead.
+                                                            </ItemDescription>
+                                                        </ItemContent>
+                                                        <ItemActions>
+                                                            <Button
+                                                                size="sm"
+                                                                variant="outline"
+                                                                disabled={disabled}
+                                                                onClick={() =>
+                                                                    patch({
+                                                                        skill: null,
+                                                                        instructions: values.skillContext,
+                                                                        skillContext: '',
+                                                                    })
+                                                                }
+                                                            >
+                                                                Detach skill
+                                                            </Button>
+                                                        </ItemActions>
+                                                    </Item>
+                                                    <LoopFormField
+                                                        label="Extra context"
+                                                        htmlFor="loop-form-skill-context"
+                                                        hint="Optional. Sent to the skill on each run."
+                                                    >
+                                                        <Textarea
+                                                            id="loop-form-skill-context"
+                                                            value={values.skillContext}
+                                                            disabled={disabled}
+                                                            rows={4}
+                                                            onChange={(event: ChangeEvent<HTMLTextAreaElement>) =>
+                                                                patch({ skillContext: event.target.value })
+                                                            }
+                                                        />
+                                                    </LoopFormField>
+                                                </>
+                                            ) : (
+                                                <LoopFormField label="Instructions" htmlFor="loop-form-instructions">
+                                                    <Textarea
+                                                        id="loop-form-instructions"
+                                                        value={values.instructions}
+                                                        placeholder="Summarize failing CI runs from the last 24 hours and post the summary to #eng-standup."
                                                         disabled={disabled}
-                                                        aria-label="Auto-fix pull requests"
-                                                        onCheckedChange={(checked: boolean) =>
-                                                            patch({ behaviors: withAutoFix(values.behaviors, checked) })
+                                                        rows={8}
+                                                        onChange={(event: ChangeEvent<HTMLTextAreaElement>) =>
+                                                            patch({ instructions: event.target.value })
                                                         }
+                                                        data-attr="today-space-loop-form-instructions"
                                                     />
-                                                </ItemActions>
-                                            </Item>
-                                        </ItemGroup>
-                                    )}
-                                    <LoopModelFields
-                                        values={values}
-                                        formBackend={formBackend}
-                                        disabled={disabled}
-                                        onPatch={patch}
-                                    />
-                                </div>
-                            </SpaceSettingsSection>
+                                                </LoopFormField>
+                                            )}
+                                            {workflow && (
+                                                <LoopTeamSkillsField
+                                                    value={values.teamSkills}
+                                                    disabled={disabled}
+                                                    onChange={(teamSkills) => patch({ teamSkills })}
+                                                />
+                                            )}
+                                        </div>
+                                    </SpaceSettingsSection>
 
-                            <div className="sticky bottom-0 flex items-center justify-end gap-2 border-t bg-background py-3">
-                                {submitDisabledReason && submitDisabledReason !== 'Saving…' && (
-                                    <Text render={<span />} size="xs" variant="muted" className="mr-auto">
-                                        {submitDisabledReason}
-                                    </Text>
-                                )}
-                                <Button variant="outline" onClick={cancel} data-attr="today-space-loop-form-cancel">
-                                    Cancel
-                                </Button>
-                                <Tooltip disabled={!submitDisabledReason || submitting}>
-                                    <TooltipTrigger
-                                        render={
-                                            <Button
-                                                variant="primary"
-                                                loading={submitting}
-                                                disabled={!!submitDisabledReason && !submitting}
-                                                onClick={submit}
-                                                data-attr="today-space-loop-form-save"
-                                            />
+                                    <SpaceSettingsSection
+                                        label="When"
+                                        description={
+                                            workflow
+                                                ? 'Pick a schedule or a GitHub event. Each loop has one trigger.'
+                                                : 'Add triggers, or leave none to run the loop only by hand.'
                                         }
                                     >
-                                        {isEdit ? 'Save' : 'Create loop'}
-                                    </TooltipTrigger>
-                                    <TooltipContent>{submitDisabledReason}</TooltipContent>
-                                </Tooltip>
-                            </div>
+                                        <SpaceLoopTriggerEditor
+                                            triggers={values.triggers}
+                                            backend={formBackend}
+                                            endpointPath={endpointPath}
+                                            disabled={disabled}
+                                            onChange={(triggers) => patch({ triggers })}
+                                        />
+                                    </SpaceSettingsSection>
+
+                                    <SpaceSettingsSection
+                                        label="Options"
+                                        description={
+                                            workflow
+                                                ? 'Where the agent works.'
+                                                : 'Who sees the loop, where it works, and who hears about it.'
+                                        }
+                                    >
+                                        <div className="flex flex-col gap-4">
+                                            {!workflow && (
+                                                <LoopFormField
+                                                    label="Visibility"
+                                                    hint={
+                                                        values.contextTarget
+                                                            ? 'A loop in a space is visible to the team.'
+                                                            : undefined
+                                                    }
+                                                >
+                                                    <LoopSelect
+                                                        value={values.visibility}
+                                                        options={VISIBILITY_OPTIONS}
+                                                        onChange={(visibility) => patch({ visibility })}
+                                                        disabled={disabled || !!values.contextTarget}
+                                                        ariaLabel="Visibility"
+                                                        className="w-48"
+                                                    />
+                                                </LoopFormField>
+                                            )}
+                                            <LoopFormField
+                                                label="Repository"
+                                                hint={
+                                                    values.repositories.length > 1
+                                                        ? `${values.repositories.length - 1} more repositories stay attached.`
+                                                        : 'Optional for loops that only report.'
+                                                }
+                                            >
+                                                <LoopRepositoryPicker
+                                                    value={values.repositories[0] ?? null}
+                                                    disabled={disabled}
+                                                    onChange={(repository) =>
+                                                        patch({
+                                                            repositories: repository
+                                                                ? [repository, ...values.repositories.slice(1)]
+                                                                : values.repositories.slice(1),
+                                                        })
+                                                    }
+                                                />
+                                            </LoopFormField>
+                                            {!workflow && (
+                                                <LoopFormField
+                                                    label="Sandbox environment"
+                                                    hint="Its environment variables, network access and image apply to every run."
+                                                >
+                                                    <LoopSelect
+                                                        value={values.sandboxEnvironmentId ?? DEFAULT_SANDBOX_VALUE}
+                                                        options={sandboxOptions}
+                                                        onChange={(next) =>
+                                                            patch({
+                                                                sandboxEnvironmentId:
+                                                                    next === DEFAULT_SANDBOX_VALUE ? null : next,
+                                                            })
+                                                        }
+                                                        disabled={disabled || sandboxEnvironmentsLoading}
+                                                        ariaLabel="Sandbox environment"
+                                                    />
+                                                </LoopFormField>
+                                            )}
+                                            <LoopFormField label="Space" hint="The space whose feed shows each run.">
+                                                <LoopContextField
+                                                    value={values.contextTarget}
+                                                    canvases={spaceCanvases}
+                                                    showOutputs={!workflow}
+                                                    disabled={disabled}
+                                                    onChange={(contextTarget) =>
+                                                        patch({ contextTarget, visibility: 'team' })
+                                                    }
+                                                />
+                                            </LoopFormField>
+                                            {!workflow && (
+                                                <LoopFormField label="Notifications">
+                                                    <LoopNotificationsFields
+                                                        notifications={values.notifications}
+                                                        disabled={disabled}
+                                                        onChange={(notifications) => patch({ notifications })}
+                                                    />
+                                                </LoopFormField>
+                                            )}
+                                        </div>
+                                    </SpaceSettingsSection>
+
+                                    <SpaceSettingsSection
+                                        label="Advanced"
+                                        description={
+                                            workflow
+                                                ? 'Model and reasoning.'
+                                                : 'Pull request fixes, model and reasoning.'
+                                        }
+                                    >
+                                        <div className="flex flex-col gap-4">
+                                            {!workflow && (
+                                                <ItemGroup combined>
+                                                    <Item variant="outline" size="sm">
+                                                        <ItemContent>
+                                                            <ItemTitle>Auto-fix pull requests</ItemTitle>
+                                                            <ItemDescription>
+                                                                Watch CI and review comments on pull requests this loop
+                                                                opens, and let PostHog push fixes.
+                                                            </ItemDescription>
+                                                        </ItemContent>
+                                                        <ItemActions>
+                                                            <Switch
+                                                                size="sm"
+                                                                checked={isAutoFixEnabled(values.behaviors)}
+                                                                disabled={disabled}
+                                                                aria-label="Auto-fix pull requests"
+                                                                onCheckedChange={(checked: boolean) =>
+                                                                    patch({
+                                                                        behaviors: withAutoFix(
+                                                                            values.behaviors,
+                                                                            checked
+                                                                        ),
+                                                                    })
+                                                                }
+                                                            />
+                                                        </ItemActions>
+                                                    </Item>
+                                                </ItemGroup>
+                                            )}
+                                            <LoopModelFields
+                                                values={values}
+                                                formBackend={formBackend}
+                                                disabled={disabled}
+                                                onPatch={patch}
+                                            />
+                                        </div>
+                                    </SpaceSettingsSection>
+
+                                    <div className="sticky bottom-0 flex items-center justify-end gap-2 border-t bg-background py-3">
+                                        {submitDisabledReason && submitDisabledReason !== 'Saving…' && (
+                                            <Text render={<span />} size="xs" variant="muted" className="mr-auto">
+                                                {submitDisabledReason}
+                                            </Text>
+                                        )}
+                                        <Button
+                                            variant="outline"
+                                            onClick={cancel}
+                                            data-attr="today-space-loop-form-cancel"
+                                        >
+                                            Cancel
+                                        </Button>
+                                        <Tooltip disabled={!submitDisabledReason || submitting}>
+                                            <TooltipTrigger
+                                                render={
+                                                    <Button
+                                                        variant="primary"
+                                                        loading={submitting}
+                                                        disabled={!!submitDisabledReason && !submitting}
+                                                        onClick={submit}
+                                                        data-attr="today-space-loop-form-save"
+                                                    />
+                                                }
+                                            >
+                                                {isEdit ? 'Save' : 'Create loop'}
+                                            </TooltipTrigger>
+                                            <TooltipContent>{submitDisabledReason}</TooltipContent>
+                                        </Tooltip>
+                                    </div>
+                                </>
+                            )}
                         </>
                     )}
                 </div>

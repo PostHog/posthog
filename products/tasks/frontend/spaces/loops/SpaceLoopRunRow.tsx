@@ -14,8 +14,13 @@ export function spaceLoopRunDuration(run: SpaceLoopRun, now = dayjs()): string {
     if (!run.completedAt && !run.stoppable) {
         return ''
     }
+    const start = dayjs(run.startedAt)
     const end = run.completedAt ? dayjs(run.completedAt) : now
-    const seconds = Math.max(0, end.diff(dayjs(run.startedAt), 'second'))
+    // The API leaves a run's timestamps optional, so a run without them shows no duration.
+    if (!start.isValid() || !end.isValid()) {
+        return ''
+    }
+    const seconds = Math.max(0, end.diff(start, 'second'))
     if (seconds < 60) {
         return `${seconds}s`
     }
