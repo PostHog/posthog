@@ -5,7 +5,6 @@ from django.conf import settings
 
 from products.experiments.backend.temporal.models import SCHEDULED_RECALCULATION_WORKFLOW_NAME
 from products.experiments.backend.temporal.schedule import (
-    LEGACY_HOURLY_SCHEDULE_ID_PREFIX,
     SCHEDULED_RECALCULATION_SCHEDULE_ID,
     create_experiment_scheduled_recalculation_schedules,
 )
@@ -20,7 +19,6 @@ async def test_creates_one_hourly_schedule_offset_from_the_timeseries_run():
         patch(f"{MODULE}.a_schedule_exists", AsyncMock(return_value=False)),
         patch(f"{MODULE}.a_create_schedule", AsyncMock()) as create,
         patch(f"{MODULE}.a_update_schedule", AsyncMock()) as update,
-        patch(f"{MODULE}.a_delete_schedule", AsyncMock()),
     ):
         await create_experiment_scheduled_recalculation_schedules(AsyncMock())
 
@@ -40,26 +38,11 @@ async def test_creates_one_hourly_schedule_offset_from_the_timeseries_run():
     assert schedule.action.args == []
 
 
-async def test_the_replaced_per_hour_schedules_are_deleted():
-    # Temporal keeps a schedule until it is deleted, so leaving the 24 behind would start the
-    # workflow 25 times an hour.
-    with (
-        patch(f"{MODULE}.a_schedule_exists", AsyncMock(return_value=False)),
-        patch(f"{MODULE}.a_create_schedule", AsyncMock()),
-        patch(f"{MODULE}.a_delete_schedule", AsyncMock()) as delete,
-    ):
-        await create_experiment_scheduled_recalculation_schedules(AsyncMock())
-
-    deleted = [call.args[1] for call in delete.await_args_list]
-    assert deleted == [f"{LEGACY_HOURLY_SCHEDULE_ID_PREFIX}-{hour:02d}" for hour in range(24)]
-
-
 async def test_an_existing_schedule_is_updated_not_recreated():
     with (
         patch(f"{MODULE}.a_schedule_exists", AsyncMock(return_value=True)),
         patch(f"{MODULE}.a_create_schedule", AsyncMock()) as create,
         patch(f"{MODULE}.a_update_schedule", AsyncMock()) as update,
-        patch(f"{MODULE}.a_delete_schedule", AsyncMock()),
     ):
         await create_experiment_scheduled_recalculation_schedules(AsyncMock())
 

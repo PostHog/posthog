@@ -80,10 +80,6 @@ async def create_experiment_precompute_enrollment_census_schedule(client: Client
 
 SCHEDULED_RECALCULATION_SCHEDULE_ID = "experiment-scheduled-recalculation"
 
-# Each hour had its own schedule before the workflow resolved the hour itself. Temporal keeps a
-# schedule until it is deleted, so the replaced ones are removed when the single one is created.
-LEGACY_HOURLY_SCHEDULE_ID_PREFIX = "experiment-scheduled-recalculation-hour"
-
 
 async def create_experiment_scheduled_recalculation_schedules(client: Client) -> None:
     """Create or update the hourly schedule that starts a real metrics recalculation for every
@@ -110,25 +106,10 @@ async def create_experiment_scheduled_recalculation_schedules(client: Client) ->
     else:
         await a_create_schedule(client, SCHEDULED_RECALCULATION_SCHEDULE_ID, schedule, trigger_immediately=False)
 
-    await _delete_legacy_hourly_schedules(client)
-
-
-async def _delete_legacy_hourly_schedules(client: Client) -> None:
-    """Remove the 24 per-hour schedules the single schedule replaces.
-
-    Without this they keep firing alongside it, starting the workflow 25 times an hour.
-    """
-    for hour in range(24):
-        try:
-            await a_delete_schedule(client, f"{LEGACY_HOURLY_SCHEDULE_ID_PREFIX}-{hour:02d}")
-        except Exception:
-            pass  # Already gone, which is the steady state after the first run.
-
 
 async def delete_experiment_scheduled_recalculation_schedules(client: Client) -> None:
-    """Delete the scheduled recalculation schedule, and any legacy per-hour ones left behind."""
+    """Delete the scheduled recalculation schedule."""
     try:
         await a_delete_schedule(client, SCHEDULED_RECALCULATION_SCHEDULE_ID)
     except Exception:
         pass  # Schedule might not exist
-    await _delete_legacy_hourly_schedules(client)
