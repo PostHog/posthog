@@ -72,7 +72,7 @@ export function todayAskPrompt(question: string, context: TodayAskContext): stri
         '',
         '---',
         '',
-        `### Context from my ${markdownLink('Today home page', urls.projectHomepage())}`,
+        `#### Context from my ${markdownLink('Today home page', urls.projectHomepage())}`,
         '',
         ...(context.kind === 'briefing' ? briefingContext(context.briefing) : reportsContext(context.reports)),
     ].join('\n')
