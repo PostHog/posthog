@@ -1960,6 +1960,10 @@ snapshots:
         hash: v1.k794b7964.a3e65d5201b873423bb6d077e88fcad12715ee293bdedcf5a2dc78efbc2d0cda.VSPF0yHLd7eCx-17S2ASvg21MoomuY6VOjuxq3oPQmI
     components-playerinspector-itemsessionchange--session-previous--light:
         hash: v1.k794b7964.33ce327f146d06d1412d431080ac84ae39558411b2073fe18a2ed98d834a2681.FDbDlC4-qfrH2RR1F_KpijnZNM9Ss_4s-p19Ee8fGtY
+    components-playground-variables-panel--filled-and-unfilled-variables--dark:
+        hash: v1.k794b7964.d28a4b122342606c71fde8cfe726699c638c612006427700a69f4583ac90c0f7.vg3kJyg8C3Yq4hkjUqsB1V7Yzn8CH_HJQKRN-uZU3w0
+    components-playground-variables-panel--filled-and-unfilled-variables--light:
+        hash: v1.k794b7964.4aa2c49e33f2fb605e8250c6c6dfc5a57efe9ab48e238d8e9e67c59349da62f8.VNbcy3xbFYA93udMaRpGuGWNUtfz4_Xb7zBrBcU3Nps
     components-product-empty-state--actions-needs-setup--dark:
         hash: v1.k794b7964.bcb8a737d22c6d807eb524fca2acc9c36420609fa1dc3921cee64b73cfb5fdea.686y8Z8cYiKOvpy5d_0CEVwMkSP00WIznn1Cqd7lxEI
     components-product-empty-state--actions-needs-setup--light:
