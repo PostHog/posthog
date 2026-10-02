@@ -3597,6 +3597,19 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             )
 
     @temporalio.workflow.signal
+    async def agent_final_text(self, payload: dict[str, Any]) -> None:
+        if not self._is_agent_design_enabled or not self._current_slack_relay_workflow_id:
+            return
+        try:
+            handle = workflow.get_external_workflow_handle(self._current_slack_relay_workflow_id)
+            await handle.signal(SlackAgentDesignRelayWorkflow.agent_final_text, payload)
+        except Exception as e:
+            workflow.logger.debug(
+                "slack_final_text_forward_failed",
+                extra={"run_id": self.context.run_id, "error": str(e)},
+            )
+
+    @temporalio.workflow.signal
     async def turn_completed(self, trace_id: str | None = None) -> None:
         if not self._is_agent_design_enabled or not self._current_slack_relay_workflow_id:
             return

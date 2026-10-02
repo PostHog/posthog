@@ -143,21 +143,42 @@ class TestSlackAgentDesignRelay:
         assert [(s.plan_title or "").startswith("Done in ") for s in calls.stops] == [True]
 
     @pytest.mark.parametrize(
-        "tail",
+        "tail, expected_answer",
         [
-            [("agent_text_delta", "Answer.")],
+            ([("agent_text_delta", "Answer.")], "Answer."),
             # A trailing hidden tool, such as a summary update, must not cost the answer.
-            [("agent_text_delta", "Answer."), ("agent_status_update", {"phase": None})],
+            ([("agent_text_delta", "Answer."), ("agent_status_update", {"phase": None})], "Answer."),
+            # The agent server's final text can land between two buffered deltas of the same answer.
+            (
+                [
+                    ("agent_text_delta", "The answer is "),
+                    ("agent_final_text", {"text": "The answer is 42.", "trace_id": "trace-1"}),
+                    ("agent_text_delta", "42."),
+                ],
+                "The answer is 42.",
+            ),
+            (
+                [
+                    ("agent_final_text", {"text": "An earlier turn's answer.", "trace_id": "trace-0"}),
+                    ("agent_text_delta", "Answer."),
+                ],
+                "Answer.",
+            ),
         ],
-        ids=["answer_after_last_tool", "answer_before_hidden_tool"],
+        ids=[
+            "answer_after_last_tool",
+            "answer_before_hidden_tool",
+            "final_text_between_deltas",
+            "final_text_of_another_turn",
+        ],
     )
     @pytest.mark.timeout(60, func_only=True)
-    async def test_last_prose_burst_is_the_answer(self, tail: list[tuple[str, Any]]) -> None:
+    async def test_last_prose_burst_is_the_answer(self, tail: list[tuple[str, Any]], expected_answer: str) -> None:
         calls = await _run_relay(
             [("agent_text_delta", "Checking."), ("agent_status_update", {"phase": "posthog:Execute SQL query"}), *tail]
         )
 
-        assert calls.answer() == "Answer."
+        assert calls.answer() == expected_answer
 
     @pytest.mark.parametrize(
         "work, work_lines",
