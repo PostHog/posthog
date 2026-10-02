@@ -1,0 +1,55 @@
+import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { BIDataSource, getBIDataSourceKey } from 'scenes/data-warehouse/editor/bi/biEditorTypes'
+import { groupDirectConnectionTableNodesBySchema } from 'scenes/data-warehouse/editor/sidebar/queryDatabaseLogic'
+
+export function buildBIDataSourceTree(
+    tree: TreeDataItem[],
+    sources: BIDataSource[],
+    directConnection: boolean,
+    defaultSchemaName?: string | null
+): TreeDataItem[] {
+    const remaining = new Map(sources.map((source) => [source.table, source]))
+    const leaves: TreeDataItem[] = []
+    const visit = (items: TreeDataItem[]): TreeDataItem[] =>
+        items.flatMap((item) => {
+            if (['table', 'view', 'managed-view', 'view-table', 'endpoint'].includes(item.record?.type)) {
+                const source = remaining.get(item.name)
+                if (!source) {
+                    return []
+                }
+                remaining.delete(item.name)
+                const node: TreeDataItem = {
+                    id: getBIDataSourceKey(source),
+                    name: source.table,
+                    icon: item.icon,
+                    record: { type: item.record?.type },
+                }
+                leaves.push(node)
+                return [node]
+            }
+            const children = visit(item.children ?? [])
+            return children.length
+                ? [{ id: item.id, name: item.name, icon: item.icon, record: { type: item.record?.type }, children }]
+                : []
+        })
+    const grouped = visit(tree)
+    const missing = [...remaining.values()].map((source) => ({ id: getBIDataSourceKey(source), name: source.table }))
+    return directConnection
+        ? groupDirectConnectionTableNodesBySchema([...leaves, ...missing], false, defaultSchemaName)
+        : [...grouped, ...missing]
+}
+
+export function searchBIDataSourceTree(tree: TreeDataItem[], search: string): TreeDataItem[] {
+    const term = search.trim().toLocaleLowerCase()
+    return tree.flatMap((item) => {
+        if (item.name.toLocaleLowerCase().includes(term)) {
+            return [item]
+        }
+        const children = searchBIDataSourceTree(item.children ?? [], term)
+        return children.length ? [{ ...item, children }] : []
+    })
+}
+
+export function getBIDataSourceFolderIds(tree: TreeDataItem[]): string[] {
+    return tree.flatMap((item) => (item.children?.length ? [item.id, ...getBIDataSourceFolderIds(item.children)] : []))
+}

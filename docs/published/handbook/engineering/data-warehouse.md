@@ -12,6 +12,14 @@ The SQL editor keeps unrun edits in browser storage, scoped to the user, project
 An **Edited** label marks changes to a saved view or insight. **Discard changes** restores the saved copy already loaded in memory, then refreshes it from the server. The refresh preserves edits made after discarding.
 Insights can be saved or updated before running the SQL. Updating a view still requires a successful run of the current SQL so its result types match the saved query. **Continue in a notebook** is in the update button's dropdown for saved views and insights.
 
+## Choosing data in BI mode
+
+Clicking **BI** closes the SQL editor database sidebar; clicking **SQL** opens it again.
+The sidebar toggle remains available in both modes. **Locate** in the BI data pane is shown only while the sidebar is open.
+
+Use the table picker in the data pane to browse the same source groups and folders as the database tree.
+Direct connections group tables by schema. Search matches table and folder names without changing the sidebar search.
+
 ## Calculated measures in BI mode
 
 With `SQL_EDITOR_BI_MODE` enabled, select a table in the SQL editor's BI mode and choose **Add calculated measure** in the data pane.

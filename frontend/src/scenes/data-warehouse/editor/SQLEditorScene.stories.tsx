@@ -675,3 +675,59 @@ export const LazySchema: Story = {
         },
     },
 }
+
+export const BIDataSourcePicker: Story = {
+    ...BIModeWorksheet,
+    parameters: {
+        ...BIModeWorksheet.parameters,
+        testOptions: {
+            waitForSelector: '[data-attr="bi-editor-data-source-picker"]',
+            viewport: { width: 1280, height: 800 },
+        },
+        msw: {
+            mocks: {
+                ...BIModeWorksheet.parameters?.msw.mocks,
+                post: {
+                    ...BIModeWorksheet.parameters?.msw.mocks.post,
+                    '/api/environments/:team_id/query/DatabaseSchemaQuery/': {
+                        tables: {
+                            events: { id: 'events', name: 'events', type: 'posthog', fields: BI_EVENTS_FIELDS },
+                            persons: { id: 'persons', name: 'persons', type: 'posthog', fields: {} },
+                            stripe_customers: {
+                                id: 'stripe_customers',
+                                name: 'stripe_customers',
+                                type: 'data_warehouse',
+                                fields: {},
+                                source: { id: 'example-stripe', source_type: 'Stripe', prefix: 'stripe_' },
+                            },
+                            stripe_invoices: {
+                                id: 'stripe_invoices',
+                                name: 'stripe_invoices',
+                                type: 'data_warehouse',
+                                fields: {},
+                                source: { id: 'example-stripe', source_type: 'Stripe', prefix: 'stripe_' },
+                            },
+                            postgres_orders: {
+                                id: 'postgres_orders',
+                                name: 'postgres_orders',
+                                type: 'data_warehouse',
+                                fields: {},
+                                source: { id: 'example-postgres', source_type: 'Postgres', prefix: 'postgres_' },
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await canvas.findByText('Locate', {}, { timeout: 15000 })
+        await userEvent.click(canvas.getByRole('button', { name: 'SQL' }))
+        await userEvent.click(canvas.getByRole('button', { name: 'BI' }))
+        await waitFor(() => expect(canvas.queryByText('Locate')).not.toBeInTheDocument())
+        await userEvent.click(canvasElement.querySelector('[data-attr="bi-editor-data-source"]')!)
+        const page = within(canvasElement.ownerDocument.body)
+        await waitFor(() => expect(page.getByRole('searchbox', { name: 'Search tables' })).toBeVisible())
+    },
+}
