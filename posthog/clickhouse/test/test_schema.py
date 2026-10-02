@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from django.conf import settings as django_settings
+from django.test import override_settings
 
 from posthog.hogql.database.models import DatabaseField, Table
 from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_CLICKHOUSE_TABLE, FlagEvaluationsTable
@@ -34,6 +35,7 @@ from posthog.models.flag_evaluations.sql import (
     FLAG_EVALUATIONS_TABLE,
     FLAG_EVALUATIONS_TABLE_SQL,
 )
+from posthog.models.ingestion_warnings.sql_v2 import INGESTION_WARNINGS_V2_DATA_TABLE_SQL
 from posthog.settings.data_stores import SUFFIX
 from posthog.settings.kafka import KAFKA_PREFIX
 
@@ -53,6 +55,15 @@ def test_create_table_query_replicated_and_storage(query, snapshot, settings):
     settings.CLICKHOUSE_ENABLE_STORAGE_POLICY = True
 
     assert build_query(query) == snapshot
+
+
+@pytest.mark.parametrize("test_mode", [True, False])
+def test_ingestion_warnings_v2_ttl_only_outside_tests(test_mode: bool) -> None:
+    with override_settings(TEST=test_mode):
+        query = INGESTION_WARNINGS_V2_DATA_TABLE_SQL()
+
+    ttl_clauses = [line for line in query.splitlines() if line.startswith("TTL ")]
+    assert ttl_clauses == ([] if test_mode else ["TTL toDateTime(timestamp) + INTERVAL 90 DAY"])
 
 
 @pytest.mark.parametrize("query", CREATE_KAFKA_TABLE_QUERIES, ids=get_table_name)
