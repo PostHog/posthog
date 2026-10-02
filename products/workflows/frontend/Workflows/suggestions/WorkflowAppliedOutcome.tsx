@@ -37,7 +37,11 @@ function Reading({ label, reading }: { label: string; reading: WorkflowProposalM
 }
 
 // Opens and clicks read against tracked sends, not the Sends column, and each version has its own.
-function Denominator({ reading }: { reading: WorkflowProposalMetricApi }): JSX.Element {
+function Denominator({ reading }: { reading: WorkflowProposalMetricApi }): JSX.Element | null {
+    // Nothing was sent, so there is no sample to warn about and "No data" already says it.
+    if (!reading.n) {
+        return null
+    }
     if (reading.below_minimum_sample) {
         return (
             <Tooltip
