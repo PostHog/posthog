@@ -107,8 +107,6 @@ def parse_duckdb_s3_source(url: str) -> DuckDBS3Source | None:
 
 
 class _FunctionCallParams:
-    """Registers table function arguments as query parameters and closes the function call."""
-
     def __init__(self, context: Optional[HogQLContext]) -> None:
         self._context = context
         self._raw_params: dict[str, str] = {}
@@ -149,13 +147,18 @@ def _queryable_folder_url(url: str, queryable_folder: str) -> str:
 def _url_table_function(
     params: _FunctionCallParams,
     function: str,
-    escaped_url: str,
-    format_arg: str,
+    url: str,
+    format: Optional[str],
     structure: Optional[str],
     access_key: Optional[str],
     access_secret: Optional[str],
 ) -> str:
-    """Renders `s3`, `s3Cluster` and `deltaLake` calls, which share one argument order."""
+    """Renders `s3`, `s3Cluster` and `deltaLake` calls, which share one argument order.
+
+    A `format` of None renders the literal 'Parquet' instead of a parameter.
+    """
+    escaped_url = params.add(url)
+    format_arg = params.add(format, False) if format else "'Parquet'"
     escaped_structure = params.add(structure, False) if structure else None
 
     expr = f"{function}{escaped_url}"
@@ -231,23 +234,18 @@ def build_function_call(
     params = _FunctionCallParams(context)
 
     if format == "DeltaS3Wrapper":
-        escaped_url = params.add(f"{url.removesuffix('/')}__query/**.parquet")
+        query_url = f"{url.removesuffix('/')}__query/**.parquet"
         return _url_table_function(
-            params, _s3_function(table_size_mib), escaped_url, "'Parquet'", structure, access_key, access_secret
+            params, _s3_function(table_size_mib), query_url, None, structure, access_key, access_secret
         )
 
     if format == "Delta":
-        escaped_url = params.add(url)
-        return _url_table_function(params, "deltaLake(", escaped_url, "'Parquet'", structure, access_key, access_secret)
+        return _url_table_function(params, "deltaLake(", url, None, structure, access_key, access_secret)
 
     if re.match(r"^https:\/\/.+\.blob\.core\.windows\.net\/", url):
         return _azure_blob_storage_call(params, url, format, structure, access_key, access_secret)
 
-    escaped_url = params.add(url)
-    escaped_format = params.add(format, False)
-    return _url_table_function(
-        params, _s3_function(table_size_mib), escaped_url, escaped_format, structure, access_key, access_secret
-    )
+    return _url_table_function(params, _s3_function(table_size_mib), url, format, structure, access_key, access_secret)
 
 
 class S3Table(FunctionCallTable):
