@@ -386,6 +386,7 @@
 
 .LemonButtonWithSideAction {
     position: relative;
+    flex-shrink: 0; // Match .LemonButton, otherwise the label wraps in a crowded flex row
     width: fit-content;
 
     &--full-width {

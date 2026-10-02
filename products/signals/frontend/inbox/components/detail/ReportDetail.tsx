@@ -491,8 +491,9 @@ export function InboxDetailFrame({
                             // the "Evidence" header in the rail, and the gap below the bar stays the same.
                             className="-mt-3"
                             rightSlotClassName="bg-surface-primary"
+                            // Hidden on narrow layouts, where the sticky slot would cover the tab labels.
                             rightSlot={
-                                <span className="flex items-center gap-2.5">
+                                <span className="hidden @2xl:flex items-center gap-2.5">
                                     <SignalReportBillingBadge report={report} />
                                     {generatedAt}
                                 </span>
@@ -549,7 +550,7 @@ export function InboxDetailFrame({
                 >
                     {backLabel}
                 </LemonButton>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                     {primaryAction}
                     {!summaryHasSolution && implementButton}
                     {/* Discuss is always available and stays inline as its own dropdown button. */}
