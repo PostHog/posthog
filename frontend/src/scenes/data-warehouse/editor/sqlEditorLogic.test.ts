@@ -1234,19 +1234,40 @@ describe('sqlEditorLogic', () => {
             }
         )
 
-        it('sets insightLoading to false after insight finishes loading', async () => {
-            logic = sqlEditorLogic({
-                tabId: TAB_ID,
-                monaco: createMockMonaco(),
-                editor: createMockEditor(),
-            })
-            logic.mount()
+        it.each([
+            ['found', MOCK_INSIGHT],
+            ['not found', null],
+        ] as const)('shows initial loading until the insight resolves: %s', async (_, insight) => {
+            jest.useFakeTimers()
+            let resolveInsight!: (insight: InsightModel | null) => void
+            const getInsight = jest.spyOn(insightsApi, 'getByShortId').mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        resolveInsight = resolve
+                    })
+            )
+            try {
+                logic = sqlEditorLogic({ tabId: TAB_ID })
+                logic.mount()
+                router.actions.push(urls.sqlEditor(), { open_insight: MOCK_INSIGHT_SHORT_ID })
 
-            router.actions.push(urls.sqlEditor(), { open_insight: MOCK_INSIGHT_SHORT_ID })
+                expect(logic.values.insightLoading).toBe(true)
+                expect(logic.values.queryInput).toBe(null)
+                expect(getInsight).not.toHaveBeenCalled()
 
-            await expectLogic(logic).toDispatchActions(['editInsight', 'createTab', 'updateTab']).toMatchValues({
-                insightLoading: false,
-            })
+                sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+                await jest.advanceTimersByTimeAsync(300)
+                expect(getInsight).toHaveBeenCalled()
+                expect(logic.values.insightLoading).toBe(true)
+
+                resolveInsight(insight)
+                await jest.advanceTimersByTimeAsync(0)
+                expect(logic.values.insightLoading).toBe(false)
+                expect(logic.values.queryInput).toBe(insight ? MOCK_INSIGHT_QUERY.source.query : null)
+            } finally {
+                getInsight.mockRestore()
+                jest.useRealTimers()
+            }
         })
 
         it('opens the insight when Monaco loads after the URL handler stops waiting for it', async () => {
@@ -1258,6 +1279,7 @@ describe('sqlEditorLogic', () => {
                 router.actions.push(urls.sqlEditor(), { open_insight: MOCK_INSIGHT_SHORT_ID })
                 await jest.advanceTimersByTimeAsync(11_000)
                 await expectLogic(logic).toNotHaveDispatchedActions(['editInsight'])
+                expect(logic.values.insightLoading).toBe(true)
             } finally {
                 jest.useRealTimers()
             }
@@ -1267,6 +1289,7 @@ describe('sqlEditorLogic', () => {
             await expectLogic(logic)
                 .toDispatchActions(['editInsight', 'createTab', 'updateTab'])
                 .toMatchValues({
+                    insightLoading: false,
                     editingInsight: partial({
                         short_id: MOCK_INSIGHT_SHORT_ID,
                     }),
