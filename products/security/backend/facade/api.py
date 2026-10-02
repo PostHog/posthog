@@ -115,15 +115,3 @@ def access_refused(subject: contracts.SubjectInput, surface: Surface, *, call_si
         logger.exception("security_access_check_failed", call_site=call_site)
         DECISION_ERRORS_COUNTER.labels(call_site=call_site).inc()
         return False
-
-
-def shadow_check(subject: contracts.SubjectInput, surface: Surface, *, call_site: str) -> None:
-    """Records what a block rule would do here, and changes nothing. Never raises."""
-    try:
-        decision = _counted(decide(subject, surface), call_site)
-        if decision.outcome != Outcome.BLOCK:
-            return
-        _record_block(decision, subject, call_site, refused=False)
-    except Exception:
-        logger.exception("security_access_shadow_check_failed", call_site=call_site)
-        DECISION_ERRORS_COUNTER.labels(call_site=call_site).inc()
