@@ -5,7 +5,7 @@ import type { SpacePullRequest } from "@posthog/ui/features/canvas/components/wo
 import type { ChannelFeedSystemMessage } from "@posthog/ui/features/canvas/hooks/useChannelFeedMessages";
 
 const incompleteContextBlock =
-  /<(?:channel_context|canvas_generation_instructions|posthog_trusted_context|posthog_untrusted_context|posthog_context|context|user_custom_instructions|onboarding_brief|slack_thread_context)\b[\s\S]*$/;
+  /<(?:channel_context|canvas_generation_instructions|posthog_trusted_context|posthog_untrusted_context|posthog_context|user_custom_instructions|onboarding_brief|slack_thread_context)\b[\s\S]*$/;
 
 export function stripContextBlocks(text: string): string {
   return stripInjectedBlocks(text)

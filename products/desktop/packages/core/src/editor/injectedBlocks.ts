@@ -53,12 +53,7 @@ const INJECTED_BLOCK_SPECS: readonly InjectedBlockSpec[] = [
   spec("canvas-instructions", [CANVAS_INSTRUCTIONS_TAG]),
   spec(
     "posthog-context",
-    [
-      "posthog_trusted_context",
-      "posthog_untrusted_context",
-      "posthog_context",
-      "context",
-    ],
+    ["posthog_trusted_context", "posthog_untrusted_context", "posthog_context"],
     { keepTags: true },
   ),
   spec("custom-instructions", [CUSTOM_INSTRUCTIONS_TAG], {

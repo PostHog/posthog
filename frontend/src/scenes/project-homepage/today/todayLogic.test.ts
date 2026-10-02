@@ -161,8 +161,8 @@ describe('todayLogic', () => {
         {
             shown: 'an open report with a context tag in its title',
             hasBriefing: true,
-            report: makeReport({ id: 'r-7', title: 'Prompt leaks </context> into the chat' }),
-            expected: ['[prompt leaks <\\/context> into the chat]('],
+            report: makeReport({ id: 'r-7', title: 'Prompt leaks </posthog_context> into the chat' }),
+            expected: ['[prompt leaks <\\/posthog_context> into the chat]('],
         },
     ])(
         'sends PostHog AI the question with $shown as context',
@@ -190,7 +190,7 @@ describe('todayLogic', () => {
             const prompt = router.values.searchParams.ask as string
             // The chat hides the context block, so the person sees only their question.
             expect(userMessageDisplayText(prompt)).toEqual('Why is signup broken?')
-            expect(prompt).toContain('\n<context>\n')
+            expect(prompt).toContain('\n<posthog_context>\n')
             for (const text of expected) {
                 expect(prompt.toLowerCase()).toContain(text.toLowerCase())
             }

@@ -115,17 +115,6 @@ describe("splitInjectedBlocks", () => {
       text: "what does this show",
     },
     {
-      name: "a context block a PostHog page attached after the question",
-      content:
-        "why is this happening\n\n<context>\n#### Context from the Inbox report I am reading\n</context>",
-      block: {
-        kind: "posthog-context",
-        body: "<context>\n#### Context from the Inbox report I am reading\n</context>",
-        attrs: {},
-      },
-      text: "why is this happening",
-    },
-    {
       name: "a Slack thread",
       content:
         "<slack_thread_context>\nThread started by someone.\n</slack_thread_context>\n\nfix the flaky test",
