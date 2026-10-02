@@ -119,7 +119,7 @@ class TestSelectionOrchestration(SimpleTestCase):
         [
             ("claude", Task.Runtime.ACP, "claude", "treatment"),
             ("codex", Task.Runtime.ACP, "codex", "treatment"),
-            ("pi", Task.Runtime.PI, None, "treatment"),
+            ("pi", Task.Runtime.PI, None, "disabled"),
             ("unknown", Task.Runtime.ACP, "unknown", "disabled"),
         ]
     )

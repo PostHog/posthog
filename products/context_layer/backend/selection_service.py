@@ -51,13 +51,8 @@ def selection_mode(run: TaskRun, actor: User) -> str:
     if (
         not actor.is_staff
         or run.team_id not in settings.CONTEXT_SELECTION_ALLOWED_TEAM_IDS
-        or not (
-            run.task.runtime == Task.Runtime.PI
-            or (
-                run.task.runtime == Task.Runtime.ACP
-                and (run.state or {}).get("runtime_adapter", "claude") in ("claude", "codex")
-            )
-        )
+        or run.task.runtime != Task.Runtime.ACP
+        or (run.state or {}).get("runtime_adapter", "claude") not in ("claude", "codex")
         or run.environment != TaskRun.Environment.CLOUD
         or run.task.origin_product not in (Task.OriginProduct.POSTHOG_AI, Task.OriginProduct.SLACK)
     ):

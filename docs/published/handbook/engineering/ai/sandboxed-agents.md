@@ -685,12 +685,11 @@ or stream echo, and never submits the message again.
 
 ## Context selection experiment
 
-Staff in `CONTEXT_SELECTION_ALLOWED_TEAM_IDS` can receive hidden organizational context on human prompts in web and Slack cloud runs.
+Staff in `CONTEXT_SELECTION_ALLOWED_TEAM_IDS` can receive hidden organizational context on human prompts in web and Slack cloud runs using Claude or Codex.
 The `phai-context-selection` flag selects `control`, `shadow`, or `treatment` using the task ID.
-Other flag values disable selection. Local runs and other runtime adapters skip it.
+Other flag values disable selection. Local runs, Pi, and other runtime adapters skip it.
 
 Before a human prompt reaches Claude or Codex, the sandbox calls the task-bound selection endpoint.
-Pi selects at its native context hook after a queued human prompt leaves the queue.
 Autonomous continuations, steering, and slash commands do not trigger selection.
 
 System One first checks whether organizational context could help, using the request and bounded conversation history.

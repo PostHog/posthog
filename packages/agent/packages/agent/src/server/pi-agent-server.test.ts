@@ -482,157 +482,38 @@ describe("PiAgentServer", () => {
     expect(appendTaskRunLog.mock.calls[0]?.[2]).toHaveLength(100);
   });
 
-  it.each([false, true])(
-    "uses the durable message id for an idle native Pi prompt (context selection %s)",
-    async (enabled) => {
-      const sendCommand = vi.fn(
-        async (_command: Record<string, unknown>) => ({}),
-      );
-      const registerContextInput = vi.fn(async () => {});
-      const server = new PiAgentServer(config()) as unknown as {
-        session: unknown;
-        contextSelectionEnabled: boolean;
-        executeCommand(
-          method: string,
-          params: Record<string, unknown>,
-        ): Promise<unknown>;
-      };
-      server.contextSelectionEnabled = enabled;
-      server.session = {
-        runtime: {
-          client: {
-            registerContextInput,
-            getState: vi.fn(async () => ({ isStreaming: false })),
-          },
-          sendCommand,
+  it("uses the durable message id for an idle native Pi prompt", async () => {
+    const sendCommand = vi.fn(
+      async (_command: Record<string, unknown>) => ({}),
+    );
+    const server = new PiAgentServer(config()) as unknown as {
+      session: unknown;
+      executeCommand(
+        method: string,
+        params: Record<string, unknown>,
+      ): Promise<unknown>;
+    };
+    server.session = {
+      runtime: {
+        client: {
+          getState: vi.fn(async () => ({ isStreaming: false })),
         },
-      };
+        sendCommand,
+      },
+    };
 
-      await server.executeCommand("user_message", {
-        content: "hello",
-        messageId: "message-1",
-      });
+    await server.executeCommand("user_message", {
+      content: "hello",
+      messageId: "message-1",
+    });
 
-      if (enabled) {
-        expect(registerContextInput).toHaveBeenCalledWith("message-1", "hello");
-        expect(registerContextInput.mock.invocationCallOrder[0]).toBeLessThan(
-          sendCommand.mock.invocationCallOrder[0],
-        );
-      } else expect(registerContextInput).not.toHaveBeenCalled();
-      expect(sendCommand).toHaveBeenCalledWith({
-        id: "message-1",
-        type: "prompt",
-        message: "hello",
-        images: [],
-      });
-    },
-  );
-
-  it.each([false, true])(
-    "delivers native prompts after registration failure (streaming %s)",
-    async (isStreaming) => {
-      const server = new PiAgentServer(config()) as unknown as {
-        session: unknown;
-        contextSelectionEnabled: boolean;
-        executeCommand(
-          method: string,
-          params: Record<string, unknown>,
-        ): Promise<unknown>;
-      };
-      server.contextSelectionEnabled = true;
-      const registerContextInput = vi
-        .fn()
-        .mockRejectedValue(new Error("ack lost"));
-      const sendCommand = vi.fn().mockResolvedValue({ success: true });
-      server.session = {
-        runtime: {
-          client: {
-            getState: vi.fn(async () => ({ isStreaming })),
-            registerContextInput,
-          },
-          sendCommand,
-        },
-      };
-
-      await server.executeCommand("user_message", {
-        content: "hello",
-        messageId: "message-1",
-      });
-      await server.executeCommand("user_message", {
-        content: "hello again",
-        messageId: "message-2",
-      });
-      expect(sendCommand).toHaveBeenCalledTimes(2);
-      expect(sendCommand).toHaveBeenNthCalledWith(1, {
-        id: "message-1",
-        type: isStreaming ? "follow_up" : "prompt",
-        message: "hello",
-        images: [],
-        posthog_context_selection_disabled: true,
-      });
-      expect(sendCommand).toHaveBeenNthCalledWith(
-        2,
-        expect.objectContaining({
-          id: "message-2",
-          message: "hello again",
-          posthog_context_selection_disabled: true,
-        }),
-      );
-      expect(registerContextInput).toHaveBeenCalledOnce();
-    },
-  );
-
-  it.each([false, true])(
-    "delivers the next native prompt after cleanup failure (command throws %s)",
-    async (throws) => {
-      const server = new PiAgentServer(config()) as unknown as {
-        session: unknown;
-        contextSelectionEnabled: boolean;
-        executeCommand(
-          method: string,
-          params: Record<string, unknown>,
-        ): Promise<unknown>;
-      };
-      server.contextSelectionEnabled = true;
-      const error = new Error("command failed");
-      const registerContextInput = vi.fn(
-        async (_id: string, text: string | null) => {
-          if (text === null) throw new Error("ack lost");
-        },
-      );
-      const sendCommand = vi.fn().mockResolvedValue({ success: true });
-      if (throws) sendCommand.mockRejectedValueOnce(error);
-      else sendCommand.mockResolvedValueOnce({ success: false });
-      server.session = {
-        runtime: {
-          client: {
-            getState: vi.fn(async () => ({ isStreaming: false })),
-            registerContextInput,
-          },
-          sendCommand,
-        },
-      };
-
-      const first = server.executeCommand("user_message", {
-        content: "hello",
-        messageId: "message-1",
-      });
-      if (throws) await expect(first).rejects.toBe(error);
-      else await expect(first).resolves.toMatchObject({ success: false });
-      await server.executeCommand("user_message", {
-        content: "hello",
-        messageId: "message-2",
-      });
-      expect(sendCommand).toHaveBeenNthCalledWith(2, {
-        id: "message-2",
-        type: "prompt",
-        message: "hello",
-        images: [],
-        posthog_context_selection_disabled: true,
-      });
-      expect(registerContextInput).toHaveBeenCalledTimes(2);
-    },
-  );
+    expect(sendCommand).toHaveBeenCalledWith({
+      id: "message-1",
+      type: "prompt",
+      message: "hello",
+      images: [],
+    });
+  });
 
   it("preserves the native Pi user prompt when auto-publish is enabled", async () => {
     const sendCommand = vi.fn(
@@ -772,105 +653,6 @@ describe("PiAgentServer", () => {
       images: [],
     });
   });
-
-  it.each([false, true])(
-    "delivers a steer when blocking context fails (%s)",
-    async (fails) => {
-      const order: string[] = [];
-      const server = new PiAgentServer(config()) as unknown as {
-        session: unknown;
-        contextSelectionEnabled: boolean;
-        executeCommand(
-          method: string,
-          params: Record<string, unknown>,
-        ): Promise<unknown>;
-      };
-      server.contextSelectionEnabled = true;
-      server.session = {
-        runtime: {
-          client: {
-            getState: vi.fn(async () => ({ isStreaming: true })),
-            blockContextText: vi.fn(async () => {
-              order.push("block");
-              if (fails) throw new Error("host unavailable");
-            }),
-          },
-          sendCommand: vi.fn(async () => {
-            order.push("send");
-            return { success: true };
-          }),
-        },
-      };
-
-      const result = await server.executeCommand("user_message", {
-        content: "same text",
-        messageId: "steer-1",
-        steer: true,
-      });
-      expect(order).toEqual(["block", "send"]);
-      expect(result).toMatchObject({ success: true, steered: true });
-      expect(
-        (
-          server.session as {
-            runtime: { sendCommand: ReturnType<typeof vi.fn> };
-          }
-        ).runtime.sendCommand,
-      ).toHaveBeenCalledWith(
-        expect.objectContaining({
-          message: "same text",
-          type: "steer",
-          ...(fails ? { posthog_context_selection_disabled: true } : {}),
-        }),
-      );
-    },
-  );
-
-  it.each([false, true])(
-    "delivers a direct Pi RPC prompt when blocking context fails (%s)",
-    async (fails) => {
-      const order: string[] = [];
-      const server = new PiAgentServer(config()) as unknown as {
-        session: unknown;
-        contextSelectionEnabled: boolean;
-        executeCommand(
-          method: string,
-          params: Record<string, unknown>,
-        ): Promise<unknown>;
-      };
-      server.contextSelectionEnabled = true;
-      server.session = {
-        runtime: {
-          client: {
-            blockContextText: vi.fn(async () => {
-              order.push("block");
-              if (fails) throw new Error("host unavailable");
-            }),
-          },
-          sendCommand: vi.fn(async () => {
-            order.push("send");
-            return { success: true };
-          }),
-        },
-      };
-
-      const result = await server.executeCommand("pi/rpc", {
-        command: { type: "prompt", message: "same text" },
-      });
-      expect(order).toEqual(["block", "send"]);
-      expect(result).toMatchObject({ success: true });
-      expect(
-        (
-          server.session as {
-            runtime: { sendCommand: ReturnType<typeof vi.fn> };
-          }
-        ).runtime.sendCommand,
-      ).toHaveBeenCalledWith({
-        type: "prompt",
-        message: "same text",
-        ...(fails ? { posthog_context_selection_disabled: true } : {}),
-      });
-    },
-  );
 
   it("queues a steer that pi refuses while the run is still streaming", async () => {
     const sendCommand = vi.fn(async (command: Record<string, unknown>) => {

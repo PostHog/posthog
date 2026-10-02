@@ -40,40 +40,26 @@ export class ContextSelection {
     humanPrompt = prompt,
   ): Promise<PromptResponse> {
     if (!this.enabled || !messageId) return send(prompt);
-    const submitted = await this.preparePrompt({
+    const userText = text(humanPrompt.filter((block) => !isHidden(block)));
+    const submitted = await this.preparePrompt(
       runId,
       messageId,
       prompt,
-      userText: text(humanPrompt.filter((block) => !isHidden(block))),
-      restoredHistory: text(humanPrompt.filter(isHidden)),
-      inject: (blocks, context) => [...blocks, hiddenTextBlock(context)],
-    });
-    const result = await send(submitted);
-    this.recordUser(
-      runId,
-      text(humanPrompt.filter((block) => !isHidden(block))),
+      userText,
+      text(humanPrompt.filter(isHidden)),
     );
+    const result = await send(submitted);
+    this.recordUser(runId, userText);
     return result;
   }
 
-  async preparePrompt<Prompt>({
-    runId,
-    messageId,
-    prompt,
-    userText,
-    restoredHistory = "",
-    historySource = "resume_prompt",
-    inject,
-  }: {
-    runId: string;
-    messageId: string | undefined;
-    prompt: Prompt;
-    userText: string;
-    restoredHistory?: string;
-    historySource?: "runtime" | "resume_prompt";
-    inject: (prompt: Prompt, context: string) => Prompt;
-  }): Promise<Prompt> {
-    if (!this.enabled || !messageId) return prompt;
+  private async preparePrompt(
+    runId: string,
+    messageId: string,
+    prompt: ContentBlock[],
+    userText: string,
+    restoredHistory: string,
+  ): Promise<ContentBlock[]> {
     let prepared:
       | Awaited<ReturnType<PostHogAPIClient["prepareContextSelection"]>>
       | undefined;
@@ -89,7 +75,7 @@ export class ContextSelection {
         prompt: userText.slice(-20_000),
         prompt_char_count: userText.length,
         history,
-        history_source: this.history ? "runtime" : historySource,
+        history_source: this.history ? "runtime" : "resume_prompt",
         runtime_version: this.runtimeVersion,
       });
     } catch {
@@ -99,10 +85,12 @@ export class ContextSelection {
         message_id: messageId,
       });
     }
-    return prepared?.context ? inject(prompt, prepared.context) : prompt;
+    return prepared?.context
+      ? [...prompt, hiddenTextBlock(prepared.context)]
+      : prompt;
   }
 
-  recordUser(runId: string, text: string): void {
+  private recordUser(runId: string, text: string): void {
     if (!this.enabled || this.historyRunId !== runId) return;
     this.history = `${this.history}\nUser: ${text}`.slice(-12_000);
   }

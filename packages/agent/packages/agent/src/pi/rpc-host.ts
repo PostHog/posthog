@@ -16,10 +16,6 @@ import {
   resolvePiTaskContext,
 } from "@posthog/harness/extensions/task-system-prompt";
 import {
-  observeContextSelectionFallback,
-  PiContextSelection,
-} from "./context-selection";
-import {
   POSTHOG_PI_QUEUE_ENTRY_TYPE,
   readPersistedPiQueue,
 } from "./queue-persistence";
@@ -30,13 +26,7 @@ import { sanitizePiHostEnvironment } from "./rpc-environment";
 interface PiHostRequest {
   type: "posthog_pi_host_request";
   id: string;
-  method:
-    | "get_queue"
-    | "clear_queue"
-    | "register_context_input"
-    | "block_context_text";
-  contextInput?: { id: string; text: string | null };
-  contextText?: string;
+  method: "get_queue" | "clear_queue";
 }
 
 function argumentValue(name: string): string | undefined {
@@ -111,21 +101,6 @@ if (bootstrap.enrichment) {
   runtimeExtensions.push(createPiEnrichmentExtension(bootstrap.enrichment));
 }
 
-let contextSelection: PiContextSelection | undefined;
-if (bootstrap.contextSelection) {
-  try {
-    contextSelection = new PiContextSelection(
-      bootstrap.contextSelection,
-      sessionManager,
-    );
-    runtimeExtensions.push(contextSelection.extension);
-  } catch (error) {
-    process.stderr.write(
-      `context_selection initialization_failed ${error instanceof Error ? error.name : "unknown"}\n`,
-    );
-  }
-}
-
 const runtime = await createHarnessRuntime({
   cwd,
   sessionManager,
@@ -174,39 +149,13 @@ process.on("message", (message: unknown) => {
   if (
     request.type !== "posthog_pi_host_request" ||
     typeof request.id !== "string" ||
-    (request.method !== "get_queue" &&
-      request.method !== "clear_queue" &&
-      request.method !== "register_context_input" &&
-      request.method !== "block_context_text")
+    (request.method !== "get_queue" && request.method !== "clear_queue")
   ) {
     return;
   }
 
   try {
     const session = runtime.session;
-    if (request.method === "register_context_input") {
-      if (
-        !contextSelection ||
-        typeof request.contextInput?.id !== "string" ||
-        (request.contextInput?.text !== null &&
-          typeof request.contextInput?.text !== "string")
-      ) {
-        throw new Error("Context selection input unavailable");
-      }
-      if (request.contextInput.text === null)
-        contextSelection.unregister(request.contextInput.id);
-      else
-        contextSelection.register(
-          request.contextInput.id,
-          request.contextInput.text,
-        );
-    }
-    if (request.method === "clear_queue") contextSelection?.clearPending();
-    if (request.method === "block_context_text") {
-      if (!contextSelection || typeof request.contextText !== "string")
-        throw new Error("Context selection input unavailable");
-      contextSelection.blockText(request.contextText);
-    }
     const data =
       request.method === "clear_queue"
         ? session.clearQueue()
@@ -228,7 +177,4 @@ process.on("message", (message: unknown) => {
   }
 });
 
-// Read fallback markers before Pi dispatches commands, even if IPC cleanup is unavailable.
-if (contextSelection)
-  observeContextSelectionFallback(process.stdin, contextSelection);
 await runRpcMode(runtime);
