@@ -120,6 +120,23 @@ def _assert_can_change(organization_id: UUID | str, dashboard: CrossProjectDashb
         raise contracts.DashboardChangeDeniedError()
 
 
+def _lock_for_change(organization_id: UUID | str, dashboard_id: UUID, user: User) -> CrossProjectDashboard:
+    """Lock the dashboard row, then check the write rule. Call it inside transaction.atomic().
+
+    The lock keeps a concurrent tile add from changing the set of projects between the check and
+    the write.
+    """
+    dashboard = (
+        CrossProjectDashboard.objects.select_for_update()
+        .filter(id=dashboard_id, organization_id=organization_id, deleted=False)
+        .first()
+    )
+    if dashboard is None:
+        raise contracts.DashboardNotFoundError()
+    _assert_can_change(organization_id, dashboard, user)
+    return dashboard
+
+
 def _tiles(organization_id: UUID | str, dashboard_id: UUID, user: User) -> QuerySet[CrossProjectDashboardTile]:
     # A reader denied a project does not learn which of its insights the dashboard references.
     return (
@@ -177,21 +194,21 @@ def create_dashboard(
 def update_dashboard(
     *, organization_id: UUID | str, dashboard_id: UUID, user: User, changes: contracts.DashboardChanges
 ) -> contracts.CrossProjectDashboard:
-    dashboard = _dashboard_row(organization_id, dashboard_id, user)
-    _assert_can_change(organization_id, dashboard, user)
-    updated = [name for name in ("name", "description", "filters") if name in changes.fields]
-    for name in updated:
-        setattr(dashboard, name, getattr(changes, name))
-    if updated:
-        dashboard.save(update_fields=[*updated, "updated_at"])
+    with transaction.atomic():
+        dashboard = _lock_for_change(organization_id, dashboard_id, user)
+        updated = [name for name in ("name", "description", "filters") if name in changes.fields]
+        for name in updated:
+            setattr(dashboard, name, getattr(changes, name))
+        if updated:
+            dashboard.save(update_fields=[*updated, "updated_at"])
     return get_dashboard(organization_id=organization_id, dashboard_id=dashboard_id, user=user)
 
 
 def delete_dashboard(*, organization_id: UUID | str, dashboard_id: UUID, user: User) -> None:
-    dashboard = _dashboard_row(organization_id, dashboard_id, user)
-    _assert_can_change(organization_id, dashboard, user)
-    dashboard.deleted = True
-    dashboard.save(update_fields=["deleted"])
+    with transaction.atomic():
+        dashboard = _lock_for_change(organization_id, dashboard_id, user)
+        dashboard.deleted = True
+        dashboard.save(update_fields=["deleted"])
 
 
 def list_tiles(
@@ -217,10 +234,7 @@ def create_tile(
     assert_can_reference_insight(user, organization_id, tile.project_id, tile.insight_id)
     # The dashboard row is the lock, so two concurrent creates cannot both pass the tile ceiling.
     with transaction.atomic():
-        dashboard = live.select_for_update().first()
-        if dashboard is None:
-            raise contracts.DashboardNotFoundError()
-        _assert_can_change(organization_id, dashboard, user)
+        dashboard = _lock_for_change(organization_id, dashboard_id, user)
         if (
             CrossProjectDashboardTile.objects.filter(dashboard=dashboard, deleted=False).count()
             >= MAX_TILES_PER_DASHBOARD
@@ -253,18 +267,22 @@ def update_tile(
     *, organization_id: UUID | str, dashboard_id: UUID, tile_id: UUID, user: User, changes: contracts.TileChanges
 ) -> contracts.CrossProjectTile:
     tile = _tile_row(organization_id, dashboard_id, tile_id, user)
-    _assert_can_change(organization_id, tile.dashboard, user)
-    updated = [name for name in ("layouts", "color", "filters_overrides") if name in changes.fields]
-    before = {name: getattr(tile, name) for name in AUDITED_TILE_FIELDS}
-    for name in updated:
-        setattr(tile, name, getattr(changes, name))
-    if updated:
-        tile.save(update_fields=[*updated, "updated_at"])
-    after = {name: getattr(tile, name) for name in AUDITED_TILE_FIELDS}
+    with transaction.atomic():
+        try:
+            dashboard = _lock_for_change(organization_id, tile.dashboard_id, user)
+        except contracts.DashboardNotFoundError as error:
+            raise contracts.TileNotFoundError() from error
+        updated = [name for name in ("layouts", "color", "filters_overrides") if name in changes.fields]
+        before = {name: getattr(tile, name) for name in AUDITED_TILE_FIELDS}
+        for name in updated:
+            setattr(tile, name, getattr(changes, name))
+        if updated:
+            tile.save(update_fields=[*updated, "updated_at"])
+        after = {name: getattr(tile, name) for name in AUDITED_TILE_FIELDS}
     if before != after:
         reference = _tile_reference(tile)
         _log_tile_change(
-            tile.dashboard,
+            dashboard,
             user,
             Change(
                 type="CrossProjectDashboardTile",
@@ -279,11 +297,15 @@ def update_tile(
 
 def delete_tile(*, organization_id: UUID | str, dashboard_id: UUID, tile_id: UUID, user: User) -> None:
     tile = _tile_row(organization_id, dashboard_id, tile_id, user)
-    _assert_can_change(organization_id, tile.dashboard, user)
-    tile.deleted = True
-    tile.save(update_fields=["deleted"])
+    with transaction.atomic():
+        try:
+            dashboard = _lock_for_change(organization_id, tile.dashboard_id, user)
+        except contracts.DashboardNotFoundError as error:
+            raise contracts.TileNotFoundError() from error
+        tile.deleted = True
+        tile.save(update_fields=["deleted"])
     _log_tile_change(
-        tile.dashboard,
+        dashboard,
         user,
         Change(type="CrossProjectDashboardTile", action="deleted", field="tiles", before=_tile_reference(tile)),
     )

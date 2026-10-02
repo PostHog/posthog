@@ -3018,7 +3018,7 @@
         "feature_flag_behavior": "enable"
     },
     "cross-project-dashboards-list": {
-        "description": "Dashboards the organization owns, each holding insights from one or more projects. Each dashboard comes with its filters and counts of its tiles and projects. Get one dashboard to read its tiles.",
+        "description": "Dashboards the organization owns, each holding insights from one or more projects. Each dashboard comes with its filters and counts of the tiles and projects the reader can open. Get one dashboard to read its tiles.",
         "category": "Cross-project dashboards",
         "feature": "cross_project_dashboards",
         "summary": "List cross-project dashboards",
