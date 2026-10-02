@@ -11,12 +11,31 @@ import { broadcastsSceneLogic } from '../Broadcasts/broadcastsSceneLogic'
 import { workflowsSceneLogic } from '../WorkflowsScene'
 import { audienceSceneLogic } from './audienceSceneLogic'
 
-const MOVED_TAB_REDIRECTS = [
+type Surface = 'workflows' | 'broadcasts'
+
+const MOVED_TAB_REDIRECTS: { from: string; to: string; surface: Surface; tab: string }[] = [
     { from: '/workflows/opt-outs', to: '/audience/topics', surface: 'workflows', tab: 'opt-outs' },
     { from: '/workflows/suppression', to: '/audience/suppression', surface: 'workflows', tab: 'suppression' },
     { from: '/broadcasts/opt-outs', to: '/audience/topics', surface: 'broadcasts', tab: 'opt-outs' },
     { from: '/broadcasts/suppression', to: '/audience/suppression', surface: 'broadcasts', tab: 'suppression' },
 ]
+
+const OPENED_BY = ['bookmark', 'click'] as const
+
+const MOUNT_SURFACE_SCENE: Record<Surface, () => void> = {
+    workflows: () => workflowsSceneLogic().mount(),
+    broadcasts: () => broadcastsSceneLogic.mount(),
+}
+
+function openTab(url: string, surface: Surface, openedBy: (typeof OPENED_BY)[number]): void {
+    if (openedBy === 'bookmark') {
+        router.actions.push(url)
+        MOUNT_SURFACE_SCENE[surface]()
+    } else {
+        MOUNT_SURFACE_SCENE[surface]()
+        router.actions.push(url)
+    }
+}
 
 function currentPath(): string {
     return removeProjectIdIfPresent(router.values.location.pathname)
@@ -35,35 +54,36 @@ describe('audience routing', () => {
         initKeaTests()
         jest.spyOn(posthog, 'capture')
         featureFlagLogic.mount()
-        workflowsSceneLogic().mount()
-        broadcastsSceneLogic.mount()
     })
 
     afterEach(() => {
         jest.restoreAllMocks()
     })
 
-    it.each(MOVED_TAB_REDIRECTS)('with the flag on, $from is replaced by $to', ({ from, to, surface, tab }) => {
-        setAudienceFlag(true)
+    it.each(MOVED_TAB_REDIRECTS.flatMap((redirect) => OPENED_BY.map((openedBy) => ({ ...redirect, openedBy }))))(
+        'with the flag on, $from opened by $openedBy is replaced by $to',
+        ({ from, to, surface, tab, openedBy }) => {
+            setAudienceFlag(true)
 
-        router.actions.push(from)
+            openTab(from, surface, openedBy)
 
-        expect(redirectEvents()).toEqual([['messaging tab redirected to audience', { tab, from: surface }]])
-        expect(currentPath()).toBe(to)
-        expect(router.values.lastMethod).toBe('REPLACE')
-    })
+            expect(redirectEvents()).toEqual([['messaging tab redirected to audience', { tab, from: surface }]])
+            expect(currentPath()).toBe(to)
+            expect(router.values.lastMethod).toBe('REPLACE')
+        }
+    )
 
-    it.each(MOVED_TAB_REDIRECTS)('with the flag off, $from stays put', ({ from }) => {
+    it.each(MOVED_TAB_REDIRECTS)('with the flag off, $from stays put', ({ from, surface }) => {
         setAudienceFlag(false)
 
-        router.actions.push(from)
+        openTab(from, surface, 'click')
 
         expect(currentPath()).toBe(from)
         expect(redirectEvents()).toEqual([])
     })
 
     it('redirects a moved tab that opened before the flags arrived', () => {
-        router.actions.push('/broadcasts/suppression')
+        openTab('/broadcasts/suppression', 'broadcasts', 'bookmark')
 
         setAudienceFlag(true)
 
@@ -71,7 +91,7 @@ describe('audience routing', () => {
     })
 
     it('leaves other tabs alone when the flags arrive', () => {
-        router.actions.push('/workflows/library')
+        openTab('/workflows/library', 'workflows', 'bookmark')
 
         setAudienceFlag(true)
 
