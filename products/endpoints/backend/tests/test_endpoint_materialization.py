@@ -917,22 +917,27 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         [
             ("eligible_query_serves_materialized", None, "materialized"),
             # Rules can tighten after a version is materialized; the table must stop being served then.
-            ("ineligible_query_serves_inline", {"compare": True, "compare_to": "-1w"}, "inline"),
+            # countDistinct over a range variable is one such query: a bucketed table cannot re-aggregate it.
+            (
+                "ineligible_query_serves_inline",
+                {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT countDistinct(person_id) FROM events "
+                    "WHERE timestamp >= {variables.start_ts} AND timestamp < {variables.end_ts}",
+                    "variables": {
+                        "var-1": {"variableId": "var-1", "code_name": "start_ts", "value": "2024-01-01"},
+                        "var-2": {"variableId": "var-2", "code_name": "end_ts", "value": "2024-02-01"},
+                    },
+                },
+                "inline",
+            ),
         ]
     )
     def test_fresh_materialized_data_uses_materialized_table(
-        self, _name: str, compare_filter: dict[str, Any] | None, expected_path: str
+        self, _name: str, ineligible_query: dict[str, Any] | None, expected_path: str
     ) -> None:
         """Test that fresh materialized data uses the materialized table for faster execution."""
-        query = (
-            self.sample_hogql_query
-            if compare_filter is None
-            else {
-                "kind": "TrendsQuery",
-                "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                "compareFilter": compare_filter,
-            }
-        )
+        query = ineligible_query if ineligible_query is not None else self.sample_hogql_query
         # Create a materialized endpoint with fresh data
         now = timezone.now()
         saved_query = DataWarehouseSavedQuery.objects.create(
