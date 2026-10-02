@@ -197,6 +197,7 @@ export const LoadingInsight: Story = {
                         await delay('infinite')
                         return [200, { results: [] }]
                     },
+                    '/api/projects/:team_id/warehouse_expressions/': { results: [] },
                 },
             },
         },
