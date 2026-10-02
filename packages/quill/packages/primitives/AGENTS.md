@@ -652,10 +652,13 @@ The arrow inherits the popup's border and background, so restyling the popover c
 
 `elevated` adds a heavy edge and a solid bottom ledge that presses down on click. It has two looks: `variant="primary"` (brand fill) and `variant="outline"` (neutral white in light mode, black in dark mode). Do not combine it with other variants. Use it for the strongest action in an area: the "New" button at the top of a sidebar, the CTA in an empty state, the confirm action of a flow.
 
-**An elevated button stands alone or beside exactly one other elevated button.** The only allowed pair is one elevated `primary` plus one elevated `outline`. Never place an elevated button next to a non-elevated button: the flat button looks broken beside the ledge. Never put more than two elevated buttons in a row. Do not use `elevated` in toolbars, menus, table rows, button groups or with `xs`/`sm` sizes.
+**At most two elevated buttons in a row.** The only allowed pair is one elevated `primary` plus one elevated `outline`. A third button in the row must be flat `variant="default"` (ghost): it has no border or fill, so it does not compete with the ledge. Never place an elevated button next to a flat button with chrome (`outline`, `secondary`, flat `primary`): it looks broken beside the ledge. Do not use `elevated` in toolbars, menus, table rows, button groups or with `xs`/`sm` sizes.
 
 ```tsx
 <div className="flex justify-end gap-2">
+  <Button variant="default" size="lg">
+    Cancel
+  </Button>
   <Button elevated variant="outline" size="lg">
     Save draft
   </Button>

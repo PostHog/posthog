@@ -438,13 +438,13 @@
        ========================================================================= */
     .quill-button--elevated {
         --quill-button-edge: color-mix(in oklab, var(--foreground) 72%, var(--background));
-        --quill-button-ledge: 3px;
+        --quill-button-ledge: 2px;
 
         position: relative;
         font-weight: 600;
         background-color: var(--card);
         border: 1.5px solid var(--quill-button-edge);
-        border-radius: var(--radius-md);
+        border-radius: var(--radius-sm);
         box-shadow: 0 var(--quill-button-ledge) 0 0 var(--quill-button-edge);
         transition:
             translate 80ms ease-out,

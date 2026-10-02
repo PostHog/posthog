@@ -62,7 +62,7 @@ export type ButtonProps = ButtonPrimitive.Props &
         loading?: boolean
         /**
          * Chunky raised chrome (heavy edge + bottom ledge) for strong calls to action.
-         * Use with `primary` or `outline`. Never place it beside a non-elevated button. See AGENTS.md.
+         * Use with `primary` or `outline`. At most two in a row; any further button is a flat `default`. See AGENTS.md.
          */
         elevated?: boolean
     }

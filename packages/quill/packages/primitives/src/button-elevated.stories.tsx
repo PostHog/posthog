@@ -22,8 +22,8 @@ const meta = {
             description: {
                 component:
                     'Heavy edge and bottom ledge for the strongest action in an area. Two looks: `primary` and neutral `outline`. ' +
-                    'Show one alone, or one primary beside one neutral. Never place an elevated button next to a flat one, ' +
-                    'and never show more than two in a row.',
+                    'Show one alone, or one primary beside one neutral. A third button in the row must be a flat `default` (ghost). ' +
+                    'Never place an elevated button next to a flat button with chrome.',
             },
         },
     },
@@ -78,7 +78,7 @@ export const Overview = {
             {[false, true].map((dark) => (
                 <ThemePanel key={String(dark)} dark={dark}>
                     <div className="flex flex-col gap-5">
-                        <Button elevated variant="outline" className="h-14 w-full rounded-xl text-xl">
+                        <Button elevated variant="outline" className="h-14 w-full text-xl">
                             <PlusIcon className="size-5" /> New
                         </Button>
                         <div className="flex flex-wrap items-center gap-3">
@@ -112,7 +112,7 @@ export const Variants = {
 export const Sizes = {
     render: () => (
         <div className="flex flex-col items-start gap-4">
-            <Button elevated variant="outline" className="h-12 w-72 rounded-xl text-base">
+            <Button elevated variant="outline" className="h-12 w-72 text-base">
                 <PlusIcon className="size-5" /> Hero
             </Button>
             <Button elevated variant="outline" size="lg">
@@ -187,7 +187,20 @@ export const Pairing = {
                     </Button>
                 </div>
             </Rule>
-            <Rule kind="dont" label="elevated next to a flat button">
+            <Rule kind="do" label="third button is a flat default">
+                <div className="flex gap-2">
+                    <Button variant="default" size="lg">
+                        Cancel
+                    </Button>
+                    <Button elevated variant="outline" size="lg">
+                        Save draft
+                    </Button>
+                    <Button elevated variant="primary" size="lg">
+                        Launch
+                    </Button>
+                </div>
+            </Rule>
+            <Rule kind="dont" label="elevated next to a flat outline">
                 <div className="flex gap-2">
                     <Button variant="outline" size="lg">
                         Save draft
@@ -197,7 +210,7 @@ export const Pairing = {
                     </Button>
                 </div>
             </Rule>
-            <Rule kind="dont" label="more than two in a row">
+            <Rule kind="dont" label="three elevated in a row">
                 <div className="flex gap-2">
                     <Button elevated variant="outline" size="lg">
                         Preview
