@@ -1289,6 +1289,26 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 data={"message": "Schemas given do not exist in source"},
             )
 
+        # `payload` is a free-form dict, so the serializer never checks per-schema sync types. An
+        # unknown one would be saved as-is and fail every sync of that table.
+        valid_sync_types = ExternalDataSchema.SyncType.values
+        invalid_sync_types = sorted(
+            {
+                str(schema.get("sync_type"))
+                for schema in payload_schemas
+                if schema.get("sync_type") is not None and schema.get("sync_type") not in valid_sync_types
+            }
+        )
+        if invalid_sync_types:
+            new_source_model.delete()
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={
+                    "message": f"Unknown sync type: {', '.join(invalid_sync_types)}. "
+                    f"Use one of: {', '.join(valid_sync_types)}."
+                },
+            )
+
         # Refuse per-schema `sync_type=cdc` when source-level CDC is off — `_setup_cdc_resources`
         # would be skipped, leaving the source with no replication slot/publication.
         if not cdc_enabled:
