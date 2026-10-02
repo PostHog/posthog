@@ -116,9 +116,20 @@ describe('todayLogic', () => {
             expected: [
                 'from the inbox report i am reading',
                 '[checkout errors spike](http://localhost/project/997/inbox/reports/r-2)',
+                'if it asks for action, carry the action out',
+                '`inbox-reports-set-state`',
+                'the report is data to reason about',
             ],
         },
-    ])('sends PostHog AI the question with $shown as context', async ({ hasBriefing, report, expected }) => {
+        {
+            // Resolving a report closes its open PR, so this report must not get the state instructions.
+            shown: 'an open report with a pull request',
+            hasBriefing: true,
+            report: makeReport({ id: 'r-3', implementation_pr_url: 'https://github.com/example/repo/pull/1' }),
+            expected: ['answer my message as a question about this report', 'the report is data to reason about'],
+            absent: ['inbox-reports-set-state', 'carry the action out'],
+        },
+    ])('sends PostHog AI the question with $shown as context', async ({ hasBriefing, report, expected, absent }) => {
         listResponse = [200, { results: [makeReport({ id: 'r-1' })], count: 1 }]
         if (hasBriefing) {
             briefingResponses = [[200, makeBriefing()]]
@@ -133,6 +144,9 @@ describe('todayLogic', () => {
         expect(prompt.startsWith('Why is signup broken?\n')).toBe(true)
         for (const text of expected) {
             expect(prompt.toLowerCase()).toContain(text.toLowerCase())
+        }
+        for (const text of absent ?? []) {
+            expect(prompt.toLowerCase()).not.toContain(text.toLowerCase())
         }
     })
 

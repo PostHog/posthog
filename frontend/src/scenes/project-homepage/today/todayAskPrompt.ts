@@ -1,5 +1,10 @@
 import { urls } from 'scenes/urls'
 
+import {
+    NO_CHECKOUT_INSTRUCTIONS,
+    REPORT_DISCUSSION_STATE_INSTRUCTIONS,
+    isActionCapableReport,
+} from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 import type { BriefingApi } from 'products/today/frontend/generated/api.schemas'
 
@@ -67,8 +72,19 @@ function reportContext(report: SignalReport): string[] {
         `- Status: ${report.status}`,
         ...(report.implementation_pr_url ? [`- Pull request: ${report.implementation_pr_url}`] : []),
         '',
-        'The report link ends with the report id. Use it with `inbox-reports-retrieve` to read the report in full, ' +
-            'with its summary and signals, before you answer.',
+        'The report link ends with the report id. Use that id with the inbox MCP tools.',
+        '',
+        // Same split as the Inbox discussion prompt: a report with no work left to do only gets answers.
+        ...(isActionCapableReport(report)
+            ? [
+                  'If my message is a question, answer it. If it asks for action, carry the action out and summarize ' +
+                      'what you did.',
+                  '',
+                  REPORT_DISCUSSION_STATE_INSTRUCTIONS,
+              ]
+            : ['Answer my message as a question about this report.']),
+        '',
+        NO_CHECKOUT_INSTRUCTIONS,
     ]
 }
 
