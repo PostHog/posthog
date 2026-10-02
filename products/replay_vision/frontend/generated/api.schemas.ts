@@ -2535,6 +2535,8 @@ export interface VariantsSynthesisStateApi {
      * @nullable
      */
     computed_at: string | null
+    /** Why that run failed; empty unless it did. */
+    error: string
 }
 
 export interface ExperimentVariantsReadoutApi {

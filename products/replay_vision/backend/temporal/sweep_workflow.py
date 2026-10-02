@@ -28,6 +28,7 @@ from products.replay_vision.backend.temporal.activities import (
     count_in_flight_applies_activity,
     count_in_flight_by_team_activity,
     find_scanner_candidates_activity,
+    refresh_experiment_synthesis_activity,
     refresh_prompt_suggestion_activity,
 )
 from products.replay_vision.backend.temporal.constants import (
@@ -35,12 +36,16 @@ from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_WORKFLOW_NAME,
     CHECK_SCANNER_BUDGET_TIMEOUT,
     COUNT_IN_FLIGHT_APPLIES_TIMEOUT,
+    EXPERIMENT_SYNTHESIS_EXECUTION_TIMEOUT,
+    EXPERIMENT_SYNTHESIS_WORKFLOW_NAME,
     FIND_SCANNER_CANDIDATES_TIMEOUT,
     MAX_IN_FLIGHT_APPLIES_PER_SCANNER,
     MAX_IN_FLIGHT_APPLIES_PER_TEAM,
+    REFRESH_EXPERIMENT_SYNTHESIS_TIMEOUT,
     REFRESH_PROMPT_SUGGESTION_TIMEOUT,
     SWEEP_SCANNER_WORKFLOW_NAME,
     build_apply_scanner_workflow_id,
+    build_experiment_synthesis_workflow_id,
     in_flight_headroom,
 )
 from products.replay_vision.backend.temporal.sweep_types import (
@@ -51,6 +56,11 @@ from products.replay_vision.backend.temporal.sweep_types import (
     FindScannerCandidatesInputs,
     RefreshPromptSuggestionInputs,
     SweepScannerInputs,
+)
+from products.replay_vision.backend.temporal.synthesis_types import (
+    ExperimentSynthesisInputs,
+    RefreshExperimentSynthesisInputs,
+    RefreshExperimentSynthesisOutput,
 )
 from products.replay_vision.backend.temporal.types import ApplyScannerInputs
 
@@ -79,6 +89,38 @@ class SweepScannerWorkflow(PostHogWorkflow):
             except Exception:
                 wf.logger.warning(
                     "replay_vision.prompt_suggestion_refresh_failed", extra={"scanner_id": str(inputs.scanner_id)}
+                )
+
+        # Same heartbeat refreshes an experiment scanner's variant synthesis once enough new summaries
+        # land. The activity claims the run when one is due; the run is a detached child, so a slow
+        # synthesis never holds the sweep. Best-effort like the refresh above: a child that fails to
+        # start leaves its row `running` until it goes stale, which only delays the next refresh.
+        if wf.patched("replay-vision-experiment-synthesis-refresh"):
+            try:
+                refresh: RefreshExperimentSynthesisOutput = await wf.execute_activity(
+                    refresh_experiment_synthesis_activity,
+                    RefreshExperimentSynthesisInputs(scanner_id=inputs.scanner_id, team_id=inputs.team_id),
+                    start_to_close_timeout=REFRESH_EXPERIMENT_SYNTHESIS_TIMEOUT,
+                    retry_policy=common.RetryPolicy(maximum_attempts=1),
+                )
+                if refresh.synthesis_id is not None:
+                    await wf.start_child_workflow(
+                        EXPERIMENT_SYNTHESIS_WORKFLOW_NAME,
+                        ExperimentSynthesisInputs(synthesis_id=refresh.synthesis_id, team_id=inputs.team_id),
+                        id=build_experiment_synthesis_workflow_id(refresh.synthesis_id),
+                        task_queue=settings.REPLAY_VISION_TASK_QUEUE,
+                        parent_close_policy=wf.ParentClosePolicy.ABANDON,
+                        execution_timeout=EXPERIMENT_SYNTHESIS_EXECUTION_TIMEOUT,
+                        search_attributes=TypedSearchAttributes(
+                            search_attributes=[
+                                SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=inputs.team_id),
+                                SearchAttributePair(key=POSTHOG_SCANNER_ID_KEY, value=str(inputs.scanner_id)),
+                            ]
+                        ),
+                    )
+            except Exception:
+                wf.logger.warning(
+                    "replay_vision.experiment_synthesis_refresh_failed", extra={"scanner_id": str(inputs.scanner_id)}
                 )
 
         # A capped scanner scans no sessions this tick; the heartbeats above spend no scanner

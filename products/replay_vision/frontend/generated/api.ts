@@ -58,6 +58,7 @@ import type {
     SearchSuggestionsResponseApi,
     SuggestTagsRequestApi,
     SuggestTagsResponseApi,
+    VariantsSynthesisStateApi,
     VisionAlertConfigurationApi,
     VisionAlertConfigurationDetailApi,
     VisionAlertCreateDestinationApi,
@@ -1551,6 +1552,24 @@ export const visionScannersVariantsList = async (
     return apiMutator<ExperimentVariantsReadoutApi[]>(getVisionScannersVariantsListUrl(projectId, scannerId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getVisionScannersVariantsRefreshCreateUrl = (projectId: string, scannerId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/variants/refresh/`
+}
+
+/**
+ * Start a synthesis of what users in each variant do differently. Returns the run to poll on `GET variants/`; while a run is in flight, returns that run instead of starting another.
+ */
+export const visionScannersVariantsRefreshCreate = async (
+    projectId: string,
+    scannerId: string,
+    options?: RequestInit
+): Promise<VariantsSynthesisStateApi> => {
+    return apiMutator<VariantsSynthesisStateApi>(getVisionScannersVariantsRefreshCreateUrl(projectId, scannerId), {
+        ...options,
+        method: 'POST',
     })
 }
 

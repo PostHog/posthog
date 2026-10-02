@@ -4,6 +4,7 @@ from typing import Any
 from products.replay_vision.backend.temporal.activities import (
     advance_backfill_cursor_activity,
     advance_scanner_watermark_activity,
+    assign_synthesis_themes_activity,
     call_scanner_provider_activity,
     check_scanner_budget_activity,
     cleanup_gemini_file_activity,
@@ -19,6 +20,7 @@ from products.replay_vision.backend.temporal.activities import (
     emit_observation_signal_summaries_activity,
     emit_observation_signals_activity,
     ensure_session_asset_activity,
+    fail_experiment_synthesis_activity,
     fetch_session_events_activity,
     fetch_session_network_activity,
     finalize_evaluation_activity,
@@ -38,16 +40,20 @@ from products.replay_vision.backend.temporal.activities import (
     prepare_backfill_tick_activity,
     prepare_observation_media_activity,
     prepare_observation_thumbnail_activity,
+    propose_synthesis_themes_activity,
     reap_backfill_schedules_activity,
     reap_childless_inline_scanners_activity,
     reap_orphaned_observations_activity,
     record_evaluation_result_activity,
+    refresh_experiment_synthesis_activity,
     refresh_prompt_suggestion_activity,
     refresh_scanner_estimate_activity,
     resolve_experiment_variant_activity,
     select_evaluation_sessions_activity,
     upload_video_to_gemini_activity,
     upsert_scanner_schedule_activity,
+    write_synthesis_differences_activity,
+    write_synthesis_digests_activity,
 )
 from products.replay_vision.backend.temporal.activities.benchmark import (
     load_benchmark_cases_activity,
@@ -64,6 +70,7 @@ from products.replay_vision.backend.temporal.backfill_workflow import BackfillSc
 from products.replay_vision.backend.temporal.benchmark_workflow import BuildBenchmarkWorkflow
 from products.replay_vision.backend.temporal.estimates import RefreshScannerEstimatesWorkflow
 from products.replay_vision.backend.temporal.evaluation_workflow import EvaluatePromptSuggestionWorkflow
+from products.replay_vision.backend.temporal.experiment_synthesis_workflow import ExperimentSynthesisWorkflow
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
     ReplayVisionGeminiCleanupSweepWorkflow,
     sweep_gemini_files_activity,
@@ -91,6 +98,7 @@ WORKFLOWS = [
     BackfillScannerWorkflow,
     BuildBenchmarkWorkflow,
     EvaluatePromptSuggestionWorkflow,
+    ExperimentSynthesisWorkflow,
     MeterScannerReadsWorkflow,
     ObservationMediaWorkflow,
     ReconcileScannerSchedulesWorkflow,
@@ -134,6 +142,12 @@ ACTIVITIES: list[Callable[..., Any]] = [
     check_scanner_budget_activity,
     advance_scanner_watermark_activity,
     refresh_prompt_suggestion_activity,
+    assign_synthesis_themes_activity,
+    fail_experiment_synthesis_activity,
+    propose_synthesis_themes_activity,
+    refresh_experiment_synthesis_activity,
+    write_synthesis_differences_activity,
+    write_synthesis_digests_activity,
     prepare_backfill_tick_activity,
     find_backfill_candidates_activity,
     advance_backfill_cursor_activity,
@@ -169,6 +183,7 @@ __all__ = [
     "ApplyScannerWorkflow",
     "BackfillScannerWorkflow",
     "EvaluatePromptSuggestionWorkflow",
+    "ExperimentSynthesisWorkflow",
     "MeterScannerReadsWorkflow",
     "ObservationMediaWorkflow",
     "ReconcileScannerSchedulesWorkflow",

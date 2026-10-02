@@ -263,6 +263,19 @@ def build_evaluate_prompt_suggestion_workflow_id(suggestion_id: UUID) -> str:
     return f"{EVALUATE_PROMPT_SUGGESTION_WORKFLOW_NAME}-{suggestion_id}"
 
 
+EXPERIMENT_SYNTHESIS_WORKFLOW_NAME = "replay-vision-experiment-synthesis"
+# Four steps: three bounded LLM calls and one embedding pass. Past this a run is dead, and its
+# `running` row stops blocking the next one.
+EXPERIMENT_SYNTHESIS_EXECUTION_TIMEOUT = dt.timedelta(minutes=30)
+EXPERIMENT_SYNTHESIS_STEP_TIMEOUT = dt.timedelta(minutes=5)
+REFRESH_EXPERIMENT_SYNTHESIS_TIMEOUT = dt.timedelta(seconds=30)
+
+
+def build_experiment_synthesis_workflow_id(synthesis_id: UUID) -> str:
+    """Deterministic id: one workflow per synthesis row (WorkflowAlreadyStartedError on a duplicate start)."""
+    return f"{EXPERIMENT_SYNTHESIS_WORKFLOW_NAME}-{synthesis_id}"
+
+
 # Search suggestion refresher: hourly, bounded per run and per day so cost tracks scanners people look at.
 SEARCH_SUGGESTIONS_WORKFLOW_NAME = "replay-vision-refresh-search-suggestions"
 SEARCH_SUGGESTIONS_WORKFLOW_ID = "replay-vision-search-suggestions-refresher"

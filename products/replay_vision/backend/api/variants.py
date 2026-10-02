@@ -1,18 +1,44 @@
-from typing import Any
+from typing import Any, cast
 
+from django.conf import settings
+
+from asgiref.sync import async_to_sync
 from drf_spectacular.utils import OpenApiResponse, extend_schema
-from rest_framework import serializers, viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework import serializers, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
+from temporalio.common import SearchAttributePair, TypedSearchAttributes
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.event_usage import report_user_action
+from posthog.models import User
+from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
+from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.search_attributes import POSTHOG_SCANNER_ID_KEY, POSTHOG_TEAM_ID_KEY
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.replay_vision.backend.api.observations import ReplayObservationSerializer
+from products.replay_vision.backend.consent import AI_CONSENT_REQUIRED_CODE, is_ai_data_processing_approved
 from products.replay_vision.backend.experiment_variants import experiment_variants_readout
-from products.replay_vision.backend.models.replay_experiment_synthesis import ReplayExperimentSynthesisStatus
-from products.replay_vision.backend.models.replay_scanner import ScannerType
+from products.replay_vision.backend.models.replay_experiment_synthesis import ReplayExperimentSynthesis, ReplayExperimentSynthesisStatus
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.scanner_access import scanner_for_recording_derived_read
+from products.replay_vision.backend.temporal.constants import (
+    EXPERIMENT_SYNTHESIS_EXECUTION_TIMEOUT,
+    EXPERIMENT_SYNTHESIS_WORKFLOW_NAME,
+    build_experiment_synthesis_workflow_id,
+    on_demand_priority,
+)
+from products.replay_vision.backend.temporal.synthesis_types import ExperimentSynthesisInputs
+from products.replay_vision.backend.variant_synthesis import (
+    MIN_OBSERVATIONS_FOR_SYNTHESIS,
+    fail_run,
+    start_synthesis_run,
+    synthesis_observations,
+)
 
 
 class VariantsExperimentSerializer(serializers.Serializer):
@@ -91,6 +117,7 @@ class VariantsSynthesisStateSerializer(serializers.Serializer):
     )
     scanner_version = serializers.IntegerField(help_text="The scanner version that run covered.")
     computed_at = serializers.DateTimeField(allow_null=True, help_text="When that run finished.")
+    error = serializers.CharField(help_text="Why that run failed; empty unless it did.")
 
 
 class ExperimentVariantsReadoutSerializer(serializers.Serializer):
@@ -132,8 +159,86 @@ class ReplayScannerVariantsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         ),
     )
     def list(self, request: Request, **kwargs: Any) -> Response:
+        scanner = self._experiment_scanner()
+        readout = experiment_variants_readout(scanner, access=self.user_access_control, viewer_id=request.user.id)
+        return Response(ExperimentVariantsReadoutSerializer(readout).data)
+
+    @extend_schema(
+        request=None,
+        responses={
+            202: VariantsSynthesisStateSerializer,
+            400: OpenApiResponse(description="Not an experiment scanner, AI analysis is off, or too few summaries."),
+            403: OpenApiResponse(description="The caller may not edit this scanner."),
+        },
+        description=(
+            "Start a synthesis of what users in each variant do differently. Returns the run to poll on "
+            "`GET variants/`; while a run is in flight, returns that run instead of starting another."
+        ),
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        required_scopes=["replay_scanner:write", "session_recording:read"],
+        throttle_classes=[AIBurstRateThrottle, AISustainedRateThrottle],
+    )
+    def refresh(self, request: Request, **kwargs: Any) -> Response:
+        scanner = self._experiment_scanner()
+        user = cast(User, request.user)
+        # A run spends model calls on the team's behalf, so it takes the access that editing the scanner does.
+        if not UserAccessControl(user=user, team=self.team).check_access_level_for_object(
+            scanner, required_level="editor"
+        ):
+            raise PermissionDenied("Refreshing the synthesis requires editor access to this scanner.")
+        if not is_ai_data_processing_approved(self.team_id):
+            raise ValidationError(
+                "Your organization needs to allow AI analysis before you can synthesize variants.",
+                code=AI_CONSENT_REQUIRED_CODE,
+            )
+        summaries = synthesis_observations(scanner, scanner.scanner_version).count()
+        if summaries < MIN_OBSERVATIONS_FOR_SYNTHESIS:
+            raise ValidationError(
+                f"There are {summaries} summaries with a variant so far. A synthesis needs at least "
+                f"{MIN_OBSERVATIONS_FOR_SYNTHESIS}, so check back once more sessions are scanned."
+            )
+        synthesis, created = start_synthesis_run(scanner, user=user)
+        if created:
+            _start_synthesis_workflow(scanner, synthesis)
+            report_user_action(
+                user,
+                "replay_vision_experiment_synthesis_requested",
+                {"scanner_id": str(scanner.id), "scanner_version": synthesis.scanner_version, "summaries": summaries},
+                team=self.team,
+                request=request,
+            )
+        return Response(VariantsSynthesisStateSerializer(synthesis).data, status=status.HTTP_202_ACCEPTED)
+
+    def _experiment_scanner(self) -> ReplayScanner:
         scanner = scanner_for_recording_derived_read(self)
         if scanner.scanner_type != ScannerType.EXPERIMENT:
             raise ValidationError("Only experiment scanners have variants.")
-        readout = experiment_variants_readout(scanner, access=self.user_access_control, viewer_id=request.user.id)
-        return Response(ExperimentVariantsReadoutSerializer(readout).data)
+        return scanner
+
+
+def _start_synthesis_workflow(scanner: ReplayScanner, synthesis: ReplayExperimentSynthesis) -> None:
+    try:
+        client = sync_connect()
+        async_to_sync(client.start_workflow)(  # type: ignore[misc]
+            EXPERIMENT_SYNTHESIS_WORKFLOW_NAME,  # type: ignore[arg-type]
+            ExperimentSynthesisInputs(synthesis_id=synthesis.id, team_id=scanner.team_id),  # type: ignore[arg-type]
+            id=build_experiment_synthesis_workflow_id(synthesis.id),
+            task_queue=settings.REPLAY_VISION_TASK_QUEUE,
+            execution_timeout=EXPERIMENT_SYNTHESIS_EXECUTION_TIMEOUT,
+            priority=on_demand_priority(scanner.team_id),
+            search_attributes=TypedSearchAttributes(
+                search_attributes=[
+                    SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=scanner.team_id),
+                    SearchAttributePair(key=POSTHOG_SCANNER_ID_KEY, value=str(scanner.id)),
+                ]
+            ),
+        )
+    except WorkflowAlreadyStartedError:
+        pass
+    except Exception:
+        # Without a workflow nothing would ever finish the row, and it would block the next run.
+        fail_run(synthesis.id, scanner.team_id, "The run could not be started.")
+        raise

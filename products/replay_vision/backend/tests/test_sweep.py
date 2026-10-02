@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
+import temporalio.workflow as wf
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
@@ -50,6 +51,9 @@ from products.replay_vision.backend.temporal.activities.count_in_flight_applies 
     count_in_flight_applies_activity,
     count_in_flight_by_team_activity,
 )
+from products.replay_vision.backend.temporal.activities.experiment_synthesis import (
+    refresh_experiment_synthesis_activity,
+)
 from products.replay_vision.backend.temporal.activities.find_scanner_candidates import find_scanner_candidates_activity
 from products.replay_vision.backend.temporal.activities.refresh_prompt_suggestion import (
     refresh_prompt_suggestion_activity,
@@ -59,6 +63,7 @@ from products.replay_vision.backend.temporal.constants import (
     DEEP_SWEEP_INTERVAL,
     DEEP_SWEEP_MAX_WINDOW,
     DEEP_SWEEP_READ_BUDGET_BYTES_PER_DAY,
+    EXPERIMENT_SYNTHESIS_WORKFLOW_NAME,
     MAX_IN_FLIGHT_APPLIES_PER_SCANNER,
     MAX_IN_FLIGHT_APPLIES_PER_TEAM,
     ON_DEMAND_RESERVED_SCANNER_SLOTS,
@@ -66,6 +71,7 @@ from products.replay_vision.backend.temporal.constants import (
     PRIMING_LOOKBACK,
     PRIMING_SCAN_SESSIONS,
     SWEEP_READ_BUDGET_BYTES_24H,
+    build_experiment_synthesis_workflow_id,
 )
 from products.replay_vision.backend.temporal.snapshots import BackfillScannerSnapshot
 from products.replay_vision.backend.temporal.sweep_types import (
@@ -78,6 +84,7 @@ from products.replay_vision.backend.temporal.sweep_types import (
     InFlightApplyCounts,
     SweepScannerInputs,
 )
+from products.replay_vision.backend.temporal.synthesis_types import RefreshExperimentSynthesisOutput
 from products.replay_vision.backend.tests.helpers import create_experiment, seed_scanner_spend, snapshot_for
 
 # Every scanner built below runs on this model, so its price sets what one observation draws.
@@ -1440,6 +1447,8 @@ class _SweepMocks:
         # Default to not-capped so the budget gate leaves every other sweep test unaffected.
         if activity_fn is check_scanner_budget_activity and activity_fn not in self.activity_results:
             return CheckScannerBudgetOutput(capped=False)
+        if activity_fn is refresh_experiment_synthesis_activity and activity_fn not in self.activity_results:
+            return RefreshExperimentSynthesisOutput()
         result = self.activity_results.get(activity_fn)
         if isinstance(result, Exception):
             raise result
@@ -1496,6 +1505,7 @@ async def test_empty_batch_skips_dispatch_and_advance() -> None:
 
     assert [fn for fn, _ in mocks.activity_calls] == [
         refresh_prompt_suggestion_activity,
+        refresh_experiment_synthesis_activity,
         check_scanner_budget_activity,
         count_in_flight_by_team_activity,
         find_scanner_candidates_activity,
@@ -1710,6 +1720,7 @@ async def test_inflight_cap_gates_the_sweep(
         # Throttled: no find, no apply dispatch.
         assert [fn for fn, _ in mocks.activity_calls] == [
             refresh_prompt_suggestion_activity,
+            refresh_experiment_synthesis_activity,
             check_scanner_budget_activity,
             count_in_flight_by_team_activity,
         ]
@@ -1775,3 +1786,28 @@ async def test_unpatched_sweep_replays_legacy_scanner_counter() -> None:
     assert check_scanner_budget_activity not in called
     find_calls = [inp for fn, inp in mocks.activity_calls if fn == find_scanner_candidates_activity]
     assert find_calls[0].candidate_limit == MAX_IN_FLIGHT_APPLIES_PER_SCANNER - 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("claimed", [True, False])
+async def test_a_due_synthesis_refresh_starts_a_detached_child(claimed: bool) -> None:
+    synthesis_id = uuid.uuid4()
+    mocks = _SweepMocks(
+        activity_results={
+            refresh_experiment_synthesis_activity: RefreshExperimentSynthesisOutput(
+                synthesis_id=synthesis_id if claimed else None
+            ),
+            find_scanner_candidates_activity: FindScannerCandidatesOutput(candidates=[], saturated=False),
+        },
+    )
+
+    await _run_sweep(mocks)
+
+    synthesis_children = [call for call in mocks.child_calls if call["args"][0] == EXPERIMENT_SYNTHESIS_WORKFLOW_NAME]
+    if claimed:
+        assert [call["id"] for call in synthesis_children] == [build_experiment_synthesis_workflow_id(synthesis_id)]
+        assert synthesis_children[0]["kwargs"]["parent_close_policy"] == wf.ParentClosePolicy.ABANDON
+    else:
+        assert synthesis_children == []
+    # The refresh never holds back the scan.
+    assert find_scanner_candidates_activity in [fn for fn, _ in mocks.activity_calls]

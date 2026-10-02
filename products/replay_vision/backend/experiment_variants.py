@@ -94,6 +94,7 @@ class VariantsSynthesisState:
     status: str
     scanner_version: int
     computed_at: datetime | None
+    error: str
 
 
 @frozen
@@ -200,7 +201,10 @@ def experiment_variants_readout(
         unattributed_count=window["unattributed"],
         synthesis=(
             VariantsSynthesisState(
-                status=synthesis.status, scanner_version=synthesis.scanner_version, computed_at=synthesis.computed_at
+                status=synthesis.status,
+                scanner_version=synthesis.scanner_version,
+                computed_at=synthesis.computed_at,
+                error=synthesis.error,
             )
             if synthesis is not None
             else None

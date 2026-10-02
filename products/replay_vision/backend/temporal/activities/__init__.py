@@ -31,6 +31,14 @@ from products.replay_vision.backend.temporal.activities.evaluate_prompt_suggesti
     record_evaluation_result_activity,
     select_evaluation_sessions_activity,
 )
+from products.replay_vision.backend.temporal.activities.experiment_synthesis import (
+    assign_synthesis_themes_activity,
+    fail_experiment_synthesis_activity,
+    propose_synthesis_themes_activity,
+    refresh_experiment_synthesis_activity,
+    write_synthesis_differences_activity,
+    write_synthesis_digests_activity,
+)
 from products.replay_vision.backend.temporal.activities.fetch_session_events import fetch_session_events_activity
 from products.replay_vision.backend.temporal.activities.fetch_session_network import fetch_session_network_activity
 from products.replay_vision.backend.temporal.activities.find_scanner_candidates import find_scanner_candidates_activity
@@ -115,6 +123,12 @@ __all__ = [
     "reap_orphaned_observations_activity",
     "record_evaluation_result_activity",
     "refresh_prompt_suggestion_activity",
+    "assign_synthesis_themes_activity",
+    "fail_experiment_synthesis_activity",
+    "propose_synthesis_themes_activity",
+    "refresh_experiment_synthesis_activity",
+    "write_synthesis_differences_activity",
+    "write_synthesis_digests_activity",
     "resolve_experiment_variant_activity",
     "refresh_scanner_estimate_activity",
     "select_evaluation_sessions_activity",

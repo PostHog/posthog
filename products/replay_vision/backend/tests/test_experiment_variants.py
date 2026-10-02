@@ -1,6 +1,8 @@
 from datetime import timedelta
 from typing import Any
 
+from unittest.mock import MagicMock, patch
+
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -18,11 +20,12 @@ from products.replay_vision.backend.models.replay_observation import (
 from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.tests.helpers import create_experiment, snapshot_for
 from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
+from products.replay_vision.backend.variant_synthesis import MIN_OBSERVATIONS_FOR_SYNTHESIS
 
 _UNSET = object()
 
 
-class TestExperimentVariants(_VisionAPITestCase):
+class _ExperimentScannerTestCase(_VisionAPITestCase):
     def setUp(self) -> None:
         super().setUp()
         self.experiment = create_experiment(
@@ -63,6 +66,8 @@ class TestExperimentVariants(_VisionAPITestCase):
             triggered_by=ObservationTrigger.SCHEDULE,
         )
 
+
+class TestExperimentVariants(_ExperimentScannerTestCase):
     def test_readout_counts_each_variant_from_its_observations(self) -> None:
         rates = {"control": 0.1, "test": 0.9, "beta": 0.5}
         self._observation("control", distinct_id="a", duration_s=100, rates=rates)
@@ -162,3 +167,61 @@ class TestExperimentVariants(_VisionAPITestCase):
         assert resp.status_code == 200, resp.json()
         returned = {o["id"] for o in resp.json()["results"]}
         assert returned == {str(observations[name].id) for name in expected}
+
+
+class TestExperimentSynthesisRefresh(_ExperimentScannerTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.refresh_url = f"{self.variants_url}refresh/"
+
+    def _enough_summaries(self) -> None:
+        for _ in range(MIN_OBSERVATIONS_FOR_SYNTHESIS):
+            self._observation("control")
+
+    @patch("products.replay_vision.backend.api.variants.sync_connect")
+    @patch("products.replay_vision.backend.api.variants.async_to_sync")
+    def test_refresh_starts_one_run_and_returns_it_while_in_flight(
+        self, mock_async_to_sync: MagicMock, _mock_connect: MagicMock
+    ) -> None:
+        self._enough_summaries()
+
+        first = self.client.post(self.refresh_url)
+        second = self.client.post(self.refresh_url)
+
+        assert first.status_code == 202, first.json()
+        assert first.json()["status"] == ReplayExperimentSynthesisStatus.RUNNING
+        assert second.status_code == 202, second.json()
+        # One row and one workflow start: the second call is a no-op while the first runs.
+        assert ReplayExperimentSynthesis.objects.for_team(self.team.id).filter(scanner=self.scanner).count() == 1
+        assert mock_async_to_sync.return_value.call_count == 1
+
+    @parameterized.expand([("too_few_summaries", False, True), ("ai_analysis_off", True, False)])
+    def test_refresh_is_refused(self, _name: str, enough: bool, consent: bool) -> None:
+        if enough:
+            self._enough_summaries()
+        with patch("products.replay_vision.backend.api.variants.is_ai_data_processing_approved", return_value=consent):
+            resp = self.client.post(self.refresh_url)
+        assert resp.status_code == 400, resp.json()
+        assert not ReplayExperimentSynthesis.objects.for_team(self.team.id).filter(scanner=self.scanner).exists()
+
+    def test_refresh_requires_editor_access(self) -> None:
+        self._enough_summaries()
+        with patch(
+            "products.replay_vision.backend.api.variants.UserAccessControl.check_access_level_for_object",
+            return_value=False,
+        ):
+            resp = self.client.post(self.refresh_url)
+        assert resp.status_code == 403
+
+    @patch("products.replay_vision.backend.api.variants.sync_connect", side_effect=RuntimeError("temporal down"))
+    def test_a_run_that_fails_to_start_does_not_block_the_next(self, _mock_connect: MagicMock) -> None:
+        # Nothing would ever finish a row with no workflow, and the one-running constraint would then
+        # refuse every later refresh.
+        self._enough_summaries()
+
+        resp = self.client.post(self.refresh_url)
+
+        assert resp.status_code == 500
+
+        run = ReplayExperimentSynthesis.objects.for_team(self.team.id).get(scanner=self.scanner)
+        assert run.status == ReplayExperimentSynthesisStatus.FAILED
