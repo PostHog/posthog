@@ -726,6 +726,8 @@ export const scannerCalibrationLogic = kea<scannerCalibrationLogicType>([
                 )
                 cache.suggestionEpoch = (cache.suggestionEpoch ?? 0) + 1
                 actions.applySuggestionSuccess(suggestion)
+                // Apply bumps the scanner version, which the outdated check compares against.
+                actions.loadCurrentSuggestion()
                 lemonToast.success('Prompt applied to the scanner as a new version')
                 // The scanner's prompt and version changed, so refresh it wherever the scene shows it.
                 replayScannerLogic.findMounted({ id: props.scannerId })?.actions.loadScanner()
