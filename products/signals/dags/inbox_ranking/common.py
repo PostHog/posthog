@@ -48,6 +48,8 @@ NOT_FIXED_RESOLUTION_REASONS = (
 )
 # A dismissal that says the problem was real and is fixed somewhere.
 FIXED_DISMISSAL_REASONS = ("already_fixed", "fixed_outside_posthog", "pr_merged")
+# A dismissal that says the problem is real but not worth fixing: a relevance failure, not a precision failure.
+LOW_VALUE_DISMISSAL_REASONS = ("wontfix_irrelevant",)
 
 # Artefact actors whose writes count as a person acting on a report. `agent` is an external MCP
 # client that authenticates as a real user, so a person drove it. `task` is a self-driving sandbox
