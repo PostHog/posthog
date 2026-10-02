@@ -60,6 +60,10 @@ _COPIED_COLUMNS = "uuid, event, properties, timestamp, team_id, distinct_id, cre
 # stays in the query and reports its real lag. A partition that has delivered nothing for the whole
 # lookback drops out of this query.
 _KAFKA_LOOKBACK_DAYS = 7
+# Ingestion retries a failed produce until librdkafka's message.timeout.ms, which defaults to five minutes.
+# A retried row keeps the Kafka time of its first attempt, so it can reach flag_evaluations after rows that
+# Kafka stamped later.
+_KAFKA_DELIVERY_TIMEOUT = timedelta(minutes=5)
 _KAFKA_POSITION_QUERY = f"""
 SELECT count(), max(lag_seconds)
 FROM (
@@ -235,11 +239,17 @@ def build_copy_query(*, dry_run: bool, filter_team_ids: bool, chunked: bool) -> 
     if chunked:
         team_filter += " AND modulo(team_id, %(team_id_chunks)s) = %(chunk)s"
     # The eligibility filter is the ingestion fork's rule, in the form PARITY_CHECK.md uses.
+    # Ingestion queues a call's fork row before its events row, so the fork row's Kafka time is never later
+    # than the events row's _timestamp. flag_evaluations holds every fork row stamped before delivered_before,
+    # so the anti-join finds the fork row of an older source row. A newer source row, such as a fresh import
+    # dated inside the window, can still have its fork row in Kafka. Copying it would store the call twice,
+    # so the job skips it. Kafka then delivers its fork row, or a later run copies it.
     select = f"""
 SELECT {"count()" if dry_run else _COPIED_COLUMNS}
 FROM {EVENTS_DATA_TABLE()}
 PREWHERE event = %(event)s
     AND timestamp >= %(day_start)s AND timestamp < %(day_end)s{team_filter}
+    AND _timestamp < %(delivered_before)s
     AND (team_id, uuid) NOT IN (
         SELECT team_id, uuid FROM {FLAG_EVALUATIONS_DATA_TABLE}
         WHERE timestamp >= %(day_start)s AND timestamp < %(day_end)s{team_filter}
@@ -321,12 +331,12 @@ class ShardBackfill:
                 break
             self.wait_for_parts_to_merge(day)
             blocking_run_check = self._wait_for_disk_and_blocking_runs()
-            self.check_consumer_lag()
+            delivered_before = self.check_consumer_lag()
             # The waits above have no shared deadline. The TTL boundary moves at UTC midnight.
             if self._reached_expired_day(day, uncopied_days=uncopied_days):
                 break
             try:
-                rows = self.copy_day(day, copy_query, settings)
+                rows = self.copy_day(day, copy_query, settings, delivered_before)
             finally:
                 if not self.config.dry_run:
                     self.check_no_blocking_run_started(blocking_run_check, day=day)
@@ -478,7 +488,9 @@ class ShardBackfill:
             raise dagster.Failure(description=f"Stopping shard {self.shard_num}: " + "; ".join(problems))
         return hosts_moving_parts
 
-    def check_consumer_lag(self) -> None:
+    def check_consumer_lag(self) -> datetime:
+        """Return an instant before which flag_evaluations holds every fork row that Kafka stamped."""
+        checked_at = datetime.now(UTC)
         kafka_partitions, lag_seconds = self._on_copy_host(partial(self._first_row, _KAFKA_POSITION_QUERY))
         if kafka_partitions == 0:
             raise dagster.Failure(
@@ -491,12 +503,14 @@ class ShardBackfill:
                 f"over the limit of {self.config.max_consumer_lag_seconds}s. Copying now would insert rows "
                 "that Kafka then delivers a second time."
             )
+        return checked_at - timedelta(seconds=self.config.max_consumer_lag_seconds) - _KAFKA_DELIVERY_TIMEOUT
 
-    def copy_day(self, day: date, copy_query: str, settings: dict[str, Any]) -> int:
+    def copy_day(self, day: date, copy_query: str, settings: dict[str, Any], delivered_before: datetime) -> int:
         day_args = {
             "event": FLAG_EVALUATIONS_SOURCE_EVENT,
             "day_start": f"{day:%Y-%m-%d} 00:00:00",
             "day_end": f"{day + timedelta(days=1):%Y-%m-%d} 00:00:00",
+            "delivered_before": f"{delivered_before:%Y-%m-%d %H:%M:%S}",
             "team_ids": tuple(self.config.team_ids or ()),
             "team_id_chunks": self.config.team_id_chunks,
         }
