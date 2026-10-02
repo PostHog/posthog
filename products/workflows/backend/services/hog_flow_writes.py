@@ -9,7 +9,7 @@ from django.utils.dateparse import parse_datetime
 
 from products.workflows.backend.facade.contracts import WorkflowHasNoDraft, WorkflowStale, WorkflowWriteResult
 from products.workflows.backend.facade.enums import HogFlowScheduleStatus
-from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.models.hog_flow.hog_flow import BILLABLE_ACTION_TYPES, HogFlow
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.models.workflow_proposal import WorkflowProposal
 from products.workflows.backend.services.action_redirects import compute_action_redirects
@@ -114,6 +114,25 @@ def _save_live(instance: HogFlow, validated_data: dict, **overrides: object) -> 
     for attr, value in data.items():
         setattr(instance, attr, value)
     instance.save()
+
+
+def _derive_from_locked_graph(locked: HogFlow, validated_data: dict) -> dict:
+    # HogFlowSerializer.validate derives trigger and billable_action_types from the actions it read
+    # before the row lock. A write without actions keeps the locked row's actions, and a concurrent
+    # graph write can change those actions before the lock. Derive both fields again from the locked
+    # actions, so that the save does not pair the new graph with fields derived from the old graph.
+    if "actions" in validated_data:
+        return validated_data
+    actions = locked.actions or []
+    derived = dict(validated_data)
+    trigger_action = next((action for action in actions if action.get("type") == "trigger"), None)
+    if "trigger" in derived and trigger_action is not None:
+        derived["trigger"] = trigger_action.get("config")
+    if "billable_action_types" in derived:
+        derived["billable_action_types"] = sorted(
+            {action.get("type", "") for action in actions if action.get("type") in BILLABLE_ACTION_TYPES}
+        )
+    return derived
 
 
 def _refresh_action_redirects(target: HogFlow, old: HogFlow, new_actions: Optional[list]) -> None:
@@ -318,6 +337,7 @@ def update_workflow(
                     raise WorkflowStale()
                 _save_live(instance, remaining)
         else:
+            validated_data = _derive_from_locked_graph(before_update, validated_data)
             _refresh_action_redirects(instance, before_update, validated_data.get("actions"))
             bump = _stage_revision_bump(instance, before_update, validated_data)
             if clears_staged_draft:

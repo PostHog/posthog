@@ -36,6 +36,7 @@ from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_
 from products.cohorts.backend.models.cohort import Cohort
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade.contracts import WorkflowLastRunDTO
+from products.workflows.backend.facade.writes import update_workflow
 from products.workflows.backend.models.hog_flow.hog_flow import SUPPORTED_ACTION_TYPES, HogFlow
 from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
@@ -4305,6 +4306,54 @@ class TestHogFlowAPI(APIBaseTest):
         action_types = [action["type"] for action in flow.actions]
         assert "delay" in action_types  # Delay is present
         assert action_types.count("function") == 2  # Two function actions
+
+    def test_metadata_update_derives_trigger_and_billable_types_from_the_locked_graph(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+            },
+        }
+        webhook_action = {
+            "id": "a1",
+            "name": "webhook",
+            "type": "function",
+            "config": {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}},
+        }
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            {"name": "Locked graph", "actions": [trigger_action, webhook_action]},
+        )
+        assert response.status_code == 201, response.json()
+        flow_id = response.json()["id"]
+
+        concurrent_trigger = {
+            "type": "event",
+            "filters": {"events": [{"id": "$autocapture", "name": "$autocapture", "type": "events", "order": 0}]},
+        }
+
+        def update_after_concurrent_graph_write(**kwargs):
+            HogFlow.objects.filter(pk=flow_id).update(
+                actions=[{**trigger_action, "config": concurrent_trigger}],
+                trigger=concurrent_trigger,
+                billable_action_types=[],
+            )
+            return update_workflow(**kwargs)
+
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.update_workflow",
+            side_effect=update_after_concurrent_graph_write,
+        ):
+            rename = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"name": "Renamed"})
+
+        assert rename.status_code == 200, rename.json()
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.name == "Renamed"
+        assert flow.trigger == concurrent_trigger
+        assert flow.billable_action_types == []
 
     @override_settings(HOGFLOW_BATCH_TRIGGER_LIMIT=5000, HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS=set())
     @patch(
