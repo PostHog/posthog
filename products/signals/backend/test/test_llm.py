@@ -204,7 +204,10 @@ def test_parse_json_object_ignores_surrounding_text(text: str, expected: dict[st
     assert parse_json_object(text) == expected
 
 
-@pytest.mark.parametrize("text", ["no json here", '{"match": true,, "x": 1}'])
+@pytest.mark.parametrize(
+    "text",
+    ["no json here", '{"match": true,, "x": 1}', '{"result": {"safe": true}, broken}'],
+)
 def test_parse_json_object_rejects_invalid_json(text: str) -> None:
     with pytest.raises(json.JSONDecodeError):
         parse_json_object(text)
