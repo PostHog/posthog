@@ -12,6 +12,7 @@ import { type AffectedCohortQualifier, type ObservationVerdictValue, replayScann
 import { ReplayScannerTab, replayScannerSceneLogic } from '../replayScannerSceneLogic'
 import { scannerOverviewLogic } from '../scannerOverviewLogic'
 import { ScannerType } from '../types'
+import { RootCausePrompt } from './RootCausePrompt'
 import { ScannerInsightsChart } from './ScannerInsightsChart'
 import { ScannerOverviewFilters } from './ScannerOverviewFilters'
 import { ScannerScoutCard } from './ScannerScoutCard'
@@ -377,7 +378,7 @@ function FirstScanPendingPanel({ scannerId }: { scannerId: string }): JSX.Elemen
 
 export function ScannerOverview({ scannerId }: { scannerId: string }): JSX.Element | null {
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
-    const { firstScanPending } = useValues(scannerOverviewLogic({ scannerId }))
+    const { firstScanPending, coverageStats } = useValues(scannerOverviewLogic({ scannerId }))
     if (!scanner) {
         return null
     }
@@ -395,6 +396,7 @@ export function ScannerOverview({ scannerId }: { scannerId: string }): JSX.Eleme
         <>
             <ScannerInsightsChart scannerId={scannerId} scannerType={scannerType} />
             {typeOverview && <div className="border-t pt-4">{typeOverview}</div>}
+            <RootCausePrompt scannerId={scannerId} scannedSessions={coverageStats.totalSessions} />
         </>
     )
 
