@@ -11,7 +11,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from django.db.models import Case, CharField, Count, F, Func, JSONField, OuterRef, Q, QuerySet, Subquery, Value, When
+from django.db.models import Case, CharField, F, Func, JSONField, OuterRef, Q, QuerySet, Subquery, Value, When
 from django.db.models.functions import Cast
 
 import pydantic
@@ -336,20 +336,17 @@ def _briefing_pick(candidates: Sequence[_BriefingCandidate], limit: int | None) 
     return ranked if limit is None else ranked[:limit]
 
 
-def reports_for_briefing(*, team_id: int, user_id: int, limit: int | None = None) -> list[BriefingReport]:
-    """Open, actionable reports for one person, in briefing order, each tagged with its strongest relation.
+def _relation_to_person(team_id: int, user: User) -> Case:
+    """A report's strongest `BriefingReportRelation` to the person, or NULL when it has none.
 
-    A report appears once, under the first `BriefingReportRelation` that matches. One query reads
-    every candidate with its relation, priority and served scores, up to `_CANDIDATE_LIMIT`, so the
-    model ranks the whole set and not only the newest reports. Urgent-unowned keeps only P0.
-    `_briefing_pick` orders the candidates and `limit` keeps the best of them.
+    Reads the `briefing_priority` annotation, so the queryset must carry `_latest_priority()` first.
     """
-    names_me = _names_person(team_id, User.objects.get(id=user_id))
-    claimed = reports_with_active_claim(team_id=team_id, actor=ArtefactAttribution.from_user(user_id))
+    names_me = _names_person(team_id, user)
+    claimed = reports_with_active_claim(team_id=team_id, actor=ArtefactAttribution.from_user(user.id))
     unowned = ~reports_with_active_claim(team_id=team_id) & ~implementation_pr_report_filter(
         team_id=team_id, active_only=True
     )
-    relation = Case(
+    return Case(
         When(
             names_me & Q(status=SignalReport.Status.PENDING_INPUT), then=Value(BriefingReportRelation.WAITING_FOR_YOU)
         ),
@@ -367,11 +364,28 @@ def reports_for_briefing(*, team_id: int, user_id: int, limit: int | None = None
         default=Value(None),
         output_field=CharField(),
     )
-    rows = (
+
+
+def _reports_for_person(team_id: int, user: User) -> QuerySet[SignalReport]:
+    """The open reports that are for this person: the set the briefing ranks and the Inbox counts."""
+    return (
         _open_reports(team_id)
         .annotate(briefing_priority=_latest_priority())
-        .annotate(briefing_relation=relation)
+        .annotate(briefing_relation=_relation_to_person(team_id, user))
         .filter(briefing_relation__isnull=False)
+    )
+
+
+def reports_for_briefing(*, team_id: int, user_id: int, limit: int | None = None) -> list[BriefingReport]:
+    """Open, actionable reports for one person, in briefing order, each tagged with its strongest relation.
+
+    A report appears once, under the first `BriefingReportRelation` that matches. One query reads
+    every candidate with its relation, priority and served scores, up to `_CANDIDATE_LIMIT`, so the
+    model ranks the whole set and not only the newest reports. Urgent-unowned keeps only P0.
+    `_briefing_pick` orders the candidates and `limit` keeps the best of them.
+    """
+    rows = (
+        _reports_for_person(team_id, User.objects.get(id=user_id))
         .annotate(briefing_heads=_latest_served_heads())
         .order_by("-updated_at")
         .values_list("id", "updated_at", "briefing_relation", "briefing_priority", "briefing_heads")[:_CANDIDATE_LIMIT]
@@ -425,17 +439,17 @@ class OpenReportCounts:
 
 
 def open_report_counts(*, team_id: int, user: User, exclude_report_ids: Sequence[str] = ()) -> OpenReportCounts:
-    """How many open, actionable reports the project has, and how many of them name this person.
+    """How many open, actionable reports the project has, and how many of them are for this person.
 
-    `exclude_report_ids` leaves out the reports a briefing already shows; one that is resolved or
-    does not name the person was never in the set, so it is not subtracted from it.
+    `for_person` counts the same set `reports_for_briefing` ranks (named, claimed, or an unowned P0),
+    so a "more for you" number agrees with the list it follows. `exclude_report_ids` leaves out the
+    reports already on screen; one that is resolved or not for the person was never in the set, so
+    it is not subtracted from it.
     """
-    row = (
-        _open_reports(team_id)
-        .exclude(id__in=list(exclude_report_ids))
-        .aggregate(in_project=Count("id"), for_person=Count("id", filter=_names_person(team_id, user)))
-    )
-    return OpenReportCounts(for_person=row["for_person"], in_project=row["in_project"])
+    excluded = list(exclude_report_ids)
+    in_project = _open_reports(team_id).exclude(id__in=excluded).count()
+    for_person = _reports_for_person(team_id, user).exclude(id__in=excluded).count()
+    return OpenReportCounts(for_person=for_person, in_project=in_project)
 
 
 def _pull_request_state(state: str, merged: bool) -> str | None:

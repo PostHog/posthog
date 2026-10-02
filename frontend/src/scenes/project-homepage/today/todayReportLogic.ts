@@ -2,9 +2,7 @@ import { MakeLogicType, afterMount, connect, kea, key, path, props, reducers, se
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
-import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import { signalsReportsSignalsRetrieve } from 'products/signals/frontend/generated/api'
 import { ReportChartApi, SignalNodeApi } from 'products/signals/frontend/generated/api.schemas'
@@ -33,7 +31,6 @@ export interface todayReportLogicValues {
     reportSignals: SignalNodeApi[] | null
     reportSignalsLoading: boolean
     reportState: BriefingItemStateEnumApi
-    reportUrl: string
     signals: SignalNodeApi[]
     trailingCharts: ReportChartApi[]
 }
@@ -183,12 +180,6 @@ export const todayReportLogic = kea<todayReportLogicType>([
             ): BriefingItemStateEnumApi =>
                 reportStateOverrides[props.reportId] ??
                 (currentReport ? reportItemState(currentReport.status) : 'open'),
-        ],
-        // Absolute, because the session prompt gives it to the agent so the agent can read the report.
-        reportUrl: [
-            () => [],
-            (): string =>
-                `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport('reports', props.reportId))}`,
         ],
     })),
     afterMount(({ actions }) => {
