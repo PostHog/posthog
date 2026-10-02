@@ -479,6 +479,32 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
         self.assertIn("Unresolved placeholder", str(response.json()))
 
+    def test_compare_mode_materialization_requires_rollout_flag(self):
+        endpoint = create_endpoint_with_version(
+            name="test_compare_mode_rollout",
+            team=self.team,
+            query={
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                "dateRange": {"date_from": "-7d"},
+                "compareFilter": {"compare": True},
+            },
+            created_by=self.user,
+        )
+
+        with mock.patch(
+            "products.endpoints.backend.models.posthoganalytics.feature_enabled",
+            return_value=False,
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+                {"is_materialized": True, "data_freshness_seconds": 86400},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Compare mode is not supported", response.json()["detail"])
+
     @parameterized.expand(
         [
             (
