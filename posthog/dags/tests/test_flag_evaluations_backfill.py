@@ -46,6 +46,8 @@ class SourceEvent:
     age: timedelta
     properties: Mapping[str, object]
     event: str = FLAG_EVALUATIONS_SOURCE_EVENT
+    # How long ago Kafka delivered the row to the events table, when that differs from its age.
+    reached_events_age: timedelta | None = None
 
     @property
     def uuid(self) -> UUID:
@@ -94,12 +96,18 @@ INSIDE_RECENT = flag_called("inside_recent", TEAM_ONE, timedelta(days=2, hours=1
 INSIDE_TEAM_THREE = flag_called("inside_team_three", TEAM_THREE, timedelta(days=30))
 INSIDE_OLD = flag_called("inside_old", TEAM_TWO, timedelta(days=60))
 ALREADY_FORKED = flag_called("already_forked", TEAM_ONE, timedelta(days=5))
+# An import dated inside the window that reached events just before the consumer-lag check. Its fork row
+# can still be in Kafka, so the job does not copy it.
+IMPORTED_JUST_NOW = replace(
+    flag_called("imported_just_now", TEAM_ONE, timedelta(days=4)), reached_events_age=timedelta(0)
+)
 
 SOURCE_EVENTS = [
     INSIDE_RECENT,
     INSIDE_TEAM_THREE,
     INSIDE_OLD,
     ALREADY_FORKED,
+    IMPORTED_JUST_NOW,
     SourceEvent(
         label="numeric_flag_key",
         team_id=TEAM_ONE,
@@ -168,6 +176,7 @@ def seed_source_events(cluster: ClickhouseCluster, now: datetime, events: list[S
             event.distinct_id,
             now - event.age,
             uuid5(NAMESPACE_URL, event.distinct_id),
+            now - (event.age if event.reached_events_age is None else event.reached_events_age),
         )
         for event in events
     ]
@@ -175,7 +184,7 @@ def seed_source_events(cluster: ClickhouseCluster, now: datetime, events: list[S
     def insert(client: Client) -> None:
         client.execute(
             f"""INSERT INTO {EVENTS_DATA_TABLE()}
-            (uuid, event, properties, timestamp, team_id, distinct_id, created_at, person_id)
+            (uuid, event, properties, timestamp, team_id, distinct_id, created_at, person_id, _timestamp)
             VALUES""",
             rows,
         )
