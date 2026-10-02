@@ -149,26 +149,26 @@ def _ticket_owned_media(*, team_id: int, ticket_id: str, media_ids: set[str]) ->
         return []
     mentions_candidate = Q()
     for media in candidates:
-        mentions_candidate |= Q(content__contains=str(media.id))
-    other_comments = (
+        mentions_candidate |= Q(content__contains=str(media.id)) | Q(rich_content__icontains=str(media.id))
+    other_comments = list(
         Comment.objects.filter(team_id=team_id)
         .filter(mentions_candidate)
         .exclude(item_id=ticket_id, scope__in=_TICKET_COMMENT_SCOPES)
-        .values_list("content", flat=True)
+        .only("content", "rich_content")
     )
-    shared: set[str] = set()
-    for content in other_comments:
-        shared.update(media_id.lower() for media_id in _UPLOADED_MEDIA_RE.findall(content or ""))
+    shared = {media_id.lower() for media_id in _comment_media_ids(other_comments)}
     return [media for media in candidates if str(media.id) not in shared]
 
 
 def _delete_uploaded_media(media: list[UploadedMedia]) -> None:
-    # A storage failure raises. The purge then rolls back and keeps the ticket, so the
-    # next run can find the object again from the comment that references it.
+    # Runs as the last step of the purge transaction, so no later database write can roll
+    # back after an object is gone. A storage failure raises and the purge rolls back; the
+    # next run finds the object again from the comment. S3 deletes are idempotent.
+    for item in media:
+        item.delete()
     for item in media:
         if item.media_location:
             object_storage.delete(item.media_location)
-        item.delete()
 
 
 def _retire_ticket_number(*, ticket: Ticket) -> None:
@@ -251,18 +251,16 @@ def _purge_ticket(ticket_id: UUID, cutoff: datetime) -> bool:
             retract_source_signals,  # noqa: PLC0415 — keeps signals and HogQL off the django.setup() path
         )
 
-        # External copies go first, while the row is locked, so a ticket that is no
-        # longer due cannot lose its files. A failure raises and leaves the row for retry.
+        # Signal copies go first, while the row is locked, so a ticket that is no longer
+        # due cannot lose them. A failure raises and leaves the row for retry.
         retract_source_signals(
             team=locked.team,
             source_product="conversations",
             source_type="ticket",
             source_id=str(locked.id),
         )
-        _delete_uploaded_media(
-            _ticket_owned_media(
-                team_id=locked.team_id, ticket_id=str(locked.id), media_ids=_comment_media_ids(comments)
-            )
+        owned_media = _ticket_owned_media(
+            team_id=locked.team_id, ticket_id=str(locked.id), media_ids=_comment_media_ids(comments)
         )
         _file_ticket_event_deletion(locked)
 
@@ -290,6 +288,7 @@ def _purge_ticket(ticket_id: UUID, cutoff: datetime) -> bool:
             activity="purged",
             detail=Detail(name=f"Ticket #{ticket_number}"),
         )
+        _delete_uploaded_media(owned_media)
     return True
 
 

@@ -1688,6 +1688,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                                 )
                             }
                             lemonToast.success('Ticket deleted')
+                            // The ticket is gone, so unsaved edits on it can no longer be saved.
+                            cache.skipUnsavedChangesPrompt = true
                             router.actions.push(urls.supportTickets())
                         } catch {
                             lemonToast.error('Failed to delete ticket. Try again.')
@@ -1771,8 +1773,12 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         // The message poller is registered through cache.disposables, which the plugin tears down.
         impersonationNoticeLogic.findMounted()?.actions.setTicketContext(null)
     }),
-    beforeUnload(({ values, actions }) => ({
+    beforeUnload(({ values, actions, cache }) => ({
         enabled: (newLocation) => {
+            if (cache.skipUnsavedChangesPrompt) {
+                cache.skipUnsavedChangesPrompt = false
+                return false
+            }
             if (!values.hasPendingWork) {
                 return false
             }

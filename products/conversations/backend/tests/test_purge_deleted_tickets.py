@@ -65,7 +65,11 @@ class TestPurgeDeletedTickets(BaseTest):
             team=self.team,
             scope="conversations_ticket",
             item_id=str(fresh.id),
-            content=f"also /uploaded_media/{shared.id}",
+            content="also attached",
+            rich_content={
+                "type": "doc",
+                "content": [{"type": "image", "attrs": {"src": f"/uploaded_media/{shared.id}"}}],
+            },
         )
         Comment.objects.create(
             team=self.team,

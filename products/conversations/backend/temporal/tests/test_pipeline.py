@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from collections.abc import Callable, Sequence
 from contextlib import ExitStack
 from typing import Any
@@ -1322,18 +1323,21 @@ class TestPersistReplyActivity:
 
         org = Organization.objects.create(name="Test Org")
         team = Team.objects.create(organization=org, name="Test Team")
+        ticket = Ticket.objects.create_with_number(
+            team=team, channel_source="widget", widget_session_id="session", distinct_id="customer"
+        )
 
         _persist_reply_sync(
             PersistReplyInput(
                 team_id=team.id,
-                ticket_id="test-ticket-id",
+                ticket_id=str(ticket.id),
                 reply="Here's how to do X.",
                 citations=["chunk-1", "chunk-2"],
                 confidence=0.85,
             )
         )
 
-        comment = Comment.objects.get(team_id=team.id, item_id="test-ticket-id")
+        comment = Comment.objects.get(team_id=team.id, item_id=str(ticket.id))
         assert comment.content == "Here's how to do X."
         assert comment.scope == "conversations_ticket"
         assert comment.item_context is not None
@@ -1351,11 +1355,14 @@ class TestPersistReplyActivity:
 
         org = Organization.objects.create(name="Test Org")
         team = Team.objects.create(organization=org, name="Test Team")
+        ticket = Ticket.objects.create_with_number(
+            team=team, channel_source="widget", widget_session_id="session", distinct_id="customer"
+        )
 
         _persist_reply_sync(
             PersistReplyInput(
                 team_id=team.id,
-                ticket_id="test-ticket-id",
+                ticket_id=str(ticket.id),
                 reply="Here is a guessed answer you should not send.",
                 citations=["chunk-1"],
                 confidence=0.1,
@@ -1366,7 +1373,7 @@ class TestPersistReplyActivity:
             )
         )
 
-        comment = Comment.objects.get(team_id=team.id, item_id="test-ticket-id")
+        comment = Comment.objects.get(team_id=team.id, item_id=str(ticket.id))
         assert comment.content is not None
         assert "Here is a guessed answer you should not send." not in comment.content
         assert "Checked the docs. SDK was not named." in comment.content
@@ -1375,6 +1382,24 @@ class TestPersistReplyActivity:
         assert comment.item_context is not None
         assert comment.item_context["is_private"] is True
         assert comment.item_context["persist_as"] == "findings"
+
+    def test_skips_reply_when_ticket_row_is_gone(self):
+        from posthog.models.comment import Comment
+        from posthog.models.organization import Organization
+        from posthog.models.team.team import Team
+
+        org = Organization.objects.create(name="Test Org")
+        team = Team.objects.create(organization=org, name="Test Team")
+        missing_ticket_id = str(uuid.uuid4())
+
+        result = _persist_reply_sync(
+            PersistReplyInput(
+                team_id=team.id, ticket_id=missing_ticket_id, reply="Answer", citations=[], confidence=0.9
+            )
+        )
+
+        assert result.posted is False
+        assert not Comment.objects.filter(team_id=team.id, item_id=missing_ticket_id).exists()
 
     def test_findings_note_stays_private_on_bot_reply_channel(self):
         from posthog.models.comment import Comment

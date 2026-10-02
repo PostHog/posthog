@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import time
 import uuid
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
 
@@ -916,23 +916,28 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         widget_session_id = ticket.widget_session_id
 
         def _after_delete() -> None:
-            cancel_open_deliveries_for_ticket(team_id=team_id, ticket_id=ticket_id)
-            cancel_pending_email_replies_for_ticket(team_id=team_id, ticket_id=ticket_id)
-            invalidate_unread_count_cache(team_id)
-            invalidate_messages_cache(team_id, str(ticket_id))
-            invalidate_identity_tickets_cache(team_id)
-            if widget_session_id:
-                invalidate_tickets_cache(team_id, widget_session_id)
-            try:
-                report_user_action(
+            # The delete has committed. One failed step must not skip the others or fail the response.
+            steps: list[Callable[[], object]] = [
+                lambda: cancel_open_deliveries_for_ticket(team_id=team_id, ticket_id=ticket_id),
+                lambda: cancel_pending_email_replies_for_ticket(team_id=team_id, ticket_id=ticket_id),
+                lambda: invalidate_unread_count_cache(team_id),
+                lambda: invalidate_messages_cache(team_id, str(ticket_id)),
+                lambda: invalidate_identity_tickets_cache(team_id),
+                lambda: report_user_action(
                     request.user,
                     "support ticket deleted",
                     _ticket_action_properties(ticket),
                     team=self.team,
                     request=request,
-                )
-            except Exception as e:
-                capture_exception(e, {"ticket_id": str(ticket_id)})
+                ),
+            ]
+            if widget_session_id:
+                steps.append(lambda: invalidate_tickets_cache(team_id, widget_session_id))
+            for step in steps:
+                try:
+                    step()
+                except Exception as e:
+                    capture_exception(e, {"ticket_id": str(ticket_id)})
 
         transaction.on_commit(_after_delete)
         return Response(status=drf_status.HTTP_204_NO_CONTENT)

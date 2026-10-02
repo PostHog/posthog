@@ -14,6 +14,8 @@ from posthog.models.uploaded_media import (
     save_content_to_object_storage,
     sniff_image_content_type,
 )
+from posthog.storage import object_storage
+from posthog.storage.object_storage import ObjectStorageError
 
 logger = structlog.get_logger(__name__)
 
@@ -25,6 +27,9 @@ MAX_FILENAME_LENGTH = 255
 # and "!" so an attacker-controlled filename can't inject markdown link/image
 # syntax when we render it as `[name](url)` / `![name](url)`.
 _FILENAME_STRIP_RE = re.compile(r"[^\w\s\-.,()]+")
+_REHOSTED_MEDIA_URL_RE = re.compile(
+    r"/uploaded_media/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
+)
 
 
 def sanitize_attachment_filename(name: str | None) -> str:
@@ -170,3 +175,22 @@ def build_content_with_images(
             }
         )
     return content, rich_content
+
+
+def discard_rehosted_attachments(team: Team, attachments: list[dict[str, Any]]) -> None:
+    """Delete files that were re-hosted for a message that no ticket comment will reference."""
+    media_ids = {
+        match.group(1)
+        for attachment in attachments
+        if (match := _REHOSTED_MEDIA_URL_RE.search(attachment.get("url") or ""))
+    }
+    if not media_ids:
+        return
+    for media in UploadedMedia.objects.filter(team_id=team.id, id__in=media_ids, created_by__isnull=True):
+        if media.media_location:
+            try:
+                object_storage.delete(media.media_location)
+            except ObjectStorageError:
+                logger.warning("conversations_attachment_discard_failed", team_id=team.id, media_id=str(media.id))
+                continue
+        media.delete()
