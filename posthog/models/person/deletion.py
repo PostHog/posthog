@@ -13,6 +13,7 @@ from posthog.models.person.util import (
     PersonTombstonePublication,
     create_person,
     create_person_distinct_id,
+    get_person_by_distinct_id,
     get_person_tombstones,
     get_persons_by_uuids,
 )
@@ -81,9 +82,30 @@ def _updated_distinct_ids(team_id: int, distinct_id_versions: list[tuple[str, in
         # since they no longer belong to deleted persons
         # it's safer to throw and exit if anything went wrong
 
+        # The floor RPC also matches deleted rows, and publishing one as live leaves a ghost the sweep never removes.
+        # This lookup reads the replica, so the primary is rechecked after the floor RPC.
+        live_person = get_person_by_distinct_id(team_id, distinct_id, distinct_id_limit=0)
+        if live_person is None:
+            logger.info("Skipping distinct id reset: no live person", team_id=team_id, distinct_id=distinct_id)
+            continue
+
         # The write goes through personhog (an external RPC that can't join a
         # Postgres transaction), so there is no surrounding atomic block.
         person = _update_distinct_id_in_postgres(distinct_id, version, team_id)
+        if person is not None and person.uuid != live_person.uuid:
+            logger.warning(
+                "Skipping distinct id reset: distinct id moved to another person",
+                team_id=team_id,
+                distinct_id=distinct_id,
+            )
+            continue
+        if person is not None and get_person_tombstones(team_id, [person.uuid]):
+            logger.warning(
+                "Skipping distinct id reset: person is deleted in Postgres",
+                team_id=team_id,
+                distinct_id=distinct_id,
+            )
+            continue
 
         # Update ClickHouse via Kafka message
         if person:

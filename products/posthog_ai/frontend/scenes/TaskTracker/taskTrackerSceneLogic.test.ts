@@ -2,7 +2,9 @@ import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { phaiAiComposerSeedLogic } from 'scenes/max/phaiAiComposerSeedLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { urls } from 'scenes/urls'
@@ -10,9 +12,10 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import { ModelAccessEnumApi, TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { attachedContextLogic, runStreamLogic } from '../../api/logics'
+import { codexBillingLogic } from '../../logics/codexBillingLogic'
 import { composerAttachmentsLogic } from '../../logics/composerAttachmentsLogic'
 import { composerOverrideLogic } from '../../logics/composerOverrideLogic'
 import { composerSeedLogic } from '../../logics/composerSeedLogic'
@@ -691,6 +694,37 @@ describe('taskTrackerSceneLogic', () => {
         expect(runBody?.initial_permission_mode).not.toBeUndefined()
         // The one-off pick resets after submit, back to "use default".
         expect(logic.values.newTaskData.model).toBeNull()
+    })
+
+    it('bills a codex default to the saved chatgpt plan when the task submits before the defaults load', async () => {
+        const flag = FEATURE_FLAGS.POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD
+        featureFlagLogic.actions.setFeatureFlags([flag], { [flag]: true })
+        useMocks({
+            get: {
+                '/api/projects/:team/tasks/@me/config/': myConfigResponse({
+                    runtime_adapter: 'codex',
+                    model: 'gpt-5',
+                    reasoning_effort: 'high',
+                    source: 'user',
+                }),
+                '/api/users/@me/integrations/codex/': { status: 'connected' },
+            },
+        })
+        const billing = codexBillingLogic()
+        billing.mount()
+        billing.actions.setPreferredCodexModelAccess(ModelAccessEnumApi.OwnSubscription)
+        logic.mount()
+
+        logic.actions.setNewTaskData({ description: 'do the thing' })
+        logic.actions.submitNewTask()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(runBody).toMatchObject({
+            runtime_adapter: 'codex',
+            model: 'gpt-5',
+            codex_model_access: ModelAccessEnumApi.OwnSubscription,
+        })
+        billing.unmount()
     })
 
     // The repo picker only renders once `repositoryConfig.integrationId` is set (auto-selected from the

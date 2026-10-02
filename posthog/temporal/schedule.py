@@ -138,6 +138,7 @@ from products.signals.backend.temporal.agentic.schedule import (
     create_scout_suggestions_coordinator_schedule,
     create_signals_scout_coordinator_schedule,
 )
+from products.today.backend.facade.temporal import create_today_briefing_schedule
 from products.web_analytics.backend.temporal.digest_notification.types import WADigestNotificationInput
 from products.web_analytics.backend.temporal.weekly_digest.types import WAWeeklyDigestInput
 
@@ -225,7 +226,10 @@ async def create_upgrade_queries_schedule(client: Client):
             id="upgrade-queries-schedule",
             task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
         ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(hours=6))]),
+        spec=ScheduleSpec(
+            intervals=[ScheduleIntervalSpec(every=timedelta(hours=6), offset=timedelta(minutes=2))],
+            jitter=timedelta(minutes=30),
+        ),
     )
 
     if await a_schedule_exists(client, "upgrade-queries-schedule"):
@@ -641,10 +645,10 @@ async def create_purge_deleted_recording_metadata_schedule(client: Client):
         )
 
 
-async def create_replay_count_metrics_schedule(client: Client):
+async def create_replay_count_metrics_schedule(client: Client) -> None:
     """Create or update the schedule for the replay count metrics workflow.
 
-    This schedule runs hourly at minute 0, matching the previous Celery schedule.
+    This schedule runs hourly at minute zero to preserve adjacent one-hour metric windows.
     """
     replay_count_metrics_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
@@ -897,7 +901,10 @@ async def create_error_tracking_recommendations_refresh_schedule(client: Client)
             task_queue=settings.ERROR_TRACKING_TASK_QUEUE,
             retry_policy=common.RetryPolicy(maximum_attempts=1),
         ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(hours=1))]),
+        spec=ScheduleSpec(
+            intervals=[ScheduleIntervalSpec(every=timedelta(hours=1), offset=timedelta(minutes=2))],
+            jitter=timedelta(minutes=10),
+        ),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
 
@@ -964,6 +971,7 @@ schedules = [
     create_run_investigation_safety_net_schedule,
     create_cleanup_alert_checks_schedule,
     create_autoresearch_daily_schedule,
+    create_today_briefing_schedule,
     create_signals_scout_coordinator_schedule,
     create_inbox_ranking_scoring_schedule,
     create_scout_suggestions_coordinator_schedule,

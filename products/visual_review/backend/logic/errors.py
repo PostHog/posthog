@@ -39,6 +39,24 @@ class HashIntegrityError(Exception):
     pass
 
 
+class BaselineEntriesLostError(Exception):
+    """A merge-queue branch's baseline file lacks entries for stories that still render.
+
+    The queue tests the tree that lands, so the merge would delete these entries from the
+    default branch. Every later full run would then report the stories as new.
+    """
+
+    def __init__(self, identifiers: list[str]) -> None:
+        self.identifiers = identifiers
+        shown = ", ".join(identifiers[:10])
+        more = f" and {len(identifiers) - 10} more" if len(identifiers) > 10 else ""
+        super().__init__(
+            f"The baseline file is missing {len(identifiers)} entries for stories that still render: "
+            f"{shown}{more}. Merging would delete them from the default branch. Restore them in the "
+            "baseline file from the default branch, then queue the pull request again."
+        )
+
+
 class StaleRunError(Exception):
     """Approval blocked because a newer run exists for this PR."""
 

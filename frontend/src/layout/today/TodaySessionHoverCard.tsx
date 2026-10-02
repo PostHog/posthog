@@ -1,27 +1,76 @@
+import { useActions } from 'kea'
 import { useEffect, useMemo } from 'react'
 
-import { IconPinFilled, IconPullRequest } from '@posthog/icons'
-import { Item, ItemContent, ItemSeparator, ItemTitle, Text, cn } from '@posthog/quill'
+import { IconCopy, IconPinFilled, IconPullRequest } from '@posthog/icons'
+import {
+    Button,
+    Item,
+    ItemActions,
+    ItemContent,
+    ItemSeparator,
+    ItemTitle,
+    Text,
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
+    cn,
+} from '@posthog/quill'
 
-import { dayjs } from 'lib/dayjs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
+import { TaskUserBasicInfoApi } from 'products/tasks/frontend/generated/api.schemas'
 import { pullRequestStateMeta } from 'products/tasks/frontend/spaces/TaskPullRequestChip'
 import { TaskUserAvatar, taskUserName } from 'products/tasks/frontend/spaces/TaskUserAvatar'
 
+import { TodayHoverCardFact } from './TodayHoverCardFact'
 import { cardMenuParts } from './todayMenuParts'
 import { TodaySessionPreview } from './todayPreviewCards'
 import { TodaySessionActionItems } from './TodaySessionActionItems'
+import { useTodayArchiveShortcut } from './todaySessionArchiveShortcut'
+import { todaySessionMenuLogic } from './todaySessionMenuLogic'
 import { TodaySessionStatusDot } from './TodaySessionStatusDot'
+import { activityDetail } from './todayWorkItems'
 
-function Fact({ label, children }: { label: string; children: JSX.Element | string }): JSX.Element {
+function BranchLine({ branch }: { branch: string }): JSX.Element {
+    const { copyBranchName } = useActions(todaySessionMenuLogic)
     return (
-        <div className="flex min-w-0 items-center gap-2 text-xs">
-            <Text size="xs" variant="muted" render={<span />} className="w-16 shrink-0">
+        <span className="flex min-w-0 items-center gap-1">
+            <span className="truncate" title={branch}>
+                {branch}
+            </span>
+            <Tooltip disableHoverablePopup>
+                <TooltipTrigger
+                    delay={0}
+                    render={
+                        <Button
+                            size="icon-xs"
+                            aria-label="Copy branch name"
+                            onClick={() => copyBranchName(branch)}
+                            data-attr="today-session-hover-card-copy-branch"
+                        />
+                    }
+                >
+                    <IconCopy />
+                </TooltipTrigger>
+                <TooltipContent side="top" className="pointer-events-none select-none">
+                    Copy branch name
+                </TooltipContent>
+            </Tooltip>
+        </span>
+    )
+}
+
+function AuthorFace({ author }: { author: TaskUserBasicInfoApi }): JSX.Element {
+    const label = `Created by ${taskUserName(author)}`
+    return (
+        <Tooltip disableHoverablePopup>
+            <TooltipTrigger delay={0} render={<span role="img" aria-label={label} className="flex shrink-0" />}>
+                <TaskUserAvatar user={author} />
+            </TooltipTrigger>
+            <TooltipContent side="top" className="pointer-events-none select-none">
                 {label}
-            </Text>
-            <span className="min-w-0 flex-1 truncate">{children}</span>
-        </div>
+            </TooltipContent>
+        </Tooltip>
     )
 }
 
@@ -43,13 +92,19 @@ export function TodaySessionHoverCard({
     onSubmenuOpenChange,
 }: TodaySessionHoverCardProps): JSX.Element {
     const { dot, pullRequest, author } = preview
+    const { requestArchive } = useActions(todaySessionMenuLogic)
+    useTodayArchiveShortcut(true, () => {
+        requestArchive(preview.menu.sessionId, preview.menu.menuId, preview.menu.activeRunId)
+        onAction()
+    })
     const parts = useMemo(() => cardMenuParts(onAction, onSubmenuOpenChange), [onAction, onSubmenuOpenChange])
     // Base UI reports no close when the submenu unmounts with the card, which would keep the card open for good.
     useEffect(() => () => onSubmenuOpenChange(false), [onSubmenuOpenChange])
     const pullRequestState = pullRequestStateMeta(preview.pullRequestState)
+    const updated = activityDetail(preview.timestamp)
     return (
         <div className="flex flex-col" data-attr="today-session-hover-card">
-            <Item size="xs" className="items-start">
+            <Item size="xs" className="flex-nowrap items-start">
                 <ItemContent className="min-w-0 gap-2">
                     {/* `wrap-anywhere`: the title sizes to its content, so a long URL in it would widen the card. */}
                     <ItemTitle className="flex items-start gap-2 wrap-anywhere">
@@ -59,19 +114,41 @@ export function TodaySessionHoverCard({
                         <span className="min-w-0 font-semibold">{preview.title}</span>
                     </ItemTitle>
                     <div className="flex flex-col gap-1 pl-6">
-                        {preview.repository && <Fact label="Repo">{preview.repository}</Fact>}
-                        {preview.spaceName && <Fact label="Space">{preview.spaceName}</Fact>}
-                        {author && (
-                            <Fact label="Created by">
-                                <span className="flex min-w-0 items-center gap-1.5">
-                                    <TaskUserAvatar user={author} />
-                                    <span className="truncate">{taskUserName(author)}</span>
-                                </span>
-                            </Fact>
+                        {preview.repository && (
+                            <TodayHoverCardFact label="Repo">{preview.repository}</TodayHoverCardFact>
                         )}
-                        {preview.timestamp && <Fact label="Updated">{dayjs(preview.timestamp).fromNow()}</Fact>}
+                        {preview.branch && (
+                            <TodayHoverCardFact label="Branch">
+                                <BranchLine branch={preview.branch} />
+                            </TodayHoverCardFact>
+                        )}
+                        {preview.spaceName && (
+                            <TodayHoverCardFact label="Space">{preview.spaceName}</TodayHoverCardFact>
+                        )}
+                        {updated && (
+                            <TodayHoverCardFact label="Updated">
+                                <span title={updated.title}>{updated.text}</span>
+                            </TodayHoverCardFact>
+                        )}
+                        {preview.source && (
+                            <TodayHoverCardFact label="Source">
+                                <span className="flex min-w-0 items-center gap-1.5">
+                                    {preview.sourceIcon && (
+                                        <span className="flex size-3 shrink-0 text-muted-foreground [&>svg]:size-full">
+                                            {preview.sourceIcon}
+                                        </span>
+                                    )}
+                                    <span className="truncate">{preview.source}</span>
+                                </span>
+                            </TodayHoverCardFact>
+                        )}
                     </div>
                 </ItemContent>
+                {author && (
+                    <ItemActions className="self-start">
+                        <AuthorFace author={author} />
+                    </ItemActions>
+                )}
             </Item>
             <ItemSeparator className="my-0" />
             <Item size="xs" className="items-start">
