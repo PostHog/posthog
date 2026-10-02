@@ -166,7 +166,11 @@ export interface userLogicActions {
             resetOnFailure: boolean | undefined
         }
     }
-    logout: (preserveLocation?: any) => {
+    logout: (
+        preserveLocation?: any,
+        nextUrl?: string
+    ) => {
+        nextUrl: string | undefined
         preserveLocation: any
     }
     resetUserDetails: (values?: Record<string, any>) => {
@@ -425,7 +429,7 @@ export const userLogic = kea<userLogicType>([
     actions(() => ({
         loadUser: (resetOnFailure?: boolean) => ({ resetOnFailure }),
         updateCurrentOrganization: (organizationId: string, destination?: string) => ({ organizationId, destination }),
-        logout: (preserveLocation = false) => ({ preserveLocation }),
+        logout: (preserveLocation = false, nextUrl?: string) => ({ preserveLocation, nextUrl }),
         upgradeImpersonation: (reason: string) => ({ reason }),
         updateUser: (user: Partial<UserType>, successCallback?: () => void) => ({
             user,
@@ -621,7 +625,7 @@ export const userLogic = kea<userLogicType>([
         ],
     }),
     listeners(({ actions, values, cache }) => ({
-        logout: ({ preserveLocation }) => {
+        logout: ({ preserveLocation, nextUrl }) => {
             if (cache.loggingOut) {
                 return
             }
@@ -650,12 +654,12 @@ export const userLogic = kea<userLogicType>([
             csrfInput.value = getCookie('posthog_csrftoken') || ''
             form.appendChild(csrfInput)
 
-            if (preserveLocation) {
+            if (preserveLocation || nextUrl) {
                 const { pathname, search, hash } = window.location
                 const nextInput = document.createElement('input')
                 nextInput.type = 'hidden'
                 nextInput.name = 'next'
-                nextInput.value = pathname + search + hash
+                nextInput.value = nextUrl || pathname + search + hash
                 form.appendChild(nextInput)
             }
 

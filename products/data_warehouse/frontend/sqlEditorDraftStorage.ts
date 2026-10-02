@@ -67,6 +67,7 @@ export function sqlEditorDraftStorage(
             return currentTabOnly ? null : localDraft.get()
         },
         set: (draft) => {
+            // Keep null tombstones: key removal tells other tabs to discard their working copies on logout.
             localDraft.set(draft)
             try {
                 // A reload must recover this tab's edits, even if another tab edits the same query.

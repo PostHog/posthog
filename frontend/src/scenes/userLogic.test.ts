@@ -43,24 +43,30 @@ describe('userLogic', () => {
             jest.restoreAllMocks()
         })
 
-        it('removes drafts in both stores across projects without removing unrelated preferences', () => {
-            const submit = jest
-                .spyOn(HTMLFormElement.prototype, 'submit')
-                .mockImplementation(function (this: HTMLFormElement) {
-                    this.remove()
-                })
-            for (const teamId of [1, 2]) {
-                sqlEditorDraftStorage(MOCK_DEFAULT_USER.uuid, teamId, 'new')?.set({ q: 'SELECT unfinished' })
+        it.each([undefined, '/api/agentic/authorize?state=example-state'])(
+            'clears drafts without removing preferences when logging out to %s',
+            (nextUrl) => {
+                let submittedNext: FormDataEntryValue | null = null
+                const submit = jest
+                    .spyOn(HTMLFormElement.prototype, 'submit')
+                    .mockImplementation(function (this: HTMLFormElement) {
+                        submittedNext = new FormData(this).get('next')
+                        this.remove()
+                    })
+                for (const teamId of [1, 2]) {
+                    sqlEditorDraftStorage(MOCK_DEFAULT_USER.uuid, teamId, 'new')?.set({ q: 'SELECT unfinished' })
+                }
+                localStorage.setItem('theme', 'dark')
+                sessionStorage.setItem('other-session-state', 'keep')
+
+                userLogic.actions.logout(false, nextUrl)
+
+                expect(submit).toHaveBeenCalledTimes(1)
+                expect(submittedNext).toEqual(nextUrl ?? null)
+                expect(Object.keys(localStorage)).toEqual(['theme'])
+                expect(Object.keys(sessionStorage)).toEqual(['other-session-state'])
             }
-            localStorage.setItem('theme', 'dark')
-            sessionStorage.setItem('other-session-state', 'keep')
-
-            userLogic.actions.logout()
-
-            expect(submit).toHaveBeenCalledTimes(1)
-            expect(Object.keys(localStorage)).toEqual(['theme'])
-            expect(Object.keys(sessionStorage)).toEqual(['other-session-state'])
-        })
+        )
 
         it('clears this tab’s session copy when another tab removes the shared draft', () => {
             const draft = sqlEditorDraftStorage(MOCK_DEFAULT_USER.uuid, 1, 'new')!

@@ -4,8 +4,6 @@
 
 import { OrganizationType, Region, TeamType, UserType } from '~/types'
 
-import { clearSQLEditorDrafts } from 'products/data_warehouse/frontend/sqlEditorDraftStorage'
-
 import { generateCodeChallenge } from './pkce'
 
 export interface OAuthRegionConfig {
@@ -102,7 +100,6 @@ function storeSession(session: OAuthSession): void {
 }
 
 export function clearSession(): void {
-    clearSQLEditorDrafts()
     window.localStorage.removeItem(SESSION_KEY)
     document.cookie = `${OAUTH_MODE_COOKIE}=; path=/; Max-Age=0; SameSite=Lax`
     // Drop the bootstrap ids with the session so a later login in the same tab can't read the
