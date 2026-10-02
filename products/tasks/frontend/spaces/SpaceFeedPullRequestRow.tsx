@@ -69,10 +69,10 @@ export function SpaceFeedPullRequestRow({
 
     if (listRow) {
         return (
-            <div className="relative flex h-8 w-full items-center gap-2 rounded-md px-2 transition-colors hover:bg-fill-selected">
+            <div className="relative flex h-8 w-full items-center gap-2 rounded-md px-2 transition-colors hover:bg-fill-selected has-focus-visible:ring-2 has-focus-visible:ring-ring">
                 {icon}
                 {number}
-                {link('flex-1 text-sm font-medium')}
+                {link('flex-1 text-(length:--text-ui) leading-(--text-ui--line-height) font-medium')}
                 {avatar}
                 {age && (
                     <Text
@@ -91,7 +91,7 @@ export function SpaceFeedPullRequestRow({
     return (
         <Card
             size="sm"
-            className="relative my-1.5 gap-0 rounded-xl px-4 pt-3.5 pb-3 transition-colors hover:bg-fill-hover"
+            className="relative my-1.5 gap-0 rounded-xl px-4 pt-3.5 pb-3 transition-colors hover:bg-fill-hover has-focus-visible:ring-2 has-focus-visible:ring-ring"
         >
             <div className="flex min-w-0 items-center gap-3">
                 <div className="flex min-w-0 flex-1 items-baseline gap-1.5">
@@ -105,11 +105,11 @@ export function SpaceFeedPullRequestRow({
                     )}
                 </div>
                 <Badge className="shrink-0">{known?.label ?? 'Open'}</Badge>
+                {avatar}
             </div>
             <Text size="xs" variant="muted" className="mt-1.5 truncate">
                 {pullRequest.repository}
             </Text>
-            {avatar && <div className="mt-3 flex justify-end">{avatar}</div>}
         </Card>
     )
 }

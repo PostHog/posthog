@@ -6,7 +6,7 @@ from parameterized import parameterized
 from rest_framework import serializers
 from rest_framework.exceptions import ErrorDetail
 
-from posthog.hogql.constants import FEATURE_FLAG_FALSE_VARIANT_SENTINEL
+from posthog.hogql.constants import FEATURE_FLAG_VARIANT_SENTINELS
 
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer, _reject_serde_unsafe_filters
 from products.feature_flags.backend.api.filters_schema import FEATURE_FLAG_PROPERTY_TYPES, FeatureFlagFiltersSerializer
@@ -474,14 +474,20 @@ class TestRejectSerdeUnsafeFilters(SimpleTestCase):
 
 
 class TestReservedVariantKey(SimpleTestCase):
-    @parameterized.expand([("log_only", set()), ("full", {"*"})])
-    def test_false_sentinel_is_rejected_as_a_variant_key(self, _name: str, enforced_rules: set[str]) -> None:
+    @parameterized.expand(
+        [
+            (f"{sentinel}_{name}", sentinel, enforced_rules)
+            for sentinel in FEATURE_FLAG_VARIANT_SENTINELS
+            for name, enforced_rules in (("log_only", set()), ("full", {"*"}))
+        ]
+    )
+    def test_sentinel_is_rejected_as_a_variant_key(self, _name: str, sentinel: str, enforced_rules: set[str]) -> None:
         filters = {
             "groups": [{"properties": [], "rollout_percentage": 100}],
             "multivariate": {
                 "variants": [
                     {"key": "control", "rollout_percentage": 50},
-                    {"key": FEATURE_FLAG_FALSE_VARIANT_SENTINEL, "rollout_percentage": 50},
+                    {"key": sentinel, "rollout_percentage": 50},
                 ]
             },
         }
@@ -489,3 +495,15 @@ class TestReservedVariantKey(SimpleTestCase):
             serializer = FeatureFlagSerializer(data={"filters": filters}, partial=True)
             assert not serializer.is_valid()
         assert serializer.errors["filters"][0].code == "reserved_variant_key"
+        assert sentinel in str(serializer.errors["filters"][0])
+
+    @parameterized.expand([("list", ["$true"]), ("dict", {"key": "$true"})])
+    def test_non_string_key_is_a_validation_error(self, _name: str, key: Any) -> None:
+        filters = {
+            "groups": [{"properties": [], "rollout_percentage": 100}],
+            "multivariate": {"variants": [{"key": key, "rollout_percentage": 100}]},
+        }
+        with override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES={"*"}):
+            serializer = FeatureFlagSerializer(data={"filters": filters}, partial=True)
+            assert not serializer.is_valid()
+        assert serializer.errors["filters"][0].code == "structural.multivariate.variants[].key.invalid"

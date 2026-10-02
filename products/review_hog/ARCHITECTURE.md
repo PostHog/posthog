@@ -387,6 +387,10 @@ because its tasks carry `origin_product=REVIEW_HOG` (see `SELF_DRIVING_ORIGIN_PR
 the app is resolved inside the Tasks provisioning activity. Same image and resources as any other run — the split
 only separates the fleet's Modal cost from user-driven runs.
 
+ReviewHog owns each session's lifecycle.
+Tasks with `origin_product=review_hog` do not expose the agent's `finish` tool, because it marks the TaskRun terminal and tears down the sandbox before the caller can validate the final JSON or send another validation turn.
+The agent returns JSON at the end of each turn; the caller validates it and ends the session when its work is complete.
+
 `run_sandbox_review(team_id, user_id, repository, branch, prompt, system_prompt, model_to_validate, step_name) -> Model | None`:
 
 1. Does **not** own concurrency — the caller bounds it: each fan-out child workflow wraps its per-unit sandbox
@@ -747,6 +751,13 @@ fallback for pre-column rows — and its first tab reads "Published" only when t
 list — every 10s while a run is in progress or freshly triggered, every 30s otherwise, paused on hidden
 tabs with an immediate refresh on tab return — and a poll response that shows a run finishing also
 refreshes the perspective stats and an open drawer's detail (`reviewHogSettingsLogic`).
+
+An active review stays visible while its report or working artefacts have activity within `IN_PROGRESS_STALE_AFTER` (30 minutes).
+Long-running chunking, selection, review, deduplication, and validation activities also refresh `ReviewReport.updated_at` every minute, so an agent can keep working without producing an artefact during that window.
+Each refresh is scoped to the team, report, active status, and reviewed commit.
+These refreshes stop when the activity exits, and stale reviews still expire after the same quiet window.
+Temporal heartbeats continue independently of the database refresh.
+The list selects running candidates by their latest report update, so newer stale runs cannot push a live run off the page.
 
 ---
 

@@ -1077,6 +1077,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     DONORBOX = "Donorbox", "Donorbox"
     DOORLOOP = "Doorloop", "Doorloop"
     DOVETAIL = "Dovetail", "Dovetail"
+    DRAGONBOAT = "Dragonboat", "Dragonboat"
     DRCHRONO = "Drchrono", "Drchrono"
     DYNAMICS365BUSINESSCENTRAL = "Dynamics365BusinessCentral", "Dynamics365BusinessCentral"
     ECBDATAPORTAL = "EcbDataPortal", "EcbDataPortal"

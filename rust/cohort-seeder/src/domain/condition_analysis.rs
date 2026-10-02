@@ -22,14 +22,15 @@ use std::sync::Arc;
 
 use cohort_core::filters::TeamFilters;
 use cohort_core::hogvm::analysis::{
-    analyze_condition_within, AnalysisBudget, ConditionAnalysis, EvaluationClass,
-    FullColumnsReason, Projection, ReadPath,
+    analyze_condition_within, event_row_filter, AnalysisBudget, ConditionAnalysis, EvaluationClass,
+    EventRowFilter, FullColumnsReason, Projection, ReadPath,
 };
 
-use super::condition::PinnedCondition;
+use super::condition::{EventNameSet, PinnedCondition};
 use super::ids::ConditionHash;
 use super::plan::ActiveConditions;
 use super::projection::ChunkProjection;
+use super::row_filter::ScanRowFilter;
 
 /// What one condition turned out to need. Ordered so a census renders the same way every time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -118,6 +119,8 @@ const CENSUS_WORST_CASE_CONDITIONS: usize = 8;
 #[derive(Debug, Default)]
 pub struct ConditionAnalyses {
     by_hash: HashMap<ConditionHash, ConditionAnalysis>,
+    /// Not budgeted, because matching is linear in the program.
+    row_filters: HashMap<ConditionHash, EventRowFilter>,
 }
 
 impl ConditionAnalyses {
@@ -129,6 +132,7 @@ impl ConditionAnalyses {
     pub fn build(conditions: &[PinnedCondition], filters: &TeamFilters) -> Self {
         let mut budget = AnalysisBudget::for_conditions(CENSUS_WORST_CASE_CONDITIONS);
         let mut by_hash = HashMap::new();
+        let mut row_filters = HashMap::new();
         for condition in conditions {
             if by_hash.contains_key(&condition.hash) {
                 continue;
@@ -143,8 +147,27 @@ impl ConditionAnalyses {
                 condition.hash,
                 analyze_condition_within(program.tokens(), &mut budget),
             );
+            if let Some(row_filter) = event_row_filter(program.tokens()) {
+                row_filters.insert(condition.hash, row_filter);
+            }
         }
-        Self { by_hash }
+        Self {
+            by_hash,
+            row_filters,
+        }
+    }
+
+    pub fn row_filter(
+        &self,
+        event_names: &EventNameSet,
+        filters: &TeamFilters,
+        active: &ActiveConditions,
+    ) -> ScanRowFilter {
+        ScanRowFilter::derive(event_names, filters, active, &self.row_filters)
+    }
+
+    pub fn row_filtered_conditions(&self) -> usize {
+        self.row_filters.len()
     }
 
     /// What a scan over the conditions active on one chunk has to select.

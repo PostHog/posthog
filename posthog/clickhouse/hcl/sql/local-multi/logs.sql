@@ -194,8 +194,6 @@ CREATE TABLE posthog.logs34 (
   _record_count UInt64,
   pattern String,
   pattern_version UInt8,
-  _source_topic String,
-  _source_partition UInt32,
   INDEX idx_severity_text_set severity_text TYPE set(10) GRANULARITY 1,
   INDEX idx_attributes_str_keys mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 1,
@@ -264,9 +262,7 @@ CREATE TABLE posthog.logs_distributed (
   _bytes_compressed UInt64,
   _record_count UInt64,
   pattern String,
-  pattern_version UInt8,
-  _source_topic String,
-  _source_partition UInt32
+  pattern_version UInt8
 ) ENGINE = Distributed('posthog_single_shard', 'posthog', 'logs34');
 CREATE TABLE posthog.logs_kafka_metrics (
   _partition UInt32,
@@ -611,7 +607,8 @@ CREATE TABLE posthog.metrics4_attributes (
   INDEX idx_attribute_key attribute_key TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_attribute_value attribute_value TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_attribute_key_n3 attribute_key TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1,
-  INDEX idx_attribute_value_n3 attribute_value TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1
+  INDEX idx_attribute_value_n3 attribute_value TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1,
+  INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1
 ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.metrics4_attributes', '{replica}-{shard}') ORDER BY (team_id, metric_name, attribute_type, time_bucket, attribute_key, attribute_value, service_name, original_expiry_time_bucket) PARTITION BY toDate(original_expiry_time_bucket) TTL original_expiry_time_bucket SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.metrics4_names (
   team_id Int32,
@@ -983,27 +980,16 @@ FROM
 GROUP BY
   team_id, time_bucket, service_name;
 CREATE MATERIALIZED VIEW posthog.kafka_logs_avro_kafka_metrics_mv TO posthog.logs_kafka_metrics (_partition UInt32, _topic String, max_offset SimpleAggregateFunction(max, UInt64), max_observed_timestamp SimpleAggregateFunction(max, DateTime64(6)), max_timestamp SimpleAggregateFunction(max, DateTime64(6)), max_created_at SimpleAggregateFunction(max, DateTime), max_lag SimpleAggregateFunction(max, Decimal(18, 6))) AS SELECT
-  kafka_partition AS _partition,
-  kafka_topic AS _topic,
-  maxSimpleState(kafka_offset) AS max_offset,
+  _partition,
+  _topic,
+  maxSimpleState(_offset) AS max_offset,
   maxSimpleState(observed_timestamp) AS max_observed_timestamp,
   maxSimpleState(timestamp) AS max_timestamp,
   maxSimpleState(now()) AS max_created_at,
   maxSimpleState(now() - observed_timestamp) AS max_lag
-FROM
-  (
-    SELECT
-      kafka_source.1 AS kafka_topic,
-      kafka_source.2 AS kafka_partition,
-      kafka_source.3 AS kafka_offset,
-      observed_timestamp,
-      timestamp
-    FROM
-      posthog.logs34 ARRAY JOIN [(_topic, _partition, _offset), (_source_topic, _source_partition, 0)] AS kafka_source
-    WHERE kafka_topic != ''
-  )
+FROM posthog.logs34
 GROUP BY
-  kafka_partition, kafka_topic;
+  _partition, _topic;
 CREATE MATERIALIZED VIEW posthog.kafka_metrics_avro2_mv TO posthog.metrics2_input (uuid String, team_id Int32, metric_name String, series_fingerprint UInt64, resource_fingerprint UInt64, timestamp DateTime64(6), observed_timestamp DateTime64(6), original_expiry_timestamp DateTime64(6), service_name String, metric_type String, value Float64, count UInt64, histogram_bounds Array(Float64), histogram_counts Array(UInt64), trace_id String, span_id String, trace_flags Int32, has_labels Bool, unit String, aggregation_temporality String, is_monotonic UInt8, instrumentation_scope String, resource_attributes Map(String, String), attributes Map(String, String), _partition UInt64, _topic LowCardinality(String), _offset UInt64) AS SELECT
   uuid,
   toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,

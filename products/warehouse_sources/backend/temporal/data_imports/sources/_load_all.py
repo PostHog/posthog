@@ -373,6 +373,7 @@ from .donorbox.source import DonorboxSource
 from .doorloop.source import DoorloopSource
 from .doppler.source import DopplerSource
 from .dovetail.source import DovetailSource
+from .dragonboat.source import DragonboatSource
 from .drata.source import DrataSource
 from .drchrono.source import DrchronoSource
 from .dremio.source import DremioSource

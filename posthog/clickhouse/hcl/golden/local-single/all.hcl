@@ -779,6 +779,27 @@ database "posthog" {
     }
   }
 
+  table "distributed_person_group_membership_config" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "group_type_index" {
+      type = "UInt8"
+    }
+    column "enabled" {
+      type = "UInt8"
+    }
+    column "version" {
+      type = "UInt64"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "person_group_membership_config"
+      sharding_key    = "sipHash64(team_id)"
+    }
+  }
+
   table "distributed_posthog_document_embeddings" {
     column "team_id" {
       type = "Int64"
@@ -5569,12 +5590,6 @@ SQL
     column "pattern_version" {
       type = "UInt8"
     }
-    column "_source_topic" {
-      type = "String"
-    }
-    column "_source_partition" {
-      type = "UInt32"
-    }
     index "idx_severity_text_set" {
       expr        = "severity_text"
       type        = "set(10)"
@@ -5802,12 +5817,6 @@ SQL
     }
     column "pattern_version" {
       type = "UInt8"
-    }
-    column "_source_topic" {
-      type = "String"
-    }
-    column "_source_partition" {
-      type = "UInt32"
     }
     engine "distributed" {
       cluster_name    = "posthog_single_shard"
@@ -7573,6 +7582,11 @@ SQL
       type        = "ngrambf_v1(3, 32768, 3, 0)"
       granularity = 1
     }
+    index "idx_time_bucket_minmax" {
+      expr        = "time_bucket"
+      type        = "minmax"
+      granularity = 1
+    }
     engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/noshard/posthog.metrics4_attributes"
       replica_name = "{replica}-{shard}"
@@ -8423,6 +8437,57 @@ SQL
     }
     engine "replicated_replacing_merge_tree" {
       zoo_path       = "/clickhouse/tables/noshard/posthog.person_distinct_id_overrides"
+      replica_name   = "{replica}-{shard}"
+      version_column = "version"
+    }
+  }
+
+  table "person_group_membership" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "group_type_index" {
+      type = "UInt8"
+    }
+    column "group_key" {
+      type = "String"
+    }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "first_seen" {
+      type = "SimpleAggregateFunction(min, DateTime64(6, 'UTC'))"
+    }
+    column "last_seen" {
+      type = "SimpleAggregateFunction(max, DateTime64(6, 'UTC'))"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "sharded_person_group_membership"
+      sharding_key    = "sipHash64(team_id, group_type_index, group_key)"
+    }
+  }
+
+  table "person_group_membership_config" {
+    order_by = ["team_id"]
+    settings = {
+      index_granularity = "8192"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "group_type_index" {
+      type = "UInt8"
+    }
+    column "enabled" {
+      type = "UInt8"
+    }
+    column "version" {
+      type = "UInt64"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/noshard/posthog.person_group_membership_config"
       replica_name   = "{replica}-{shard}"
       version_column = "version"
     }
@@ -12368,6 +12433,42 @@ SQL
     }
     engine "replicated_merge_tree" {
       zoo_path     = "/clickhouse/tables/{shard}/posthog.performance_events"
+      replica_name = "{replica}"
+    }
+  }
+
+  table "sharded_person_group_membership" {
+    order_by = ["team_id", "group_type_index", "group_key", "distinct_id"]
+    settings = {
+      index_granularity       = "8192"
+      min_bytes_for_wide_part = "0"
+      min_rows_for_wide_part  = "0"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "group_type_index" {
+      type = "UInt8"
+    }
+    column "group_key" {
+      type = "String"
+    }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "first_seen" {
+      type = "SimpleAggregateFunction(min, DateTime64(6, 'UTC'))"
+    }
+    column "last_seen" {
+      type = "SimpleAggregateFunction(max, DateTime64(6, 'UTC'))"
+    }
+    index "idx_distinct_id" {
+      expr        = "distinct_id"
+      type        = "bloom_filter(0.01)"
+      granularity = 1
+    }
+    engine "replicated_aggregating_merge_tree" {
+      zoo_path     = "/clickhouse/tables/{shard}/posthog.sharded_person_group_membership"
       replica_name = "{replica}"
     }
   }
@@ -17697,12 +17798,6 @@ SQL
     column "pattern_version" {
       type = "UInt8"
     }
-    column "_source_topic" {
-      type = "String"
-    }
-    column "_source_partition" {
-      type = "UInt32"
-    }
     engine "distributed" {
       cluster_name    = "posthog_single_shard"
       remote_database = "posthog"
@@ -18003,6 +18098,33 @@ SQL
       cluster_name    = "posthog_single_shard"
       remote_database = "posthog"
       remote_table    = "person_distinct_id_overrides"
+    }
+  }
+
+  table "writable_person_group_membership" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "group_type_index" {
+      type = "UInt8"
+    }
+    column "group_key" {
+      type = "String"
+    }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "first_seen" {
+      type = "SimpleAggregateFunction(min, DateTime64(6, 'UTC'))"
+    }
+    column "last_seen" {
+      type = "SimpleAggregateFunction(max, DateTime64(6, 'UTC'))"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "sharded_person_group_membership"
+      sharding_key    = "sipHash64(team_id, group_type_index, group_key)"
     }
   }
 
@@ -21108,9 +21230,7 @@ SELECT
   toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_uncompressed')]) / _record_count AS _bytes_uncompressed,
   toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_compressed')]) / _record_count AS _bytes_compressed,
   ifNull(pattern, '') AS pattern,
-  toUInt8(ifNull(pattern_version, 0)) AS pattern_version,
-  _headers.value[indexOf(_headers.name, 'source_topic')] AS _source_topic,
-  toUInt32OrZero(_headers.value[indexOf(_headers.name, 'source_partition')]) AS _source_partition
+  toUInt8(ifNull(pattern_version, 0)) AS pattern_version
 FROM posthog.kafka_logs_avro
 SQL
 
@@ -21186,12 +21306,6 @@ SQL
     column "pattern_version" {
       type = "UInt8"
     }
-    column "_source_topic" {
-      type = "String"
-    }
-    column "_source_partition" {
-      type = "UInt32"
-    }
   }
 
   materialized_view "kafka_logs_avro_billing_metrics_mv" {
@@ -21242,27 +21356,16 @@ SQL
     to_table = "posthog.logs_kafka_metrics"
     query    = <<SQL
 SELECT
-  kafka_partition AS _partition,
-  kafka_topic AS _topic,
-  maxSimpleState(kafka_offset) AS max_offset,
+  _partition,
+  _topic,
+  maxSimpleState(_offset) AS max_offset,
   maxSimpleState(observed_timestamp) AS max_observed_timestamp,
   maxSimpleState(timestamp) AS max_timestamp,
   maxSimpleState(now()) AS max_created_at,
   maxSimpleState(now() - observed_timestamp) AS max_lag
-FROM
-  (
-    SELECT
-      kafka_source.1 AS kafka_topic,
-      kafka_source.2 AS kafka_partition,
-      kafka_source.3 AS kafka_offset,
-      observed_timestamp,
-      timestamp
-    FROM
-      posthog.logs34 ARRAY JOIN [(_topic, _partition, _offset), (_source_topic, _source_partition, 0)] AS kafka_source
-    WHERE kafka_topic != ''
-  )
+FROM posthog.logs34
 GROUP BY
-  kafka_partition, kafka_topic
+  _partition, _topic
 SQL
 
     column "_partition" {
@@ -26070,6 +26173,31 @@ SQL
     source "clickhouse" {
       user  = "default"
       query = "SELECT team_id, distinct_id, argMax(person_id, version) AS person_id FROM posthog.person_distinct_id_overrides GROUP BY team_id, distinct_id"
+    }
+    layout "complex_key_hashed" {
+    }
+  }
+
+  dictionary "person_group_membership_config_dict" {
+    primary_key = ["team_id"]
+    lifetime {
+      min = 60
+      max = 120
+    }
+    attribute "team_id" {
+      type = "Int64"
+    }
+    attribute "group_type_index" {
+      type    = "UInt8"
+      default = "255"
+    }
+    attribute "enabled" {
+      type    = "UInt8"
+      default = "0"
+    }
+    source "clickhouse" {
+      user  = "default"
+      query = "SELECT team_id, config.1 AS group_type_index, config.2 AS enabled FROM (SELECT team_id, argMax(tuple(group_type_index, enabled), version) AS config FROM posthog.distributed_person_group_membership_config GROUP BY team_id) WHERE enabled = 1 AND group_type_index <= 4"
     }
     layout "complex_key_hashed" {
     }

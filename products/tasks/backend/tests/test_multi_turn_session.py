@@ -40,6 +40,7 @@ from products.tasks.backend.tests.agent_log_fixtures import (
     _cost_less_usage_update_line,
     _end_turn_line,
     _progress_line,
+    _structured_output_line,
     _tool_call_line,
     _usage_update_line,
     _user_message_line,
@@ -81,6 +82,21 @@ class TestPollForTurnEmptyEndTurn:
         # instead of re-streaming already-printed lines.
         assert exc_info.value.total_lines == len(turn_1) + len(turn_2_empty)
         assert exc_info.value.printed_lines >= 0
+
+    @pytest.mark.asyncio
+    async def test_structured_output_tool_call_is_the_turn_message(self):
+        turn_1 = [_structured_output_line({"word": "alpha"}), _end_turn_line()]
+        turn_2 = [_user_message_line("next"), _structured_output_line({"word": "beta", "count": 2}), _end_turn_line()]
+        log = "\n".join(turn_1 + turn_2)
+
+        with (
+            patch("posthog.storage.object_storage.read", return_value=log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+        ):
+            turn = await poll_for_turn(FakeTaskRun(), skip_lines=len(turn_1))
+
+        assert json.loads(turn.last_message) == {"word": "beta", "count": 2}
 
     @pytest.mark.asyncio
     async def test_text_before_end_turn_across_polls_is_not_empty(self):
@@ -1467,6 +1483,18 @@ class TestCreateTaskAndTriggerForwardsContext:
         assert persisted.state.get("pending_user_message") == expected_pending_message
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(("output_schema", "expected_flag"), [({"type": "object"}, True), (None, None)])
+    async def test_marks_a_schema_run_as_ended_by_the_caller(self, output_schema, expected_flag):
+        team, user = await sync_to_async(self._setup_team_and_user)()
+        context = CustomPromptSandboxContext(team_id=team.id, user_id=user.id)
+
+        with patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"):
+            _, task_run = await create_task_and_trigger("prompt", context, output_schema=output_schema)
+
+        persisted = await sync_to_async(TaskRun.objects.get)(id=task_run.id)
+        assert persisted.state.get("caller_ends_run") is expected_flag
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "model, runtime_adapter, reasoning_effort, initial_permission_mode",
         [
@@ -1617,6 +1645,52 @@ class TestMultiTurnSessionStartFallback:
 
         fallback.assert_not_called()
         session.end.assert_awaited_once()  # type: ignore[attr-defined]
+
+    @parameterized.expand(
+        [
+            ("retry_recovers", json.dumps({"value": "ok"}), _Resp(value="ok")),
+            ("retry_still_prose", "still prose", None),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_json_retry_prompt_asks_once_on_the_same_session(self, _name, retry_reply, expected):
+        session = self._fake_session()
+        followup_mock = AsyncMock(return_value=retry_reply)
+        session.send_followup_raw = followup_mock  # type: ignore[method-assign]
+
+        with patch.object(MultiTurnSession, "start_raw", new=AsyncMock(return_value=(session, "prose only"))):
+            if expected is None:
+                with pytest.raises(ValueError):
+                    await MultiTurnSession.start(prompt="x", context=MagicMock(), model=_Resp, json_retry_prompt="JSON")
+            else:
+                _, parsed = await MultiTurnSession.start(
+                    prompt="x", context=MagicMock(), model=_Resp, json_retry_prompt="JSON"
+                )
+                assert parsed == expected
+
+        followup_mock.assert_awaited_once()
+        assert followup_mock.await_args is not None
+        assert followup_mock.await_args.args[0] == "JSON"
+        if expected is None:
+            assert session.end.await_args.kwargs.get("status") == "failed"  # type: ignore[attr-defined]
+        else:
+            session.end.assert_not_awaited()  # type: ignore[attr-defined]
+
+    @pytest.mark.asyncio
+    async def test_failed_json_retry_turn_never_salvages(self):
+        # A retry turn that times out is an execution failure, so the fallback must not turn it into a result.
+        session = self._fake_session()
+        session.send_followup_raw = AsyncMock(side_effect=RuntimeError("poll timed out"))  # type: ignore[method-assign]
+        fallback = MagicMock()
+
+        with patch.object(MultiTurnSession, "start_raw", new=AsyncMock(return_value=(session, "prose only"))):
+            with pytest.raises(RuntimeError):
+                await MultiTurnSession.start(
+                    prompt="x", context=MagicMock(), model=_Resp, json_retry_prompt="JSON", fallback_from_text=fallback
+                )
+
+        fallback.assert_not_called()
+        assert session.end.await_args.kwargs.get("status") == "failed"  # type: ignore[attr-defined]
 
 
 class TestPollForTurnConnectionDrop:

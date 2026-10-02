@@ -1,5 +1,8 @@
 import json
+import time
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
+from typing import cast
 
 from posthog.test.base import BaseTest
 
@@ -7,15 +10,20 @@ from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
+from rest_framework.request import Request
 
 from products.signals.backend.artefact_schemas import ActionabilityChoice, RankingModelResult, RankingScore
 from products.signals.backend.briefing_reports import (
     BriefingReportRelation,
     _briefing_order,
     open_report_counts,
+    report_details,
     reports_for_briefing,
+    summary_lead,
 )
 from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
+from products.signals.backend.test.report_metric_test_fixtures import trends_metric_query
 
 
 class TestReportsForBriefing(BaseTest):
@@ -60,6 +68,53 @@ class TestReportsForBriefing(BaseTest):
             ).model_dump_json(),
         )
         SignalReportArtefact.objects.filter(pk=artefact.pk).update(created_at=timezone.now() - age)
+
+    def test_report_details_keep_only_metrics_with_a_saved_snapshot(self) -> None:
+        report = self._urgent_report("Checkout fails")
+        query = trends_metric_query(
+            series=[{"kind": "EventsNode", "event": "$exception", "math": "dau"}], date_from="-14d"
+        )
+
+        def metric(metric_id: str, value: float | None) -> dict:
+            return {
+                "metric_id": metric_id,
+                "title": "Affected users",
+                "kind": "affected_users",
+                "role": "primary",
+                "value": value,
+                "value_at": "2026-09-30T12:00:00Z" if value is not None else None,
+                "series": [3.0, 9.0, 17.0] if value is not None else None,
+                "value_format": "count",
+                "unit": "users",
+                "query": query,
+            }
+
+        report.metrics = [metric("measured", 17), metric("not-measured", None), {"metric_id": "broken"}]
+        report.summary = "Leaks continue. [Form errors](chart:form-errors)"
+        report.charts = [
+            {"chart_id": "page-leaves", "title": "Page leaves", "query": query},
+            {"chart_id": "broken"},
+            {"chart_id": "form-errors", "title": "Form errors", "query": query},
+        ]
+        report.save(update_fields=["metrics", "charts", "summary"])
+
+        viewer = ReportMetricAccessPolicy(
+            request=cast(Request, SimpleNamespace(user=self.user, successful_authenticator=None)), team=self.team
+        )
+        [details] = report_details(team_id=self.team.id, report_ids=[str(report.id)], metric_access=viewer)
+        # Without a viewer the policy reads nothing, so the briefing must hide every metric, as the Inbox does.
+        [unreadable] = report_details(
+            team_id=self.team.id,
+            report_ids=[str(report.id)],
+            metric_access=ReportMetricAccessPolicy(request=None, team=self.team),
+        )
+
+        assert (details.status, details.priority, details.pull_request_state) == ("ready", "P0", None)
+        assert [(m.metric_id, m.value, m.series, m.query) for m in details.metrics] == [
+            ("measured", 17, [3.0, 9.0, 17.0], query)
+        ]
+        assert [(c.chart_id, c.query) for c in details.charts] == [("form-errors", query), ("page-leaves", query)]
+        assert unreadable.metrics == []
 
     def test_open_report_counts_do_not_subtract_a_report_that_was_never_open(self) -> None:
         shown_open = self._urgent_report("Shown, still open")
@@ -135,3 +190,34 @@ class TestBriefingOrder(SimpleTestCase):
         ordered = sorted(reports, key=lambda r: _briefing_order(r[3], r[1], r[2], updated_at))
 
         assert [report_id for report_id, *_ in ordered] == expected
+
+
+class TestSummaryLead(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("plain text", "Signups fail.\nPeople leave.", "Signups fail. People leave."),
+            ("stops at a section", "Signups fail.\n\n## Impact\nNew teams cannot sign up.", "Signups fail."),
+            ("skips an opening heading", "## Summary\nSignups fail.\n## Impact\nMore.", "Signups fail."),
+            ("skips a bare opening heading", "##\nSignups fail.", "Signups fail."),
+            (
+                "keeps underscores in identifiers",
+                "The `__init__` method sets `feature__enabled` to false.",
+                "The __init__ method sets feature__enabled to false.",
+            ),
+            ("a hash inside a line stays", "Issue #42 ## fails", "Issue #42 ## fails"),
+            (
+                "drops chart links and keeps link text",
+                "Leaks **typed text**. [Page leaves](chart:page-leaves) See [the form](https://example.com/form).",
+                "Leaks typed text. See the form.",
+            ),
+            ("no summary", None, ""),
+        ]
+    )
+    def test_summary_lead(self, _name: str, summary: str | None, expected: str) -> None:
+        assert summary_lead(summary, 300) == expected
+
+    @parameterized.expand([("unclosed labels", "[" * 20_000), ("unclosed destinations", "[a](" * 5_000)])
+    def test_summary_lead_stays_fast_on_unclosed_links(self, _name: str, summary: str) -> None:
+        started = time.perf_counter()
+        summary_lead(summary, 450)
+        assert time.perf_counter() - started < 0.5

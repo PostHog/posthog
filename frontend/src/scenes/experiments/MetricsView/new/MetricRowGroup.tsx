@@ -663,12 +663,13 @@ export function MetricRowGroup({
     const { triggerRecalculation } = useActions(experimentMetricsLogic({ experiment }))
 
     /**
-     * On the recalculation flow, retrying a single metric just re-runs the whole recalculation (plus
-     * exposures), same as the manual reload. The legacy flow retries the single metric in place.
+     * On the recalculation flow, retrying a single metric re-runs the whole recalculation (plus exposures)
+     * as a manual_retry: the run reuses the latest window, so metrics with rows load from cache and only
+     * the failed ones recompute. The legacy flow retries the single metric in place.
      */
     const handleRetry = (): void => {
         if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]) {
-            triggerRecalculation()
+            triggerRecalculation('manual_retry')
             refreshExperimentResults(true, 'manual')
             return
         }

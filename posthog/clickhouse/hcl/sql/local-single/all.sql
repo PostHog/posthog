@@ -1111,8 +1111,6 @@ CREATE TABLE posthog.logs34 (
   _record_count UInt64,
   pattern String,
   pattern_version UInt8,
-  _source_topic String,
-  _source_partition UInt32,
   INDEX idx_severity_text_set severity_text TYPE set(10) GRANULARITY 1,
   INDEX idx_attributes_str_keys mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 1,
@@ -1181,9 +1179,7 @@ CREATE TABLE posthog.logs_distributed (
   _bytes_compressed UInt64,
   _record_count UInt64,
   pattern String,
-  pattern_version UInt8,
-  _source_topic String,
-  _source_partition UInt32
+  pattern_version UInt8
 ) ENGINE = Distributed('posthog_single_shard', 'posthog', 'logs34');
 CREATE TABLE posthog.logs_kafka_metrics (
   _partition UInt32,
@@ -1553,7 +1549,8 @@ CREATE TABLE posthog.metrics4_attributes (
   INDEX idx_attribute_key attribute_key TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_attribute_value attribute_value TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_attribute_key_n3 attribute_key TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1,
-  INDEX idx_attribute_value_n3 attribute_value TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1
+  INDEX idx_attribute_value_n3 attribute_value TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1,
+  INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1
 ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.metrics4_attributes', '{replica}-{shard}') ORDER BY (team_id, metric_name, attribute_type, time_bucket, attribute_key, attribute_value, service_name, original_expiry_time_bucket) PARTITION BY toDate(original_expiry_time_bucket) TTL original_expiry_time_bucket SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.metrics4_input (
   uuid String,
@@ -1745,6 +1742,12 @@ CREATE TABLE posthog.person_distinct_id_overrides (
   _partition UInt64,
   INDEX kafka_timestamp_minmax_person_distinct_id_overrides _timestamp TYPE minmax GRANULARITY 3
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.person_distinct_id_overrides', '{replica}-{shard}', version) ORDER BY (team_id, distinct_id) SETTINGS index_granularity = 512;
+CREATE TABLE posthog.person_group_membership_config (
+  team_id Int64,
+  group_type_index UInt8,
+  enabled UInt8,
+  version UInt64
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.person_group_membership_config', '{replica}-{shard}', version) ORDER BY (team_id) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.person_overrides (
   team_id Int32,
   old_person_id UUID,
@@ -2439,6 +2442,15 @@ CREATE TABLE posthog.sharded_performance_events (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/posthog.performance_events', '{replica}') ORDER BY (team_id, toDate(timestamp), session_id, pageview_id, timestamp) PARTITION BY toYYYYMM(timestamp) TTL toDate(timestamp) + toIntervalWeek(3) SETTINGS index_granularity = 8192;
+CREATE TABLE posthog.sharded_person_group_membership (
+  team_id Int64,
+  group_type_index UInt8,
+  group_key String,
+  distinct_id String,
+  first_seen SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+  last_seen SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+  INDEX idx_distinct_id distinct_id TYPE bloom_filter(0.01) GRANULARITY 1
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_person_group_membership', '{replica}') ORDER BY (team_id, group_type_index, group_key, distinct_id) SETTINGS index_granularity = 8192, min_bytes_for_wide_part = 0, min_rows_for_wide_part = 0;
 CREATE TABLE posthog.sharded_platform_alert_events (
   team_id Int64,
   configuration_id UUID,
@@ -4014,9 +4026,7 @@ CREATE TABLE posthog.writable_logs34 (
   _bytes_compressed UInt64,
   _record_count UInt64,
   pattern String,
-  pattern_version UInt8,
-  _source_topic String,
-  _source_partition UInt32
+  pattern_version UInt8
 ) ENGINE = Distributed('posthog_single_shard', 'posthog', 'logs34') SETTINGS background_insert_batch = 1;
 CREATE TABLE posthog.writable_metrics4_attributes (
   team_id Int32,
@@ -4111,6 +4121,14 @@ CREATE TABLE posthog.writable_person_distinct_id_overrides (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('posthog_single_shard', 'posthog', 'person_distinct_id_overrides');
+CREATE TABLE posthog.writable_person_group_membership (
+  team_id Int64,
+  group_type_index UInt8,
+  group_key String,
+  distinct_id String,
+  first_seen SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+  last_seen SimpleAggregateFunction(max, DateTime64(6, 'UTC'))
+) ENGINE = Distributed('aux', 'posthog', 'sharded_person_group_membership', sipHash64(team_id, group_type_index, group_key));
 CREATE TABLE posthog.writable_plugin_log_entries (
   id UUID,
   team_id Int64,
@@ -4902,7 +4920,7 @@ CREATE MATERIALIZED VIEW posthog.ingestion_warnings_v2_mv TO posthog.ingestion_w
   _offset,
   _partition
 FROM posthog.kafka_ingestion_warnings_v2;
-CREATE MATERIALIZED VIEW posthog.kafka_logs34_avro_mv TO posthog.writable_logs34 (uuid String, trace_id String, span_id String, trace_flags Int32, timestamp DateTime64(6), observed_timestamp DateTime64(6), body String, severity_text String, severity_number Int32, service_name String, instrumentation_scope String, event_name String, attributes_map_str Map(String, String), resource_attributes Map(String, String), team_id Int32, original_expiry_timestamp DateTime64(6), _partition UInt64, _topic LowCardinality(String), _offset UInt64, _record_count Int64, _bytes_uncompressed Nullable(Int64), _bytes_compressed Nullable(Int64), pattern String, pattern_version UInt8, _source_topic String, _source_partition UInt32) AS SELECT
+CREATE MATERIALIZED VIEW posthog.kafka_logs34_avro_mv TO posthog.writable_logs34 (uuid String, trace_id String, span_id String, trace_flags Int32, timestamp DateTime64(6), observed_timestamp DateTime64(6), body String, severity_text String, severity_number Int32, service_name String, instrumentation_scope String, event_name String, attributes_map_str Map(String, String), resource_attributes Map(String, String), team_id Int32, original_expiry_timestamp DateTime64(6), _partition UInt64, _topic LowCardinality(String), _offset UInt64, _record_count Int64, _bytes_uncompressed Nullable(Int64), _bytes_compressed Nullable(Int64), pattern String, pattern_version UInt8) AS SELECT
   uuid,
   trace_id,
   span_id,
@@ -4933,9 +4951,7 @@ CREATE MATERIALIZED VIEW posthog.kafka_logs34_avro_mv TO posthog.writable_logs34
   toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_uncompressed')]) / _record_count AS _bytes_uncompressed,
   toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_compressed')]) / _record_count AS _bytes_compressed,
   ifNull(pattern, '') AS pattern,
-  toUInt8(ifNull(pattern_version, 0)) AS pattern_version,
-  _headers.value[indexOf(_headers.name, 'source_topic')] AS _source_topic,
-  toUInt32OrZero(_headers.value[indexOf(_headers.name, 'source_partition')]) AS _source_partition
+  toUInt8(ifNull(pattern_version, 0)) AS pattern_version
 FROM posthog.kafka_logs_avro;
 CREATE MATERIALIZED VIEW posthog.kafka_logs_avro_billing_metrics_mv TO posthog.logs_billing_metrics (team_id Int32, time_bucket DateTime, service_name LowCardinality(String), bytes_uncompressed SimpleAggregateFunction(sum, Float64), bytes_compressed SimpleAggregateFunction(sum, Float64), record_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
   team_id,
@@ -4957,27 +4973,16 @@ FROM
 GROUP BY
   team_id, time_bucket, service_name;
 CREATE MATERIALIZED VIEW posthog.kafka_logs_avro_kafka_metrics_mv TO posthog.logs_kafka_metrics (_partition UInt32, _topic String, max_offset SimpleAggregateFunction(max, UInt64), max_observed_timestamp SimpleAggregateFunction(max, DateTime64(6)), max_timestamp SimpleAggregateFunction(max, DateTime64(6)), max_created_at SimpleAggregateFunction(max, DateTime), max_lag SimpleAggregateFunction(max, Decimal(18, 6))) AS SELECT
-  kafka_partition AS _partition,
-  kafka_topic AS _topic,
-  maxSimpleState(kafka_offset) AS max_offset,
+  _partition,
+  _topic,
+  maxSimpleState(_offset) AS max_offset,
   maxSimpleState(observed_timestamp) AS max_observed_timestamp,
   maxSimpleState(timestamp) AS max_timestamp,
   maxSimpleState(now()) AS max_created_at,
   maxSimpleState(now() - observed_timestamp) AS max_lag
-FROM
-  (
-    SELECT
-      kafka_source.1 AS kafka_topic,
-      kafka_source.2 AS kafka_partition,
-      kafka_source.3 AS kafka_offset,
-      observed_timestamp,
-      timestamp
-    FROM
-      posthog.logs34 ARRAY JOIN [(_topic, _partition, _offset), (_source_topic, _source_partition, 0)] AS kafka_source
-    WHERE kafka_topic != ''
-  )
+FROM posthog.logs34
 GROUP BY
-  kafka_partition, kafka_topic;
+  _partition, _topic;
 CREATE MATERIALIZED VIEW posthog.kafka_metrics_avro2_mv TO posthog.metrics2_input (uuid String, team_id Int32, metric_name String, series_fingerprint UInt64, resource_fingerprint UInt64, timestamp DateTime64(6), observed_timestamp DateTime64(6), original_expiry_timestamp DateTime64(6), service_name String, metric_type String, value Float64, count UInt64, histogram_bounds Array(Float64), histogram_counts Array(UInt64), trace_id String, span_id String, trace_flags Int32, has_labels Bool, unit String, aggregation_temporality String, is_monotonic UInt8, instrumentation_scope String, resource_attributes Map(String, String), attributes Map(String, String), _partition UInt64, _topic LowCardinality(String), _offset UInt64) AS SELECT
   uuid,
   toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
@@ -6613,6 +6618,12 @@ CREATE TABLE posthog.distributed_events_recent (
   _offset UInt64,
   inserted_at DateTime64(6, 'UTC') DEFAULT now64()
 ) ENGINE = Distributed('posthog_primary_replica', 'posthog', 'sharded_events_recent', sipHash64(distinct_id));
+CREATE TABLE posthog.distributed_person_group_membership_config (
+  team_id Int64,
+  group_type_index UInt8,
+  enabled UInt8,
+  version UInt64
+) ENGINE = Distributed('aux', 'posthog', 'person_group_membership_config', sipHash64(team_id));
 CREATE TABLE posthog.distributed_posthog_document_embeddings (
   team_id Int64,
   product LowCardinality(String),
@@ -7137,6 +7148,14 @@ CREATE TABLE posthog.performance_events (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_performance_events', sipHash64(session_id));
+CREATE TABLE posthog.person_group_membership (
+  team_id Int64,
+  group_type_index UInt8,
+  group_key String,
+  distinct_id String,
+  first_seen SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+  last_seen SimpleAggregateFunction(max, DateTime64(6, 'UTC'))
+) ENGINE = Distributed('aux', 'posthog', 'sharded_person_group_membership', sipHash64(team_id, group_type_index, group_key));
 CREATE TABLE posthog.platform_alert_events (
   team_id Int64,
   configuration_id UUID,
@@ -8077,3 +8096,4 @@ CREATE VIEW posthog.sessions_v AS SELECT
 FROM posthog.sessions
 GROUP BY
   session_id, team_id;
+CREATE OR REPLACE DICTIONARY posthog.person_group_membership_config_dict (`team_id` Int64, `group_type_index` UInt8 DEFAULT 255, `enabled` UInt8 DEFAULT 0) PRIMARY KEY team_id SOURCE(CLICKHOUSE(USER 'default' QUERY 'SELECT team_id, config.1 AS group_type_index, config.2 AS enabled FROM (SELECT team_id, argMax(tuple(group_type_index, enabled), version) AS config FROM posthog.distributed_person_group_membership_config GROUP BY team_id) WHERE enabled = 1 AND group_type_index <= 4')) LAYOUT(COMPLEX_KEY_HASHED()) LIFETIME(MIN 60 MAX 120);
