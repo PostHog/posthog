@@ -46,198 +46,27 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.visitor import clone_expr
 
 from posthog import rate_limit, redis
-from posthog.clickhouse.adhoc_events_deletion import (
-    ADHOC_EVENTS_DELETION_TABLE_SQL,
-    DROP_ADHOC_EVENTS_DELETION_TABLE_SQL,
-)
-from posthog.clickhouse.cleanup_snapshots import CLEANUP_SNAPSHOT_TABLE_SQL, DROP_CLEANUP_SNAPSHOT_TABLE_SQL
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import get_client_from_pool
-from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
-from posthog.clickhouse.custom_metrics import (
-    CREATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
-    CREATE_CUSTOM_METRICS_COUNTERS_VIEW,
-    CUSTOM_METRICS_EVENTS_RECENT_LAG_VIEW,
-    CUSTOM_METRICS_REPLICATION_QUEUE_VIEW,
-    CUSTOM_METRICS_TEST_VIEW,
-    CUSTOM_METRICS_VIEW,
-    TRUNCATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
-)
+from posthog.clickhouse.managed_schema import ClickHouseDatabase
 from posthog.clickhouse.materialized_columns import MaterializedColumn
-from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
-from posthog.clickhouse.preaggregation.sql import (
-    DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE_SQL,
-    DROP_PREAGGREGATION_RESULTS_TABLE_SQL,
-    DROP_SHARDED_PREAGGREGATION_RESULTS_TABLE_SQL,
-    SHARDED_PREAGGREGATION_RESULTS_TABLE_SQL,
-)
-from posthog.clickhouse.query_log_archive import (
-    DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
-    QUERY_LOG_ARCHIVE_OPS_MV,
-    QUERY_LOG_ARCHIVE_OPS_MV_SQL,
-    SHARDED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
-    WRITABLE_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
-    WRITABLE_QUERY_LOG_ARCHIVE_TABLE,
-)
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.helpers.two_factor_session import code_based_verification_token_generator
 from posthog.hogql_queries.ai.ai_table_resolver import AI_EVENT_NAMES as _AI_EVENT_TYPES
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.models import Organization, Team, User
-from posthog.models.ai_events.sql import TRUNCATE_AI_EVENTS_TABLE_SQL
-from posthog.models.channel_type.sql import (
-    CHANNEL_DEFINITION_DATA_SQL,
-    CHANNEL_DEFINITION_DICTIONARY_SQL,
-    CHANNEL_DEFINITION_TABLE_SQL,
-    DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
-    DROP_CHANNEL_DEFINITION_TABLE_SQL,
-)
-from posthog.models.cohortmembership.sql import (
-    COHORT_MEMBERSHIP_MV_SQL,
-    COHORT_MEMBERSHIP_TABLE_SQL,
-    COHORT_MEMBERSHIP_WRITABLE_TABLE_SQL,
-    DROP_COHORT_MEMBERSHIP_KAFKA_TABLE_SQL,
-    DROP_COHORT_MEMBERSHIP_MV_SQL,
-    DROP_COHORT_MEMBERSHIP_TABLE_SQL,
-    DROP_COHORT_MEMBERSHIP_WRITABLE_TABLE_SQL,
-    KAFKA_COHORT_MEMBERSHIP_TABLE_SQL,
-)
-from posthog.models.event.sql import (
-    DISTRIBUTED_EVENTS_JSON_TABLE,
-    DISTRIBUTED_EVENTS_JSON_TABLE_SQL,
-    DISTRIBUTED_EVENTS_TABLE_SQL,
-    DROP_DISTRIBUTED_EVENTS_TABLE_SQL,
-    DROP_EVENTS_TABLE_SQL,
-    EVENTS_JSON_DATA_TABLE,
-    EVENTS_JSON_TABLE_SQL,
-    EVENTS_TABLE_SQL,
-    TRUNCATE_EVENTS_RECENT_TABLE_SQL,
-    WRITABLE_EVENTS_DATA_TABLE,
-    WRITABLE_EVENTS_JSON_TABLE,
-    WRITABLE_EVENTS_JSON_TABLE_SQL,
-    WRITABLE_EVENTS_TABLE_SQL,
-)
 from posthog.models.event.util import _resolve_person_for_bulk_event, bulk_create_events
-from posthog.models.exchange_rate.sql import (
-    DROP_EXCHANGE_RATE_DICTIONARY_SQL,
-    DROP_EXCHANGE_RATE_TABLE_SQL,
-    EXCHANGE_RATE_DATA_BACKFILL_SQL,
-    EXCHANGE_RATE_DICTIONARY_SQL,
-    EXCHANGE_RATE_TABLE_SQL,
-)
-from posthog.models.flag_evaluations.sql import (
-    DISTRIBUTED_FLAG_EVALUATIONS_TABLE_SQL,
-    DROP_FLAG_EVALUATIONS_PROXY_TABLES_SQL,
-    DROP_FLAG_EVALUATIONS_TABLE_SQL,
-    FLAG_EVALUATIONS_TABLE_SQL,
-    WRITABLE_FLAG_EVALUATIONS_TABLE_SQL,
-)
-from posthog.models.group.sql import TRUNCATE_GROUPS_TABLE_SQL
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import OrganizationMembership
-from posthog.models.person.sql import (
-    DROP_PERSON_TABLE_SQL,
-    PERSONS_TABLE_SQL,
-    TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
-    TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL,
-    TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
-    TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
-)
 from posthog.models.personal_api_key import PersonalAPIKey
-from posthog.models.precalculated_events.sql import (
-    DROP_PRECALCULATED_EVENTS_DISTRIBUTED_TABLE_SQL,
-    DROP_PRECALCULATED_EVENTS_KAFKA_TABLE_SQL,
-    DROP_PRECALCULATED_EVENTS_MV_SQL,
-    DROP_PRECALCULATED_EVENTS_SHARDED_TABLE_SQL,
-    DROP_PRECALCULATED_EVENTS_WRITABLE_TABLE_SQL,
-    KAFKA_PRECALCULATED_EVENTS_TABLE_SQL,
-    PRECALCULATED_EVENTS_DISTRIBUTED_TABLE_SQL,
-    PRECALCULATED_EVENTS_MV_SQL,
-    PRECALCULATED_EVENTS_SHARDED_TABLE_SQL,
-    PRECALCULATED_EVENTS_WRITABLE_TABLE_SQL,
-)
-from posthog.models.precalculated_person_properties.sql import (
-    DROP_PRECALCULATED_PERSON_PROPERTIES_DISTRIBUTED_TABLE_SQL,
-    DROP_PRECALCULATED_PERSON_PROPERTIES_KAFKA_TABLE_SQL,
-    DROP_PRECALCULATED_PERSON_PROPERTIES_MV_SQL,
-    DROP_PRECALCULATED_PERSON_PROPERTIES_SHARDED_TABLE_SQL,
-    DROP_PRECALCULATED_PERSON_PROPERTIES_WRITABLE_TABLE_SQL,
-    KAFKA_PRECALCULATED_PERSON_PROPERTIES_TABLE_SQL,
-    PRECALCULATED_PERSON_PROPERTIES_DISTRIBUTED_TABLE_SQL,
-    PRECALCULATED_PERSON_PROPERTIES_MV_SQL,
-    PRECALCULATED_PERSON_PROPERTIES_SHARDED_TABLE_SQL,
-    PRECALCULATED_PERSON_PROPERTIES_WRITABLE_TABLE_SQL,
-)
 from posthog.models.project import Project
-from posthog.models.raw_sessions.sessions_v2 import (
-    DISTRIBUTED_RAW_SESSIONS_TABLE_SQL,
-    DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL,
-    DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL,
-    DROP_RAW_SESSION_SHARDED_TABLE_SQL,
-    DROP_RAW_SESSION_VIEW_SQL,
-    DROP_RAW_SESSION_WRITABLE_TABLE_SQL,
-    RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL,
-    RAW_SESSIONS_TABLE_MV_SQL,
-    RAW_SESSIONS_TABLE_SQL,
-    WRITABLE_RAW_SESSIONS_TABLE_SQL,
-)
-from posthog.models.raw_sessions.sessions_v3 import (
-    DISTRIBUTED_RAW_SESSIONS_TABLE_SQL_V3,
-    DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL_V3,
-    DROP_RAW_SESSION_MATERIALIZED_VIEW_RECORDINGS_SQL_V3,
-    DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL_V3,
-    DROP_RAW_SESSION_SHARDED_TABLE_SQL_V3,
-    DROP_RAW_SESSION_VIEW_SQL_V3,
-    DROP_RAW_SESSION_WRITABLE_TABLE_SQL_V3,
-    RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL_V3,
-    RAW_SESSIONS_TABLE_MV_RECORDINGS_SQL_V3,
-    RAW_SESSIONS_TABLE_MV_SQL_V3,
-    SHARDED_RAW_SESSIONS_TABLE_SQL_V3,
-    WRITABLE_RAW_SESSIONS_TABLE_SQL_V3,
-)
-from posthog.models.sessions.sql import (
-    DISTRIBUTED_SESSIONS_TABLE_SQL,
-    DROP_SESSION_MATERIALIZED_VIEW_SQL,
-    DROP_SESSION_TABLE_SQL,
-    DROP_SESSION_VIEW_SQL,
-    SESSIONS_TABLE_MV_SQL,
-    SESSIONS_TABLE_SQL,
-    SESSIONS_VIEW_SQL,
-)
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.models.web_preaggregated.sql import (
-    DROP_WEB_BOUNCES_SQL,
-    DROP_WEB_BOUNCES_STAGING_SQL,
-    DROP_WEB_STATS_SQL,
-    DROP_WEB_STATS_STAGING_SQL,
-    WEB_BOUNCES_SQL,
-    WEB_STATS_SQL,
-)
-from posthog.models.web_preaggregated.team_selection import (
-    DROP_WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL,
-    DROP_WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL,
-    WEB_PRE_AGGREGATED_TEAM_SELECTION_DATA_SQL,
-    WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL,
-    WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL,
-)
-from posthog.session_recordings.sql.session_replay_event_sql import (
-    DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL,
-    DROP_KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL,
-    DROP_SESSION_REPLAY_EVENTS_TABLE_SQL,
-    KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL,
-    SESSION_REPLAY_EVENTS_TABLE_SQL,
-)
 from posthog.test import flush_lock_guard
 from posthog.test.assert_faster_than import assert_faster_than
 
 from products.actions.backend.models.action import Action
-from products.cohorts.backend.models.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.event_definitions.backend.models.property_definition import (
-    DROP_PROPERTY_DEFINITIONS_TABLE_SQL,
-    PROPERTY_DEFINITIONS_TABLE_SQL,
-)
 from products.product_analytics.backend.facade.models import Insight
 
 events_cache_tests: list[dict[str, Any]] = []
@@ -1192,8 +1021,13 @@ def cleanup_materialized_columns():
         _clear_materialized_columns_cache(_table)
 
     def optionally_drop(table, filter=None):
+        data_table = "sharded_events" if table == "events" else table
         columns_to_drop = [
-            column for column in get_materialized_columns(table).values() if filter is None or filter(column.name)
+            column
+            for column in get_materialized_columns(table).values()
+            if (filter is None or filter(column.name))
+            # Columns the schema declares are not the test's to drop.
+            and not ClickHouseDatabase.declares_column(data_table, column.name)
         ]
 
         if not columns_to_drop:
@@ -1978,41 +1812,6 @@ def run_clickhouse_statement_in_parallel(statements: list[str]) -> None:
             raise exceptions[0]
 
 
-def clickhouse_events_table_drop_statements() -> list[str]:
-    statements = [
-        DROP_DISTRIBUTED_EVENTS_TABLE_SQL,
-        DROP_EVENTS_TABLE_SQL(),
-    ]
-
-    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-        statements = [
-            f"DROP TABLE IF EXISTS {DISTRIBUTED_EVENTS_JSON_TABLE}",
-            f"DROP TABLE IF EXISTS {WRITABLE_EVENTS_JSON_TABLE}",
-            f"DROP TABLE IF EXISTS {EVENTS_JSON_DATA_TABLE}",
-            f"DROP TABLE IF EXISTS {WRITABLE_EVENTS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}",
-            *statements,
-        ]
-
-    return statements
-
-
-def clickhouse_events_data_table_sqls() -> list[str]:
-    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-        return [EVENTS_TABLE_SQL(), EVENTS_JSON_TABLE_SQL()]
-    return [EVENTS_TABLE_SQL()]
-
-
-def clickhouse_events_distributed_table_sqls() -> list[str]:
-    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-        return [
-            DISTRIBUTED_EVENTS_TABLE_SQL(),
-            WRITABLE_EVENTS_TABLE_SQL(),
-            WRITABLE_EVENTS_JSON_TABLE_SQL(),
-            DISTRIBUTED_EVENTS_JSON_TABLE_SQL(),
-        ]
-    return [DISTRIBUTED_EVENTS_TABLE_SQL()]
-
-
 # A client checkout is the "ClickHouse may have changed" signal. Counted at two
 # choke points: get_client_from_pool (covers sync_execute and the HTTP client)
 # and ChPool.get_client itself (covers every pool instance, including
@@ -2060,153 +1859,7 @@ def reset_clickhouse_database() -> None:
             _clear_materialized_columns_cache(_mat_table)
     except ModuleNotFoundError:
         pass
-    run_clickhouse_statement_in_parallel(
-        [
-            DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL(),
-            DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL_V3(),
-            DROP_RAW_SESSION_MATERIALIZED_VIEW_RECORDINGS_SQL_V3(),
-            DROP_RAW_SESSION_VIEW_SQL(),
-            DROP_RAW_SESSION_VIEW_SQL_V3(),
-            DROP_SESSION_MATERIALIZED_VIEW_SQL(),
-            DROP_SESSION_VIEW_SQL(),
-            DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
-            DROP_EXCHANGE_RATE_DICTIONARY_SQL(),
-            DROP_WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL(),
-            DROP_ADHOC_EVENTS_DELETION_TABLE_SQL(),
-            *[drop_sql() for drop_sql in DROP_CLEANUP_SNAPSHOT_TABLE_SQL],
-        ]
-    )
-    run_clickhouse_statement_in_parallel(
-        [
-            DROP_CHANNEL_DEFINITION_TABLE_SQL,
-            DROP_EXCHANGE_RATE_TABLE_SQL(),
-            DROP_WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL(),
-            *clickhouse_events_table_drop_statements(),
-            DROP_PERSON_TABLE_SQL,
-            DROP_PROPERTY_DEFINITIONS_TABLE_SQL(),
-            DROP_RAW_SESSION_SHARDED_TABLE_SQL(),
-            DROP_RAW_SESSION_SHARDED_TABLE_SQL_V3(),
-            DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL(),
-            DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL_V3(),
-            DROP_RAW_SESSION_WRITABLE_TABLE_SQL(),
-            DROP_RAW_SESSION_WRITABLE_TABLE_SQL_V3(),
-            DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
-            DROP_KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(),
-            DROP_SESSION_TABLE_SQL(),
-            DROP_WEB_STATS_SQL(),
-            DROP_WEB_BOUNCES_SQL(),
-            DROP_WEB_STATS_STAGING_SQL(),
-            DROP_WEB_BOUNCES_STAGING_SQL(),
-            DROP_COHORT_MEMBERSHIP_TABLE_SQL(),
-            DROP_COHORT_MEMBERSHIP_WRITABLE_TABLE_SQL(),
-            DROP_COHORT_MEMBERSHIP_KAFKA_TABLE_SQL(),
-            DROP_COHORT_MEMBERSHIP_MV_SQL(),
-            DROP_PRECALCULATED_EVENTS_SHARDED_TABLE_SQL(),
-            DROP_PRECALCULATED_EVENTS_DISTRIBUTED_TABLE_SQL(),
-            DROP_PRECALCULATED_EVENTS_WRITABLE_TABLE_SQL(),
-            DROP_PRECALCULATED_EVENTS_KAFKA_TABLE_SQL(),
-            DROP_PRECALCULATED_EVENTS_MV_SQL(),
-            DROP_PRECALCULATED_PERSON_PROPERTIES_SHARDED_TABLE_SQL(),
-            DROP_PRECALCULATED_PERSON_PROPERTIES_DISTRIBUTED_TABLE_SQL(),
-            DROP_PRECALCULATED_PERSON_PROPERTIES_WRITABLE_TABLE_SQL(),
-            DROP_PRECALCULATED_PERSON_PROPERTIES_KAFKA_TABLE_SQL(),
-            DROP_PRECALCULATED_PERSON_PROPERTIES_MV_SQL(),
-            DROP_PREAGGREGATION_RESULTS_TABLE_SQL(),
-            DROP_SHARDED_PREAGGREGATION_RESULTS_TABLE_SQL(),
-            TRUNCATE_COHORTPEOPLE_TABLE_SQL,
-            TRUNCATE_EVENTS_RECENT_TABLE_SQL(),
-            TRUNCATE_GROUPS_TABLE_SQL,
-            TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
-            TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL(),
-            TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
-            TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL(),
-            TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
-            TRUNCATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
-            TRUNCATE_AI_EVENTS_TABLE_SQL(),
-            DROP_FLAG_EVALUATIONS_TABLE_SQL(),
-            *DROP_FLAG_EVALUATIONS_PROXY_TABLES_SQL(),
-        ]
-    )
-    run_clickhouse_statement_in_parallel(
-        [
-            CHANNEL_DEFINITION_TABLE_SQL(),
-            EXCHANGE_RATE_TABLE_SQL(),
-            *clickhouse_events_data_table_sqls(),
-            FLAG_EVALUATIONS_TABLE_SQL(),
-            WRITABLE_FLAG_EVALUATIONS_TABLE_SQL(),
-            DISTRIBUTED_FLAG_EVALUATIONS_TABLE_SQL(),
-            PERSONS_TABLE_SQL(),
-            PROPERTY_DEFINITIONS_TABLE_SQL(),
-            RAW_SESSIONS_TABLE_SQL(),
-            SHARDED_RAW_SESSIONS_TABLE_SQL_V3(),
-            WRITABLE_RAW_SESSIONS_TABLE_SQL(),
-            WRITABLE_RAW_SESSIONS_TABLE_SQL_V3(),
-            SESSIONS_TABLE_SQL(),
-            SESSION_REPLAY_EVENTS_TABLE_SQL(),
-            CREATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
-            WEB_STATS_SQL(),
-            WEB_BOUNCES_SQL(),
-            WEB_STATS_SQL(table_name="web_pre_aggregated_stats_staging"),
-            WEB_BOUNCES_SQL(table_name="web_pre_aggregated_bounces_staging"),
-            WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL(),
-            SHARDED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(),
-            COHORT_MEMBERSHIP_TABLE_SQL(),
-            PRECALCULATED_EVENTS_SHARDED_TABLE_SQL(),
-            PRECALCULATED_PERSON_PROPERTIES_SHARDED_TABLE_SQL(),
-            SHARDED_PREAGGREGATION_RESULTS_TABLE_SQL(),
-        ]
-    )
-    run_clickhouse_statement_in_parallel(
-        [
-            CHANNEL_DEFINITION_DICTIONARY_SQL(),
-            EXCHANGE_RATE_DICTIONARY_SQL(),
-            *clickhouse_events_distributed_table_sqls(),
-            DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE_SQL(),
-            DISTRIBUTED_RAW_SESSIONS_TABLE_SQL(),
-            DISTRIBUTED_RAW_SESSIONS_TABLE_SQL_V3(),
-            DISTRIBUTED_SESSIONS_TABLE_SQL(),
-            DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
-            KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(),
-            CREATE_CUSTOM_METRICS_COUNTERS_VIEW,
-            CUSTOM_METRICS_EVENTS_RECENT_LAG_VIEW(),
-            CUSTOM_METRICS_TEST_VIEW(),
-            CUSTOM_METRICS_REPLICATION_QUEUE_VIEW(),
-            WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL(),
-            DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(),
-            WRITABLE_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(),
-            COHORT_MEMBERSHIP_WRITABLE_TABLE_SQL(),
-            KAFKA_COHORT_MEMBERSHIP_TABLE_SQL(),
-            PRECALCULATED_EVENTS_DISTRIBUTED_TABLE_SQL(),
-            PRECALCULATED_EVENTS_WRITABLE_TABLE_SQL(),
-            KAFKA_PRECALCULATED_EVENTS_TABLE_SQL(),
-            PRECALCULATED_PERSON_PROPERTIES_DISTRIBUTED_TABLE_SQL(),
-            PRECALCULATED_PERSON_PROPERTIES_WRITABLE_TABLE_SQL(),
-            KAFKA_PRECALCULATED_PERSON_PROPERTIES_TABLE_SQL(),
-        ]
-    )
-    run_clickhouse_statement_in_parallel(
-        [
-            CHANNEL_DEFINITION_DATA_SQL(),
-            EXCHANGE_RATE_DATA_BACKFILL_SQL(),
-            RAW_SESSIONS_TABLE_MV_SQL(),
-            RAW_SESSIONS_TABLE_MV_SQL_V3(),
-            RAW_SESSIONS_TABLE_MV_RECORDINGS_SQL_V3(),
-            RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL(),
-            RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL_V3(),
-            SESSIONS_TABLE_MV_SQL(),
-            SESSIONS_VIEW_SQL(),
-            ADHOC_EVENTS_DELETION_TABLE_SQL(),
-            *[table_sql() for table_sql in CLEANUP_SNAPSHOT_TABLE_SQL],
-            CUSTOM_METRICS_VIEW(include_counters=True),
-            WEB_PRE_AGGREGATED_TEAM_SELECTION_DATA_SQL(),
-            COHORT_MEMBERSHIP_MV_SQL(),
-            PRECALCULATED_EVENTS_MV_SQL(),
-            PRECALCULATED_PERSON_PROPERTIES_MV_SQL(),
-            QUERY_LOG_ARCHIVE_OPS_MV_SQL(
-                view_name=QUERY_LOG_ARCHIVE_OPS_MV, dest_table=WRITABLE_QUERY_LOG_ARCHIVE_TABLE
-            ),
-        ]
-    )
+    ClickHouseDatabase().restore()
 
     global _clickhouse_checkouts_at_last_reset
     _clickhouse_checkouts_at_last_reset = _clickhouse_pool_checkouts

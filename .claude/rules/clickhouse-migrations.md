@@ -1,7 +1,7 @@
 ---
 paths:
-  - 'posthog/clickhouse/migrations/**'
+  - 'posthog/clickhouse/schema/**'
 ---
 
-Invoke the `/clickhouse-migrations` skill before writing or modifying any migration here.
-The AGENTS.md in this directory has cluster topology and `run_sql_with_exceptions` reference.
+Invoke the `/clickhouse-migrations` skill before changing the ClickHouse schema here.
+`posthog/clickhouse/schema/README.md` explains groups, components, and how a change reaches each cluster.

@@ -682,9 +682,14 @@ migrations:
             DEBUG: '1'
     migrations:clickhouse:
         cmd: bin/migrate --scope=clickhouse
-        description: Initialize ClickHouse - run all ClickHouse migrations (and sync replicated schema)
+        description: Initialize ClickHouse - apply the declared schema and load its reference data
         env:
             DEBUG: '1'
+        services:
+            - clickhouse
+    clickhouse:schema:
+        bin_script: clickhouse-schema
+        description: Plan or apply the declared ClickHouse schema (`hogli clickhouse:schema plan`)
         services:
             - clickhouse
     migrations:check:
@@ -997,9 +1002,6 @@ tools:
     tool:turbo:
         bin_script: turbo
         description: Turborepo wrapper with automatic dependency installation
-    tool:create-ch-migration:
-        cmd: python manage.py create_ch_migration
-        description: Generate new ClickHouse migration scaffold
     tool:print-hog-stl:
         cmd: python manage.py print_hog_stl_table
         description: Print HogSQL standard library definitions for reference
@@ -1007,18 +1009,6 @@ tools:
     clickhouse:logs:init:
         bin_script: clickhouse-logs-init
         description: Initialize ClickHouse logs schema (temporary, pre-migration)
-        hidden: true
-    clickhouse:multinode:start:
-        cmd: tools/infra-scripts/clickhouse-multinode/start-multinode-clickhouse
-        description: Boot the multinode ClickHouse smoke-test stack (one server per logical cluster) for local migration verification
-        hidden: true
-    clickhouse:multinode:verify:
-        cmd: python tools/infra-scripts/clickhouse-multinode/verify-multinode-clickhouse.py
-        description: Assert that the multinode ClickHouse stack ended up with the expected per-node table layout
-        hidden: true
-    clickhouse:multinode:test:
-        cmd: tools/infra-scripts/clickhouse-multinode/multinode-migration-smoke
-        description: Boot a per-cluster ClickHouse stack and smoke-test migrations against it
         hidden: true
     create:notebook:node:
         bin_script: create-notebook-node.sh

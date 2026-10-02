@@ -174,6 +174,7 @@ jobs:
                         - 'posthog/errors.py'
                         - 'posthog/exceptions.py'
                         - 'posthog/exceptions_capture.py'
+                        - 'posthog/exchange_rate_constants.py'
                         - 'posthog/metrics.py'
                         - 'posthog/git.py'
                         - 'posthog/job_owners.py'
@@ -242,6 +243,8 @@ jobs:
                         # Docker helper scripts invoked in CI setup
                         - bin/ci-wait-for-docker
                         - bin/wait-for-docker
+                        # Wrapper that migrate_clickhouse and the pytest conftest run
+                        - bin/clickhouse-schema
                         # We use docker compose for tests, make sure we rerun on
                         # changes to docker-compose.dev.yml e.g. dependency
                         # version changes

@@ -1,6 +1,6 @@
 from posthog.hogql import ast
 
-from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION
+from posthog.exchange_rate_constants import EXCHANGE_RATE_DECIMAL_PRECISION
 
 from products.revenue_analytics.backend.views.core import BuiltQuery, SourceHandle, view_prefix_for_source
 from products.revenue_analytics.backend.views.schemas import (

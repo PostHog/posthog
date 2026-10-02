@@ -62,7 +62,6 @@ rules:
               - 'posthog/api/advanced_activity_logs/__init__.py'
               - 'posthog/clickhouse/logs/__init__.py'
               - 'posthog/clickhouse/metrics/__init__.py'
-              - 'posthog/clickhouse/traces/__init__.py'
               - 'posthog/dags/common/__init__.py'
               - 'products/managed_warehouse/backend/logic/verification/__init__.py'
               - 'posthog/helpers/__init__.py'

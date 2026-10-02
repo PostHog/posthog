@@ -58,6 +58,8 @@ globs = [
     "../posthog/migrations/**",
     "../ee/migrations/**",
     "../posthog/management/commands/setup_test_environment.py",
+    "../posthog/clickhouse/schema/**",
+    "../bin/clickhouse-schema",
     "../docker-compose.dev.yml",
 ]
 mark-changed = "all"

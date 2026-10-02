@@ -1,20 +1,13 @@
-import importlib
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from datetime import UTC, datetime
 
 import pytest
-from unittest.mock import patch
 
 from django.conf import settings as django_settings
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import ClickHouseCredentials, ClickHouseUser, NodeRole
-from posthog.clickhouse.schema import (
-    CREATE_DICTIONARY_QUERIES,
-    CREATE_DISTRIBUTED_TABLE_QUERIES,
-    CREATE_MERGETREE_TABLE_QUERIES,
-    get_table_name,
-)
+from posthog.clickhouse.client.connection import ClickHouseCredentials, ClickHouseUser
+from posthog.clickhouse.managed_schema import ClickHouseDatabase
 from posthog.models.person_group_membership.sql import (
     DISTRIBUTED_PERSON_GROUP_MEMBERSHIP_CONFIG_TABLE,
     PERSON_GROUP_MEMBERSHIP_CONFIG_DICTIONARY,
@@ -24,8 +17,6 @@ from posthog.models.person_group_membership.sql import (
     SHARDED_PERSON_GROUP_MEMBERSHIP_TABLE,
     WRITABLE_PERSON_GROUP_MEMBERSHIP_TABLE,
 )
-
-MIGRATION = "posthog.clickhouse.migrations.0343_person_group_membership"
 
 
 def test_dictionary_sql(snapshot, mocker, settings) -> None:
@@ -38,65 +29,35 @@ def test_dictionary_sql(snapshot, mocker, settings) -> None:
     creds.assert_called_once_with(ClickHouseUser.DICT_READER)
 
 
-@pytest.mark.parametrize("deployment", ["", "DEV", "US", "EU"])
-@pytest.mark.parametrize("multinode", [False, True])
-def test_migration_placement(deployment: str, multinode: bool) -> None:
-    module = importlib.import_module(MIGRATION)
-    try:
-        with patch.multiple("posthog.settings", CLOUD_DEPLOYMENT=deployment, MULTINODE_CLICKHOUSE=multinode):
-            operations = importlib.reload(module).operations
-            expected_roles = [
-                [NodeRole.AUX],
-                [NodeRole.AUX],
-                [NodeRole.DATA, NodeRole.INGESTION_SMALL],
-                [NodeRole.DATA],
-                [NodeRole.INGESTION_SMALL],
-                [NodeRole.INGESTION_SMALL],
-            ]
-            assert [op._node_roles for op in operations] == expected_roles
-            assert [op._effective_node_roles for op in operations] == (
-                expected_roles if deployment or multinode else [[NodeRole.ALL]] * 6
-            )
-            for op in operations:
-                assert "ON CLUSTER" not in op._sql
-                assert "IF NOT EXISTS" in op._sql
-                assert "Kafka" not in op._sql
-                assert "MATERIALIZED VIEW" not in op._sql
-    finally:
-        importlib.reload(module)
-
-
 @pytest.mark.parametrize(
-    "queries,expected",
+    "expected",
     [
-        (
-            CREATE_MERGETREE_TABLE_QUERIES,
-            {SHARDED_PERSON_GROUP_MEMBERSHIP_TABLE, PERSON_GROUP_MEMBERSHIP_CONFIG_TABLE},
-        ),
-        (
-            CREATE_DISTRIBUTED_TABLE_QUERIES,
-            {
-                PERSON_GROUP_MEMBERSHIP_TABLE,
-                WRITABLE_PERSON_GROUP_MEMBERSHIP_TABLE,
-                DISTRIBUTED_PERSON_GROUP_MEMBERSHIP_CONFIG_TABLE,
-            },
-        ),
-        (CREATE_DICTIONARY_QUERIES, {PERSON_GROUP_MEMBERSHIP_CONFIG_DICTIONARY}),
+        {SHARDED_PERSON_GROUP_MEMBERSHIP_TABLE, PERSON_GROUP_MEMBERSHIP_CONFIG_TABLE},
+        {
+            PERSON_GROUP_MEMBERSHIP_TABLE,
+            WRITABLE_PERSON_GROUP_MEMBERSHIP_TABLE,
+            DISTRIBUTED_PERSON_GROUP_MEMBERSHIP_CONFIG_TABLE,
+        },
+        {PERSON_GROUP_MEMBERSHIP_CONFIG_DICTIONARY},
     ],
     ids=["storage", "proxies", "dictionary"],
 )
-def test_local_schema_includes_membership_objects(
-    queries: tuple[str | Callable[[], str], ...], expected: set[str]
-) -> None:
-    assert expected <= {get_table_name(query) for query in queries}
+@pytest.mark.usefixtures("membership_tables")
+def test_local_schema_includes_membership_objects(expected: set[str]) -> None:
+    tables = sync_execute(
+        "SELECT name FROM system.tables WHERE database = %(database)s",
+        {"database": django_settings.CLICKHOUSE_DATABASE},
+    )
+    assert expected <= {row[0] for row in tables}
+
+
+@pytest.fixture(scope="package")
+def membership_tables(clickhouse_database: None) -> None:
+    ClickHouseDatabase().create_test_tables(kafka=False)
 
 
 @pytest.fixture
-def membership_schema(clickhouse_database) -> Iterator[None]:
-    module = importlib.reload(importlib.import_module(MIGRATION))
-    for _ in range(2):
-        for operation in module.operations:
-            sync_execute(operation._sql)
+def membership_schema(membership_tables: None) -> Iterator[None]:
     try:
         for table in (SHARDED_PERSON_GROUP_MEMBERSHIP_TABLE, PERSON_GROUP_MEMBERSHIP_CONFIG_TABLE):
             sync_execute(f"TRUNCATE TABLE {table}")
