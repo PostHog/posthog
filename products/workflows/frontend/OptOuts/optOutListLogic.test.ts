@@ -42,7 +42,9 @@ describe('optOutListLogic usage tracking', () => {
             logic.actions.exportCsv()
         }).toDispatchActions(['exportCsvSuccess'])
 
-        expect(capture).toHaveBeenCalledWith('messaging opt-outs exported', { surface: 'audience' })
+        expect(capture.mock.calls.filter(([event]) => event === 'messaging opt-outs exported')).toEqual([
+            ['messaging opt-outs exported', { surface: 'audience' }],
+        ])
     })
 
     it.each([

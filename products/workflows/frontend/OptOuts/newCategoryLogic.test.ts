@@ -2,6 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
@@ -26,6 +27,18 @@ const BILLING_RECEIPTS: MessageCategory = {
 // A form field dispatches its name as a path array, the way kea-forms' Field does.
 function typeInto(logic: ReturnType<typeof newCategoryLogic.build>, field: 'name' | 'key', value: string): void {
     logic.actions.setCategoryFormValue([field], value)
+}
+
+function rejectCreateWith(error: Error): void {
+    jest.spyOn(messagingApi, 'messagingCategoriesCreate').mockRejectedValue(error)
+}
+
+function apiFieldError(attr: string, detail: string): ApiError {
+    return new ApiError(detail, 400, undefined, { type: 'validation_error', code: 'invalid_input', detail, attr })
+}
+
+async function submitAndFail(logic: ReturnType<typeof newCategoryLogic.build>): Promise<void> {
+    await expectLogic(logic, () => logic.actions.submitCategoryForm()).toDispatchActions(['submitCategoryFormFailure'])
 }
 
 function setAudienceFlag(enabled: boolean): void {
@@ -127,24 +140,68 @@ describe('newCategoryLogic', () => {
         expect(logic.values.categoryForm.key).toBe('')
     })
 
-    it('shows on the key field that another topic already uses the key', async () => {
-        jest.spyOn(messagingApi, 'messagingCategoriesCreate').mockRejectedValue(
-            new ApiError('A message category with this key already exists.', 400, undefined, {
-                type: 'validation_error',
-                code: 'invalid_input',
-                detail: 'A message category with this key already exists.',
-                attr: 'key',
-            })
-        )
+    it.each([
+        {
+            field: 'key',
+            detail: 'A message category with this key already exists.',
+            shown: 'Another topic already uses this key',
+        },
+        {
+            field: 'name',
+            detail: 'Ensure this field has no more than 128 characters.',
+            shown: 'Ensure this field has no more than 128 characters.',
+        },
+    ])('shows the API error on the $field field, without a toast', async ({ field, detail, shown }) => {
+        const toast = jest.spyOn(lemonToast, 'error')
+        rejectCreateWith(apiFieldError(field, detail))
         const logic = newCategoryLogic({})
         logic.mount()
         typeInto(logic, 'name', 'Product updates')
 
-        await expectLogic(logic, () => logic.actions.submitCategoryForm()).toDispatchActions([
-            'submitCategoryFormFailure',
-        ])
+        await submitAndFail(logic)
 
-        expect(logic.values.categoryFormAllErrors.key).toBe('Another topic already uses this key')
+        expect(logic.values.categoryFormAllErrors[field as 'key' | 'name']).toBe(shown)
+        expect(toast).not.toHaveBeenCalled()
+    })
+
+    it('clears a taken-key error once a new name fills a new key', async () => {
+        rejectCreateWith(apiFieldError('key', 'A message category with this key already exists.'))
+        const logic = newCategoryLogic({})
+        logic.mount()
+        typeInto(logic, 'name', 'Product updates')
+        await submitAndFail(logic)
+
+        typeInto(logic, 'name', 'Product news')
+
+        expect(logic.values.categoryForm.key).toBe('product-news')
+        expect(logic.values.categoryFormAllErrors.key).toBeUndefined()
+    })
+
+    it('toasts once when the save fails for a reason no field explains', async () => {
+        const toast = jest.spyOn(lemonToast, 'error')
+        rejectCreateWith(new ApiError('Server error', 500))
+        const logic = newCategoryLogic({})
+        logic.mount()
+        typeInto(logic, 'name', 'Product updates')
+
+        await submitAndFail(logic)
+
+        expect(toast.mock.calls).toEqual([["Couldn't save the topic. Try again."]])
+    })
+
+    it('flag off: an empty key shows only the inline error, no toast', async () => {
+        setAudienceFlag(false)
+        const toast = jest.spyOn(lemonToast, 'error')
+        const create = jest.spyOn(messagingApi, 'messagingCategoriesCreate')
+        const logic = newCategoryLogic({})
+        logic.mount()
+        typeInto(logic, 'name', 'Product updates')
+
+        await submitAndFail(logic)
+
+        expect(logic.values.categoryFormAllErrors.key).toBe('Key is required')
+        expect(toast).not.toHaveBeenCalled()
+        expect(create).not.toHaveBeenCalled()
     })
 
     it('never changes the key of an existing topic', () => {

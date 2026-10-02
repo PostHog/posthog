@@ -2,6 +2,7 @@ import '@testing-library/jest-dom'
 
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -131,11 +132,12 @@ describe('the Topics tab', () => {
         render(<AudienceScene />)
         await waitFor(() => expect(optOutCategoriesLogic.values.categoriesLoading).toBe(false))
 
+        const moreTrigger = screen.getByTestId('audience-topics-more')
         expect(screen.getAllByText('New topic')).toHaveLength(1)
-        expect(screen.queryByText('Create topic')).not.toBeInTheDocument()
+        expect(within(moreTrigger.closest('section') as HTMLElement).getByText('New topic')).toBeInTheDocument()
         expect(screen.queryByText('Import from Customer.io')).not.toBeInTheDocument()
 
-        act(() => screen.getByTestId('audience-topics-more').click())
+        act(() => moreTrigger.click())
         act(() => screen.getByText('Import from Customer.io').click())
 
         expect(within(await screen.findByRole('dialog')).getByText('Customer.io integration')).toBeInTheDocument()
@@ -154,6 +156,25 @@ describe('the Topics tab', () => {
 
         await waitFor(() => expect(optOutSceneLogic.values.preferencesUrlLoading).toBe(true))
         expect(screen.getByTestId('audience-topics-more').getAttribute('aria-disabled') === 'true').toBe(busy)
+    })
+
+    it("keeps the More menu busy while its preview loads, even after a recipient's page opens", async () => {
+        jest.spyOn(messagingApi, 'messagingPreferencesGenerateLinkCreate').mockImplementation((_, body) =>
+            body.recipient === 'jamie@example.com'
+                ? Promise.resolve({ preferences_url: 'https://example.com/preferences/jamie' })
+                : new Promise(() => {})
+        )
+        jest.spyOn(window, 'open').mockReturnValue(null)
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_AUDIENCE]: true })
+        render(<AudienceScene />)
+        await screen.findByText('Product updates')
+
+        act(() => optOutSceneLogic.actions.openPreferencesPage())
+        await expectLogic(optOutSceneLogic, () =>
+            optOutSceneLogic.actions.openPreferencesPage('jamie@example.com')
+        ).toDispatchActions(['openPreferencesPageSuccess'])
+
+        expect(screen.getByTestId('audience-topics-more')).toHaveAttribute('aria-disabled', 'true')
     })
 
     it('opens the preferences page from the More menu', async () => {
