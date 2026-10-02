@@ -1,0 +1,69 @@
+.CanvasSourceDrag__shield {
+    position: fixed;
+    inset: 0;
+    z-index: 998;
+    user-select: none;
+}
+
+.CanvasSourceDrag__ghost {
+    --canvas-source-drag-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 1000;
+    pointer-events: none;
+    transform-origin: 24px 20px;
+    will-change: transform;
+
+    &[data-phase='drop'] {
+        opacity: 0;
+        transition:
+            opacity 140ms var(--canvas-source-drag-ease-out),
+            scale 140ms var(--canvas-source-drag-ease-out);
+        scale: 0.98;
+    }
+
+    &[data-phase='return'] {
+        opacity: 0;
+        transition:
+            transform 280ms var(--canvas-source-drag-ease-out),
+            opacity 180ms ease-out 100ms;
+    }
+}
+
+.CanvasSourceDrag__card {
+    animation: CanvasSourceDrag__Lift 180ms var(--canvas-source-drag-ease-out) both;
+}
+
+@keyframes CanvasSourceDrag__Lift {
+    from {
+        opacity: 0;
+        scale: 0.97;
+    }
+
+    to {
+        opacity: 1;
+        scale: 1;
+    }
+}
+
+@keyframes CanvasSourceDrag__Fade {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .CanvasSourceDrag__card {
+        animation-name: CanvasSourceDrag__Fade;
+    }
+
+    .CanvasSourceDrag__ghost[data-phase='return'] {
+        transition: opacity 140ms ease-out;
+    }
+}

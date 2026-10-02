@@ -55,7 +55,7 @@ def system_one_evaluations_enabled(team_id: int, *, base_url: str) -> bool:
         get_feature_flag_or_none(
             "llm-analytics-system-one-evaluations",
             str(team.uuid),
-            groups={"organization": str(team.organization_id), "project": str(team.id)},
+            groups={"organization": str(team.organization_id), "project": str(team.uuid)},
             send_feature_flag_events=False,
         )
         is True

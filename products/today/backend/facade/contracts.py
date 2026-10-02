@@ -1,6 +1,7 @@
 """Contract types for today: what the product returns to its API, MCP tools and other products."""
 
 from datetime import date, datetime
+from typing import Any
 
 from pydantic.dataclasses import dataclass
 
@@ -12,6 +13,44 @@ class BriefingSegment:
     text: str
     item_key: str | None = None
     highlight: bool = False
+
+
+@dataclass(frozen=True)
+class BriefingItemMetric:
+    """A report metric's saved snapshot and its live query. The same fields as the inbox list's metric."""
+
+    metric_id: str
+    title: str
+    kind: str
+    role: str
+    value: float
+    series: list[float] | None
+    value_format: str
+    unit: str | None
+    query: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class BriefingItemChart:
+    """A chart from the report body. The hover card draws it when the report has no metric to chart."""
+
+    chart_id: str
+    title: str
+    query: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class BriefingItemReport:
+    """What the left bar's hover card shows for a report, read live with the item's state."""
+
+    priority: str | None
+    summary: str
+    pull_request_state: str | None
+    pull_request_url: str | None
+    signal_count: int
+    updated_at: datetime
+    metrics: list[BriefingItemMetric]
+    charts: list[BriefingItemChart]
 
 
 @dataclass(frozen=True)
@@ -28,6 +67,8 @@ class BriefingItem:
     state: ItemState
     # For a report, the product its signals came from (error_tracking, session_replay, ...), else None.
     source_product: str | None
+    # For a report that still exists, its live details, else None.
+    report: BriefingItemReport | None
 
 
 @dataclass(frozen=True)

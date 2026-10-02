@@ -45,6 +45,9 @@ export function TodaySpaceHoverCard({
                             <TodaySpaceGlyph locked={preview.spaceKind !== 'public'} />
                         </span>
                         <span className="min-w-0 font-semibold">{preview.name}</span>
+                        {preview.unreadSessions > 0 && (
+                            <span aria-hidden className="size-2 shrink-0 rounded-full bg-primary" />
+                        )}
                     </ItemTitle>
                     <ItemDescription className="pl-5.5">
                         <span className="block">{KIND_LABELS[preview.spaceKind]}</span>
@@ -60,27 +63,35 @@ export function TodaySpaceHoverCard({
                     />
                 </ItemActions>
             </Item>
-            {preview.repositories.length > 0 && (
+            {(preview.unreadSessions > 0 || preview.repositories.length > 0) && (
                 <>
                     <ItemSeparator className="my-0" />
                     <Item size="xs">
-                        <ItemContent className="min-w-0">
-                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                                {preview.repositories.map((repository) => (
-                                    <span
-                                        key={repository}
-                                        className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground"
-                                    >
-                                        <IconGitRepository className="size-3 shrink-0" />
-                                        <span className="truncate">{repository}</span>
-                                    </span>
-                                ))}
-                                {preview.hiddenRepositoryCount > 0 && (
-                                    <Text size="xs" variant="muted" render={<span />}>
-                                        {`+${preview.hiddenRepositoryCount} more`}
-                                    </Text>
-                                )}
-                            </div>
+                        <ItemContent className="min-w-0 gap-1.5">
+                            {preview.unreadSessions > 0 && (
+                                <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                                    <span aria-hidden className="size-2 shrink-0 rounded-full bg-primary" />
+                                    {`${preview.unreadSessions} unread`}
+                                </span>
+                            )}
+                            {preview.repositories.length > 0 && (
+                                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                                    {preview.repositories.map((repository) => (
+                                        <span
+                                            key={repository}
+                                            className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground"
+                                        >
+                                            <IconGitRepository className="size-3 shrink-0" />
+                                            <span className="truncate">{repository}</span>
+                                        </span>
+                                    ))}
+                                    {preview.hiddenRepositoryCount > 0 && (
+                                        <Text size="xs" variant="muted" render={<span />}>
+                                            {`+${preview.hiddenRepositoryCount} more`}
+                                        </Text>
+                                    )}
+                                </div>
+                            )}
                         </ItemContent>
                     </Item>
                 </>

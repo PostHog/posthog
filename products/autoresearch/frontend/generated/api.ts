@@ -792,7 +792,7 @@ export const getAutoresearchScoreCreateUrl = (projectId: string, id: string) => 
 }
 
 /**
- * Score the inference population using the champion model and emit autoresearch_prediction events for each scored user, and sets the pipeline's output_person_property on each scored person. In production this is triggered by the daily Temporal inference workflow.
+ * Start scoring the inference population using the champion model. Scoring runs in the background: it emits autoresearch_prediction events for each scored user and sets the pipeline's output_person_property on each scored person. The response returns at once with the running run. A second request while a run is running returns that run and starts nothing. The daily Temporal inference workflow also scores each pipeline on its cadence.
  * @summary Run inference (score users)
  */
 export const autoresearchScoreCreate = async (
@@ -891,7 +891,7 @@ export const getAutoresearchValidateCreateUrl = (projectId: string) => {
 }
 
 /**
- * Validate a proposed pipeline's target event and population before creating it. Returns volume estimates, base rate, and any warnings. Creation does not enforce the result: 'population_too_large' and 'horizon_exceeds_lookback' mean a training run would fail, and the other 'error' codes mean the data is too thin for a reliable model. Call this before autoresearch-create.
+ * Validate a proposed pipeline's target event and population before creating it. Returns volume estimates, base rate, and any warnings. Creation does not enforce the result: 'horizon_exceeds_lookback' and an 'error' 'population_too_large' mean a run would fail, and the other 'error' codes mean the data is too thin for a reliable model. Call this before autoresearch-create.
  * @summary Validate a pipeline definition
  */
 export const autoresearchValidateCreate = async (

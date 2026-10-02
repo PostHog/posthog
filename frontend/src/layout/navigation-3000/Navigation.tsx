@@ -185,11 +185,13 @@ export function Navigation({
 
                     <div
                         className={cn(
-                            '@container/main-content-container main-content-container flex overflow-hidden lg:rounded border-t lg:border border-primary relative lg:mr-1 lg:mb-1 lg:mt-1',
-                            {
-                                'rounded border mr-1 mb-1 mt-1': todayRail,
-                                'rounded-r-none': sidePanelOpen,
-                            }
+                            '@container/main-content-container main-content-container flex overflow-hidden border-primary relative',
+                            todayRail
+                                ? 'border-l'
+                                : [
+                                      'lg:rounded border-t lg:border lg:mr-1 lg:mb-1 lg:mt-1',
+                                      sidePanelOpen && 'rounded-r-none',
+                                  ]
                         )}
                         {...(todayDrawerOpen ? { inert: '' } : {})}
                     >
