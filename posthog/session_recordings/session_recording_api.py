@@ -1133,6 +1133,13 @@ class SessionRecordingViewSet(
             exc.status_code = 500
             raise exc
 
+        report_user_action(
+            user=cast(User, request.user),
+            event="recording deleted",
+            properties={"recording_id": recording.session_id},
+            team=self.team,
+            request=request,
+        )
         return Response(status=204)
 
     @extend_schema(
@@ -1197,6 +1204,13 @@ class SessionRecordingViewSet(
             team_id=self.team.id,
             deleted_count=deleted_count,
             total_requested=len(session_recording_ids),
+        )
+        report_user_action(
+            user=cast(User, request.user),
+            event="recordings bulk deleted",
+            properties={"deleted_count": deleted_count, "total_requested": len(session_recording_ids)},
+            team=self.team,
+            request=request,
         )
 
         if deleted_count > 0:

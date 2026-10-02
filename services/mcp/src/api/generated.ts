@@ -36876,30 +36876,6 @@ export namespace Schemas {
       size?: SizeEnum | null;
     }
 
-    /**
-     * * `at_most` - at_most
-     * * `at_least` - at_least
-     */
-    export type GoalDirectionEnum = typeof GoalDirectionEnum[keyof typeof GoalDirectionEnum];
-
-
-    export const GoalDirectionEnum = {
-      AtMost: 'at_most',
-      AtLeast: 'at_least',
-    } as const;
-
-    /**
-     * * `whole_window` - whole_window
-     * * `per_interval` - per_interval
-     */
-    export type GoalGrainEnum = typeof GoalGrainEnum[keyof typeof GoalGrainEnum];
-
-
-    export const GoalGrainEnum = {
-      WholeWindow: 'whole_window',
-      PerInterval: 'per_interval',
-    } as const;
-
     export interface ReportMetricComparison {
       /** Baseline or previous value, formatted like the current value. */
       value: number;
@@ -36979,35 +36955,6 @@ export namespace Schemas {
          * @nullable
          */
       caption?: string | null;
-      /**
-         * Proposed threshold after release. Informational only; does not schedule a check.
-         * @nullable
-         */
-      goal_value?: number | null;
-      /** Whether success means at most or at least goal_value.
-       *
-       * * `at_most` - at_most
-       * * `at_least` - at_least */
-      goal_direction?: GoalDirectionEnum | null;
-      /** Whether the goal compares with the whole query window or each chart bucket.
-       *
-       * * `whole_window` - whole_window
-       * * `per_interval` - per_interval */
-      goal_grain?: GoalGrainEnum;
-      /**
-         * Suggested days after release before assessing impact, not a monitoring schedule.
-         * @minimum 1
-         * @maximum 30
-         * @nullable
-         */
-      decision_window_days?: number | null;
-      /**
-         * Optional number of qualifying observations before assessing impact.
-         * @minimum 1
-         * @maximum 1000
-         * @nullable
-         */
-      minimum_data_points?: number | null;
       /** Legacy optional comparison. New report metrics must omit it. */
       comparison?: ReportMetricComparison | null;
     }
@@ -51081,6 +51028,18 @@ export namespace Schemas {
       change: WoWChange | null;
     }
 
+    /**
+     * * `at_most` - at_most
+     * * `at_least` - at_least
+     */
+    export type GoalDirectionEnum = typeof GoalDirectionEnum[keyof typeof GoalDirectionEnum];
+
+
+    export const GoalDirectionEnum = {
+      AtMost: 'at_most',
+      AtLeast: 'at_least',
+    } as const;
+
     export interface GoalEventSample {
       /** UUID of the sampled conversion event */
       event_uuid: string;
@@ -51176,6 +51135,18 @@ export namespace Schemas {
       /** Caveats about the breakdown (sampling, attribution, etc.) */
       notes: string[];
     }
+
+    /**
+     * * `whole_window` - whole_window
+     * * `per_interval` - per_interval
+     */
+    export type GoalGrainEnum = typeof GoalGrainEnum[keyof typeof GoalGrainEnum];
+
+
+    export const GoalGrainEnum = {
+      WholeWindow: 'whole_window',
+      PerInterval: 'per_interval',
+    } as const;
 
     export interface GoogleSearchConsoleSearchOpportunitySignalExtra {
       page: string;
@@ -61943,6 +61914,22 @@ export namespace Schemas {
      */
     export type MCPToolResponseStructuredContent = {[key: string]: JsonValue} | null;
 
+    /**
+     * Failure category for MCP analytics.
+     */
+    export type MCPToolResponseErrorType = typeof MCPToolResponseErrorType[keyof typeof MCPToolResponseErrorType] | null;
+
+
+    export const MCPToolResponseErrorType = {
+      Validation: 'validation',
+      Permission: 'permission',
+      Timeout: 'timeout',
+      MemoryLimit: 'memory_limit',
+      RateLimited: 'rate_limited',
+      Api5xx: 'api_5xx',
+      Internal: 'internal',
+    } as const;
+
     export interface MCPToolResponse {
       /** Formatted tool output for the model. */
       content: string;
@@ -61950,6 +61937,8 @@ export namespace Schemas {
       structured_content?: MCPToolResponseStructuredContent;
       /** Whether the tool completed successfully. */
       success: boolean;
+      /** Failure category for MCP analytics. */
+      error_type?: MCPToolResponseErrorType;
     }
 
     /**
@@ -69426,6 +69415,20 @@ export namespace Schemas {
       Filters: 'filters',
     } as const;
 
+    /**
+     * * `new` - new
+     * * `pin` - pin
+     * * `duplicate` - duplicate
+     */
+    export type SessionRecordingPlaylistCreationMethodEnum = typeof SessionRecordingPlaylistCreationMethodEnum[keyof typeof SessionRecordingPlaylistCreationMethodEnum];
+
+
+    export const SessionRecordingPlaylistCreationMethodEnum = {
+      New: 'new',
+      Pin: 'pin',
+      Duplicate: 'duplicate',
+    } as const;
+
     export type SessionRecordingPlaylistRecordingsCounts = {[key: string]: {[key: string]: number | boolean | null}};
 
     export interface SessionRecordingPlaylist {
@@ -69463,6 +69466,12 @@ export namespace Schemas {
       /** Return whether this is a synthetic playlist */
       readonly is_synthetic: boolean;
       _create_in_folder?: string;
+      /** How the PostHog app created the playlist, for product analytics. Not stored.
+       *
+       * * `new` - new
+       * * `pin` - pin
+       * * `duplicate` - duplicate */
+      creation_method?: SessionRecordingPlaylistCreationMethodEnum;
     }
 
     export interface PaginatedSessionRecordingPlaylistList {
@@ -80562,6 +80571,12 @@ export namespace Schemas {
       /** Return whether this is a synthetic playlist */
       readonly is_synthetic?: boolean;
       _create_in_folder?: string;
+      /** How the PostHog app created the playlist, for product analytics. Not stored.
+       *
+       * * `new` - new
+       * * `pin` - pin
+       * * `duplicate` - duplicate */
+      creation_method?: SessionRecordingPlaylistCreationMethodEnum;
     }
 
     /**
@@ -103901,6 +103916,26 @@ export namespace Schemas {
     }
 
     /**
+     * The requesting user's per-project task defaults, shared by PostHog Desktop and the web app.
+     */
+    export interface TasksTaskDefaults {
+      /** When true, new tasks start in plan mode: the agent makes a plan and waits for approval. */
+      start_in_plan_mode: boolean;
+      /** When true, a cloud run that changes code always opens a draft pull request. */
+      auto_publish_cloud_runs: boolean;
+    }
+
+    /**
+     * A partial update of the requesting user's task defaults. Fields left out keep their stored value.
+     */
+    export interface TasksTaskDefaultsUpdate {
+      /** When true, new tasks start in plan mode: the agent makes a plan and waits for approval. */
+      start_in_plan_mode?: boolean;
+      /** When true, a cloud run that changes code always opens a draft pull request. */
+      auto_publish_cloud_runs?: boolean;
+    }
+
+    /**
      * Team-level tasks configuration.
      */
     export interface TasksTeamConfigResponse {
@@ -103920,6 +103955,8 @@ export namespace Schemas {
       resolved_ai_run_defaults: TasksResolvedAIRunDefaults;
       /** Your personal instructions, which PostHog cloud agents read in Tasks runs you start, after the project instructions. Anyone who continues a task you started can see them. Empty when unset. */
       agent_instructions: string;
+      /** Your per-project defaults for new tasks. Unset defaults are false. */
+      task_defaults: TasksTaskDefaults;
     }
 
     export interface TeachingCanvas {
@@ -122537,17 +122574,6 @@ export namespace Schemas {
     };
 
     export type TasksThreadMessagesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type TasksMeConfigListParams = {
     /**
      * Number of results to return per page.
      */

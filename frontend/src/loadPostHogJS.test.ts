@@ -10,8 +10,8 @@ describe('loadPostHogJS', () => {
         it.each<{
             case: string
             lastSeen: LastSeenFeatureFlags | null
-            bootstrapFlags: LastSeenFeatureFlags['featureFlags']
-            expected: LastSeenFeatureFlags['featureFlags']
+            bootstrapFlags: LastSeenFeatureFlags['featureFlags'] | null | undefined
+            expected: LastSeenFeatureFlags['featureFlags'] | undefined
         }>([
             {
                 case: 'fills flags the server left out, and server values win',
@@ -30,6 +30,18 @@ describe('loadPostHogJS', () => {
                 lastSeen: { distinctId: 'user-a', featureFlags: { 'staff-only': true } },
                 bootstrapFlags: {},
                 expected: {},
+            },
+            {
+                case: 'keeps missing bootstrap flags absent when the same user has cached flags',
+                lastSeen: { distinctId: 'user-a', featureFlags: { 'staff-only': true } },
+                bootstrapFlags: undefined,
+                expected: undefined,
+            },
+            {
+                case: 'ignores null bootstrap flags when the same user has cached flags',
+                lastSeen: { distinctId: 'user-a', featureFlags: { 'staff-only': true } },
+                bootstrapFlags: null,
+                expected: undefined,
             },
             {
                 case: 'keeps the server flags when nothing is cached',
