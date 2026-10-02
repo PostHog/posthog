@@ -131,6 +131,8 @@ ProjectSecretAPIKey
 PropertyAccessControl
 QueryTabState
 QueueJob
+QueueSchedulerDecision
+QueueSchedulerState
 QuickFilter
 QuickFilterContext
 Reminder
