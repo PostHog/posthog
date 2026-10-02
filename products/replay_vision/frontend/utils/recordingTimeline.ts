@@ -54,11 +54,10 @@ export interface RecordingTimeline {
     markers: TimelineMarker[]
 }
 
-/** One row on the rail; `inChapter` marks a key moment that falls inside the chapter above it. */
+/** One row on the rail. */
 export type TimelineRow =
     | { kind: 'chapter'; chapter: TimelineChapter }
     | { kind: 'inactive'; startMs: number; endMs: number }
-    | { kind: 'marker'; marker: TimelineMarker; inChapter: boolean }
     | { kind: 'boundary'; edge: 'start' | 'end'; atMs: number }
 
 // Rows are spaced by elapsed time, capped so one quiet stretch can't push the rest off screen.
@@ -183,8 +182,11 @@ export function recordingTimeline(observations: ReplayObservationApi[]): Recordi
     return { summary, summaryState, chapters, inactive, markers }
 }
 
-/** The rows the sidebar lists, in time order: chapters, the key moments inside them, idle gaps, and loose key moments. */
+/** The rows the sidebar lists, in time order: the session's ends, chapters and idle gaps. Empty without chapters. */
 export function timelineRows(timeline: RecordingTimeline, durationMs: number | null = null): TimelineRow[] {
+    if (timeline.chapters.length === 0) {
+        return []
+    }
     const rows: { atMs: number; order: number; row: TimelineRow }[] = []
     rows.push({ atMs: 0, order: -1, row: { kind: 'boundary', edge: 'start', atMs: 0 } })
     for (const chapter of timeline.chapters) {
@@ -193,16 +195,11 @@ export function timelineRows(timeline: RecordingTimeline, durationMs: number | n
     for (const gap of timeline.inactive) {
         rows.push({ atMs: gap.startMs, order: 1, row: { kind: 'inactive', startMs: gap.startMs, endMs: gap.endMs } })
     }
-    for (const marker of timeline.markers) {
-        const inChapter = timeline.chapters.some((c) => marker.timestampMs >= c.startMs && marker.timestampMs < c.endMs)
-        rows.push({ atMs: marker.timestampMs, order: 2, row: { kind: 'marker', marker, inChapter } })
-    }
     if (durationMs !== null && durationMs > 0) {
         // The player's length can come up short of what the scan saw, and the end must still close the rail.
-        const endMs = Math.max(durationMs, ...timeline.chapters.map((c) => c.endMs), ...rows.map((r) => r.atMs))
+        const endMs = Math.max(durationMs, ...timeline.chapters.map((c) => c.endMs))
         rows.push({ atMs: endMs, order: 3, row: { kind: 'boundary', edge: 'end', atMs: endMs } })
     }
-    // A key moment at a chapter's first second sits under the chapter, not above it.
     return rows.sort((a, b) => a.atMs - b.atMs || a.order - b.order).map(({ row }) => row)
 }
 
@@ -213,8 +210,6 @@ export function rowStartMs(row: TimelineRow): number {
             return row.chapter.startMs
         case 'inactive':
             return row.startMs
-        case 'marker':
-            return row.marker.timestampMs
         case 'boundary':
             return row.atMs
     }
@@ -231,9 +226,8 @@ export function currentRowIndex(rows: TimelineRow[], playerTimeMs: number): numb
     return current
 }
 
-/** The next place worth jumping to after the player's position: a chapter start or a marker. */
+/** The next chapter start after the player's position. */
 export function nextTimelineStopMs(timeline: RecordingTimeline, playerTimeMs: number): number | null {
-    const stops = [...timeline.chapters.map((c) => c.startMs), ...timeline.markers.map((m) => m.timestampMs)]
-    const later = stops.filter((ms) => ms > playerTimeMs)
+    const later = timeline.chapters.map((c) => c.startMs).filter((ms) => ms > playerTimeMs)
     return later.length > 0 ? Math.min(...later) : null
 }

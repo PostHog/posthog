@@ -7,14 +7,9 @@ import { cn } from 'lib/utils/css-classes'
 import { colonDelimitedDuration, humanFriendlyDuration } from 'lib/utils/durations'
 
 import type { ReplayObservationApi } from '../generated/api.schemas'
-import type {
-    RecordingTimeline as RecordingTimelineData,
-    TimelineMarker,
-    TimelineRow,
-} from '../utils/recordingTimeline'
+import type { RecordingTimeline as RecordingTimelineData, TimelineRow } from '../utils/recordingTimeline'
 import { MIN_INACTIVE_ROW_MS, currentRowIndex, rowStartMs, timelineGapPx } from '../utils/recordingTimeline'
 import { ObservationThumbnail } from './ObservationThumbnail'
-import { TimelineKeyMoment } from './TimelineKeyMoment'
 import { TimelineRail } from './TimelineRail'
 
 export interface RecordingTimelineProps {
@@ -22,15 +17,11 @@ export interface RecordingTimelineProps {
     rows: TimelineRow[]
     currentTimeMs: number
     onSeek: (timestampMs: number) => void
-    onMarkerClick: (marker: TimelineMarker) => void
     onSummarize: () => void
     summarizing: boolean
     summarizeDisabledReason?: string | null
     onRebuild: () => void
     rebuilding: boolean
-    /** The key moment hovered on the seekbar, highlighted here too. */
-    hoveredMarkMs?: number | null
-    onHoverMarker?: (timestampMs: number | null) => void
 }
 
 const ROW_GRID = 'grid grid-cols-[2.5rem_1rem_minmax(0,1fr)] gap-x-1.5 px-2'
@@ -83,9 +74,9 @@ function SummaryNotice({
     )
 }
 
-/** The recording's breakdown on a time rail: summary chapters, idle gaps between them, and every scan's key moment. */
+/** The recording's breakdown on a time rail: the summary's chapters and the idle gaps between them. */
 export function RecordingTimeline(props: RecordingTimelineProps): JSX.Element {
-    const { timeline, rows, currentTimeMs, onSeek, onMarkerClick, hoveredMarkMs, onHoverMarker } = props
+    const { timeline, rows, currentTimeMs, onSeek } = props
     const currentIndex = currentRowIndex(rows, currentTimeMs)
     const hasHours = rows.some((row) => rowStartMs(row) >= HOUR_MS)
     const rowGrid = hasHours ? ROW_GRID_HOURS : ROW_GRID
@@ -211,7 +202,7 @@ export function RecordingTimeline(props: RecordingTimelineProps): JSX.Element {
                                     {row.edge === 'start' ? 'Session start' : 'Session end'}
                                 </button>
                             </div>
-                        ) : row.kind === 'inactive' ? (
+                        ) : (
                             <div
                                 data-current-moment={isCurrent ? true : undefined}
                                 className={rowGrid}
@@ -229,45 +220,6 @@ export function RecordingTimeline(props: RecordingTimelineProps): JSX.Element {
                                 />
                                 <span className="text-xs text-tertiary italic py-1">
                                     Inactive for {formatSpan(row.endMs - row.startMs)}
-                                </span>
-                            </div>
-                        ) : (
-                            <div
-                                data-current-moment={isCurrent ? true : undefined}
-                                className={cn(
-                                    rowGrid,
-                                    'transition-colors',
-                                    isCurrent && 'bg-fill-highlight-50',
-                                    hoveredMarkMs === row.marker.timestampMs && 'bg-surface-secondary'
-                                )}
-                                onMouseEnter={() => onHoverMarker?.(row.marker.timestampMs)}
-                                onMouseLeave={() => onHoverMarker?.(null)}
-                            >
-                                {timeCell}
-                                <TimelineRail
-                                    dot={row.marker.flagged ? 'flagged' : 'moment'}
-                                    first={index === 0}
-                                    last={index === rows.length - 1}
-                                    passedAbove={passedAbove}
-                                    passedBelow={passedBelow}
-                                    isCurrent={isCurrent}
-                                />
-                                <span className="flex items-center min-w-0 py-0.5">
-                                    {/* Ties the card to its dot; reaches back over the column gap, further when nested under a chapter. */}
-                                    <span
-                                        className={cn(
-                                            'h-0.5 shrink-0 -ml-2.5',
-                                            row.inChapter ? 'w-7' : 'w-3',
-                                            passedAbove ? 'bg-accent' : 'bg-border'
-                                        )}
-                                    />
-                                    <TimelineKeyMoment
-                                        marker={row.marker}
-                                        onClick={() => {
-                                            onSeek(row.marker.timestampMs)
-                                            onMarkerClick(row.marker)
-                                        }}
-                                    />
                                 </span>
                             </div>
                         )}

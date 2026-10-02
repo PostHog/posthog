@@ -83,8 +83,6 @@ export const frustrationScorer = (at: number | null): ReplayObservationApi =>
     scan('scorer', 'Frustration', at, { score: 4, reasoning: '' })
 export const intentClassifier = (at: number | null): ReplayObservationApi =>
     scan('classifier', 'Visit intent', at, { tags: ['Pricing research'], reasoning: '' })
-export const rageMonitor = (at: number | null): ReplayObservationApi =>
-    scan('monitor', 'Rage clicks', at, { verdict: 'no', reasoning: '' })
 
 export const SHORT = [
     { start: 0, end: 18_000, title: 'Browses surveys product page' },

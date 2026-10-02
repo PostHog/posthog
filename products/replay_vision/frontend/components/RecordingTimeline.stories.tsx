@@ -15,7 +15,6 @@ import {
     checkoutMonitor,
     frustrationScorer,
     intentClassifier,
-    rageMonitor,
     summary,
 } from '../__mocks__/recordingTimelineObservations'
 import type { ReplayObservationApi } from '../generated/api.schemas'
@@ -50,7 +49,6 @@ const render: Story['render'] = ({ observations, currentTimeMs = 0, durationMs }
             rows={timelineRows(timeline, durationMs)}
             currentTimeMs={currentTimeMs}
             onSeek={() => {}}
-            onMarkerClick={() => {}}
             onSummarize={() => {}}
             summarizing={false}
             onRebuild={() => {}}
@@ -62,18 +60,6 @@ const render: Story['render'] = ({ observations, currentTimeMs = 0, durationMs }
 export const OneScanNoSummary: Story = {
     render,
     args: { observations: [checkoutMonitor(214_000)] },
-}
-
-export const SeveralScansNoSummary: Story = {
-    render,
-    args: {
-        observations: [
-            checkoutMonitor(214_000),
-            frustrationScorer(236_000),
-            intentClassifier(60_000),
-            rageMonitor(null),
-        ],
-    },
 }
 
 export const SummaryInProgress: Story = {
@@ -117,13 +103,6 @@ export const VeryLongRecording: Story = {
     args: {
         observations: [summary({ chapters: VERY_LONG, inactive: VERY_LONG_INACTIVE }), frustrationScorer(95 * MIN)],
         currentTimeMs: 100 * MIN,
-    },
-}
-
-export const KeyMomentDuringIdle: Story = {
-    render,
-    args: {
-        observations: [summary({ chapters: LONG, inactive: LONG_INACTIVE }), rageMonitor(10 * MIN)],
     },
 }
 

@@ -1,6 +1,6 @@
 import { cn } from 'lib/utils/css-classes'
 
-export type TimelineRailDot = 'chapter' | 'moment' | 'flagged' | 'boundary' | 'none'
+export type TimelineRailDot = 'chapter' | 'boundary' | 'none'
 
 /** The rail cell of one timeline row: the line through it, and the dot that marks where the row sits. */
 export function TimelineRail({
@@ -44,13 +44,9 @@ export function TimelineRail({
                         dot === 'chapter' ? 'w-3 h-3' : 'w-2 h-2',
                         dot === 'boundary'
                             ? cn('rounded-sm', passedAbove ? 'bg-accent' : 'bg-border-bold')
-                            : dot === 'flagged'
+                            : passedAbove
                               ? 'bg-accent'
-                              : passedAbove
-                                ? cn('bg-accent', dot !== 'chapter' && 'opacity-60')
-                                : dot === 'chapter'
-                                  ? 'bg-surface-primary border-2 border-primary'
-                                  : 'bg-border',
+                              : 'bg-surface-primary border-2 border-primary',
                         isCurrent && 'ring-2 ring-accent ring-offset-1'
                     )}
                 />

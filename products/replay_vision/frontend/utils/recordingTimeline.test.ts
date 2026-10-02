@@ -70,32 +70,40 @@ describe('recordingTimeline', () => {
 
     it.each<{ name: string; observations: ReplayObservationApi[]; durationMs: number | null; expected: string[] }>([
         {
-            name: 'a recording without a breakdown gets its start and end around the key moments',
+            name: 'scans without a breakdown leave the rail empty',
             observations: [monitor('m1', 5_000)],
             durationMs: 60_000,
-            expected: ['boundary start', 'marker', 'boundary end'],
+            expected: [],
         },
         {
-            name: 'a recording that loads shorter than its key moments still ends after them',
-            observations: [monitor('m1', 90_000)],
-            durationMs: 60_000,
-            expected: ['boundary start', 'marker', 'boundary end'],
-        },
-        {
-            name: 'an unknown length leaves out the end',
-            observations: [monitor('m1', 5_000)],
-            durationMs: null,
-            expected: ['boundary start', 'marker'],
-        },
-        {
-            name: 'a breakdown sits between the same start and end',
-            observations: [summary({ chapters: [chapter(0, 10_000, 'A')] })],
+            name: 'a breakdown sits between the session start and end',
+            observations: [summary({ chapters: [chapter(0, 10_000, 'A')] }), monitor('m1', 5_000)],
             durationMs: 60_000,
             expected: ['boundary start', 'chapter', 'boundary end'],
         },
+        {
+            name: 'a recording that loads shorter than its chapters still ends after them',
+            observations: [summary({ chapters: [chapter(0, 90_000, 'A')] })],
+            durationMs: 60_000,
+            expected: ['boundary start', 'chapter', 'boundary end 90000'],
+        },
+        {
+            name: 'an unknown length leaves out the end',
+            observations: [summary({ chapters: [chapter(0, 10_000, 'A')] })],
+            durationMs: null,
+            expected: ['boundary start', 'chapter'],
+        },
     ])('$name', ({ observations, durationMs, expected }) => {
         const rows = timelineRows(recordingTimeline(observations), durationMs)
-        expect(rows.map((row) => (row.kind === 'boundary' ? `boundary ${row.edge}` : row.kind))).toEqual(expected)
+        expect(
+            rows.map((row) =>
+                row.kind !== 'boundary'
+                    ? row.kind
+                    : row.edge === 'end' && row.atMs !== durationMs
+                      ? `boundary end ${row.atMs}`
+                      : `boundary ${row.edge}`
+            )
+        ).toEqual(expected)
     })
 
     it('uses the newest succeeded summary', () => {
@@ -104,7 +112,7 @@ describe('recordingTimeline', () => {
         expect(recordingTimeline([older, newer]).chapters.map((c) => c.title)).toEqual(['New'])
     })
 
-    it('lays chapters, markers and long idle out in time order, skipping idle chapters and short pauses', () => {
+    it('lays chapters and long idle out in time order, skipping idle chapters and short pauses', () => {
         const observations = [
             summary({
                 chapters: [
@@ -117,7 +125,6 @@ describe('recordingTimeline', () => {
                     { start_ms: 100_000, end_ms: 105_000 },
                 ],
             }),
-            monitor('inside', 95_000),
             monitor('in-gap', 50_000),
         ]
         const timeline = recordingTimeline(observations)
@@ -126,18 +133,9 @@ describe('recordingTimeline', () => {
                 ? `chapter ${row.chapter.title}`
                 : row.kind === 'inactive'
                   ? `inactive ${row.startMs}-${row.endMs}`
-                  : row.kind === 'marker'
-                    ? `marker ${row.marker.observationId}${row.inChapter ? ' in chapter' : ''}`
-                    : `boundary ${row.edge}`
+                  : `boundary ${row.edge}`
         )
-        expect(rows).toEqual([
-            'boundary start',
-            'chapter Browses',
-            'inactive 20000-90000',
-            'marker in-gap',
-            'chapter Buys',
-            'marker inside in chapter',
-        ])
+        expect(rows).toEqual(['boundary start', 'chapter Browses', 'inactive 20000-90000', 'chapter Buys'])
         expect(timeline.chapters.find((c) => c.title === 'Buys')?.inactiveMs).toBe(5_000)
     })
 })
