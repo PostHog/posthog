@@ -15,6 +15,10 @@ class ArtifactNotFoundError(Exception):
     pass
 
 
+class QuarantineLiftRequestNotFoundError(Exception):
+    pass
+
+
 class GitHubIntegrationNotFoundError(Exception):
     """Team does not have a GitHub integration configured."""
 

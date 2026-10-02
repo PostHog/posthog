@@ -116,6 +116,25 @@ def _recount(run: Run) -> list[RunSnapshot]:
     return snapshots
 
 
+def _success_description(snapshots: list[RunSnapshot]) -> str:
+    """The passing status, naming the changes a quarantine keeps out of the gate.
+
+    Without the count a quarantine can hide a real change on a green run, and nobody looks.
+    """
+    hidden = sum(
+        1
+        for s in snapshots
+        if s.is_quarantined
+        and s.result in (SnapshotResult.CHANGED, SnapshotResult.NEW, SnapshotResult.REMOVED)
+        and s.review_state != ReviewState.APPROVED
+    )
+    if not hidden:
+        return "No visual changes"
+    if hidden == 1:
+        return "No gating changes; 1 quarantined snapshot differs"
+    return f"No gating changes; {hidden} quarantined snapshots differ"
+
+
 def _post_status(run: Run, snapshots: list[RunSnapshot]) -> int:
     """Compute unresolved and post the commit status that gates CI.
 
@@ -152,7 +171,7 @@ def _post_status(run: Run, snapshots: list[RunSnapshot]) -> int:
             f"{pending_commit} approved change(s) awaiting commit — finalize the run to update the baseline",
         )
     else:
-        ci_status._post_commit_status(run, repo, "success", "No visual changes")
+        ci_status._post_commit_status(run, repo, "success", _success_description(snapshots))
 
     return unresolved
 
