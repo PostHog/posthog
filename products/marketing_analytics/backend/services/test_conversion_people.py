@@ -128,16 +128,27 @@ class TestConversionPeople(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([p["name"] for p in searched.json()["results"]], ["alex@example.com"])
         padded = self.client.post(url, {**payload, "group": "winter-sale ", "limit": 50}, format="json")
         self.assertEqual([p["name"] for p in padded.json()["results"]], ["pat@example.com"])
-        invalid = self.client.post(url, {**payload, "source": {"kind": "ActorsQuery"}}, format="json")
-        self.assertEqual(invalid.status_code, 400)
+        invalid_requests: list[dict[str, object]] = [
+            {"source": {"kind": "ActorsQuery"}},
+            {"goal_id": "removed-goal"},
+            {"source": {**self.source.model_dump(mode="json"), "drillDownLevel": "ad"}},
+        ]
+        for invalid_fields in invalid_requests:
+            with self.subTest(invalid_fields=invalid_fields):
+                invalid = self.client.post(url, {**payload, **invalid_fields}, format="json")
+                self.assertEqual(invalid.status_code, 400)
 
     def test_campaign_mapping_and_missing_row(self) -> None:
         config = self.team.marketing_analytics_config
         config.campaign_name_mappings = {"GoogleAds": {"Winter campaign": ["winter-sale"]}}
         config.save()
-        for group, expected in [("Winter campaign", 2), ("winter-sale", 0)]:
+        for group, campaign_id, expected in [
+            ("Winter campaign", None, 2),
+            ("winter-sale", None, 0),
+            ("Winter campaign", "another-campaign-id", 0),
+        ]:
             result = ConversionPeopleQuery(query=self.source, team=self.team, user=self.user).people(
-                "purchase", group, "google", None, "", None, 50
+                "purchase", group, "google", campaign_id, "", None, 50
             )
             self.assertEqual(len(result["results"]), expected)
 
