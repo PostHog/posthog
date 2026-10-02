@@ -568,6 +568,20 @@ describe("LlmGatewayService.prompt on the Go gateway", () => {
     expect(JSON.parse(init.body).model).toBe("claude-haiku-4-5");
   });
 
+  it("sends a default max_tokens when the caller passes none", async () => {
+    const goFetch = vi.fn().mockResolvedValue(createJsonResponse(SUCCESS_BODY));
+    const { service } = createService(vi.fn(), {
+      route: GO_ROUTE,
+      fetch: goFetch,
+    });
+
+    await service.prompt([{ role: "user", content: "hi" }], {
+      model: "claude-haiku-4-5",
+    });
+
+    expect(JSON.parse(goFetch.mock.calls[0][1].body).max_tokens).toBe(4096);
+  });
+
   it("picks the free-tier model from the pin without a round trip", async () => {
     const goFetch = vi.fn().mockResolvedValue(createJsonResponse(SUCCESS_BODY));
     const { service } = createService(vi.fn(), {

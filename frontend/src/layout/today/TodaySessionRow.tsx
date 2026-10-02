@@ -17,6 +17,7 @@ import { TodaySessionStatusDot } from './TodaySessionStatusDot'
 import { todaySpacesLogic } from './todaySpacesLogic'
 import { TodaySpacesRow } from './TodaySpacesRow'
 import { TodayWorkItem, sessionBadges, sessionDetails } from './todayWorkItems'
+import { useTodaySidebarBulkSelection } from './useTodaySidebarBulkSelection'
 
 interface TodaySessionRowProps {
     item: TodayWorkItem
@@ -47,6 +48,7 @@ export function TodaySessionRow({
     const { pullRequestStates, spaceNames } = useValues(todaySpacesLogic)
     const { fields } = useValues(todayListAppearanceLogic)
     const menuId = useId()
+    const sidebarSelection = useTodaySidebarBulkSelection()
     const userId = user?.id
     const preview = useMemo(
         () => sessionPreview(item, { unread, pinned, pullRequestStates, spaceNames, menuId, userId }),
@@ -90,7 +92,7 @@ export function TodaySessionRow({
     // Like Desktop, the row's actions live in its hover card and its right-click menu, which open the dialogs on the row's behalf.
     return (
         <>
-            <TodaySessionContextMenu target={preview.menu} surface={surface}>
+            <TodaySessionContextMenu target={preview.menu} surface={surface} selection={sidebarSelection}>
                 <TodayPreviewTrigger payload={preview}>{row}</TodayPreviewTrigger>
             </TodaySessionContextMenu>
             <TodaySessionDialogs target={preview.menu} />

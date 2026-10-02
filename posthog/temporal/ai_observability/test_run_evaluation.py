@@ -11,8 +11,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.test import override_settings
 
 import httpx
+import openai
 import posthoganalytics
 from asgiref.sync import async_to_sync, sync_to_async
+from google.genai import errors as genai_errors
 from parameterized import parameterized
 from pydantic import ValidationError as PydanticValidationError
 from temporalio import activity
@@ -314,8 +316,8 @@ def _mock_config_with_active_key(provider: str = "openai") -> MagicMock:
             {"input_tokens": 120},
         ),
         (
-            {"api_key": "example-token", "base_url": "https://decisions.example.com/v1"},
-            "https://decisions.example.com/v1",
+            {"api_key": "example-token", "base_url": "https://ai-gateway.us.posthog.com/v1"},
+            "https://ai-gateway.us.posthog.com/v1",
             "example-judge-v1",
             {},
         ),
@@ -353,13 +355,14 @@ def test_system_one_judge_emits_boolean_probability_without_reasoning(
         "evaluation_config": {"prompt": "Is the response polite?"},
     }
     with (
+        override_settings(POSTHOG_INTERNAL_ORG_IDS=[]),
         patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
-        patch(
-            "posthog.temporal.ai_observability.evaluation_llm_judge.system_one_evaluations_enabled", return_value=True
-        ),
+        patch("products.ai_observability.backend.llm.system_one.Team.objects.only") as teams,
+        patch("products.ai_observability.backend.llm.system_one.get_feature_flag_or_none", return_value=True),
         patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response) as request,
     ):
+        teams.return_value.get.return_value = Team(id=1, organization_id=uuid.uuid4(), uuid=uuid.uuid4())
         spec.return_value.resolve.return_value = resolved
         result = call_llm_judge(
             evaluation=evaluation,
@@ -369,6 +372,9 @@ def test_system_one_judge_emits_boolean_probability_without_reasoning(
         )
 
     assert str(request.call_args.args[0].url) == f"{base_url}/systemone"
+    assert request.call_args.args[0].headers.get("Authorization") == (
+        f"Bearer {connection_config['api_key']}" if connection_config["api_key"] else None
+    )
     assert json.loads(request.call_args.args[0].content)["model"] == model
     assert result["verdict"] is verdict
     assert result["reasoning"] == ""
@@ -458,7 +464,93 @@ def test_system_one_categorical_results_use_category_keys_without_boolean_probab
     assert "$ai_evaluation_probability" not in properties
 
 
-def test_system_one_numeric_mapping_is_not_enabled() -> None:
+@pytest.mark.parametrize(
+    "minimum,maximum,index,allows_na,applicable,expected",
+    [
+        (0, 10, 0, False, True, 0),
+        (0, 10, 9, False, True, 10),
+        (1, 10, 6, False, True, 7),
+        (1, 100, 3, False, True, 34),
+        (1, 100, 7, False, True, 78),
+        (0, 1.9, 9, False, True, 1.9),
+        (3.7, 10, 0, False, True, 3.7),
+        (0, 10, 6.75, True, True, 7.5),
+        (-2, 4, 2.25, False, True, -0.5),
+        (0.1, 0.2, 4.5, False, True, 0.15),
+        (1_000_000, 1_000_001, 4.5, False, True, 1_000_000.5),
+        (-1e308, 1e308, 4.5, False, True, 0),
+        (0, 10, 6.75, True, False, None),
+    ],
+)
+def test_system_one_numeric_scores_use_configured_bounds(
+    minimum: float, maximum: float, index: float, allows_na: bool, applicable: bool, expected: float | None
+) -> None:
+    prompt = "Score how well the response answers the question."
+    evaluation = {
+        "id": "test-evaluation",
+        "name": "Answer quality",
+        "team_id": 1,
+        "evaluation_type": "llm_judge",
+        "evaluation_config": {"prompt": prompt},
+        "output_type": "numeric",
+        "output_config": {"min": minimum, "max": maximum, "step": 1, "allows_na": allows_na},
+    }
+    answers: dict[str, object] = {
+        "score": {"type": "score", "score": index, "confidence": 0.1, "probabilities": {str(i): 0.1 for i in range(10)}}
+    }
+    if allows_na:
+        answers["applicable"] = {"noul": 0.9 if applicable else 0.1}
+    key = MagicMock(
+        provider="system_one", encrypted_config={"api_key": "", "base_url": "https://decisions.example.com/v1"}
+    )
+    with (
+        patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
+        patch(
+            "posthog.temporal.ai_observability.evaluation_llm_judge.system_one_evaluations_enabled", return_value=True
+        ),
+        patch(
+            "httpx.AsyncHTTPTransport.handle_async_request",
+            return_value=httpx.Response(
+                200, stream=httpx.ByteStream(json.dumps({"model": "custom-model", "answers": answers}).encode())
+            ),
+        ) as request,
+    ):
+        spec.return_value.resolve.return_value = MagicMock(
+            provider="system_one", model="custom-model", provider_key=key, is_byok=True
+        )
+        result = call_llm_judge(evaluation=evaluation, system_prompt="", user_prompt="Hello!", allows_na=allows_na)
+
+    sent = json.loads(request.call_args.args[0].content)
+    assert sent["state"] == "Hello!"
+    question = sent["questions"]["score"]
+    assert question["type"] == "score"
+    assert len(question["criteria"]) == 10
+    assert len(set(question["criteria"])) == 10
+    assert question["criteria"][0] == f"The score according to the evaluation criteria is {float(minimum)!r}."
+    assert question["criteria"][-1] == f"The score according to the evaluation criteria is {float(maximum)!r}."
+    assert prompt in question["instructions"]
+    assert "Suggested score increment: 1.0" in question["instructions"]
+    assert result["result_type"] == "numeric"
+    assert result.get("score") == (pytest.approx(expected) if expected is not None else None)
+    if index == int(index) and expected is not None:
+        assert result["score"] == expected
+        assert (
+            question["criteria"][int(index)]
+            == f"The score according to the evaluation criteria is {float(expected)!r}."
+        )
+    assert result["reasoning"] == ""
+    assert "probability" not in result
+    properties = build_evaluation_event_properties(evaluation, result, datetime(2026, 1, 1, tzinfo=UTC))
+    assert properties.get("$ai_evaluation_numeric_result") == (
+        pytest.approx(expected) if expected is not None else None
+    )
+    assert properties.get("$ai_evaluation_applicable", True) is applicable
+    assert "$ai_evaluation_probability" not in properties
+
+
+@pytest.mark.parametrize("output_config", [{}, {"min": 0}, {"max": 10}, {"min": 1, "max": 1}])
+def test_system_one_numeric_requires_a_score_range(output_config: dict[str, float]) -> None:
     with (
         patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
@@ -467,9 +559,17 @@ def test_system_one_numeric_mapping_is_not_enabled() -> None:
         ),
         patch("httpx.AsyncHTTPTransport.handle_async_request") as request,
     ):
-        spec.return_value.resolve.return_value = MagicMock(provider="system_one")
+        spec.return_value.resolve.return_value = MagicMock(
+            provider="system_one",
+            provider_key=MagicMock(encrypted_config={"base_url": "https://decisions.example.com/v1", "api_key": ""}),
+        )
         result = call_llm_judge(
-            evaluation={"team_id": 1, "output_type": "numeric"},
+            evaluation={
+                "team_id": 1,
+                "output_type": "numeric",
+                "output_config": output_config,
+                "evaluation_config": {"prompt": "Score quality."},
+            },
             system_prompt="",
             user_prompt="Hello!",
             allows_na=False,
@@ -480,7 +580,11 @@ def test_system_one_numeric_mapping_is_not_enabled() -> None:
 
 @pytest.mark.parametrize(
     "base_url,flag",
-    [("https://decisions.example.com/v1", False), ("https://ai-gateway.us.posthog.com/v1", True)],
+    [
+        ("https://decisions.example.com/v1", False),
+        ("https://ai-gateway.us.posthog.com/v1", False),
+        ("https://api.typesafe.ai/v1", True),
+    ],
 )
 def test_system_one_restricted_connection_does_not_send_evaluation_data(base_url: str, flag: bool) -> None:
     with (
@@ -579,6 +683,88 @@ def test_system_one_rate_limit_retries_without_disabling_the_evaluation() -> Non
     assert not error.value.non_retryable
     assert error.value.next_retry_delay == timedelta(seconds=15)
     assert terminal_user_error_result_from_application_error(error.value, allows_na=False) is None
+
+
+def _openai_status_error(status: int, message: str) -> openai.APIStatusError:
+    response = httpx.Response(status, request=httpx.Request("POST", "https://llm.example.com/v1/chat/completions"))
+    return openai.APIStatusError(f"Error code: {status}", response=response, body={"error": {"message": message}})
+
+
+@pytest.mark.parametrize(
+    "provider, raised_exception, expected_status, expected_detail",
+    [
+        pytest.param(
+            "openai_compatible",
+            _openai_status_error(400, "Example field is not supported."),
+            400,
+            "Example field is not supported.",
+            id="openai_sdk_400",
+        ),
+        pytest.param(
+            "openai",
+            _openai_status_error(412, "Example precondition failed."),
+            412,
+            "Example precondition failed.",
+            id="openai_sdk_412",
+        ),
+        pytest.param(
+            "gemini",
+            genai_errors.ClientError(400, {"error": {"code": 400, "message": "Example argument is invalid."}}),
+            400,
+            "Example argument is invalid.",
+            id="genai_400",
+        ),
+        pytest.param(
+            "openai_compatible",
+            _openai_status_error(400, "x" * (MAX_STATUS_REASON_DETAIL_LENGTH * 2)),
+            400,
+            "x" * (MAX_STATUS_REASON_DETAIL_LENGTH - 3) + "...",
+            id="long_message_is_truncated",
+        ),
+    ],
+)
+def test_unmapped_provider_rejection_skips_the_run_with_the_provider_message(
+    provider: str, raised_exception: Exception, expected_status: int, expected_detail: str
+) -> None:
+    with (
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as client,
+    ):
+        spec.return_value.resolve.return_value = MagicMock(
+            provider=provider, model="example-judge-v1", provider_key=MagicMock(id="example-key"), is_byok=True
+        )
+        client.return_value.complete.side_effect = raised_exception
+        result = call_llm_judge(
+            evaluation={"id": "test-evaluation", "team_id": 1, "evaluation_config": {"prompt": "Polite?"}},
+            system_prompt="",
+            user_prompt="Hello!",
+            allows_na=False,
+        )
+    assert result["skipped"] is True
+    assert result["skip_reason"] == "request_rejected"
+    assert f"status {expected_status}" in result["reasoning"]
+    assert result["reasoning"].endswith(f"Provider message: {expected_detail}")
+    assert result["key_id"] == "example-key"
+    assert "terminal_user_error" not in result
+    assert "provider_key_state" not in result
+
+
+def test_unmapped_provider_rejection_on_a_posthog_key_still_raises() -> None:
+    with (
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as client,
+    ):
+        spec.return_value.resolve.return_value = MagicMock(
+            provider="openai", model="example-judge-v1", provider_key=None, is_byok=False
+        )
+        client.return_value.complete.side_effect = _openai_status_error(400, "Example field is not supported.")
+        with pytest.raises(openai.APIStatusError):
+            call_llm_judge(
+                evaluation={"id": "test-evaluation", "team_id": 1, "evaluation_config": {"prompt": "Polite?"}},
+                system_prompt="",
+                user_prompt="Hello!",
+                allows_na=False,
+            )
 
 
 def test_status_reason_detail_for_terminal_user_error_only_keeps_truncated_hog_errors():
@@ -2447,6 +2633,12 @@ class TestRunEvaluationWorkflow:
             pytest.param(ProviderConnectionError("connection reset"), TransientJudgeError, id="connection_error"),
             pytest.param(CancelledError("Cancelled"), CancelledError, id="cancellation"),
             pytest.param(RuntimeError("boom"), RuntimeError, id="unhandled_error"),
+            pytest.param(
+                _openai_status_error(503, "Example upstream outage."), openai.APIStatusError, id="provider_5xx"
+            ),
+            pytest.param(
+                _openai_status_error(408, "Example request timeout."), openai.APIStatusError, id="provider_timeout"
+            ),
         ],
     )
     @pytest.mark.django_db(transaction=True)

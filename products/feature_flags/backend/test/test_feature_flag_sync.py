@@ -1,7 +1,9 @@
-from datetime import datetime
+import json
+import uuid
+from datetime import datetime, timedelta
 
 import time_machine
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, Mock, patch
 
 from django.core.cache import cache
@@ -13,8 +15,15 @@ from parameterized import parameterized
 from prometheus_client import REGISTRY
 from redis.exceptions import ConnectionError as RedisConnectionError
 
+from posthog.clickhouse.client import sync_execute
 from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorTooManyBytes, CHQueryErrorUnknownTable
 from posthog.exceptions import ClickHouseAtCapacity
+from posthog.models.event.sql import EVENTS_RECENT_DATA_TABLE, SHARDED_EVENTS_RECENT_DATA_TABLE
+from posthog.models.flag_evaluations.sql import (
+    FLAG_EVALUATIONS_DATA_TABLE,
+    FLAG_EVALUATIONS_SOURCE_EVENT,
+    FLAG_EVALUATIONS_WRITABLE_TABLE,
+)
 from posthog.tasks.tasks import sync_feature_flag_last_called
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -770,3 +779,111 @@ class TestSyncFeatureFlagLastCalledChunking(BaseTest):
 
         # A retry that fails is not a recovery
         assert (REGISTRY.get_sample_value(recoveries_metric) or 0.0) == recoveries_before + 1
+
+
+FLAG_CALL_INSERT_TABLE = {"events": EVENTS_RECENT_DATA_TABLE(), "flag_evaluations": FLAG_EVALUATIONS_WRITABLE_TABLE}
+
+
+@override_settings(
+    FEATURE_FLAG_LAST_CALLED_AT_SYNC_CHUNK_MINUTES=1440,
+    FEATURE_FLAG_LAST_CALLED_AT_SYNC_MAX_LOOKBACK_HOURS=24,
+)
+class TestSyncFeatureFlagLastCalledSource(ClickhouseTestMixin, BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+        redis_patcher = patch("posthog.tasks.tasks.get_client", return_value=mock_redis_client())
+        redis_patcher.start()
+        self.addCleanup(redis_patcher.stop)
+
+        # The task reads every team, so rows that earlier tests left in these tables compete for the row limit.
+        sync_execute(f"TRUNCATE TABLE {SHARDED_EVENTS_RECENT_DATA_TABLE()}")
+        sync_execute(f"TRUNCATE TABLE {FLAG_EVALUATIONS_DATA_TABLE}")
+
+        FeatureFlag.objects.create(team=self.team, key="called-in-events", created_by=self.user)
+        FeatureFlag.objects.create(team=self.team, key="called-in-flag-evaluations", created_by=self.user)
+
+    def tearDown(self) -> None:
+        cache.clear()
+        super().tearDown()
+
+    def _insert_flag_call(self, source: str, flag_key: str, called_at: datetime, inserted_at: datetime) -> None:
+        sync_execute(
+            f"INSERT INTO {FLAG_CALL_INSERT_TABLE[source]} (uuid, event, properties, timestamp, team_id, distinct_id, inserted_at) VALUES",
+            [
+                (
+                    str(uuid.uuid4()),
+                    FLAG_EVALUATIONS_SOURCE_EVENT,
+                    json.dumps({"$feature_flag": flag_key}),
+                    called_at,
+                    self.team.pk,
+                    "some-distinct-id",
+                    inserted_at,
+                )
+            ],
+        )
+
+    def _last_called_at_by_key(self) -> dict[str, datetime | None]:
+        return dict(FeatureFlag.objects.filter(team=self.team).values_list("key", "last_called_at"))
+
+    @parameterized.expand(
+        [
+            ("default_setting", {}, "events"),
+            ("flag_evaluations", {"FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE": "flag_evaluations"}, "flag_evaluations"),
+            ("unknown_value", {"FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE": "not-a-source"}, "events"),
+        ]
+    )
+    def test_reads_flag_calls_from_the_configured_source(
+        self, _name: str, source_settings: dict[str, str], read_source: str
+    ) -> None:
+        now = tz.now()
+        # The call happened before the scan window opened and reached ClickHouse inside it.
+        # Only a filter on inserted_at reads it.
+        called_at = (now - timedelta(days=2)).replace(microsecond=0)
+        inserted_at = now - timedelta(minutes=20)
+        self._insert_flag_call("events", "called-in-events", called_at, inserted_at)
+        self._insert_flag_call("flag_evaluations", "called-in-flag-evaluations", called_at, inserted_at)
+
+        with self.settings(**source_settings):
+            sync_feature_flag_last_called()
+
+        assert self._last_called_at_by_key() == {
+            "called-in-events": called_at if read_source == "events" else None,
+            "called-in-flag-evaluations": called_at if read_source == "flag_evaluations" else None,
+        }
+
+    @parameterized.expand([("events", "called-in-events"), ("flag_evaluations", "called-in-flag-evaluations")])
+    def test_call_without_a_flag_key_does_not_take_the_row_limit(self, source: str, flag_key: str) -> None:
+        now = tz.now()
+        called_at = (now - timedelta(minutes=30)).replace(microsecond=0)
+        inserted_at = now - timedelta(minutes=20)
+        self._insert_flag_call(source, flag_key, called_at, inserted_at)
+        # The query sorts the newest call first. Without the empty-key filter, this call takes the only row.
+        self._insert_flag_call(source, "", now - timedelta(minutes=25), inserted_at)
+
+        with self.settings(
+            FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE=source,
+            FEATURE_FLAG_LAST_CALLED_AT_SYNC_CLICKHOUSE_LIMIT=1,
+        ):
+            sync_feature_flag_last_called()
+
+        assert self._last_called_at_by_key()[flag_key] == called_at
+
+    @parameterized.expand(
+        [("events", "called-in-events", True), ("flag_evaluations", "called-in-flag-evaluations", False)]
+    )
+    def test_call_inside_the_buffer_waits_for_a_later_run(
+        self, source: str, flag_key: str, read_on_first_run: bool
+    ) -> None:
+        now = tz.now()
+        called_at = (now - timedelta(minutes=5)).replace(microsecond=0)
+        self._insert_flag_call(source, flag_key, called_at, now - timedelta(minutes=5))
+
+        with self.settings(FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE=source):
+            sync_feature_flag_last_called()
+            assert self._last_called_at_by_key()[flag_key] == (called_at if read_on_first_run else None)
+
+            with time_machine.travel(now + timedelta(minutes=16)):
+                sync_feature_flag_last_called()
+
+        assert self._last_called_at_by_key()[flag_key] == called_at

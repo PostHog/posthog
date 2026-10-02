@@ -62,9 +62,6 @@ export interface playlistPopoverLogicActions {
     reportRecordingPinnedToList: (pinned: boolean) => {
         pinned: boolean
     } // sessionRecordingEventUsageLogic
-    reportRecordingPlaylistCreated: (source: 'duplicate' | 'filters' | 'new' | 'pin') => {
-        source: 'duplicate' | 'filters' | 'new' | 'pin'
-    } // sessionRecordingEventUsageLogic
     setPause: () => {
         value: true
     } // sessionRecordingPlayerLogic
@@ -242,7 +239,7 @@ export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
             sessionRecordingPlayerLogic(props),
             ['setPause'],
             sessionRecordingEventUsageLogic,
-            ['reportRecordingPinnedToList', 'reportRecordingPlaylistCreated'],
+            ['reportRecordingPinnedToList'],
         ],
     })),
     actions(() => ({
@@ -326,9 +323,8 @@ export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
                 const newPlaylist = await createPlaylist({
                     name,
                     type: 'collection',
+                    creation_method: 'pin',
                 })
-
-                actions.reportRecordingPlaylistCreated('pin')
 
                 if (!newPlaylist) {
                     // This indicates the billing popover has been shown, so we should close the modal

@@ -8,14 +8,17 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
-import { isExternalHref, itemHref, itemSource } from './todayBriefingItems'
+import { TodayPreviewTrigger } from '~/layout/today/TodayPreviewTrigger'
+
+import { isExternalHref, itemHref, itemSource, itemStateLabel } from './todayBriefingItems'
 import { TodayIcon } from './TodayIcon'
 import { todayLogic } from './todayLogic'
+import { TodayMoreReports } from './TodayMoreReports'
 import { TodayNavItem } from './TodayNavItem'
-import { reportIcon, reportMeta, reportSource, reportTitle } from './todaySignalReports'
+import { TodayReportNavItem } from './TodayReportNavItem'
 
 function PersonalBriefingNavItems(): JSX.Element {
-    const { briefingItems, hoveredItemKey } = useValues(todayLogic)
+    const { briefingItems, reportPreviews, hoveredItemKey } = useValues(todayLogic)
     const { itemOpened, setHoveredItemKey } = useActions(todayLogic)
     const { location } = useValues(router)
     const currentPath = removeProjectIdIfPresent(location.pathname)
@@ -25,22 +28,30 @@ function PersonalBriefingNavItems(): JSX.Element {
             {briefingItems.map((item) => {
                 const href = itemHref(item)
                 const source = itemSource(item)
-                return (
+                const preview = reportPreviews.sidebar[item.key]
+                const row = (
                     <TodayNavItem
                         key={item.key}
                         title={item.label}
-                        meta={item.signal || source.label}
+                        meta={itemStateLabel(item) ?? (item.signal || source.label)}
                         color={source.color}
                         icon={<TodayIcon icon={source.icon} />}
                         to={href}
                         target={isExternalHref(href) ? '_blank' : undefined}
                         active={hoveredItemKey === item.key}
                         current={removeProjectIdIfPresent(href) === currentPath}
-                        done={item.state === 'done'}
+                        state={item.state}
                         dataAttr="today-nav-item"
                         onClick={() => itemOpened(item, 'sidebar')}
                         onHoverChange={(hovered) => setHoveredItemKey(hovered ? item.key : null)}
                     />
+                )
+                return preview ? (
+                    <TodayPreviewTrigger key={item.key} payload={preview}>
+                        {row}
+                    </TodayPreviewTrigger>
+                ) : (
+                    row
                 )
             })}
         </>
@@ -53,12 +64,11 @@ export function TodayHomeSidebar(): JSX.Element {
         reports,
         topReports,
         reportsFailed,
-        hoveredReportId,
         reportSummary,
         showPersonalBriefing,
         personalBriefing,
+        teamReportPreviews,
     } = useValues(todayLogic)
-    const { reportOpened, setHoveredReportId } = useActions(todayLogic)
 
     // The team reports stand in until the personal briefing is written, so only their own load counts.
     const loading = topReports === null && !reportsFailed
@@ -103,21 +113,16 @@ export function TodayHomeSidebar(): JSX.Element {
                         </>
                     ) : (
                         reports.map((report) => (
-                            <TodayNavItem
+                            <TodayReportNavItem
                                 key={report.id}
-                                title={reportTitle(report)}
-                                meta={reportMeta(report)}
-                                color={reportSource(report).color}
-                                icon={<TodayIcon icon={reportIcon(report)} />}
-                                to={urls.todayReport(report.id)}
-                                active={hoveredReportId === report.id}
-                                current={reportId === report.id}
+                                report={report}
+                                preview={teamReportPreviews.sidebar[report.id]}
+                                source="sidebar"
                                 dataAttr="today-nav-report"
-                                onClick={() => reportOpened(report, 'sidebar')}
-                                onHoverChange={(hovered) => setHoveredReportId(hovered ? report.id : null)}
                             />
                         ))
                     )}
+                    <TodayMoreReports />
                 </div>
             </div>
         </div>
