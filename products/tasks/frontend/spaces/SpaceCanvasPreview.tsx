@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { Skeleton } from '@posthog/quill'
 
@@ -23,17 +23,16 @@ export function SpaceCanvasPreview({ spaceId, canvas }: { spaceId: string; canva
     const { requestPreview } = useActions(logic)
     const { isDarkModeOn } = useValues(themeLogic)
     const ref = useRef<HTMLDivElement>(null)
-    const [inView, setInView] = useState(false)
 
     useEffect(() => {
         const element = ref.current
-        if (!element || inView) {
+        if (!element || !previewKey) {
             return
         }
         const observer = new IntersectionObserver(
             (entries) => {
                 if (entries.some((entry) => entry.isIntersecting)) {
-                    setInView(true)
+                    requestPreview(previewKey, canvas.id)
                     observer.disconnect()
                 }
             },
@@ -41,13 +40,7 @@ export function SpaceCanvasPreview({ spaceId, canvas }: { spaceId: string; canva
         )
         observer.observe(element)
         return () => observer.disconnect()
-    }, [inView])
-
-    useEffect(() => {
-        if (inView && previewKey) {
-            requestPreview(previewKey, canvas.id)
-        }
-    }, [inView, previewKey, canvas.id, requestPreview])
+    }, [previewKey, canvas.id, requestPreview])
 
     const preview = previewKey ? previews[previewKey] : null
     const TemplateIcon = spaceCanvasTemplateIcon(canvas.template_id)
