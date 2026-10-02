@@ -4,6 +4,8 @@ import { Link } from 'lib/lemon-ui/Link'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
+import { TodayPreviewTrigger } from '~/layout/today/TodayPreviewTrigger'
+
 import type { BriefingSegmentApi } from 'products/today/frontend/generated/api.schemas'
 
 import { isExternalHref, itemHref, itemSource } from './todayBriefingItems'
@@ -12,7 +14,7 @@ import { TodayIcon } from './TodayIcon'
 import { todayLogic } from './todayLogic'
 
 function PersonalBriefingSegment({ segment }: { segment: BriefingSegmentApi }): JSX.Element {
-    const { briefingItems, hoveredItemKey } = useValues(todayLogic)
+    const { briefingItems, reportPreviews, hoveredItemKey } = useValues(todayLogic)
     const { itemOpened, setHoveredItemKey } = useActions(todayLogic)
     const item = segment.item_key ? briefingItems.find((candidate) => candidate.key === segment.item_key) : undefined
     if (!item) {
@@ -26,7 +28,7 @@ function PersonalBriefingSegment({ segment }: { segment: BriefingSegmentApi }): 
             subtle
             className="TodayReportLink"
             data-active={hoveredItemKey === item.key}
-            data-done={item.state === 'done'}
+            data-state={item.state}
             data-attr="today-briefing-item"
             onClick={() => itemOpened(item, 'briefing')}
             onMouseEnter={() => setHoveredItemKey(item.key)}
@@ -35,7 +37,15 @@ function PersonalBriefingSegment({ segment }: { segment: BriefingSegmentApi }): 
             {segment.text}
         </Link>
     )
-    return segment.highlight ? <span className="TodayHome__highlight">{link}</span> : link
+    const preview = reportPreviews.briefing[item.key]
+    const linkWithCard = preview ? (
+        <TodayPreviewTrigger payload={preview} inline>
+            {link}
+        </TodayPreviewTrigger>
+    ) : (
+        link
+    )
+    return segment.highlight ? <span className="TodayHome__highlight">{linkWithCard}</span> : linkWithCard
 }
 
 function PersonalBriefingChips(): JSX.Element | null {
@@ -61,7 +71,7 @@ function PersonalBriefingChips(): JSX.Element | null {
 }
 
 export function TodayPersonalBriefing(): JSX.Element | null {
-    const { personalBriefing, inboxMore } = useValues(todayLogic)
+    const { personalBriefing, inboxMore, briefingProgress } = useValues(todayLogic)
     const { askAi } = useActions(todayLogic)
 
     if (!personalBriefing) {
@@ -90,6 +100,11 @@ export function TodayPersonalBriefing(): JSX.Element | null {
                 <span>{personalBriefing.headline}</span>
                 <PersonalBriefingChips />
             </p>
+            {briefingProgress && (
+                <p className="TodayHome__progress" data-attr="today-briefing-progress">
+                    {`${briefingProgress.done} of ${briefingProgress.total} done`}
+                </p>
+            )}
             {personalBriefing.paragraphs.map((paragraph, index) => (
                 <p key={index}>
                     {paragraph.map((segment, segmentIndex) => (
