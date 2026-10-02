@@ -5,7 +5,7 @@ from django.test import SimpleTestCase
 
 import httpx
 import anthropic
-from anthropic.types import Message, MessageParam, TextBlock, ToolUseBlock, Usage
+from anthropic.types import ContentBlock, Message, MessageParam, StopReason, TextBlock, ToolUseBlock, Usage
 from parameterized import parameterized
 
 from products.mcp_analytics.backend.agent_evals.agent_loop import AgentTrial, ToolOutcome, TrialDeps, run_trial
@@ -18,7 +18,7 @@ SCENARIO = Scenario(
 )
 
 
-def _message(stop_reason: str, content: list[TextBlock | ToolUseBlock]) -> Message:
+def _message(stop_reason: StopReason, content: list[ContentBlock]) -> Message:
     return Message.model_construct(
         id="msg",
         type="message",

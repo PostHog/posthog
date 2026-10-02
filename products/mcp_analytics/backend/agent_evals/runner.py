@@ -9,7 +9,7 @@ from typing import Literal
 from urllib.parse import urlsplit, urlunsplit
 
 import anthropic
-from anthropic.types import Message, MessageParam, ToolParam
+from anthropic.types import Message, MessageParam, TextBlockParam, ToolParam
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.types import AudioContent, CallToolResult, ImageContent, Implementation, TextContent, Tool
@@ -25,7 +25,8 @@ from products.mcp_analytics.backend.agent_evals.agent_loop import (
 )
 from products.mcp_analytics.backend.agent_evals.scenarios import Scenario
 
-Effort = Literal["low", "medium", "high", "xhigh", "max"]
+# The levels the pinned anthropic SDK types. It predates `xhigh`.
+Effort = Literal["low", "medium", "high", "max"]
 
 SYSTEM_PROMPT = (
     "You are an AI agent connected to an MCP server. "
@@ -34,6 +35,10 @@ SYSTEM_PROMPT = (
 MAX_TOKENS = 16_000
 TOOL_CALL_TIMEOUT = timedelta(seconds=60)
 CLIENT_INFO = Implementation(name="mcp-eval-agent", version="0.0.0")
+# A breakpoint on the system block caches the tools and system prompt, which every scenario
+# shares. The top-level breakpoint only covers one conversation, because it lands on the latest
+# message and each scenario starts from a different intent.
+SYSTEM_BLOCKS: list[TextBlockParam] = [{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}]
 
 
 @frozen
@@ -123,10 +128,7 @@ async def _run_scenario(
         return await client.messages.create(
             model=config.model,
             max_tokens=MAX_TOKENS,
-            # A breakpoint on the system block caches the tools and system prompt, which every
-            # scenario shares. The top-level breakpoint only covers one conversation, because it
-            # lands on the latest message and each scenario starts from a different intent.
-            system=[{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
+            system=SYSTEM_BLOCKS,
             tools=tools,
             messages=messages,
             output_config={"effort": config.effort},
