@@ -11307,9 +11307,9 @@ snapshots:
     scenes-app-mcp-analytics--dashboard--wide--light:
         hash: v1.k794b7964.71306f5f516e8afadf50181f2181e50c9883b5aae53d247fbb03e3bf803c4c86.16C5ajh9Fsnr259tCPZBpPSTQUDQlI1tlI-9URo6-1s
     scenes-app-mcp-analytics--dashboard-narrow--dark:
-        hash: v1.k794b7964.17b7e7cf74eb7ec1bd1bea739619996e159434f9dfa81630f7b33c43ef188c39.dhon4cNqo5oUtVuAFeNMG-j1N4B5_NeGZFBQnFKqLLQ
+        hash: v1.k794b7964.adf40bdb6db463f5f7f57dfc8ac1c177d3527787114b2ea15e1947bb2a7ea9bf.sBunrdrDv-SV516FPaHBw8a201Hp5xf3EKwOSAO6kZA
     scenes-app-mcp-analytics--dashboard-narrow--light:
-        hash: v1.k794b7964.30f5ea819c73eb87a98eed7aae79b6474bdca9b55df215170d33fa99987b86a8.gdcMWct53OtYXNlUuaPOqMDf366gxIogCWCqWjPqvQY
+        hash: v1.k794b7964.406ecc65c92f7566c421bc4fa8c04f111b18f0ca84c60235f35a9b1d117841ef.D1riE01uvjdLdmAAazx5mwWkyslF9cVjKP0-oyFXPKM
     scenes-app-mcp-analytics--dashboard-with-menu-bar--dark:
         hash: v1.k794b7964.163a86a3433b4ab5d7ce6ed1ddf1bac516dc1e9dab85b1ac4e00b02d378def62.2XWbhANHdbphP5MiRxSvppMkY3mR4wCNFDqiiaBFNok
     scenes-app-mcp-analytics--dashboard-with-menu-bar--light:
@@ -11355,9 +11355,9 @@ snapshots:
     scenes-app-mcp-analytics-dashboard-cards--key-metrics-in-progress-bucket--light:
         hash: v1.k794b7964.987a4b9f762bab3f88f39ea33fb0eca000d0e5f6aeb2c0a89e2979399f4d5797.ziZ_6D2TpdPk2pVJqrCMfEcmRufZDVVVqN51I5vIHgM
     scenes-app-mcp-analytics-dashboard-cards--overview-unknown-models--dark:
-        hash: v1.k794b7964.42627bcb672d30fc8743cc51d12ebb3c6afa706c34b823142fe046dfabf7da14.qgWmPYfrlGq2nC0pUkRH7gBufEAaZwylWaiJ7pQvDss
+        hash: v1.k794b7964.dc5f7d6ca7eb82011ed168e5d72ea0f2348b53e7eef24b102884e7875a6f762d.G_6ZF2ZGql8CFTKg4ivVU1yRjztywX2VRlrH60e0xhc
     scenes-app-mcp-analytics-dashboard-cards--overview-unknown-models--light:
-        hash: v1.k794b7964.14c81038ec52ea73ced39268d1074e90bca406ce789ea38bcccd392e04391e33.hsUugUYunh71q6Wl1qMxXT3nFMKlMp22LblYQ8ENSS4
+        hash: v1.k794b7964.3ee62e06b593ee359eb3ea142303700038c5e0d557449bb68800a0523a0dc955.BCzpZC0o8K4S390I6KEELrQVWsMioM4U4QEjA6hWKpU
     scenes-app-mcp-analytics-dashboard-cards--share-by-harness--dark:
         hash: v1.k794b7964.fde18be0efabaa2cf352bb9fb0a666d8093559da70e0aae8c810eacc1e729eb4.ZVHWg1s6g2RxLBy2o-N7DQE84oHBJ6a0krFomsu7Vlw
     scenes-app-mcp-analytics-dashboard-cards--share-by-harness--light:
