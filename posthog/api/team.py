@@ -3244,8 +3244,9 @@ def merge_conversations_settings_locked(
     """
     with transaction.atomic():
         locked_team = (
-            # nosemgrep: hot-parent-row-select-for-update -- the merge mutates this Team row itself
-            Team.objects.select_for_update().only("conversations_settings", "conversations_enabled").get(pk=team.pk)
+            Team.objects.select_for_update(no_key=True)
+            .only("conversations_settings", "conversations_enabled")
+            .get(pk=team.pk)
         )
         if patch_conversations_settings:
             validated_data["conversations_settings"] = merge_conversations_settings(
