@@ -1,3 +1,5 @@
+import json
+import hashlib
 import dataclasses
 from datetime import UTC, date, datetime
 from typing import Any, Optional, cast
@@ -100,6 +102,16 @@ def _normalize_member(item: dict[str, Any]) -> dict[str, Any]:
     if "email" not in item and isinstance(item.get("user"), dict):
         return {**item, "email": item["user"]["email"]}
     return item
+
+
+def _ensure_event_id(event: dict[str, Any]) -> dict[str, Any]:
+    # The OpenAPI schema documents an event `id`, but the analytics guide's sample omits it.
+    # Fall back to a content hash so the merge key is never null and overlapping `fromDate`
+    # windows still dedupe.
+    if event.get("id"):
+        return event
+    digest = hashlib.sha256(json.dumps(event, sort_keys=True, default=str).encode()).hexdigest()
+    return {**event, "id": digest}
 
 
 def _flatten_tag_category(category: dict[str, Any]) -> list[dict[str, Any]]:
@@ -219,6 +231,8 @@ def guru_source(
         resource_config["data_map"] = _normalize_member
     elif endpoint == "tags":
         resource_config["data_map"] = _flatten_tag_category
+    elif endpoint == "analytics_events":
+        resource_config["data_map"] = _ensure_event_id
 
     rest_config: RESTAPIConfig = {
         "client": _client_config(username, api_token),

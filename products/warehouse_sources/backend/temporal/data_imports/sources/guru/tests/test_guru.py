@@ -10,6 +10,7 @@ from requests import HTTPError, Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.guru.guru import (
     GuruResumeConfig,
     _build_params,
+    _ensure_event_id,
     _format_last_modified,
     _normalize_member,
     guru_source,
@@ -206,6 +207,26 @@ class TestNormalizeMember:
         # fail loudly rather than produce a row with a null primary key.
         with pytest.raises(KeyError):
             _normalize_member({"user": {"firstName": "Jane"}})
+
+
+class TestEnsureEventId:
+    def test_keeps_vendor_id(self):
+        event = {"id": "e1", "type": "card-viewed"}
+        assert _ensure_event_id(event) == event
+
+    def test_documented_event_without_id_gets_stable_content_key(self):
+        event = {
+            "type": "card-viewed",
+            "user": "jane@company.com",
+            "eventDate": "2016-01-20T03:10:11.351+0000",
+            "properties": {"cardId": "c1"},
+        }
+        other = {**event, "eventDate": "2016-01-20T03:10:12.000+0000"}
+
+        first = _ensure_event_id(event)["id"]
+
+        assert first and first == _ensure_event_id(dict(event))["id"]
+        assert first != _ensure_event_id(other)["id"]
 
 
 class TestValidateCredentials:
