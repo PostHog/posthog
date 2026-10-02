@@ -68,11 +68,17 @@ describe('inboxReportDetailLogic', () => {
 
         afterEach(() => logic.unmount())
 
-        it('records the server monitoring state and clears the update loading state', async () => {
+        it('records the server monitoring state, reloads the armed checks, and clears the update loading state', async () => {
+            const armedCheck = { ...openCheck, status: 'active', next_run_at: '2026-10-01T00:00:00Z' }
+            useMocks({ get: { '/api/projects/:team_id/signals/reports/:id/checks/': { results: [armedCheck] } } })
             logic.actions.startReportMonitoring()
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.report?.status).toBe('monitoring')
             expect(logic.values.report?.monitoring_started_at).toBe('2026-09-30T00:00:00Z')
+            expect(logic.values.reportChecks?.[0]).toMatchObject({
+                status: 'active',
+                next_run_at: armedCheck.next_run_at,
+            })
             expect(logic.values.monitoringUpdateLoading).toBe(false)
         })
 

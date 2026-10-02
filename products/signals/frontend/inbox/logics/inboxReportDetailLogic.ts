@@ -1842,7 +1842,18 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             actions.loadPrChecks()
             actions.loadPrComments()
         },
-        setReport: () => {
+        setReport: (_, __, ___, previousState) => {
+            // Entering monitoring arms the report's pending follow-up checks on the server, so their
+            // status and schedule change. The first `setReport` after mount is skipped, because
+            // `afterMount` loads the checks already.
+            const previous = selectors.report(previousState)
+            if (
+                previous &&
+                previous.status !== SignalReportStatus.MONITORING &&
+                values.report?.status === SignalReportStatus.MONITORING
+            ) {
+                actions.loadReportChecks()
+            }
             // Load the PR checks/comments once the report has a shipped PR. The recurring checks poll
             // is registered once in `afterMount` (not here) so it isn't torn down and restarted every
             // time the shell hands us a fresh `report` prop — which would starve the 15s cadence.
