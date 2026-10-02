@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 
-import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { identifierToHuman } from 'lib/utils/strings'
 
 import { isTerminalRunStatus } from 'products/posthog_ai/frontend/api/logics'
@@ -13,6 +14,8 @@ import { resolveRunVariant, RunStatusIndicator } from '../cards/runStatusVariant
 import { ActivityDisclosure } from './ActivityDisclosure'
 import { isCustomAgentTaskRun, taskRunTypeLabel, TaskRunArtefactContent } from './artefactTypes'
 import { RunLogContainer } from './RunLogContainer'
+
+type TaskLoadError = 'unavailable' | 'failed'
 
 /**
  * A `task_run` artefact: the linked task badged from its `(product, type)` (signals-pipeline runs
@@ -33,7 +36,8 @@ export function ArtefactTaskRun({
     const [expanded, setExpanded] = useState(false)
     const [fetchedTask, setFetchedTask] = useState<Task | null>(null)
     const [loading, setLoading] = useState(false)
-    const [error, setError] = useState(false)
+    const [error, setError] = useState<TaskLoadError | null>(null)
+    const [attempt, setAttempt] = useState(0)
     const task = knownTask ?? fetchedTask
 
     useEffect(() => {
@@ -42,6 +46,7 @@ export function ArtefactTaskRun({
             return
         }
         setLoading(true)
+        setError(null)
         let cancelled = false
         api.tasks
             .get(content.task_id)
@@ -50,9 +55,12 @@ export function ArtefactTaskRun({
                     setFetchedTask(result)
                 }
             })
-            .catch(() => {
+            .catch((e) => {
                 if (!cancelled) {
-                    setError(true)
+                    // The API answers 404 for a task the reader can't see (e.g. filed into a
+                    // channel they aren't in), so retrying won't help there.
+                    const status = e instanceof ApiError ? e.status : undefined
+                    setError(status === 404 || status === 403 ? 'unavailable' : 'failed')
                 }
             })
             .finally(() => {
@@ -64,7 +72,7 @@ export function ArtefactTaskRun({
             cancelled = true
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [content.task_id, knownTask])
+    }, [content.task_id, knownTask, attempt])
 
     const status = task?.latest_run?.status ?? TaskRunStatus.NOT_STARTED
     // Prefer the run the artefact actually recorded; a task that's been re-run has a newer
@@ -76,53 +84,69 @@ export function ArtefactTaskRun({
     const isCustom = isCustomAgentTaskRun(content)
 
     return (
-        <ActivityDisclosure
-            expanded={expanded}
-            onChange={setExpanded}
-            disabledReason={
-                !task ? (error ? 'Refresh the page to retry loading this task' : 'Task details are loading') : undefined
-            }
-            fullWidth
-            label={
-                <span className="flex min-w-0 items-center gap-2">
-                    <RunStatusIndicator variant={resolveRunVariant(status)} showLabel={false} />
-                    <LemonTag size="small" type="muted">
-                        {taskRunTypeLabel(content)}
-                    </LemonTag>
-                    {isCustom ? (
-                        <LemonTag size="small" type="completion">
-                            {identifierToHuman(content.product)}
+        <div>
+            <ActivityDisclosure
+                expanded={expanded}
+                onChange={setExpanded}
+                disabledReason={
+                    !task
+                        ? error === 'unavailable'
+                            ? "You don't have access to this task"
+                            : error
+                              ? "Couldn't load this task"
+                              : 'Task details are loading'
+                        : undefined
+                }
+                fullWidth
+                label={
+                    <span className="flex min-w-0 items-center gap-2">
+                        <RunStatusIndicator variant={resolveRunVariant(status)} showLabel={false} />
+                        <LemonTag size="small" type="muted">
+                            {taskRunTypeLabel(content)}
                         </LemonTag>
-                    ) : null}
-                    {loading ? (
-                        <LemonSkeleton className="h-3 w-32" />
-                    ) : (
-                        <span className={error ? 'truncate text-danger' : 'truncate text-secondary'}>
-                            {error
-                                ? "Couldn't load this task. Refresh the page to try again."
-                                : (task?.title ?? content.task_id)}
-                        </span>
-                    )}
-                </span>
-            }
-            expandedLabel={
-                <span className="flex min-w-0 items-center gap-2">
-                    <RunStatusIndicator variant={resolveRunVariant(status)} showLabel={false} />
-                    <span className="truncate text-secondary">Hide task run</span>
-                </span>
-            }
-        >
-            {task && runId ? (
-                <RunLogContainer>
-                    <ReadonlyRunSurface
-                        taskId={task.id}
-                        runId={runId}
-                        interaction={replayOnly ? 'read-only' : 'live'}
-                        threadRowClassName="px-3"
-                        threadListClassName="py-3"
-                    />
-                </RunLogContainer>
+                        {isCustom ? (
+                            <LemonTag size="small" type="completion">
+                                {identifierToHuman(content.product)}
+                            </LemonTag>
+                        ) : null}
+                        {loading ? (
+                            <LemonSkeleton className="h-3 w-32" />
+                        ) : (
+                            <span className="truncate text-secondary">{task?.title ?? content.task_id}</span>
+                        )}
+                    </span>
+                }
+                expandedLabel={
+                    <span className="flex min-w-0 items-center gap-2">
+                        <RunStatusIndicator variant={resolveRunVariant(status)} showLabel={false} />
+                        <span className="truncate text-secondary">Hide task run</span>
+                    </span>
+                }
+            >
+                {task && runId ? (
+                    <RunLogContainer>
+                        <ReadonlyRunSurface
+                            taskId={task.id}
+                            runId={runId}
+                            interaction={replayOnly ? 'read-only' : 'live'}
+                            threadRowClassName="px-3"
+                            threadListClassName="py-3"
+                        />
+                    </RunLogContainer>
+                ) : null}
+            </ActivityDisclosure>
+            {error === 'unavailable' ? (
+                <p className="m-0 pl-6 text-xs text-secondary">
+                    This task is in a channel you're not a member of, or it was deleted.
+                </p>
+            ) : error === 'failed' ? (
+                <div className="flex items-center gap-2 pl-6 text-xs">
+                    <span className="text-danger">Couldn't load this task.</span>
+                    <LemonButton size="xsmall" type="secondary" onClick={() => setAttempt((n) => n + 1)}>
+                        Try again
+                    </LemonButton>
+                </div>
             ) : null}
-        </ActivityDisclosure>
+        </div>
     )
 }
