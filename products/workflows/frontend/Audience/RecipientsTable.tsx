@@ -17,14 +17,14 @@ const WIDE_ONLY = 'hidden @min-[44rem]/recipients:table-cell'
 const NARROW_ONLY = '@min-[44rem]/recipients:hidden'
 
 function PersonsSummary({ recipient }: { recipient: RecipientApi }): JSX.Element {
-    if (recipient.person_count === 0) {
+    const { person_count: personCount, persons } = recipient
+    if (personCount === 0) {
         return <span className="text-xs text-secondary">No person</span>
     }
-    if (recipient.person_count === 1 && recipient.persons.length === 1) {
-        const [person] = recipient.persons
-        return <span className="wrap-anywhere">{person.name ?? person.distinct_id}</span>
+    if (personCount === 1 && persons.length === 1) {
+        return <span className="wrap-anywhere">{persons[0].name ?? persons[0].distinct_id}</span>
     }
-    return <span>{`${recipient.person_count.toLocaleString()} persons`}</span>
+    return <span>{personCount === 1 ? '1 person' : `${personCount.toLocaleString()} persons`}</span>
 }
 
 function LastSent({ recipient }: { recipient: RecipientApi }): JSX.Element {

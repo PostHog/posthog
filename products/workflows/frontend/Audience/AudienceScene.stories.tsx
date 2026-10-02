@@ -154,7 +154,7 @@ const recipients: RecipientApi[] = [
         ...NO_ACTIVITY,
         email: 'sam.okafor+newsletters@a-very-long-company-domain.example.com',
         all_marketing: 'NO_PREFERENCE',
-        topics: { 'weekly-digest': 'OPTED_IN' },
+        topics: { 'weekly-digest': 'OPTED_IN', 'quarterly-roadmap-and-release-notes-for-admins': 'OPTED_OUT' },
         persons: [{ uuid: '0199c1dd-0000-7000-8000-000000000004', distinct_id: 'sam-okafor', name: null }],
         person_count: 1,
         last_sent_at: '2026-09-30T18:45:00Z',
