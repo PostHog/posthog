@@ -38,7 +38,7 @@ from rest_framework.response import Response
 
 from posthog.schema import ProductKey
 
-from posthog.hogql.constants import FEATURE_FLAG_FALSE_VARIANT_SENTINEL
+from posthog.hogql.constants import FEATURE_FLAG_VARIANT_SENTINELS
 
 from posthog.api.cohort import CohortSerializer
 from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer, extend_schema
@@ -927,20 +927,28 @@ class EvaluationContextSerializerMixin(serializers.Serializer):
 _RUST_PROPERTY_TYPES: frozenset[str] = frozenset({*FEATURE_FLAG_PROPERTY_TYPES, "person_metadata"})
 
 
-def _uses_reserved_variant_key(filters: dict) -> bool:
-    """Whether a `multivariate.variants[].key` is the sentinel the ingest cleaner stores a variant named "false" under.
+def _reserved_variant_key(filters: dict) -> str | None:
+    """The first `multivariate.variants[].key` that is a sentinel the ingest cleaner stores a variant named "false" or
+    "true" under, if any.
 
     Checked on the raw request shape ahead of every validation tier, so the rejection does not depend on the #50084
     rollout switch.
     """
     multivariate = filters.get("multivariate")
     if not isinstance(multivariate, dict):
-        return False
+        return None
     variants = multivariate.get("variants")
     if not isinstance(variants, list):
-        return False
-    return any(
-        isinstance(variant, dict) and variant.get("key") == FEATURE_FLAG_FALSE_VARIANT_SENTINEL for variant in variants
+        return None
+    return next(
+        (
+            variant["key"]
+            for variant in variants
+            if isinstance(variant, dict)
+            and isinstance(variant.get("key"), str)
+            and variant["key"] in FEATURE_FLAG_VARIANT_SENTINELS
+        ),
+        None,
     )
 
 
@@ -1962,9 +1970,10 @@ class FeatureFlagSerializer(
                 raise self._v2_validation_error(exc) from exc
 
     def _validate_filters_inner(self, filters, operation: str):
-        if _uses_reserved_variant_key(filters):
+        reserved_variant_key = _reserved_variant_key(filters)
+        if reserved_variant_key is not None:
             raise serializers.ValidationError(
-                f"The variant key {FEATURE_FLAG_FALSE_VARIANT_SENTINEL} is reserved. Choose another key.",
+                f"The variant key {reserved_variant_key} is reserved. Choose another key.",
                 code="reserved_variant_key",
             )
 
