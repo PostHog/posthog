@@ -13,6 +13,7 @@ import type {
     AppMetricsTotalsResponseApi,
     BlastRadiusApi,
     BlastRadiusRequestApi,
+    EmailBrandApi,
     EmailSendingSuspensionStatusApi,
     HogFlowApi,
     HogFlowBatchJobApi,
@@ -55,6 +56,7 @@ import type {
     PaginatedHogFlowRevisionBasicListApi,
     PaginatedHogFlowTemplateListApi,
     PaginatedWorkflowProposalListApi,
+    PatchedEmailBrandApi,
     PatchedHogFlowActionEmailUpdateApi,
     PatchedHogFlowGraphUpdateApi,
     PatchedHogFlowScheduleApi,
@@ -98,6 +100,41 @@ export const internalHogFlowsProcessDueSchedulesCreate = async (options?: Reques
     return apiMutator<void>(getInternalHogFlowsProcessDueSchedulesCreateUrl(), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getEmailBrandCurrentRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/email_brand/current/`
+}
+
+/**
+ * @summary Get the project's Email brand
+ */
+export const emailBrandCurrentRetrieve = async (projectId: string, options?: RequestInit): Promise<EmailBrandApi> => {
+    return apiMutator<EmailBrandApi>(getEmailBrandCurrentRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEmailBrandCurrentPartialUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/email_brand/current/`
+}
+
+/**
+ * Only the provided fields change. The first call creates the Email brand with defaults for every field it leaves out.
+ * @summary Create or update the project's Email brand
+ */
+export const emailBrandCurrentPartialUpdate = async (
+    projectId: string,
+    patchedEmailBrandApi?: NonReadonly<PatchedEmailBrandApi>,
+    options?: RequestInit
+): Promise<EmailBrandApi> => {
+    return apiMutator<EmailBrandApi>(getEmailBrandCurrentPartialUpdateUrl(projectId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedEmailBrandApi),
     })
 }
 

@@ -37239,6 +37239,100 @@ export namespace Schemas {
       name: string;
     }
 
+    export interface EmailBrandSource {
+      /**
+         * Repository path of the file the value was read from.
+         * @maxLength 1000
+         */
+      path: string;
+      /**
+         * 1-based line in that file, when known.
+         * @minimum 1
+         * @nullable
+         */
+      line?: number | null;
+      /**
+         * The value detection proposed. The field reports edited while its value differs from this. For the logo it is the id of the imported media.
+         * @maxLength 1000
+         */
+      detected_value: string;
+    }
+
+    /**
+     * Where each detected value came from, keyed by field name. A field without an entry was entered by hand. Keys: name, logo, primary_color, accent_color, text_color, background_color, font_family.
+     */
+    export type EmailBrandSources = {[key: string]: EmailBrandSource};
+
+    export interface EmailBrandEdited {
+      /** Whether the name differs from its detected value. */
+      name: boolean;
+      /** Whether the logo differs from its detected value. */
+      logo: boolean;
+      /** Whether the primary color differs from its detected value. */
+      primary_color: boolean;
+      /** Whether the accent color differs from its detected value. */
+      accent_color: boolean;
+      /** Whether the text color differs from its detected value. */
+      text_color: boolean;
+      /** Whether the background color differs from its detected value. */
+      background_color: boolean;
+      /** Whether the font family differs from its detected value. */
+      font_family: boolean;
+    }
+
+    export interface EmailBrand {
+      readonly id: string;
+      /**
+         * Brand name. Shown in the email header when there is no logo.
+         * @maxLength 255
+         */
+      name?: string;
+      /**
+         * Id of an image in this project's media library to show in the email header. Null shows the name instead.
+         * @nullable
+         */
+      logo?: string | null;
+      /**
+         * Public URL of the logo image, or null without a logo.
+         * @nullable
+         */
+      readonly logo_url: string | null;
+      /** Main brand color as #rrggbb, used for buttons. */
+      primary_color?: string;
+      /** Secondary brand color as #rrggbb, used for highlights. */
+      accent_color?: string;
+      /** Body text color as #rrggbb. */
+      text_color?: string;
+      /** Email background color as #rrggbb. */
+      background_color?: string;
+      /**
+         * Font family name, for example Inter.
+         * @maxLength 100
+         */
+      font_family?: string;
+      /**
+         * CSS font-family stack used in emails. It ends in fonts every email client has, for example 'Inter, Arial, Helvetica, sans-serif'.
+         * @maxLength 500
+         */
+      font_stack?: string;
+      /**
+         * Full name (owner/repo) of the GitHub repository the brand was detected from. Empty when entered by hand.
+         * @maxLength 255
+         */
+      source_repository?: string;
+      /**
+         * Directory inside the repository that holds the app detection read.
+         * @maxLength 255
+         */
+      app_root?: string;
+      /** Where each detected value came from, keyed by field name. A field without an entry was entered by hand. Keys: name, logo, primary_color, accent_color, text_color, background_color, font_family. */
+      sources?: EmailBrandSources;
+      /** Per value, whether it differs from the value detection found. A value without a source is never edited. */
+      readonly edited: EmailBrandEdited;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
     /**
      * How much workflow email this project may send, and how much of that it has used.
      */
@@ -75743,6 +75837,64 @@ export namespace Schemas {
          * @nullable
          */
       order?: number | null;
+    }
+
+    /**
+     * Where each detected value came from, keyed by field name. A field without an entry was entered by hand. Keys: name, logo, primary_color, accent_color, text_color, background_color, font_family.
+     */
+    export type PatchedEmailBrandSources = {[key: string]: EmailBrandSource};
+
+    export interface PatchedEmailBrand {
+      readonly id?: string;
+      /**
+         * Brand name. Shown in the email header when there is no logo.
+         * @maxLength 255
+         */
+      name?: string;
+      /**
+         * Id of an image in this project's media library to show in the email header. Null shows the name instead.
+         * @nullable
+         */
+      logo?: string | null;
+      /**
+         * Public URL of the logo image, or null without a logo.
+         * @nullable
+         */
+      readonly logo_url?: string | null;
+      /** Main brand color as #rrggbb, used for buttons. */
+      primary_color?: string;
+      /** Secondary brand color as #rrggbb, used for highlights. */
+      accent_color?: string;
+      /** Body text color as #rrggbb. */
+      text_color?: string;
+      /** Email background color as #rrggbb. */
+      background_color?: string;
+      /**
+         * Font family name, for example Inter.
+         * @maxLength 100
+         */
+      font_family?: string;
+      /**
+         * CSS font-family stack used in emails. It ends in fonts every email client has, for example 'Inter, Arial, Helvetica, sans-serif'.
+         * @maxLength 500
+         */
+      font_stack?: string;
+      /**
+         * Full name (owner/repo) of the GitHub repository the brand was detected from. Empty when entered by hand.
+         * @maxLength 255
+         */
+      source_repository?: string;
+      /**
+         * Directory inside the repository that holds the app detection read.
+         * @maxLength 255
+         */
+      app_root?: string;
+      /** Where each detected value came from, keyed by field name. A field without an entry was entered by hand. Keys: name, logo, primary_color, accent_color, text_color, background_color, font_family. */
+      sources?: PatchedEmailBrandSources;
+      /** Per value, whether it differs from the value detection found. A value without a source is never edited. */
+      readonly edited?: EmailBrandEdited;
+      readonly created_at?: string;
+      readonly updated_at?: string;
     }
 
     /**
