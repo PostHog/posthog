@@ -12,6 +12,7 @@ import {
 } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 import posthog, { JsonRecord } from 'posthog-js'
 
 import api from 'lib/api'
@@ -1375,6 +1376,16 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 buildGroups(notifications, loadedGroupKeys),
         ],
     }),
+    subscriptions(({ actions, values, cache }) => ({
+        notificationsSSETransport: (_: NotificationsSSETransport, oldTransport?: NotificationsSSETransport) => {
+            // kea-subscriptions also calls this on mount with no old value. afterMount starts the stream at mount, so skip that call.
+            if (oldTransport === undefined || !values.realTimeNotificationsEnabled) {
+                return
+            }
+            cache.nextStartReason = 'transport_change'
+            actions.startSSE()
+        },
+    })),
     afterMount(({ cache, actions, values }) => {
         if (values.realTimeNotificationsEnabled) {
             void (async () => {
