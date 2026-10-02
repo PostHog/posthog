@@ -14,17 +14,22 @@ from temporalio.client import (
     ScheduleUpdateInput,
 )
 
-from products.data_quality.backend.logic.metric_schedules import MetricScheduleKey, MetricSchedules
+from products.data_quality.backend.facade.enums import SubjectType
+from products.data_quality.backend.logic.subject_schedules import SubjectScheduleKey, SubjectSchedules
 
 
-class TestTemporalMetricSchedules(SimpleTestCase):
+class TestTemporalSubjectSchedules(SimpleTestCase):
     def setUp(self) -> None:
-        self.key = MetricScheduleKey(team_id=123, metric_id=UUID("00000000-0000-0000-0000-000000000001"))
+        self.key = SubjectScheduleKey(
+            team_id=123,
+            subject_type=SubjectType.METRIC,
+            subject_uuid=UUID("00000000-0000-0000-0000-000000000001"),
+        )
         self.temporal = Mock()
         self.temporal.create_schedule = AsyncMock()
         self.handle = Mock(describe=AsyncMock(), update=AsyncMock())
         self.temporal.get_schedule_handle.return_value = self.handle
-        self.schedules = MetricSchedules(self.temporal)
+        self.schedules = SubjectSchedules(self.temporal)
 
     async def test_creation_uses_native_cadence_and_execution_policies(self) -> None:
         await self.schedules.ensure(self.key)
@@ -35,7 +40,7 @@ class TestTemporalMetricSchedules(SimpleTestCase):
         assert schedule.policy.catchup_window == timedelta(minutes=15)
         assert not schedule.policy.pause_on_failure
         assert self.temporal.create_schedule.call_args.kwargs["trigger_immediately"]
-        assert schedule.action.args[0].metric_ids == [str(self.key.metric_id)]
+        assert schedule.action.args[0].metric_ids == [str(self.key.subject_uuid)]
         assert schedule.action.args[0].team_id == self.key.team_id
 
     async def test_repeated_creation_preserves_temporal_configuration(self) -> None:
@@ -59,6 +64,11 @@ class TestTemporalMetricSchedules(SimpleTestCase):
 
         self.handle.update.side_effect = update
         await self.schedules.update(self.key, interval="6hour")
+
+    def test_a_metric_schedule_keeps_the_id_and_type_a_running_schedule_carries(self) -> None:
+        assert self.key.temporal_id == "data-quality-metric:123:00000000-0000-0000-0000-000000000001"
+        assert self.key.schedule_type == "data-quality-metric"
+        assert SubjectScheduleKey.parse(self.key.temporal_id) == self.key
 
     async def test_pause_update_preserves_existing_interval(self) -> None:
         current = self.schedules.build(self.key, interval="6hour")

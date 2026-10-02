@@ -10,6 +10,8 @@ from products.replay_vision.backend.models.replay_scanner import ReplayScanner, 
 from products.replay_vision.backend.temporal.scanners import (
     ClassifierOutput,
     ClassifierScanner,
+    ExperimentOutput,
+    ExperimentScanner,
     MonitorLlmResponse,
     MonitorOutput,
     MonitorScanner,
@@ -20,8 +22,18 @@ from products.replay_vision.backend.temporal.scanners import (
     SummarizerSummaryResponse,
     scanner_from_db,
 )
-from products.replay_vision.backend.temporal.scanners.base import BaseScanner, SignalFinding, SignalsResponse
-from products.replay_vision.backend.temporal.scanners.summarizer import summary_embedding_text
+from products.replay_vision.backend.temporal.scanners.base import (
+    SIGNAL_HEADLINE_MAX_LENGTH,
+    BaseScanner,
+    SignalFinding,
+    SignalsResponse,
+)
+from products.replay_vision.backend.temporal.scanners.summarizer import (
+    SummaryChapter,
+    SummaryChapterResponse,
+    chapter_target,
+    summary_embedding_text,
+)
 from products.replay_vision.backend.temporal.types import EventTable, ScannerCallOutput
 
 
@@ -87,6 +99,9 @@ class TestPreamble:
         assert "<masking>" in rendered
         assert "asterisks" in rendered
         assert "not a bug" in rendered.lower()
+        # A masked image or video can fill a whole player, so the model must judge a real failure from the evidence.
+        assert "scrubber" in rendered
+        assert "real failure" in rendered
 
     def test_preamble_forbids_reproducing_personal_data_verbatim(self) -> None:
         # Masking hides PII in the video, but the events tool / navigation URLs can expose it in the clear;
@@ -729,7 +744,12 @@ class TestSummarizerScanner:
         assert "3-5 paragraphs" in long.core_steps()[0].instruction
 
     def test_output_round_trip(self) -> None:
-        out = SummarizerOutput(title="User onboarded", summary="They walked through the demo.", confidence=0.9)
+        out = SummarizerOutput(
+            title="User onboarded",
+            summary="They walked through the demo.",
+            confidence=0.9,
+            chapters=[SummaryChapter(start_ms=0, end_ms=12_000, title="Opens the demo", thumbnail_ms=6_000)],
+        )
         round_tripped = SummarizerOutput.model_validate_json(out.model_dump_json())
         assert round_tripped == out
 
@@ -759,6 +779,12 @@ class TestSummarizerScannerSteps:
         )
         assert "naming convention" in scanner.core_steps()[0].instruction
 
+    @pytest.mark.parametrize("video_s,expected", [(60, 3), (864, 10), (7200, 20)])
+    def test_chapter_target_scales_with_the_video_length(self, video_s: float, expected: int) -> None:
+        assert chapter_target(video_s) == expected
+        scanner = SummarizerScanner(prompt="p", chapter_target=chapter_target(video_s))
+        assert f"Aim for about {expected} chapters" in scanner.core_steps()[0].instruction
+
     def test_summary_step_opts_into_citations(self) -> None:
         scanner = scanner_from_db(
             _build_replay_scanner(scanner_type=ScannerType.SUMMARIZER, scanner_config={"prompt": "p"})
@@ -770,11 +796,31 @@ class TestSummarizerScannerSteps:
         scanner = scanner_from_db(
             _build_replay_scanner(scanner_type=ScannerType.SUMMARIZER, scanner_config={"prompt": "p"})
         )
-        summary = SummarizerSummaryResponse(title="Onboarding", summary="Walked through demo", confidence=0.8)
+        summary = SummarizerSummaryResponse(
+            title="Onboarding",
+            summary="Walked through demo",
+            confidence=0.8,
+            chapters=[SummaryChapterResponse(start_t=0, title="Opens the demo", thumbnail_t=3)],
+        )
         out, signals = scanner.assemble({"core": summary})
         assert isinstance(out, SummarizerOutput)
         assert (out.title, out.summary, out.confidence) == ("Onboarding", "Walked through demo", 0.8)
+        assert out.chapters == []
         assert signals == []
+
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            ("Checkout fails (t 42)", "Checkout fails"),
+            ("Browses the pricing page.", "Browses the pricing page"),
+            (
+                "Walks through every single step of the onboarding flow today",
+                "Walks through every single step of the onboarding",
+            ),
+        ],
+    )
+    def test_chapter_title_is_a_short_plain_heading(self, raw: str, expected: str) -> None:
+        assert SummaryChapterResponse(start_t=0, title=raw).title == expected
 
     def test_output_round_trip_ignores_legacy_facet_fields(self) -> None:
         # Rows written by the old facet turn still load; the extra keys are dropped rather than rejected.
@@ -803,13 +849,14 @@ class TestSummaryEmbeddingText:
 
 class TestToEventProperties:
     def test_flattens_with_scanner_output_prefix(self) -> None:
-        # Notability rides onto the event too, so it is queryable in insights alongside the verdict.
+        # Notability and the key moment ride onto the event too, so they are queryable in insights alongside the verdict.
         out = MonitorOutput(
             verdict="yes",
             reasoning="found it",
             confidence=0.9,
             notability=0.8,
             notability_reason="the export failed twice",
+            key_moment_ms=42_000,
         )
         props = out.to_event_properties()
         assert props == {
@@ -819,6 +866,7 @@ class TestToEventProperties:
             "scanner_output_confidence": 0.9,
             "scanner_output_notability": 0.8,
             "scanner_output_notability_reason": "the export failed twice",
+            "scanner_output_key_moment_ms": 42_000,
         }
 
     def test_unjudged_notability_flattens_as_null_not_zero(self) -> None:
@@ -827,6 +875,20 @@ class TestToEventProperties:
         props = out.to_event_properties()
         assert props["scanner_output_notability"] is None
         assert props["scanner_output_notability_reason"] is None
+
+    def test_summary_chapters_flatten_to_a_count(self) -> None:
+        out = SummarizerOutput(
+            title="t",
+            summary="s",
+            confidence=0.9,
+            chapters=[
+                SummaryChapter(start_ms=0, end_ms=5_000, title="Opens app", thumbnail_ms=2_000),
+                SummaryChapter(start_ms=5_000, end_ms=9_000, title="Leaves", thumbnail_ms=7_000),
+            ],
+        )
+        props = out.to_event_properties()
+        assert props["scanner_output_chapter_count"] == 2
+        assert "scanner_output_chapters" not in props
 
     def test_excludes_scanner_type_discriminator(self) -> None:
         # `scanner_type` lives at the top-level event property; flattening it would duplicate.
@@ -840,6 +902,7 @@ class TestSignalSideMission:
     # A complete, valid `signal` payload for round-trip tests.
     _VALID_SIGNAL = {
         "problem_type": "bug",
+        "headline": "Checkout CTA does nothing",
         "start_time": 72,
         "end_time": 78,
         "url": "https://app.example.com/cart",
@@ -960,3 +1023,66 @@ class TestSignalSideMission:
         # The description is embedded for free-text search, so leaked `(t …)` markers must never reach it.
         signal = SignalFinding.model_validate({**self._VALID_SIGNAL, "description": raw})
         assert signal.description == clean
+
+    def test_signal_headline_strips_markers_and_holds_its_length(self) -> None:
+        # The headline shares the description's marker leak, and a watch feed card lists three of them on one
+        # line, so a model that answers with a sentence instead of a phrase must not reflow the card.
+        marked = SignalFinding.model_validate({**self._VALID_SIGNAL, "headline": "Checkout CTA (t 844) does nothing"})
+        assert marked.headline == "Checkout CTA does nothing"
+
+        long = SignalFinding.model_validate({**self._VALID_SIGNAL, "headline": "word " * 40})
+        assert len(long.headline) <= SIGNAL_HEADLINE_MAX_LENGTH
+        assert not long.headline.endswith(" ")
+
+
+class TestExperimentScanner:
+    def _scanner(self, **config_overrides):
+        config = {"prompt": "watch the checkout change", "experiment_id": 42, **config_overrides}
+        return scanner_from_db(_build_replay_scanner(scanner_type=ScannerType.EXPERIMENT, scanner_config=config))
+
+    def test_scanner_from_db_picks_experiment_subclass_with_summarizer_defaults(self) -> None:
+        scanner = self._scanner()
+        assert isinstance(scanner, ExperimentScanner)
+        assert isinstance(scanner, SummarizerScanner)
+        assert (scanner.length, scanner.balance_variants, scanner.variants) == ("medium", True, None)
+
+    def test_scanner_from_db_requires_experiment_id(self) -> None:
+        with pytest.raises(ApplicationError, match="experiment_id"):
+            scanner_from_db(_build_replay_scanner(scanner_type=ScannerType.EXPERIMENT, scanner_config={"prompt": "p"}))
+
+    def test_core_step_renders_without_scan_time_context(self) -> None:
+        # The prompt env uses StrictUndefined, and the workflow that injects the experiment context
+        # ships separately, so the template must render from the persisted config alone.
+        instruction = self._scanner().core_steps()[0].instruction
+        assert "A/B experiment" in instruction
+        assert "watch the checkout change" in instruction
+        assert "(t " in instruction
+
+    def test_core_step_carries_injected_experiment_context_and_variant(self) -> None:
+        scanner = self._scanner().model_copy(
+            update={
+                "experiment_context": {
+                    "name": "Checkout CTA copy",
+                    "description": "One-click checkout raises conversion.",
+                    "feature_flag_key": "checkout-cta",
+                    "variants": [
+                        {"key": "control", "description": "", "rollout_percentage": 50.0},
+                        {"key": "test", "description": "One-click", "rollout_percentage": 50.0},
+                    ],
+                    "primary_metric_names": ["Purchases"],
+                },
+                "session_variant": "test",
+            }
+        )
+        instruction = scanner.core_steps()[0].instruction
+        assert "Checkout CTA copy" in instruction
+        assert "checkout-cta" in instruction
+        assert "Purchases" in instruction
+        assert "`test` variant" in instruction
+
+    def test_output_round_trip_keeps_the_summarizer_shape(self) -> None:
+        out = ExperimentOutput(title="Faster checkout", summary="They breezed through.", confidence=0.9)
+        round_tripped = ExperimentOutput.model_validate_json(out.model_dump_json())
+        assert round_tripped == out
+        assert round_tripped.scanner_type == ScannerType.EXPERIMENT
+        assert summary_embedding_text(round_tripped) == "Faster checkout\n\nThey breezed through."

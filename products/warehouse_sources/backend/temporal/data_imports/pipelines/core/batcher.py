@@ -1,5 +1,6 @@
 import sys
 from collections import deque
+from collections.abc import Iterable, Mapping
 from typing import Any, Optional
 
 import pyarrow as pa
@@ -27,6 +28,13 @@ DEFAULT_MAX_COLUMN_OFFSET_BYTES: int = 1_500_000_000  # ~1.4 GiB, safely under t
 # Cap each yielded table's real Arrow payload: wide rows / large cells can materialize a multi-GiB
 # table from a few thousand rows, which becomes the loader's per-batch merge memory and OOMs the pod.
 DEFAULT_MAX_TABLE_BYTES: int = 256 * 1024 * 1024  # 256 MiB of Arrow payload
+
+# Cap rows x distinct keys in the row buffer. `table_from_py_list` unions every key in the batch
+# into columns, so its cost follows cells rather than rows. When a source carries sparse top-level
+# keys, keys grow with rows and that cost turns quadratic, while the row and byte caps see nothing
+# because the rows themselves stay small. A 20-column source already reaches 10M cells at
+# DEFAULT_CHUNK_SIZE, so an ordinary batch keeps flushing exactly where it did.
+DEFAULT_MAX_BUFFER_CELLS: int = 10_000_000
 
 
 def _column_offset_pressure(col: pa.ChunkedArray) -> int:
@@ -68,6 +76,7 @@ def _split_table(table: pa.Table, *, offset_limit: int, bytes_limit: int) -> lis
 class Batcher:
     _buffer: list[Any]
     _buffer_size_bytes: int
+    _buffer_keys: set[str]
     _table_buffer: list[pa.Table]
     _table_buffer_rows: int
     _table_buffer_bytes: int
@@ -80,6 +89,7 @@ class Batcher:
     _chunk_size_bytes: int
     _max_column_offset_bytes: int
     _max_table_bytes: int
+    _max_buffer_cells: int
     _source_type: Optional[str]
     _team_id: Optional[int]
     _schema_name: Optional[str]
@@ -98,6 +108,7 @@ class Batcher:
         schema_name: Optional[str] = None,
         coalesce_tables: bool = False,
         primary_keys: Optional[list[str]] = None,
+        max_buffer_cells: Optional[int] = None,
     ) -> None:
         self._logger = logger
         self._primary_keys = primary_keys
@@ -107,6 +118,7 @@ class Batcher:
         self._chunk_size_bytes = chunk_size_bytes or DEFAULT_CHUNK_SIZE_BYTES
         self._max_column_offset_bytes = max_column_offset_bytes or DEFAULT_MAX_COLUMN_OFFSET_BYTES
         self._max_table_bytes = max_table_bytes or DEFAULT_MAX_TABLE_BYTES
+        self._max_buffer_cells = max_buffer_cells or DEFAULT_MAX_BUFFER_CELLS
         # When set, each materialised table is measured under `stage="batcher"`. Left None by
         # source-internal batchers (e.g. apify), whose output is measured when it reaches the
         # pipeline's own batcher — so this only records once, with the real source_type.
@@ -114,14 +126,14 @@ class Batcher:
         self._team_id = team_id
         self._schema_name = schema_name
         # Off by default because coalescing delays when a yielded table becomes a durable batch:
-        # sources that checkpoint resume state or delete upstream staging right after yielding
-        # (ResumableSource implementations, the webhook S3 path) rely on yield => persisted and
-        # would lose data across a crash if their tables sat in this buffer. Only enable for
-        # sources with no such dependency.
+        # the webhook S3 path deletes its staged files right after yielding, and the pipeline
+        # commits the resume cursor after a write on the assumption that the write drained every
+        # table yielded so far. Only enable for sources with no such dependency.
         self._coalesce_tables = coalesce_tables
 
         self._buffer = []
         self._buffer_size_bytes = 0
+        self._buffer_keys: set[str] = set()
         self._table_buffer = []
         self._table_buffer_rows = 0
         self._table_buffer_bytes = 0
@@ -254,6 +266,35 @@ class Batcher:
         self._table_buffer_schema = None
         self._set_ready(table)
 
+    def _track_buffer_keys(self, rows: Iterable[Any]) -> None:
+        """Accumulate the distinct keys the buffered rows carry, which is the batch's column count."""
+        for row in rows:
+            if isinstance(row, Mapping):
+                self._buffer_keys.update(row.keys())
+
+    def _buffer_is_full(self, row_count: int) -> bool:
+        if row_count >= self._chunk_size or self._buffer_size_bytes >= self._chunk_size_bytes:
+            return True
+
+        if row_count * len(self._buffer_keys) < self._max_buffer_cells:
+            return False
+
+        # Nothing else in the run identifies a source whose key set grows with its rows, and the
+        # durable fix belongs in that source's row shape.
+        self._logger.info(
+            "batcher_flush_on_cell_cap",
+            row_count=row_count,
+            column_count=len(self._buffer_keys),
+            cell_cap=self._max_buffer_cells,
+            buffer_bytes=self._buffer_size_bytes,
+        )
+        return True
+
+    def _reset_buffer(self) -> None:
+        self._buffer = []
+        self._buffer_size_bytes = 0
+        self._buffer_keys = set()
+
     def _estimate_size(self, obj: Any) -> int:
         if isinstance(obj, dict):
             return sys.getsizeof(obj) + sum(self._estimate_size(k) + self._estimate_size(v) for k, v in obj.items())
@@ -285,7 +326,8 @@ class Batcher:
             if len(self._buffer) > 0:
                 self._buffer.extend(item)
                 self._buffer_size_bytes += self._estimate_size(item)
-                if self._buffer_size_bytes >= self._chunk_size_bytes or len(self._buffer) >= self._chunk_size:
+                self._track_buffer_keys(item)
+                if self._buffer_is_full(len(self._buffer)):
                     self._logger.debug(f"Processing buffer (list). Length of buffer = {len(self._buffer)}")
 
                     self._set_ready(self._rows_to_table(self._buffer))
@@ -293,7 +335,8 @@ class Batcher:
                     return
             else:
                 self._buffer_size_bytes += self._estimate_size(item)
-                if self._buffer_size_bytes >= self._chunk_size_bytes or len(item) >= self._chunk_size:
+                self._track_buffer_keys(item)
+                if self._buffer_is_full(len(item)):
                     self._logger.debug(f"Processing item (list). Length of item = {len(item)}")
                     self._set_ready(self._rows_to_table(item))
                 else:
@@ -302,7 +345,8 @@ class Batcher:
         elif isinstance(item, dict):
             self._buffer.append(item)
             self._buffer_size_bytes += self._estimate_size(item)
-            if self._buffer_size_bytes < self._chunk_size_bytes and len(self._buffer) < self._chunk_size:
+            self._track_buffer_keys((item,))
+            if not self._buffer_is_full(len(self._buffer)):
                 return
 
             self._logger.debug(f"Processing buffer (dict). Length of buffer = {len(self._buffer)}")
@@ -327,8 +371,7 @@ class Batcher:
         # The list/dict branches above materialized the buffer into `_ready`, and the
         # pa.Table branch is guaranteed empty by the guard — so the buffer is now spent.
         # Reset it (and its byte counter) so the next batching cycle starts fresh.
-        self._buffer = []
-        self._buffer_size_bytes = 0
+        self._reset_buffer()
 
     def should_yield(self, include_incomplete_chunk: bool = False) -> bool:
         if include_incomplete_chunk:
@@ -340,8 +383,7 @@ class Batcher:
         if not self._ready and len(self._buffer) > 0:
             self._logger.debug(f"Processing leftover buffer. Length of buffer = {len(self._buffer)}")
             self._set_ready(self._rows_to_table(self._buffer))
-            self._buffer = []
-            self._buffer_size_bytes = 0
+            self._reset_buffer()
 
         # End-of-stream flush of a partial Arrow buffer, matching the list/dict path above;
         # dropping it would lose every row batched since the last full chunk.

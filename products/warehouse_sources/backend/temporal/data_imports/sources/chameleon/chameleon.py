@@ -97,6 +97,10 @@ def validate_credentials(account_secret: str) -> tuple[bool, str | None]:
     )
 
 
+def _page_params(config: ChameleonEndpointConfig) -> dict[str, Any]:
+    return {"limit": config.page_size} if config.page_size is not None else {}
+
+
 def _standard_resource(
     account_secret: str,
     config: ChameleonEndpointConfig,
@@ -113,7 +117,7 @@ def _standard_resource(
                 "name": config.name,
                 "endpoint": {
                     "path": config.path,
-                    "params": {"limit": config.page_size},
+                    "params": _page_params(config),
                     "paginator": ChameleonBeforeCursorPaginator(),
                     "data_selector": config.data_key,
                 },
@@ -184,7 +188,7 @@ def _fan_out_resource(
                 "name": parent_name,
                 "endpoint": {
                     "path": parent_config.path,
-                    "params": {"limit": parent_config.page_size},
+                    "params": _page_params(parent_config),
                     "paginator": ChameleonBeforeCursorPaginator(),
                     "data_selector": parent_config.data_key,
                 },
@@ -198,7 +202,7 @@ def _fan_out_resource(
                     "path": f"{config.path}?id={{id}}",
                     "params": {
                         "id": {"type": "resolve", "resource": parent_name, "field": "id"},
-                        "limit": config.page_size,
+                        **_page_params(config),
                     },
                     "paginator": ChameleonBeforeCursorPaginator(),
                     "data_selector": config.data_key,

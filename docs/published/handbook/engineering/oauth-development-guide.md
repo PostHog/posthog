@@ -322,6 +322,12 @@ tokens = token_response.json()
 print(tokens)
 ```
 
+## First-party client metadata documents
+
+PostHog's own public clients (hogli, the Visual Review Chrome extension, and internal tools) authenticate with client ID metadata documents (CIMD) rather than a registered application or dynamic client registration. Their documents live in the [posthog.com repo](https://github.com/PostHog/posthog.com) at `static/.well-known/oauth/<app>/client-metadata.json`, served at `https://posthog.com/.well-known/oauth/<app>/client-metadata.json`. That URL is the `client_id`, so one ID works on US, EU, and self-hosted.
+
+To add one, create a JSON file there with `client_id` set to its own URL. The CIMD fetcher follows no redirects, so the URL has to answer with a 200 directly. Put the scope ceiling in `com.posthog.scopes`. A new document is an unverified, not-first-party client until someone sets `is_verified` or `is_first_party` on its application in Django admin, in each region.
+
 ## Self-registered client logos
 
 Both self-registration paths accept a `logo_uri`, and PostHog shows it on the consent screen and on the login, signup, and email verification screens. A client that sends none gets the first letter of its name instead.
@@ -406,6 +412,7 @@ You only see tokens that belong to your own application, whichever method you us
 ```json
 {
   "active": true,
+  "is_impersonated": false,
   "scope": "openid experiment:read query:read",
   "client_id": "DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ",
   "scoped_teams": [1, 2],
@@ -413,6 +420,9 @@ You only see tokens that belong to your own application, whichever method you us
   "exp": 1704067200
 }
 ```
+
+`is_impersonated` is `true` when a staff member issued the access token during impersonation.
+This field describes the token, not the browser session.
 
 **Inactive/Invalid Token Response**:
 

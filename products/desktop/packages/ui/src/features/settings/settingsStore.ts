@@ -40,6 +40,8 @@ export type DefaultReasoningEffort = EffortLevel | "last_used";
 export type SendMessagesWith = "enter" | "cmd+enter";
 export type AutoConvertLongText = "off" | "1000" | "2500" | "5000" | "10000";
 export type DiffOpenMode = "auto" | "split" | "same-pane" | "last-active-pane";
+export type NavRailSize = "small" | "medium" | "large";
+export const DEFAULT_NAV_RAIL_SIZE: NavRailSize = "large";
 
 // When spoken notifications are allowed to talk, relative to what's on screen:
 //   - always: speak regardless of what the user is looking at
@@ -202,6 +204,8 @@ export interface SettingsStore {
   completionVolume: number;
   scaleSoundWithTaskLength: boolean;
   customSounds: CustomSound[];
+  // Epoch ms. Until then, alerts make no sound, voice or system notification.
+  notificationsPausedUntil: number | null;
   setDesktopNotifications: (enabled: boolean) => void;
   setDockBadgeNotifications: (enabled: boolean) => void;
   setDockBounceNotifications: (enabled: boolean) => void;
@@ -212,6 +216,7 @@ export interface SettingsStore {
   addCustomSound: (sound: CustomSound) => void;
   removeCustomSound: (id: string) => void;
   renameCustomSound: (id: string, name: string) => void;
+  setNotificationsPausedUntil: (until: number | null) => void;
 
   // Spoken notifications
   spokenNotifications: boolean;
@@ -240,6 +245,9 @@ export interface SettingsStore {
   // instead of the hand-typed customInstructions above.
   syncCustomInstructionsFromFile: boolean;
   syncedCustomInstructions: SyncedCustomInstructions | null;
+  // Per project, the custom instructions text last uploaded to "My
+  // instructions" on the server. Keyed by project id.
+  customInstructionsOnServer: Record<string, string>;
   setAutoConvertLongText: (value: AutoConvertLongText) => void;
   setSendMessagesWith: (mode: SendMessagesWith) => void;
   setCustomInstructions: (instructions: string) => void;
@@ -248,10 +256,14 @@ export interface SettingsStore {
   setSyncedCustomInstructions: (
     synced: SyncedCustomInstructions | null,
   ) => void;
+  setCustomInstructionsOnServer: (projectId: number, content: string) => void;
 
   // Diff viewer
   diffOpenMode: DiffOpenMode;
   setDiffOpenMode: (mode: DiffOpenMode) => void;
+
+  navRailSize: NavRailSize;
+  setNavRailSize: (size: NavRailSize) => void;
 
   // Spend limits. A warn line only notifies; a stop line pauses new agent
   // messages in this app, and the monthly stop also syncs to the gateway
@@ -291,6 +303,7 @@ export interface SettingsStore {
   codexModelAccess: ModelAccess;
   claudeModelAccess: ModelAccess;
   claudeCloudSubscriptionOn: boolean;
+  codexCloudSubscriptionOn: boolean;
   setAllowBypassPermissions: (enabled: boolean) => void;
   setPreventSleepWhileRunning: (enabled: boolean) => void;
   setDebugLogsCloudRuns: (enabled: boolean) => void;
@@ -300,6 +313,7 @@ export interface SettingsStore {
   setCodexModelAccess: (mode: ModelAccess) => void;
   setClaudeModelAccess: (mode: ModelAccess) => void;
   setClaudeCloudSubscriptionOn: (enabled: boolean) => void;
+  setCodexCloudSubscriptionOn: (enabled: boolean) => void;
 
   // Terminal
   terminalFont: TerminalFont;
@@ -367,6 +381,16 @@ export const NOTIFICATION_DEFAULTS = {
   elevenLabsVoiceId: "",
   elevenLabsKeyConfigured: false,
 };
+
+export const NOTIFICATION_PAUSE_MS = 60 * 60 * 1000;
+
+// No timer clears the pause: it ends when the clock passes the stored time.
+export function notificationsPaused(
+  pausedUntil: number | null,
+  now = Date.now(),
+): boolean {
+  return pausedUntil !== null && now < pausedUntil;
+}
 
 export const useSettingsStore = create<SettingsStore>()(
   persist(
@@ -452,6 +476,7 @@ export const useSettingsStore = create<SettingsStore>()(
       // Kept out of NOTIFICATION_DEFAULTS so "Reset to defaults" never discards
       // sounds the user installed.
       customSounds: [],
+      notificationsPausedUntil: null,
       setDesktopNotifications: (enabled) =>
         set({ desktopNotifications: enabled }),
       setDockBadgeNotifications: (enabled) =>
@@ -497,6 +522,8 @@ export const useSettingsStore = create<SettingsStore>()(
             s.id === id ? { ...s, name } : s,
           ),
         })),
+      setNotificationsPausedUntil: (until) =>
+        set({ notificationsPausedUntil: until }),
 
       // Composer / chat
       autoConvertLongText: "2500",
@@ -505,6 +532,7 @@ export const useSettingsStore = create<SettingsStore>()(
       ste100Enabled: true,
       syncCustomInstructionsFromFile: false,
       syncedCustomInstructions: null,
+      customInstructionsOnServer: {},
       setAutoConvertLongText: (value) => set({ autoConvertLongText: value }),
       setSendMessagesWith: (mode) => set({ sendMessagesWith: mode }),
       setCustomInstructions: (instructions) =>
@@ -514,10 +542,20 @@ export const useSettingsStore = create<SettingsStore>()(
         set({ syncCustomInstructionsFromFile: enabled }),
       setSyncedCustomInstructions: (synced) =>
         set({ syncedCustomInstructions: synced }),
+      setCustomInstructionsOnServer: (projectId, content) =>
+        set((state) => ({
+          customInstructionsOnServer: {
+            ...state.customInstructionsOnServer,
+            [String(projectId)]: content,
+          },
+        })),
 
       // Diff viewer
       diffOpenMode: "auto",
       setDiffOpenMode: (mode) => set({ diffOpenMode: mode }),
+
+      navRailSize: DEFAULT_NAV_RAIL_SIZE,
+      setNavRailSize: (size) => set({ navRailSize: size }),
 
       // Spend limits
       spendLimits: EMPTY_SPEND_LIMITS,
@@ -563,6 +601,7 @@ export const useSettingsStore = create<SettingsStore>()(
       codexModelAccess: "posthog-gateway",
       claudeModelAccess: "posthog-gateway",
       claudeCloudSubscriptionOn: false,
+      codexCloudSubscriptionOn: false,
       setAllowBypassPermissions: (enabled) =>
         set({ allowBypassPermissions: enabled }),
       setPreventSleepWhileRunning: (enabled) =>
@@ -576,6 +615,8 @@ export const useSettingsStore = create<SettingsStore>()(
       setClaudeModelAccess: (mode) => set({ claudeModelAccess: mode }),
       setClaudeCloudSubscriptionOn: (enabled) =>
         set({ claudeCloudSubscriptionOn: enabled }),
+      setCodexCloudSubscriptionOn: (enabled) =>
+        set({ codexCloudSubscriptionOn: enabled }),
 
       // Terminal
       terminalFont: "berkeley-mono",
@@ -694,6 +735,7 @@ export const useSettingsStore = create<SettingsStore>()(
         completionVolume: state.completionVolume,
         scaleSoundWithTaskLength: state.scaleSoundWithTaskLength,
         customSounds: state.customSounds,
+        notificationsPausedUntil: state.notificationsPausedUntil,
         spokenNotifications: state.spokenNotifications,
         spokenNotifyNeedsInput: state.spokenNotifyNeedsInput,
         spokenNotifyCompletion: state.spokenNotifyCompletion,
@@ -708,9 +750,11 @@ export const useSettingsStore = create<SettingsStore>()(
         customInstructions: state.customInstructions,
         ste100Enabled: state.ste100Enabled,
         syncCustomInstructionsFromFile: state.syncCustomInstructionsFromFile,
+        customInstructionsOnServer: state.customInstructionsOnServer,
 
         // Diff viewer
         diffOpenMode: state.diffOpenMode,
+        navRailSize: state.navRailSize,
 
         // Spend limits
         spendLimits: state.spendLimits,
@@ -729,6 +773,7 @@ export const useSettingsStore = create<SettingsStore>()(
         codexModelAccess: state.codexModelAccess,
         claudeModelAccess: state.claudeModelAccess,
         claudeCloudSubscriptionOn: state.claudeCloudSubscriptionOn,
+        codexCloudSubscriptionOn: state.codexCloudSubscriptionOn,
 
         // Terminal
         terminalFont: state.terminalFont,

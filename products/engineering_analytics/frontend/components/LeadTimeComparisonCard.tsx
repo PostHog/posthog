@@ -1,5 +1,4 @@
-// Lead time to deploy for one scope (an author or a team) against the repository: one scope-vs-repo box
-// plot per stage. No DORA band edge here: a band on one person's or one team's lead time reads as a grade.
+// No DORA band edge: a band on one person's or one team's lead time reads as a grade.
 
 import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
@@ -30,7 +29,6 @@ export function LeadTimeComparisonCard({
     loading,
 }: {
     leadTime: DeliveryLeadTimeApi | null | undefined
-    /** The box label for the scope, e.g. "This author" or "This team". */
     scopeLabel: string
     loading: boolean
 }): JSX.Element {
@@ -54,11 +52,11 @@ export function LeadTimeComparisonCard({
                     title={
                         <div className="flex flex-col gap-1">
                             <div>
-                                Merged pull requests (bots and drafts excluded), each matched once to the first
-                                successful deploy that contains its merge, in the environments named under the headline.
-                                Open to merge includes draft time. The three stages use the same pull requests. For each
-                                one, open to merge and merge to deploy add up to open to deploy, but their medians do
-                                not.
+                                Pull requests merged in the window (bots and drafts excluded), each matched once to the
+                                first successful deploy that contains its merge by the window end, in the environments
+                                named under the headline. Open to merge includes draft time. The three stages use the
+                                same pull requests. For each one, open to merge and merge to deploy add up to open to
+                                deploy, but their medians do not.
                             </div>
                             <div>
                                 Box: the middle half of the pull requests. Line: median. Dot: mean. Whiskers: 5th to

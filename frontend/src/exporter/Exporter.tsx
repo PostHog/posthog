@@ -5,6 +5,8 @@ import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import { Suspense, useEffect, useSyncExternalStore } from 'react'
 
+import { DashboardLoadingState } from '@posthog/products-dashboards/frontend/components/DashboardLoadingState/DashboardLoadingState'
+
 import { Logo } from 'lib/brand'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { useThemedHtml } from 'lib/hooks/useThemedHtml'
@@ -226,7 +228,11 @@ export function Exporter(props: ExportedData): JSX.Element {
                         />
                     </Suspense>
                 ) : dashboard ? (
-                    <Suspense fallback={<ExportedSceneSkeleton />}>
+                    <Suspense
+                        fallback={
+                            <DashboardLoadingState showControls={false} tileCount={dashboard.tiles?.length ?? 0} />
+                        }
+                    >
                         <LazyDashboardScene dashboard={dashboard} type={type} themes={themes} />
                     </Suspense>
                 ) : recording ? (

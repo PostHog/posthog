@@ -6,6 +6,9 @@ import hashlib
 from collections.abc import Iterator
 from typing import Any
 
+from django.core.exceptions import ValidationError
+from django.core.validators import URLValidator
+
 from posthog.dataclasses import frozen
 
 # Type aliases for TipTap editor nodes
@@ -74,6 +77,7 @@ _MARKDOWN_ESCAPED_COMPONENT_START_REGEX = re.compile(r"^\\<[A-Z][A-Za-z0-9]*(\s|
 _MARKDOWN_INLINE_ESCAPABLE_CHARACTERS = frozenset("\\`*_~[]()<>#+-.|!")
 _MAX_MARKDOWN_COMPONENT_LINES = 1_000
 _MAX_MARKDOWN_COMPONENT_CHARACTERS = 256 * 1024
+_validate_notebook_embed_src = URLValidator(schemes=["http", "https"])
 
 
 @frozen
@@ -182,6 +186,12 @@ def _filter_supported_markdown_component_for_sharing(tag_name: str, raw: str) ->
     for prop_name, expected_type in supported_props.items():
         value = props.get(prop_name)
         if _is_markdown_component_prop_type(value, expected_type):
+            if tag_name == "Embed" and prop_name == "src" and isinstance(value, str):
+                value = value.strip()
+                try:
+                    _validate_notebook_embed_src(value)
+                except ValidationError:
+                    continue
             filtered_props[prop_name] = value
 
     return _serialize_markdown_component(tag_name, filtered_props)

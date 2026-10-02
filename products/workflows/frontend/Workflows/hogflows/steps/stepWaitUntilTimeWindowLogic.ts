@@ -106,12 +106,6 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   }[]
               }
             | {
-                  reason?: string | undefined
-              }
-            | {
-                  type: 'schedule'
-              }
-            | {
                   conditions: {
                       filters: {
                           actions?: any[] | undefined
@@ -120,7 +114,12 @@ export interface stepWaitUntilTimeWindowLogicActions {
                       }
                       name?: string | undefined
                   }[]
-                  delay_duration?: string | undefined
+              }
+            | {
+                  reason?: string | undefined
+              }
+            | {
+                  type: 'schedule'
               }
             | {
                   filters: {
@@ -404,12 +403,6 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   }[]
               }
             | {
-                  reason?: string | undefined
-              }
-            | {
-                  type: 'schedule'
-              }
-            | {
                   conditions: {
                       filters: {
                           actions?: any[] | undefined
@@ -418,7 +411,12 @@ export interface stepWaitUntilTimeWindowLogicActions {
                       }
                       name?: string | undefined
                   }[]
-                  delay_duration?: string | undefined
+              }
+            | {
+                  reason?: string | undefined
+              }
+            | {
+                  type: 'schedule'
               }
             | {
                   filters: {

@@ -15,6 +15,7 @@ common-alloc = { path = "../common/alloc" }
 limiters = { path = "../common/limiters" }
 capture = { path = "../capture" }
 capture-logs = { path = "../capture-logs" }
+prometheus-rw-proto = { path = "../prometheus-rw-proto" }
 common-compression = { path = "../common/compression" }
 common-redis = { path = "../common/redis" }
 # redis leaves the rustls provider to the binary, so `rediss://` needs one installed here.
@@ -31,6 +32,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 siphasher = { workspace = true }
 thiserror = { workspace = true }
+uuid = { workspace = true }
 
 [lints]
 workspace = true

@@ -66,6 +66,44 @@ class TestRuntimeModelCapabilities(SimpleTestCase):
             )
 
 
+class TestRunStateModelAccess(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ({}, "posthog-gateway", None),
+            (
+                {"claude_model_access": "own-subscription", "claude_subscription_user_id": 12},
+                "own-subscription",
+                "claude",
+            ),
+            (
+                {
+                    "runtime_adapter": "codex",
+                    "codex_model_access": "own-subscription",
+                    "codex_subscription_user_id": 12,
+                },
+                "own-subscription",
+                "codex",
+            ),
+        ]
+    )
+    def test_decodes_legacy_fields(self, state: dict, kind: str, adapter: str | None) -> None:
+        access = RunState.model_validate(state).model_access
+        assert access.kind == kind
+        assert access.adapter == adapter
+        assert access.owner_id == (12 if adapter else None)
+
+    @parameterized.expand(
+        [
+            ({"claude_model_access": "own-subscription", "codex_model_access": "own-subscription"},),
+            ({"runtime_adapter": "claude", "codex_model_access": "own-subscription"},),
+            ({"runtime_adapter": "codex", "claude_model_access": "own-subscription"},),
+        ]
+    )
+    def test_rejects_incompatible_subscriptions(self, state: dict) -> None:
+        with self.assertRaises(ValueError):
+            _ = RunState.model_validate(state).model_access
+
+
 class TestRunStateResumeCompatibility(SimpleTestCase):
     @parameterized.expand(
         [
@@ -190,16 +228,15 @@ class TestGetSandboxMcpConfigs(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("https://app.posthog.com", "https://mcp.posthog.com/mcp"),
-            ("https://us.posthog.com", "https://mcp.posthog.com/mcp"),
-            ("https://eu.posthog.com", "https://mcp-eu.posthog.com/mcp"),
-            ("https://app.dev.posthog.dev", "https://mcp.dev.posthog.dev/mcp"),
+            ("https://mcp.eu.posthog.com/mcp", "https://mcp.eu.posthog.com/mcp"),
+            ("http://localhost:8787/mcp", "http://host.docker.internal:8787/mcp"),
+            ("http://127.0.0.1:8787/mcp", "http://host.docker.internal:8787/mcp"),
         ]
     )
-    def test_derives_mcp_config_from_site_url(self, site_url: str, expected_mcp_url: str) -> None:
+    def test_uses_the_mcp_server_url_setting(self, mcp_server_url: str, expected_mcp_url: str) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
             mock_settings.SANDBOX_MCP_URL = None
-            mock_settings.SITE_URL = site_url
+            mock_settings.MCP_SERVER_URL = mcp_server_url
             configs = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID)
             assert configs == [
                 McpServerConfig(
@@ -214,7 +251,7 @@ class TestGetSandboxMcpConfigs(SimpleTestCase):
     def test_explicit_sandbox_mcp_url_takes_precedence(self) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
             mock_settings.SANDBOX_MCP_URL = "https://custom-mcp.example.com/mcp"
-            mock_settings.SITE_URL = "https://app.posthog.com"
+            mock_settings.MCP_SERVER_URL = "https://mcp.us.posthog.com/mcp"
             configs = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID)
             assert configs == [
                 McpServerConfig(
@@ -229,13 +266,13 @@ class TestGetSandboxMcpConfigs(SimpleTestCase):
     def test_full_scopes_preset(self) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
             mock_settings.SANDBOX_MCP_URL = None
-            mock_settings.SITE_URL = "https://app.posthog.com"
+            mock_settings.MCP_SERVER_URL = "https://mcp.us.posthog.com/mcp"
             configs = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID, scopes="full")
             assert configs == [
                 McpServerConfig(
                     type="http",
                     name="posthog",
-                    url="https://mcp.posthog.com/mcp",
+                    url="https://mcp.us.posthog.com/mcp",
                     headers=self._expected_headers(read_only=False),
                     description=POSTHOG_MCP_DESCRIPTION,
                 )
@@ -244,7 +281,7 @@ class TestGetSandboxMcpConfigs(SimpleTestCase):
     def test_custom_scopes_with_write(self) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
             mock_settings.SANDBOX_MCP_URL = None
-            mock_settings.SITE_URL = "https://app.posthog.com"
+            mock_settings.MCP_SERVER_URL = "https://mcp.us.posthog.com/mcp"
             configs = get_sandbox_ph_mcp_configs(
                 self.TOKEN, self.PROJECT_ID, scopes=["feature_flag:read", "feature_flag:write"]
             )
@@ -252,7 +289,7 @@ class TestGetSandboxMcpConfigs(SimpleTestCase):
                 McpServerConfig(
                     type="http",
                     name="posthog",
-                    url="https://mcp.posthog.com/mcp",
+                    url="https://mcp.us.posthog.com/mcp",
                     headers=self._expected_headers(read_only=False),
                     description=POSTHOG_MCP_DESCRIPTION,
                 )
@@ -261,7 +298,7 @@ class TestGetSandboxMcpConfigs(SimpleTestCase):
     def test_custom_scopes_read_only(self) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
             mock_settings.SANDBOX_MCP_URL = None
-            mock_settings.SITE_URL = "https://app.posthog.com"
+            mock_settings.MCP_SERVER_URL = "https://mcp.us.posthog.com/mcp"
             configs = get_sandbox_ph_mcp_configs(
                 self.TOKEN, self.PROJECT_ID, scopes=["feature_flag:read", "insight:read"]
             )
@@ -269,52 +306,22 @@ class TestGetSandboxMcpConfigs(SimpleTestCase):
                 McpServerConfig(
                     type="http",
                     name="posthog",
-                    url="https://mcp.posthog.com/mcp",
+                    url="https://mcp.us.posthog.com/mcp",
                     headers=self._expected_headers(read_only=True),
                     description=POSTHOG_MCP_DESCRIPTION,
                 )
             ]
 
-    @parameterized.expand(
-        [("https://custom.example.com",)],
-    )
-    def test_returns_empty_list_for_unknown_hosts(self, site_url: str) -> None:
+    def test_returns_empty_list_when_no_mcp_server_url(self) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
             mock_settings.SANDBOX_MCP_URL = None
-            mock_settings.SITE_URL = site_url
-            assert get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID) == []
-
-    @parameterized.expand(
-        [
-            ("http://localhost:8000",),
-            ("http://127.0.0.1:8001",),
-        ]
-    )
-    def test_localhost_site_url_uses_host_docker_internal_mcp(self, site_url: str) -> None:
-        with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
-            mock_settings.SANDBOX_MCP_URL = None
-            mock_settings.SITE_URL = site_url
-            configs = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID)
-            assert configs == [
-                McpServerConfig(
-                    type="http",
-                    name="posthog",
-                    url="http://host.docker.internal:8787/mcp",
-                    headers=self._expected_headers(),
-                    description=POSTHOG_MCP_DESCRIPTION,
-                )
-            ]
-
-    def test_returns_empty_list_when_no_site_url(self) -> None:
-        with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
-            mock_settings.SANDBOX_MCP_URL = None
-            mock_settings.SITE_URL = ""
+            mock_settings.MCP_SERVER_URL = ""
             assert get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID) == []
 
     def test_task_id_adds_attribution_header(self) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
             mock_settings.SANDBOX_MCP_URL = None
-            mock_settings.SITE_URL = "https://app.posthog.com"
+            mock_settings.MCP_SERVER_URL = "https://mcp.us.posthog.com/mcp"
             configs = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID, task_id="task-uuid-123")
             assert configs[0].headers == [
                 *self._expected_headers(),
@@ -324,7 +331,7 @@ class TestGetSandboxMcpConfigs(SimpleTestCase):
     def test_origin_product_adds_task_origin_header(self) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
             mock_settings.SANDBOX_MCP_URL = None
-            mock_settings.SITE_URL = "https://app.posthog.com"
+            mock_settings.MCP_SERVER_URL = "https://mcp.us.posthog.com/mcp"
             configs = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID, origin_product="signals_scout")
             assert configs[0].headers == [
                 *self._expected_headers(),
@@ -334,7 +341,7 @@ class TestGetSandboxMcpConfigs(SimpleTestCase):
     def test_no_task_id_omits_attribution_header(self) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
             mock_settings.SANDBOX_MCP_URL = None
-            mock_settings.SITE_URL = "https://app.posthog.com"
+            mock_settings.MCP_SERVER_URL = "https://mcp.us.posthog.com/mcp"
             configs = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID)
             assert all(h["name"] != "X-PostHog-Task-Id" for h in configs[0].headers)
 
@@ -344,7 +351,7 @@ class TestGetSandboxMcpConfigs(SimpleTestCase):
         # for "insights" or "feature flags" concludes it has no PostHog tools.
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
             mock_settings.SANDBOX_MCP_URL = None
-            mock_settings.SITE_URL = "https://app.posthog.com"
+            mock_settings.MCP_SERVER_URL = "https://mcp.us.posthog.com/mcp"
             description = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID)[0].description or ""
 
         for capability in ("insight", "dashboard", "feature flag", "experiment", "error", "sql"):
@@ -379,7 +386,7 @@ class TestGetSandboxMcpConfigs(SimpleTestCase):
     ) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
             mock_settings.SANDBOX_MCP_URL = None
-            mock_settings.SITE_URL = "https://app.posthog.com"
+            mock_settings.MCP_SERVER_URL = "https://mcp.us.posthog.com/mcp"
             configs = get_sandbox_ph_mcp_configs(
                 self.TOKEN,
                 self.PROJECT_ID,
@@ -391,7 +398,7 @@ class TestGetSandboxMcpConfigs(SimpleTestCase):
                 McpServerConfig(
                     type="http",
                     name="posthog",
-                    url="https://mcp.posthog.com/mcp",
+                    url="https://mcp.us.posthog.com/mcp",
                     headers=[
                         *self._expected_headers(consumer=expected_consumer),
                         *([{"name": "X-PostHog-Task-Origin", "value": origin_product}] if origin_product else []),
@@ -403,7 +410,7 @@ class TestGetSandboxMcpConfigs(SimpleTestCase):
     def test_exclude_tools_header(self) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
             mock_settings.SANDBOX_MCP_URL = None
-            mock_settings.SITE_URL = "https://app.posthog.com"
+            mock_settings.MCP_SERVER_URL = "https://mcp.us.posthog.com/mcp"
             configs = get_sandbox_ph_mcp_configs(
                 self.TOKEN, self.PROJECT_ID, exclude_tools=["docs-search", "DOCS-SEARCH", "not a tool"]
             )
@@ -1328,6 +1335,10 @@ _CTX, _TASK = _gateway_ctx_task()
     return_value="https://us.posthog.com",
 )
 class TestBuildSandboxEnvironmentVariablesGateway(TestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.enterContext(patch("products.tasks.backend.temporal.process_task.utils.record_gateway_routing"))
+
     def _build(self):
         ctx, task = _gateway_ctx_task()
         return build_sandbox_environment_variables(github_token=None, access_token="tok", ctx=ctx, task=task)
@@ -1357,6 +1368,10 @@ class TestBuildSandboxEnvironmentVariablesGateway(TestCase):
 
 
 class TestBuildSandboxEnvironmentVariables(SimpleTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.enterContext(patch("products.tasks.backend.temporal.process_task.utils.record_gateway_routing"))
+
     @patch(
         "products.tasks.backend.logic.services.connection_token.get_sandbox_jwt_public_key",
         return_value="pub",

@@ -1,13 +1,12 @@
 import { useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconChevronDown } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { MemberSelect } from 'lib/components/MemberSelect'
 import { userLogic } from 'scenes/userLogic'
 
 import type { ScoutOwnerOption } from '../../../utils/scoutOwners'
-import { InboxPeoplePicker } from '../../shell/InboxPeoplePicker'
 
 /**
  * Whose scouts the roster shows: the same people picker as the reports scope control, behind a
@@ -27,9 +26,7 @@ export function ScoutOwnerFilter({
     size?: 'xsmall' | 'small'
 }): JSX.Element {
     const { user } = useValues(userLogic)
-    const [open, setOpen] = useState(false)
     const [search, setSearch] = useState('')
-    const [referenceEl, setReferenceEl] = useState<HTMLDivElement | null>(null)
 
     // Your own scouts are the ones you came here to find, so the list says which are yours.
     const nameOf = (option: ScoutOwnerOption): string =>
@@ -43,40 +40,27 @@ export function ScoutOwnerFilter({
         )
         .map((option) => ({ uuid: option.uuid, name: nameOf(option), email: option.email, trailing: option.count }))
 
-    const pick = (owner: string | null): void => {
-        onChange(owner)
-        setOpen(false)
-        setSearch('')
-    }
-
     return (
-        <>
-            <div ref={setReferenceEl} className="inline-flex">
+        <MemberSelect
+            value={selected}
+            defaultLabel="Any owner"
+            options={people}
+            onSearch={setSearch}
+            onChange={() => onChange(null)}
+            onSelectOption={(uuid) => onChange(uuid)}
+        >
+            {() => (
                 <LemonButton
                     type="secondary"
                     size={size}
-                    active={open}
-                    onClick={() => setOpen((value) => !value)}
                     aria-label="Filter scouts by owner"
                     data-attr="inbox-scout-filter-owner"
-                    sideIcon={<IconChevronDown />}
                 >
                     <span className="max-w-[160px] truncate">
                         {selectedOption ? nameOf(selectedOption) : 'Any owner'}
                     </span>
                 </LemonButton>
-            </div>
-            <InboxPeoplePicker
-                visible={open}
-                referenceElement={referenceEl}
-                onClose={() => setOpen(false)}
-                search={search}
-                onSearch={setSearch}
-                people={people}
-                selectedUuid={selected}
-                everyoneLabel="Any owner"
-                onPick={(person) => pick(person?.uuid ?? null)}
-            />
-        </>
+            )}
+        </MemberSelect>
     )
 }

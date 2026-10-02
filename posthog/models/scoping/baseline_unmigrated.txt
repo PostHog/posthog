@@ -130,6 +130,7 @@ ProductTour
 ProjectSecretAPIKey
 PropertyAccessControl
 QueryTabState
+QueueJob
 QuickFilter
 QuickFilterContext
 Reminder

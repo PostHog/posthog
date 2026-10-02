@@ -507,13 +507,13 @@ def _issue_event_rows(prs: list[dict[str, Any]], anchor: datetime) -> list[dict[
     return rows
 
 
-# Open PRs get a mix of verdicts so both open groups of the day view ("the author's move", "waiting on others") have rows.
 _MERGED_REVIEW_PLANS: tuple[tuple[tuple[str, float], ...], ...] = (
     (("CHANGES_REQUESTED", 0.35), ("APPROVED", 0.7)),
     (("APPROVED", 0.5),),
     (("COMMENTED", 0.3), ("APPROVED", 0.85)),
     (("APPROVED", 0.9),),
 )
+# A mix of verdicts, so both open groups of the day view have rows.
 _OPEN_REVIEW_PLANS: tuple[tuple[tuple[str, float], ...], ...] = (
     (("CHANGES_REQUESTED", 0.6),),
     (("COMMENTED", 0.5),),
@@ -932,6 +932,9 @@ def _team_membership_rows(prs: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 {
                     "id": 900_000 + member_index,
                     "login": login,
+                    # One maintainer per team, so the roster read's maintainers-first order is
+                    # visible locally instead of every member looking the same.
+                    "role": "maintainer" if slot == 0 and member_index < team_count else "member",
                     "team_id": team_index + 1,
                     "team_slug": slug,
                     "team_name": slug.removeprefix("team-").replace("-", " ").title(),

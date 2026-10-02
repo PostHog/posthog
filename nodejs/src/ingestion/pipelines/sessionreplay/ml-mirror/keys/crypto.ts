@@ -21,7 +21,7 @@ export interface MlEncryptedEnvelope {
     ciphertext: string
 }
 
-const NONCE_BYTES = 12
+export const NONCE_BYTES = 12
 export const TAG_BYTES = 16
 
 /** Both readers rebuild this byte for byte, so key order is sorted and there is no whitespace. */
@@ -181,17 +181,43 @@ export class MlKeyEncryption {
     }
 }
 
-export function encryptEnvelope(key: MlDataKey, kind: string, data: Buffer, ref?: string): Buffer {
+/** Names how the reader must expand the plaintext. It sits inside the authenticated context so it cannot be downgraded. */
+export type MlEnvelopeCodec = 'none' | 'brotli'
+
+const ENVELOPE_MAGIC = Buffer.from('AISR03')
+const AAD_LENGTH_BYTES = 2
+
+/**
+ * Frames the ciphertext as raw bytes rather than base64 in JSON, which stores a quarter fewer bytes for the same payload.
+ * The frame carries the additional authenticated data verbatim, so a reader authenticates against the bytes we signed
+ * instead of rebuilding canonical JSON of its own.
+ */
+export function encryptEnvelope(
+    key: MlDataKey,
+    kind: string,
+    body: Buffer,
+    options: { ref?: string; codec: MlEnvelopeCodec }
+): Buffer {
+    const context = { ...key.identity, kind, codec: options.codec, ...(options.ref ? { ref: options.ref } : {}) }
+    const aad = Buffer.from(canonicalJson({ v: 3, context }))
+    if (aad.length > 0xffff) {
+        throw new Error('ML envelope context is too long to frame')
+    }
+    const nonce = randomBytes(NONCE_BYTES)
+    const cipher = createCipheriv('aes-256-gcm', key.plaintext, nonce, { authTagLength: TAG_BYTES })
+    cipher.setAAD(aad)
+    const ciphertext = Buffer.concat([cipher.update(body), cipher.final(), cipher.getAuthTag()])
+    const header = Buffer.allocUnsafe(AAD_LENGTH_BYTES)
+    header.writeUInt16BE(aad.length)
+    return Buffer.concat([ENVELOPE_MAGIC, header, aad, nonce, ciphertext])
+}
+
+/** Base64 in JSON, for the parquet columns that hold a value rather than an object body. */
+export function encryptEnvelopeJson(key: MlDataKey, kind: string, data: Buffer, ref?: string): MlEncryptedEnvelope {
     const context = { ...key.identity, kind, ...(ref ? { ref } : {}) }
     const nonce = randomBytes(NONCE_BYTES)
     const cipher = createCipheriv('aes-256-gcm', key.plaintext, nonce, { authTagLength: TAG_BYTES })
     cipher.setAAD(Buffer.from(canonicalJson({ v: 3, context })))
     const ciphertext = Buffer.concat([cipher.update(data), cipher.final(), cipher.getAuthTag()])
-    const envelope: MlEncryptedEnvelope = {
-        v: 3,
-        context,
-        nonce: nonce.toString('base64'),
-        ciphertext: ciphertext.toString('base64'),
-    }
-    return Buffer.from(JSON.stringify(envelope))
+    return { v: 3, context, nonce: nonce.toString('base64'), ciphertext: ciphertext.toString('base64') }
 }

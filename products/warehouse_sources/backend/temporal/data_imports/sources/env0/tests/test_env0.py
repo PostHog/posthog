@@ -247,23 +247,46 @@ class TestGetRows:
         # Multi-level fan-out disables resume (one shared hook can't checkpoint two levels).
         manager.save_state.assert_not_called()
 
+    @pytest.mark.parametrize(
+        "endpoint, parents_route, parents, uncovered_path, covered_path, parent_column",
+        [
+            (
+                "environment_costs",
+                "organizationId=org-1",
+                [{"id": "env-1"}, {"id": "env-2"}],
+                "/costs/environments/env-1",
+                "/costs/environments/env-2",
+                "environment_id",
+            ),
+            (
+                "project_costs",
+                "/projects?organizationId=org-1",
+                [{"id": "proj-1"}, {"id": "proj-2"}],
+                "/costs/projects/proj-1",
+                "/costs/projects/proj-2",
+                "project_id",
+            ),
+        ],
+    )
     @mock.patch(SESSION_PATCH)
-    def test_costs_inject_environment_id_and_skip_404s(self, mock_session):
+    def test_costs_inject_the_parent_id_and_skip_404s(
+        self, mock_session, endpoint, parents_route, parents, uncovered_path, covered_path, parent_column
+    ):
         session = mock_session.return_value
         _wire(
             session,
             [
                 ("env0.com/organizations", _response([{"id": "org-1"}])),
-                ("organizationId=org-1", _response([{"id": "env-1"}, {"id": "env-2"}])),
-                # env-1 has no cost monitoring configured.
-                ("/costs/environments/env-1", _response({"message": "not found"}, status_code=404)),
-                ("/costs/environments/env-2", _response([{"date": "2026-06-01", "total": 12.5}])),
+                (parents_route, _response(parents)),
+                # The first parent has no cost monitoring configured.
+                (uncovered_path, _response({"message": "not found"}, status_code=404)),
+                (covered_path, _response([{"date": "2026-06-01", "total": 12.5}])),
             ],
         )
 
-        rows = _rows(_source("environment_costs", _make_manager()))
+        rows = _rows(_source(endpoint, _make_manager()))
 
-        assert rows == [{"date": "2026-06-01", "total": 12.5, "environment_id": "env-2"}]
+        assert rows == [{"date": "2026-06-01", "total": 12.5, parent_column: parents[1]["id"]}]
 
     @mock.patch(SESSION_PATCH)
     def test_non_404_error_fails_the_sync(self, mock_session):
@@ -352,6 +375,129 @@ class TestGetRows:
         assert _query(urls[1])["organizationId"] == ["org-1"]
 
 
+class TestFanOutShaping:
+    @pytest.mark.parametrize(
+        "endpoint, route, payload, expected",
+        [
+            (
+                "organization_costs",
+                "/costs?organizationId=org-1",
+                {
+                    "costDataPoints": [{"date": "2026-06-01", "providersCost": {"AWS": 5}, "groupKey": "p-1"}],
+                    "errors": [],
+                    "staleProjectIds": [],
+                },
+                {"date": "2026-06-01", "providersCost": {"AWS": 5}, "groupKey": "p-1", "organization_id": "org-1"},
+            ),
+            (
+                "drift_causes",
+                "/drift-causes",
+                {"causes": [{"causeId": "cause-1", "causeKind": "unmanagedChange"}]},
+                {"causeId": "cause-1", "causeKind": "unmanagedChange", "organization_id": "org-1"},
+            ),
+        ],
+    )
+    @mock.patch(SESSION_PATCH)
+    def test_wrapped_org_endpoints_select_their_rows(self, mock_session, endpoint, route, payload, expected):
+        session = mock_session.return_value
+        _wire(
+            session,
+            [
+                ("env0.com/organizations", _response([{"id": "org-1"}])),
+                (route, _response(payload)),
+            ],
+        )
+
+        rows = _rows(_source(endpoint, _make_manager()))
+
+        # The rows sit under one key of the response object; its siblings (errors, staleProjectIds)
+        # are not rows, and the organization id appears nowhere in the payload.
+        assert rows == [expected]
+
+    @mock.patch(SESSION_PATCH)
+    def test_organization_users_lifts_the_nested_user_onto_the_row(self, mock_session):
+        session = mock_session.return_value
+        urls = _wire(
+            session,
+            [
+                ("env0.com/organizations", _response([{"id": "org-1"}])),
+                (
+                    "/organizations/org-1/users",
+                    _response(
+                        [
+                            {
+                                "user": {"user_id": "u-1", "email": "member@example.com"},
+                                "role": "Admin",
+                                "status": "Active",
+                            }
+                        ]
+                    ),
+                ),
+            ],
+        )
+
+        rows = _rows(_source("organization_users", _make_manager()))
+
+        # user_id is the row's identity and sits one level down, so a nested column would leave the
+        # primary key unresolvable.
+        assert rows == [
+            {
+                "user_id": "u-1",
+                "email": "member@example.com",
+                "role": "Admin",
+                "status": "Active",
+                "organization_id": "org-1",
+            }
+        ]
+        assert _query(urls[1])["includeApiKeys"] == ["true"]
+
+    @mock.patch(SESSION_PATCH)
+    def test_deployment_resources_window_the_parent_walk_not_the_child(self, mock_session):
+        session = mock_session.return_value
+        urls = _wire(
+            session,
+            [
+                ("env0.com/organizations", _response([{"id": "org-1"}])),
+                ("/environments?organizationId=org-1", _response([{"id": "env-1"}])),
+                (
+                    "/environments/env-1/deployments",
+                    _response([{"id": "dep-1", "startedAt": "2026-06-02T10:00:00.000Z"}]),
+                ),
+                (
+                    "/environments/deployments/dep-1/resources",
+                    _response([{"provider": "aws", "type": "aws_s3_bucket", "name": "logs", "mode": "managed"}]),
+                ),
+            ],
+        )
+
+        rows = _rows(
+            _source(
+                "deployment_resources",
+                _make_manager(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2026, 6, 1, tzinfo=UTC),
+            )
+        )
+
+        # moduleName is absent for root-module resources but is part of the key, and a NULL key part
+        # never matches on merge.
+        assert rows == [
+            {
+                "provider": "aws",
+                "type": "aws_s3_bucket",
+                "name": "logs",
+                "mode": "managed",
+                "moduleName": "",
+                "deployment_id": "dep-1",
+                "deployment_started_at": "2026-06-02T10:00:00.000Z",
+            }
+        ]
+        deployments_query = _query(next(url for url in urls if url.endswith("/deployments") or "/deployments?" in url))
+        assert deployments_query["fromDate"] == ["2026-05-31T00:00:00.000Z"]
+        # The resources endpoint takes no time filter; only the parent walk is bounded.
+        assert _query(next(url for url in urls if "/resources" in url)) == {}
+
+
 class TestEnv0SourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     @mock.patch(SESSION_PATCH)
@@ -372,10 +518,11 @@ class TestEnv0SourceResponse:
             assert response.partition_mode is None
             assert response.partition_keys is None
 
-    def test_fan_out_child_primary_keys_include_parent_id(self):
-        # Cost rows have no globally-unique id of their own; without the environment id in the
-        # key, rows from different environments on the same date would merge into one.
-        assert ENV0_ENDPOINTS["environment_costs"].primary_keys == ["environment_id", "date"]
+    @pytest.mark.parametrize("config", [c for c in ENV0_ENDPOINTS.values() if c.inject_parent_fields])
+    def test_fan_out_child_primary_keys_include_parent_id(self, config):
+        # Fan-out rows carry no globally-unique id of their own; without the parent id in the key,
+        # rows from different parents collapse into one and every later merge multi-matches them.
+        assert config.inject_parent_fields["id"] in config.primary_keys
 
     @pytest.mark.parametrize("config", list(ENV0_ENDPOINTS.values()))
     def test_partition_keys_are_stable_creation_fields(self, config):

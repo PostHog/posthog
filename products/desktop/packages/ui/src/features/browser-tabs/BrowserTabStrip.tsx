@@ -1,4 +1,4 @@
-import { MagnifyingGlassIcon } from "@phosphor-icons/react";
+import { MagnifyingGlassIcon, PlusIcon } from "@phosphor-icons/react";
 import { humanizeReportTitle } from "@posthog/core/inbox/reportPresentation";
 import { useService } from "@posthog/di/react";
 import {
@@ -28,6 +28,8 @@ import {
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useProjectTaskFeeds } from "@posthog/ui/features/canvas/hooks/useProjectTaskFeeds";
 import { useRailPane } from "@posthog/ui/features/canvas/hooks/useRailSurface";
+import { useSelectedCanvasId } from "@posthog/ui/features/canvas/hooks/useSelectedCanvasId";
+import { useWorkLayout } from "@posthog/ui/features/canvas/hooks/useWorkLayout";
 import { isRestorableVisitHref } from "@posthog/ui/features/canvas/railPane";
 import {
   activityReportIdFromHref,
@@ -57,7 +59,10 @@ import { useFocusTab } from "@posthog/ui/features/tab-tiling/useFocusTab";
 import { getTaskInputSessionId } from "@posthog/ui/features/task-detail/taskInputSession";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
-import { reportIdFromHref } from "@posthog/ui/router/reportNavigation";
+import {
+  hrefPath,
+  reportIdFromHref,
+} from "@posthog/ui/router/reportNavigation";
 import { useAppView } from "@posthog/ui/router/useAppView";
 import { track } from "@posthog/ui/shell/analytics";
 import { isMac } from "@posthog/ui/utils/platform";
@@ -97,6 +102,8 @@ import { useActiveTabId } from "./useActiveTabId";
 import { useTabsSnapshot } from "./useBrowserTabs";
 import { useGoToTab } from "./useGoToTab";
 import { useOpenBrowserTab } from "./useOpenBrowserTab";
+
+const NEW_SESSION_TAB_HREF = "/new";
 
 /**
  * Module-level caches of display info, keyed by id. Tabs store only references;
@@ -153,6 +160,8 @@ function BrowserTabStripImpl() {
   const router = useRouter();
   const client = useService<BrowserTabsClient>(BROWSER_TABS_CLIENT);
   const openBrowserTab = useOpenBrowserTab();
+  const workLayout = useWorkLayout();
+  const defaultTabHref = workLayout ? NEW_SESSION_TAB_HREF : DEFAULT_TAB_HREF;
   const params = useParams({ strict: false }) as {
     channelId?: string;
     dashboardId?: string;
@@ -161,6 +170,11 @@ function BrowserTabStripImpl() {
     reportId?: string;
   };
   const routeFeedId = params.feedId ?? null;
+  // The canvases page names its open canvas in its SEARCH, not in a path
+  // param, so fold the two sources into one id. Without this the tab keeps
+  // whatever label it had before you picked a canvas.
+  const selectedCanvasId = useSelectedCanvasId();
+  const routeCanvasId = params.dashboardId ?? selectedCanvasId ?? null;
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   // What the effect reconciles against: the settled href and the tab that entry
   // belongs to, read from one snapshot (see settledLocation for why that
@@ -266,7 +280,7 @@ function BrowserTabStripImpl() {
   // Only poll the all-tasks list when a task tab actually needs a title.
   const hasTaskTab = snapshot.tabs.some((t) => t.taskId != null);
   const { dashboards } = useDashboards(params.channelId);
-  const { dashboard: activeRecord } = useDashboard(params.dashboardId);
+  const { dashboard: activeRecord } = useDashboard(routeCanvasId ?? undefined);
   const { data: allTasks } = useTasks(undefined, { enabled: hasTaskTab });
   // Keyed on the active SESSION, not the path param: on Activity the session
   // comes from the route's search, and without this its title would wait on the
@@ -305,9 +319,9 @@ function BrowserTabStripImpl() {
       if (activeTaskRecord?.id === sessionId) return activeTaskRecord.title;
       return allTasks?.find((t) => t.id === sessionId)?.title ?? null;
     }
-    if (params.dashboardId) {
-      if (activeRecord?.id === params.dashboardId) return activeRecord.name;
-      return dashboards.find((d) => d.id === params.dashboardId)?.name ?? null;
+    if (routeCanvasId) {
+      if (activeRecord?.id === routeCanvasId) return activeRecord.name;
+      return dashboards.find((d) => d.id === routeCanvasId)?.name ?? null;
     }
     if (activeReportId) {
       if (activeReportRecord?.id !== activeReportId) return null;
@@ -316,7 +330,7 @@ function BrowserTabStripImpl() {
     return null;
   }, [
     activeSession.taskId,
-    params.dashboardId,
+    routeCanvasId,
     activeReportId,
     activeTaskRecord,
     allTasks,
@@ -392,7 +406,7 @@ function BrowserTabStripImpl() {
     // decision is made on: it is all-null outside its vocabulary, so two
     // unrelated routes look identical through it.
     const identity: TabIdentity = {
-      dashboardId: params.dashboardId ?? null,
+      dashboardId: routeCanvasId,
       // `activeSession`, not `params`: Activity and a feed read a session into
       // the pane from their route's SEARCH rather than a path param, so the tab
       // would otherwise show "New tab" over an open session.
@@ -516,7 +530,7 @@ function BrowserTabStripImpl() {
     locationIsCurrent,
     settledTabId,
     params.channelId,
-    params.dashboardId,
+    routeCanvasId,
     routeChannelSection,
     routeAppView,
     locationHref,
@@ -568,7 +582,7 @@ function BrowserTabStripImpl() {
       const pinned = pinnedSet.has(t.id);
       const isActive = t.id === (settledTabId ?? activeTabId);
       const taskId = isActive ? (activeSession.taskId ?? null) : t.taskId;
-      const dashId = isActive ? (params.dashboardId ?? null) : t.dashboardId;
+      const dashId = isActive ? routeCanvasId : t.dashboardId;
       const channelId = isActive
         ? (params.channelId ?? activeSession.channelId ?? null)
         : t.channelId;
@@ -645,6 +659,15 @@ function BrowserTabStripImpl() {
           pinned,
         };
       }
+      if (workLayout && hrefPath(t.href ?? "") === NEW_SESSION_TAB_HREF) {
+        return {
+          id: t.id,
+          label: "New session",
+          icon: <PlusIcon size={13} />,
+          channelName: null,
+          pinned,
+        };
+      }
       return {
         id: t.id,
         label: t.viewState?.title ?? "New tab",
@@ -704,7 +727,7 @@ function BrowserTabStripImpl() {
     activeTabId,
     settledTabId,
     params.channelId,
-    params.dashboardId,
+    routeCanvasId,
     activeSession.taskId,
     activeSession.channelId,
     activeReportId,
@@ -714,6 +737,7 @@ function BrowserTabStripImpl() {
     routeFeedId,
     feedName,
     spacesLayout,
+    workLayout,
   ]);
 
   // Navigate to a tab, tagging the history entry with its id so the switch is
@@ -768,7 +792,7 @@ function BrowserTabStripImpl() {
     const next = applyLocalTransform(
       (s) =>
         closeTabLocal(s, tabId, {
-          href: DEFAULT_TAB_HREF,
+          href: defaultTabHref,
           makeId: () => newTabId,
           now: Date.now,
         }).snapshot,
@@ -804,7 +828,7 @@ function BrowserTabStripImpl() {
         s,
         tabIds,
         {
-          href: DEFAULT_TAB_HREF,
+          href: defaultTabHref,
           makeId: () => newTabId,
           now: Date.now,
         },
@@ -875,10 +899,10 @@ function BrowserTabStripImpl() {
 
   const landOnDefault = (tabId?: string): void => {
     const state = tabId ? (prev: object) => ({ ...prev, tabId }) : undefined;
-    navigate({ to: DEFAULT_TAB_HREF, state });
+    navigate({ to: defaultTabHref, state });
   };
 
-  const handleNewTab = (): void => openBrowserTab(DEFAULT_TAB_HREF);
+  const handleNewTab = (): void => openBrowserTab(defaultTabHref);
 
   // Cmd/Ctrl+T opens a new browser tab. Bound here (not globally) so it only
   // fires where the strip is mounted; the new-task shortcut owns Cmd/Ctrl+N.

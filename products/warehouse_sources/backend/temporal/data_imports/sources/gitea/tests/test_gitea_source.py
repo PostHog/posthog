@@ -44,6 +44,7 @@ class TestGiteaSource:
             "401 Client Error: Unauthorized for url: https://gitea.example.com/api/v1/repos/owner/repo/issues",
             "403 Client Error: Forbidden for url: https://gitea.example.com/api/v1/repos/owner/repo/issues",
             "404 Client Error: Not Found for url: https://gitea.example.com/api/v1/repos/owner/repo",
+            "Gitea Actions runs are unavailable for this repository. Syncing workflow runs needs Gitea 1.25 or later with Actions enabled on the repository.",
         ],
     )
     def test_non_retryable_errors_match_known_failures(self, observed_error):
@@ -65,7 +66,12 @@ class TestGiteaSource:
         assert {schema.name for schema in schemas} == set(ENDPOINTS)
         by_name = {schema.name: schema for schema in schemas}
         # Only the endpoints with a real server-side `since` filter are incremental.
-        assert {name for name, schema in by_name.items() if schema.supports_incremental} == {"issues", "commits"}
+        assert {name for name, schema in by_name.items() if schema.supports_incremental} == {
+            "issues",
+            "commits",
+            "issue_comments",
+            "issue_timeline",
+        }
         assert {name for name, schema in by_name.items() if schema.supports_webhooks} == {"issues", "pull_requests"}
         assert by_name["issues"].incremental_fields == INCREMENTAL_FIELDS["issues"]
 
