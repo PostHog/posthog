@@ -57,32 +57,61 @@ def _renamed_from(scope: Scope) -> dict[str, str]:
 
 
 SNAPSHOT_MANIFEST = "frontend/snapshots.yml"
-# A story identifier comes from the story file's title and export names, and the Storybook
-# config decides which story files load. A removal that touches none of these deleted no story.
-STORY_SOURCES = ["*.stories.*", ".storybook/*", "common/storybook/*"]
+STORY_FILES = ["*.stories.*"]
+# The Storybook config decides which story files load, so a change there can remove any story.
+STORYBOOK_CONFIG = [".storybook/*", "common/storybook/*"]
+_STORY_TITLE = re.compile(rb"""^\s*title:\s*(['"`])(.+?)\1""", re.MULTILINE)
 
 
 def _snapshot_identifiers(manifest: bytes) -> set[str]:
     return set(yaml.load(manifest, Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader))["snapshots"])
 
 
+def _story_id_prefixes(scope: Scope) -> set[str] | None:
+    """Identifier prefixes of the stories this diff changed. None when one cannot be named.
+
+    Storybook builds an identifier as the story file's title, lowercased with every run of
+    other characters turned into a dash, then ``--`` and the export name. A story file
+    without a literal title takes its identifier from its path, which is not derived here.
+    """
+    renames = _renamed_from(scope)
+    prefixes: set[str] = set()
+    for path in scope.changed:
+        if not matches_globs(path, STORY_FILES):
+            continue
+        copies = (_git("show", f"{scope.merge_base}:{renames.get(path, path)}"), _head_copy(path, scope.committed_only))
+        for content in copies:
+            if content is None:
+                continue
+            title = _STORY_TITLE.search(content)
+            if title is None:
+                return None
+            prefixes.add(re.sub(r"[^a-z0-9]+", "-", title.group(2).decode(errors="replace").lower()).strip("-"))
+    return prefixes
+
+
 def check_snapshot_baselines(scope: Scope) -> Outcome:
-    if any(matches_globs(path, STORY_SOURCES) for path in scope.changed):
-        return "pass", "a story changed in this diff, so removed entries are expected"
     before = _git("show", f"{scope.merge_base}:{SNAPSHOT_MANIFEST}")
     after = _head_copy(SNAPSHOT_MANIFEST, scope.committed_only)
     if before is None or after is None:
         return "skipped", f"could not read {SNAPSHOT_MANIFEST} on both sides"
-
     removed = sorted(_snapshot_identifiers(before) - _snapshot_identifiers(after))
     if not removed:
         return "pass", "no baseline entries removed"
+    if any(matches_globs(path, STORYBOOK_CONFIG) for path in scope.changed):
+        return "pass", "the Storybook config changed in this diff, so removed entries are expected"
+    prefixes = _story_id_prefixes(scope)
+    if prefixes is None:
+        return "pass", "a story without a literal title changed, so removed entries cannot be attributed"
+    removed = [entry for entry in removed if not any(entry.startswith(f"{prefix}--") for prefix in prefixes)]
+    if not removed:
+        return "pass", "every removed baseline entry belongs to a story this diff changed"
     # An advisory and not a failure, because a branch can remove the entries of a story that
     # an earlier PR deleted, and nothing here can tell that apart from a bad conflict resolution.
     return (
         "advisory",
         f"{len(removed)} baseline {'entry' if len(removed) == 1 else 'entries'} removed "
-        f"but no story file changed (e.g. {removed[0]}). "
+        f"for stories this diff did not change (e.g. {removed[0]}). "
         "If the stories still render, the merge queue fails the batch that carries this file. "
         f"Compare with `git diff {scope.merge_base[:12]} -- {SNAPSHOT_MANIFEST}` "
         "and restore the entries you did not mean to remove",
@@ -164,8 +193,12 @@ def _semgrep_findings(semgrep: list[str], contents: dict[str, bytes]) -> dict[Fi
     # An incomplete scan must not read as a clean one.
     if result.returncode != 0:
         return None
+    report = json.loads(result.stdout)
+    # Semgrep can exit zero and still list a rule or a file it could not process.
+    if report.get("errors"):
+        return None
     findings: dict[Finding, list[int]] = {}
-    for item in json.loads(result.stdout)["results"]:
+    for item in report["results"]:
         path = item["path"]
         if item["extra"]["severity"] == "ERROR" and matches_globs(path, SEMGREP_ERROR_EXCLUDED):
             continue

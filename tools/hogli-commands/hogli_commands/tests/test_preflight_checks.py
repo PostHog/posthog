@@ -41,18 +41,31 @@ def _git_show(blobs: dict[str, bytes]) -> Callable[..., bytes | None]:
 
 class TestSnapshotBaselines:
     @pytest.mark.parametrize(
-        "after,changed,expected_status,removed",
+        "after,stories,expected_status,removed",
         [
-            (MANIFEST_WITHOUT_B, ["frontend/snapshots.yml", "products/x/backend/api.py"], "advisory", "scenes-app-b"),
-            (MANIFEST_WITHOUT_C, ["frontend/snapshots.yml"], "advisory", "scenes-app-c"),
-            (MANIFEST_WITHOUT_B, ["frontend/snapshots.yml", "products/x/frontend/B.stories.tsx"], "pass", None),
-            (MANIFEST_B_REHASHED, ["frontend/snapshots.yml"], "pass", None),
+            (MANIFEST_WITHOUT_B, {}, "advisory", "scenes-app-b"),
+            (MANIFEST_WITHOUT_C, {}, "advisory", "scenes-app-c"),
+            (MANIFEST_WITHOUT_B, {"abc123:x/B.stories.tsx": b"    title: 'Scenes-App/B',"}, "pass", None),
+            (MANIFEST_WITHOUT_B, {"HEAD:x/A.stories.tsx": b"    title: 'Scenes-App/A',"}, "advisory", "scenes-app-b"),
+            (MANIFEST_WITHOUT_B, {"HEAD:x/A.stories.tsx": b"const meta = { title: makeTitle() }"}, "pass", None),
+            (MANIFEST_B_REHASHED, {}, "pass", None),
         ],
     )
-    def test_removal_is_flagged_only_without_a_story_change(
-        self, after: str, changed: list[str], expected_status: str, removed: str | None
+    @patch("hogli_commands.preflight_checks._renamed_from", return_value={})
+    def test_removal_is_flagged_unless_its_own_story_changed(
+        self,
+        mock_renames: MagicMock,
+        after: str,
+        stories: dict[str, bytes],
+        expected_status: str,
+        removed: str | None,
     ) -> None:
-        blobs = {"abc123:frontend/snapshots.yml": MANIFEST.encode(), "HEAD:frontend/snapshots.yml": after.encode()}
+        blobs = {
+            "abc123:frontend/snapshots.yml": MANIFEST.encode(),
+            "HEAD:frontend/snapshots.yml": after.encode(),
+            **stories,
+        }
+        changed = ["frontend/snapshots.yml", *(ref.split(":", 1)[1] for ref in stories)]
         with patch("hogli_commands.preflight_checks._git", side_effect=_git_show(blobs)):
             status, detail = check_snapshot_baselines(_scope(changed))
 
