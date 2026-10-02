@@ -102,12 +102,15 @@ the row lists both.
 | aviationstack                    | HTTP                        | requests                                                        | ✅                          |
 | aviator                          | HTTP                        | requests                                                        | ✅                          |
 | awin                             | HTTP                        | requests                                                        | ✅                          |
+| aws_batch                        | HTTP                        | requests                                                        | ✅                          |
 | aws_budgets                      | HTTP                        | requests                                                        | ✅                          |
 | aws_cloudtrail                   | HTTP                        | requests                                                        | ✅                          |
 | aws_cost_anomaly_detection       | HTTP                        | requests                                                        | ✅                          |
 | aws_cost_explorer                | HTTP                        | requests                                                        | ✅                          |
 | aws_glue_data_catalog            | HTTP                        | requests                                                        | ✅                          |
+| aws_inspector                    | HTTP                        | requests                                                        | ✅                          |
 | aws_organizations                | HTTP                        | requests                                                        | ✅                          |
+| aws_sagemaker                    | HTTP                        | requests                                                        | ✅                          |
 | aws_security_hub                 | HTTP                        | requests                                                        | ✅                          |
 | aws_ses                          | HTTP                        | requests                                                        | ✅                          |
 | aws_waf                          | HTTP                        | requests                                                        | ✅                          |
@@ -916,7 +919,6 @@ doesn't conflict with concurrent PRs.
 - autodesk_construction_cloud
 - automox
 - aws_athena
-- aws_batch
 - aws_cloudformation
 - aws_compute_optimizer
 - aws_config
@@ -925,10 +927,8 @@ doesn't conflict with concurrent PRs.
 - aws_guardduty
 - aws_health
 - aws_iam_access_analyzer
-- aws_inspector
 - aws_macie
 - aws_rds_performance_insights
-- aws_sagemaker
 - aws_savings_plans
 - aws_step_functions
 - aws_support

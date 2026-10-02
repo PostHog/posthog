@@ -189,7 +189,7 @@ describe('ArtefactLogList', () => {
         )
     })
 
-    it('shows the served ranking model heads, highest first, with challengers behind a disclosure', () => {
+    it('shows the served ranking model heads, highest lift first, with challengers behind a disclosure', () => {
         const { container } = render(
             <ArtefactLogList
                 reportId="report-1"
@@ -203,12 +203,14 @@ describe('ArtefactLogList', () => {
                                 'report_embeddings@2026-06-10': {
                                     status: 'scored',
                                     roles: ['served'],
-                                    scores: { pr_merged: 0.52, action: 0.78, refund: 0.04 },
+                                    scores: { pr_merged: 0.52, action: 0.78, refund: 0.04, open: 0.9 },
+                                    lifts: { action: 1.5 },
                                     metadata: {
                                         heads: [
-                                            { head: 'action', readable: true },
-                                            { head: 'pr_merged', readable: true },
-                                            { head: 'refund', readable: false },
+                                            { head: 'action', readable: true, refit_classification_threshold: 0.6 },
+                                            { head: 'pr_merged', readable: true, refit_classification_threshold: 0.2 },
+                                            { head: 'refund', readable: false, refit_classification_threshold: 0.01 },
+                                            { head: 'open', readable: true },
                                         ],
                                     },
                                 },
@@ -227,8 +229,10 @@ describe('ArtefactLogList', () => {
         )
 
         expect(screen.getByText('Ranking scored')).toBeInTheDocument()
-        expect(screen.getAllByText(/^\d+%$/).map((node) => node.textContent)).toEqual(['78%', '52%', '4%'])
-        expect(screen.getByLabelText('No holdout read for this head yet').closest('span')).toHaveTextContent('4%')
+        // Stored lifts win over the metadata threshold, and a head with no threshold sorts last.
+        expect(screen.getAllByText(/^[\d.]+x$/).map((node) => node.textContent)).toEqual(['4.0x', '2.6x', '1.5x'])
+        expect(screen.getAllByText(/^[\d.]+%$/).map((node) => node.textContent)).toEqual(['4.0%', '52%', '78%', '90%'])
+        expect(screen.getByLabelText('No holdout read for this head yet').closest('span')).toHaveTextContent('4.0%')
         expect(screen.getByText('Other models (1)')).toBeInTheDocument()
         expect(container.querySelector('details')).not.toHaveAttribute('open')
         expect(screen.getByText('Skipped: missing report vector')).toBeInTheDocument()
