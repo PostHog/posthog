@@ -20,10 +20,8 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Customization } from 'scenes/surveys/survey-appearance/SurveyCustomization'
 import { SurveyTranslationFields } from 'scenes/surveys/SurveyTranslationFields'
 import { SurveyTranslations } from 'scenes/surveys/SurveyTranslations'
@@ -406,20 +404,17 @@ export function HostedSurveyEdit({ id }: { id: string }): JSX.Element {
         setSurveyManualErrors,
         setSurveyValue,
     } = useActions(surveyLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const [showFlowModal, setShowFlowModal] = useState(false)
     const [viewport, setViewport] = useState<'desktop' | 'mobile'>('desktop')
 
-    const surveyTranslationsEnabled = !!featureFlags[FEATURE_FLAGS.SURVEYS_TRANSLATIONS]
-    const activeLanguage = surveyTranslationsEnabled ? editingLanguage : null
     // Translation-aware view of the survey for the canvas to render. Edits made
     // on the canvas still flow through surveyLogic against the raw survey, so
     // text edits while a translation is being edited won't write to the
     // wrong field — but they also won't update translations. Use the
     // Translations section below the canvas for that.
     const previewSurvey = useMemo(
-        () => getSurveyWithTranslatedContent(survey, activeLanguage),
-        [survey, activeLanguage]
+        () => getSurveyWithTranslatedContent(survey, editingLanguage),
+        [survey, editingLanguage]
     )
     const maxPageIndex = Math.max(survey.questions.length + (survey.appearance?.displayThankYouMessage ? 1 : 0) - 1, 0)
     const activePageIndex = Math.min(selectedPageIndex ?? 0, maxPageIndex)
@@ -553,29 +548,25 @@ export function HostedSurveyEdit({ id }: { id: string }): JSX.Element {
                     </div>
                 </div>
 
-                {surveyTranslationsEnabled ? (
-                    <section className="rounded border bg-surface-primary p-5">
-                        <div className="mb-4 border-b pb-3">
-                            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-secondary">
-                                Languages
-                            </p>
-                            <h2 className="mb-0 text-base font-semibold">Translations</h2>
-                            <p className="mb-0 text-xs text-secondary">
-                                Localize the hosted survey without changing its structure.
-                            </p>
-                        </div>
-                        <div className="flex flex-col gap-3">
-                            {editingLanguage ? (
-                                <div className="rounded border border-warning bg-warning-highlight p-3 text-sm">
-                                    Editing translated survey content. Question order and settings stay in the original
-                                    language.
-                                </div>
-                            ) : null}
-                            <SurveyTranslations />
-                            {activeLanguage ? <SurveyTranslationFields activeLanguage={activeLanguage} /> : null}
-                        </div>
-                    </section>
-                ) : null}
+                <section className="rounded border bg-surface-primary p-5">
+                    <div className="mb-4 border-b pb-3">
+                        <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-secondary">Languages</p>
+                        <h2 className="mb-0 text-base font-semibold">Translations</h2>
+                        <p className="mb-0 text-xs text-secondary">
+                            Localize the hosted survey without changing its structure.
+                        </p>
+                    </div>
+                    <div className="flex flex-col gap-3">
+                        {editingLanguage ? (
+                            <div className="rounded border border-warning bg-warning-highlight p-3 text-sm">
+                                Editing translated survey content. Question order and settings stay in the original
+                                language.
+                            </div>
+                        ) : null}
+                        <SurveyTranslations />
+                        {editingLanguage ? <SurveyTranslationFields activeLanguage={editingLanguage} /> : null}
+                    </div>
+                </section>
 
                 <LemonCollapse
                     className="bg-surface-primary rounded border"
