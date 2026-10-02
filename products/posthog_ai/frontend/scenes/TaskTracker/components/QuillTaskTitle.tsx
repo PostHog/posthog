@@ -41,9 +41,9 @@ export function QuillTaskTitle({ name, icon, isLoading, onRename, backTo, action
             <span className="flex size-5 shrink-0 items-center justify-center text-sm" aria-hidden>
                 {icon}
             </span>
-            <div className="flex min-w-0 flex-1 items-center gap-1">
+            <div className="flex h-6 min-w-0 flex-1 items-center gap-1">
                 {isLoading ? (
-                    <SkeletonText lines={1} className="w-60" />
+                    <SkeletonText lines={1} className="w-60 max-w-full" />
                 ) : draft !== null ? (
                     <Input
                         aria-label="Task title"
