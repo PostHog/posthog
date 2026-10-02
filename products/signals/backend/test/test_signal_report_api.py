@@ -3132,6 +3132,38 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("unresearched", SignalReport.Status.CANDIDATE, True, status.HTTP_409_CONFLICT),
+            ("ready_without_rollout", SignalReport.Status.READY, False, status.HTTP_400_BAD_REQUEST),
+            ("ready_with_rollout", SignalReport.Status.READY, True, status.HTTP_200_OK),
+            ("monitoring_restore_without_rollout", SignalReport.Status.MONITORING, False, status.HTTP_200_OK),
+        ]
+    )
+    def test_monitoring_from_the_archive_obeys_direct_entry_rules(
+        self, _name, prior_status, rollout_enabled, expected_code
+    ):
+        report = self._create_report(report_status=SignalReport.Status.SUPPRESSED)
+        report.status_before_suppression = prior_status
+        report.save(update_fields=["status_before_suppression"])
+        with (
+            self.settings(DEBUG=False),
+            patch(
+                "products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=rollout_enabled
+            ),
+        ):
+            response = self.client.post(
+                self._state_url(str(report.id)),
+                data=json.dumps({"state": "monitoring"}),
+                content_type="application/json",
+            )
+        assert response.status_code == expected_code, response.json()
+        report.refresh_from_db()
+        expected_status = (
+            SignalReport.Status.MONITORING if expected_code == status.HTTP_200_OK else SignalReport.Status.SUPPRESSED
+        )
+        assert report.status == expected_status
+
+    @parameterized.expand(
+        [
             # prior status before archiving, expected status after restore
             ("ready", SignalReport.Status.READY, SignalReport.Status.READY),
             ("pending_input", SignalReport.Status.PENDING_INPUT, SignalReport.Status.PENDING_INPUT),

@@ -150,6 +150,7 @@ from products.signals.backend.report_claims import (
     get_active_claims,
     reports_with_active_claim,
 )
+from products.signals.backend.report_content_gates import team_report_monitoring_enabled
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.resolve_reviewers import (
     ReviewerPayloadIndex,
@@ -692,6 +693,15 @@ _RESOLVABLE_STATUSES_BEFORE_SUPPRESSION = frozenset(
         SignalReport.Status.PENDING_INPUT,
         SignalReport.Status.MONITORING,
         SignalReport.Status.RESOLVED,
+        SignalReport.Status.FAILED,
+    }
+)
+
+# The archived statuses that may enter monitoring as a new entry: the ones that can enter it directly.
+_MONITORABLE_STATUSES_BEFORE_SUPPRESSION = frozenset(
+    {
+        SignalReport.Status.READY,
+        SignalReport.Status.PENDING_INPUT,
         SignalReport.Status.FAILED,
     }
 )
@@ -3251,6 +3261,27 @@ class SignalReportViewSet(
                     "Only a report that was ready, awaiting input, failed, or already resolved when it was "
                     "archived can be resolved from the archive.",
                 )
+
+            # The model lets any archived report enter monitoring, because restoring a monitoring
+            # report must not depend on the rollout flag. Only that restore is exempt here. Any other
+            # archived report enters monitoring on the direct-entry rules: a status that could enter
+            # it directly, and the rollout flag.
+            if (
+                report.status == SignalReport.Status.SUPPRESSED
+                and target_status == SignalReport.Status.MONITORING
+                and report.status_before_suppression != SignalReport.Status.MONITORING
+            ):
+                if report.status_before_suppression not in _MONITORABLE_STATUSES_BEFORE_SUPPRESSION:
+                    return (
+                        SignalReportBulkStateOutcome.SKIPPED,
+                        "Only a report that was ready, awaiting input, failed, or monitoring when it was "
+                        "archived can enter monitoring from the archive.",
+                    )
+                if not team_report_monitoring_enabled(self.team.id):
+                    return (
+                        SignalReportBulkStateOutcome.FAILED,
+                        "Report monitoring is not enabled for this organization.",
+                    )
 
             # "potential" on a suppressed report means "restore" (un-archive): return it to the state
             # it held before suppression when that was a researched, user-visible report, instead of
