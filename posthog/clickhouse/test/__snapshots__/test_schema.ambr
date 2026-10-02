@@ -2409,7 +2409,7 @@
   ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.ingestion_warnings_v2', '{replica}-{shard}')
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, type, timestamp)
-  TTL toDateTime(timestamp) + INTERVAL 90 DAY
+  
   
   '''
 # ---
@@ -11879,7 +11879,7 @@
   ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.ingestion_warnings_v2', '{replica}-{shard}')
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, type, timestamp)
-  TTL toDateTime(timestamp) + INTERVAL 90 DAY
+  
   
   '''
 # ---
