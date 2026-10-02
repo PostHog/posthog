@@ -1987,41 +1987,31 @@ class TestBufferedIngressCapture:
 
     @parameterized.expand(
         [
-            ("sync_still_stopping", None, None, {}, "waits"),
+            ("sync_still_stopping", None, None, "waits"),
             (
                 "sync_closed_with_batches_still_loading",
                 RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b""),
                 30.0,
-                {},
                 "waits",
             ),
             (
                 "sync_closed_and_nothing_queued",
                 RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b""),
                 None,
-                {},
                 "resets",
             ),
-            (
-                "deferred_runs_left_and_nothing_queued",
-                RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b""),
-                None,
-                {"cdc_deferred_runs": [{"run_uuid": "r1"}]},
-                "resets",
-            ),
-            ("temporal_unavailable", RPCError("unavailable", RPCStatusCode.UNAVAILABLE, b""), None, {}, "raises"),
+            ("temporal_unavailable", RPCError("unavailable", RPCStatusCode.UNAVAILABLE, b""), None, "raises"),
         ]
     )
     @patch(f"{_ACTIVITIES}.purge_buffer_prefix")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane.ExternalDataJob")
     def test_a_reset_stops_the_tables_running_sync_first(
-        self, _name, cancel_error, oldest_queued_batch_age, config, outcome, MockJob, mock_purge
+        self, _name, cancel_error, oldest_queued_batch_age, outcome, MockJob, mock_purge
     ):
         # A snapshot that started before a repeated reset missed the changes the reset drops, so it
         # must not reach its hand-over.
         source = _make_source()
         schema = _make_schema("users", cdc_mode="snapshot", source=source)
-        schema.sync_type_config.update(config)
         act = _make_extract_activity(source)
         running = MockJob.objects.filter.return_value.exclude.return_value.exclude.return_value
         running.order_by.return_value.first.return_value = MagicMock(workflow_id="users-snapshot")

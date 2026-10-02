@@ -157,7 +157,7 @@ Two leftovers remain in the data, and nothing reads them:
   CDC setup and Repair CDC still write `buffered`, and the API still keeps the key on a PATCH.
   A rollback to the release that converted legacy sources would read a source without it as legacy and empty its unconsumed buffer.
 - `cdc_deferred_runs` in a table's `sync_type_config`.
-  A reset removes it.
+  A resync, a table-mode change and Repair CDC remove it.
 
 ## When a schedule stops firing
 

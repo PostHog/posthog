@@ -56,6 +56,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.billing_expiry
 from products.warehouse_sources.backend.temporal.data_imports.cdc.broken import (
     AUTO_DROPPED_LAG_REASON,
     SELF_MANAGED_LAG_REASON,
+    broken_for_another_reason,
     clear_recovered_self_managed_lag,
     clear_slot_loss_markers,
     mark_cdc_broken,
@@ -1692,17 +1693,20 @@ def cleanup_orphan_slots_activity() -> None:
                 elif cdc_config.management_mode == "self_managed":
                     # Customer owns the slot: surface the broken state but keep the schedule running
                     # and never drop — the lag may recover once they reduce load on the source.
+                    # A marker with another reason stays. The lag marker allows Resume CDC and clears
+                    # itself once the lag drops, which would lift a stop that only Repair CDC may lift.
                     try:
-                        mark_cdc_broken(
-                            source,
-                            SELF_MANAGED_LAG_REASON,
-                            f"Change data capture replication lag exceeded {critical_threshold_mb} MB. "
-                            f"This slot is self-managed, so PostHog did not drop it — reduce load or WAL "
-                            f"retention on the source database, or it may invalidate the slot and "
-                            f"require a full re-sync.",
-                            pause=False,
-                            lag_mb=round(lag_mb, 1),
-                        )
+                        if not broken_for_another_reason(source, SELF_MANAGED_LAG_REASON):
+                            mark_cdc_broken(
+                                source,
+                                SELF_MANAGED_LAG_REASON,
+                                f"Change data capture replication lag exceeded {critical_threshold_mb} MB. "
+                                f"This slot is self-managed, so PostHog did not drop it — reduce load or WAL "
+                                f"retention on the source database, or it may invalidate the slot and "
+                                f"require a full re-sync.",
+                                pause=False,
+                                lag_mb=round(lag_mb, 1),
+                            )
                     except Exception:
                         source_log.exception("failed_to_mark_self_managed_broken")
                         metrics.get_sweeper_source_errors_metric().add(1)

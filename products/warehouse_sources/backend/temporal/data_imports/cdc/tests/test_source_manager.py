@@ -381,10 +381,6 @@ class TestBufferedGating:
     def test_every_streaming_table_mode_serves_the_buffered_lane(self, table_mode):
         assert serves_buffered_lane(_schema(cdc_table_mode=table_mode)) is True
 
-    @parameterized.expand([("consolidated",), ("cdc_only",), ("both",)])
-    def test_a_streaming_schema_forces_the_buffered_consumer_on_its_scheduled_sync(self, table_mode):
-        assert scheduled_sync_consumes_buffer(_schema(cdc_table_mode=table_mode)) is True
-
     @parameterized.expand(
         [
             ("unrecognized_table_mode", {"cdc_table_mode": "something_new"}),

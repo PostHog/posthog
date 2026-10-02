@@ -126,6 +126,15 @@ def mark_cdc_broken(
     log.warning("cdc_marked_broken", schemas=len(cdc_schemas), newly_broken=len(newly_broken), paused=pause)
 
 
+def broken_for_another_reason(source: ExternalDataSource, reason: str) -> bool:
+    """Whether a table of this source already holds a broken marker with a different reason."""
+    return (
+        ExternalDataSchema.objects.filter(team_id=source.team_id, source=source, sync_type_config__has_key="cdc_broken")
+        .exclude(sync_type_config__cdc_broken__reason=reason)
+        .exists()
+    )
+
+
 def clear_recovered_self_managed_lag(source: ExternalDataSource) -> int:
     """Lift the ``critical_lag_self_managed`` marker once the slot's lag is back under the warning threshold.
 

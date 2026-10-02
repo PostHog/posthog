@@ -211,9 +211,21 @@ def test_critical_lag_auto_drop_disabled_does_not_drop(team):
     adapter.drop_resources.assert_not_called()
 
 
-def test_critical_lag_self_managed_marks_broken_without_drop_or_pause(team):
+@pytest.mark.parametrize(
+    "existing_reason, expected_reason, expected_status",
+    [
+        (None, "critical_lag_self_managed", ExternalDataSource.Status.ERROR),
+        ("legacy_lane_retired", "legacy_lane_retired", "Completed"),
+    ],
+)
+def test_critical_lag_self_managed_marks_broken_without_drop_or_pause(
+    team, existing_reason, expected_reason, expected_status
+):
     source = _create_source(team, job_inputs=_cdc_job_inputs(management="self_managed"))
     schema = _create_cdc_schema(team, source)
+    if existing_reason:
+        schema.sync_type_config = {**schema.sync_type_config, "cdc_broken": {"reason": existing_reason}}
+        schema.save()
     adapter = _mock_adapter(lag_bytes=5000 * 1024 * 1024)
 
     _, _, mock_pause = _run(adapter)
@@ -222,9 +234,9 @@ def test_critical_lag_self_managed_marks_broken_without_drop_or_pause(team):
     adapter.drop_resources.assert_not_called()
     mock_pause.assert_not_called()
     source.refresh_from_db()
-    assert source.status == ExternalDataSource.Status.ERROR
+    assert source.status == expected_status
     schema.refresh_from_db()
-    assert schema.sync_type_config["cdc_broken"]["reason"] == "critical_lag_self_managed"
+    assert schema.sync_type_config["cdc_broken"]["reason"] == expected_reason
 
 
 def _job(team, source, schema, status, age, workflow_id=None):
