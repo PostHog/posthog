@@ -24,7 +24,7 @@ export function BIShowMe({ docked }: { docked: boolean }): JSX.Element {
     const describedFit = describedOption ? chartFits[describedOption.value] : undefined
 
     return (
-        <div className="flex w-44 flex-col">
+        <div className={cn('flex flex-col', docked ? 'w-full' : 'w-44')}>
             <div className="flex min-h-7 items-center justify-between px-2 pt-2">
                 <span className="text-sm font-semibold">Show me</span>
                 {docked ? (
@@ -38,7 +38,7 @@ export function BIShowMe({ docked }: { docked: boolean }): JSX.Element {
                     />
                 ) : null}
             </div>
-            <div className="grid grid-cols-3 gap-1 p-2" role="group" aria-label="Chart type">
+            <div className="grid grid-cols-3 gap-1 p-2 @6xl/bi-editor:grid-cols-6" role="group" aria-label="Chart type">
                 {options.map((option) => {
                     const fits = chartFits[option.value]?.fits ?? true
                     const selected = config.chartType === option.value

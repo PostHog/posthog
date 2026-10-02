@@ -3,9 +3,8 @@ import { useActions, useValues } from 'kea'
 import { IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { BIFilterControl } from 'products/data_warehouse/frontend/bi/BIFilterControl'
-
 import { biEditorLogic } from '../biEditorLogic'
+import { BIFilterPill } from './BIFilterPill'
 import { BIShelfCard } from './BIShelfCard'
 import { BIShelfDropTarget } from './BIShelfDropTarget'
 
@@ -15,9 +14,9 @@ export function BIFiltersCard(): JSX.Element {
 
     return (
         <BIShelfCard title="Filters">
-            <BIShelfDropTarget shelf="filters" className="flex min-h-12 flex-col gap-1 border border-dashed p-1">
+            <BIShelfDropTarget shelf="filters" className="flex min-h-6 flex-col gap-0.5">
                 {config.filters.length > 0 ? (
-                    config.filters.map((filter, index) => <BIFilterControl key={filter.field.id} index={index} />)
+                    config.filters.map((filter, index) => <BIFilterPill key={filter.field.id} index={index} />)
                 ) : (
                     <span className="p-1 text-xs text-tertiary">Drop fields here to filter rows</span>
                 )}
@@ -30,7 +29,7 @@ export function BIFiltersCard(): JSX.Element {
                 onClick={() => addBlankFieldToShelf('filters')}
                 data-attr="bi-editor-filters-add-field"
             >
-                Add a calculated filter
+                Add filter
             </LemonButton>
         </BIShelfCard>
     )

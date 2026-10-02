@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPencil } from '@posthog/icons'
-import { LemonButton, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 
 import { HogQLDropdown } from 'lib/components/HogQLDropdown/HogQLDropdown'
 
@@ -9,7 +9,7 @@ import { BIFilterValueInput } from 'products/data_warehouse/frontend/bi/BIFilter
 
 import { biEditorLogic } from '../biEditorLogic'
 import { DATE_BUCKET_OPTIONS, FILTER_OPERATOR_OPTIONS } from '../biEditorOptions'
-import { isDateTimeBIField } from '../biEditorTypes'
+import { isDateTimeBIField, isNumericBIField } from '../biEditorTypes'
 
 export function BIFilterEditor({ index, onDone }: { index: number; onDone: () => void }): JSX.Element | null {
     const { config } = useValues(biEditorLogic)
@@ -19,6 +19,7 @@ export function BIFilterEditor({ index, onDone }: { index: number; onDone: () =>
         setFieldExpression,
         setFilterCustomExpression,
         setFilterOperator,
+        updateFilter,
     } = useActions(biEditorLogic)
     const filter = config.filters[index]
     if (!filter) {
@@ -61,15 +62,16 @@ export function BIFilterEditor({ index, onDone }: { index: number; onDone: () =>
                 <LemonLabel>Condition</LemonLabel>
                 <LemonSelect
                     value={filter.operator}
-                    options={FILTER_OPERATOR_OPTIONS.map((option) => ({
-                        ...option,
-                        disabledReason:
-                            option.value === 'last_7_days' && !isDateTimeBIField(field)
-                                ? 'Choose a date or date-time field'
-                                : undefined,
-                    }))}
+                    options={FILTER_OPERATOR_OPTIONS.filter(
+                        (option) =>
+                            option.value === filter.operator ||
+                            ((option.value !== 'last_7_days' || isDateTimeBIField(field)) &&
+                                (option.value !== 'between' || isDateTimeBIField(field) || isNumericBIField(field)))
+                    )}
                     onChange={(operator) => setFilterOperator(index, operator)}
                     size="small"
+                    aria-label={`${field.name} filter condition`}
+                    data-attr="bi-filter-condition"
                 />
             </div>
             {filter.operator === 'custom' ? (
@@ -98,6 +100,12 @@ export function BIFilterEditor({ index, onDone }: { index: number; onDone: () =>
                     <BIFilterValueInput index={index} />
                 </div>
             ) : null}
+            <LemonCheckbox
+                checked={filter.enabled !== false}
+                onChange={(enabled) => updateFilter(index, { enabled })}
+                label="Apply filter"
+                size="small"
+            />
             <div className="flex justify-between gap-2">
                 <LemonButton
                     type="tertiary"

@@ -494,6 +494,36 @@ export const BIQuickFiltersNarrow: Story = {
     ...BIQuickFilters,
     parameters: {
         ...BIQuickFilters.parameters,
+        pageUrl: `${urls.sqlEditor()}#${new URLSearchParams({
+            mode: 'bi',
+            bi: JSON.stringify({
+                ...BI_QUICK_FILTERS_CONFIG,
+                filters: [
+                    ...BI_QUICK_FILTERS_CONFIG.filters,
+                    {
+                        field: biEventsField('properties.region', 'string'),
+                        operator: 'in',
+                        value: '',
+                        values: ['North', 'West'],
+                    },
+                    {
+                        field: biEventsField('properties.device', 'string'),
+                        operator: 'in',
+                        value: '',
+                        values: ['Desktop'],
+                    },
+                    {
+                        field: biEventsField('properties.channel', 'string'),
+                        operator: 'not_in',
+                        value: '',
+                        values: ['Internal'],
+                    },
+                    { field: biEventsField('revenue', 'float'), operator: 'between', value: '0', valueTo: '1000' },
+                    { field: biEventsField('duration_ms', 'integer'), operator: 'less_than', value: '5000' },
+                    { field: biEventsField('distinct_id', 'string'), operator: 'is_set', value: '' },
+                ],
+            } satisfies BIConfig),
+        })}`,
         testOptions: { waitForSelector: '[data-attr="bi-filter-control"]', viewport: { width: 1050, height: 900 } },
     },
 }

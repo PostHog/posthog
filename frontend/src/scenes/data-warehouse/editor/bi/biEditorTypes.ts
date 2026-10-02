@@ -1,3 +1,5 @@
+import { dayjs } from 'lib/dayjs'
+
 import {
     DataVisualizationNode,
     DatabaseSchemaTable,
@@ -667,6 +669,51 @@ export function getBIFilterValidationError(filter: BIFilter): string | null {
     )
         ? 'Enter a valid number for each filter value.'
         : null
+}
+
+export function getBIFilterSummary(filter: BIFilter): string {
+    const dateFormat =
+        filter.field.type === 'datetime' && filter.value.slice(0, 10) === filter.valueTo?.slice(0, 10)
+            ? 'MMM D, HH:mm'
+            : filter.value.slice(0, 4) !== filter.valueTo?.slice(0, 4)
+              ? 'MMM D, YYYY'
+              : 'MMM D'
+    const formatValue = (value: string): string =>
+        isDateTimeBIField(filter.field) && dayjs(value).isValid() ? dayjs(value).format(dateFormat) : value
+    switch (filter.operator) {
+        case 'in':
+        case 'not_in': {
+            const values = filter.values ?? []
+            const selection = values.length === 1 ? values[0] || '(empty string)' : `${values.length} values`
+            return values.length ? `${filter.operator === 'not_in' ? 'Except ' : ''}${selection}` : 'All values'
+        }
+        case 'between':
+            return filter.value && filter.valueTo
+                ? `${formatValue(filter.value)} to ${formatValue(filter.valueTo)}`
+                : filter.value
+                  ? `From ${formatValue(filter.value)}`
+                  : filter.valueTo
+                    ? `Up to ${formatValue(filter.valueTo)}`
+                    : 'All values'
+        case 'is_set':
+            return 'Has a value'
+        case 'is_not_set':
+            return 'Has no value'
+        case 'last_7_days':
+            return 'Last 7 days'
+        case 'custom':
+            return filter.customExpression?.trim() || 'Add SQL condition'
+        default: {
+            const prefix = {
+                equals: '',
+                not_equals: 'Not ',
+                contains: 'Contains ',
+                greater_than: '> ',
+                less_than: '< ',
+            }[filter.operator]
+            return filter.value ? `${prefix}${filter.value}` : 'All values'
+        }
+    }
 }
 
 function filterExpression(filter: BIFilter): string | null {
