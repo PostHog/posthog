@@ -43,7 +43,6 @@ from products.engineering_analytics.backend.tests._logic_helpers import (
     _job_row,
     _pr_list_run,
     _resp,
-    _StoredCiTablesMixin,
     _WarehouseMixin,
 )
 
@@ -1030,7 +1029,3 @@ class TestRecentlyMergedPullRequests(_WarehouseMixin, BaseTest):
             team=self.team, repository="PostHog/posthog", since=since, numbers=[22]
         )
         assert [(pr.number, pr.head_sha) for pr in by_number] == [(22, "sha22")]
-
-
-class TestPullRequestEndpointsStored(_StoredCiTablesMixin, TestPullRequestEndpointsWarehouse):
-    pass

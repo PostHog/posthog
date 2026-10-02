@@ -89,10 +89,6 @@ LATEST_COMPLETED_RUN_FAILED = (
     f"argMaxIf(conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL}), {LATEST_RUN_ORDER}, status = 'completed')"
 )
 
-# How far before the window a merged PR's CI is still counted. A PR merged in the window usually
-# ran its CI days before; older runs are left out so the runs and jobs scans stay bounded.
-CI_LOOKBACK = timedelta(days=30)
-
 
 def run_started_floor_constant(window_start: datetime) -> ast.Constant:
     """Raw-string scan floor for the runs builder's {run_started_floor} placeholder: a date-only

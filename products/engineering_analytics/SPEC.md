@@ -145,12 +145,14 @@ When the flag service gives no answer, the sync keeps the views the team already
 - Each row carries its `source_id`, for the same reason as the friction view below, and its `repository` (`owner/name` in lower case). A job whose run row is missing has no repository columns of its own, so `repository` is how a read keeps it in the right repository.
 - A repository that two GitHub sources sync carries its Depot CI rows under each source. A read filters on one source, so they never count twice. Sum over the whole view only per `source_id`.
 - A product read takes the tables of these views only behind the `engineering-analytics-stored-reads` flag, and only when all of the following hold. Any other read takes the raw tables.
-  - Every CI source of the query carries a scan floor, and each floor is inside the rolling window. A range over 30 days therefore reads the raw tables.
+  - The source carries a scan floor, and the floor is inside the rolling window. A source with no floor always reads the raw tables, and so does a range over 30 days.
   - Both tables were built in the last 45 minutes.
   - The views name the reader's source and repository, and the tables were built at least 30 minutes after the newest raw table of that repository first landed. A table built from an earlier view has no row for a newer source, and a read cannot tell that from a repository with no CI.
-  - The reader may read every raw table behind the stored rows, and resolves the same Depot CI. The tables are built with no user, so this keeps the per-table warehouse access of a raw read.
-- A stored read that fails runs again on the raw tables, so the tables can make a read faster and can never fail it. The failure is logged as `engineering_analytics_stored_read_failed`.
+  - The reader's catalog holds both views. The reader may read every raw table behind the stored rows, and resolves the same Depot CI. The tables are built with no user, so this keeps the per-table warehouse access of a raw read.
+- A stored source and a raw source in one request can differ by the age of the tables. A read that needs two CI sources to agree puts a floor on both.
+- A query that the stored tables reject runs again on the raw tables, and the rest of the request reads the raw tables. The failure is logged as `engineering_analytics_stored_read_failed`. A read that ran out of time, memory or capacity is not run again, because the raw read is the heavier one.
 - A stored read carries the query type of the raw read with the suffix `.stored`, so the query log separates the two.
+- A stored read is as old as its tables, and no response states that age yet. The flag stays off for people until a response carries the build time.
 - A change to a builder reaches the tables on the next rebuild. Until then a stored read keeps the earlier behavior of the builder.
 
 #### `engineering_analytics_pr_friction`

@@ -11,6 +11,9 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.hogql import ast
+from posthog.hogql.errors import QueryError
+
+from posthog.exceptions import ClickHouseAtCapacity
 
 from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet, DataWarehouseSavedQuery
 from products.engineering_analytics.backend.logic.queries._curated import STORED_QUERY_TYPE_SUFFIX, CuratedGitHubSource
@@ -19,7 +22,7 @@ from products.engineering_analytics.backend.logic.sources import (
     WORKFLOW_JOBS_SCHEMA,
     WORKFLOW_RUNS_SCHEMA,
 )
-from products.engineering_analytics.backend.logic.stored_views import StoredTables, servable_tables
+from products.engineering_analytics.backend.logic.stored_views import StoredTables, stored_tables_for
 from products.engineering_analytics.backend.logic.views import ci_jobs, ci_runs
 from products.engineering_analytics.backend.logic.views.stored_view import identity_columns
 from products.engineering_analytics.backend.tests._github_fixtures import (
@@ -56,7 +59,6 @@ class TestStoredReads(BaseTest):
             ("served", True, _BOTH_VIEWS, True, 5, 24 * 60, True),
             ("flag_off", False, _BOTH_VIEWS, True, 5, 24 * 60, False),
             ("jobs_view_missing", True, (ci_runs.VIEW_NAME,), True, 5, 24 * 60, False),
-            # A table with no row for the source reads the same as a repository with no CI.
             ("source_not_in_the_views", True, _BOTH_VIEWS, False, 5, 24 * 60, False),
             ("never_built", True, _BOTH_VIEWS, True, None, 24 * 60, False),
             ("built_too_long_ago", True, _BOTH_VIEWS, True, 120, 24 * 60, False),
@@ -96,7 +98,7 @@ class TestStoredReads(BaseTest):
             patch("posthoganalytics.feature_enabled", return_value=flag),
             patch(f"{_STORED_VIEWS}.data_modeling.saved_query_materialized_at", return_value=built_at),
         ):
-            tables = servable_tables(
+            tables = stored_tables_for(
                 self.team, None, source_id=source_id, repository=_REPOSITORY, raw_tables=self.raw_tables
             )
 
@@ -104,40 +106,49 @@ class TestStoredReads(BaseTest):
 
     @parameterized.expand(
         [
-            ("floor_inside_the_stored_window", 10, False, False, [_STORED_READ]),
-            # The stored tables keep a rolling window, so a longer range would lose its oldest rows.
-            ("floor_below_the_stored_window", 200, False, False, [_RAW_READ]),
-            ("query_also_reads_a_raw_ci_table", 10, True, False, [_RAW_READ]),
-            ("stored_read_fails", 10, False, True, [_STORED_READ, _RAW_READ]),
+            ("floor_inside_the_stored_window", 10, True, None, [_STORED_READ], True),
+            ("floor_below_the_stored_window", 200, True, None, [_RAW_READ], True),
+            ("views_missing_from_the_reader_catalog", 10, False, None, [_RAW_READ], True),
+            ("stored_tables_reject_the_query", 10, True, QueryError("no such column"), [_STORED_READ, _RAW_READ], True),
+            ("stored_read_lacks_capacity", 10, True, ClickHouseAtCapacity(), [_STORED_READ], False),
         ]
     )
     def test_floored_read_takes_the_stored_tables_only_when_they_answer_it(
         self,
         _name: str,
         floor_days_ago: int,
-        reads_unfloored_source: bool,
-        stored_read_fails: bool,
+        views_in_catalog: bool,
+        stored_error: Exception | None,
         expected_reads: list[str],
+        answered: bool,
     ) -> None:
         now = timezone.now()
+        if views_in_catalog:
+            for view_name in _BOTH_VIEWS:
+                DataWarehouseSavedQuery.objects.create(
+                    team=self.team, name=view_name, query={"kind": "HogQLQuery", "query": "SELECT 1"}
+                )
         curated = CuratedGitHubSource.for_team(self.team)
         sql = f"SELECT count() FROM {curated.run_source(started_floor=True)} AS r"
-        if reads_unfloored_source:
-            sql += f" WHERE r.id IN (SELECT id FROM {curated.run_source()} AS unfloored)"
         floor = (now - timedelta(days=floor_days_ago)).strftime("%Y-%m-%d")
 
         def execute(**kwargs: Any) -> SimpleNamespace:
-            if stored_read_fails and kwargs["query_type"] == _STORED_READ:
-                raise RuntimeError("the stored table has no such column")
+            if stored_error is not None and kwargs["query_type"] == _STORED_READ:
+                raise stored_error
             return SimpleNamespace(results=[(1,)])
 
+        def read() -> list[Any]:
+            placeholders: dict[str, ast.Expr] = {"run_started_floor": ast.Constant(value=floor)}
+            return curated.run(sql, query_type=_RAW_READ, placeholders=placeholders).results
+
         with (
-            patch(f"{_CURATED}.servable_tables", return_value=StoredTables(runs_built_at=now, jobs_built_at=now)),
+            patch(f"{_CURATED}.stored_tables_for", return_value=StoredTables(built_at=dict.fromkeys(_BOTH_VIEWS, now))),
             patch(f"{_CURATED}.execute_hogql_query", side_effect=execute) as mock_execute,
         ):
-            response = curated.run(
-                sql, query_type=_RAW_READ, placeholders={"run_started_floor": ast.Constant(value=floor)}
-            )
+            if answered:
+                assert read() == [(1,)]
+            else:
+                with self.assertRaises(type(stored_error)):
+                    read()
 
         assert [call.kwargs["query_type"] for call in mock_execute.call_args_list] == expected_reads
-        assert response.results == [(1,)]

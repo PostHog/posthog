@@ -1155,8 +1155,4 @@ class TestDeliveryEndpoints(APIBaseTest):
 
 
 class TestDeliveryReadsStored(_StoredCiTablesMixin, TestDeliveryReadsOnWarehouse):
-    pass
-
-
-class TestDeliveryComparisonStored(_StoredCiTablesMixin, TestDeliveryComparisonOnWarehouse):
-    pass
+    STORED_READ_TESTS = ("test_only_a_first_attempt_queued_before_close_stays_in_the_timeline_1",)

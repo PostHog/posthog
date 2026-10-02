@@ -7,6 +7,7 @@ from uuid import uuid4
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 import pandas as pd
 from parameterized import parameterized
@@ -40,7 +41,7 @@ from products.engineering_analytics.backend.tests._github_fixtures import (
     repo_id,
     seeding_object_storage,
 )
-from products.engineering_analytics.backend.tests._logic_helpers import _ago
+from products.engineering_analytics.backend.tests._logic_helpers import _STORED_VIEW, _ago
 from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 TEST_BUCKET = "test_storage_bucket-posthog.products.engineering_analytics.job_costs"
@@ -283,18 +284,19 @@ class TestJobCostsViewParity(ClickhouseTestMixin, BaseTest):
         self,
         _name: str,
         build_view: Callable[[JobSourceTables], str],
-        read_stored_rows: Callable[[str], str],
+        build_stored_read: Callable[..., str],
         build_raw: Callable[[JobSourceTables], str],
     ) -> None:
-        # A builder column that the stored read lacks makes every stored read of it fail. The read then
-        # runs on the raw tables, so the only symptom is a slow page.
         source = self._source_with_runs_and_jobs([(9000, _ago(1), _ago(1))])
+        # No table is materialized here, so the stored rows are the view body itself.
+        with patch(f"{_STORED_VIEW}.stored_rows", return_value=f"({build_view(source)})"):
+            stored_read = build_stored_read(source_id=source.source_id, repository=source.repository)
 
         stored, raw = (
             execute_hogql_query(
                 query=f"SELECT * FROM ({query})", team=self.team, query_type="engineering_analytics.test"
             )
-            for query in (read_stored_rows(f"({build_view(source)})"), build_raw(source))
+            for query in (stored_read, build_raw(source))
         )
 
         assert stored.columns == raw.columns

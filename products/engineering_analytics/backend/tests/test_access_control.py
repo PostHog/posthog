@@ -26,6 +26,7 @@ from posthog.hogql import ast
 from posthog.hogql.database.database import Database
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.engineering_analytics.backend.logic.queries._curated import STORED_QUERY_TYPE_SUFFIX, CuratedGitHubSource
 from products.engineering_analytics.backend.logic.sources import (
     PULL_REQUESTS_SCHEMA,
@@ -33,7 +34,7 @@ from products.engineering_analytics.backend.logic.sources import (
     WORKFLOW_RUNS_SCHEMA,
     resolve_github_tables,
 )
-from products.engineering_analytics.backend.logic.stored_views import StoredTables
+from products.engineering_analytics.backend.logic.stored_views import STORED_VIEWS, StoredTables
 from products.engineering_analytics.backend.tests._github_fixtures import (
     GITHUB_SOURCE_PREFIX,
     connect_github_source_without_data,
@@ -51,7 +52,7 @@ _RUN_QUERY = "products.engineering_analytics.backend.logic.queries._curated.Cura
 _EXECUTE_HOGQL = "products.engineering_analytics.backend.logic.queries._curated.execute_hogql_query"
 # Schema build reads this to decide whether per-table warehouse ACL is enforced.
 _FLAG = "posthog.hogql.database.database.feature_enabled_or_false"
-_SERVABLE_TABLES = "products.engineering_analytics.backend.logic.queries._curated.servable_tables"
+_STORED_TABLES_FOR = "products.engineering_analytics.backend.logic.queries._curated.stored_tables_for"
 
 
 def _warehouse_acl_enabled(key: str, *_args: Any, **_kwargs: Any) -> bool:
@@ -217,11 +218,15 @@ class TestEngineeringAnalyticsWarehouseAcl(WarehouseAccessControlTestMixin):
         return database, captured
 
     def _floored_ci_reads(self, user_access_control: UserAccessControl) -> list[str]:
-        # The query types a floored CI read runs when the stored CI tables are there to take.
         now = timezone.now()
+        built_at = {view.VIEW_NAME: now for view in STORED_VIEWS}
+        for view_name in built_at:
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team, name=view_name, query={"kind": "HogQLQuery", "query": "SELECT 1"}
+            )
         with (
             mock.patch(_FLAG, side_effect=_warehouse_acl_enabled),
-            mock.patch(_SERVABLE_TABLES, return_value=StoredTables(runs_built_at=now, jobs_built_at=now)),
+            mock.patch(_STORED_TABLES_FOR, return_value=StoredTables(built_at=built_at)),
             mock.patch(_EXECUTE_HOGQL, return_value=SimpleNamespace(results=[])) as execute,
         ):
             curated = CuratedGitHubSource.for_team(self.team, user_access_control=user_access_control)

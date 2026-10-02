@@ -19,7 +19,6 @@ from django.db.models import Max, QuerySet
 from django.utils import timezone
 
 import structlog
-import posthoganalytics
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -28,8 +27,9 @@ from posthog.models.team import Team
 from products.data_modeling.backend.facade import api as data_modeling
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.engineering_analytics.backend.facade.contracts import STORED_READS_FEATURE_FLAG
+from products.engineering_analytics.backend.logic.feature_flags import team_flag
 from products.engineering_analytics.backend.logic.views import ci_jobs, ci_runs
-from products.engineering_analytics.backend.logic.views.stored_view import identity_columns
+from products.engineering_analytics.backend.logic.views.stored_view import identity_columns, lowest_stored_date
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
@@ -39,6 +39,8 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 STORED_VIEWS = (ci_runs, ci_jobs)
+
+_WINDOWS = {view.VIEW_NAME: view.WINDOW for view in STORED_VIEWS}
 
 _IN_USE_SECONDS = 60 * 60
 _MIN_REBUILD_GAP_SECONDS = 10 * 60
@@ -125,36 +127,41 @@ def _start_rebuilds(team_id: int, view_names: Collection[str]) -> None:
 
 @frozen
 class StoredTables:
-    """When the table of each stored CI view was last built."""
+    """The tables of the stored CI views that a read may take."""
 
-    runs_built_at: datetime
-    jobs_built_at: datetime
+    built_at: dict[str, datetime]
+
+    def answers(self, view_name: str, floor: str) -> bool:
+        """True when the table of the view holds every row at or above the date-only scan ``floor``."""
+        return floor >= lowest_stored_date(self.built_at[view_name], _WINDOWS[view_name])
 
 
-def servable_tables(
+def stored_tables_for(
     team: Team, user: "User | None", *, source_id: str, repository: str, raw_tables: Collection[str]
 ) -> StoredTables | None:
-    """The tables of the stored CI views, when a read of one repository of one source may take them.
-    None sends the read to the raw tables.
+    """The tables that a read of one repository of one source may take. None sends the read to the
+    raw tables.
 
     ``raw_tables`` are the warehouse tables that the stored rows of that repository are built from.
     """
-    if not _stored_reads_enabled(team, user):
+    distinct_id = user.distinct_id if user else None
+    if not team_flag(STORED_READS_FEATURE_FLAG, team, distinct_id=distinct_id, only_evaluate_locally=True):
         return None
-    names = [view.VIEW_NAME for view in STORED_VIEWS]
-    views = {view.name: view for view in managed_views(team.pk, names).filter(is_materialized=True)}
-    if len(views) != len(names):
+    views = {view.name: view for view in managed_views(team.pk, list(_WINDOWS)).filter(is_materialized=True)}
+    if len(views) != len(_WINDOWS):
         return None
     # A view takes a source when the first load of the source lands. Before that, its table has no row
     # for the source, and a read cannot tell that from a repository with no CI.
     identity = identity_columns(source_id, repository)
     if any(identity not in ((view.query or {}).get("query") or "") for view in views.values()):
         return None
-    runs_built_at = data_modeling.saved_query_materialized_at(views[ci_runs.VIEW_NAME])
-    jobs_built_at = data_modeling.saved_query_materialized_at(views[ci_jobs.VIEW_NAME])
-    if runs_built_at is None or jobs_built_at is None:
-        return None
-    oldest = min(runs_built_at, jobs_built_at)
+    built_at: dict[str, datetime] = {}
+    for name, view in views.items():
+        view_built_at = data_modeling.saved_query_materialized_at(view)
+        if view_built_at is None:
+            return None
+        built_at[name] = view_built_at
+    oldest = min(built_at.values())
     if timezone.now() - oldest > _MAX_AGE:
         return None
     newest_raw_table = (
@@ -164,20 +171,4 @@ def servable_tables(
     )
     if newest_raw_table is None or oldest < newest_raw_table + _SETTLE:
         return None
-    return StoredTables(runs_built_at=runs_built_at, jobs_built_at=jobs_built_at)
-
-
-def _stored_reads_enabled(team: Team, user: "User | None") -> bool:
-    org_id = str(team.organization_id)
-    project_id = str(team.id)
-    return bool(
-        posthoganalytics.feature_enabled(
-            STORED_READS_FEATURE_FLAG,
-            # A system read has no user, and it follows the release to the organization or the project.
-            (user.distinct_id if user else None) or str(team.uuid),
-            groups={"organization": org_id, "project": project_id},
-            group_properties={"organization": {"id": org_id}, "project": {"id": project_id}},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-    )
+    return StoredTables(built_at=built_at)

@@ -19,7 +19,7 @@ from products.engineering_analytics.backend.logic.sources import (
     WORKFLOW_JOBS_SCHEMA,
     JobSourceTables,
 )
-from products.engineering_analytics.backend.logic.views import job_costs, stored_view
+from products.engineering_analytics.backend.logic.views import job_costs, stored_view, workflow_jobs
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -28,40 +28,15 @@ VIEW_NAME = "engineering_analytics_ci_jobs"
 
 REBUILT_AFTER = (WORKFLOW_JOBS_SCHEMA, DEPOT_JOB_ATTEMPTS_SCHEMA)
 
+WINDOW = stored_view.STORED_JOBS_WINDOW
+
 FIELDS: dict[str, FieldOrTable] = {**job_costs.BUILDER_FIELDS, **stored_view.IDENTITY_FIELDS}
 
-# The jobs builder's columns in its order, each with the stored column that holds it. The cost
-# builder renames two of them, because its own ``head_branch`` falls back to the run's.
-_JOBS_BUILDER_COLUMNS: tuple[tuple[str, str], ...] = (
-    ("id", "id"),
-    ("run_id", "run_id"),
-    ("run_attempt", "run_attempt"),
-    ("name", "job_name"),
-    ("workflow_name", "workflow_name"),
-    ("head_sha", "head_sha"),
-    ("head_branch", "job_head_branch"),
-    ("status", "status"),
-    ("conclusion", "conclusion"),
-    ("labels", "labels"),
-    ("runner_name", "runner_name"),
-    ("created_at", "created_at"),
-    ("created_at_raw", "created_at_raw"),
-    ("started_at", "started_at"),
-    ("completed_at", "completed_at"),
-    ("duration_seconds", "duration_seconds"),
-    ("queue_seconds", "queue_seconds"),
-    ("provisioning_seconds", "provisioning_seconds"),
-    ("is_rerun_copy", "is_rerun_copy"),
-    ("ci_engine", "ci_engine"),
-    ("native_run_id", "native_run_id"),
-    ("native_workflow_run_id", "native_workflow_run_id"),
-    ("native_job_id", "native_job_id"),
-    ("native_attempt_id", "native_attempt_id"),
-)
+_STORED_AS = {"name": "job_name", "head_branch": "job_head_branch"}
 
 
 def build_source_query(source: JobSourceTables) -> str:
-    """The view rows of one repository: the jobs created inside ``STORED_JOBS_WINDOW``."""
+    """The view rows of one repository: the jobs created inside ``WINDOW``."""
     # The cost builder joins every run it is given, so without this floor a rebuild parses the whole
     # run history.
     runs = (
@@ -69,7 +44,7 @@ def build_source_query(source: JobSourceTables) -> str:
         f"WHERE run_started_at >= {raw_date_floor(stored_view.STORED_JOB_RUNS_WINDOW)})"
     )
     jobs = job_costs.build_query(jobs_table=source.jobs_source, runs_table=runs, created_floor=True).replace(
-        "{job_created_floor}", raw_date_floor(stored_view.STORED_JOBS_WINDOW)
+        "{job_created_floor}", raw_date_floor(WINDOW)
     )
     return stored_view.build_source_view(source, job_costs.BUILDER_FIELDS, jobs)
 
@@ -79,16 +54,20 @@ def build_team_view(team: "Team") -> str | None:
     return stored_view.build_team_view(team, build_source_query)
 
 
-def build_jobs_read_query(rows: str) -> str:
-    """The stored ``rows`` in the shape the jobs builder returns, for a product read."""
+def build_jobs_read_query(*, source_id: str, repository: str) -> str:
+    """One repository's stored rows in the shape the jobs builder returns."""
     columns = [
-        stored_view.stored_column(name, FIELDS[stored_as], stored_as=stored_as)
-        for name, stored_as in _JOBS_BUILDER_COLUMNS
+        stored_view.stored_column(name, FIELDS[_STORED_AS.get(name, name)], stored_as=_STORED_AS.get(name))
+        for name in workflow_jobs.COLUMNS
     ]
-    return f"SELECT {', '.join(columns)} FROM {rows}"
+    return f"SELECT {', '.join(columns)} FROM {_rows(source_id, repository)}"
 
 
-def build_job_costs_read_query(rows: str) -> str:
-    """The stored ``rows`` in the shape the cost builder returns, for a product read."""
+def build_job_costs_read_query(*, source_id: str, repository: str) -> str:
+    """One repository's stored rows in the shape the cost builder returns."""
     columns = [stored_view.stored_column(name, field) for name, field in job_costs.BUILDER_FIELDS.items()]
-    return f"SELECT {', '.join(columns)} FROM {rows}"
+    return f"SELECT {', '.join(columns)} FROM {_rows(source_id, repository)}"
+
+
+def _rows(source_id: str, repository: str) -> str:
+    return stored_view.stored_rows(VIEW_NAME, source_id=source_id, repository=repository)
