@@ -266,25 +266,26 @@ It does not move bot events to production or change the production Slack app's c
 1. Add `https://us.posthog.com/api/mcp_store/oauth_redirect/` to the development app's OAuth redirect URLs for US production.
    Keep its existing dev redirect URLs and event callbacks.
    For another region, use that region's PostHog origin instead.
-2. Add `canvases:read` to the development app's user token scopes.
-3. Provision the existing development app's client ID and client secret as the `SLACK_DEV_APP_CLIENT_ID` and `SLACK_DEV_APP_CLIENT_SECRET` instance settings in the target region.
+2. Provision the existing development app's client ID and client secret as the `SLACK_DEV_APP_CLIENT_ID` and `SLACK_DEV_APP_CLIENT_SECRET` instance settings in the target region.
    Do not replace `SLACK_APP_CLIENT_ID`, `SLACK_APP_CLIENT_SECRET`, or `SLACK_APP_SIGNING_SECRET`.
-4. Set `MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS` to a comma-separated list of permitted project IDs in that region's server configuration.
+3. Set `MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS` to a comma-separated list of permitted project IDs in that region's server configuration.
    The default is empty, which blocks access.
    Apply the same configuration to the web processes and workers.
    Production deployments must also add these variables to `posthog/charts` and provision their values through `posthog/secrets`.
    Adding the settings in this repository does not configure production.
-5. Enable the `mcp-slack-dev` feature flag for PostHog users.
+4. Enable the `mcp-slack-dev` feature flag for PostHog users.
    Target users whose email ends with `@posthog.com`.
    Use that email condition, not a cohort or an early access list.
    The check evaluates the flag locally and treats targeting it cannot resolve as off.
    For local testing, add `mcp-slack-dev` to `POSTHOG_FEATURE_FLAGS_FORCE_ENABLED` and restart Django.
-6. Run `python manage.py sync_mcp_server_templates` in that environment.
+5. Run `python manage.py sync_mcp_server_templates` in that environment.
    The existing Slack MCP entry becomes **Slack via PostHog (dev)** and uses the separate credentials.
    It activates only after the shared-client probe passes.
    Existing Slack MCP installations block a change of OAuth app; do not disconnect them without their owners' approval.
-7. In an allowed project, connect **Slack via PostHog (dev)** from the MCP store, finish Slack authorization, and confirm that a channel search returns results and an accessible canvas can be read.
+6. In an allowed project, connect **Slack via PostHog (dev)** from the MCP store, finish Slack authorization, and confirm that a channel search returns results and an accessible canvas can be read.
    Confirm that another project cannot list or authorize this entry.
+
+Reconnect an installation that was authorized before a new reviewed scope was synced. Existing OAuth tokens do not gain the new scope automatically.
 
 The connection keeps the catalog's reviewed MCP scopes; it does not request all scopes available to the bot.
 The project restriction applies to authorization, token exchange, token refresh, and upstream requests.
