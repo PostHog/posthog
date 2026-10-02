@@ -1896,6 +1896,9 @@ def _do_edit_report(
                     attribution=attribution,
                     author=run.skill_name,
                     implementation_context=implementation_context,
+                    # The dispatch sweep starts a pending replacement on its next tick, so the
+                    # replacement waits as long as the queued autostart does.
+                    dispatch_delay_seconds=SCOUT_REPORT_AUTOSTART_DELAY_SECONDS,
                 )
         # Re-stamp owner provenance from the live owner set at the write: the safety-judge call sits
         # between resolution and this transaction, autostart trusts the stored stamp, and an owner

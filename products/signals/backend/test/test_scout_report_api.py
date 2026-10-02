@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import pytest
 from posthog.test.base import APIBaseTest
+from time_machine import travel
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.apps import apps
@@ -28,6 +29,7 @@ from products.signals.backend.artefact_schemas import (
     TaskRunArtefact,
 )
 from products.signals.backend.auto_start import _evaluate_link_gates
+from products.signals.backend.implementation_dispatch import ImplementationDispatcher
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
     ArtefactAttribution,
@@ -45,6 +47,7 @@ from products.signals.backend.scout_harness.tools.report import (
     MAX_SUGGESTED_REVIEWERS,
     REPORT_KIND_FINDING,
     REPORT_KIND_SELF_IMPROVEMENT,
+    SCOUT_REPORT_AUTOSTART_DELAY_SECONDS,
     EditReportResult,
     InvalidScoutReportError,
     ReportChartInput,
@@ -74,6 +77,7 @@ EMBED_PATH = "products.signals.backend.scout_report.persistence.emit_embedding_r
 # Patched at its source module so the lazy import inside `_maybe_autostart_report` picks up the mock.
 AUTOSTART_PATH = "products.signals.backend.auto_start.maybe_autostart_from_report_artefacts"
 AUTOSTART_ENQUEUE_PATH = "products.signals.backend.tasks.autostart_scout_report.apply_async"
+DISPATCH_ENQUEUE_PATH = "products.signals.backend.tasks.dispatch_implementation_replacement.apply_async"
 CAPTURE_PATH = "products.signals.backend.scout_harness.tools.report.posthoganalytics.capture"
 METRICS_GATE_PATH = "products.signals.backend.scout_harness.tools.report.organization_report_metrics_enabled"
 # The customer-facing copy lands in the scout's own team project via capture_internal (a network boundary).
@@ -952,6 +956,12 @@ class TestScoutReportAPI(APIBaseTest):
                 assert progress["decision_id"] == str(decision.id)
                 assert progress["status"] == "pending"
                 assert progress["source_skill"] == run.skill_name
+                with patch(DISPATCH_ENQUEUE_PATH) as dispatch_enqueue:
+                    ImplementationDispatcher().enqueue_page()
+                    dispatch_enqueue.assert_not_called()
+                    with travel(timezone.now() + timedelta(seconds=SCOUT_REPORT_AUTOSTART_DELAY_SECONDS), tick=False):
+                        ImplementationDispatcher().enqueue_page()
+                    dispatch_enqueue.assert_called_once_with(args=[self.team.id, str(decision.id)], countdown=0)
 
         assert recorded == [(True, 1)] * MAX_SCOUT_CONTENT_REVISIONS + [(False, 0)]
         report = SignalReport.objects.get(id=report_id)

@@ -28,7 +28,7 @@ import uuid
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import partial
 from typing import TYPE_CHECKING, Literal
 
@@ -699,6 +699,7 @@ def record_implementation_decision(
     implementation_context: ImplementationResearchContext,
     author: str | None = None,
     supersede_requested: bool = False,
+    dispatch_delay_seconds: int = 0,
 ) -> None:
     """Record what this rewrite means for the report's pull request, as the same
     `implementation_decision` artefact the research agent writes.
@@ -768,7 +769,13 @@ def record_implementation_decision(
         SignalReportArtefact.append_status(
             team_id=team_id,
             report_id=report_id,
-            content=ImplementationDispatch(decision_id=decision.id, source_skill=author),
+            content=ImplementationDispatch(
+                decision_id=decision.id,
+                source_skill=author,
+                next_retry_at=timezone.now() + timedelta(seconds=dispatch_delay_seconds)
+                if dispatch_delay_seconds
+                else None,
+            ),
             attribution=ArtefactAttribution.system(),
         )
 
