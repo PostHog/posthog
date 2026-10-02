@@ -70,3 +70,34 @@ class EmailDomainStatusSerializer(serializers.Serializer):
         help_text="DNS records to publish at the domain's DNS host, with the status of each. Empty when "
         "status is not_started.",
     )
+
+
+class EmailDomainDnsHostSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Name of the company that hosts the domain's DNS, such as Cloudflare.")
+    dns_settings_url = serializers.URLField(help_text="Link to the DNS settings page at that host.")
+
+
+class EmailDomainConnectProviderSerializer(serializers.Serializer):
+    endpoint = serializers.CharField(help_text="Domain Connect endpoint of the provider.")
+    name = serializers.CharField(help_text="Display name of the provider.")
+
+
+class EmailDomainConnectCheckSerializer(serializers.Serializer):
+    supported = serializers.BooleanField(
+        help_text="Whether the domain's DNS provider supports automatic setup through Domain Connect."
+    )
+    provider_name = serializers.CharField(
+        allow_null=True, help_text="Domain Connect provider that hosts the domain. Null when not supported."
+    )
+    available_providers = EmailDomainConnectProviderSerializer(
+        many=True,
+        help_text="Providers the user can pick manually when automatic detection fails. Empty when supported.",
+    )
+    dns_host = EmailDomainDnsHostSerializer(
+        allow_null=True, help_text="The detected DNS host of the root domain, from its nameservers. Null when unknown."
+    )
+    existing_email_tools = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Email tools that already send for the root domain, detected from SPF and DKIM records. Best "
+        "effort, empty when none are found.",
+    )
