@@ -6,7 +6,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.response import Response
 
-from posthog.api.documentation import _FallbackSerializer
+from posthog.api.documentation import PostHogAutoSchema, _FallbackSerializer
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
@@ -111,11 +111,19 @@ class RecipientCoverageSerializer(serializers.Serializer):
     )
 
 
+class _PageEnvelopeSchema(PostHogAutoSchema):
+    """Stops drf-spectacular from wrapping the ``list`` response in an array: it returns one cursor page."""
+
+    def _is_list_view(self, serializer: object = None) -> bool:
+        return False
+
+
 class MessageRecipientsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "hog_flow"
     # Every row is a recipient email address, so a token also needs person:read, like the suppression list.
     required_scopes = ["hog_flow:read", "person:read"]
     serializer_class = _FallbackSerializer
+    schema = _PageEnvelopeSchema()
 
     @validated_request(
         query_serializer=RecipientListQuerySerializer,
