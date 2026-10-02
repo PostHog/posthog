@@ -368,7 +368,7 @@ The write is safe to run twice. An attempt that commits leaves every configurati
 and a replay skips those rows rather than advancing them again and skipping a cycle.
 It runs in one transaction, so no alert is marked as notified while its schedule still says the check is due.
 
-`MAX_PREVIEWS_PER_CYCLE` bounds an outcome together with the delivery it belongs to.
+`MAX_DELIVERIES_PER_CYCLE` bounds an outcome together with the delivery it belongs to.
 Recording an outcome whose preview the batch cannot carry would leave an alert firing with nothing announcing it,
 and a firing alert does not fire again. Dropping the pair leaves it due, the way a truncated cohort already behaves.
 `alerts_platform_deliveries_deferred_total` counts them.
