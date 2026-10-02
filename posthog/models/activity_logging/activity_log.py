@@ -18,6 +18,7 @@ from django.utils import timezone
 import structlog
 from prometheus_client import Counter
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.utils import (
     ACTIVITY_LOG_CLIENT_MAX_LENGTH,
@@ -290,10 +291,8 @@ class ActivityLog(UUIDTModel):
         changes = []
         for change in self.detail["changes"]:
             if isinstance(change, dict) and change.get("field") in masked_fields:
-                before, after = mask_change_values(
-                    self.scope, change["field"], change.get("before"), change.get("after")
-                )
-                change = {**change, "before": before, "after": after}
+                masked = mask_change_values(self.scope, change["field"], change.get("before"), change.get("after"))
+                change = {**change, "before": masked.before, "after": masked.after}
             changes.append(change)
         return {**self.detail, "changes": changes}
 
@@ -310,7 +309,13 @@ key_masked_fields: dict[str, list[str]] = {
 }
 
 
-def mask_change_values(scope: str, field: str, before: Any, after: Any) -> tuple[Any, Any]:
+@frozen
+class MaskedChange:
+    before: Any
+    after: Any
+
+
+def mask_change_values(scope: str, field: str, before: Any, after: Any) -> MaskedChange:
     """Hide a masked field's values. A key-masked field keeps its keys and marks the changed ones."""
     if field in key_masked_fields.get(scope, []) and isinstance(before or {}, dict) and isinstance(after or {}, dict):
         before_values = before or {}
@@ -328,8 +333,8 @@ def mask_change_values(scope: str, field: str, before: Any, after: Any) -> tuple
             if after is not None
             else None
         )
-        return masked_before, masked_after
-    return ("masked" if before is not None else None, "masked" if after is not None else None)
+        return MaskedChange(before=masked_before, after=masked_after)
+    return MaskedChange(before="masked" if before is not None else None, after="masked" if after is not None else None)
 
 
 common_field_exclusions = [
@@ -1199,11 +1204,13 @@ def changes_between(
             left_is_none = left is None or (empty_values is not None and left in empty_values)
             right_is_none = right is None or (empty_values is not None and right in empty_values)
 
-            left_value, right_value = (
+            change_values = (
                 mask_change_values(model_type, field_name, left, right)
                 if field_name in masked_fields
-                else (left, right)
+                else MaskedChange(before=left, after=right)
             )
+            left_value = change_values.before
+            right_value = change_values.after
 
             # Use the override name if it exists
             display_name = field_name_overrides.get(model_type, {}).get(field_name, field_name)
