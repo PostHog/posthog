@@ -245,8 +245,8 @@ class PostgresCDCAdapter:
             _recreate, _retry_logger, is_retryable=_is_dropped_or_connect_timeout
         )
 
-        # Nothing reads the ingest mode now. It is still written because a rollback to the release that
-        # converted legacy sources would read a source without it as legacy and empty its buffer.
+        # No code on this release reads the ingest mode. A worker on a release that reads it treats a
+        # source without it as legacy and empties its buffer, so a rollback needs the value.
         return {"cdc_consistent_point": consistent_point, "cdc_ingest_mode": "buffered"}
 
     def setup_resources(
@@ -273,7 +273,7 @@ class PostgresCDCAdapter:
             "cdc_management_mode": management_mode,
             "cdc_slot_name": slot_name,
             "cdc_publication_name": pub_name,
-            # Kept for the same rollback reason as in `recreate_slot`.
+            # A rollback needs it, as in `recreate_slot`.
             "cdc_ingest_mode": "buffered",
         }
 
