@@ -535,10 +535,11 @@ class TestFireLoopCreatesRun(LoopRunsTestCase):
 
     @parameterized.expand(
         [
-            ("claude_default_resolves_to_sonnet_5", "claude", "", None, "claude-sonnet-5", None),
-            ("codex_default_resolves_to_gpt5", "codex", "", None, "gpt-5", None),
-            ("supported_effort_on_default_model_is_kept", "claude", "", "high", "claude-sonnet-5", "high"),
-            ("unsupported_effort_on_default_model_falls_back_to_auto", "codex", "", "xhigh", "gpt-5", None),
+            ("claude_default_resolves_to_sonnet_5_5", "claude", "", None, "claude-sonnet-5-5", None),
+            ("codex_default_resolves_to_gpt_6_1_sol", "codex", "", None, "gpt-6.1-sol", None),
+            ("supported_effort_on_default_model_is_kept", "claude", "", "high", "claude-sonnet-5-5", "high"),
+            ("supported_effort_on_codex_default_model_is_kept", "codex", "", "xhigh", "gpt-6.1-sol", "xhigh"),
+            ("unsupported_effort_on_default_model_falls_back_to_auto", "codex", "", "ultracode", "gpt-6.1-sol", None),
             ("pinned_model_keeps_its_supported_effort", "claude", "claude-sonnet-5", "low", "claude-sonnet-5", "low"),
             (
                 "pinned_model_clamps_unsupported_stored_effort",
