@@ -235,12 +235,11 @@ tools default to 20 rows. Metadata reads require `evaluation:read`; score reads 
 scorer filters also require `llm_analytics:read`. Ingestion uses
 `offline_evaluation_ingestion:write` and does not confer read access.
 
-The item/result `payload-get` tools return bounded JSON text in `data_json`, with
-`offset`, `total_chars`, and `next_offset`, plus the API's availability metadata.
-They default to 4,000 UTF-16 code units and accept `max_chars` from 2 to 8,000. Follow
-`next_offset` and concatenate pages before parsing JSON. Unavailable payloads return
-null text and no continuation. The MCP wrappers bound model-visible output; the REST
-payload endpoints continue returning the original JSON objects. Payloads and other
+The item/result `payload-get` tools use generated handlers and return the full stored
+JSON object in `data`, with the API's availability metadata. Unavailable payloads
+return `data: null`. These reads are not paginated; agents should inspect summaries
+and item metadata first, then fetch payloads only for relevant cases. Large payloads
+can consume substantial context or be truncated by the client. Payloads and other
 user-authored records are wrapped as untrusted reference data.
 
 The published `analyzing-offline-evaluations` skill describes comparable cohorts,

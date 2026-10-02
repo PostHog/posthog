@@ -2,12 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { getToolsFromContext } from '@/tools'
 import { GENERATED_TOOLS } from '@/tools/generated/ai_observability'
-import {
-    POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
-    POSTHOG_INFORMATIONAL_RESPONSE_KEY,
-    type Context,
-    type Tool,
-} from '@/tools/types'
+import { POSTHOG_INFORMATIONAL_RESPONSE_KEY, type Context, type Tool } from '@/tools/types'
 
 const experimentId = '00000000-0000-4000-8000-000000000001'
 const itemId = '00000000-0000-4000-8000-000000000002'
@@ -78,70 +73,47 @@ describe('offline evaluation MCP tools', () => {
     it.each([
         ['llma-offline-experiment-item-payload-get', 'item_id', 'items'],
         ['llma-offline-experiment-result-payload-get', 'result_id', 'results'],
-    ])('bounds and reconstructs Unicode payloads through the registered %s tool', async (name, idField, resource) => {
-        const data = { input: 'x'.repeat(7988) + '🦔'.repeat(5000), expected_output: null, metadata: {} }
-        const { context, request } = createContext({
+    ])('returns the full API payload through the registered %s tool', async (name, idField, resource) => {
+        const content = 'x'.repeat(8000) + '🦔'.repeat(5000)
+        const data =
+            resource === 'items'
+                ? { input: content, expected_output: null, metadata: {} }
+                : { reasoning: content, metadata: {} }
+        const response = {
             id: itemId,
             payload_state: 'available',
             payload_expires_at: null,
             available: true,
             data,
-        })
+        }
+        const { context, request } = createContext(response)
         const tool = await getTool(context, name)
-        let offset: number | null = 0
-        let reconstructed = ''
-        do {
-            const page = (await tool.handler(
-                context,
-                tool.schema.parse({ id: experimentId, [idField]: itemId, offset, max_chars: 8000 })
-            )) as {
-                data_json: string
-                next_offset: number | null
-                total_chars: number
-                [POSTHOG_INFORMATIONAL_RESPONSE_KEY]: boolean
-                [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: string
-            }
-            expect(page.data_json.length).toBeLessThanOrEqual(8000)
-            expect(new TextDecoder().decode(new TextEncoder().encode(page.data_json))).toBe(page.data_json)
-            expect(page).not.toHaveProperty('data')
-            expect(page.total_chars).toBe(JSON.stringify(data).length)
-            expect(page[POSTHOG_INFORMATIONAL_RESPONSE_KEY]).toBe(true)
-            expect(page[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY].length).toBeLessThan(50000)
-            reconstructed += page.data_json
-            offset = page.next_offset
-        } while (offset !== null)
-        expect(JSON.parse(reconstructed)).toEqual(data)
-        expect(request).toHaveBeenCalledWith({
+        const result = await tool.handler(context, tool.schema.parse({ id: experimentId, [idField]: itemId }))
+
+        expect(result).toMatchObject({ ...response, [POSTHOG_INFORMATIONAL_RESPONSE_KEY]: true })
+        expect(result).not.toHaveProperty('data_json')
+        expect(request).toHaveBeenCalledExactlyOnceWith({
             method: 'GET',
             path: `/api/projects/17/ai_observability/offline_experiments/${experimentId}/${resource}/${itemId}/payload/`,
         })
-        expect(tool.schema.safeParse({ id: experimentId, [idField]: itemId, max_chars: 8001 }).success).toBe(false)
     })
 
-    it.each(['not_provided', 'expired'])(
-        'preserves unavailable payload state %s without a continuation',
-        async (payload_state) => {
-            const { context } = createContext({
-                id: itemId,
-                payload_state,
-                payload_expires_at: null,
-                available: false,
-                data: null,
-            })
-            const tool = await getTool(context, 'llma-offline-experiment-item-payload-get')
-            const page = await tool.handler(
-                context,
-                tool.schema.parse({ id: experimentId, item_id: itemId, offset: 4000 })
-            )
-            expect(page).toMatchObject({
-                available: false,
-                payload_state,
-                data_json: null,
-                next_offset: null,
-                total_chars: 0,
-            })
-        }
-    )
+    it.each(['not_provided', 'expired'])('preserves unavailable payload state %s', async (payload_state) => {
+        const { context } = createContext({
+            id: itemId,
+            payload_state,
+            payload_expires_at: null,
+            available: false,
+            data: null,
+        })
+        const tool = await getTool(context, 'llma-offline-experiment-item-payload-get')
+        const result = await tool.handler(context, tool.schema.parse({ id: experimentId, item_id: itemId }))
+        expect(result).toMatchObject({
+            available: false,
+            payload_state,
+            data: null,
+        })
+    })
 
     it('does not turn payload authorization errors into missing content', async () => {
         const { context, request } = createContext(null)
