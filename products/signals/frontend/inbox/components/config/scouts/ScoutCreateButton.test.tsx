@@ -33,7 +33,9 @@ jest.mock('./ScoutCreateModal', () => ({
             {initialValues?.name ? <span>{initialValues.name}</span> : null}
             {initialValues?.description ? <span>{initialValues.description}</span> : null}
             {onSwitchToChat ? (
-                <button onClick={() => onSwitchToChat(initialValues?.description ?? '')}>Chat with an agent instead</button>
+                <button onClick={() => onSwitchToChat(initialValues?.description ?? '')}>
+                    Chat with an agent instead
+                </button>
             ) : null}
         </div>
     ),
