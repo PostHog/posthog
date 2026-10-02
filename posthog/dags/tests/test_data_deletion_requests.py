@@ -20,6 +20,7 @@ from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.cluster import ClickhouseCluster, LightweightDeleteMutationRunner, Query
+from posthog.dags.common.s3_staging import S3StagingLocation
 from posthog.dags.data_deletion_requests import (
     DataDeletionRequestConfig,
     DeletionRequestContext,
@@ -27,11 +28,15 @@ from posthog.dags.data_deletion_requests import (
     HogQLEventDeletionExecutor,
     HogQLEventRemovalContext,
     PersonRemovalContext,
+    PropertyRemovalTarget,
     _property_removal_where,
     _refuse_property_removal_unsweepable,
+    _ShardStaging,
     auto_approve_deletion_requests_job,
     auto_approve_deletion_requests_schedule,
+    cleanup_property_removal_staging,
     complete_event_deletion,
+    copy_property_removal_shard,
     data_deletion_request_event_removal,
     data_deletion_request_hogql_event_removal,
     data_deletion_request_person_removal,
@@ -41,6 +46,7 @@ from posthog.dags.data_deletion_requests import (
     delete_person_events_op,
     delete_person_profiles_op,
     delete_person_recordings_op,
+    delete_property_removal_shard,
     finalize_deletion_request,
     get_event_removal_shards,
     get_property_removal_shards,
@@ -48,8 +54,9 @@ from posthog.dags.data_deletion_requests import (
     load_hogql_event_removal_request,
     load_person_removal_request,
     load_property_removal_request,
-    process_property_removal_shard,
+    reingest_property_removal_shard,
     verify_property_removal,
+    verify_property_removal_shard,
 )
 from posthog.dags.tests.conftest import insert_flag_evaluations
 from posthog.models.data_deletion_request import (
@@ -1968,126 +1975,22 @@ def test_full_job_property_removal_leaves_events_ingested_after_marker_untouched
     assert sum(1 for p in all_props if "secret" in p) == 1  # only the late arrival keeps it
 
 
-@pytest.mark.django_db
-def test_full_job_property_removal_rerun_after_delete_failure_does_not_duplicate(cluster: ClickhouseCluster):
-    now = datetime.now()
-    props = json.dumps({"secret": "value", "keep": "yes"})
-    events = [(PROP_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i + 1), props) for i in range(20)]
-    cluster.any_host(partial(_insert_events_with_properties, events)).result()
-
-    request = DataDeletionRequest.objects.create(
+def _property_removal_request(start_time: datetime, **overrides) -> DataDeletionRequest:
+    return DataDeletionRequest.objects.create(
         team_id=PROP_TEAM_ID,
         request_type=RequestType.PROPERTY_REMOVAL,
         events=["$pageview"],
         properties=["secret"],
-        start_time=now - timedelta(days=7),
-        end_time=now + timedelta(minutes=1),
+        start_time=start_time,
+        end_time=datetime.now(UTC) + timedelta(minutes=1),
         status=RequestStatus.APPROVED,
+        **overrides,
     )
-    run_config = {"ops": {"load_property_removal_request": {"config": {"request_id": str(request.pk)}}}}
-
-    # Attempt 1 dies after cleaned rows were re-inserted but before originals are deleted.
-    with patch.object(LightweightDeleteMutationRunner, "__call__", side_effect=Exception("delete-originals failed")):
-        failed = data_deletion_request_property_removal.execute_in_process(
-            run_config=run_config, resources={"cluster": cluster}, raise_on_error=False
-        )
-    assert not failed.success
-    assert cluster.any_host(partial(_count_events_by_name, PROP_TEAM_ID, "$pageview")).result() == 40
-
-    request.refresh_from_db()
-    assert request.status == RequestStatus.FAILED
-    marker = request.property_removal_marker
-    assert marker is not None
-
-    DataDeletionRequest.objects.filter(pk=request.pk).update(status=RequestStatus.APPROVED)
-    rerun = data_deletion_request_property_removal.execute_in_process(
-        run_config=run_config, resources={"cluster": cluster}
-    )
-    assert rerun.success
-
-    assert cluster.any_host(partial(_count_events_by_name, PROP_TEAM_ID, "$pageview")).result() == 20
-    for row_props in cluster.any_host(partial(_get_properties, PROP_TEAM_ID, "$pageview")).result():
-        assert "secret" not in row_props
-        assert "keep" in row_props
-    # Cleaned rows carry the persisted marker on inserted_at AND the bumped _timestamp version,
-    # so a replacing merge deterministically keeps them over any residual original.
-    stamped, total = cluster.any_host(partial(_count_marker_rows, PROP_TEAM_ID, marker)).result()
-    assert total == 20
-    assert stamped == 20
 
 
-@pytest.mark.django_db
-def test_full_job_property_removal_fails_on_residual_duplicates(cluster: ClickhouseCluster):
-    from django.utils import timezone
-
-    marker = timezone.now() - timedelta(minutes=5)
-    now = datetime.now()
-    dup_uuid = uuid4()
-    clean = json.dumps({"keep": "yes"})
-    dirty = json.dumps({"secret": "value", "keep": "yes"})
-    # Two cleaned twins of one uuid from a hypothetically-broken earlier attempt. All three rows
-    # carry different distinct_ids (distinct sorting keys) so a background replacing merge cannot
-    # collapse any of them mid-test — byte-identical twins self-heal within seconds, un-seeding
-    # the corruption before verification gets to observe it.
-    rows = [
-        (PROP_TEAM_ID, "$pageview", dup_uuid, "user-0", now - timedelta(hours=1), dirty, marker - timedelta(hours=1)),
-        (PROP_TEAM_ID, "$pageview", dup_uuid, "user-1", now - timedelta(hours=1), clean, marker),
-        (PROP_TEAM_ID, "$pageview", dup_uuid, "user-2", now - timedelta(hours=1), clean, marker),
-    ]
-    cluster.any_host(partial(_insert_events_with_properties_and_inserted_at, rows)).result()
-
-    request = DataDeletionRequest.objects.create(
-        team_id=PROP_TEAM_ID,
-        request_type=RequestType.PROPERTY_REMOVAL,
-        events=["$pageview"],
-        properties=["secret"],
-        start_time=now - timedelta(days=7),
-        end_time=now + timedelta(minutes=1),
-        status=RequestStatus.APPROVED,
-        property_removal_marker=marker,
-    )
-    result = data_deletion_request_property_removal.execute_in_process(
-        run_config={"ops": {"load_property_removal_request": {"config": {"request_id": str(request.pk)}}}},
-        resources={"cluster": cluster},
-        raise_on_error=False,
-    )
-    assert not result.success
-    request.refresh_from_db()
-    assert request.status == RequestStatus.FAILED
-
-
-@pytest.mark.django_db
-def test_single_shard_op_reexecution_completes_failed_request(cluster: ClickhouseCluster):
-    now = datetime.now()
-    props = json.dumps({"secret": "value", "keep": "yes"})
-    events = [(PROP_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i + 1), props) for i in range(20)]
-    cluster.any_host(partial(_insert_events_with_properties, events)).result()
-
-    request = DataDeletionRequest.objects.create(
-        team_id=PROP_TEAM_ID,
-        request_type=RequestType.PROPERTY_REMOVAL,
-        events=["$pageview"],
-        properties=["secret"],
-        start_time=now - timedelta(days=7),
-        end_time=now + timedelta(minutes=1),
-        status=RequestStatus.APPROVED,
-    )
-    run_config = {"ops": {"load_property_removal_request": {"config": {"request_id": str(request.pk)}}}}
-
-    # Attempt 1 dies inside the shard op, mid duplicate-window (cleaned rows inserted, originals kept).
-    with patch.object(LightweightDeleteMutationRunner, "__call__", side_effect=Exception("delete-originals failed")):
-        failed = data_deletion_request_property_removal.execute_in_process(
-            run_config=run_config, resources={"cluster": cluster}, raise_on_error=False
-        )
-    assert not failed.success
-    request.refresh_from_db()
-    assert request.status == RequestStatus.FAILED
-
-    # UI-style re-execution: load is NOT re-run — rebuild its cached output from the persisted
-    # request and drive only the shard op, then the downstream fan-in ops, directly.
-    assert request.start_time is not None
-    assert request.end_time is not None
-    ctx = DeletionRequestContext(
+def _request_context(request: DataDeletionRequest) -> DeletionRequestContext:
+    assert request.start_time is not None and request.end_time is not None
+    return DeletionRequestContext(
         request_id=str(request.pk),
         team_id=request.team_id,
         start_time=request.start_time,
@@ -2099,9 +2002,138 @@ def test_single_shard_op_reexecution_completes_failed_request(cluster: Clickhous
         hogql_predicate=request.hogql_predicate or "",
         inserted_at_marker=request.property_removal_marker,
     )
-    shard_num = sorted(cluster.shards)[0]
-    stats = process_property_removal_shard(build_op_context(), cluster, shard_num, ctx)
-    verify_property_removal(build_op_context(), cluster, ctx, [stats])
+
+
+def _property_removal_targets(cluster: ClickhouseCluster, ctx: DeletionRequestContext) -> list[PropertyRemovalTarget]:
+    return [output.value for output in get_property_removal_shards(build_op_context(), cluster, ctx)]
+
+
+def _non_empty_staged_files(cluster: ClickhouseCluster, ctx: DeletionRequestContext) -> list[str]:
+    # The One format lists files without reading them, so emptied files do not need a schema.
+    location = S3StagingLocation.for_data_deletion()
+    args = location.s3_args(f"property_removal/{ctx.request_id}/*/*/data/*.native", "One")
+    rows = cluster.any_host(lambda client: client.execute(f"SELECT _path FROM s3({args}) WHERE _size > 0")).result()
+    return [path for (path,) in rows]
+
+
+def _fail_after_reingesting(month: str):
+    original = _ShardStaging.finish_step
+
+    def finish_step(self: _ShardStaging, client: Client, step: str, payload: dict) -> None:
+        # The month's rows are already inserted when its progress file is written, so failing here
+        # leaves a partial reingest behind.
+        if step == f"reingested_{month}":
+            raise Exception("reingest died before recording the month")
+        original(self, client, step, payload)
+
+    return patch.object(_ShardStaging, "finish_step", finish_step)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("failure", ["delete", "reingest"])
+def test_full_job_property_removal_fresh_run_after_failure_restores_every_row(cluster: ClickhouseCluster, failure: str):
+    now = datetime.now(UTC)
+    props = json.dumps({"secret": "value", "keep": "yes"})
+    # Three months, so the reingest writes one staged file per month and a failure lands mid-way.
+    timestamps = [now - timedelta(days=days, hours=i) for days in (1, 35, 70) for i in range(5)]
+    events = [(PROP_TEAM_ID, "$pageview", uuid4(), ts, props) for ts in timestamps]
+    cluster.any_host(partial(_insert_events_with_properties, events)).result()
+    months = sorted({ts.strftime("%Y%m") for ts in timestamps})
+
+    request = _property_removal_request(start_time=now - timedelta(days=100))
+    run_config = {"ops": {"load_property_removal_request": {"config": {"request_id": str(request.pk)}}}}
+
+    inject = (
+        patch.object(LightweightDeleteMutationRunner, "__call__", side_effect=Exception("delete-originals failed"))
+        if failure == "delete"
+        else _fail_after_reingesting(months[1])
+    )
+    with inject:
+        failed = data_deletion_request_property_removal.execute_in_process(
+            run_config=run_config, resources={"cluster": cluster}, raise_on_error=False
+        )
+    assert not failed.success
+    request.refresh_from_db()
+    assert request.status == RequestStatus.FAILED
+    marker = request.property_removal_marker
+    assert marker is not None
+
+    # The admin Retry button starts a fresh run from the load op.
+    DataDeletionRequest.objects.filter(pk=request.pk).update(status=RequestStatus.APPROVED)
+    rerun = data_deletion_request_property_removal.execute_in_process(
+        run_config=run_config, resources={"cluster": cluster}
+    )
+    assert rerun.success
+
+    assert cluster.any_host(partial(_count_events_by_name, PROP_TEAM_ID, "$pageview")).result() == len(events)
+    for row_props in cluster.any_host(partial(_get_properties, PROP_TEAM_ID, "$pageview")).result():
+        assert "secret" not in row_props
+        assert "keep" in row_props
+    # Cleaned rows carry the persisted marker on inserted_at AND the bumped _timestamp version,
+    # so a replacing merge deterministically keeps them over any residual original.
+    stamped, total = cluster.any_host(partial(_count_marker_rows, PROP_TEAM_ID, marker)).result()
+    assert (stamped, total) == (len(events), len(events))
+    # Cleanup empties every staged file once the request is verified.
+    assert _non_empty_staged_files(cluster, _request_context(request)) == []
+    request.refresh_from_db()
+    assert request.status == RequestStatus.COMPLETED
+
+
+@pytest.mark.django_db
+def test_full_job_property_removal_fails_on_residual_duplicates(cluster: ClickhouseCluster):
+    marker = timezone.now() - timedelta(minutes=5)
+    now = datetime.now()
+    dup_uuid = uuid4()
+    clean = json.dumps({"keep": "yes"})
+    # Two cleaned twins of one uuid from a hypothetically-broken earlier attempt, with no original
+    # left in scope, so nothing this run stages re-supplies that uuid. The twins carry different
+    # distinct_ids (distinct sorting keys) so a background replacing merge cannot collapse them
+    # mid-test and un-seed the corruption before verification observes it.
+    rows = [
+        (PROP_TEAM_ID, "$pageview", dup_uuid, "user-1", now - timedelta(hours=1), clean, marker),
+        (PROP_TEAM_ID, "$pageview", dup_uuid, "user-2", now - timedelta(hours=1), clean, marker),
+    ]
+    cluster.any_host(partial(_insert_events_with_properties_and_inserted_at, rows)).result()
+
+    request = _property_removal_request(start_time=now - timedelta(days=7), property_removal_marker=marker)
+    result = data_deletion_request_property_removal.execute_in_process(
+        run_config={"ops": {"load_property_removal_request": {"config": {"request_id": str(request.pk)}}}},
+        resources={"cluster": cluster},
+        raise_on_error=False,
+    )
+    assert not result.success
+    request.refresh_from_db()
+    assert request.status == RequestStatus.FAILED
+
+
+@pytest.mark.django_db
+def test_reexecuting_the_failed_shard_steps_completes_failed_request(cluster: ClickhouseCluster):
+    now = datetime.now()
+    props = json.dumps({"secret": "value", "keep": "yes"})
+    events = [(PROP_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i + 1), props) for i in range(20)]
+    cluster.any_host(partial(_insert_events_with_properties, events)).result()
+
+    request = _property_removal_request(start_time=now - timedelta(days=7))
+    run_config = {"ops": {"load_property_removal_request": {"config": {"request_id": str(request.pk)}}}}
+
+    with patch.object(LightweightDeleteMutationRunner, "__call__", side_effect=Exception("delete-originals failed")):
+        failed = data_deletion_request_property_removal.execute_in_process(
+            run_config=run_config, resources={"cluster": cluster}, raise_on_error=False
+        )
+    assert not failed.success
+    request.refresh_from_db()
+    assert request.status == RequestStatus.FAILED
+
+    # UI-style re-execution: load and copy are NOT re-run. Rebuild load's cached output from the
+    # persisted request and drive only the steps from the failed one onward.
+    ctx = _request_context(request)
+    stats = []
+    for target in _property_removal_targets(cluster, ctx):
+        delete_property_removal_shard(build_op_context(), cluster, target, ctx)
+        reingest_property_removal_shard(build_op_context(), cluster, target, ctx)
+        stats.append(verify_property_removal_shard(build_op_context(), cluster, target, ctx))
+    verify_property_removal(build_op_context(), cluster, ctx, stats)
+    cleanup_property_removal_staging(build_op_context(), cluster, ctx, stats)
     finalize_deletion_request(build_op_context(), ctx)
 
     request.refresh_from_db()
@@ -2110,6 +2142,41 @@ def test_single_shard_op_reexecution_completes_failed_request(cluster: Clickhous
     for row_props in cluster.any_host(partial(_get_properties, PROP_TEAM_ID, "$pageview")).result():
         assert "secret" not in row_props
         assert "keep" in row_props
+
+
+@pytest.mark.django_db
+def test_delete_refuses_when_originals_outnumber_the_staged_copy(cluster: ClickhouseCluster):
+    marker = timezone.now()
+    now = datetime.now()
+    props = json.dumps({"secret": "value", "keep": "yes"})
+    originals = [
+        (PROP_TEAM_ID, "$pageview", uuid4(), "user-1", now - timedelta(hours=i + 1), props, marker - timedelta(hours=1))
+        for i in range(5)
+    ]
+    cluster.any_host(partial(_insert_events_with_properties_and_inserted_at, originals)).result()
+
+    request = _property_removal_request(start_time=now - timedelta(days=7), property_removal_marker=marker)
+    ctx = _request_context(request)
+    target = next(t for t in _property_removal_targets(cluster, ctx) if not t.json_schema)
+    copy_property_removal_shard(build_op_context(), cluster, target, ctx)
+
+    # An original the copy never saw, inside the marker bound. Deleting it would lose it.
+    unseen = (
+        PROP_TEAM_ID,
+        "$pageview",
+        uuid4(),
+        "user-1",
+        now - timedelta(hours=1),
+        props,
+        marker - timedelta(hours=1),
+    )
+    cluster.any_host(partial(_insert_events_with_properties_and_inserted_at, [unseen])).result()
+
+    with pytest.raises(dagster.Failure, match="originals match but the copy holds"):
+        delete_property_removal_shard(build_op_context(), cluster, target, ctx)
+    props_after = cluster.any_host(partial(_get_properties, PROP_TEAM_ID, "$pageview")).result()
+    assert len(props_after) == 6
+    assert all("secret" in p for p in props_after)
 
 
 @pytest.mark.django_db
