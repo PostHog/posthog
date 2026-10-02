@@ -270,6 +270,14 @@ class MySQLSource(
                 "prefix (see TiDB Cloud's connection docs). Otherwise check the user and password "
                 "for this source and try again."
             ),
+            # MariaDB error 4151 (ER_ACCOUNT_HAS_BEEN_LOCKED): the server rejects the login because
+            # the database user is locked. Neither "Access denied" key above appears in its text, and
+            # every retry hits the same lock until an admin unlocks the user.
+            "this account is locked": (
+                "Your database rejected the login because the user for this source is locked. Ask "
+                "your database admin to unlock the user (for example with 'ALTER USER ... ACCOUNT "
+                "UNLOCK'), or switch the source to another user, then re-enable the sync."
+            ),
             # MySQL/MariaDB error 1049 (ER_BAD_DB_ERROR): the configured database doesn't exist on
             # the server — it was renamed or dropped after the source was set up, or the connection
             # was reconfigured to point at a different server. `validate_credentials` already

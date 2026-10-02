@@ -2215,21 +2215,30 @@ class TestMySQLSourceNonRetryableErrors:
         assert friendly is not None, f"Connect failure should surface a friendly message: {error_msg}"
         assert "SSH tunnel" in friendly
 
-    def test_tidb_cloud_access_denied_surfaces_actionable_message(self, source):
-        # TiDB Cloud's ER_ACCESS_DENIED_ERROR wording doesn't contain the standard MySQL
-        # "Access denied for user" phrase, so without its own entry this credentials failure
-        # would retry forever instead of surfacing the cluster-tier username prefix guidance.
-        error_msg = (
-            "(1105, 'Access denied. Please check your user name and password. See "
-            "https://docs.pingcap.com/tidbcloud/select-cluster-tier#user-name-prefix')"
-        )
+    @pytest.mark.parametrize(
+        "error_msg,expected_hint",
+        [
+            # TiDB Cloud's ER_ACCESS_DENIED_ERROR wording doesn't contain the standard MySQL
+            # "Access denied for user" phrase, so it needs the cluster-tier username prefix guidance.
+            (
+                "(1105, 'Access denied. Please check your user name and password. See "
+                "https://docs.pingcap.com/tidbcloud/select-cluster-tier#user-name-prefix')",
+                "TiDB Cloud",
+            ),
+            # MariaDB's locked-account rejection (4151) contains neither "Access denied" key.
+            ("(4151, 'Access denied, this account is locked')", "unlock"),
+        ],
+    )
+    def test_access_denied_variants_surface_actionable_message(self, source, error_msg, expected_hint):
+        # Without their own entries these login failures retry forever instead of telling the
+        # user what to fix.
         non_retryable = source.get_non_retryable_errors()
         friendly = next(
             (message for pattern, message in non_retryable.items() if pattern in error_msg),
             None,
         )
-        assert friendly is not None, f"TiDB Cloud access-denied error should be non-retryable: {error_msg}"
-        assert "TiDB Cloud" in friendly
+        assert friendly is not None, f"Access-denied error should be non-retryable: {error_msg}"
+        assert expected_hint in friendly
 
     @pytest.mark.parametrize(
         "error_msg",
