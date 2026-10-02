@@ -49,14 +49,7 @@ export interface PostHogObjectRef {
 }
 
 /** Object kinds the preview shows live, with the components their own pages use. Others show a card. */
-export const LIVE_OBJECT_KINDS: ReadonlySet<string> = new Set([
-    'insight',
-    'hogql',
-    'dashboard',
-    'replay',
-    'flag',
-    'cohort',
-])
+export const LIVE_OBJECT_KINDS: ReadonlySet<string> = new Set(['insight', 'hogql', 'dashboard', 'replay'])
 
 export function postHogObjectRef(artifact: TaskRunArtifactResponseApi): PostHogObjectRef | null {
     const metadata = artifact.metadata
