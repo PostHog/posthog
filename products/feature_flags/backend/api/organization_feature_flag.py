@@ -41,7 +41,7 @@ from products.feature_flags.backend.encrypted_flag_payloads import (
     get_decrypted_flag_payloads_protected,
 )
 from products.feature_flags.backend.facade.api import create_flag, serialize_flags, update_flag
-from products.feature_flags.backend.facade.config import ConfigFormatError
+from products.feature_flags.backend.facade.config import ConfigFormatError, require_v1_config
 from products.feature_flags.backend.flag_analytics import get_cached_evaluations_7d_by_team
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
@@ -1144,6 +1144,7 @@ class OrganizationFeatureFlagView(
     def _get_feature_flag_copy_source_context(
         self, source_flag: FeatureFlag, copy_schedule: bool, user: User
     ) -> FeatureFlagCopySourceContext:
+        require_v1_config(source_flag.get_filters())
         source_dependency_keys, disabled_source_dependency_keys = self._get_source_dependency_context(
             source_flag, user=user
         )
