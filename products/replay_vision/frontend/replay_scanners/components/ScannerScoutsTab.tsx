@@ -1,15 +1,13 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconCalendar, IconPencil, IconPlus, IconTrends, IconWarning } from '@posthog/icons'
+import { IconCalendar, IconNotebook, IconPencil, IconPlus, IconSearch, IconTrends, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCard, LemonTag } from '@posthog/lemon-ui'
 
 import { ProjectTimezoneHint } from 'lib/components/ScheduledRunStatus'
-import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { cn } from 'lib/utils/css-classes'
 
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
-
-import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
+import { getScoutCreateDisabledReason } from '../../utils/accessControl'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { scannerScoutTemplates, type ScannerScoutTemplate, type ScannerScoutTemplateKey } from '../scannerScout'
 import { scannerScoutLogic } from '../scannerScoutLogic'
@@ -20,6 +18,8 @@ import { ScannerScoutRow } from './ScannerScoutRow'
 
 const TEMPLATE_ICONS: Record<ScannerScoutTemplateKey, JSX.Element> = {
     'daily-digest': <IconCalendar />,
+    'root-cause': <IconSearch />,
+    'weekly-themes': <IconNotebook />,
     'trend-watch': <IconTrends />,
     'new-issues': <IconWarning />,
     scratch: <IconPencil />,
@@ -28,11 +28,8 @@ const TEMPLATE_ICONS: Record<ScannerScoutTemplateKey, JSX.Element> = {
 /** Derived from the template's own cron, so a changed schedule can't leave a stale label behind. */
 function templateScheduleLabel(template: ScannerScoutTemplate): string {
     const cadence = parseScoutCadence(template.cron)
-    if (!cadence) {
-        return template.cron
-    }
-    const frequency = SCOUT_FREQUENCY_OPTIONS.find((option) => option.value === cadence.frequency)
-    return `${frequency?.label ?? 'Every day'} at ${cadence.time}`
+    const option = cadence && SCOUT_FREQUENCY_OPTIONS.find(({ value }) => value === cadence.frequency)
+    return cadence && option ? `${option.shortLabel} at ${cadence.time}` : template.cron
 }
 
 function ScoutTemplateCard({
@@ -45,30 +42,35 @@ function ScoutTemplateCard({
     onUse: () => void
 }): JSX.Element {
     return (
-        <LemonCard hoverEffect={false} className="flex flex-col gap-3 p-3">
-            <div className="flex min-w-0 items-start gap-2">
-                <span className="mt-0.5 shrink-0 text-muted">{TEMPLATE_ICONS[template.key]}</span>
-                <div className="flex min-w-0 flex-col gap-2">
-                    <div>
-                        <h3 className="m-0 text-sm font-semibold">{template.title}</h3>
-                        <p className="m-0 text-xs text-muted">{template.description}</p>
-                    </div>
-                    {/* The scratch card carries the same default cron, but it isn't a ready-made scout,
-                        so advertising a schedule would promise more than it hands you. */}
-                    {template.key !== 'scratch' && (
-                        <LemonTag type="muted" size="small" className="self-start">
-                            {templateScheduleLabel(template)} <ProjectTimezoneHint />
-                        </LemonTag>
-                    )}
-                </div>
+        <LemonCard hoverEffect={false} className="flex flex-col gap-2 p-2.5">
+            <div className="flex min-w-0 flex-col gap-1">
+                <h3 className="m-0 flex items-center gap-1.5 text-sm font-semibold">
+                    <span className="shrink-0 text-muted">{TEMPLATE_ICONS[template.key]}</span>
+                    {template.title}
+                </h3>
+                <p className="m-0 text-xs text-muted">{template.description}</p>
             </div>
-            <div className="mt-auto flex justify-end">
+            {/* Pinned to the bottom so the schedules and buttons line up across a row, whatever each
+                description's length. */}
+            <div className="mt-auto flex flex-col items-start gap-2">
+                {/* The scratch card carries the same default cron, but it isn't a ready-made scout, so
+                    advertising a schedule would promise more than it hands you. It keeps the space so its
+                    button stays level with the others. */}
+                <LemonTag
+                    type="muted"
+                    size="small"
+                    className={template.key === 'scratch' ? 'invisible' : undefined}
+                    aria-hidden={template.key === 'scratch'}
+                >
+                    {templateScheduleLabel(template)} <ProjectTimezoneHint />
+                </LemonTag>
                 <LemonButton
                     type="primary"
-                    size="small"
+                    size="xsmall"
                     icon={<IconPlus />}
                     onClick={onUse}
                     disabledReason={disabledReason}
+                    className="self-end"
                     data-attr={`vision-scout-template-${template.key}`}
                 >
                     {/* The scratch card seeds a skeleton rather than a ready-made scout, so
@@ -117,12 +119,7 @@ export function ScannerScoutsTab({ scannerId }: { scannerId: string }): JSX.Elem
         )
     }
 
-    // A scout reads this scanner's observations on a schedule, so creating one needs edit access to
-    // the scanner as well as to skills, the same bar the digest and alert flows apply.
-    const createDisabledReason =
-        getReplayVisionEditDisabledReason(scanner?.user_access_level) ??
-        getAccessControlDisabledReason(AccessControlResourceType.LlmSkill, AccessControlLevel.Editor) ??
-        undefined
+    const createDisabledReason = getScoutCreateDisabledReason(scanner?.user_access_level) ?? undefined
 
     return (
         <div className="flex flex-col gap-6">
@@ -142,7 +139,14 @@ export function ScannerScoutsTab({ scannerId }: { scannerId: string }): JSX.Elem
                 </div>
                 {/* Container query: the scene is much narrower than the viewport with a side panel open. */}
                 <div className="@container">
-                    <div className="grid gap-2 @md:grid-cols-2 @4xl:grid-cols-4">
+                    {/* One row from about 1,000px wide. The cards are sized for it, so a scanner type's
+                        four or five templates never leave one card alone on a row. */}
+                    <div
+                        className={cn(
+                            'grid gap-2 @md:grid-cols-2',
+                            templates.length > 4 ? '@2xl:grid-cols-5' : '@2xl:grid-cols-4'
+                        )}
+                    >
                         {templates.map((template) => (
                             <ScoutTemplateCard
                                 key={template.key}
