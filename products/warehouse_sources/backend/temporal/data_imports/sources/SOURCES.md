@@ -110,6 +110,7 @@ the row lists both.
 | aws_organizations                | HTTP                        | requests                                                        | ✅                          |
 | aws_security_hub                 | HTTP                        | requests                                                        | ✅                          |
 | aws_ses                          | HTTP                        | requests                                                        | ✅                          |
+| aws_systems_manager              | HTTP                        | requests                                                        | ✅                          |
 | aws_waf                          | HTTP                        | requests                                                        | ✅                          |
 | azure_cost_management            | HTTP                        | requests                                                        | ✅                          |
 | azure_devops                     | HTTP                        | requests                                                        | ✅                          |
@@ -932,7 +933,6 @@ doesn't conflict with concurrent PRs.
 - aws_savings_plans
 - aws_step_functions
 - aws_support
-- aws_systems_manager
 - aws_trusted_advisor
 - aws_xray
 - axiom
