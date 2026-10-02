@@ -141,20 +141,30 @@ def commit_matches(commit: dict[str, Any], match: dict[str, str]) -> bool:
     return any(all(layout.get(k) == v for k, v in match.items()) for layout in _commit_metadata_layouts(commit))
 
 
+def commit_members_tag(members: Sequence[tuple[str, int]]) -> str:
+    """The `members` commit tag for a set that spans runs: `run_uuid:batch_index` per member."""
+    return ",".join(f"{run_uuid}:{batch_index}" for run_uuid, batch_index in members)
+
+
 def commit_covers_batch(commit: dict[str, Any], run_uuid: str, batch_index: int) -> bool:
     """Whether this commit wrote `batch_index` of `run_uuid`, alone or as one member of a set.
 
-    A write of several consecutive batches is tagged with the first index under `batch_index` and
-    every member under `batch_indexes`, so a member's redelivery has to look in both.
+    A write of several batches is tagged with the head's run and index under `run_uuid` and
+    `batch_index`, the head run's members under `batch_indexes`, and every member of every run under
+    `members` when the set spans runs, so a member's redelivery has to look in all three.
     """
     wanted = str(batch_index)
+    wanted_member = f"{run_uuid}:{wanted}"
     for layout in _commit_metadata_layouts(commit):
+        members = layout.get("members")
+        if isinstance(members, str) and wanted_member in members.split(","):
+            return True
         if layout.get("run_uuid") != run_uuid:
             continue
         if layout.get("batch_index") == wanted:
             return True
-        members = layout.get("batch_indexes")
-        if isinstance(members, str) and wanted in members.split(","):
+        indexes = layout.get("batch_indexes")
+        if isinstance(indexes, str) and wanted in indexes.split(","):
             return True
     return False
 
@@ -227,6 +237,7 @@ class DeltaWriter:
                 get_handle_cache,
             )
             from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.memory_governor import (
+                estimate_rewrite_profile,
                 get_governor,
             )
             from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
@@ -250,8 +261,17 @@ class DeltaWriter:
             # so all MAX_CONCURRENT_ACTIVITIES upserts on this process are guaranteed to fit. deltalite
             # always writes — the governor never falls back to the delta-rs MERGE for capacity, because
             # the MERGE is the *more* memory-hungry path. A source too big for its slice just runs at
-            # mpp=1 (governor logs a capacity_exceeded ops signal).
-            async with get_governor().admit(source_bytes=data.nbytes, n_partitions=n_partitions) as adm:
+            # mpp=1 (governor logs a capacity_exceeded ops signal). The existing files the merge can
+            # rewrite are sized from the handle's add actions, so this costs no object-store request.
+            governor = get_governor()
+            rewrite = (
+                await asyncio.to_thread(
+                    estimate_rewrite_profile, existing_delta_table, data, partition_key, normalized_primary_keys
+                )
+                if governor.config.mode != "off"
+                else None
+            )
+            async with governor.admit(source_bytes=data.nbytes, n_partitions=n_partitions, rewrite=rewrite) as adm:
 
                 def _run_upsert(table: Any, upsert_kwargs: dict[str, int]) -> Any:
                     return table.upsert(
@@ -307,6 +327,12 @@ class DeltaWriter:
                 governor_budget_mb=adm.budget_mb,
                 governor_capacity_exceeded=adm.capacity_exceeded,
                 governor_mpp=adm.planned_mpp,
+                governor_rewrite_mb=adm.rewrite_mb,
+                governor_rewrite_total_mb=adm.rewrite_total_mb,
+                governor_rewrite_files=adm.rewrite_files,
+                governor_reserved_slots=adm.reserved_slots,
+                governor_wait_ms=adm.wait_ms,
+                governor_wait_timed_out=adm.wait_timed_out,
                 **_deltalite_write_stats(stats),
             )
             DELTALITE_WRITE_TOTAL.labels(outcome="written").inc()

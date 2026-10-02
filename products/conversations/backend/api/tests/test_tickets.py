@@ -2653,11 +2653,14 @@ class TestTicketMessagesAPI(APIBaseTest):
         assert body[0]["author_type"] == "customer"
         assert body[0]["author_name"] == "Alice"
         assert body[0]["is_private"] is False
+        assert body[0]["message_type"] == "customer_message"
         assert body[1]["content"] == "Hi there!"
         assert body[1]["author_type"] == "support"
         assert body[1]["is_private"] is False
+        assert body[1]["message_type"] == "sent_reply"
         assert body[2]["content"] == "Internal note"
         assert body[2]["is_private"] is True
+        assert body[2]["message_type"] == "internal_note"
 
     def test_messages_includes_private_notes(self, mock_on_commit):
         Comment.objects.create(
@@ -2713,6 +2716,7 @@ class TestTicketMessagesAPI(APIBaseTest):
         msg = response.json()["results"][0]
         assert set(msg.keys()) == {
             "id",
+            "message_type",
             "content",
             "rich_content",
             "author_type",

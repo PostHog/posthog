@@ -343,7 +343,16 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             )
         else:
             schema_with_error = instance.schemas.filter(latest_error__isnull=False).first()
-        return schema_with_error.latest_error if schema_with_error else None
+        if schema_with_error is None:
+            return None
+        return helpers.redact_error_message(schema_with_error.latest_error, self._error_redaction_values(instance))
+
+    def _error_redaction_values(self, instance: ExternalDataSource) -> frozenset[str]:
+        cached = getattr(instance, "_error_redaction_values", None)
+        if cached is None:
+            cached = helpers.get_error_redaction_values(instance)
+            instance._error_redaction_values = cached  # type: ignore[attr-defined]
+        return cached
 
     @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     def get_schemas(self, instance: ExternalDataSource):
@@ -355,9 +364,10 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         # The source list embeds every schema of every source; large projects have tens of thousands.
         # The list UI only reads a handful of per-schema fields, so serialize the trimmed shape there
         # and reserve the full serializer for single-source reads.
+        context = {**self.context, "error_redaction_values": self._error_redaction_values(instance)}
         if self.context.get("schemas_list_only"):
-            return ExternalDataSchemaListSerializer(schemas, many=True, read_only=True, context=self.context).data
-        return ExternalDataSchemaSerializer(schemas, many=True, read_only=True, context=self.context).data
+            return ExternalDataSchemaListSerializer(schemas, many=True, read_only=True, context=context).data
+        return ExternalDataSchemaSerializer(schemas, many=True, read_only=True, context=context).data
 
     def update(self, instance: ExternalDataSource, validated_data: Any) -> Any:
         request = self.context.get("request")
@@ -1277,6 +1287,26 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": "Schemas given do not exist in source"},
+            )
+
+        # `payload` is a free-form dict, so the serializer never checks per-schema sync types. An
+        # unknown one would be saved as-is and fail every sync of that table.
+        valid_sync_types = ExternalDataSchema.SyncType.values
+        invalid_sync_types = sorted(
+            {
+                str(schema.get("sync_type"))
+                for schema in payload_schemas
+                if schema.get("sync_type") is not None and schema.get("sync_type") not in valid_sync_types
+            }
+        )
+        if invalid_sync_types:
+            new_source_model.delete()
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={
+                    "message": f"Unknown sync type: {', '.join(invalid_sync_types)}. "
+                    f"Use one of: {', '.join(valid_sync_types)}."
+                },
             )
 
         # Refuse per-schema `sync_type=cdc` when source-level CDC is off — `_setup_cdc_resources`

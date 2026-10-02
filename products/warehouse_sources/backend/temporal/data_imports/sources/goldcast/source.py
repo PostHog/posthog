@@ -31,7 +31,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class GoldcastSource(SimpleSource[GoldcastSourceConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
-    api_docs_url = "https://customapi.goldcast.io/swagger-ui/"
+    api_docs_url = "https://apidocs.goldcast.io/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

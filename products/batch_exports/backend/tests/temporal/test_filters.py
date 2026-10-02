@@ -139,24 +139,28 @@ def test_compose_filters_clause_reads_flags_from_the_native_map(ateam):
         return f"""replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_{flag_key})s, %(hogql_val_{flag_name})s), ''), 'null'), '^"|"$', '')"""
 
     assert result_clause == (
-        f"""and(ifNull(equals(if(ifNull(equals({map_read(0, 1)}, %(hogql_val_2)s), 0), %(hogql_val_3)s, {map_read(4, 5)}), %(hogql_val_6)s), 0), """
-        f"""ifNull(equals(if(ifNull(equals({map_read(7, 8)}, %(hogql_val_9)s), 0), %(hogql_val_10)s, {map_read(11, 12)}), %(hogql_val_13)s), 0))"""
+        f"""and(ifNull(equals(multiIf(ifNull(equals({map_read(0, 1)}, %(hogql_val_2)s), 0), 'false', ifNull(equals({map_read(3, 4)}, %(hogql_val_5)s), 0), 'true', {map_read(6, 7)}), %(hogql_val_8)s), 0), """
+        f"""ifNull(equals(multiIf(ifNull(equals({map_read(9, 10)}, %(hogql_val_11)s), 0), 'false', ifNull(equals({map_read(12, 13)}, %(hogql_val_14)s), 0), 'true', {map_read(15, 16)}), %(hogql_val_17)s), 0))"""
     )
     assert result_values == {
         "hogql_val_0": "$feature_flags",
         "hogql_val_1": "some-feature",
         "hogql_val_2": "$false",
-        "hogql_val_3": "false",
-        "hogql_val_4": "$feature_flags",
-        "hogql_val_5": "some-feature",
-        "hogql_val_6": "true",
-        "hogql_val_7": "$feature_flags",
-        "hogql_val_8": "other-feature",
-        "hogql_val_9": "$false",
-        "hogql_val_10": "false",
-        "hogql_val_11": "$feature_flags",
-        "hogql_val_12": "other-feature",
-        "hogql_val_13": "control",
+        "hogql_val_3": "$feature_flags",
+        "hogql_val_4": "some-feature",
+        "hogql_val_5": "$true",
+        "hogql_val_6": "$feature_flags",
+        "hogql_val_7": "some-feature",
+        "hogql_val_8": "true",
+        "hogql_val_9": "$feature_flags",
+        "hogql_val_10": "other-feature",
+        "hogql_val_11": "$false",
+        "hogql_val_12": "$feature_flags",
+        "hogql_val_13": "other-feature",
+        "hogql_val_14": "$true",
+        "hogql_val_15": "$feature_flags",
+        "hogql_val_16": "other-feature",
+        "hogql_val_17": "control",
     }
 
 

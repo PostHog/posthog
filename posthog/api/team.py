@@ -123,7 +123,15 @@ from products.access_control.backend.presentation.access_control import (
     UserAccessControlSerializerMixin,
 )
 from products.access_control.backend.presentation.access_control_settings import AccessControlSettingsViewSetMixin
+from products.customer_analytics.backend.facade.account_property_pins import (
+    InvalidPinnedAccountProperties,
+    validate_pinned_account_properties,
+)
+from products.customer_analytics.backend.facade.contracts import PinnedAccountProperty
+from products.customer_analytics.backend.facade.enums import ACCOUNT_PROPERTY_PIN_KIND_CHOICES
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.facade.flags import get_usage_tab_flag_evaluations_mode
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, normalize_context_name
 from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
 from products.logs.backend.models import TeamLogsConfig
@@ -142,7 +150,8 @@ from products.web_analytics.backend.hogql_queries.custom_bot_definitions import 
     validate_rule as validate_custom_bot_rule,
     validate_rule_set as validate_custom_bot_rule_set,
 )
-from products.workflows.backend.models.team_workflows_config import EmailTrackingConsentMode, TeamWorkflowsConfig
+from products.workflows.backend.facade.enums import EMAIL_TRACKING_CONSENT_MODE_CHOICES
+from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 
 tracer = trace.get_tracer(__name__)
 
@@ -362,8 +371,6 @@ def handle_experiments_config(request: request.Request, team: Team) -> response.
         MAX_RECALCULATION_TIMES,
         MIN_RECALCULATION_GAP_HOURS,
         TeamExperimentsConfig,
-        legacy_from_recalculation_times,
-        recalculation_times_from_legacy,
         validate_recalculation_times,
     )
 
@@ -380,15 +387,13 @@ def handle_experiments_config(request: request.Request, team: Team) -> response.
             help_text=(
                 "Times of day (UTC) when experiment metrics are recalculated, as 'HH:00:00' strings "
                 f"on the hour. At most {MAX_RECALCULATION_TIMES} entries, at least "
-                f"{MIN_RECALCULATION_GAP_HOURS} hours apart. Null means the default time (02:00 UTC). "
-                "Takes precedence over experiment_recalculation_time."
+                f"{MIN_RECALCULATION_GAP_HOURS} hours apart. Null means the default time (02:00 UTC)."
             ),
         )
 
         class Meta:
             model = TeamExperimentsConfig
             fields = [
-                "experiment_recalculation_time",
                 "experiment_recalculation_times",
                 "default_experiment_confidence_level",
                 "default_experiment_stats_method",
@@ -414,16 +419,6 @@ def handle_experiments_config(request: request.Request, team: Team) -> response.
             # writes when precomputation_enabled_set_by is null or "auto".
             if "experiment_precomputation_enabled" in validated_data:
                 instance.precomputation_enabled_set_by = TeamExperimentsConfig.PrecomputationEnabledSetBy.MANUAL
-            # The two recalculation fields must stay coherent while both exist: writing one
-            # syncs the other, so old clients and the workflow reader never disagree.
-            if "experiment_recalculation_times" in validated_data:
-                validated_data["experiment_recalculation_time"] = legacy_from_recalculation_times(
-                    validated_data["experiment_recalculation_times"]
-                )
-            elif "experiment_recalculation_time" in validated_data:
-                validated_data["experiment_recalculation_times"] = recalculation_times_from_legacy(
-                    validated_data["experiment_recalculation_time"]
-                )
             return super().update(instance, validated_data)
 
         def validate_flag_cleanup_repository(self, value: str | None) -> str | None:
@@ -961,7 +956,7 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
         ),
     )
     email_tracking_consent_mode = serializers.ChoiceField(
-        choices=EmailTrackingConsentMode.choices,
+        choices=EMAIL_TRACKING_CONSENT_MODE_CHOICES,
         required=False,
         help_text=(
             "Recipient-consent enforcement for open/click tracking on marketing workflow emails. "
@@ -1058,6 +1053,17 @@ class TeamFeatureFlagPolicyConfigSerializer(serializers.ModelSerializer, UserAcc
         fields = ["require_tags"]
 
 
+class TeamCustomerAnalyticsPinnedAccountPropertySerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(
+        choices=ACCOUNT_PROPERTY_PIN_KIND_CHOICES,
+        help_text="Definition type for this default pinned account property.",
+    )
+    id = serializers.UUIDField(help_text="Project-scoped custom property or relationship definition UUID.")
+
+    class Meta:
+        ref_name = "TeamCustomerAnalyticsPinnedAccountProperty"
+
+
 class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     activity_event = serializers.JSONField(required=False, help_text="Event used as the activity signal (DAU/WAU/MAU).")
     signup_pageview_event = serializers.JSONField(
@@ -1076,6 +1082,15 @@ class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAcc
             "Must reference an existing group type configured for the project."
         ),
     )
+    default_pinned_properties = TeamCustomerAnalyticsPinnedAccountPropertySerializer(
+        many=True,
+        allow_empty=True,
+        required=False,
+        help_text=(
+            "Ordered account properties shown until a user saves a personal pinned-property selection. "
+            "Pass an empty list to show no properties by default."
+        ),
+    )
 
     class Meta:
         model = TeamCustomerAnalyticsConfig
@@ -1086,6 +1101,7 @@ class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAcc
             "subscription_event",
             "payment_event",
             "account_group_type_index",
+            "default_pinned_properties",
         ]
 
     def update(
@@ -1101,6 +1117,19 @@ class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAcc
     @staticmethod
     def validate_account_group_type_index(value):
         return validate_group_type_index("account_group_type_index", value)
+
+    def validate_default_pinned_properties(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if self.instance is None:
+            return value
+        pinned_properties = [PinnedAccountProperty(kind=reference["kind"], id=reference["id"]) for reference in value]
+        try:
+            validate_pinned_account_properties(
+                team_id=self.instance.team_id,
+                pinned_properties=pinned_properties,
+            )
+        except InvalidPinnedAccountProperties as error:
+            raise serializers.ValidationError(error.errors)
+        return [{"kind": reference["kind"], "id": str(reference["id"])} for reference in value]
 
 
 _VALID_TRIGGER_PROPERTY_OPERATORS = {
@@ -1344,6 +1373,12 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     live_events_token = serializers.SerializerMethodField()
     product_intents = serializers.SerializerMethodField()
     managed_viewsets = serializers.SerializerMethodField()
+    flag_evaluations_mode = serializers.SerializerMethodField(
+        help_text=(
+            "Which table this project's feature flag usage data is read from. PostHog sets it for the "
+            "whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table."
+        )
+    )
     available_setup_task_ids = serializers.SerializerMethodField()
     revenue_analytics_config = TeamRevenueAnalyticsConfigSerializer(required=False)
     marketing_analytics_config = TeamMarketingAnalyticsConfigSerializer(required=False)
@@ -1388,6 +1423,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "live_events_token",
             "product_intents",
             "managed_viewsets",
+            "flag_evaluations_mode",
             "available_setup_task_ids",
         )
 
@@ -1411,6 +1447,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "user_access_level",
             "product_intents",
             "managed_viewsets",
+            "flag_evaluations_mode",
             "available_setup_task_ids",
         )
 
@@ -1474,6 +1511,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         enabled_set = set(enabled_viewsets)
 
         return {kind: (kind in enabled_set) for kind, _ in DataWarehouseManagedViewSetKind.choices}
+
+    @extend_schema_field(serializers.ChoiceField(choices=FlagEvaluationsMode.choices))
+    def get_flag_evaluations_mode(self, obj: Team) -> int:
+        return get_usage_tab_flag_evaluations_mode(obj.organization_id)
 
     @extend_schema_field(
         serializers.ListField(child=serializers.ChoiceField(choices=[(e.value, e.value) for e in SetupTaskId]))
@@ -2091,6 +2132,11 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if not isinstance(value, dict):
             raise exceptions.ValidationError("Must provide a dictionary or None.")
 
+        # The native JSON events table is an internal rollout switch that PostHog staff set per project in Django
+        # admin. Dropping the key keeps a client from setting or clearing it, including a settings page that echoes
+        # the whole modifiers dict back.
+        value = {key: item for key, item in value.items() if key != "useNewEventsSchema"}
+
         if "bounceRateDurationSeconds" in value:
             bounce_rate = value["bounceRateDurationSeconds"]
             if bounce_rate is not None:
@@ -2426,6 +2472,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "subscription_event": instance.customer_analytics_config.subscription_event,
             "payment_event": instance.customer_analytics_config.payment_event,
             "account_group_type_index": instance.customer_analytics_config.account_group_type_index,
+            "default_pinned_properties": instance.customer_analytics_config.default_pinned_properties,
         }
 
         serializer = TeamCustomerAnalyticsConfigSerializer(

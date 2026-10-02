@@ -17,6 +17,7 @@ notification_channel_per_team = {
     JobOwners.TEAM_DATA_STACK.value: "#alerts-data-warehouse",
     JobOwners.TEAM_DATA_TOOLS.value: "#alerts-data-tools",
     JobOwners.TEAM_ERROR_TRACKING.value: "#alerts-error-tracking",
+    JobOwners.TEAM_FEATURE_FLAGS.value: "#alerts-feature-flags",
     JobOwners.TEAM_GROWTH.value: "#alerts-growth",
     JobOwners.TEAM_AI_OBSERVABILITY.value: "#alerts-aio",
     JobOwners.TEAM_MANAGED_WAREHOUSE.value: "#alerts-managed-warehouse",

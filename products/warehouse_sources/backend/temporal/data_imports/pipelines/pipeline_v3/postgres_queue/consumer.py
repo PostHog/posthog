@@ -35,7 +35,18 @@ from products.warehouse_sources.backend.temporal.data_imports.metrics import (
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.auto_widen_resync import (
     COLUMN_TYPE_WIDENED_KEY,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.coalescing import (
+    CoalesceCaps,
+    CoalesceMember,
+    extends_set,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ExportSignalMessage
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
+    release_v3_pipeline_lock,
+)
+from products.warehouse_sources.backend.temporal.data_imports.util import is_transient_internal_db_error
+from products.warehouse_sources.backend.types import ExternalDataJobStatus
+from products.warehouse_sources_queue.backend.core.batch_consumer import (
     MAX_ATTEMPTS,
     POLL_INTERVAL_SECONDS,
     RECONCILE_GRACE_SECONDS,
@@ -50,17 +61,18 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _group_by_key,
     _is_transient_queue_db_error,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ExportSignalMessage
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
+from products.warehouse_sources_queue.backend.core.jobs_db import (
     _UNSET,
     FRESHNESS_WINDOW_SECONDS,
+    GAUGE_STATEMENT_TIMEOUT_MS,
     TAKEOVER_STALE_THRESHOLD_SECONDS,
     BatchQueue,
     FailedRunRef,
     PendingBatch,
     _Unset,
+    queue_gauges_slot_key,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.metrics import (
+from products.warehouse_sources_queue.backend.core.metrics import (
     BACKLOGGED_GROUPS,
     BLOCKED_BATCHES,
     CLAIMABLE_BATCHES,
@@ -73,13 +85,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     SERIALIZED_BATCHES,
     SLOT_WAITING_BATCHES,
     TOP_GROUPS_CLAIMABLE_SHARE,
+    clear_queue_sample_gauges,
     observe_queue_query,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
-    release_v3_pipeline_lock,
-)
-from products.warehouse_sources.backend.temporal.data_imports.util import is_transient_internal_db_error
-from products.warehouse_sources.backend.types import ExternalDataJobStatus
 from products.warehouse_sources_queue.backend.models import SourceBatchStatus
 
 logger = structlog.get_logger(__name__)
@@ -180,41 +188,9 @@ JOB_STATUS_CACHE_TTL_SECONDS = 30
 JOB_STATUS_CACHE_MAX_ENTRIES = 1000
 
 
-# Bounds on a set of consecutive batches loaded as one Delta commit. A batch is at most one
-# extraction chunk (500k rows, 200 MiB of Arrow), so the row cap keeps a set to what one large
-# batch already costs, and the byte cap (parquet on disk, several times smaller than the Arrow it
-# decodes to) keeps many small batches from adding up past it.
-COALESCE_MAX_BATCHES = 8
-COALESCE_MAX_ROWS = 500_000
-COALESCE_MAX_BYTES = 64 * 1024 * 1024
-# CDC batches resolve positions against the table between writes, and a batch bound for external
-# destinations is delivered per batch, so neither is folded into a set.
-COALESCABLE_SYNC_TYPES: frozenset[str] = frozenset({"incremental", "append", "full_refresh"})
-
-
-def _coalescable(batch: PendingBatch) -> bool:
-    return (
-        batch.sync_type in COALESCABLE_SYNC_TYPES
-        # A redelivery may sit on a half-finished write; its idempotency check runs per batch.
-        and batch.latest_attempt == 0
-        and not batch.destination_ids
-        and batch.metadata.get("cdc_write_mode") is None
-    )
-
-
-def _extends_coalesced_set(current: list[PendingBatch], batch: PendingBatch) -> bool:
-    head = current[-1]
-    if not (_coalescable(head) and _coalescable(batch)):
-        return False
-    if batch.run_uuid != head.run_uuid or batch.job_id != head.job_id:
-        return False
-    if batch.batch_index != head.batch_index + 1:
-        return False
-    if len(current) >= COALESCE_MAX_BATCHES:
-        return False
-    rows = sum(member.row_count for member in current) + batch.row_count
-    size = sum(member.byte_size for member in current) + batch.byte_size
-    return rows <= COALESCE_MAX_ROWS and size <= COALESCE_MAX_BYTES
+def _first_delivery(batch: PendingBatch) -> bool:
+    # A redelivery may sit on a half-finished write; its idempotency check runs per batch.
+    return batch.latest_attempt == 0
 
 
 def _is_transient_queue_connection_drop(err: Exception, conn: psycopg.AsyncConnection[Any]) -> bool:
@@ -252,6 +228,11 @@ class DeltaBatchConsumerAdapter:
         # None/None (the default) means the whole queue — a single-fleet deployment.
         self._claim_sync_types = claim_sync_types
         self._claim_exclude_sync_types = claim_exclude_sync_types
+        # Stable for the life of the consumer, so the gauge-slot holder can renew its own slot.
+        self._gauge_owner_token = str(uuid4())
+        self._gauge_slot_key = queue_gauges_slot_key(
+            sync_types=claim_sync_types, exclude_sync_types=claim_exclude_sync_types
+        )
         # job_id -> (is_dead, checked_at via time.monotonic())
         self._job_dead_cache: dict[str, tuple[bool, float]] = {}
         # job_id -> (status, latest_error) for dead jobs only, so the drain decision in
@@ -494,9 +475,8 @@ class DeltaBatchConsumerAdapter:
         # which is exactly when concurrent copies on every pod can saturate the
         # queue DB and starve the claim path (the 2026-08-09 loader stall: 36
         # concurrent sweep queries, claim polls timing out fleet-wide). The
-        # freshness probe above deliberately stays outside the slot: every pod
-        # must keep its own gauge current, or max() across the fleet pins stale
-        # values. The token is throwaway — the slot is never verified or
+        # freshness probe above has its own slot, so a long sweep cannot delay
+        # the gauges. The token is throwaway — the slot is never verified or
         # released, it just expires into the next pod's hands.
         if not await BatchQueue.try_acquire_reconcile_sweep_slot(conn, owner_token=str(uuid4())):
             logger.debug("reconcile_sweep_slot_held_elsewhere")
@@ -765,37 +745,34 @@ class DeltaBatchConsumerAdapter:
                     capture_exception(e)
 
     async def _observe_queue_freshness(self, conn: psycopg.AsyncConnection[Any]) -> None:
-        """Report the age of the oldest batch no consumer has picked up yet.
+        """Report the age of the oldest batch no consumer has picked up yet, and the queue depth.
 
         This is the loader's data-freshness signal: it rises whenever loading
         stalls, no matter why — the alert on it fires even when every other
-        health signal looks green. The probe has its own timeout so it cannot
-        eat the reconcile sweep's budget; on timeout the gauge saturates, since
-        a queue DB too degraded to measure freshness must read as stale. Other
-        failures are swallowed-with-capture so a broken probe can't take the
-        sweep down.
+        health signal looks green.
+
+        The gauges are queue-wide, so only the pod that holds this fleet's gauge
+        slot samples them. Every other pod exports NaN ("no sample"), which max()
+        across the fleet skips. Each pod blanks its gauges before it asks for the
+        slot, so a pod that sampled in an earlier round can never keep exporting
+        that value as if it were fresh.
+
+        Each probe statement has a server-side timeout. Past it, the probe skips
+        its sample and the gauges stay NaN, with one exception: the age gauge
+        saturates on any timeout, because a queue DB too degraded to measure
+        freshness must read as stale. The whole probe also has a client timeout,
+        so it cannot eat the reconcile sweep's budget. Other failures are
+        swallowed-with-capture so a broken probe can't take the sweep down.
         """
+        clear_queue_sample_gauges()
         try:
             async with asyncio.timeout(FRESHNESS_PROBE_TIMEOUT_SECONDS):
-                with observe_queue_query("oldest_unclaimed_probe"):
-                    freshness = await BatchQueue.get_queue_freshness(
-                        conn, backlog_threshold_seconds=BACKLOG_THRESHOLD_SECONDS
-                    )
-                # Set immediately, so a failure in the depth probe below can never
-                # blind the age gauge this alert hangs off.
-                OLDEST_UNCLAIMED_BATCH_SECONDS.set(freshness.oldest_age_seconds or 0.0)
-                BLOCKED_BATCHES.set(freshness.blocked_batches)
-                BACKLOGGED_GROUPS.set(freshness.backlogged_groups)
-                # Depth rides the same probe and timeout: age says how stale the head
-                # of the queue is, depth says how much sits behind it — a stall and a
-                # burst are indistinguishable on age alone.
-                with observe_queue_query("claimable_depth_probe"):
-                    depth = await BatchQueue.get_queue_depth(conn)
-                CLAIMABLE_BATCHES.set(depth.claimable_batches)
-                CLAIMABLE_GROUPS.set(depth.claimable_groups)
-                TOP_GROUPS_CLAIMABLE_SHARE.set(depth.top_groups_claimable_share)
-                SLOT_WAITING_BATCHES.set(depth.slot_waiting_batches)
-                SERIALIZED_BATCHES.set(depth.serialized_batches)
+                if not await BatchQueue.try_acquire_queue_gauges_slot(
+                    conn, owner_token=self._gauge_owner_token, slot_key=self._gauge_slot_key
+                ):
+                    logger.debug("queue_gauges_slot_held_elsewhere")
+                    return
+                await self._sample_queue_gauges(conn)
         except TimeoutError:
             logger.error(  # noqa: TRY400 — designed degraded path, traceback is noise
                 "queue_freshness_probe_timed_out",
@@ -807,6 +784,37 @@ class DeltaBatchConsumerAdapter:
             logger.exception("queue_freshness_probe_failed")
             capture_exception(e)
             return
+
+    async def _sample_queue_gauges(self, conn: psycopg.AsyncConnection[Any]) -> None:
+        try:
+            with observe_queue_query("oldest_unclaimed_probe"):
+                freshness = await BatchQueue.get_queue_freshness(
+                    conn, backlog_threshold_seconds=BACKLOG_THRESHOLD_SECONDS
+                )
+        except psycopg.errors.QueryCanceled:
+            logger.info("queue_freshness_probe_statement_timed_out", timeout_ms=GAUGE_STATEMENT_TIMEOUT_MS)
+            OLDEST_UNCLAIMED_BATCH_SECONDS.set(FRESHNESS_WINDOW_SECONDS)
+            # The depth probe reads a larger set than this one, so it would time out too.
+            return
+        # Set immediately, so a failure in the depth probe below can never
+        # blind the age gauge this alert hangs off.
+        OLDEST_UNCLAIMED_BATCH_SECONDS.set(freshness.oldest_age_seconds or 0.0)
+        BLOCKED_BATCHES.set(freshness.blocked_batches)
+        BACKLOGGED_GROUPS.set(freshness.backlogged_groups)
+        # Depth rides the same slot and timeout: age says how stale the head of
+        # the queue is, depth says how much sits behind it — a stall and a burst
+        # are indistinguishable on age alone.
+        try:
+            with observe_queue_query("claimable_depth_probe"):
+                depth = await BatchQueue.get_queue_depth(conn)
+        except psycopg.errors.QueryCanceled:
+            logger.info("queue_depth_probe_statement_timed_out", timeout_ms=GAUGE_STATEMENT_TIMEOUT_MS)
+            return
+        CLAIMABLE_BATCHES.set(depth.claimable_batches)
+        CLAIMABLE_GROUPS.set(depth.claimable_groups)
+        TOP_GROUPS_CLAIMABLE_SHARE.set(depth.top_groups_claimable_share)
+        SLOT_WAITING_BATCHES.set(depth.slot_waiting_batches)
+        SERIALIZED_BATCHES.set(depth.serialized_batches)
 
     async def should_process_batch(
         self,
@@ -954,15 +962,30 @@ class DeltaBatchConsumerAdapter:
         return None
 
     def coalesce_group(self, batches: list[PendingBatch]) -> list[list[PendingBatch]]:
+        """Cut the claimed batches of one group into the sets the sink loads as one write.
+
+        Only adjacent batches join, so every set keeps the claim order: the order the loader would
+        have taken the batches in one at a time.
+        """
+        caps = CoalesceCaps.from_settings()
         sets: list[list[PendingBatch]] = []
         current: list[PendingBatch] = []
+        current_members: list[CoalesceMember] = []
         for batch in batches:
-            if current and _extends_coalesced_set(current, batch):
+            member = CoalesceMember.from_batch(batch)
+            if (
+                current
+                and _first_delivery(current[-1])
+                and _first_delivery(batch)
+                and extends_set(current_members, member, caps)
+            ):
                 current.append(batch)
+                current_members.append(member)
                 continue
             if current:
                 sets.append(current)
             current = [batch]
+            current_members = [member]
         if current:
             sets.append(current)
         return sets
