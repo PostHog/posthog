@@ -924,7 +924,12 @@ fn connection_lost() -> SagaError {
 
 #[test]
 fn lost_connections_classify_as_retriable_and_unavailable() {
-    for err in [connection_lost(), db_error("08006")] {
+    for err in [
+        connection_lost(),
+        db_error("08006"),
+        db_error("57P01"),
+        db_error("57P02"),
+    ] {
         assert!(
             err.is_db_connection_lost(),
             "{err} must be a lost connection"

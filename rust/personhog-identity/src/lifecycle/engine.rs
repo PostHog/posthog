@@ -106,18 +106,18 @@ impl SagaError {
         matches!(db.code().as_deref(), Some("40P01" | "40001" | "57014"))
     }
 
-    /// The connection under the statement broke: a pgbouncer pod shutting
-    /// down, a network reset, or a server-side disconnect (SQLSTATE class
-    /// 08). The pool discards the connection, so a re-drive runs on a fresh
-    /// one. Even when the break hid a commit, the reloaded row shows the
-    /// advanced step, so re-driving is as safe as after a conflict.
+    /// The connection broke (class 08) or the server shut down (57P01,
+    /// 57P02). A re-drive runs on a fresh connection, and the reloaded row
+    /// shows any commit the break hid.
     pub fn is_db_connection_lost(&self) -> bool {
         let SagaError::Db(err) = self else {
             return false;
         };
         match err {
             sqlx::Error::Io(_) | sqlx::Error::Tls(_) => true,
-            sqlx::Error::Database(db) => db.code().is_some_and(|code| code.starts_with("08")),
+            sqlx::Error::Database(db) => db
+                .code()
+                .is_some_and(|code| code.starts_with("08") || code == "57P01" || code == "57P02"),
             _ => false,
         }
     }
