@@ -48,7 +48,12 @@ describe('AnnouncementsTabContent', () => {
     })
 
     function renderComposer(): void {
-        userLogic.actions.loadUserSuccess({ id: 7, first_name: 'Ada', email: 'ada@example.com' } as UserType)
+        userLogic.actions.loadUserSuccess({
+            id: 7,
+            first_name: 'Ada',
+            email: 'ada@example.com',
+            is_email_verified: true,
+        } as UserType)
         logic.actions.setMessage('Offsite this week')
         logic.actions.setSelectedChannelIds(['C1', 'C2'])
         render(
@@ -85,6 +90,31 @@ describe('AnnouncementsTabContent', () => {
 
         await waitFor(() =>
             expect(postedBodies).toEqual([{ message: 'Offsite this week', channels: ['C1', 'C2'], send_as: 'bot' }])
+        )
+    })
+
+    // An unverified address cannot be shown to prove the Slack profile is theirs, so the option is
+    // closed off here rather than failing after they have written the message and picked channels.
+    it('disables sending as yourself until the email address is verified', async () => {
+        renderComposer()
+        userLogic.actions.loadUserSuccess({
+            id: 7,
+            first_name: 'Ada',
+            email: 'ada@example.com',
+            is_email_verified: null,
+        } as UserType)
+
+        // LemonButton marks a disabledReason button aria-disabled, keeping it focusable so the
+        // tooltip can explain why.
+        await waitFor(() =>
+            expect(document.querySelector('[data-attr="announcement-send-as-user"]')).toHaveAttribute(
+                'aria-disabled',
+                'true'
+            )
+        )
+        expect(document.querySelector('[data-attr="announcement-send-as-bot"]')).toHaveAttribute(
+            'aria-disabled',
+            'false'
         )
     })
 

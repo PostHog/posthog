@@ -57,6 +57,7 @@ export interface announcementsLogicValues {
     messageDraft: string
     selectedChannelIds: string[]
     sendAs: AnnouncementSendAsEnumApi
+    senderDisabledReason: string | undefined
     senderName: string
     selectedChannelLabels: string[]
     slackConnected: boolean
@@ -165,6 +166,7 @@ export interface announcementsLogicMeta {
         slackConnected: (currentTeam: TeamPublicType | TeamType | null) => boolean
         currentUserId: (user: UserType | null) => number | null
         senderName: (user: UserType | null) => string
+        senderDisabledReason: (user: UserType | null) => string | undefined
         filtersActive: (accountSearch: string, accountTags: string[], assignmentStatus: AssignmentStatus) => boolean
         assignedToCurrentUser: (assignedTo: number[], currentUserId: number | null) => boolean
         filteredChannels: (
@@ -325,6 +327,15 @@ export const announcementsLogic = kea<announcementsLogicType>([
         // Label for the "send as me" option. The name Slack renders comes from the user's Slack
         // profile, which the backend resolves by email at send time, so this is only a label.
         senderName: [(s) => [s.user], (user: UserType | null): string => user?.first_name || user?.email || 'you'],
+        // The backend refuses an unverified address, so say so on the option instead of letting the
+        // send fail: it is the email that decides whose name and avatar the customer sees.
+        senderDisabledReason: [
+            (s) => [s.user],
+            (user: UserType | null): string | undefined =>
+                user?.is_email_verified === true
+                    ? undefined
+                    : 'Verify your email address to send announcements as yourself',
+        ],
         filtersActive: [
             (s) => [s.accountSearch, s.accountTags, s.assignmentStatus],
             (accountSearch: string, accountTags: string[], assignmentStatus: AssignmentStatus): boolean =>

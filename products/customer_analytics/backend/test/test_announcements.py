@@ -25,6 +25,10 @@ class TestAnnouncementAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.base_url = f"/api/projects/{self.team.pk}/announcements/"
+        # Sending as yourself requires a verified address; the signed-in-and-verified user is the
+        # normal case, so the unverified one gets its own test rather than this default.
+        self.user.is_email_verified = True
+        self.user.save()
 
     def _member_channels(self):
         return [
@@ -149,6 +153,36 @@ class TestAnnouncementAPI(APIBaseTest):
         assert "reconnect" in response.json()["detail"]
         assert response.json()["attr"] == "send_as"
         assert Announcement.all_teams.count() == 0
+
+    @patch(SENDER)
+    @patch(HELPER)
+    def test_create_as_user_rejects_an_unverified_email(self, mock_channels, mock_sender):
+        mock_channels.return_value = self._member_channels()
+        self.user.is_email_verified = None  # never confirmed, e.g. an instance with no email delivery
+        self.user.save()
+
+        response = self.client.post(
+            self.base_url, {"message": "hi", "channels": ["C1"], "send_as": "user"}, format="json"
+        )
+
+        # Otherwise a self-asserted address decides whose name and avatar reach the customer.
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "send_as"
+        mock_sender.assert_not_called()
+        assert Announcement.all_teams.count() == 0
+
+    @patch(SENDER)
+    @patch(HELPER)
+    def test_create_as_bot_does_not_require_a_verified_email(self, mock_channels, mock_sender):
+        mock_channels.return_value = self._member_channels()
+        self.user.is_email_verified = False
+        self.user.save()
+
+        response = self.client.post(self.base_url, {"message": "hi", "channels": ["C1"]}, format="json")
+
+        # The bot posts under its own identity, so the sender's address is irrelevant to it.
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        mock_sender.assert_not_called()
 
     @patch(SENDER)
     @patch(HELPER)

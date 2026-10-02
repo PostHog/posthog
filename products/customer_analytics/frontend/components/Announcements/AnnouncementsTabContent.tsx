@@ -78,6 +78,7 @@ function AnnouncementComposer(): JSX.Element {
         submitDisabledReason,
         sendAs,
         senderName,
+        senderDisabledReason,
     } = useValues(announcementsLogic)
     const { setMessage, setSelectedChannelIds, setSendAs, submitAnnouncement, loadMemberChannels } =
         useActions(announcementsLogic)
@@ -122,6 +123,7 @@ function AnnouncementComposer(): JSX.Element {
                         {
                             value: AnnouncementSendAsEnumApi.User,
                             label: senderName,
+                            disabledReason: senderDisabledReason,
                             tooltip:
                                 'Posts under your Slack name and photo, matched by your PostHog email. Slack still marks the message as an app.',
                             'data-attr': 'announcement-send-as-user',

@@ -48,6 +48,19 @@ def _resolve_user_sender(team_id: int, user: User) -> SupportSlackSender:
         raise AnnouncementValidationError(
             {"send_as": "Your PostHog account has no email address, so we cannot find your Slack profile."}
         )
+    # The email address is the only thing binding this person to the Slack profile we post under,
+    # and on an instance with no email delivery an address change is written straight to the
+    # account with no proof of ownership (see the `is_email_available()` branch in
+    # `UserSerializer.update`). Unverified, it would let someone send to customer channels under a
+    # colleague's name and avatar, so require the same bar the support widget uses before it
+    # attests an email across systems: verified, not merely present.
+    if user.is_email_verified is not True:
+        raise AnnouncementValidationError(
+            {
+                "send_as": "Verify your email address before sending as yourself — until then PostHog "
+                "cannot confirm that Slack profile is yours. Send as SupportHog instead."
+            }
+        )
     try:
         sender = resolve_support_slack_sender(team_id, email)
     except SupportSlackNotConfigured:
