@@ -163,7 +163,7 @@ export function TodaySpacesSidebar(): JSX.Element {
                     variant="primary"
                     size="lg"
                     className="w-full"
-                    render={<LinkPrimitive to={urls.ai()} />}
+                    render={<LinkPrimitive to={urls.taskNewSession()} />}
                     data-attr="today-spaces-new-chat"
                 >
                     <IconPlus />

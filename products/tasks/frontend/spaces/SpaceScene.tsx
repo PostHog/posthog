@@ -33,15 +33,14 @@ import { EmbeddedTaskComposer } from 'products/posthog_ai/frontend/api/runner'
 
 import { SpaceCanvases } from './SpaceCanvases'
 import { SpaceFeed } from './SpaceFeed'
-import { SpaceSceneLogicProps, SpaceTab, spaceComposerPanelId, spaceSceneLogic } from './spaceSceneLogic'
+import {
+    SPACE_COMPOSER_OVERRIDE,
+    SpaceSceneLogicProps,
+    SpaceTab,
+    spaceComposerPanelId,
+    spaceSceneLogic,
+} from './spaceSceneLogic'
 import { SpaceSettings } from './SpaceSettings'
-
-const SPACE_COMPOSER_OVERRIDE = {
-    placeholder: 'What do you want to ship?',
-    hideSuggestions: true,
-    hideRecentTasks: true,
-    hideOnboardingReplay: true,
-}
 
 // The repository picker and the input frame at their loaded sizes, so the feed does not jump when the chunk lands.
 const COMPOSER_SKELETON = (

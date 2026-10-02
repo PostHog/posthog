@@ -284,6 +284,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/subscriptions/:subscriptionId': ['Subscription', 'subscription'],
     '/slack-task-context': ['SlackTaskContext', 'slackTaskContext'],
     '/spaces': ['TaskSpaces', 'taskSpaces'],
+    '/spaces/new': ['TaskNewSession', 'taskNewSession'],
     '/spaces/:id': ['TaskSpace', 'taskSpace'],
     '/spaces/:id/canvases': ['TaskSpace', 'taskSpaceCanvases'],
     '/spaces/:id/settings': ['TaskSpace', 'taskSpaceSettings'],
@@ -1106,6 +1107,7 @@ export const productConfiguration: Record<string, any> = {
     },
     SlackTaskContext: { name: 'Slack task context', projectBased: true },
     TaskSpaces: { name: 'Spaces', projectBased: true },
+    TaskNewSession: { name: 'New session', projectBased: true },
     TaskSpace: { name: 'Space', projectBased: true },
     Toolbar: {
         name: 'Toolbar',
@@ -1756,6 +1758,7 @@ export const productUrls = {
         `/surveys/guided/${id}${template ? `?template=${encodeURIComponent(template)}` : ''}`,
     slackTaskContext: (): string => '/slack-task-context',
     taskSpaces: (): string => '/spaces',
+    taskNewSession: (): string => '/spaces/new',
     taskSpace: (id: string): string => `/spaces/${id}`,
     taskSpaceCanvases: (id: string): string => `/spaces/${id}/canvases`,
     taskSpaceSettings: (id: string): string => `/spaces/${id}/settings`,
