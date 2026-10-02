@@ -83,7 +83,7 @@ class TestScheduledRecalculationActivities(BaseTest):
         assert result.recalculation_id is not None
         with team_scope(self.team.id, canonical=True):
             recalc = ExperimentMetricsRecalculation.objects.get(id=result.recalculation_id)
-        assert recalc.trigger == ExperimentMetricsRecalculation.Trigger.STALE_REFRESH
+        assert recalc.trigger == ExperimentMetricsRecalculation.Trigger.SCHEDULED
         assert recalc.created_by is None
         dispatch.assert_called_once_with(
             result.recalculation_id,
