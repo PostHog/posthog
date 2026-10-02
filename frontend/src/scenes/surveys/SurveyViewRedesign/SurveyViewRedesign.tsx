@@ -417,6 +417,7 @@ export function SurveyViewRedesign(): JSX.Element {
                 }
                 description={survey.description}
                 resourceType={{ type: 'survey' }}
+                sameNameCheck={survey.id && survey.id !== 'new' ? { type: 'survey', ref: survey.id } : undefined}
                 canEdit={userHasAccess(
                     AccessControlResourceType.Survey,
                     AccessControlLevel.Editor,

@@ -400,6 +400,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                     to: urls.cohorts(),
                                     type: RESOURCE_TYPE,
                                 }}
+                                sameNameCheck={cohortId ? { type: 'cohort', ref: String(cohortId) } : undefined}
                                 isLoading={cohortLoading}
                                 onNameChange={(value) => {
                                     setCohortValue('name', value)

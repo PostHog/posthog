@@ -77,6 +77,7 @@ export function DashboardHeader({ loading = false }: { loading?: boolean }): JSX
                 resourceType={{
                     type: sceneConfigurations[Scene.Dashboard].iconType || 'default_icon_type',
                 }}
+                sameNameCheck={dashboard ? { type: 'dashboard', ref: String(dashboard.id) } : undefined}
                 onNameChange={(value) => {
                     updateDashboard({ id: dashboard?.id, name: value, allowUndo: true })
                 }}

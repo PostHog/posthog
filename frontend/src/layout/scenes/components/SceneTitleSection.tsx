@@ -42,6 +42,7 @@ import { Breadcrumb, FileSystemIconColor, SidePanelTab } from '~/types'
 import { ProductIconWrapper, iconForType } from '../../panel-layout/ProjectTree/defaultTree'
 import { sceneLayoutLogic } from '../sceneLayoutLogic'
 import { SceneBreadcrumbBackButton } from './SceneBreadcrumbs'
+import { SceneTitleSameNameBadge } from './SceneTitleSameNameBadge'
 
 /**
  * The click on the PostHog AI button is the only proof the handler ran. Every route into the
@@ -176,6 +177,11 @@ type SceneMainTitleProps = {
      */
     description?: string | null
     resourceType: ResourceType
+    /**
+     * The saved item's file system type and ref. When set, a badge next to the name
+     * warns that other items of the same type share this name
+     */
+    sameNameCheck?: { type: string; ref: string }
     markdown?: boolean
     isLoading?: boolean
     onNameChange?: (value: string) => void
@@ -257,6 +263,7 @@ export function SceneTitleSection({
     nameSuffix,
     description,
     resourceType,
+    sameNameCheck,
     markdown = false,
     isLoading = false,
     onNameChange,
@@ -390,6 +397,13 @@ export function SceneTitleSection({
                                     isGeneratingMetadata={isGeneratingMetadata}
                                     suffix={
                                         <>
+                                            {sameNameCheck && name && (
+                                                <SceneTitleSameNameBadge
+                                                    type={sameNameCheck.type}
+                                                    itemRef={sameNameCheck.ref}
+                                                    name={name}
+                                                />
+                                            )}
                                             {releaseStageProduct && <ReleaseStageTag product={releaseStageProduct} />}
                                             {nameSuffix}
                                             {hasDescription && !descriptionAlwaysVisible ? (

@@ -128,6 +128,9 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 resourceType={{
                     type: getInsightIconTypeFromQuery(query),
                 }}
+                sameNameCheck={
+                    isPersistedInsight && insight.short_id ? { type: 'insight', ref: insight.short_id } : undefined
+                }
                 onNameChange={(name) => {
                     if (insightMode === ItemMode.Edit) {
                         setInsightMetadataLocal({ name })
