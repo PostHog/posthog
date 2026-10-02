@@ -5,8 +5,11 @@ from types import SimpleNamespace
 from typing import cast
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
+from django.db import connection
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -26,6 +29,8 @@ from products.signals.backend.briefing_reports import (
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
 from products.signals.backend.test.report_metric_test_fixtures import trends_metric_query
+
+SOURCE_PRODUCTS = "products.signals.backend.briefing_reports.fetch_source_products_for_reports"
 
 
 class TestReportsForBriefing(BaseTest):
@@ -137,6 +142,14 @@ class TestReportsForBriefing(BaseTest):
         unreadable = self._urgent_report("Unreadable head")
         self._score(unreadable, 0.9, readable=False, age=timedelta(hours=1))
         unscored = self._urgent_report("Unscored")
+        truncated = self._urgent_report("Truncated score")
+        self._score(truncated, 0.8, readable=True, age=timedelta(days=1))
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=truncated,
+            type=SignalReportArtefact.ArtefactType.RANKING_SCORE,
+            content='{"scored_at": "2026-09-20T12:00:00Z", "results": {',
+        )
 
         reports = reports_for_briefing(team_id=self.team.id, user_id=self.user.id)
 
@@ -145,7 +158,23 @@ class TestReportsForBriefing(BaseTest):
             rescored.title: 0.7,
             unreadable.title: None,
             unscored.title: None,
+            truncated.title: None,
         }
+
+    def test_query_count_does_not_grow_with_the_candidates(self) -> None:
+        def queries() -> int:
+            with CaptureQueriesContext(connection) as captured:
+                reports_for_briefing(team_id=self.team.id, user_id=self.user.id, limit=5)
+            return len(captured.captured_queries)
+
+        self._score(self._urgent_report("First"), 0.5, readable=True, age=timedelta(hours=1))
+        with patch(SOURCE_PRODUCTS, return_value={}):
+            one_candidate = queries()
+            for index in range(6):
+                self._score(self._urgent_report(f"More {index}"), 0.5, readable=True, age=timedelta(hours=1))
+            seven_candidates = queries()
+
+        assert seven_candidates == one_candidate
 
     def test_an_older_report_with_a_high_merge_chance_beats_newer_ones(self) -> None:
         reports = []

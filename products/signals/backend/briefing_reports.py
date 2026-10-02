@@ -10,8 +10,10 @@ from collections.abc import Sequence
 from datetime import datetime
 from enum import StrEnum
 from fractions import Fraction
+from typing import Any
 
-from django.db.models import Count, Q, QuerySet
+from django.db.models import Case, CharField, Count, F, Func, JSONField, OuterRef, Q, QuerySet, Subquery, Value, When
+from django.db.models.functions import Cast
 
 import pydantic
 import structlog
@@ -20,7 +22,7 @@ from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import ActionabilityChoice, RankingScore, priority_from_judgment
+from products.signals.backend.artefact_schemas import ActionabilityChoice, priority_from_judgment
 from products.signals.backend.implementation_pr import (
     fetch_implementation_pr_state_for_reports,
     implementation_pr_report_filter,
@@ -50,9 +52,9 @@ DISMISS_WRONG_HIDE_LIFT = 3.0
 # first slot is always theirs. The rest goes to the reports most likely to end with a merged PR, so
 # the input queue cannot fill the whole list. A Fraction keeps the rounding exact.
 NEEDS_YOU_SHARE = Fraction(2, 5)
-# A bound on the reports each relation reads, so one person with a very large inbox cannot make
-# the briefing slow. It is far above the number of open reports a person usually has.
-_CANDIDATES_PER_RELATION = 200
+# A bound on the candidates the briefing reads, so one person with a very large inbox cannot make
+# it slow. It is far above the number of open reports a person usually has.
+_CANDIDATE_LIMIT = 500
 
 
 class BriefingReportRelation(StrEnum):
@@ -142,8 +144,89 @@ class _ServedScores:
     dismiss_wrong_lift: float | None
 
 
-def _served_scores(report_ids: Sequence[str]) -> dict[str, _ServedScores]:
-    """The served model's probabilities from each report's latest score.
+_NO_SCORES = _ServedScores(pr_merged=None, action=None, dismiss_wrong_lift=None)
+
+
+def _json_object_content() -> Q:
+    # Content is written from a pydantic schema. The guard only keeps a legacy or truncated row out
+    # of the jsonb cast, because a failed cast fails the whole query.
+    return Q(content__startswith="{", content__endswith="}")
+
+
+def _content_path(*path: str | Func) -> Func:
+    return Func(
+        Cast(F("content"), output_field=JSONField()),
+        *(Value(key) if isinstance(key, str) else key for key in path),
+        function="jsonb_extract_path",
+        output_field=JSONField(),
+    )
+
+
+def _latest_priority() -> Subquery:
+    """The priority of each report's latest priority judgment, as text. The latest row decides, so
+    a malformed latest row reads as no priority, as `priority_from_judgment` reads it."""
+    priority = Func(
+        Cast(F("content"), output_field=JSONField()),
+        Value("priority"),
+        function="jsonb_extract_path_text",
+        output_field=CharField(),
+    )
+    return Subquery(
+        SignalReportArtefact.objects.filter(
+            report_id=OuterRef("id"), type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT
+        )
+        .order_by("-created_at")
+        .annotate(
+            _priority=Case(When(_json_object_content(), then=priority), default=Value(None), output_field=CharField())
+        )
+        .values("_priority")[:1],
+        output_field=CharField(),
+    )
+
+
+def _latest_served_heads() -> Subquery:
+    """The scores, lifts and head metadata of the served model in each report's latest ranking score.
+
+    The score content also holds every other model the pass ran, so Postgres extracts only these
+    three keys and the query does not send the whole content for each candidate.
+    """
+    served_key = Func(
+        Cast(F("content"), output_field=JSONField()),
+        Value("served_key"),
+        function="jsonb_extract_path_text",
+        output_field=CharField(),
+    )
+    heads = Func(
+        Cast(Value("scores"), output_field=CharField()),
+        _content_path("results", served_key, "scores"),
+        Cast(Value("lifts"), output_field=CharField()),
+        _content_path("results", served_key, "lifts"),
+        Cast(Value("heads"), output_field=CharField()),
+        _content_path("results", served_key, "metadata", "heads"),
+        function="jsonb_build_object",
+        output_field=JSONField(),
+    )
+    return Subquery(
+        SignalReportArtefact.objects.filter(
+            report_id=OuterRef("id"), type=SignalReportArtefact.ArtefactType.RANKING_SCORE
+        )
+        .order_by("-created_at")
+        .annotate(_heads=Case(When(_json_object_content(), then=heads), default=Value(None), output_field=JSONField()))
+        .values("_heads")[:1],
+        output_field=JSONField(),
+    )
+
+
+class _ServedHeads(pydantic.BaseModel):
+    """The shape `_latest_served_heads` returns. A key the served model does not carry is JSON null."""
+
+    scores: dict[str, float] | None = None
+    lifts: dict[str, float] | None = None
+    heads: list[dict[str, Any]] | None = None
+
+
+def _served_scores(heads: dict[str, Any] | None) -> _ServedScores:
+    """The readable heads from the output of `_latest_served_heads`.
 
     A head without a holdout AUC is not readable, so its probability is left out rather than
     trusted. The inbox serializer applies the same readability rule.
@@ -153,23 +236,23 @@ def _served_scores(report_ids: Sequence[str]) -> dict[str, _ServedScores]:
         readable_head_names,
     )
 
-    scores: dict[str, _ServedScores] = {}
-    for report_id, content in _latest_artefacts(report_ids, SignalReportArtefact.ArtefactType.RANKING_SCORE).items():
-        try:
-            score = RankingScore.model_validate_json(content)
-        except pydantic.ValidationError:
-            logger.warning("signals.briefing.ranking_score_unreadable", report_id=report_id)
-            continue
-        served = score.results[score.served_key]
-        readable = readable_head_names(served.metadata)
+    if heads is None:
+        return _NO_SCORES
+    try:
+        served = _ServedHeads.model_validate(heads)
+        scores = served.scores or {}
+        metadata = {"heads": served.heads or []}
+        readable = readable_head_names(metadata)
         # A score written before lifts were stored carries the metadata to compute them.
-        lifts = served.lifts or head_lifts(served.scores, served.metadata)
-        scores[report_id] = _ServedScores(
-            pr_merged=served.scores.get(PR_MERGED_HEAD) if PR_MERGED_HEAD in readable else None,
-            action=served.scores.get(ACTION_HEAD) if ACTION_HEAD in readable else None,
-            dismiss_wrong_lift=lifts.get(DISMISS_WRONG_HEAD) if DISMISS_WRONG_HEAD in readable else None,
-        )
-    return scores
+        lifts = served.lifts or head_lifts(scores, metadata)
+    except (pydantic.ValidationError, KeyError, TypeError, ValueError):
+        logger.warning("signals.briefing.ranking_score_unreadable")
+        return _NO_SCORES
+    return _ServedScores(
+        pr_merged=scores.get(PR_MERGED_HEAD) if PR_MERGED_HEAD in readable else None,
+        action=scores.get(ACTION_HEAD) if ACTION_HEAD in readable else None,
+        dismiss_wrong_lift=lifts.get(DISMISS_WRONG_HEAD) if DISMISS_WRONG_HEAD in readable else None,
+    )
 
 
 def _open_reports(team_id: int) -> QuerySet[SignalReport]:
@@ -203,9 +286,6 @@ def _source_products(team_id: int, report_ids: Sequence[str]) -> dict[str, list[
         logger.warning("signals.briefing.source_products_unavailable", team_id=team_id, exc_info=True)
         return {}
     return {report_id: meta.source_products for report_id, meta in metadata.items()}
-
-
-_NO_SCORES = _ServedScores(pr_merged=None, action=None, dismiss_wrong_lift=None)
 
 
 @frozen
@@ -267,72 +347,67 @@ def _briefing_pick(candidates: Sequence[_BriefingCandidate], limit: int | None) 
 def reports_for_briefing(*, team_id: int, user_id: int, limit: int | None = None) -> list[BriefingReport]:
     """Open, actionable reports for one person, in briefing order, each tagged with its strongest relation.
 
-    A report appears once, under the first `BriefingReportRelation` that matches. Every open report
-    of a relation is a candidate, up to `_CANDIDATES_PER_RELATION`, so the model ranks the whole
-    set and not only the newest reports. Urgent-unowned keeps only P0. `_briefing_pick` orders the
-    candidates and `limit` keeps the best of them.
+    A report appears once, under the first `BriefingReportRelation` that matches. One query reads
+    every candidate with its relation, priority and served scores, up to `_CANDIDATE_LIMIT`, so the
+    model ranks the whole set and not only the newest reports. Urgent-unowned keeps only P0.
+    `_briefing_pick` orders the candidates and `limit` keeps the best of them.
     """
-    open_reports = _open_reports(team_id)
     names_me = _names_person(team_id, User.objects.get(id=user_id))
     claimed = reports_with_active_claim(team_id=team_id, actor=ArtefactAttribution.from_user(user_id))
     unowned = ~reports_with_active_claim(team_id=team_id) & ~implementation_pr_report_filter(
         team_id=team_id, active_only=True
     )
-    buckets: list[tuple[BriefingReportRelation, Q]] = [
-        (BriefingReportRelation.WAITING_FOR_YOU, names_me & Q(status=SignalReport.Status.PENDING_INPUT)),
-        (BriefingReportRelation.CLAIMED, claimed),
-        (BriefingReportRelation.SUGGESTED_REVIEWER, names_me & Q(status=SignalReport.Status.READY)),
-        (
-            BriefingReportRelation.URGENT_UNOWNED,
+    relation = Case(
+        When(
+            names_me & Q(status=SignalReport.Status.PENDING_INPUT), then=Value(BriefingReportRelation.WAITING_FOR_YOU)
+        ),
+        When(claimed, then=Value(BriefingReportRelation.CLAIMED)),
+        When(names_me & Q(status=SignalReport.Status.READY), then=Value(BriefingReportRelation.SUGGESTED_REVIEWER)),
+        When(
             unowned
             & Q(
                 status=SignalReport.Status.READY,
                 latest_actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value,
+                briefing_priority="P0",
             ),
+            then=Value(BriefingReportRelation.URGENT_UNOWNED),
         ),
-    ]
-    relations: dict[str, BriefingReportRelation] = {}
-    updated: dict[str, datetime] = {}
-    for relation, condition in buckets:
-        rows = (
-            open_reports.filter(condition)
-            .order_by("-updated_at")
-            .values_list("id", "updated_at")[:_CANDIDATES_PER_RELATION]
-        )
-        for report_id, updated_at in rows:
-            key = str(report_id)
-            if key not in relations:
-                relations[key] = relation
-                updated[key] = updated_at
-    priorities = _priorities(list(relations))
-    eligible = [
-        report_id
-        for report_id, relation in relations.items()
-        if relation != BriefingReportRelation.URGENT_UNOWNED or priorities.get(report_id) == "P0"
-    ]
-    scores = _served_scores(eligible)
+        default=Value(None),
+        output_field=CharField(),
+    )
+    rows = (
+        _open_reports(team_id)
+        .annotate(briefing_priority=_latest_priority())
+        .annotate(briefing_relation=relation)
+        .filter(briefing_relation__isnull=False)
+        .annotate(briefing_heads=_latest_served_heads())
+        .order_by("-updated_at")
+        .values_list("id", "updated_at", "briefing_relation", "briefing_priority", "briefing_heads")[:_CANDIDATE_LIMIT]
+    )
     chosen = _briefing_pick(
         [
             _BriefingCandidate(
-                report_id=report_id,
-                relation=relations[report_id],
-                priority=priorities.get(report_id),
-                updated_at=updated[report_id],
-                scores=scores.get(report_id, _NO_SCORES),
+                report_id=str(report_id),
+                relation=BriefingReportRelation(relation_value),
+                priority=priority,
+                updated_at=updated_at,
+                scores=_served_scores(heads),
             )
-            for report_id in eligible
+            for report_id, updated_at, relation_value, priority, heads in rows
         ],
         limit,
     )
     chosen_ids = [candidate.report_id for candidate in chosen]
-    reports = {str(report.id): report for report in SignalReport.objects.filter(team_id=team_id, id__in=chosen_ids)}
-    source_products = _source_products(team_id, chosen_ids)
-    with_pr = {
-        str(report_id)
-        for report_id in SignalReport.objects.filter(team_id=team_id, id__in=chosen_ids)
-        .filter(implementation_pr_report_filter(team_id=team_id))
-        .values_list("id", flat=True)
+    reports = {
+        str(report.id): report
+        for report in SignalReport.objects.filter(team_id=team_id, id__in=chosen_ids).annotate(
+            has_implementation_pr=Case(
+                When(implementation_pr_report_filter(team_id=team_id), then=Value(True)),
+                default=Value(False),
+            )
+        )
     }
+    source_products = _source_products(team_id, chosen_ids)
     return [
         BriefingReport(
             report_id=candidate.report_id,
@@ -341,7 +416,7 @@ def reports_for_briefing(*, team_id: int, user_id: int, limit: int | None = None
             summary=_trimmed(report.summary, _SUMMARY_LIMIT),
             status=report.status,
             priority=candidate.priority,
-            has_implementation_pr=candidate.report_id in with_pr,
+            has_implementation_pr=report.has_implementation_pr,
             source_products=source_products.get(candidate.report_id, []),
             updated_at=report.updated_at,
             pr_merged_probability=candidate.scores.pr_merged,
