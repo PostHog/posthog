@@ -429,6 +429,7 @@ DesktopAccessOutcome = Literal[
     "allowed",
     "startup_plan",
     "prepaid_credits",
+    "signups_paused",
     "override",
     "resolution_failure",
 ]
