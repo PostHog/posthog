@@ -35,7 +35,7 @@ from django_otp.plugins.otp_static.models import StaticDevice
 from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session, restore_original_login
 from requests import RequestException
-from rest_framework import mixins, permissions, serializers, status, viewsets
+from rest_framework import exceptions, mixins, permissions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import APIException
 from rest_framework.request import Request
@@ -54,6 +54,7 @@ from webauthn.helpers import base64url_to_bytes, bytes_to_base64url, options_to_
 from webauthn.helpers.structs import AuthenticatorTransport, PublicKeyCredentialDescriptor
 
 from posthog.api.email_verification import email_verification_code_verifier, is_email_verification_disabled
+from posthog.auth import ACCOUNT_BLOCKED_DETAIL
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES
 from posthog.email import is_email_available
@@ -105,7 +106,10 @@ from posthog.utils import (
 )
 from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
 
-from products.security.backend.facade.api import shadow_check as security_shadow_check
+from products.security.backend.facade.api import (
+    REFUSAL_CODE as SECURITY_REFUSAL_CODE,
+    access_refused as security_access_refused,
+)
 from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
 from products.security.backend.facade.enums import Surface as SecuritySurface
 
@@ -391,13 +395,16 @@ class LoginSerializer(serializers.Serializer):
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
 
         try:
-            security_shadow_check(
+            refused = security_access_refused(
                 SecuritySubject(email=user.email, user_uuid=str(user.uuid), ip=get_trusted_client_ip(axes_request)),
                 SecuritySurface.APP,
                 call_site="login",
             )
         except Exception:
-            logger.exception("security_shadow_check_site_failed", call_site="login")
+            logger.exception("security_access_check_site_failed", call_site="login")
+            refused = False
+        if refused:
+            raise exceptions.PermissionDenied(ACCOUNT_BLOCKED_DETAIL, code=SECURITY_REFUSAL_CODE)
 
         if not is_email_verified_for_login(user):
             # A fresh code was just emailed; hand the frontend the uuid so it can route to

@@ -13,7 +13,6 @@ from products.security.backend.facade.api import (
     is_email_code_exempt,
     is_enforced,
     is_signup_risk_exempt,
-    shadow_check,
 )
 from products.security.backend.facade.contracts import SubjectInput
 from products.security.backend.facade.enums import Outcome, Surface
@@ -82,12 +81,12 @@ class TestFacade(BaseTest):
         with patch("products.security.backend.facade.api.current_snapshot", side_effect=RuntimeError("boom")):
             assert is_email_code_exempt("mfa@example.com") is False
 
-    def test_shadow_check_counts_and_never_raises(self) -> None:
+    def test_access_refused_counts_every_decision_and_never_raises(self) -> None:
         user = User.objects.create_and_join(self.organization, "abuser@example.com", "password1234")
         seed_rules(block_rule(targetType="user_uuid", targetValue=str(user.uuid)))
         before = _would_block("test_site")
         blocked_before = _decisions("app", "test_site", "block")
-        shadow_check(SubjectInput(email=user.email, user_uuid=str(user.uuid)), Surface.APP, call_site="test_site")
+        access_refused(SubjectInput(email=user.email, user_uuid=str(user.uuid)), Surface.APP, call_site="test_site")
         assert _would_block("test_site") == before + 1
         assert _decisions("app", "test_site", "block") == blocked_before + 1
 
@@ -95,13 +94,13 @@ class TestFacade(BaseTest):
         # allow, so a counter that moved only on a block would have no series exactly when
         # there is nothing to block, which is the case it exists to distinguish.
         allowed_before = _decisions("app", "test_site", "allow")
-        shadow_check(SubjectInput(email="someone@example.com"), Surface.APP, call_site="test_site")
+        access_refused(SubjectInput(email="someone@example.com"), Surface.APP, call_site="test_site")
         assert _decisions("app", "test_site", "allow") == allowed_before + 1
 
         # A decision that raised is an error, not an evaluation, and must not be counted twice.
         allowed_before = _decisions("app", "test_site", "allow")
         with patch("products.security.backend.facade.api.current_snapshot", side_effect=RuntimeError("boom")):
-            shadow_check(SubjectInput(email=user.email), Surface.APP, call_site="test_site")
+            access_refused(SubjectInput(email=user.email), Surface.APP, call_site="test_site")
         assert _decisions("app", "test_site", "allow") == allowed_before
 
     @parameterized.expand(
@@ -115,7 +114,7 @@ class TestFacade(BaseTest):
     def test_exemption_checks_count_every_decision(
         self, _name: str, scope: str, surface: str, address: str, outcome: str
     ) -> None:
-        # The exemption checks do not go through shadow_check, so they need their own count
+        # The exemption checks do not go through access_refused, so they need their own count
         # to show that they ran.
         seed_rules(exempt_rule(targetValue="listed@example.com", scope=scope))
         check = is_email_code_exempt if surface == "email_code" else is_signup_risk_exempt

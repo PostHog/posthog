@@ -20,6 +20,7 @@ from django.utils import timezone
 import jwt
 import structlog
 import posthoganalytics
+from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import authentication
@@ -69,7 +70,10 @@ from posthog.utils import get_trusted_client_ip
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.exports.backend.facade.auth import get_export_renderer_asset_context
-from products.security.backend.facade.api import shadow_check as security_shadow_check
+from products.security.backend.facade.api import (
+    REFUSAL_CODE as SECURITY_REFUSAL_CODE,
+    access_refused as security_access_refused,
+)
 from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
 from products.security.backend.facade.enums import Surface as SecuritySurface
 from products.signals.backend.facade.activity_client import resolve_scout_client_tag
@@ -101,6 +105,13 @@ PERSONAL_API_KEY_QUERY_PARAM_COUNTER = Counter(
 )
 
 AUTH_BRAND_COOKIE = "ph_auth_brand"
+
+# Shown at login and on every request once a block rule refuses the account. It says nothing
+# about the rule that matched; the code is what lets support trace it to an access rule.
+ACCOUNT_BLOCKED_DETAIL = (
+    "We couldn't sign you in. If you think this is a mistake, contact support "
+    f"and quote the code {SECURITY_REFUSAL_CODE}."
+)
 
 
 def get_auth_brand_for_client_id(client_id: str | None) -> str | None:
@@ -201,7 +212,7 @@ class SessionAuthentication(
             enforce_two_factor(request, user)
             enforce_verified_domain(request, user)
             try:
-                security_shadow_check(
+                refused = security_access_refused(
                     SecuritySubject(
                         email=user.email,
                         user_uuid=str(user.uuid),
@@ -211,7 +222,12 @@ class SessionAuthentication(
                     call_site="session",
                 )
             except Exception:
-                structlog_logger.exception("security_shadow_check_site_failed", call_site="session")
+                structlog_logger.exception("security_access_check_site_failed", call_site="session")
+                refused = False
+            # Staff impersonating a blocked account must still get in to investigate it. The
+            # would-block or refusal is still counted, because the check above already ran.
+            if refused and not is_impersonated_session(request):
+                raise AuthenticationFailed(ACCOUNT_BLOCKED_DETAIL, code=SECURITY_REFUSAL_CODE)
 
             return (user, auth)
 
