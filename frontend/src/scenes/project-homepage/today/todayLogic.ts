@@ -36,9 +36,9 @@ import { TodayBriefingSegment, briefingForReports, teamReportCard } from './toda
 
 export const TOP_REPORT_COUNT = 5
 const CLOCK_MS = 30_000
-export const BRIEFING_POLL_MS = 10_000
+export const BRIEFING_POLL_MS = 5_000
 // The run's budget is 10 minutes (RUN_TIMEOUT in logic/generate.py). Stop asking a little after that.
-const MAX_BRIEFING_POLLS = 66
+const MAX_BRIEFING_POLLS = 132
 
 /** Where a report was opened from, sent with the `today report opened` event. */
 export type TodayReportOpenSource = 'briefing' | 'chip' | 'sidebar'
@@ -128,6 +128,7 @@ export interface todayLogicValues {
     personalBriefingLoading: boolean
     refreshedBriefing: BriefingApi | null
     refreshedBriefingLoading: boolean
+    reloadingAfterRefresh: boolean
     reportId: string | null
     reportPreviews: Record<TodayReportPreview['surface'], Record<string, TodayReportPreview>>
     reportSummary: string
@@ -289,7 +290,8 @@ export interface todayLogicMeta {
         briefingWaiting: (
             personalBriefing: BriefingApi | null,
             gaveUpWaitingFor: string | null,
-            refreshedBriefingLoading: boolean
+            refreshedBriefingLoading: boolean,
+            reloadingAfterRefresh: boolean
         ) => boolean
     }
 }
@@ -426,6 +428,16 @@ export const todayLogic = kea<todayLogicType>([
                 stopWaitingForBriefing: () => 0,
             },
         ],
+        // The refresh call returns before the page reloads the briefing. Until that reload returns
+        // the `writing` briefing, the page still waits, so the badge does not flip back to the button.
+        reloadingAfterRefresh: [
+            false,
+            {
+                refreshBriefingSuccess: () => true,
+                loadPersonalBriefingSuccess: () => false,
+                loadPersonalBriefingFailure: () => false,
+            },
+        ],
     }),
     selectors({
         reportId: [
@@ -507,13 +519,15 @@ export const todayLogic = kea<todayLogicType>([
         // While a newer briefing is written, the server returns the shown one as `writing`, so the
         // text stays on screen and the page keeps asking until the new one is ready.
         briefingWaiting: [
-            (s) => [s.personalBriefing, s.gaveUpWaitingFor, s.refreshedBriefingLoading],
+            (s) => [s.personalBriefing, s.gaveUpWaitingFor, s.refreshedBriefingLoading, s.reloadingAfterRefresh],
             (
                 personalBriefing: BriefingApi | null,
                 gaveUpWaitingFor: string | null,
-                refreshedBriefingLoading: boolean
+                refreshedBriefingLoading: boolean,
+                reloadingAfterRefresh: boolean
             ): boolean =>
                 refreshedBriefingLoading ||
+                reloadingAfterRefresh ||
                 (!!personalBriefing &&
                     personalBriefing.id !== gaveUpWaitingFor &&
                     !isBriefingSettled(personalBriefing)),
