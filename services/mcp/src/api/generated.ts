@@ -25679,6 +25679,33 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
+    /**
+     * A dashboard in the list. It counts its tiles instead of carrying them; read one dashboard for its tiles.
+     */
+    export interface CrossProjectDashboardListItem {
+      /** Id of the dashboard. */
+      readonly id: string;
+      /** Name shown in the dashboard list and page header. */
+      readonly name: string;
+      /** Optional longer description. */
+      readonly description: string;
+      /** Dashboard-level filters applied to every tile. Supports a date range, an interval, and property filters that refer to a property by name. Filters carrying a project-specific id are rejected. */
+      readonly filters: unknown;
+      /** Tiles from the projects the reader can open. */
+      readonly tile_count: number;
+      /** Distinct projects among the tiles the reader can open. */
+      readonly project_count: number;
+      /** The user who created the dashboard. */
+      readonly created_by: CrossProjectDashboardCreator | null;
+      /** When the dashboard was created. */
+      readonly created_at: string;
+      /**
+         * When the dashboard last changed.
+         * @nullable
+         */
+      readonly updated_at: string | null;
+    }
+
     export interface CurrentBranchHealth {
       /** Detected default branch ('master' or 'main') from runs in the same 24-hour window. */
       default_branch: string;
@@ -67017,13 +67044,13 @@ export namespace Schemas {
       results: CoreEvent[];
     }
 
-    export interface PaginatedCrossProjectDashboardList {
+    export interface PaginatedCrossProjectDashboardListItemList {
       count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
-      results: CrossProjectDashboard[];
+      results: CrossProjectDashboardListItem[];
     }
 
     export interface PaginatedCrossProjectDashboardTileList {

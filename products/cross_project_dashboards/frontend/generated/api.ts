@@ -13,7 +13,7 @@ import type {
     CrossProjectDashboardTileApi,
     CrossProjectDashboardsListParams,
     CrossProjectDashboardsTilesListParams,
-    PaginatedCrossProjectDashboardListApi,
+    PaginatedCrossProjectDashboardListItemListApi,
     PaginatedCrossProjectDashboardTileListApi,
     PatchedCrossProjectDashboardApi,
     PatchedCrossProjectDashboardTileUpdateApi,
@@ -59,11 +59,14 @@ export const crossProjectDashboardsList = async (
     organizationId: string,
     params?: CrossProjectDashboardsListParams,
     options?: RequestInit
-): Promise<PaginatedCrossProjectDashboardListApi> => {
-    return apiMutator<PaginatedCrossProjectDashboardListApi>(getCrossProjectDashboardsListUrl(organizationId, params), {
-        ...options,
-        method: 'GET',
-    })
+): Promise<PaginatedCrossProjectDashboardListItemListApi> => {
+    return apiMutator<PaginatedCrossProjectDashboardListItemListApi>(
+        getCrossProjectDashboardsListUrl(organizationId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getCrossProjectDashboardsCreateUrl = (organizationId: string) => {
