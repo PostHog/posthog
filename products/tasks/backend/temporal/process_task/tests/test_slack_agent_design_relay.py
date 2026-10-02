@@ -30,7 +30,9 @@ SLACK_CTX = {"integration_id": 1, "channel": "C1", "thread_ts": "1.0", "mentioni
 
 
 class _SlackCalls:
-    def __init__(self) -> None:
+    def __init__(self, stream_closed: bool = False) -> None:
+        # Slack has closed every stream, so each append reports it.
+        self.stream_closed = stream_closed
         self.starts: list[StartSlackAgentDesignStreamInput] = []
         self.appends: list[AppendSlackAgentDesignStepsInput] = []
         self.stops: list[StopSlackAgentDesignStreamInput] = []
@@ -42,8 +44,9 @@ class _SlackCalls:
             return SlackAgentDesignStream(ts="2.0", has_plan=bool(input.task_updates), actor_slack_user_id="U9")
 
         @activity.defn(name="append_slack_agent_design_steps")
-        async def append(input: AppendSlackAgentDesignStepsInput) -> None:
+        async def append(input: AppendSlackAgentDesignStepsInput) -> bool:
             self.appends.append(input)
+            return not self.stream_closed
 
         @activity.defn(name="stop_slack_agent_design_stream")
         async def stop(input: StopSlackAgentDesignStreamInput) -> None:
@@ -75,9 +78,13 @@ class _SlackCalls:
 
 
 async def _run_relay(
-    signals: list[tuple[str, Any]], *, setup_title: str | None = None, cancel: bool = False
+    signals: list[tuple[str, Any]],
+    *,
+    setup_title: str | None = None,
+    cancel: bool = False,
+    stream_closed: bool = False,
 ) -> _SlackCalls:
-    calls = _SlackCalls()
+    calls = _SlackCalls(stream_closed=stream_closed)
     async with await WorkflowEnvironment.start_time_skipping() as env:
         task_queue = f"test-{uuid.uuid4()}"
         async with Worker(
@@ -237,6 +244,18 @@ class TestSlackAgentDesignRelay:
 
         resent = [c for a in calls.appends for c in a.task_updates if c.title == "Setting up sandbox"]
         assert len(resent) >= 2
+
+    @pytest.mark.timeout(60, func_only=True)
+    async def test_a_stream_slack_closed_gets_no_more_appends_and_the_answer_gets_a_new_message(self) -> None:
+        calls = await _run_relay(
+            [(WAIT, 130), ("agent_text_delta", "Signups grew.")],
+            setup_title="Setting up sandbox",
+            stream_closed=True,
+        )
+
+        assert len(calls.appends) == 1
+        assert [s.first_markdown_text for s in calls.starts] == [None, "Signups grew."]
+        assert [(s.final_markdown, s.plan_title, s.complete_task_id) for s in calls.stops] == [(None, None, None)]
 
     @pytest.mark.timeout(60, func_only=True)
     async def test_answer_without_steps_opens_the_stream_with_its_mention(self) -> None:
