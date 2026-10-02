@@ -1095,7 +1095,7 @@
     (SELECT accurateCastOrNull(t.entity_id, 'UUID') AS entity_id,
             toTimeZone(t.timestamp, 'UTC') AS timestamp,
             t.event_uuid AS uuid,
-            arrayElement(t.steps, 1) AS step_0,
+            if(and(ifNull(equals(arrayElement(t.steps, 1), 1), 0), greaterOrEquals(toTimeZone(t.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(t.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')))), 1, 0) AS step_0,
             arrayElement(t.steps, 2) AS step_1
      FROM experiment_metric_events_preaggregated AS t
      WHERE and(equals(t.team_id, 99999), in(t.job_id, ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000']), equals(t.team_id, 99999), greaterOrEquals(t.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(t.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))))),
