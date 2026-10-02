@@ -65,7 +65,7 @@ function ViewsContent(): JSX.Element {
     )
 
     const renderList = (): JSX.Element => {
-        if (!views) {
+        if (!views || (viewsLoading && !visibleViews.length)) {
             return loadFailed ? (
                 <Empty>
                     <EmptyHeader>
@@ -188,6 +188,11 @@ function ViewsContent(): JSX.Element {
                 {views?.truncated && (
                     <Text size="sm" variant="muted">
                         Some views are not shown. Use search to find more views.
+                    </Text>
+                )}
+                {viewsLoading && visibleViews.length > 0 && (
+                    <Text size="sm" variant="muted" role="status">
+                        Loading more views…
                     </Text>
                 )}
                 {renderList()}
