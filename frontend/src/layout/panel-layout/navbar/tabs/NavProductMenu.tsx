@@ -60,6 +60,7 @@ export function NavProductMenu({ product }: { product: string }): JSX.Element {
                         ? pinnedDashboards.map((dashboard) => ({
                               label: dashboard.name || 'Untitled dashboard',
                               to: urls.dashboard(dashboard.id),
+                              'data-attr': 'nav-apps-dashboards-menu-pinned-dashboard',
                           }))
                         : [{ label: 'No pinned dashboards', disabledReason: 'Pin a dashboard to show it here' }],
             },

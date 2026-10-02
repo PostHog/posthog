@@ -7,6 +7,7 @@ import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
@@ -69,7 +70,25 @@ export function NavProductRow({ item, pinned = false }: { item: FileSystemImport
             })
         },
     }
-    const menuItems: LemonMenuItems = [{ label: () => <NavProductMenu product={item.path} /> }, { items: [starAction] }]
+    const absoluteHref = urls.absolute(urls.currentProject(href))
+    const menuItems: LemonMenuItems = [
+        { label: () => <NavProductMenu product={item.path} /> },
+        {
+            items: [
+                {
+                    label: 'Open link in new browser tab',
+                    onClick: () => window.open(absoluteHref, '_blank'),
+                    'data-attr': 'nav-apps-menu-open-in-new-tab',
+                },
+                {
+                    label: 'Copy link address',
+                    onClick: () => void copyToClipboard(absoluteHref, 'link'),
+                    'data-attr': 'nav-apps-menu-copy-link',
+                },
+                starAction,
+            ],
+        },
+    ]
     // Appears at once like a tree row's side action, while keeping LemonButton's press animation.
     const sideActionClassName =
         'absolute right-0 opacity-0 group-hover/product-row:opacity-100 group-has-[:focus-visible]/product-row:opacity-100 [--lemon-button-transition:transform_200ms_ease]'
