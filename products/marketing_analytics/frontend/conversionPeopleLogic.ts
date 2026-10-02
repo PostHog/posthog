@@ -86,7 +86,7 @@ export const conversionPeopleLogic = kea<conversionPeopleLogicType>([
                         })
                     } catch {
                         breakpoint()
-                        return { ...emptyPage, results: append ? values.page.results : [], failed: true }
+                        return { ...(append ? values.page : emptyPage), failed: true }
                     }
                     breakpoint()
                     return {

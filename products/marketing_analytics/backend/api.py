@@ -43,6 +43,7 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import validated_request
 from posthog.api.project import capture_team_config_diff
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import DEFAULT_CURRENCY, Team
 from posthog.models.team.team_marketing_analytics_config import TeamMarketingAnalyticsConfig
@@ -1161,6 +1162,7 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     )
     @action(methods=["POST"], detail=False, required_scopes=["marketing_analytics:read", "person:read"])
     def conversion_people(self, request: Request, *args: object, **kwargs: object) -> Response:
+        tag_queries(team_id=self.team_id, product=Product.MARKETING_ANALYTICS, feature=Feature.QUERY)
         data = request.validated_data
         result = ConversionPeopleQuery(
             query=MarketingAnalyticsTableQuery.model_validate(data["source"]),

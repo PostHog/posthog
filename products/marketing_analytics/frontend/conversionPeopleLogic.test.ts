@@ -51,27 +51,34 @@ describe('conversionPeopleLogic', () => {
         expect(requests[2]).toMatchObject({ ...request, offset: 0, search: 'sam' })
     })
 
-    it('distinguishes failures from empty results and allows retry', async () => {
+    it.each([false, true])('preserves loaded pages and retries failures (append: %s)', async (append) => {
+        await expectLogic(logic, () => logic.mount()).toFinishAllListeners()
         useMocks({
             post: { '/api/projects/:team_id/marketing_analytics/conversion_people/': [500, { detail: 'Failed' }] },
         })
         await expectLogic(logic, () => {
-            logic.mount()
+            logic.actions.loadPeople({ append })
         })
             .toFinishAllListeners()
-            .toMatchValues({ page: partial({ failed: true }), pageLoading: false })
+            .toMatchValues({
+                page: partial({ failed: true, results: append ? [first] : [], has_more: append }),
+                pageLoading: false,
+            })
         useMocks({
             post: {
                 '/api/projects/:team_id/marketing_analytics/conversion_people/': {
-                    results: [],
+                    results: [second],
                     preparing: false,
                     has_more: false,
                 },
             },
         })
-        await expectLogic(logic, () => logic.actions.loadPeople({}))
+        await expectLogic(logic, () => logic.actions.loadPeople({ append: logic.values.page.has_more }))
             .toFinishAllListeners()
-            .toMatchValues({ page: partial({ results: [], preparing: false }), pageLoading: false })
+            .toMatchValues({
+                page: partial({ results: append ? [first, second] : [second], preparing: false }),
+                pageLoading: false,
+            })
         expect(logic.values.page.failed).toBeUndefined()
     })
 })

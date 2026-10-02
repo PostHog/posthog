@@ -133,6 +133,8 @@ export const MarketingAnalyticsTable = ({
                                     <LemonButton
                                         type="tertiary"
                                         fullWidth
+                                        className="[&_.cursor-default]:cursor-pointer"
+                                        data-attr="marketing-analytics-conversion-people"
                                         tooltip="View people attributed to these conversions"
                                         onClick={() => setPeople({ request, goalName: goal.conversion_goal_name })}
                                     >

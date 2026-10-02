@@ -6,6 +6,8 @@ from parameterized import parameterized
 
 from posthog.schema import DateRange, MarketingAnalyticsDrillDownLevel, MarketingAnalyticsTableQuery
 
+from posthog.clickhouse.query_tagging import tags_context
+
 from products.marketing_analytics.backend.hogql_queries.errors import MarketingPrecomputeNotReady
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner import (
     MarketingAnalyticsTableQueryRunner,
@@ -94,7 +96,12 @@ class TestConversionPeople(ClickhouseTestMixin, APIBaseTest):
             "source_name": "google",
             "limit": 1,
         }
-        first = self.client.post(url, payload, format="json")
+        with (
+            tags_context(product=None, feature=None),
+            patch("posthog.clickhouse.client.execute.DEBUG", True),
+            patch("posthog.clickhouse.client.execute.TEST", False),
+        ):
+            first = self.client.post(url, payload, format="json")
         self.assertEqual(first.status_code, 200, first.content)
         self.assertTrue(first.json()["has_more"])
         second = self.client.post(url, {**payload, "offset": 1}, format="json")

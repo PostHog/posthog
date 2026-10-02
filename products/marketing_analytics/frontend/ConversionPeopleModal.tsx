@@ -42,9 +42,11 @@ export function ConversionPeopleModal({
                         <LemonBanner type="info">
                             Conversion details are being prepared. Try again in a few minutes.
                         </LemonBanner>
-                    ) : page.failed ? (
+                    ) : null}
+                    {page.failed && (
                         <LemonBanner type="error">Couldn't load conversion details. Try again.</LemonBanner>
-                    ) : (
+                    )}
+                    {!page.preparing && (!page.failed || page.results.length > 0) && (
                         <LemonTable<ConversionPersonApi>
                             dataSource={page.results}
                             rowKey="id"
@@ -66,11 +68,12 @@ export function ConversionPeopleModal({
                                         <LemonButton
                                             size="small"
                                             type="secondary"
+                                            data-attr="conversion-people-view-recordings"
                                             sideIcon={<IconRewindPlay />}
                                             to={`${urls.personByUUID(person.id)}#activeTab=sessionRecordings`}
-                                            tooltip="View this person's recordings"
+                                            tooltip="View all of this person's recordings, not only conversion sessions"
                                         >
-                                            View recordings
+                                            All recordings
                                         </LemonButton>
                                     ),
                                 },
@@ -85,12 +88,13 @@ export function ConversionPeopleModal({
                     {(page.has_more || page.preparing || page.failed) && (
                         <LemonButton
                             type="secondary"
+                            data-attr="conversion-people-load-more"
                             loading={pageLoading}
                             onClick={() => loadPeople({ append: page.has_more })}
                             center
                             fullWidth
                         >
-                            {page.has_more ? 'Load more people' : 'Try again'}
+                            {page.failed || page.preparing ? 'Try again' : 'Load more people'}
                         </LemonButton>
                     )}
                 </div>
