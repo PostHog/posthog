@@ -1,6 +1,8 @@
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Any
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField
 
@@ -19,7 +21,7 @@ MAX_PAGES_PER_LIST = 100
 TEAM_USAGE_LOOKBACK_MONTHS = 12
 
 
-@dataclass(frozen=True)
+@frozen
 class HerokuEndpointConfig:
     name: str
     path: str  # contains a {parent_id} placeholder for fan-out endpoints

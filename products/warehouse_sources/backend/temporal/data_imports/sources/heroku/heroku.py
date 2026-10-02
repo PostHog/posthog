@@ -1,9 +1,10 @@
 import datetime as dt
-import dataclasses
 from collections.abc import Callable
 from typing import Any, Optional
 
 from requests import Request, Response
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -35,7 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.heroku.set
 HEROKU_API_ACCEPT = "application/vnd.heroku+json; version=3"
 
 
-@dataclasses.dataclass
+@frozen
 class HerokuResumeConfig:
     # Verbatim `Next-Range` header value to resume a top-level list from. None means "start at
     # the first page".
