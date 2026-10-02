@@ -613,6 +613,12 @@ tools:
                 - latest_run.completed_at
                 - created_at
                 - updated_at
+    tasks-me-agent-preferences-create:
+        operation: tasks_me_agent_preferences_create
+        enabled: false
+    tasks-me-agent-preferences-list:
+        operation: tasks_me_agent_preferences_list
+        enabled: false
     tasks-me-config-agent-instructions-create:
         operation: tasks_me_config_agent_instructions_create
         enabled: false
