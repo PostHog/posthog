@@ -286,15 +286,11 @@ async def enforce_account_trust(
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(enforce_product_access)],
 ) -> AuthenticatedUser:
+    if user.auth_method != "oauth_access_token" or get_product_from_request(request) != POSTHOG_CODE_PRODUCT:
+        return user
+
     resolver: AccountTrustResolver = request.app.state.account_trust_resolver
     team_id = user.team_id
-    if user.auth_method == "personal_api_key" and user.is_staff:
-        raw_team_id = request.headers.get("x-posthog-property-team_id")
-        if raw_team_id is not None:
-            try:
-                team_id = int(raw_team_id)
-            except ValueError:
-                pass
     try:
         trust = await resolver.resolve(team_id) if team_id is not None else None
     except Exception:

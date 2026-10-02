@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from llm_gateway.auth.cache import reset_auth_cache
 from llm_gateway.auth.service import get_auth_service
-from llm_gateway.products.config import POSTHOG_CODE_US_APP_ID
+from llm_gateway.products.config import POSTHOG_AI_US_APP_ID, POSTHOG_CODE_US_APP_ID
 from llm_gateway.services.account_trust import AccountTrust, AccountTrustResolver
 from tests.conftest import create_test_app
 
@@ -92,11 +92,13 @@ def clear_auth_cache() -> Generator[None]:
 @pytest.mark.parametrize(
     "path",
     [
-        "/v1/chat/completions",
-        "/v1/responses",
-        "/v1/messages",
-        "/v1/messages/count_tokens",
-        "/v1/audio/transcriptions",
+        "/posthog_code/v1/chat/completions",
+        "/posthog_code/v1/responses",
+        "/posthog_code/v1/messages",
+        "/posthog_code/v1/messages/count_tokens",
+        "/posthog_code/v1/audio/transcriptions",
+        "/twig/v1/chat/completions",
+        "/array/v1/chat/completions",
     ],
 )
 def test_inference_routes_deny_low_trust_before_dispatch(mock_db_pool: MagicMock, path: str) -> None:
@@ -105,14 +107,16 @@ def test_inference_routes_deny_low_trust_before_dispatch(mock_db_pool: MagicMock
         "user_id": 1,
         "current_team_id": 42,
         "distinct_id": "test-user",
-        "scopes": ["llm_gateway:read"],
+        "scope": "llm_gateway:read",
+        "expires": datetime.now(UTC) + timedelta(hours=1),
+        "application_id": POSTHOG_CODE_US_APP_ID,
         "is_staff": True,
         "created_at": datetime.now(UTC),
         "customer_trust_scores": {"events": 3},
     }
     app = create_test_app(mock_db_pool, account_trust_db_pool=mock_db_pool)
     with TestClient(app) as client, patch("llm_gateway.api.openai.litellm.acompletion") as completion:
-        response = client.post(path, json={}, headers={"Authorization": "Bearer phx_test_trust"})
+        response = client.post(path, json={}, headers={"Authorization": "Bearer pha_test_trust"})
 
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "account_trust_required"
@@ -127,14 +131,18 @@ def test_unresolvable_account_returns_retryable_error(mock_db_pool: MagicMock, l
             "user_id": 1,
             "current_team_id": 42,
             "distinct_id": "test-user",
-            "scopes": ["llm_gateway:read"],
+            "scope": "llm_gateway:read",
+            "expires": datetime.now(UTC) + timedelta(hours=1),
+            "application_id": POSTHOG_CODE_US_APP_ID,
             "is_staff": False,
         },
         lookup,
     ]
     app = create_test_app(mock_db_pool, account_trust_db_pool=mock_db_pool)
     with TestClient(app) as client:
-        response = client.post("/v1/chat/completions", json={}, headers={"Authorization": "Bearer phx_test_trust"})
+        response = client.post(
+            "/posthog_code/v1/chat/completions", json={}, headers={"Authorization": "Bearer pha_test_trust"}
+        )
 
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "account_trust_unavailable"
@@ -184,18 +192,17 @@ def test_oauth_checks_selected_project_even_for_internal_runs(mock_db_pool: Magi
 
 
 @pytest.mark.parametrize(
-    "is_staff,current_team_id,override,expected_status",
+    "is_staff,current_team_id,override",
     [
-        (True, 1, "42", 403),
-        (False, 42, "1", 403),
-        (True, 42, "invalid", 403),
-        (True, 42, "1", 422),
+        (True, 1, "42"),
+        (False, 42, "1"),
+        (True, 42, "invalid"),
+        (True, 42, "1"),
     ],
 )
-def test_only_staff_keys_can_select_customer_account(
-    mock_db_pool: MagicMock, is_staff: bool, current_team_id: int, override: str, expected_status: int
+def test_personal_keys_skip_trust_even_with_customer_attribution(
+    mock_db_pool: MagicMock, is_staff: bool, current_team_id: int, override: str
 ) -> None:
-    now = datetime.now(UTC)
     conn = mock_db_pool.acquire.return_value
 
     async def fetchrow(query: str, *args: object) -> dict[str, object]:
@@ -207,10 +214,7 @@ def test_only_staff_keys_can_select_customer_account(
                 "scopes": ["llm_gateway:read"],
                 "is_staff": is_staff,
             }
-        return {
-            "created_at": now if args[0] == 42 else now - timedelta(days=31),
-            "customer_trust_scores": {},
-        }
+        raise AssertionError("Non-OAuth traffic must not look up account trust")
 
     conn.fetchrow = AsyncMock(side_effect=fetchrow)
     app = create_test_app(mock_db_pool, account_trust_db_pool=mock_db_pool)
@@ -221,6 +225,35 @@ def test_only_staff_keys_can_select_customer_account(
             headers={"Authorization": "Bearer phx_test_trust", "X-PostHog-Property-Team_Id": override},
         )
 
-    assert response.status_code == expected_status
-    if expected_status == 403:
-        assert response.json()["error"]["code"] == "account_trust_required"
+    assert response.status_code == 422
+    conn.fetchrow.assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+    "product,application_id,scope",
+    [
+        ("posthog_ai", POSTHOG_AI_US_APP_ID, "llm_gateway:read"),
+        ("background_agents", POSTHOG_CODE_US_APP_ID, "llm_gateway:read internal_run:read"),
+    ],
+)
+def test_other_oauth_products_skip_trust(
+    mock_db_pool: MagicMock, product: str, application_id: str, scope: str
+) -> None:
+    conn = mock_db_pool.acquire.return_value
+    conn.fetchrow.return_value = {
+        "user_id": 1,
+        "current_team_id": 42,
+        "distinct_id": "test-user",
+        "scope": scope,
+        "expires": datetime.now(UTC) + timedelta(hours=1),
+        "application_id": application_id,
+        "is_staff": False,
+    }
+    app = create_test_app(mock_db_pool, account_trust_db_pool=mock_db_pool)
+    with TestClient(app) as client:
+        response = client.post(
+            f"/{product}/v1/chat/completions", json={}, headers={"Authorization": "Bearer pha_test_trust"}
+        )
+
+    assert response.status_code == 422
+    conn.fetchrow.assert_awaited_once()
