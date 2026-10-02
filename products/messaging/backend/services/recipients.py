@@ -221,7 +221,7 @@ def parse_recipient_filter(raw: str) -> RecipientFilter:
     return RecipientFilter(facet=facet, value=value, negated=negated)
 
 
-def normalize_address(email: str) -> str:
+def _normalize_address(email: str) -> str:
     return email.strip(_ADDRESS_WHITESPACE).lower()
 
 
@@ -235,11 +235,6 @@ def list_recipients(team: "Team", user: "User", query: RecipientQuery) -> Recipi
         results=[_build_recipient(row, keys_by_id, last_sent_at.get(row[0])) for row in page_rows],
         next_cursor=page_rows[-1][0] if len(rows) > query.limit else None,
     )
-
-
-def find_recipient(team: "Team", user: "User", email: str) -> Recipient | None:
-    page = list_recipients(team, user, RecipientQuery(limit=1, email=normalize_address(email)))
-    return page.results[0] if page.results else None
 
 
 def count_persons_without_email(team: "Team", user: "User") -> int:
@@ -278,13 +273,15 @@ def _address_filter(query: RecipientQuery) -> ast.Expr:
         conditions.append(
             parse_expr(
                 "positionUTF8(address, {search}) > 0",
-                placeholders={"search": ast.Constant(value=normalize_address(query.search))},
+                placeholders={"search": ast.Constant(value=_normalize_address(query.search))},
             )
         )
     if query.cursor:
         conditions.append(parse_expr("address > {cursor}", placeholders={"cursor": ast.Constant(value=query.cursor)}))
     if query.email:
-        conditions.append(parse_expr("address = {email}", placeholders={"email": ast.Constant(value=query.email)}))
+        conditions.append(
+            parse_expr("address = {email}", placeholders={"email": ast.Constant(value=_normalize_address(query.email))})
+        )
     return ast.And(exprs=conditions)
 
 

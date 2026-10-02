@@ -16,10 +16,8 @@ from products.messaging.backend.models.message_suppression import SuppressionSou
 from products.messaging.backend.services.recipients import (
     LAST_SENT_WINDOW_DAYS,
     InvalidRecipientFilter,
-    RecipientPage,
     RecipientQuery,
     count_persons_without_email,
-    find_recipient,
     list_recipients,
     parse_recipient_filter,
 )
@@ -47,12 +45,15 @@ class RecipientListQuerySerializer(serializers.Serializer):
     cursor = serializers.CharField(
         required=False,
         max_length=512,
+        trim_whitespace=False,
         help_text="`next_cursor` from the previous page. Omit for the first page.",
     )
     email = serializers.CharField(
         required=False,
         max_length=512,
-        help_text="Return only this address, matched case-insensitively. Responds 404 when the team does not know it.",
+        trim_whitespace=False,
+        help_text="Return only this address, matched case-insensitively. The other parameters still narrow the "
+        "lookup. Responds 404 when no recipient matches.",
     )
 
 
@@ -134,15 +135,18 @@ class MessageRecipientsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         self._require_hog_flow_viewer()
         params = request.validated_query_data
         try:
-            filters = tuple(parse_recipient_filter(raw) for raw in params["filter"])
-            if "email" in params:
-                return self._single_recipient_page(request, params["email"])
             query = RecipientQuery(
-                limit=params["limit"], search=params.get("search"), filters=filters, cursor=params.get("cursor")
+                limit=params["limit"],
+                search=params.get("search"),
+                filters=tuple(parse_recipient_filter(raw) for raw in params["filter"]),
+                cursor=params.get("cursor"),
+                email=params.get("email"),
             )
             page = list_recipients(self.team, cast(User, request.user), query)
         except InvalidRecipientFilter as error:
             raise ValidationError({"filter": [str(error)]})
+        if query.email is not None and not page.results:
+            raise NotFound("No recipient with this email address.")
         return Response(RecipientPageSerializer(page).data)
 
     @validated_request(
@@ -154,12 +158,6 @@ class MessageRecipientsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         self._require_hog_flow_viewer()
         coverage = {"persons_without_email": count_persons_without_email(self.team, cast(User, request.user))}
         return Response(RecipientCoverageSerializer(coverage).data)
-
-    def _single_recipient_page(self, request: ValidatedRequest, email: str) -> Response:
-        recipient = find_recipient(self.team, cast(User, request.user), email)
-        if recipient is None:
-            raise NotFound("No recipient with this email address.")
-        return Response(RecipientPageSerializer(RecipientPage(results=[recipient], next_cursor=None)).data)
 
     def _require_hog_flow_viewer(self) -> None:
         if not self.user_access_control.check_access_level_for_resource("hog_flow", "viewer"):
