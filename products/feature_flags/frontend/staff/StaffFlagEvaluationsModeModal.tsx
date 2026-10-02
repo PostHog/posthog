@@ -20,7 +20,7 @@ import { FLAG_EVALUATIONS_MODE_LABELS, featureFlagsStaffToolsLogic } from './fea
 const MODE_DESCRIPTIONS: Record<FlagEvaluationsModeEnumApi, string> = {
     0: 'The Usage tab reads $feature_flag_called events from the events table.',
     1: 'The Usage tab reads the flag_evaluations table, and the table is available in SQL. While the FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS instance setting is on, the Usage tab reads the events table instead.',
-    2: 'The Usage tab reads the flag_evaluations table, and the table is available in SQL. Ingestion also stops writing $feature_flag_called to the events table.',
+    2: 'The Usage tab and any events list filtered to $feature_flag_called read the flag_evaluations table, and the table is available in SQL. For teams in the ingestion allowlist, ingestion also stops writing $feature_flag_called to the events table.',
 }
 
 export function StaffFlagEvaluationsModeModal(): JSX.Element {
@@ -43,6 +43,7 @@ export function StaffFlagEvaluationsModeModal(): JSX.Element {
     const columns: LemonTableColumns<StaffOrganizationModeChangeApi> = [
         { title: 'Organization', dataIndex: 'organization_name' },
         { title: 'Teams', dataIndex: 'team_count' },
+        { title: 'Experiments on $feature_flag_called', dataIndex: 'running_experiments_on_feature_flag_called' },
         {
             title: 'Current mode',
             key: 'current_mode',
@@ -116,8 +117,9 @@ export function StaffFlagEvaluationsModeModal(): JSX.Element {
 
                 {mode === FlagEvaluationsModeEnumApi.Number2 && (
                     <LemonBanner type="warning">
-                        Ingestion doesn't act on this mode yet, so it still writes $feature_flag_called to the events
-                        table for organizations on it. Once ingestion supports this mode, it stops those writes.
+                        For teams in the ingestion allowlist, ingestion writes $feature_flag_called only to
+                        flag_evaluations, so a failed write there loses the event. Other teams still write to the events
+                        table, and so does every team while INGESTION_FLAG_EVALUATIONS_ONLY_DISABLED is on.
                     </LemonBanner>
                 )}
 
@@ -147,6 +149,22 @@ export function StaffFlagEvaluationsModeModal(): JSX.Element {
                             columns={columns}
                             rowKey="organization_id"
                         />
+                        {summary.experimentsLosingExposures > 0 && (
+                            <LemonBanner type="warning">
+                                These organizations run {pluralize(summary.experimentsLosingExposures, 'experiment')}{' '}
+                                whose exposures come from $feature_flag_called. On teams in the ingestion allowlist,
+                                those exposures stop once the organization moves to{' '}
+                                {FLAG_EVALUATIONS_MODE_LABELS[FlagEvaluationsModeEnumApi.Number2]}.
+                            </LemonBanner>
+                        )}
+                        {summary.organizationsLoweredFromFlagEvaluationsOnly > 0 && (
+                            <LemonBanner type="warning">
+                                Lowering{' '}
+                                {pluralize(summary.organizationsLoweredFromFlagEvaluationsOnly, 'organization')} from{' '}
+                                {FLAG_EVALUATIONS_MODE_LABELS[FlagEvaluationsModeEnumApi.Number2]} restarts any events
+                                writes ingestion stopped for them, but the events table keeps a gap for that time.
+                            </LemonBanner>
+                        )}
                         {summary.organizationsLeftAboveMode > 0 && (
                             <p className="text-secondary mb-0">
                                 {pluralize(summary.organizationsLeftAboveMode, 'organization')} above this mode will

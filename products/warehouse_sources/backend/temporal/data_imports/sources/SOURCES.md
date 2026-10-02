@@ -587,6 +587,7 @@ the row lists both.
 | polar                            | HTTP                        | requests                                                        | ✅                          |
 | plaid                            | HTTP                        | requests                                                        | ✅                          |
 | polymarket                       | HTTP                        | requests (rest_source.RESTClient)                               | ✅                          |
+| poplar                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | postgres                         | DB protocol                 | psycopg                                                         | ➖                          |
 | postmark                         | HTTP + Webhook              | requests + `rest_source.RESTClient` + `WebhookSourceManager`    | ✅ (pull) / ➖ (webhook)    |
 | postscript                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -677,6 +678,7 @@ the row lists both.
 | simplecast                       | HTTP                        | requests                                                        | ✅                          |
 | simplesat                        | HTTP                        | requests                                                        | ✅                          |
 | singlestore                      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| singular                         | HTTP                        | requests                                                        | ✅                          |
 | skio                             | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | skyvern                          | HTTP                        | requests                                                        | ✅                          |
 | slack                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -1308,7 +1310,6 @@ doesn't conflict with concurrent PRs.
 - podbean
 - podium
 - polygon
-- poplar
 - postnord
 - practicepanther
 - preset
@@ -1391,7 +1392,6 @@ doesn't conflict with concurrent PRs.
 - simplesat
 - simpro
 - sinch
-- singular
 - site24x7
 - skyvern
 - slash

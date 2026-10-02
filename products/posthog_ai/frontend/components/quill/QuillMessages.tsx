@@ -1,4 +1,4 @@
-import { memo, type ReactNode, useEffect, useRef, useState } from 'react'
+import { memo, type ReactNode, useContext, useEffect, useRef, useState } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
 import {
@@ -10,13 +10,14 @@ import {
     cn,
 } from '@posthog/quill-primitives'
 
-import { TZLabel } from 'lib/components/TZLabel'
-
 import { MarkdownMessage } from '../../messages/MarkdownMessage'
 import type { ThreadItem } from '../../types/streamTypes'
 import { userMessageDisplayText } from '../../utils/userMessageDisplay'
 import { ThreadAttachments } from '../ThreadAttachments'
+import { TurnRevealContext } from '../TurnRevealContext'
+import { footerRevealClass } from './footerReveal'
 import { QuillCopyButton } from './QuillFooterButton'
+import { QuillFooterTimestamp } from './QuillFooterTimestamp'
 
 /**
  * Clamps a user bubble to five lines with a Show more toggle. Overflow depends on wrapping width, so it
@@ -66,8 +67,9 @@ function ClampedContent({ children }: { children: ReactNode }): JSX.Element {
 
 export const QuillHumanMessage = memo(function QuillHumanMessage({ item }: { item: ThreadItem }): JSX.Element {
     const text = userMessageDisplayText(item.text ?? '')
+    const revealed = useContext(TurnRevealContext)
     return (
-        <ChatMessage align="end" className="group" data-attr="posthog-ai-human-message">
+        <ChatMessage align="end" data-attr="posthog-ai-human-message">
             <ChatMessageContent className="gap-1">
                 {item.attachments && (
                     <div className="self-end">
@@ -81,11 +83,8 @@ export const QuillHumanMessage = memo(function QuillHumanMessage({ item }: { ite
                         </ClampedContent>
                     </ChatBubbleContent>
                 </ChatBubble>
-                <ChatMessageFooter className="min-h-5 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-                    {item.startedAt !== undefined && (
-                        // A fresh dayjs object every render would defeat TZLabel's memo; a string compares by value.
-                        <TZLabel time={new Date(item.startedAt).toISOString()} className="text-xs text-foreground" />
-                    )}
+                <ChatMessageFooter className={cn('min-h-5 items-center gap-1', footerRevealClass(revealed))}>
+                    {item.startedAt !== undefined && <QuillFooterTimestamp time={item.startedAt} />}
                     {text && (
                         <QuillCopyButton value={text} label="Copy message" dataAttr="posthog-ai-human-message-copy" />
                     )}

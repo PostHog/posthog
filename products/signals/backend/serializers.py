@@ -1955,8 +1955,8 @@ class SignalReportCheckSerializer(serializers.ModelSerializer):
             },
             "soak_minutes": {
                 "help_text": (
-                    "How long after the report resolves a `pending` check waits before its first run. "
-                    "Null on a check that named its own `next_run_at`."
+                    "Minimum wait after resolution, in minutes. Metric checks also wait for a full post-resolution "
+                    "query window. Null on legacy checks that did not record a soak."
                 )
             },
             "run_interval_minutes": {"help_text": "Gap between runs for a recurring check; null for a one-shot."},

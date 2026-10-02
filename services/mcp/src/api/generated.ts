@@ -17237,6 +17237,11 @@ export namespace Schemas {
       results: ProductLimit[];
     }
 
+    export interface BillingManagedByPartner {
+      /** Name of the partner that pays for this organization. Can be empty. */
+      partner_name: string;
+    }
+
     export type BillingOverviewResponseProductsItem = {[key: string]: unknown};
 
     export interface BillingOverviewResponse {
@@ -17287,6 +17292,8 @@ export namespace Schemas {
       account_owner?: unknown;
       customer_trust_scores?: unknown;
       never_drop_data?: boolean;
+      /** Set when a provisioning partner pays for this organization and the organization has no Stripe customer of its own. Self-serve subscription and payment changes are refused while it is set. Null otherwise. */
+      billing_managed_by_partner: BillingManagedByPartner | null;
     }
 
     export interface BillingPeriodResponse {
@@ -17519,6 +17526,8 @@ export namespace Schemas {
       billing_portal_url: string;
       invoices_url?: string;
       license: License;
+      /** Set when a provisioning partner pays for this organization and the organization has no Stripe customer of its own. Self-serve subscription and payment changes are refused while it is set. Null otherwise. */
+      billing_managed_by_partner: BillingManagedByPartner | null;
     }
 
     export interface BillingTeamOptionsResponse {
@@ -20958,6 +20967,11 @@ export namespace Schemas {
       layout?: CanvasLayout | null;
       /** For grid canvases: the renderable build of every component the layout's live placements reference, so the grid renders from this one call. Absent for other kinds. */
       component_lifecycles?: CanvasComponentLifecycle[];
+      /**
+         * URL of the sandbox document that renders the head source project in an iframe, served from the artifact origin. Load it by URL, not as srcdoc. Null when artifact delivery is unavailable.
+         * @nullable
+         */
+      readonly sandbox_document_url: string | null;
     }
 
     export interface CapabilityReadiness {
@@ -25066,6 +25080,38 @@ export namespace Schemas {
     } as const;
 
     /**
+     * How to draw this measurement; copied from a referenced metric.
+     */
+    export type MetricThresholdConfigMetricKind = typeof MetricThresholdConfigMetricKind[keyof typeof MetricThresholdConfigMetricKind] | null;
+
+
+    export const MetricThresholdConfigMetricKind = {
+      AffectedUsers: 'affected_users',
+      AffectedSessions: 'affected_sessions',
+      Occurrences: 'occurrences',
+      ConversionRate: 'conversion_rate',
+      ErrorRate: 'error_rate',
+      Duration: 'duration',
+      Revenue: 'revenue',
+      Custom: 'custom',
+    } as const;
+
+    /**
+     * How to format measured values; copied from a referenced metric.
+     */
+    export type MetricThresholdConfigValueFormat = typeof MetricThresholdConfigValueFormat[keyof typeof MetricThresholdConfigValueFormat] | null;
+
+
+    export const MetricThresholdConfigValueFormat = {
+      Number: 'number',
+      Count: 'count',
+      Percentage: 'percentage',
+      PercentageScaled: 'percentage_scaled',
+      Duration: 'duration',
+      Currency: 'currency',
+    } as const;
+
+    /**
      * Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. `dateRange.date_from` must be a relative window such as `-13d`, and `date_to` must be empty, so the check measures the days before each run rather than the days before it was written. The query must produce exactly one output series: use one event or action series, or combine up to ten of them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric` turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`, which keeps compare mode off already.
      */
     export type MetricThresholdConfigQuery = { [key: string]: unknown } | null;
@@ -25093,6 +25139,12 @@ export namespace Schemas {
       comparison: CheckComparison;
       /** The value observed when the check was written, recorded on each result for context. */
       baseline_value?: number | null;
+      /** How to draw this measurement; copied from a referenced metric. */
+      metric_kind?: MetricThresholdConfigMetricKind;
+      /** How to format measured values; copied from a referenced metric. */
+      value_format?: MetricThresholdConfigValueFormat;
+      /** Optional value suffix. */
+      unit?: string | null;
     }
 
     export type SignalReportCheckConfig = MetricThresholdConfig | AgentCheckConfig;
@@ -36135,6 +36187,7 @@ export namespace Schemas {
      * * `classifier` - Classifier
      * * `scorer` - Scorer
      * * `summarizer` - Summarizer
+     * * `experiment` - Experiment
      */
     export type ScannerTypeEnum = typeof ScannerTypeEnum[keyof typeof ScannerTypeEnum];
 
@@ -36144,6 +36197,7 @@ export namespace Schemas {
       Classifier: 'classifier',
       Scorer: 'scorer',
       Summarizer: 'summarizer',
+      Experiment: 'experiment',
     } as const;
 
     /**
@@ -36206,7 +36260,8 @@ export namespace Schemas {
        * * `monitor` - Monitor
        * * `classifier` - Classifier
        * * `scorer` - Scorer
-       * * `summarizer` - Summarizer */
+       * * `summarizer` - Summarizer
+       * * `experiment` - Experiment */
       scanner_type: ScannerTypeEnum;
       /** Type-specific config for the drafted `scanner_type`; always includes `prompt`. */
       scanner_config: unknown;
@@ -42684,7 +42739,7 @@ export namespace Schemas {
       readonly completed_metrics: number;
       /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
       readonly failed_metrics: number;
-      /** Map of metric_uuid to error details */
+      /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first */
       readonly metric_errors: unknown;
       /** When the job was created */
       readonly created_at: string;
@@ -42775,7 +42830,7 @@ export namespace Schemas {
       readonly completed_metrics: number;
       /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
       readonly failed_metrics: number;
-      /** Map of metric_uuid to error details */
+      /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first */
       readonly metric_errors: unknown;
       /** When the job was created */
       readonly created_at: string;
@@ -42858,7 +42913,7 @@ export namespace Schemas {
       readonly completed_metrics: number;
       /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
       readonly failed_metrics: number;
-      /** Map of metric_uuid to error details */
+      /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first */
       readonly metric_errors: unknown;
       /** When the job was created */
       readonly created_at: string;
@@ -48507,7 +48562,7 @@ export namespace Schemas {
       /** Whether this condition matched properties but was excluded due to rollout */
       rollout_excluded: boolean;
       /**
-         * Variant associated with this condition
+         * Variant associated with this condition. Empty or null when the condition has no variant override.
          * @nullable
          */
       variant: string | null;
@@ -54283,6 +54338,8 @@ export namespace Schemas {
       interval?: string | null;
       kind?: 'MetricsHistogramQuery';
       metricName: string;
+      /** Pins the OTel type, as on a MetricsQuery clause: one name can exist as more than one type, and the heatmap must grid only the distribution series. */
+      metricType?: MetricsOtelType | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       response?: MetricsHistogramQueryResponse | null;
@@ -56306,7 +56363,8 @@ export namespace Schemas {
        * * `monitor` - Monitor
        * * `classifier` - Classifier
        * * `scorer` - Scorer
-       * * `summarizer` - Summarizer */
+       * * `summarizer` - Summarizer
+       * * `experiment` - Experiment */
       scanner_type?: ScannerTypeEnum;
       /** Type-specific configuration beyond the prompt: `tags` for a classifier, `scale` for a scorer, optional `length` for a summarizer. Omit it for a monitor. `prompt` belongs in the `prompt` field and is rejected here. */
       scanner_config?: unknown;
@@ -64153,12 +64211,13 @@ export namespace Schemas {
     export interface ScannerSnapshot {
       /** Scanner name at run time. */
       name: string;
-      /** Scanner type (monitor, classifier, scorer, summarizer) at run time.
+      /** Scanner type (monitor, classifier, scorer, summarizer, experiment) at run time.
        *
        * * `monitor` - Monitor
        * * `classifier` - Classifier
        * * `scorer` - Scorer
-       * * `summarizer` - Summarizer */
+       * * `summarizer` - Summarizer
+       * * `experiment` - Experiment */
       scanner_type: ScannerTypeEnum;
       /** The `ReplayScanner.scanner_version` value at the moment the workflow ran. */
       scanner_version: number;
@@ -66325,15 +66384,6 @@ export namespace Schemas {
       results: CIMDVerificationToken[];
     }
 
-    export interface PaginatedCanvasDraftList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: CanvasDraft[];
-    }
-
     export interface PaginatedCanvasList {
       count: number;
       /** @nullable */
@@ -68329,7 +68379,8 @@ export namespace Schemas {
        * * `monitor` - Monitor
        * * `classifier` - Classifier
        * * `scorer` - Scorer
-       * * `summarizer` - Summarizer */
+       * * `summarizer` - Summarizer
+       * * `experiment` - Experiment */
       scanner_type: ScannerTypeEnum;
       /**
          * The goal an AI draft was built from, in the creator's own words, so the scanner keeps what it was meant to find. Set on create only and ignored on update.
@@ -69476,7 +69527,7 @@ export namespace Schemas {
       /** When the coordinator next evaluates the check. Provisional while the check is `pending`: the report resolving is what sets it. */
       readonly next_run_at: string;
       /**
-         * How long after the report resolves a `pending` check waits before its first run. Null on a check that named its own `next_run_at`.
+         * Minimum wait after resolution, in minutes. Metric checks also wait for a full post-resolution query window. Null on legacy checks that did not record a soak.
          * @nullable
          */
       readonly soak_minutes: number | null;
@@ -79828,7 +79879,8 @@ export namespace Schemas {
        * * `monitor` - Monitor
        * * `classifier` - Classifier
        * * `scorer` - Scorer
-       * * `summarizer` - Summarizer */
+       * * `summarizer` - Summarizer
+       * * `experiment` - Experiment */
       scanner_type?: ScannerTypeEnum;
       /**
          * The goal an AI draft was built from, in the creator's own words, so the scanner keeps what it was meant to find. Set on create only and ignored on update.
@@ -80506,6 +80558,11 @@ export namespace Schemas {
          * @maxItems 10
          */
       write_scopes?: string[];
+      /**
+         * Optional id of the canonical scout suggestion this request turns on. It records that the scout came from that suggestion. An id this project's batch does not hold is ignored.
+         * @maxLength 64
+         */
+      suggestion_id?: string;
     }
 
     /**
@@ -92633,6 +92690,7 @@ export namespace Schemas {
       classifier: ScannerTypeStats;
       scorer: ScannerTypeStats;
       summarizer: ScannerTypeStats;
+      experiment: ScannerTypeStats;
     }
 
     /**
@@ -92643,7 +92701,7 @@ export namespace Schemas {
       total: number;
       /** Number of enabled scanners on the team. */
       enabled: number;
-      /** Per-scanner-type breakdown (monitor / classifier / scorer / summarizer). */
+      /** Per-scanner-type breakdown (monitor / classifier / scorer / summarizer / experiment). */
       by_type: ScannerStatsByType;
     }
 
@@ -100002,7 +100060,7 @@ export namespace Schemas {
     }
 
     export interface StaffFlagEvaluationsModeMutation {
-      /** Target flag_evaluations mode. 0 reads events, 1 reads flag_evaluations, 2 also stops writing $feature_flag_called to events. Ingestion ignores 2 until its support for 2 deploys, so 2 acts as 1 until then.
+      /** Target flag_evaluations mode. 0 reads events, 1 reads flag_evaluations, 2 also stops ingestion writing $feature_flag_called to events for the teams it writes to flag_evaluations.
        *
        * * `0` - Events
        * * `1` - Read flag evaluations
@@ -100039,6 +100097,8 @@ export namespace Schemas {
       organization_name: string;
       /** Teams of the organization. They all read the organization's mode. */
       team_count: number;
+      /** Running experiments of the organization that count exposures on $feature_flag_called. On teams in the ingestion allowlist, mode 2 stops those exposures. */
+      running_experiments_on_feature_flag_called: number;
       /** True when the write moved the organization to the target mode, or would on a dry run. */
       changed: boolean;
       /** True when the organization is above the target mode and stays there, because allow_downgrade is not set. */
@@ -100082,7 +100142,7 @@ export namespace Schemas {
       max_feature_flags_override: number | null;
       /** The flag-count limit actually enforced for this team: the override when one is set, otherwise the global MAX_FEATURE_FLAGS_PER_TEAM setting. */
       effective_max_feature_flags: number;
-      /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events, 1 and 2 read flag_evaluations. 2 is reserved for ingestion to stop writing $feature_flag_called to events. Ingestion ignores 2 until that support deploys, so 2 acts as 1 until then. This is the stored mode: while the FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS instance setting is on, an organization on 1 has its Usage tab read events anyway.
+      /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events, 1 and 2 read flag_evaluations. 2 also stops ingestion writing $feature_flag_called to events for the teams it writes to flag_evaluations. This is the stored mode: while the FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS instance setting is on, an organization on 1 has its Usage tab read events anyway.
        *
        * * `0` - Events
        * * `1` - Read flag evaluations
@@ -103539,6 +103599,17 @@ export namespace Schemas {
     }
 
     /**
+     * Markdown instructions that PostHog cloud agents load as their user-level AGENTS.md in Tasks runs.
+     */
+    export interface TasksAgentInstructions {
+      /**
+         * Markdown instructions that PostHog cloud agents read in every eligible Tasks run, the same way a local agent reads AGENTS.md. Send an empty string to clear.
+         * @maxLength 20000
+         */
+      agent_instructions: string;
+    }
+
+    /**
      * * `user` - user
      * * `team` - team
      * * `none` - none
@@ -103588,6 +103659,8 @@ export namespace Schemas {
     export interface TasksTeamConfigResponse {
       /** Project-wide default AI run triple; all fields null when unset. */
       ai_run_preferences: TasksAIRunPreferences;
+      /** Project instructions that PostHog cloud agents read in every eligible Tasks run, including autonomous runs such as scouts and loops. Empty when unset. */
+      agent_instructions: string;
     }
 
     /**
@@ -103598,6 +103671,8 @@ export namespace Schemas {
       ai_run_preferences: TasksAIRunPreferences;
       /** The defaults a new run will use when no explicit runtime selection is sent. */
       resolved_ai_run_defaults: TasksResolvedAIRunDefaults;
+      /** Your personal instructions, which PostHog cloud agents read in Tasks runs you start, after the project instructions. Anyone who continues a task you started can see them. Empty when unset. */
+      agent_instructions: string;
     }
 
     export interface TeachingCanvas {
@@ -108390,7 +108465,7 @@ export namespace Schemas {
     export interface _MetricAttributeKey {
       /** Attribute key as it appears on the team's metrics (e.g. 'env', 'k8s.pod.name'). */
       name: string;
-      /** Number of distinct values for this attribute in recent series metadata. */
+      /** Number of distinct values for this attribute in recent data. */
       value_count: number;
     }
 
@@ -109782,6 +109857,7 @@ export namespace Schemas {
      */
     breakdowns?: string | null;
     /**
+     * End date (YYYY-MM-DD, UTC), inclusive. Defaults to yesterday if both dates are omitted, or today if only start_date is provided.
      * @nullable
      */
     end_date?: string | null;
@@ -109797,6 +109873,7 @@ export namespace Schemas {
      */
     page_size?: number | null;
     /**
+     * Start date (YYYY-MM-DD, UTC), or "all" for 2020-01-01. If both dates are omitted, defaults to 30 days ago.
      * @nullable
      */
     start_date?: string | null;
@@ -109832,6 +109909,7 @@ export namespace Schemas {
      */
     breakdowns?: string | null;
     /**
+     * End date (YYYY-MM-DD, UTC), inclusive. Defaults to yesterday if both dates are omitted, or today if only start_date is provided.
      * @nullable
      */
     end_date?: string | null;
@@ -109847,6 +109925,7 @@ export namespace Schemas {
      */
     page_size?: number | null;
     /**
+     * Start date (YYYY-MM-DD, UTC), or "all" for 2020-01-01. If both dates are omitted, defaults to 30 days ago.
      * @nullable
      */
     start_date?: string | null;
@@ -109882,6 +109961,7 @@ export namespace Schemas {
      */
     breakdowns?: string | null;
     /**
+     * End date (YYYY-MM-DD, UTC), inclusive. Defaults to yesterday if both dates are omitted, or today if only start_date is provided.
      * @nullable
      */
     end_date?: string | null;
@@ -109897,6 +109977,7 @@ export namespace Schemas {
      */
     page_size?: number | null;
     /**
+     * Start date (YYYY-MM-DD, UTC), or "all" for 2020-01-01. If both dates are omitted, defaults to 30 days ago.
      * @nullable
      */
     start_date?: string | null;
@@ -109932,6 +110013,7 @@ export namespace Schemas {
      */
     breakdowns?: string | null;
     /**
+     * End date (YYYY-MM-DD, UTC), inclusive. Defaults to yesterday if both dates are omitted, or today if only start_date is provided.
      * @nullable
      */
     end_date?: string | null;
@@ -109947,6 +110029,7 @@ export namespace Schemas {
      */
     page_size?: number | null;
     /**
+     * Start date (YYYY-MM-DD, UTC), or "all" for 2020-01-01. If both dates are omitted, defaults to 30 days ago.
      * @nullable
      */
     start_date?: string | null;
@@ -110365,6 +110448,7 @@ export namespace Schemas {
      */
     breakdowns?: string | null;
     /**
+     * End date (YYYY-MM-DD, UTC), inclusive. Defaults to yesterday if both dates are omitted, or today if only start_date is provided.
      * @nullable
      */
     end_date?: string | null;
@@ -110373,6 +110457,7 @@ export namespace Schemas {
      */
     interval?: string | null;
     /**
+     * Start date (YYYY-MM-DD, UTC), or "all" for 2020-01-01. If both dates are omitted, defaults to 30 days ago.
      * @nullable
      */
     start_date?: string | null;
@@ -110408,6 +110493,7 @@ export namespace Schemas {
      */
     cursor?: string | null;
     /**
+     * End date (YYYY-MM-DD, UTC), inclusive. Defaults to yesterday if both dates are omitted, or today if only start_date is provided.
      * @nullable
      */
     end_date?: string | null;
@@ -110423,6 +110509,7 @@ export namespace Schemas {
      */
     limit?: number | null;
     /**
+     * Start date (YYYY-MM-DD, UTC), or "all" for 2020-01-01. If both dates are omitted, defaults to 30 days ago.
      * @nullable
      */
     start_date?: string | null;
@@ -110452,6 +110539,7 @@ export namespace Schemas {
      */
     breakdowns?: string | null;
     /**
+     * End date (YYYY-MM-DD, UTC), inclusive. Defaults to yesterday if both dates are omitted, or today if only start_date is provided.
      * @nullable
      */
     end_date?: string | null;
@@ -110460,6 +110548,7 @@ export namespace Schemas {
      */
     interval?: string | null;
     /**
+     * Start date (YYYY-MM-DD, UTC), or "all" for 2020-01-01. If both dates are omitted, defaults to 30 days ago.
      * @nullable
      */
     start_date?: string | null;
@@ -110495,6 +110584,7 @@ export namespace Schemas {
      */
     cursor?: string | null;
     /**
+     * End date (YYYY-MM-DD, UTC), inclusive. Defaults to yesterday if both dates are omitted, or today if only start_date is provided.
      * @nullable
      */
     end_date?: string | null;
@@ -110510,6 +110600,7 @@ export namespace Schemas {
      */
     limit?: number | null;
     /**
+     * Start date (YYYY-MM-DD, UTC), or "all" for 2020-01-01. If both dates are omitted, defaults to 30 days ago.
      * @nullable
      */
     start_date?: string | null;
@@ -112519,17 +112610,6 @@ export namespace Schemas {
      * @maximum 100
      */
     limit?: number;
-    };
-
-    export type CanvasesDraftsRetrieveParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
     };
 
     export type CanvasesLayoutRetrieveParams = {
@@ -120845,6 +120925,10 @@ export namespace Schemas {
      */
     count_only?: boolean;
     /**
+     * ISO 8601 datetime. Keeps reports created at or after this time.
+     */
+    created_after?: string;
+    /**
      * Filter reports by whether an implementation pull request is attached. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with count_only=true to return only the filtered total.
      */
     has_implementation_pr?: boolean;
@@ -120865,7 +120949,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id. Defaults to '-is_suggested_reviewer,status,-updated_at'.
+     * Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id, ranking_pr_merged, ranking_pr_created, ranking_action, ranking_open. Defaults to '-is_suggested_reviewer,status,-updated_at'. The ranking_* fields sort by the served ranking model's probability for that outcome head, with unscored reports last in either direction. They are staff only: other users get a 400.
      */
     ordering?: string;
     /**
@@ -122997,6 +123081,7 @@ export namespace Schemas {
      * * `classifier` - Classifier
      * * `scorer` - Scorer
      * * `summarizer` - Summarizer
+     * * `experiment` - Experiment
      * @minLength 1
      */
     scanner_type?: VisionScannersWatchFeedRetrieveScannerType;
@@ -123020,6 +123105,7 @@ export namespace Schemas {
       Classifier: 'classifier',
       Scorer: 'scorer',
       Summarizer: 'summarizer',
+      Experiment: 'experiment',
     } as const;
 
     export type VisualReviewReposListParams = {
