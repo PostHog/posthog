@@ -595,6 +595,9 @@ const autoresearchTrainingRunsCompleteCreate = (): ToolBase<
         if (params.distillation !== undefined) {
             body['distillation'] = params.distillation
         }
+        if (params.report_notebook_short_id !== undefined) {
+            body['report_notebook_short_id'] = params.report_notebook_short_id
+        }
         const result = await context.api.request<Schemas.AutoresearchTrainingRun>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/${encodeURIComponent(String(params.pipeline_id))}/training_runs/${encodeURIComponent(String(params.id))}/complete/`,
