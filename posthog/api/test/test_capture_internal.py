@@ -11,6 +11,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from requests.adapters import HTTPAdapter
 from requests.exceptions import ConnectionError as RequestsConnectionError
+from structlog.testing import capture_logs
 
 from posthog.api.capture import (
     CAPTURE_V1_EVENTS_REROUTED,
@@ -167,13 +168,25 @@ class TestNormalizeOptionsAndProperties(SimpleTestCase):
         assert "$window_id" not in parts.properties
         assert parts.properties["keep_me"] == 42
 
-    def test_legacy_alias_disable_skew_adjustment_stripped(self) -> None:
+    def test_undollared_disable_skew_adjustment_is_an_ordinary_property(self) -> None:
         ev: dict[str, Any] = {
             "properties": {"disable_skew_adjustment": True, "other": 1},
         }
         parts = _normalize_options_and_properties(ev, process_person_profile=True, event_source="test")
-        assert parts.options["disable_skew_correction"] is True
-        assert "disable_skew_adjustment" not in parts.properties
+        assert parts.options == {}
+        assert parts.properties == {"disable_skew_adjustment": True, "other": 1}
+
+    @parameterized.expand(
+        [
+            ("missing_option", {}),
+            ("none_option", {"product_tour_id": None}),
+        ]
+    )
+    def test_legacy_property_fills_a_missing_or_none_option(self, _name: str, options: dict[str, Any]) -> None:
+        ev: dict[str, Any] = {"options": options, "properties": {"$product_tour_id": "tour_legacy"}}
+        parts = _normalize_options_and_properties(ev, process_person_profile=True, event_source="test")
+        assert parts.options == {"product_tour_id": "tour_legacy"}
+        assert "$product_tour_id" not in parts.properties
 
     def test_explicit_wins_over_legacy_on_conflict(self) -> None:
         ev: dict[str, Any] = {
@@ -187,11 +200,19 @@ class TestNormalizeOptionsAndProperties(SimpleTestCase):
         assert "$cookieless_mode" not in parts.properties
         assert "$session_id" not in parts.properties
 
-    def test_unknown_option_key_raises(self) -> None:
-        ev: dict[str, Any] = {"options": {"bogus_key": True}, "properties": {}}
-        with self.assertRaises(CaptureInternalError) as ctx:
-            _normalize_options_and_properties(ev, process_person_profile=True, event_source="test")
-        assert "unknown option key" in str(ctx.exception)
+    @parameterized.expand(
+        [
+            ("unknown_key", {"future_option": {"nested": [1, "two"]}}),
+            ("unconverted_string", {"process_person_profile": "no"}),
+            ("unconverted_number", {"cookieless_mode": 1, "disable_skew_correction": 0}),
+            ("non_string_tour_id", {"product_tour_id": 42}),
+            ("explicit_none", {"cookieless_mode": None}),
+        ]
+    )
+    def test_options_pass_through_unchanged(self, _name: str, options: dict[str, Any]) -> None:
+        ev: dict[str, Any] = {"options": options, "properties": {}}
+        parts = _normalize_options_and_properties(ev, process_person_profile=True, event_source="test")
+        assert parts.options == options
 
     def test_process_person_profile_false_forces_option(self) -> None:
         ev: dict[str, Any] = {"properties": {}}
@@ -228,11 +249,13 @@ class TestNormalizeOptionsAndProperties(SimpleTestCase):
             ("window_id_conflict", {"window_id": "a", "properties": {"$window_id": "b"}}, "window_id"),
         ]
     )
-    def test_conflict_increments_metric(self, _name: str, ev: dict[str, Any], field: str) -> None:
+    def test_conflict_increments_metric_without_logging(self, _name: str, ev: dict[str, Any], field: str) -> None:
         before = CAPTURE_V1_OPTION_CONFLICT.labels(event_source="metric_test", field=field)._value.get()
-        _normalize_options_and_properties(ev, process_person_profile=True, event_source="metric_test")
+        with capture_logs() as logs:
+            _normalize_options_and_properties(ev, process_person_profile=True, event_source="metric_test")
         after = CAPTURE_V1_OPTION_CONFLICT.labels(event_source="metric_test", field=field)._value.get()
         assert after == before + 1
+        assert logs == []
 
     def test_ppp_false_overrides_explicit_true_with_conflict(self) -> None:
         ev: dict[str, Any] = {
@@ -240,10 +263,12 @@ class TestNormalizeOptionsAndProperties(SimpleTestCase):
             "properties": {},
         }
         before = CAPTURE_V1_OPTION_CONFLICT.labels(event_source="ppp_test", field="process_person_profile")._value.get()
-        parts = _normalize_options_and_properties(ev, process_person_profile=False, event_source="ppp_test")
+        with capture_logs() as logs:
+            parts = _normalize_options_and_properties(ev, process_person_profile=False, event_source="ppp_test")
         after = CAPTURE_V1_OPTION_CONFLICT.labels(event_source="ppp_test", field="process_person_profile")._value.get()
         assert parts.options["process_person_profile"] is False
         assert after == before + 1
+        assert logs == []
 
 
 class TestResolveScalar(SimpleTestCase):
@@ -466,22 +491,19 @@ class TestCaptureBatchInternal(SimpleTestCase):
     @patch("posthog.api.capture.internal_requests_session")
     def test_options_propagated_to_wire(self, mock_session_fn: MagicMock) -> None:
         uid = str(uuid4())
-        events = [
-            _make_event(
-                event_uuid=uid,
-                options={"cookieless_mode": True, "disable_skew_correction": True, "product_tour_id": "t1"},
-                session_id="s1",
-                window_id="w1",
-            )
-        ]
+        options = {
+            "cookieless_mode": True,
+            "disable_skew_correction": "yes",
+            "product_tour_id": "t1",
+            "future_option": {"nested": [1, "two"]},
+        }
+        events = [_make_event(event_uuid=uid, options=options, session_id="s1", window_id="w1")]
         spy = InstallV1Spy(mock_session_fn, [MockResponse(body=_ok_results(uid))])
 
         capture_batch_internal(events=events, token="tok", event_source="opt")
 
         entry = spy.calls[0]["json"]["batch"][0]
-        assert entry["options"]["cookieless_mode"] is True
-        assert entry["options"]["disable_skew_correction"] is True
-        assert entry["options"]["product_tour_id"] == "t1"
+        assert entry["options"] == {**options, "process_person_profile": False}
         assert entry["session_id"] == "s1"
         assert entry["window_id"] == "w1"
         assert "$cookieless_mode" not in entry["properties"]
@@ -1088,19 +1110,66 @@ class TestCaptureInternalResult(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("dropped", {"dropped": ["a"]}),
-            ("retried", {"retried": ["a"]}),
-            ("unaccounted", {"unaccounted": ["a"]}),
+            (
+                "dropped_reason_left_out",
+                {"dropped": ["a"], "results": {"a": {"result": "drop", "details": "invalid_options"}}},
+                "1 dropped, 0 exhausted retries, 0 unaccounted",
+            ),
+            ("retried", {"retried": ["a"]}, "0 dropped, 1 exhausted retries, 0 unaccounted"),
+            ("unaccounted", {"unaccounted": ["a"]}, "0 dropped, 0 exhausted retries, 1 unaccounted"),
         ]
     )
-    def test_raise_for_status_on_partial_failure(self, _name: str, kwargs: dict[str, Any]) -> None:
+    def test_raise_for_status_on_partial_failure(self, _name: str, kwargs: dict[str, Any], totals: str) -> None:
         r = CaptureInternalResult(status_code=200, **kwargs)
-        with self.assertRaises(CaptureInternalError):
+        with self.assertRaises(CaptureInternalError) as ctx:
             r.raise_for_status()
+        assert str(ctx.exception) == f"capture internal partial failure: {totals}"
 
     def test_raise_for_status_noop_on_success(self) -> None:
         r = CaptureInternalResult(status_code=200, ok=["a"])
         r.raise_for_status()
+
+    @parameterized.expand(
+        [
+            (
+                "counts_per_reason",
+                [("drop", "invalid_options"), ("drop", "invalid_options"), ("drop", "missing_distinct_id")],
+                [("retry", "not_persisted")],
+                "drop/invalid_options=2, drop/missing_distinct_id=1, retry/not_persisted=1",
+            ),
+            (
+                "lists_every_reason",
+                [("drop", f"r{i}") for i in range(1, 7) for _ in range(7 - i)],
+                [("retry", "not_persisted"), ("retry", "rejected")],
+                "drop/r1=6, drop/r2=5, drop/r3=4, drop/r4=3, drop/r5=2, drop/r6=1, retry/not_persisted=1, retry/rejected=1",
+            ),
+            (
+                "cleans_reasons",
+                [("drop", "x" * 100), ("drop", "bad\nreason"), ("drop", "a\u2028b"), ("drop", None), ("drop", " ")],
+                [],
+                f"drop/unspecified=2, drop/ab=1, drop/badreason=1, drop/{'x' * 64}=1",
+            ),
+            ("nothing_lost", [], [], ""),
+        ]
+    )
+    def test_verdict_summary(
+        self,
+        _name: str,
+        dropped: list[tuple[str, str | None]],
+        retried: list[tuple[str, str | None]],
+        expected: str,
+    ) -> None:
+        results: dict[str, dict[str, Any]] = {}
+        for status, details in [*dropped, *retried]:
+            entry: dict[str, Any] = {"result": status}
+            if details is not None:
+                entry["details"] = details
+            results[str(uuid4())] = entry
+        uids = list(results)
+        r = CaptureInternalResult(
+            status_code=200, results=results, dropped=uids[: len(dropped)], retried=uids[len(dropped) :]
+        )
+        assert r.verdict_summary() == expected
 
 
 # --------------------------------------------------------------------------- #
@@ -1189,22 +1258,30 @@ class TestBatchChunking(SimpleTestCase):
         batch_sizes = sorted(len(c["json"]["batch"]) for c in spy.calls)
         assert batch_sizes == [50, 200, 200]
 
+    @parameterized.expand(
+        [
+            ("transport_error_caller_uuids", RequestsConnectionError("connection refused"), True),
+            ("transport_error_generated_uuids", RequestsConnectionError("connection refused"), False),
+            ("worker_exception_caller_uuids", TypeError("Object of type set is not JSON serializable"), True),
+            ("worker_exception_generated_uuids", TypeError("Object of type set is not JSON serializable"), False),
+        ]
+    )
     @patch("posthog.api.capture.CAPTURE_INTERNAL_BATCH_CHUNK_SIZE", 200)
     @patch("posthog.api.capture.CAPTURE_INTERNAL_MAX_WORKERS", 8)
     @patch("posthog.api.capture.internal_requests_session")
-    def test_partial_chunk_failure_preserves_successful_chunks(self, mock_session_fn: MagicMock) -> None:
+    def test_partial_chunk_failure_preserves_successful_chunks(
+        self, _name: str, failure: Exception, with_uuids: bool, mock_session_fn: MagicMock
+    ) -> None:
         events = _make_batch(400)
-        chunk1_uuids = [e["event_uuid"] for e in events[:200]]
-        lock = threading.Lock()
+        if not with_uuids:
+            for ev in events:
+                del ev["event_uuid"]
 
         def spy_post(url: str, **kwargs: Any) -> MockResponse:
-            with lock:
-                pass
-            batch_uuids = [e["uuid"] for e in kwargs["json"]["batch"]]
-            if set(batch_uuids) & set(chunk1_uuids):
-                return MockResponse(body=_ok_results(*batch_uuids))
-            else:
-                raise RequestsConnectionError("connection refused")
+            batch = kwargs["json"]["batch"]
+            if any(e["properties"]["url"].endswith("/page/0") for e in batch):
+                return MockResponse(body=_ok_results(*[e["uuid"] for e in batch]))
+            raise failure
 
         mock_session = MagicMock()
         mock_session.post.side_effect = spy_post
@@ -1213,9 +1290,18 @@ class TestBatchChunking(SimpleTestCase):
 
         result = capture_batch_internal(events=events, token="tok", event_source="partial")
 
-        assert not result.succeeded()
-        assert len(result.ok) == 200
         assert result.error is not None
+        assert result.error["error"] == "partial_request_failure"
+        assert len(result.ok) == 200
+        assert len(result.unaccounted) == 200
+        assert set(result.ok).isdisjoint(result.unaccounted)
+        assert all(result.results[uid] == {"result": "unaccounted"} for uid in result.unaccounted)
+        if with_uuids:
+            assert set(result.unaccounted) == {e["event_uuid"] for e in events[200:]}
+        else:
+            assert all("uuid" not in e for e in events)
+        with self.assertRaisesRegex(CaptureInternalError, "200 events acked, 200 unaccounted"):
+            result.raise_for_status()
 
     @patch("posthog.api.capture.CAPTURE_INTERNAL_BATCH_CHUNK_SIZE", 200)
     @patch("posthog.api.capture.CAPTURE_INTERNAL_MAX_WORKERS", 8)
@@ -1316,22 +1402,6 @@ class TestBatchChunking(SimpleTestCase):
         assert set(by_url) == {majority_url, odd_url}
         assert by_url[majority_url] == uuids[:200]
         assert by_url[odd_url] == uuids[200:]
-
-    @patch("posthog.api.capture.CAPTURE_INTERNAL_BATCH_CHUNK_SIZE", 200)
-    @patch("posthog.api.capture.CAPTURE_INTERNAL_MAX_WORKERS", 8)
-    @patch("posthog.api.capture.internal_requests_session")
-    def test_bad_option_key_in_a_later_chunk_stops_the_whole_batch(self, mock_session_fn: MagicMock) -> None:
-        # The routing checks are not the only client-side rejection: an unknown
-        # option key is caught during normalization, which runs per chunk.
-        events = _make_batch(201)
-        events[200]["options"] = {"bogus_key": True}
-        spy = InstallV1Spy(mock_session_fn, [MockResponse(body=_ok_results())])
-
-        with self.assertRaises(CaptureInternalError) as ctx:
-            capture_batch_internal(events=events, token="tok", event_source="bad_option")
-
-        assert "unknown option key" in str(ctx.exception)
-        assert spy.calls == [], "a batch that fails validation must not publish any chunk"
 
 
 class TestMergeResults(SimpleTestCase):
@@ -1678,6 +1748,24 @@ class TestCaptureAiInternal(SimpleTestCase):
 
         assert result.succeeded()
         assert [c["url"] for c in spy.calls] == [EXPECTED_URL]
+
+    @patch("posthog.api.capture.internal_requests_session")
+    def test_session_properties_move_to_top_level_fields_on_the_ai_lane(self, mock_session_fn: MagicMock) -> None:
+        uid = str(uuid4())
+        spy = InstallV1Spy(mock_session_fn, [MockResponse(body=_ok_results(uid))])
+
+        capture_ai_internal(
+            token="tok",
+            event_name="$ai_generation",
+            event_source="ai-src",
+            distinct_id="user-1",
+            event_uuid=uid,
+            properties={"$session_id": "s1", "$window_id": "w1", "$ai_model": "m"},
+        )
+
+        entry = spy.calls[0]["json"]["batch"][0]
+        assert (entry["session_id"], entry["window_id"]) == ("s1", "w1")
+        assert entry["properties"] == {"$ai_model": "m"}
 
     @patch("posthog.api.capture.internal_requests_session")
     def test_server_side_misrouted_drop_surfaces_per_event(self, mock_session_fn: MagicMock) -> None:

@@ -704,27 +704,6 @@ def get_person_uuids_and_matched_distinct_ids(team_id: int, distinct_ids: list[s
     )
 
 
-def delete_persons_from_postgres(team_id: int, persons: list[Person]) -> None:
-    """Remove Person rows (and associated PersonDistinctId rows) via the personhog RPC.
-
-    Processes in batches of 1000 (the RPC maximum). Asks for a hard delete explicitly: the
-    caller has already published ClickHouse tombstones at version + 100, so the replica's own
-    default must not turn this into a tombstone.
-    """
-
-    def personhog_fn() -> None:
-        uuids = [str(p.uuid) for p in persons]
-        for i in range(0, len(uuids), 1000):
-            batch = uuids[i : i + 1000]
-            _get_client().delete_persons(
-                DeletePersonsRequest(
-                    team_id=team_id, person_uuids=batch, mode=DeletePersonsMode.DELETE_PERSONS_MODE_HARD
-                )
-            )
-
-    personhog_call("delete_persons", personhog_fn)
-
-
 @frozen
 class PersonTombstone:
     """The versions the replica wrote when it tombstoned one person."""
@@ -951,49 +930,6 @@ def _flush_person_producers(timeout: float) -> None:
     producers = {id(p): p for p in (get_producer(topic=KAFKA_PERSON), get_producer(topic=KAFKA_PERSON_DISTINCT_ID))}
     for producer in producers.values():
         producer.flush(max(0.0, deadline - time.monotonic()))
-
-
-def delete_person(person: Person, distinct_ids: list[DistinctIdForPerson] | None = None) -> None:
-    """Produce ClickHouse deletion tombstones for a person and its distinct_ids.
-
-    ``distinct_ids`` can be prefetched in batch (see ``delete_persons_profile``) to
-    avoid one RPC per person; when omitted it is fetched here.
-    """
-    # This is racy https://github.com/PostHog/posthog/issues/11590
-    if distinct_ids is None:
-        distinct_ids = _get_distinct_ids_with_version(person)
-    _delete_person(person.team_id, person.uuid, int(person.version or 0), person.created_at)
-    for distinct_id in distinct_ids:
-        _delete_ch_distinct_id(person.team_id, person.uuid, distinct_id.id, distinct_id.version)
-
-
-def _delete_person(
-    team_id: int,
-    uuid: UUID,
-    version: int,
-    created_at: Optional[datetime.datetime] = None,
-) -> None:
-    create_person(
-        uuid=str(uuid),
-        team_id=team_id,
-        # Version + 100 ensures delete takes precedence over normal updates.
-        # Keep in sync with:
-        # - plugin-server/src/utils/db/utils.ts:152 (generateKafkaPersonUpdateMessage)
-        # - posthog/models/person/person.py:112 (split_person uses version + 101 to override deletes)
-        version=version + 100,
-        created_at=created_at,
-        is_deleted=True,
-    )
-
-
-def _get_distinct_ids_with_version(person: Person) -> list[DistinctIdForPerson]:
-    def personhog_fn() -> list[DistinctIdForPerson]:
-        resp = _get_client().get_distinct_ids_for_person(
-            GetDistinctIdsForPersonRequest(team_id=person.team_id, person_id=person.pk)
-        )
-        return [DistinctIdForPerson(id=d.distinct_id, version=int(d.version or 0)) for d in resp.distinct_ids]
-
-    return personhog_call("get_distinct_ids_with_version", personhog_fn)
 
 
 def _delete_ch_distinct_id(team_id: int, uuid: UUID, distinct_id: str, version: int) -> None:

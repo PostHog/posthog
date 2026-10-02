@@ -87,7 +87,7 @@ function TodayBriefingReports(): JSX.Element {
                 {moreReportCount > 0 && (
                     <>
                         <Link to={urls.inbox()} data-attr="today-briefing-inbox">
-                            {`${moreReportCount} more ${moreReportCount === 1 ? 'report is' : 'reports are'} in the Inbox`}
+                            {`${moreReportCount} more for you in the Inbox`}
                         </Link>
                         <span>. </span>
                     </>
@@ -135,7 +135,7 @@ export function TodayBriefing(): JSX.Element {
                         <LemonButton
                             size="xsmall"
                             icon={<IconRefresh />}
-                            tooltip="Write a fresh briefing"
+                            tooltip="Refresh briefing"
                             onClick={() => refreshBriefing()}
                             data-attr="today-briefing-refresh"
                         />

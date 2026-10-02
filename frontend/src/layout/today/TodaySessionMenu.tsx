@@ -1,4 +1,5 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { IconEllipsis } from '@posthog/icons'
 import {
@@ -14,6 +15,7 @@ import {
 import { DROPDOWN_PARTS } from './todayMenuParts'
 import { useTodayPreviewMenuReport } from './todayPreviewCardContext'
 import { TodaySessionActionItems } from './TodaySessionActionItems'
+import { useTodayArchiveShortcut } from './todaySessionArchiveShortcut'
 import { TodaySessionSurface, todaySessionMenuLogic } from './todaySessionMenuLogic'
 import { TodaySessionMenuTarget } from './todayWorkItems'
 
@@ -25,12 +27,22 @@ interface TodaySessionMenuProps {
 /** The "…" menu. Its dialogs belong to whoever owns `target.menuId`, which renders `TodaySessionDialogs`. */
 export function TodaySessionMenu({ target, surface }: TodaySessionMenuProps): JSX.Element {
     const { pendingSessionIds } = useValues(todaySessionMenuLogic)
+    const { requestArchive } = useActions(todaySessionMenuLogic)
     const reportMenuOpen = useTodayPreviewMenuReport()
+    const [open, setOpen] = useState(false)
+    const setMenuOpen = (nextOpen: boolean): void => {
+        setOpen(nextOpen)
+        reportMenuOpen(nextOpen)
+    }
+    useTodayArchiveShortcut(open, () => {
+        setMenuOpen(false)
+        requestArchive(target.sessionId, target.menuId, target.activeRunId)
+    })
     const saving = pendingSessionIds.includes(target.sessionId)
     const label = saving ? 'Saving your last change' : 'More actions'
 
     return (
-        <DropdownMenu onOpenChange={reportMenuOpen}>
+        <DropdownMenu open={open} onOpenChange={setMenuOpen}>
             <Tooltip>
                 <TooltipTrigger
                     delay={0}

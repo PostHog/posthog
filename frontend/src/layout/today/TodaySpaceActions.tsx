@@ -1,6 +1,15 @@
 import { useActions } from 'kea'
 
-import { IconCopy, IconGear, IconPlus, IconStar, IconStarFilled } from '@posthog/icons'
+import {
+    IconArchive,
+    IconCopy,
+    IconPencil,
+    IconPeople,
+    IconPlus,
+    IconStar,
+    IconStarFilled,
+    IconTrash,
+} from '@posthog/icons'
 
 import { urls } from 'scenes/urls'
 
@@ -16,6 +25,10 @@ interface TodaySpaceActionsProps {
     dataAttrPrefix: string
 }
 
+function autoArchiveActionLabel(days: number | null): string {
+    return days === null ? 'Auto-archive: off…' : `Auto-archive: ${days} ${days === 1 ? 'day' : 'days'}…`
+}
+
 /** A space's actions, New session first, like the space rows in PostHog Desktop. */
 export function TodaySpaceActions({
     parts: { Item, Separator },
@@ -24,6 +37,8 @@ export function TodaySpaceActions({
 }: TodaySpaceActionsProps): JSX.Element {
     const { toggleStar, copySpaceLink } = useActions(todaySpacesLogic)
     const attr = (name: string): string => `${dataAttrPrefix}-${name}`
+    const settingsUrl = urls.taskSpaceSettings(space.id)
+    const editable = !space.system_role
 
     return (
         <>
@@ -42,10 +57,28 @@ export function TodaySpaceActions({
                 Copy link
             </Item>
             <Separator />
-            <Item to={urls.taskSpaceSettings(space.id)} dataAttr={attr('settings')}>
-                <IconGear />
-                Space settings
+            <Item to={settingsUrl} dataAttr={attr('auto-archive')}>
+                <IconArchive />
+                {autoArchiveActionLabel(space.auto_archive_after_days)}
             </Item>
+            {space.channel_type === 'private' && (
+                <Item to={settingsUrl} dataAttr={attr('members')}>
+                    <IconPeople />
+                    Members
+                </Item>
+            )}
+            {editable && (
+                <>
+                    <Item to={settingsUrl} dataAttr={attr('rename')}>
+                        <IconPencil />
+                        Rename space…
+                    </Item>
+                    <Item to={settingsUrl} variant="destructive" dataAttr={attr('delete')}>
+                        <IconTrash />
+                        Delete space…
+                    </Item>
+                </>
+            )}
         </>
     )
 }

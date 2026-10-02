@@ -717,6 +717,7 @@ mod tests {
                 reason: FeatureFlagMatchReason::NoConditionMatch,
                 condition_index: None,
                 payload: None,
+                evaluation_v2: None,
             },
         ))
     }

@@ -1,14 +1,18 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
+import { useState } from 'react'
 
 import { IconUpload, IconWarning } from '@posthog/icons'
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, Spinner } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS } from 'scenes/feature-flags/cohortPickerProps'
+import { Scene } from 'scenes/sceneTypes'
 
-import { PropertyFilterType } from '~/types'
+import { DataTable } from '~/queries/nodes/DataTable/DataTable'
+import { ActorsQuery, DataTableNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
+import { AnyPersonScopeFilter, PropertyFilterType } from '~/types'
 
 import { WORKFLOW_OPERATOR_ALLOWLIST } from '../../Workflows/hogflows/filters/HogFlowFilters'
 import { BroadcastAudienceCohorts } from '../audience/BroadcastAudienceCohorts'
@@ -50,11 +54,45 @@ function AudienceSizePreview(): JSX.Element | null {
     )
 }
 
+function AudienceListTable(): JSX.Element {
+    const { audienceProperties } = useValues(broadcastWizardLogic)
+    const [query, setQuery] = useState<DataTableNode>(() => ({
+        kind: NodeKind.DataTableNode,
+        source: {
+            kind: NodeKind.ActorsQuery,
+            tags: { productKey: ProductKey.WORKFLOWS, scene: Scene.Broadcast },
+            select: ['person_display_name -- Person', 'properties.email -- Email', 'created_at'],
+            properties: audienceProperties as AnyPersonScopeFilter[],
+            orderBy: ['created_at DESC'],
+        } as ActorsQuery,
+        full: false,
+        showSearch: true,
+    }))
+
+    return <DataTable query={query} setQuery={setQuery} uniqueKey="broadcast-audience-list" readOnly />
+}
+
+function AudienceListModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }): JSX.Element {
+    return (
+        <LemonModal
+            isOpen={isOpen}
+            onClose={onClose}
+            title="People who match now"
+            description="The list updates at send time. People who share an email address get one email."
+            width={900}
+        >
+            {/* Mounted per open, so the list always reflects the current conditions. */}
+            {isOpen && <AudienceListTable />}
+        </LemonModal>
+    )
+}
+
 export function BroadcastRecipientsStep(): JSX.Element {
     const { audienceProperties } = useValues(broadcastWizardLogic)
     const { setAudienceProperties } = useActions(broadcastWizardLogic)
     const { props } = useMountedLogic(broadcastWizardLogic)
     const { openListModal } = useActions(broadcastAudienceListLogic(props))
+    const [audienceListOpen, setAudienceListOpen] = useState(false)
 
     return (
         <div className="flex flex-col gap-2">
@@ -65,9 +103,20 @@ export function BroadcastRecipientsStep(): JSX.Element {
                     everyone.
                 </p>
             </div>
-            <div>
-                <span className="font-semibold">This broadcast will reach</span> <AudienceSizePreview />
+            <div className="flex items-start justify-between gap-2">
+                <div>
+                    <span className="font-semibold">This broadcast will reach</span> <AudienceSizePreview />
+                </div>
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    onClick={() => setAudienceListOpen(true)}
+                    data-attr="broadcast-audience-view-list"
+                >
+                    View list
+                </LemonButton>
             </div>
+            <AudienceListModal isOpen={audienceListOpen} onClose={() => setAudienceListOpen(false)} />
             <PropertyFilters
                 pageKey="broadcast-wizard-recipients"
                 propertyFilters={audienceProperties}
