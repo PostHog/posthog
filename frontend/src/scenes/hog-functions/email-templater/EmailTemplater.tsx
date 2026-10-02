@@ -498,7 +498,7 @@ function LiquidSupportedText({
 
 export function TemplatePickerModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }): JSX.Element {
     const { templates } = useValues(emailTemplaterLogic)
-    const { applyTemplate } = useActions(emailTemplaterLogic)
+    const { pickTemplate } = useActions(emailTemplaterLogic)
 
     return (
         <LemonModal isOpen={isOpen} onClose={onClose} title="Choose a starting point" width={880}>
@@ -517,7 +517,7 @@ export function TemplatePickerModal({ isOpen, onClose }: { isOpen: boolean; onCl
                             template={template}
                             index={index}
                             onClick={() => {
-                                applyTemplate(template)
+                                pickTemplate(template)
                                 onClose()
                             }}
                         />

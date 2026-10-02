@@ -185,7 +185,10 @@ class MessageTemplateSerializer(serializers.ModelSerializer):
 
 
 class EmailTemplateListSerializer(EmailTemplateSerializer):
-    design = None
+    def get_fields(self) -> dict[str, serializers.Field]:
+        fields = super().get_fields()
+        fields.pop("design")
+        return fields
 
 
 class MessageTemplateListContentSerializer(MessageTemplateContentSerializer):

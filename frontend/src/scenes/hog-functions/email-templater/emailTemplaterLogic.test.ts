@@ -3,6 +3,8 @@ import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import type { MessageTemplateListApi } from 'products/messaging/frontend/generated/api.schemas'
+import type { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 
 import {
     EMAIL_TYPE_SUPPORTED_FIELDS,
@@ -626,6 +628,44 @@ describe('emailTemplaterLogic', () => {
             router.actions.push('/some-page', {})
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.isModalOpen).toBe(true)
+        })
+    })
+
+    describe('template picker', () => {
+        it('applies the full template, including the design omitted from the list response', async () => {
+            const design = { body: { rows: [] }, schemaVersion: 16 }
+            const listTemplate = {
+                id: 'template-1',
+                name: 'Welcome',
+                description: '',
+                content: { templating: 'liquid', email: { subject: 'Welcome', html: '<p>Hello</p>' } },
+            } as MessageTemplateListApi
+            const fullTemplate = {
+                id: listTemplate.id,
+                name: listTemplate.name,
+                description: listTemplate.description,
+                content: {
+                    templating: 'liquid',
+                    email: { ...DEFAULT_EMAIL_TEMPLATE, design },
+                },
+                created_at: null,
+                updated_at: null,
+                created_by: null,
+            } as MessageTemplate
+            const props = makeProps()
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/messaging_templates/template-1/': fullTemplate,
+                },
+            })
+            logic = emailTemplaterLogic(props)
+            logic.mount()
+
+            await expectLogic(logic, () => logic.actions.pickTemplate(listTemplate)).toDispatchActions([
+                'pickTemplate',
+                'applyTemplate',
+            ])
+            expect(props.onChange).toHaveBeenCalledWith(expect.objectContaining({ design }))
         })
     })
 })

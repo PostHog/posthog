@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import type { MessageTemplateListApi } from 'products/messaging/frontend/generated/api.schemas'
 
 import { initKeaTests } from '~/test/init'
 
@@ -18,7 +19,7 @@ describe('messageTemplatesLogic', () => {
             name: 'Welcome',
             description: 'Welcome email',
             content: { templating: 'liquid', email: { subject: 'Hello', html: '<p>Hello</p>' } },
-        } as MessageTemplate
+        } as MessageTemplateListApi
         const fullTemplate = {
             ...listTemplate,
             content: {

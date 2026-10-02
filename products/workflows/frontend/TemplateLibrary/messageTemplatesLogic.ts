@@ -6,7 +6,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { MessageTemplate } from './types'
+import { MessageTemplate, MessageTemplateListItem } from './types'
 
 export type { MessageTemplate }
 
@@ -14,9 +14,9 @@ export type { MessageTemplate }
 export interface messageTemplatesLogicValues {
     currentTeamIdStrict: number | string // teamLogic
     createdByFilter: number | null
-    filteredTemplates: MessageTemplate[]
+    filteredTemplates: MessageTemplateListItem[]
     search: string
-    templates: MessageTemplate[]
+    templates: MessageTemplateListItem[]
     templatesLoading: boolean
 }
 
@@ -33,17 +33,17 @@ export interface messageTemplatesLogicActions {
         errorObject?: any
     }
     createTemplateSuccess: (
-        templates: MessageTemplate[],
+        templates: MessageTemplateListItem[],
         payload?: {
             template: Partial<MessageTemplate>
         }
     ) => {
-        templates: MessageTemplate[]
+        templates: MessageTemplateListItem[]
         payload?: {
             template: Partial<MessageTemplate>
         }
     }
-    deleteTemplate: (template: MessageTemplate) => MessageTemplate
+    deleteTemplate: (template: MessageTemplateListItem) => MessageTemplateListItem
     deleteTemplateFailure: (
         error: string,
         errorObject?: any
@@ -52,13 +52,13 @@ export interface messageTemplatesLogicActions {
         errorObject?: any
     }
     deleteTemplateSuccess: (
-        templates: MessageTemplate[],
-        payload?: MessageTemplate
+        templates: MessageTemplateListItem[],
+        payload?: MessageTemplateListItem
     ) => {
-        templates: MessageTemplate[]
-        payload?: MessageTemplate
+        templates: MessageTemplateListItem[]
+        payload?: MessageTemplateListItem
     }
-    duplicateTemplate: (template: MessageTemplate) => MessageTemplate
+    duplicateTemplate: (template: MessageTemplateListItem) => MessageTemplateListItem
     duplicateTemplateFailure: (
         error: string,
         errorObject?: any
@@ -67,11 +67,11 @@ export interface messageTemplatesLogicActions {
         errorObject?: any
     }
     duplicateTemplateSuccess: (
-        templates: MessageTemplate[],
-        payload?: MessageTemplate
+        templates: MessageTemplateListItem[],
+        payload?: MessageTemplateListItem
     ) => {
-        templates: MessageTemplate[]
-        payload?: MessageTemplate
+        templates: MessageTemplateListItem[]
+        payload?: MessageTemplateListItem
     }
     loadTemplates: () => any
     loadTemplatesFailure: (
@@ -82,10 +82,10 @@ export interface messageTemplatesLogicActions {
         errorObject?: any
     }
     loadTemplatesSuccess: (
-        templates: MessageTemplate[],
+        templates: MessageTemplateListItem[],
         payload?: any
     ) => {
-        templates: MessageTemplate[]
+        templates: MessageTemplateListItem[]
         payload?: any
     }
     setCreatedByFilter: (createdBy: number | null) => {
@@ -124,10 +124,10 @@ export interface messageTemplatesLogicActions {
 export interface messageTemplatesLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         filteredTemplates: (
-            templates: MessageTemplate[],
+            templates: MessageTemplateListItem[],
             search: string,
             createdByFilter: number | null
-        ) => MessageTemplate[]
+        ) => MessageTemplateListItem[]
     }
 }
 
@@ -153,13 +153,13 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
     }),
     loaders(({ values, actions }) => ({
         templates: [
-            [] as MessageTemplate[],
+            [] as MessageTemplateListItem[],
             {
                 loadTemplates: async () => {
                     const response = await api.messaging.getTemplates()
                     return response.results
                 },
-                deleteTemplate: async (template: MessageTemplate) => {
+                deleteTemplate: async (template: MessageTemplateListItem) => {
                     await deleteWithUndo({
                         endpoint: `environments/${values.currentTeamIdStrict}/messaging_templates`,
                         object: {
@@ -172,7 +172,7 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                             }
                         },
                     })
-                    return values.templates.filter((t: MessageTemplate) => t.id !== template.id)
+                    return values.templates.filter((t: MessageTemplateListItem) => t.id !== template.id)
                 },
                 createTemplate: async ({ template }: { template: Partial<MessageTemplate> }) => {
                     try {
@@ -200,7 +200,7 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                         return values.templates
                     }
                 },
-                duplicateTemplate: async (template: MessageTemplate) => {
+                duplicateTemplate: async (template: MessageTemplateListItem) => {
                     try {
                         const fullTemplate = await api.messaging.getTemplate(template.id)
                         const duplicatedTemplate = await api.messaging.createTemplate({
@@ -221,7 +221,11 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
     selectors({
         filteredTemplates: [
             (s) => [s.templates, s.search, s.createdByFilter],
-            (templates: MessageTemplate[], search: string, createdByFilter: number | null): MessageTemplate[] => {
+            (
+                templates: MessageTemplateListItem[],
+                search: string,
+                createdByFilter: number | null
+            ): MessageTemplateListItem[] => {
                 let filtered = templates
                 if (search) {
                     const lowerSearch = search.toLowerCase()

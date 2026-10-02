@@ -27,6 +27,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { PreflightStatus, PropertyDefinition, PropertyDefinitionType, Realm } from '~/types'
 
+import type { MessageTemplateListApi } from 'products/messaging/frontend/generated/api.schemas'
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 
 import type { EmailFieldErrors, EmailTemplate } from './types'
@@ -251,7 +252,7 @@ export interface emailTemplaterLogicValues {
     personPropertyDefinitionsLoading: boolean
     revealedAdvancedFields: EmailMetaFieldKey[]
     showEmailTemplateErrors: boolean
-    templates: MessageTemplate[]
+    templates: MessageTemplateListApi[]
     templatesLoading: boolean
     templatingEngine: 'hog' | 'liquid'
     unlayerEditorProjectId: 275430 | undefined
@@ -299,14 +300,17 @@ export interface emailTemplaterLogicActions {
         errorObject?: any
     }
     loadTemplatesSuccess: (
-        templates: MessageTemplate[],
+        templates: MessageTemplateListApi[],
         payload?: any
     ) => {
-        templates: MessageTemplate[]
+        templates: MessageTemplateListApi[]
         payload?: any
     }
     onEmailEditorReady: () => {
         value: true
+    }
+    pickTemplate: (template: MessageTemplateListApi) => {
+        template: MessageTemplateListApi
     }
     resetEmailTemplate: (values?: EmailTemplate) => {
         values?: EmailTemplate
@@ -405,6 +409,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         setIsTemplatePickerOpen: (isOpen: boolean) => ({ isOpen }),
         designUpdated: true,
         designLoaded: true,
+        pickTemplate: (template: MessageTemplateListApi) => ({ template }),
         applyTemplate: (template: MessageTemplate) => ({ template }),
         closeWithConfirmation: true,
         setTemplatingEngine: (templating: 'hog' | 'liquid') => ({ templating }),
@@ -483,7 +488,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
 
     loaders(() => ({
         templates: [
-            [] as MessageTemplate[],
+            [] as MessageTemplateListApi[],
             {
                 loadTemplates: async () => {
                     const response = await api.messaging.getTemplates()
@@ -719,6 +724,14 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 // Plain text only when the email is genuinely text-only; a blank email starts visual.
                 const plainTextOnly = !!props.value.text && !props.value.html && !props.value.design
                 actions.setActiveContentTab(plainTextOnly ? 'plaintext' : 'visual')
+            }
+        },
+
+        pickTemplate: async ({ template }) => {
+            try {
+                actions.applyTemplate(await api.messaging.getTemplate(template.id))
+            } catch {
+                lemonToast.error('Failed to load template')
             }
         },
 

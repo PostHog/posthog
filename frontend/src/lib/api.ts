@@ -247,6 +247,7 @@ import type {
     ExternalDataSourceTypeEnumApi,
     SourceConfigMapResponseApi,
 } from 'products/warehouse_sources/frontend/generated/api.schemas'
+import type { PaginatedMessageTemplateListListApi } from 'products/messaging/frontend/generated/api.schemas'
 import type { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
 import type { HogFlowPublishResponseApi } from 'products/workflows/frontend/generated/api.schemas'
 import type { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
@@ -6370,7 +6371,7 @@ const api = {
         },
     },
     messaging: {
-        async getTemplates(): Promise<PaginatedResponse<MessageTemplate>> {
+        async getTemplates(): Promise<PaginatedMessageTemplateListListApi> {
             return await new ApiRequest().messagingTemplates().get()
         },
         async getTemplate(templateId: MessageTemplate['id']): Promise<MessageTemplate> {
