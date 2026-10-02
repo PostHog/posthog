@@ -53,6 +53,7 @@ export function SpaceFeed({ id }: { id: string }): JSX.Element {
         // No gap: the cards' own margins and the separators' padding space the feed, like PostHog Desktop.
         <div className="flex flex-col">
             <SpaceFeedControls sourceOptions={feedSourceOptions} />
+            <SpaceFeedSelectionBar spaceId={id} />
             {feedStatus.sessions === 'failed' && (
                 <div className="flex flex-col items-start gap-2 px-2 pt-4">
                     <Text size="sm" variant="muted">
@@ -195,7 +196,6 @@ export function SpaceFeed({ id }: { id: string }): JSX.Element {
                     </Fragment>
                 )
             })}
-            <SpaceFeedSelectionBar spaceId={id} />
         </div>
     )
 }
