@@ -343,6 +343,11 @@ Cloud Claude sessions deliver each watchdog warning separately to subagents and 
 
 Common build, test, and typecheck commands share a sandbox-wide lock, including commands started in the background. When another validation command holds the lock, the shell returns exit code 75 and asks the agent to wait. After the same validation command fails twice during observed watchdog interventions, the session rejects another unchanged attempt. Reduce the command's scope or concurrency, or report the validation limit. This guard is best-effort command recognition, not a resource limit for arbitrary shell programs.
 
+The guard recognizes validation through `timeout`, `npx`, `hogli`, `.codex/with-flox`, and `flox activate -- bash -c '…'`.
+It preserves the command's directory, arguments, and inline shell body when identifying retries.
+Script names such as `backend:test` and `build-storybook`, shell continuations, and command substitutions are recognized. Heredoc bodies are skipped before scanning subsequent commands.
+It does not inspect script files: invoke validation directly or through a supported wrapper instead of hiding it in `bash script.sh`.
+
 ### Local agent packages
 
 Cloud tasks use the published `@posthog/agent` package by default. Set `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` only when you need to test local agent changes.
