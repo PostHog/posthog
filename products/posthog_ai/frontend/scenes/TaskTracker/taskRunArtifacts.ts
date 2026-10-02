@@ -3,7 +3,6 @@ import { combineUrl } from 'kea-router'
 import type {
     TaskRunArtifactResponseApi,
     TaskRunLivingArtifactResponseApi,
-    TaskRunLivingArtifactsResponseApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
 export type TaskRunTab = 'conversation' | 'artifacts'
@@ -66,11 +65,17 @@ export function artifactPreviewKind(
     artifact: TaskRunArtifactResponseApi & { living?: LivingVersion }
 ): ArtifactPreviewKind {
     if (artifact.living && artifact.living.text === null) {
-        return 'none'
+        // A stored file plays in an `img` or a `video` from its URL. Text needs a read of the body, so it downloads.
+        const kind = artifact.living.stored ? fileKind(artifact) : 'none'
+        return kind === 'image' || kind === 'video' ? kind : 'none'
     }
     if (artifact.type === 'reference') {
         return 'reference'
     }
+    return fileKind(artifact)
+}
+
+function fileKind(artifact: TaskRunArtifactResponseApi): ArtifactPreviewKind {
     const contentType = (artifact.content_type ?? '').split(';')[0].trim().toLowerCase()
     const ext = extension(artifact.name)
     if (contentType === 'text/html' || ext === 'html' || ext === 'htm') {
@@ -279,9 +284,18 @@ export function groupArtifactVersions(artifacts: readonly RunArtifact[]): Artifa
 export interface LivingVersion {
     /** The living artifact id. All versions of one document share it. */
     artifactId: string
+    /** The version number in the version content URL. */
+    version: number
     adapter: string
     /** `null` when PostHog keeps no text for the version, for example a file sent to Slack. */
     text: string | null
+    /** True when PostHog stores the version as a file, for example a file sent to Slack. */
+    stored: boolean
+}
+
+/** PostHog keeps the content of a version as text in the registry or as a stored file. */
+export function hasLivingContent(living: LivingVersion): boolean {
+    return living.text !== null || living.stored
 }
 
 export const LIVING_ADAPTER_LABEL: Record<string, string> = {
@@ -292,25 +306,8 @@ export const LIVING_ADAPTER_LABEL: Record<string, string> = {
     github_pr: 'Pull request',
 }
 
-/**
- * The generated client types the list response as an array of envelopes, but the endpoint returns one
- * envelope. Both shapes are read so the list keeps working after the schema is fixed.
- */
-export function livingArtifactsFromResponse(
-    response: TaskRunLivingArtifactsResponseApi | readonly TaskRunLivingArtifactsResponseApi[] | null | undefined
-): TaskRunLivingArtifactResponseApi[] {
-    const envelopes: readonly TaskRunLivingArtifactsResponseApi[] = Array.isArray(response)
-        ? response
-        : response
-          ? [response as TaskRunLivingArtifactsResponseApi]
-          : []
-    const byId = new Map<string, TaskRunLivingArtifactResponseApi>()
-    for (const artifact of envelopes.flatMap((envelope) => envelope.artifacts ?? [])) {
-        if (artifact.id && !byId.has(artifact.id)) {
-            byId.set(artifact.id, artifact)
-        }
-    }
-    return [...byId.values()]
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function stringField(record: Record<string, unknown>, field: string): string | undefined {
@@ -335,8 +332,10 @@ function livingVersionArtifact(
         runId: stringField(record, 'run_id') ?? artifact.run_id,
         living: {
             artifactId: artifact.id,
+            version: versionNumber,
             adapter: artifact.adapter,
             text: typeof record.content === 'string' ? record.content : null,
+            stored: isRecord(record.location) && !!stringField(record.location, 'storage_path'),
         },
     }
 }

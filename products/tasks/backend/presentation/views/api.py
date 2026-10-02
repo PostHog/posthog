@@ -12,6 +12,7 @@ from uuid import UUID
 from django.conf import settings
 from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
 from django.utils.html import escape
+from django.utils.http import content_disposition_header
 
 import pydantic
 import requests as http_requests
@@ -4187,7 +4188,7 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
     http_method_names = ["get", "post", "head", "options"]
-    # The artifact registry is small and bounded per task; the response is a plain list.
+    # The artifact registry is small and bounded per task, so the list returns one unpaginated envelope.
     pagination_class = None
     # Fallback for drf-spectacular introspection only; every action declares its own
     # request/response schema via @validated_request.
@@ -4216,7 +4217,7 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
     def _ensure_task_accessible(self) -> str:
         """Gate access to the parent task, mirroring ``TaskRunViewSet._ensure_task_accessible``."""
         task_id = self._task_id()
-        is_read = self.action in ("list", "retrieve")
+        is_read = self.action in ("list", "retrieve", "version_content")
         bypass_visibility = is_read and _can_bypass_visibility(self.request, self.team_id)
         if not tasks_facade.task_accessible_for_run_view(
             task_id,
@@ -4510,6 +4511,57 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             return Response(TaskRunErrorResponseSerializer({"error": error}).data, status=status.HTTP_400_BAD_REQUEST)
         serializer = TaskRunLivingArtifactResponseSerializer(artifact)
         return Response(serializer.data)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "version",
+                OpenApiTypes.INT,
+                OpenApiParameter.PATH,
+                description="Version number of the living artifact, as listed in its versions.",
+            )
+        ],
+        responses={
+            (200, "application/octet-stream"): OpenApiResponse(
+                response=OpenApiTypes.BINARY,
+                description="Version content, with the content type the version was saved with",
+            ),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Unable to read the version"),
+            404: OpenApiResponse(description="Living artifact or version not found, or the version keeps no content"),
+        },
+        summary="Download one version of a living artifact",
+        description=(
+            "Streams the content of one living artifact version from the app origin. Slack file versions return "
+            "their stored file. Slack canvas and message versions return their text."
+        ),
+        operation_id="tasks_runs_living_artifacts_version_content",
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path=r"versions/(?P<version>[0-9]+)",
+        required_scopes=["task:read"],
+    )
+    def version_content(self, request, pk=None, version=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        content, error = tasks_facade.read_task_run_living_artifact_version(
+            self._run_id(), task_id, self.team_id, artifact_id=str(pk), version=int(str(version))
+        )
+        if error == "read_failed":
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "Unable to read this version"}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if content is None:
+            raise NotFound()
+        response = HttpResponse(content.content, content_type=content.content_type)
+        response["Cache-Control"] = "no-cache"
+        # Agent-written HTML or SVG must not render as a page on the app origin, so the browser always saves it.
+        response["Content-Disposition"] = (
+            content_disposition_header(as_attachment=True, filename=os.path.basename(content.name) or "artifact")
+            or "attachment"
+        )
+        return response
 
 
 @extend_schema(tags=["tasks"])

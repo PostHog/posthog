@@ -79,6 +79,7 @@ import {
     artifactPreviewKind,
     formatArtifactSize,
     hasFullPageView,
+    hasLivingContent,
     isTextPreview,
     listboxKeyTarget,
     parseCsv,
@@ -247,8 +248,15 @@ function TextLoading(): JSX.Element {
 }
 
 function VideoPreview({ taskId, name }: { taskId: string; name: string }): JSX.Element {
-    const { selectedArtifact, selectedMedia, artifactMediaLoading } = useValues(taskRunArtifactsLogic({ taskId }))
+    const { selectedArtifact, selectedMedia, artifactMediaLoading, currentProjectId } = useValues(
+        taskRunArtifactsLogic({ taskId })
+    )
     const { loadArtifactMedia } = useActions(taskRunArtifactsLogic({ taskId }))
+    // A stored living version streams from the app origin, which the media-src policy allows.
+    const livingSrc = selectedArtifact?.living ? artifactDownloadUrl(currentProjectId, taskId, selectedArtifact) : null
+    if (livingSrc) {
+        return <VideoPlayer key={livingSrc} src={livingSrc} name={name} />
+    }
     if (!selectedMedia) {
         return (
             <div className="flex h-full items-center justify-center">
@@ -276,11 +284,14 @@ function VideoPreview({ taskId, name }: { taskId: string; name: string }): JSX.E
             </Empty>
         )
     }
+    return <VideoPlayer key={selectedMedia.artifactId} src={selectedMedia.url} name={name} />
+}
+
+function VideoPlayer({ src, name }: { src: string; name: string }): JSX.Element {
     return (
         <div className="flex h-full items-center justify-center p-6">
             <video
-                key={selectedMedia.artifactId}
-                src={selectedMedia.url}
+                src={src}
                 controls
                 preload="metadata"
                 aria-label={name}
@@ -380,7 +391,7 @@ function ArtifactPreview({ taskId, mode }: { taskId: string; mode: PreviewMode }
     if (selectedKind === 'video') {
         return <VideoPreview taskId={taskId} name={selectedArtifact.name} />
     }
-    if (selectedArtifact.living && selectedArtifact.living.text === null) {
+    if (selectedArtifact.living && !hasLivingContent(selectedArtifact.living)) {
         return (
             <Empty className="h-full">
                 <EmptyHeader>
@@ -778,8 +789,8 @@ function ArtifactToolbar({
                     </IconAction>
                 </div>
                 <CopyLinkAction taskId={taskId} />
-                {/* No endpoint serves a living document's bytes, so it has no download. */}
-                {kind !== 'reference' && !artifact.living && (
+                {/* PostHog stores only the files of a living document. Canvas and message text has no file to download. */}
+                {kind !== 'reference' && (!artifact.living || artifact.living.stored) && (
                     <IconAction
                         label={versioned ? 'Download this version' : 'Download'}
                         href={downloadUrl ?? undefined}

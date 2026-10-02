@@ -26,6 +26,7 @@ import {
     getTasksRunsArtifactsDownloadCreateUrl,
     getTasksRunsArtifactsDownloadRetrieveUrl,
     tasksRunsArtifactsDismissCreate,
+    getTasksRunsLivingArtifactsVersionContentUrl,
     tasksRunsLivingArtifactsList,
     tasksRunsRetrieve,
 } from 'products/tasks/frontend/generated/api'
@@ -47,7 +48,6 @@ import {
     groupArtifactVersions,
     isTextPreview,
     livingArtifactFiles,
-    livingArtifactsFromResponse,
     postHogObjectRef,
     taskArtifactPath,
     VERSION_PARAM,
@@ -286,10 +286,24 @@ const MAX_CHAIN_RUNS = 20
 // A video plays from a blob in memory, so a very large file goes to a download instead.
 const MAX_MEDIA_PREVIEW_BYTES = 200 * 1024 * 1024
 
-/** The download-by-id URL redirects to a fresh presigned link, so an `img` or an `a` can use it directly. */
+/**
+ * A URL that an `img`, a `video` or an `a` can use directly. The download-by-id URL redirects to a fresh
+ * presigned link. A stored living version streams from the app origin. Other living versions have no URL.
+ */
 export function artifactDownloadUrl(projectId: number | null, taskId: string, artifact: RunArtifact): string | null {
     if (projectId === null || !artifact.id) {
         return null
+    }
+    if (artifact.living) {
+        return artifact.living.stored
+            ? getTasksRunsLivingArtifactsVersionContentUrl(
+                  String(projectId),
+                  taskId,
+                  artifact.runId,
+                  artifact.living.artifactId,
+                  artifact.living.version
+              )
+            : null
     }
     return getTasksRunsArtifactsDownloadRetrieveUrl(String(projectId), taskId, artifact.runId, artifact.id)
 }
@@ -364,9 +378,12 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
                         return values.livingArtifacts
                     }
                     try {
-                        return livingArtifactsFromResponse(
-                            await tasksRunsLivingArtifactsList(String(values.currentProjectId), props.taskId, runId)
+                        const response = await tasksRunsLivingArtifactsList(
+                            String(values.currentProjectId),
+                            props.taskId,
+                            runId
                         )
+                        return response.artifacts
                     } catch {
                         return values.livingArtifacts
                     }
@@ -604,7 +621,8 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
             }
             if (isTextPreview(kind) && !values.selectedText) {
                 actions.loadArtifactText(artifact)
-            } else if (kind === 'video' && !values.selectedMedia) {
+            } else if (kind === 'video' && !artifact.living && !values.selectedMedia) {
+                // A living version plays from its same-origin URL, so only an uploaded video loads into a blob.
                 actions.loadArtifactMedia(artifact)
             }
         }
@@ -681,7 +699,10 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
                 }
             },
             downloadArtifact: ({ artifact }) => {
-                posthog.capture('task artifact downloaded', { kind: artifactPreviewKind(artifact) })
+                posthog.capture('task artifact downloaded', {
+                    kind: artifactPreviewKind(artifact),
+                    living_adapter: artifact.living?.adapter ?? null,
+                })
             },
             reportObjectOpened: ({ objectKind }) => {
                 // pinned: analytics event name and properties. Renaming them breaks insights.
