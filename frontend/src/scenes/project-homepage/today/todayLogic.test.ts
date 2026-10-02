@@ -8,7 +8,7 @@ import { makeReport } from 'products/signals/frontend/inbox/__mocks__/inboxMocks
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 import type { BriefingApi, BriefingItemReportApi } from 'products/today/frontend/generated/api.schemas'
 
-import { BRIEFING_POLL_MS, TOP_REPORT_COUNT, reportIdFromPath, todayLogic } from './todayLogic'
+import { BRIEFING_POLL_MS, MORE_REPORTS_LIMIT, TOP_REPORT_COUNT, reportIdFromPath, todayLogic } from './todayLogic'
 import { isSampleReportId } from './todaySampleReports'
 import { GENERAL_REPORT_PROMPTS, briefingForReports, reportPrompts } from './todaySignalReports'
 
@@ -279,6 +279,22 @@ describe('todayLogic', () => {
 
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ reports, moreReportCount: 7 })
         expect(Object.fromEntries(listParams!.entries())).toEqual({ limit: String(TOP_REPORT_COUNT) })
+    })
+
+    it('loads more reports past the briefing without the ones it shows, and counts the rest for the Inbox', async () => {
+        const [a, b, c] = ['a', 'b', 'c'].map((id) => makeReport({ id }))
+        listResponse = [200, { results: [a, b, c], count: 5 }]
+        briefingResponses = [[200, makeBriefing({ more_reports_count: 4 })]]
+        const logic = todayLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ canLoadMoreReports: true })
+
+        await expectLogic(logic, () => {
+            logic.actions.loadMoreReports()
+        })
+            .toDispatchActions(['loadMoreReportsSuccess'])
+            .toMatchValues({ sidebarMoreReports: [b, c], moreReportsInInbox: 2, canLoadMoreReports: false })
+        expect(Object.fromEntries(listParams!.entries())).toEqual({ limit: String(MORE_REPORTS_LIMIT) })
     })
 
     it('shows sample reports from ?sample=1 without asking the API, until ?sample=0', async () => {

@@ -49,13 +49,15 @@ import { SAMPLE_BRIEFING, parseSampleParam, sampleTopReports } from './todaySamp
 import { TodayBriefingSegment, briefingForReports, teamReportCard } from './todaySignalReports'
 
 export const TOP_REPORT_COUNT = 5
+// The most reports the for_you endpoint returns in one call (MAX_FOR_YOU_REPORTS on the backend).
+export const MORE_REPORTS_LIMIT = 20
 const CLOCK_MS = 30_000
 export const BRIEFING_POLL_MS = 5_000
 // The run's budget is 10 minutes (RUN_TIMEOUT in logic/generate.py). Stop asking a little after that.
 const MAX_BRIEFING_POLLS = 132
 
 /** Where a report was opened from, sent with the `today report opened` event. */
-export type TodayReportOpenSource = 'briefing' | 'chip' | 'sidebar'
+export type TodayReportOpenSource = 'briefing' | 'chip' | 'sidebar' | 'sidebar_more'
 
 /** Where a question to PostHog AI came from, sent with the `today ai asked` event. */
 export type TodayAskSource = 'ask_box' | 'walk_through'
@@ -184,6 +186,7 @@ export interface todayLogicValues {
     briefingPolls: number
     briefingProgress: TodayBriefingProgress | null
     briefingWaiting: boolean
+    canLoadMoreReports: boolean
     gaveUpWaitingFor: string | null
     greeting: string
     hour: number
@@ -191,6 +194,10 @@ export interface todayLogicValues {
     hoveredReportId: string | null
     inboxMore: TodayInboxMore | null
     moreReportCount: number
+    moreReportPreviews: Record<TodayReportPreview['surface'], Record<string, TodayReportPreview>>
+    moreReports: TodayReports | null
+    moreReportsInInbox: number
+    moreReportsLoading: boolean
     now: number
     personalBriefing: BriefingApi | null
     personalBriefingFailed: boolean
@@ -204,7 +211,9 @@ export interface todayLogicValues {
     reportSummary: string
     reports: SignalReport[]
     reportsFailed: boolean
+    shownReportIds: string[]
     showPersonalBriefing: boolean
+    sidebarMoreReports: SignalReport[]
     teamReportPreviews: Record<TodayReportPreview['surface'], Record<string, TodayReportPreview>>
     topReports: TodayReports | null
     topReportsLoading: boolean
@@ -254,6 +263,21 @@ export interface todayLogicActions {
     ) => {
         item: BriefingItemApi
         surface: TodayItemOpenSurface
+    }
+    loadMoreReports: () => any
+    loadMoreReportsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadMoreReportsSuccess: (
+        moreReports: TodayReports,
+        payload?: any
+    ) => {
+        moreReports: TodayReports
+        payload?: any
     }
     loadPersonalBriefing: () => any
     loadPersonalBriefingFailure: (
@@ -393,6 +417,27 @@ export interface todayLogicMeta {
             reports: SignalReport[]
         ) => Record<TodayReportPreview['surface'], Record<string, TodayReportPreview>>
         briefingProgress: (briefingItems: BriefingItemApi[]) => TodayBriefingProgress | null
+        shownReportIds: (
+            showPersonalBriefing: boolean,
+            briefingItems: BriefingItemApi[],
+            reports: SignalReport[]
+        ) => string[]
+        sidebarMoreReports: (
+            moreReports: TodayReports | null,
+            shownReportIds: string[],
+            useSampleData: boolean
+        ) => SignalReport[]
+        moreReportPreviews: (
+            sidebarMoreReports: SignalReport[]
+        ) => Record<TodayReportPreview['surface'], Record<string, TodayReportPreview>>
+        canLoadMoreReports: (
+            moreReports: TodayReports | null,
+            useSampleData: boolean,
+            showPersonalBriefing: boolean,
+            personalBriefing: BriefingApi | null,
+            moreReportCount: number
+        ) => boolean
+        moreReportsInInbox: (moreReports: TodayReports | null) => number
         briefingWaiting: (
             personalBriefing: BriefingApi | null,
             gaveUpWaitingFor: string | null,
@@ -466,6 +511,21 @@ export const todayLogic = kea<todayLogicType>([
                     // Today passes reports to the Inbox's helpers, which take the handwritten SignalReport. The
                     // generated row type is wider (string status and priority, read-only arrays), so the cast
                     // goes away when the Inbox moves to generated types.
+                    return { results: response.results as unknown as SignalReport[], count: response.count }
+                },
+            },
+        ],
+        // Every report the endpoint ranks for the person. The sidebar drops the ones it already shows.
+        moreReports: [
+            null as TodayReports | null,
+            {
+                loadMoreReports: async (): Promise<TodayReports> => {
+                    if (values.currentProjectId === null) {
+                        return { results: [], count: 0 }
+                    }
+                    const response = await signalsReportsForYouRetrieve(String(values.currentProjectId), {
+                        limit: MORE_REPORTS_LIMIT,
+                    })
                     return { results: response.results as unknown as SignalReport[], count: response.count }
                 },
             },
@@ -664,6 +724,53 @@ export const todayLogic = kea<todayLogicType>([
                 return done > 0 ? { done, total: briefingItems.length } : null
             },
         ],
+        shownReportIds: [
+            (s) => [s.showPersonalBriefing, s.briefingItems, s.reports],
+            (showPersonalBriefing: boolean, briefingItems: BriefingItemApi[], reports: SignalReport[]): string[] =>
+                showPersonalBriefing
+                    ? briefingItems.map(itemReportId).filter((id): id is string => id !== null)
+                    : reports.map((report) => report.id),
+        ],
+        // Read against the list on screen now, so a briefing that loads later does not show a report twice.
+        sidebarMoreReports: [
+            (s) => [s.moreReports, s.shownReportIds, s.useSampleData],
+            (moreReports: TodayReports | null, shownReportIds: string[], useSampleData: boolean): SignalReport[] => {
+                if (!moreReports || useSampleData) {
+                    return []
+                }
+                const shown = new Set(shownReportIds)
+                return moreReports.results.filter((report) => !shown.has(report.id))
+            },
+        ],
+        moreReportPreviews: [
+            (s) => [s.sidebarMoreReports],
+            (
+                sidebarMoreReports: SignalReport[]
+            ): Record<TodayReportPreview['surface'], Record<string, TodayReportPreview>> =>
+                previewsBySurface(sidebarMoreReports.map((report) => [report.id, teamReportCard(report)])),
+        ],
+        // The endpoint has no next page, so the sidebar loads more one time and then links to the Inbox.
+        canLoadMoreReports: [
+            (s) => [s.moreReports, s.useSampleData, s.showPersonalBriefing, s.personalBriefing, s.moreReportCount],
+            (
+                moreReports: TodayReports | null,
+                useSampleData: boolean,
+                showPersonalBriefing: boolean,
+                personalBriefing: BriefingApi | null,
+                moreReportCount: number
+            ): boolean => {
+                if (moreReports || useSampleData) {
+                    return false
+                }
+                return showPersonalBriefing ? (personalBriefing?.more_reports_count ?? 0) > 0 : moreReportCount > 0
+            },
+        ],
+        // The endpoint counts the loaded reports plus the other open reports that name the person.
+        moreReportsInInbox: [
+            (s) => [s.moreReports],
+            (moreReports: TodayReports | null): number =>
+                moreReports ? Math.max(moreReports.count - moreReports.results.length, 0) : 0,
+        ],
         // While a newer briefing is written, the server returns the shown one as `writing`, so the
         // text stays on screen and the page keeps asking until the new one is ready.
         briefingWaiting: [
@@ -806,16 +913,24 @@ export const todayLogic = kea<todayLogicType>([
                     })
                     return
                 }
-                const rank = values.reports.findIndex((report) => teamReportCard(report).key === cardKey) + 1
-                if (rank === 0 || values.useSampleData) {
+                if (values.useSampleData) {
                     return
                 }
-                posthog.capture('today report previewed', {
-                    list: 'team',
-                    rank,
-                    has_metric: !!values.reports[rank - 1].metrics?.length,
-                    surface,
-                })
+                for (const [list, reports] of [
+                    ['team', values.reports],
+                    ['more', values.sidebarMoreReports],
+                ] as const) {
+                    const rank = reports.findIndex((report) => teamReportCard(report).key === cardKey) + 1
+                    if (rank > 0) {
+                        posthog.capture('today report previewed', {
+                            list,
+                            rank,
+                            has_metric: !!reports[rank - 1].metrics?.length,
+                            surface,
+                        })
+                        return
+                    }
+                }
             },
             locationChanged: ({ searchParams }) => {
                 const useSampleData = parseSampleParam(searchParams.sample)
@@ -917,6 +1032,20 @@ export const todayLogic = kea<todayLogicType>([
                             saveReason({ state: copy.apiState, ...suppressDismissalPayload(dismissal) }),
                     })
                 }
+            },
+            loadMoreReports: () => {
+                // pinned: analytics event name and properties. Renaming them breaks dashboards.
+                posthog.capture('today more reports clicked', { shown_report_count: values.shownReportIds.length })
+            },
+            loadMoreReportsSuccess: () => {
+                // pinned: analytics event name and properties. Renaming them breaks dashboards.
+                posthog.capture('today more reports loaded', {
+                    report_count: values.sidebarMoreReports.length,
+                    inbox_report_count: values.moreReportsInInbox,
+                })
+            },
+            loadMoreReportsFailure: () => {
+                lemonToast.error('Couldn’t load more reports. Try again in a minute.')
             },
             reportOpened: ({ report, source }) => {
                 if (values.useSampleData) {
