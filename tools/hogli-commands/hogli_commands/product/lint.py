@@ -9,6 +9,8 @@ import click
 
 from .baseline import check_baseline
 from .checks import CHECKS, CheckContext, ProductYamlOwnersCheck, has_contracts_module, validate_tach_toml
+from .crossings import BASELINE_PATH
+from .ledger_growth import LEDGER_BASE_ENV, LEDGER_GROWTH_INSTRUCTION, ledger_growth_issues
 from .paths import ISOLATION_BASELINE, PRODUCTS_DIR, REPO_ROOT, TACH_TOML, backend_product_dirs, load_structure
 
 _IN_GH_ACTIONS = os.environ.get("GITHUB_ACTIONS") == "true"
@@ -101,7 +103,7 @@ def lint_all_products() -> None:
     click.echo(
         "Checks: required root files, package.json scripts (presence + content), misplaced files (strict), "
         "file/folder conflicts, tach boundaries (+ interfaces for strict), isolation progress (lenient), "
-        "facade shape, isolation baseline\n"
+        "facade shape, isolation baseline, crossings ledger growth\n"
     )
 
     structure = load_structure()
@@ -137,13 +139,31 @@ def lint_all_products() -> None:
         click.echo("  ✓ ok")
     click.echo("")
 
-    if failed or tach_issues or baseline_issues:
+    click.echo("─ crossings ledger growth")
+    growth_issues = ledger_growth_issues()
+    if growth_issues is None:
+        click.echo(f"  – skipped: {LEDGER_BASE_ENV} is not set (CI sets it on pull requests)")
+    elif growth_issues:
+        click.echo(f"  ✗ {len(growth_issues)} issue(s)")
+        click.echo(f"    {LEDGER_GROWTH_INSTRUCTION}")
+        for issue in growth_issues:
+            click.echo(f"    → {issue}")
+            _gh_annotation(
+                "error", "products", "crossings ledger growth", issue, file=str(BASELINE_PATH.relative_to(REPO_ROOT))
+            )
+    else:
+        click.echo("  ✓ ok")
+    click.echo("")
+
+    if failed or tach_issues or baseline_issues or growth_issues:
         if failed:
             click.echo(f"✗ {len(failed)} product(s) failed: {', '.join(failed)}")
         if tach_issues:
             click.echo(f"✗ {len(tach_issues)} tach.toml issue(s)")
         if baseline_issues:
             click.echo(f"✗ {len(baseline_issues)} isolation baseline issue(s)")
+        if growth_issues:
+            click.echo(f"✗ {len(growth_issues)} crossings ledger growth issue(s)")
         raise SystemExit(1)
 
     click.echo(f"✓ All {len(product_dirs)} products passed")

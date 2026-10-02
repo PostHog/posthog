@@ -39,9 +39,9 @@ The two directions are not symmetric. A line that went away is regenerated out:
     bin/hogli product:crossings --all --write-baseline
 
 That command refuses to write while the scan holds a line the file does not, so a new line is
-never absorbed. Change the caller back, or seal the relation. A coupling that must stand is a
-hand-edited line in the baseline plus an amendment in products/architecture.md § Wiring couplings,
-which is what a reviewer reads.
+never absorbed. Change the caller back, or seal the relation. A hand-edited line passes this test,
+because the scan holds it too, so `hogli product:lint --all` compares the file with the pull
+request's base and refuses growth unless the change touches the scanner.
 """
 
 from hogli_commands.product.crossings import (

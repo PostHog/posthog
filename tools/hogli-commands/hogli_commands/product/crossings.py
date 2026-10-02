@@ -1806,9 +1806,10 @@ NEW_LINE_INSTRUCTION = (
     "runners; move that test into the product. A 'facade-...' line is a facade that puts a Django, a "
     "DRF or an ORM type on its own boundary, a capability submodule that holds bodies, or an "
     "Isolated product's class from a wiring location without an approved interface; the "
-    "lint prints the move that clears each kind. A coupling that "
-    "must stand is a doctrine amendment: hand-edit the line in, and record why in "
-    "products/architecture.md § Wiring couplings. Regenerating the baseline cannot add a line."
+    "lint prints the move that clears each kind. A coupling that must stand needs a DevEx change "
+    "to the scanner, such as an approved interface, a MODEL_CROSSINGS entry or a carve-out. "
+    "Neither a regenerate nor a hand edit adds a line: product:lint refuses ledger growth in any "
+    "change that does not touch the scanner."
 )
 
 BASELINE_HEADER = f"""\
@@ -1847,9 +1848,10 @@ BASELINE_HEADER = f"""\
 #
 # Regenerate after a removal: {REGENERATE_COMMAND}
 # That command refuses to write when the scan holds a line this file does not, or a count that
-# went up. A coupling that
-# must stand is a hand-edited line here, together with the amendment in products/architecture.md
-# § Wiring couplings that permits it, because a reviewer can see both.
+# went up. Do not hand-edit a line in: `hogli product:lint --all` refuses growth against the pull
+# request's base unless the change also touches the scanner in tools/hogli-commands/hogli_commands/product/.
+# A coupling that must stand needs that DevEx change (an approved interface, a MODEL_CROSSINGS
+# entry or a carve-out).
 """
 
 
@@ -1861,8 +1863,12 @@ def render_baseline(uses: Iterable[CrossingUse]) -> str:
     return BASELINE_HEADER + "\n".join(scanned_baseline_lines(uses)) + "\n"
 
 
+def parse_baseline(text: str) -> list[str]:
+    return [line for line in text.splitlines() if line.strip() and not line.startswith("#")]
+
+
 def read_baseline(path: Path = BASELINE_PATH) -> list[str]:
-    return [line for line in path.read_text().splitlines() if line.strip() and not line.startswith("#")]
+    return parse_baseline(path.read_text())
 
 
 def _counts_by_identity(lines: Iterable[str]) -> dict[str, int]:

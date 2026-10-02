@@ -183,8 +183,10 @@ Run `hogli product:crossings --all --write-baseline` to record a decrease.
 
 **The baseline only shrinks.**
 `--write-baseline` refuses to write when the scan holds a line the file does not, prints those lines, and changes nothing, so a new coupling cannot enter by regenerating.
-A coupling that must stand is a hand-edited line in the baseline plus a note here that says why it stands.
-Both are in the diff, which is what a reviewer reads; a regenerated line is not.
+A hand edit cannot add a line either.
+New lines come only with a DevEx change to the scanner: a new check that records the findings that exist when it lands, or an approved exception (an approved interface, a `MODEL_CROSSINGS` entry, a carve-out).
+A coupling that must stand needs such a change, not a line.
+A change that only moves or splits a consumer module carries its lines along.
 
 **What the check cannot see.**
 The check reads uses of the class name, plus `get_model` string references.
@@ -549,7 +551,7 @@ Django auto-generates a reverse accessor (`project.visualreview_set`), a reverse
 
 **Rule:** declare every relation field (FK, O2O, M2M) that crosses a product boundary with `related_name="+"`, and do not set an explicit `related_query_name` on it. `related_name="+"` alone removes the reverse accessor and the reverse query name; an explicit `related_query_name` keeps `filter()` traversal alive, and the ratchet records it as a `query:<name>` row. A product may point relations _at_ core models; other products must not reference models _inside_ this product. When a caller needs reverse access, add a facade read function — do not traverse the ORM.
 
-A repo invariant enforces this: every cross-boundary reverse accessor is frozen as a `reverse-accessor(...)` line in `products/model_crossing_uses_baseline.txt`, next to the other crossing kinds. The set may only shrink. A new relation without `related_name="+"` fails CI until you seal it or a review adds a hand-edited baseline line. Regenerate after a removal with `bin/hogli product:crossings --all --write-baseline`.
+A repo invariant enforces this: every cross-boundary reverse accessor is frozen as a `reverse-accessor(...)` line in `products/model_crossing_uses_baseline.txt`, next to the other crossing kinds. The set may only shrink. A new relation without `related_name="+"` fails CI until you seal it. Regenerate after a removal with `bin/hogli product:crossings --all --write-baseline`.
 
 `db_constraint` is a separate concern: it is migration safety (see the hot-table FK rules in [products/README.md](README.md)) and multi-database planning, not Python isolation. Both `db_constraint=False` and a two-phase validated constraint are sanctioned.
 

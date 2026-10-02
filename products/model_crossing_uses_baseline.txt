@@ -33,9 +33,10 @@
 #
 # Regenerate after a removal: bin/hogli product:crossings --all --write-baseline
 # That command refuses to write when the scan holds a line this file does not, or a count that
-# went up. A coupling that
-# must stand is a hand-edited line here, together with the amendment in products/architecture.md
-# § Wiring couplings that permits it, because a reviewer can see both.
+# went up. Do not hand-edit a line in: `hogli product:lint --all` refuses growth against the pull
+# request's base unless the change also touches the scanner in tools/hogli-commands/hogli_commands/product/.
+# A coupling that must stand needs that DevEx change (an approved interface, a MODEL_CROSSINGS
+# entry or a carve-out).
 access_control.Role approvals.ApprovalPolicy.bypass_roles reverse-accessor(bypass_policies) 1
 access_control.Role posthog.Organization.default_role reverse-accessor(default_for_organizations) 1
 actions.Action cdp.PluginConfig.match_action reverse-accessor(plugin_configs) 1
