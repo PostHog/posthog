@@ -1,5 +1,6 @@
 import json
 from collections.abc import Iterator
+from contextlib import nullcontext
 from ipaddress import ip_address
 from uuid import uuid4
 
@@ -10,7 +11,7 @@ from django.test import override_settings
 
 import httpx
 
-from posthog.llm.system_one import NoulAnswer, NoulQuestion
+from posthog.llm.system_one import NoulAnswer, NoulQuestion, ScoreAnswer, ScoreQuestion
 from posthog.models import Team
 
 from products.ai_observability.backend.llm.client import Client
@@ -67,7 +68,10 @@ def test_system_one_connections_require_flag_and_reserve_posthog_gateway_for_int
     with (
         override_settings(POSTHOG_INTERNAL_ORG_IDS=[str(team.organization_id)] if internal else []),
         patch("products.ai_observability.backend.llm.system_one.Team.objects.only") as teams,
-        patch("products.ai_observability.backend.llm.system_one.get_feature_flag_or_none", return_value=flag),
+        patch(
+            "products.ai_observability.backend.llm.system_one.get_feature_flag_or_none",
+            side_effect=lambda *args, groups, **kwargs: flag if groups["project"] == str(team.uuid) else False,
+        ),
     ):
         teams.return_value.get.return_value = team
         assert system_one_evaluations_enabled(team.id, base_url=base_url) is enabled
@@ -145,6 +149,61 @@ def test_system_one_rejects_invalid_probabilities(probability: object) -> None:
             state="Hello!",
             questions={"verdict": NoulQuestion(instructions="Is the response polite?")},
         )
+
+
+@pytest.mark.parametrize(
+    "patch_answer,valid",
+    [
+        ({}, True),
+        ({"score": 0}, True),
+        ({"score": 2}, True),
+        ({"score": -0.1}, False),
+        ({"score": 2.1}, False),
+        ({"score": True}, False),
+        ({"score": "1.5"}, False),
+        ({"score": float("nan")}, False),
+        ({"score": float("inf")}, False),
+        ({"type": "choice"}, False),
+        ({"confidence": 1.1}, False),
+        ({"probabilities": {"0": 0.5, "1": 0.5}}, False),
+        ({"probabilities": {"0": 0, "1": 0, "2": True}}, False),
+    ],
+)
+def test_system_one_score_response(patch_answer: dict[str, object], valid: bool) -> None:
+    answer = {"score": 1.5, "confidence": 0.5, "probabilities": {"0": 0.0, "1": 0.5, "2": 0.5}, **patch_answer}
+    question = ScoreQuestion(instructions="Rate answer quality.", criteria=["Incorrect", "Partly correct", "Correct"])
+    with (
+        patch(
+            "httpx.AsyncHTTPTransport.handle_async_request",
+            return_value=_response(200, {"model": "custom-model", "answers": {"score": answer}}),
+        ) as request,
+        nullcontext() if valid else pytest.raises(StructuredOutputParseError),
+    ):
+        result = SystemOneClient.evaluate(
+            api_key="",
+            base_url="https://decisions.example.com/v1",
+            model="custom-model",
+            state="Hello!",
+            questions={"score": question},
+        )
+    if not valid:
+        return
+    parsed = result.answers["score"]
+    assert isinstance(parsed, ScoreAnswer)
+    assert parsed.score == answer["score"]
+    assert parsed.confidence == 0.5
+    assert parsed.probabilities == {"0": 0.0, "1": 0.5, "2": 0.5}
+    assert json.loads(request.call_args.args[0].content)["questions"]["score"] == {
+        "type": "score",
+        "instructions": "Rate answer quality.",
+        "criteria": ["Incorrect", "Partly correct", "Correct"],
+    }
+
+
+@pytest.mark.parametrize("level_count", [0, 1, 11])
+def test_system_one_rejects_unsupported_score_rubric_sizes(level_count: int) -> None:
+    with pytest.raises(ValueError, match="between 2 and 10"):
+        ScoreQuestion(instructions="Score quality.", criteria=[str(index) for index in range(level_count)])
 
 
 @pytest.mark.parametrize("status", [408, 429, 503, 529])
