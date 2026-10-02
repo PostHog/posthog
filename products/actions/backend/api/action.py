@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Any, cast
 
 from django.db import connection
-from django.db.models import Count
+from django.db.models import Count, Prefetch
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, PolymorphicProxySerializer, extend_schema, extend_schema_field
@@ -38,6 +38,7 @@ from products.access_control.backend.presentation.access_control import (
     UserAccessControlSerializerMixin,
 )
 from products.actions.backend.models.action import ACTION_STEP_MATCHING_OPTIONS, Action
+from products.actions.backend.models.selector_match_change import ActionSelectorMatchChange
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.models.experiment import Experiment
@@ -207,8 +208,13 @@ class ActionSerializer(
 
     @extend_schema_field(serializers.ListField(child=serializers.IntegerField()))
     def get_selector_match_changed_steps(self, action: Action) -> list[int]:
-        # Reads the prefetch the viewset sets up, so listing actions stays one query.
-        return sorted(change.step_index for change in action.selector_match_changes.all())
+        # Read through the viewset's prefetch rather than the relation. The related
+        # manager is fail-closed, so touching it without one raises for want of a team
+        # scope, and a missing notice beats a 500 on the actions page.
+        changes = getattr(action, "_prefetched_objects_cache", {}).get("selector_match_changes")
+        if changes is None:
+            return []
+        return sorted(change.step_index for change in changes)
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_creation_context(self, obj) -> None:
@@ -556,7 +562,16 @@ class ActionViewSet(
         tuple[type[BaseRenderer], ...],
         (*tuple(api_settings.DEFAULT_RENDERER_CLASSES), csvrenderers.PaginatedCSVRenderer),
     )
-    queryset = Action.objects.select_related("created_by").prefetch_related("selector_match_changes").all()
+    queryset = (
+        Action.objects.select_related("created_by")
+        .prefetch_related(
+            # Named explicitly rather than by string, because the related manager is
+            # fail-closed and would need an ambient team scope to build its queryset.
+            # These rows reach no further than the actions above, which are team-filtered.
+            Prefetch("selector_match_changes", queryset=ActionSelectorMatchChange.objects.unscoped())
+        )
+        .all()
+    )
     serializer_class = ActionSerializer
     ordering = ["-last_calculated_at", "name"]
 
