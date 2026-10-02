@@ -1,6 +1,16 @@
 import { Badge, Button, Card } from '@posthog/quill'
 
-import { ImageName, Source, Sources, Workflow, fresh, imageNames } from './infrastructureTypes'
+import {
+    ImageName,
+    Source,
+    Sources,
+    Workflow,
+    fresh,
+    imageNames,
+    imageState,
+    labels,
+    variants,
+} from './infrastructureTypes'
 
 export function StageInspector({
     selected,
@@ -64,6 +74,12 @@ export function StageInspector({
             )}
             {registry && (
                 <>
+                    <div>
+                        <h3>Version pin and base lineage</h3>
+                        <Badge variant={variants[imageState(sources, selected as ImageName)]}>
+                            {labels[imageState(sources, selected as ImageName)]}
+                        </Badge>
+                    </div>
                     <p className="digest">
                         <code>{registry.reference}</code>
                     </p>
