@@ -1234,6 +1234,9 @@ tools:
     signals-report-checks-destroy:
         operation: signals_report_checks_destroy
         enabled: false
+    signals-report-checks-progress-retrieve:
+        operation: signals_report_checks_progress_retrieve
+        enabled: false
     signals-report-pr-checks:
         operation: signals_report_pr_checks
         enabled: false

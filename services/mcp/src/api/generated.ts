@@ -21772,6 +21772,24 @@ export namespace Schemas {
       lookback_seconds?: number;
     }
 
+    /**
+     * * `on_track` - Looks on track
+     * * `off_track` - Not looking good
+     * * `insufficient_data` - Not enough data
+     * * `unavailable` - Unavailable
+     * * `error` - Couldn't measure
+     */
+    export type CheckProgressStatusEnum = typeof CheckProgressStatusEnum[keyof typeof CheckProgressStatusEnum];
+
+
+    export const CheckProgressStatusEnum = {
+      OnTrack: 'on_track',
+      OffTrack: 'off_track',
+      InsufficientData: 'insufficient_data',
+      Unavailable: 'unavailable',
+      Error: 'error',
+    } as const;
+
     export interface CheckSchemaNameResponse {
       /** The schema name that was checked */
       name: string;
@@ -25112,9 +25130,25 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Interim target: proportional for totals, fixed for rates and averages. Inferred for ordinary Trends math; specify for custom math or formulas.
+     */
+    export type MetricThresholdConfigProgressTargetType = typeof MetricThresholdConfigProgressTargetType[keyof typeof MetricThresholdConfigProgressTargetType] | null;
+
+
+    export const MetricThresholdConfigProgressTargetType = {
+      Proportional: 'proportional',
+      Fixed: 'fixed',
+    } as const;
+
+    /**
      * Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. `dateRange.date_from` must be a relative window such as `-13d`, and `date_to` must be empty, so the check measures the days before each run rather than the days before it was written. The query must produce exactly one output series: use one event or action series, or combine up to ten of them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric` turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`, which keeps compare mode off already.
      */
     export type MetricThresholdConfigQuery = { [key: string]: unknown } | null;
+
+    /**
+     * Optional bounded Trends count of relevant opportunities. Enables interpreting zero bad events as positive evidence when there was activity.
+     */
+    export type MetricThresholdConfigEligibilityQuery = { [key: string]: unknown } | null;
 
     /**
      * A deterministic check: measure one number, compare it, record the verdict.
@@ -25145,6 +25179,16 @@ export namespace Schemas {
       value_format?: MetricThresholdConfigValueFormat;
       /** Optional value suffix. */
       unit?: string | null;
+      /** Interim target: proportional for totals, fixed for rates and averages. Inferred for ordinary Trends math; specify for custom math or formulas. */
+      progress_target_type?: MetricThresholdConfigProgressTargetType;
+      /**
+         * Minimum qualifying observations before giving an interim direction.
+         * @minimum 1
+         * @maximum 1000
+         */
+      minimum_data_points?: number;
+      /** Optional bounded Trends count of relevant opportunities. Enables interpreting zero bad events as positive evidence when there was activity. */
+      eligibility_query?: MetricThresholdConfigEligibilityQuery;
     }
 
     export type SignalReportCheckConfig = MetricThresholdConfig | AgentCheckConfig;
@@ -69941,6 +69985,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly monitoring_started_at: string | null;
+      /**
+         * When this monitoring period ended in resolution; null while monitoring.
+         * @nullable
+         */
+      readonly monitoring_ended_at: string | null;
       readonly total_weight: number;
       readonly signal_count: number;
       readonly signals_at_run: number;
@@ -83765,6 +83814,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `proportional` - Proportional
+     * * `fixed` - Fixed
+     */
+    export type ProgressTargetTypeEnum = typeof ProgressTargetTypeEnum[keyof typeof ProgressTargetTypeEnum];
+
+
+    export const ProgressTargetTypeEnum = {
+      Proportional: 'proportional',
+      Fixed: 'fixed',
+    } as const;
+
+    /**
      * The project as the app context serves it, which is where the frontend reads it on page load.
      *
      * projectLogic bootstraps `currentProject` from the app context and only calls the API when that
@@ -89887,6 +89948,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly monitoring_started_at: string | null;
+      /**
+         * When this monitoring period ended in resolution; null while monitoring.
+         * @nullable
+         */
+      readonly monitoring_ended_at: string | null;
       readonly total_weight: number;
       readonly signal_count: number;
       readonly signals_at_run: number;
@@ -94255,6 +94321,85 @@ export namespace Schemas {
       failed_count: number;
       /** Number of requested ids not visible to the caller. */
       not_found_count: number;
+    }
+
+    export interface SignalReportCheckProgressPoint {
+      /** Start of this chart bucket. */
+      at: string;
+      /** Observed value in this bucket. */
+      value: number;
+      /**
+         * Interim target, or lower bound, for this bucket.
+         * @nullable
+         */
+      target: number | null;
+      /**
+         * Upper bound for a between target; otherwise null.
+         * @nullable
+         */
+      target_upper: number | null;
+    }
+
+    export interface SignalReportCheckProgress {
+      /** The metric follow-up check being measured. */
+      check_id: string;
+      /** Provisional direction, or why a measurement is unavailable. Never a final check verdict.
+       *
+       * * `on_track` - Looks on track
+       * * `off_track` - Not looking good
+       * * `insufficient_data` - Not enough data
+       * * `unavailable` - Unavailable
+       * * `error` - Couldn't measure */
+      status: CheckProgressStatusEnum;
+      /** Evidence supporting the direction or reason it cannot be measured. */
+      explanation: string;
+      /**
+         * Inclusive start of the monitoring period.
+         * @nullable
+         */
+      started_at: string | null;
+      /**
+         * Measurement cutoff: now, or the time of resolution.
+         * @nullable
+         */
+      ended_at: string | null;
+      /**
+         * When the query results were computed.
+         * @nullable
+         */
+      measured_at: string | null;
+      /**
+         * Observed aggregate since monitoring began.
+         * @nullable
+         */
+      value: number | null;
+      /**
+         * Target for the elapsed time, or its lower bound.
+         * @nullable
+         */
+      target: number | null;
+      /**
+         * Upper bound of a between target; otherwise null.
+         * @nullable
+         */
+      target_upper: number | null;
+      /** proportional for totals, fixed for rates and averages.
+       *
+       * * `proportional` - Proportional
+       * * `fixed` - Fixed */
+      target_type: ProgressTargetTypeEnum | null;
+      /**
+         * Qualifying observations or eligible opportunities seen.
+         * @nullable
+         */
+      sample_size: number | null;
+      /** Derived query with exact monitoring bounds. The stored check is unchanged. */
+      query: unknown;
+      /**
+         * Time buckets and their interim targets, or null when the chart could not be loaded.
+         * @nullable
+         */
+      points: SignalReportCheckProgressPoint[] | null;
     }
 
     export interface SignalReportCheckReplacement {

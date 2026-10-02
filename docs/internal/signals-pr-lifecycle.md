@@ -20,6 +20,28 @@ a follow-up report. New signals continue to attach without restarting implementa
 The `verifying` inbox view displays monitoring reports; the existing `monitoring` view still means PR
 review. The legacy `inbox` view includes both reports awaiting a decision and monitoring reports.
 
+Opening the expected-impact section of a monitoring report measures its metric checks from
+`monitoring_started_at` to the time of the read, with a 15-minute cache. Resolution records
+`monitoring_ended_at` and freezes that cutoff. These provisional readings do not write verdicts,
+consume runs, resolve the report, or change the scheduled final checks. They remain behind the
+existing `signals-expected-impact` display flag. Inbox rows do not run these measurements.
+
+Totals use a target proportional to elapsed time; rates and averages keep the original target.
+The graph compares each time bucket with its target pace, including partial first and last buckets.
+Distinct-user counts use this as a directional pace estimate; their buckets are not added together
+to calculate the whole-period value. Ordinary aggregations and arithmetic formulas infer this
+behavior. Custom measurements can specify `progress_target_type` as `proportional` or `fixed`.
+
+The interim direction is on track, off track, or insufficient data. A qualifying observation is
+enough by default; authors can increase `minimum_data_points`. For ratios, the denominator's events
+provide the activity evidence. An optional bounded count `eligibility_query` can establish relevant
+activity even when no bad events occur. Without relevant activity, zero events do not establish
+success. Query failures and missing permissions are shown separately from insufficient data.
+Both the measurement and activity query use the viewer's metric access policy. The new authoring
+fields require the monitoring flag; enable it after both Django and workers have deployed. With
+the flag off, referenced metrics do not copy interim options into checks, so older workers can
+still parse newly authored configurations during rollout.
+
 The follow-up timing descriptions below also apply to monitoring: its entry replaces resolution as the
 measurement anchor. Resolving a monitoring report keeps the anchor. Reopening immediately parks active
 checks and clears it; the next implementation starts a new window, and stale results cannot settle it.

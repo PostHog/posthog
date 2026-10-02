@@ -197,6 +197,32 @@ class MetricThresholdConfig(BaseModel):
         default=None, description="How to format measured values; copied from a referenced metric."
     )
     unit: str | None = Field(default=None, max_length=MAX_METRIC_UNIT_LENGTH, description="Optional value suffix.")
+    progress_target_type: Literal["proportional", "fixed"] | None = Field(
+        default=None,
+        description="Interim target: proportional for totals, fixed for rates and averages. Inferred for ordinary Trends math; specify for custom math or formulas.",
+    )
+    minimum_data_points: int = Field(
+        default=1, ge=1, le=1000, description="Minimum qualifying observations before giving an interim direction."
+    )
+    eligibility_query: dict[str, Any] | None = Field(
+        default=None,
+        description="Optional bounded Trends count of relevant opportunities. Enables interpreting zero bad events as positive evidence when there was activity.",
+    )
+
+    @field_validator("eligibility_query")
+    @classmethod
+    def eligibility_query_must_be_live(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        if value is None:
+            return None
+        validated = validate_live_metric_query(value)
+        series = validated["source"]["series"]
+        if len(series) != 1 or (series[0].get("math") or "total") not in ("total", "dau", "unique_session"):
+            raise ValueError("eligibility_query must count events, users, or sessions in one series")
+        if any(
+            (validated["source"].get("trendsFilter") or {}).get(key) for key in ("formula", "formulas", "formulaNodes")
+        ):
+            raise ValueError("eligibility_query must be a count without a formula")
+        return validated
 
     @field_validator("unit")
     @classmethod
@@ -205,7 +231,7 @@ class MetricThresholdConfig(BaseModel):
             raise ValueError(f"unit must not contain {reason}")
         return value
 
-    @field_validator("baseline_value", mode="before")
+    @field_validator("baseline_value", "minimum_data_points", mode="before")
     @classmethod
     def baseline_must_be_a_plain_number(cls, value: object) -> object:
         if isinstance(value, bool):

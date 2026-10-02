@@ -58,6 +58,21 @@
                     "required": ["operator"],
                     "type": "object"
                 },
+                "eligibility_query": {
+                    "anyOf": [
+                        {
+                            "additionalProperties": {},
+                            "propertyNames": {
+                                "type": "string"
+                            },
+                            "type": "object"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Optional bounded Trends count of relevant opportunities. Enables interpreting zero bad events as positive evidence when there was activity."
+                },
                 "metric_id": {
                     "anyOf": [
                         {
@@ -89,6 +104,25 @@
                         }
                     ],
                     "description": "How to draw this measurement; copied from a referenced metric."
+                },
+                "minimum_data_points": {
+                    "default": 1,
+                    "description": "Minimum qualifying observations before giving an interim direction.",
+                    "maximum": 1000,
+                    "minimum": 1,
+                    "type": "number"
+                },
+                "progress_target_type": {
+                    "anyOf": [
+                        {
+                            "enum": ["proportional", "fixed"],
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Interim target: proportional for totals, fixed for rates and averages. Inferred for ordinary Trends math; specify for custom math or formulas."
                 },
                 "query": {
                     "anyOf": [

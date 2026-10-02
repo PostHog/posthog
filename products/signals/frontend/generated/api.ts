@@ -78,6 +78,7 @@ import type {
     SignalReportBulkStateRequestApi,
     SignalReportBulkStateResponseApi,
     SignalReportCheckApi,
+    SignalReportCheckProgressApi,
     SignalReportCheckReplacementApi,
     SignalReportClaimApi,
     SignalReportDeletionStatusApi,
@@ -1104,6 +1105,25 @@ export const signalsReportChecksReplaceCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(signalReportCheckReplacementApi),
+    })
+}
+
+export const getSignalsReportChecksProgressRetrieveUrl = (projectId: string, reportId: string) => {
+    return `/api/projects/${projectId}/signals/reports/${reportId}/checks/progress/`
+}
+
+/**
+ * Read-time, cached measurements from monitoring start to now or resolution. Does not record verdicts or change check scheduling.
+ * @summary Measure interim progress of a report's metric checks
+ */
+export const signalsReportChecksProgressRetrieve = async (
+    projectId: string,
+    reportId: string,
+    options?: RequestInit
+): Promise<SignalReportCheckProgressApi[]> => {
+    return apiMutator<SignalReportCheckProgressApi[]>(getSignalsReportChecksProgressRetrieveUrl(projectId, reportId), {
+        ...options,
+        method: 'GET',
     })
 }
 

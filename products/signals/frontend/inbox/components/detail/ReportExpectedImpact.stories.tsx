@@ -5,7 +5,9 @@ import { mswDecorator } from '~/mocks/browser'
 import type { SignalReportCheckApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { makeReport } from '../../__mocks__/inboxMocks'
+import { reportCheckProgressFixture } from '../../__mocks__/reportCheckProgressMocks'
 import { reportMetricQueryHandler, reportMetricsFixture } from '../../__mocks__/reportMetricMocks'
+import { SignalReportStatus } from '../../types'
 import { ReportExpectedImpact } from './ReportExpectedImpact'
 
 const metric = reportMetricsFixture[0]
@@ -61,9 +63,12 @@ const meta: Meta<typeof ReportExpectedImpact> = {
                                             last_run_at: '2026-08-29T00:00:00Z',
                                             last_outcome: 'failed',
                                         }
-                                      : check,
+                                      : context.args.report.status === SignalReportStatus.MONITORING
+                                        ? { ...check, status: 'active', next_run_at: '2026-09-10T12:00:00Z' }
+                                        : check,
                               ],
                           },
+                    '/api/projects/:id/signals/reports/:reportId/checks/progress/': [reportCheckProgressFixture],
                     '/api/projects/:id/signals/reports/available_reviewers/': [],
                 },
                 post: {
@@ -75,7 +80,9 @@ const meta: Meta<typeof ReportExpectedImpact> = {
                 },
             })(Story, context),
         (Story, context) => (
-            <section className={`${context.parameters.narrow ? 'w-[32rem]' : 'w-[48rem]'} max-w-full p-4`}>
+            <section
+                className={`${context.parameters.narrow ? 'w-[min(32rem,calc(100vw-4rem))]' : 'w-[min(48rem,calc(100vw-4rem))]'} p-4`}
+            >
                 <h2 className="text-lg font-semibold">Expected impact</h2>
                 <Story />
             </section>
@@ -90,3 +97,12 @@ export const MetricCheck: Story = {}
 export const Narrow: Story = { parameters: { narrow: true } }
 export const Failed: Story = { parameters: { failed: true } }
 export const LoadFailure: Story = { parameters: { loadFailure: true } }
+export const Monitoring: Story = {
+    args: {
+        report: {
+            ...report,
+            status: SignalReportStatus.MONITORING,
+            monitoring_started_at: reportCheckProgressFixture.started_at,
+        },
+    },
+}
