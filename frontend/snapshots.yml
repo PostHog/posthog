@@ -12658,6 +12658,10 @@ snapshots:
         hash: v1.k794b7964.a464549645ee031d1943952d051b8a9b3299c53e8ae5e37e06c29f47c22a9801.rh3jn-mkm-MBeAIvordg5eBjfB4XkBnNw1HK7WA3QBM
     scenes-app-settings-user--settings-user-api-keys--light:
         hash: v1.k794b7964.c56cd95732f9e4355cc2b62b37ae9c36394637d232ea0d75cfaa63ede57205f5.ZgEv-Uxm9273XkhrJDzf9Cj_DESxhuf6OO_1o_fTd4k
+    scenes-app-settings-user--settings-user-api-keys-create-modal--dark:
+        hash: v1.k794b7964.e7851c3de405f4fed4b2c77e5da5f03a72586bf711d2e72a932b64e4134fd60a.gKCsW1ubw7l945EBr1OXlmmIc3KXZpQZZL4vC9SqO9I
+    scenes-app-settings-user--settings-user-api-keys-create-modal--light:
+        hash: v1.k794b7964.10f93d1eac71271f61347f6c0762ab297f34d8c9117f4cce8261bf5a83753d84.cKTVueS2ZFFdSGrDNFGlI-q-Pghh4CPYl9atfre637o
     scenes-app-settings-user--settings-user-backup-codes-modal--dark:
         hash: v1.k794b7964.fee174652504bedf45b5050dae77b7f38ffaac07d04c14c8c77b010d565cba97.n_drnTbGpOMa04Hy05-KZlJhx74bmdscz3V2bjDSQiw
     scenes-app-settings-user--settings-user-backup-codes-modal--light:
