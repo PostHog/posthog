@@ -10,6 +10,7 @@ import type {
   SourceProduct,
   SourceType,
   StoredLogEntry,
+  TaskClientProvenance,
   TaskRunArtifactMetadata,
 } from "@posthog/shared";
 import {
@@ -182,9 +183,16 @@ export function setPosthogApiClientLogger(logger: ApiClientLogger): void {
 // Host build version, set by the host at boot (default "unknown"); avoids a
 // build-time global so the package typechecks standalone and across importers.
 let clientAppVersion = "unknown";
+let taskClientProvenance: TaskClientProvenance = "posthog_desktop";
 
 export function setPosthogApiClientAppVersion(version: string): void {
   clientAppVersion = version;
+}
+
+export function setPosthogApiClientTaskClientProvenance(
+  provenance: TaskClientProvenance,
+): void {
+  taskClientProvenance = provenance;
 }
 
 export interface PostHogAPIClientOptions {
@@ -192,6 +200,7 @@ export interface PostHogAPIClientOptions {
   appVersion?: string;
   userAgent?: string | null;
   githubConnectFrom?: string;
+  taskClientProvenance?: TaskClientProvenance;
 }
 
 export function getPosthogApiClientAppVersion(): string {
@@ -2053,6 +2062,7 @@ export class PostHogAPIClient {
   private _teamId: number | null = null;
   private githubConnectFrom: string;
   private readonly apiHost: string;
+  private readonly taskClientProvenance: TaskClientProvenance;
 
   constructor(
     apiHost: string,
@@ -2064,6 +2074,8 @@ export class PostHogAPIClient {
     const baseUrl = apiHost.endsWith("/") ? apiHost.slice(0, -1) : apiHost;
     this.apiHost = baseUrl;
     this.githubConnectFrom = options.githubConnectFrom ?? "posthog_code";
+    this.taskClientProvenance =
+      options.taskClientProvenance ?? taskClientProvenance;
     this.api = createApiClient(
       buildApiFetcher({
         getAccessToken,
@@ -3479,7 +3491,9 @@ export class PostHogAPIClient {
 
     const data = await this.withCloudUsageLimitCheck(() =>
       this.api.post(`/api/projects/{project_id}/tasks/`, {
-        header: {},
+        header: {
+          "X-PostHog-Client-Provenance": this.taskClientProvenance,
+        },
         path: { project_id: teamId.toString() },
         body: {
           ...taskOptions,
@@ -4508,6 +4522,11 @@ export class PostHogAPIClient {
         method: "post",
         url,
         path: urlPath,
+        parameters: {
+          header: {
+            "X-PostHog-Client-Provenance": this.taskClientProvenance,
+          },
+        },
         overrides: {
           body: JSON.stringify({
             repository: options.repository,

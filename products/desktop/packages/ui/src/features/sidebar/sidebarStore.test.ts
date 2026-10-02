@@ -1,6 +1,7 @@
 import {
   DEFAULT_CHANNEL_ITEM_FILTERS,
   DESKTOP_SOURCE,
+  WEB_SOURCE,
 } from "@posthog/core/canvas/channelItems";
 import { describe, expect, it } from "vitest";
 import { useSidebarStore } from "./sidebarStore";
@@ -68,6 +69,30 @@ describe("sidebarStore", () => {
     const { channelItemFilters } = useSidebarStore.getState();
     expect(channelItemFilters.sources).toEqual(expected);
     expect(channelItemFilters).not.toHaveProperty("source");
+    localStorage.removeItem("sidebar-storage");
+  });
+
+  it("rehydration maps old sources to client sources", async () => {
+    localStorage.setItem(
+      "sidebar-storage",
+      JSON.stringify({
+        state: {
+          channelItemFilters: {
+            ...DEFAULT_CHANNEL_ITEM_FILTERS,
+            sources: ["user_created", "posthog_ai", "slack"],
+          },
+        },
+        version: 2,
+      }),
+    );
+
+    await useSidebarStore.persist.rehydrate();
+
+    expect(useSidebarStore.getState().channelItemFilters.sources).toEqual([
+      DESKTOP_SOURCE,
+      WEB_SOURCE,
+      "slack",
+    ]);
     localStorage.removeItem("sidebar-storage");
   });
 });

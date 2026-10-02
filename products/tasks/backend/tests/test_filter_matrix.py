@@ -211,8 +211,12 @@ class TestTaskListFilterMatrix(TestCase):
         desktop_task = self.tasks["peter_plain"]
         desktop_task.client_provenance = "posthog_desktop"
         desktop_task.save(update_fields=["client_provenance"])
+        mobile_task = self.tasks["mine_peter_commented"]
+        mobile_task.client_provenance = "posthog_mobile"
+        mobile_task.save(update_fields=["client_provenance"])
 
         assert self._list(client_provenance="posthog_desktop") == self._ids("peter_plain")
+        assert self._list(client_provenance="posthog_mobile") == self._ids("mine_peter_commented")
         assert self._list(client_provenance="posthog_desktop", created_by=self.me.id) == set()
         assert self._list(client_provenance="posthog_desktop", search="billing") == self._ids("peter_plain")
         assert self._list(client_provenance="posthog_desktop", search="missing") == set()
