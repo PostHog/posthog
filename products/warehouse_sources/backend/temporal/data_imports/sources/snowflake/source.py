@@ -98,6 +98,10 @@ SnowflakeErrors = {
     # "check all connection details" message, so people re-enter correct credentials repeatedly.
     "Duo Security authentication is denied": _MFA_ENFORCED_MESSAGE.format(action="try again."),
     "MFA authentication is required": _MFA_ENFORCED_MESSAGE.format(action="try again."),
+    # Snowflake error 250001 (08001): the account enforces TOTP-based MFA instead of Duo, so the
+    # connector's password-only login is rejected asking for a live TOTP passcode. A distinct phrase
+    # from the "MFA authentication is required" case above.
+    "MFA with TOTP is required": _MFA_ENFORCED_MESSAGE.format(action="try again."),
 }
 
 
@@ -289,6 +293,11 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig], ResumableSource[Snowflak
             # retrying never succeeds. The codes and host in the message are volatile, so we match the
             # stable phrase.
             "Multi-factor authentication is required for this account": "Snowflake rejected the login because this account requires multi-factor authentication enrollment. Automated syncs can't complete MFA — connect with a service user that uses key-pair authentication or is exempt from MFA, then resync.",
+            # Snowflake error 250001 (08001): the account enforces TOTP-based MFA, so a password-only
+            # login is rejected asking for a live TOTP passcode. An unattended sync can't answer that
+            # prompt, so retrying never succeeds. Distinct phrase from "MFA authentication is
+            # required" above, so it needs its own entry.
+            "MFA with TOTP is required": _MFA_ENFORCED_MESSAGE.format(action="resync."),
             "invalid credentials": "Snowflake authentication failed. Please check your username, password, and account details.",
             "authentication failed": "Snowflake authentication failed. Please check your username, password, and account details.",
             # Snowflake error 250001 (08001): the supplied username or password is wrong, so the
@@ -396,6 +405,22 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig], ResumableSource[Snowflak
             # cleanly, so this is a self-recovering network blip rather than a bug. The errno and OS-
             # specific wrapping vary, so we match the stable requests-library wrapper phrase.
             "Connection broken: ConnectionResetError",
+            # Snowflake connector error 290503 (ER_HTTP_GENERAL_ERROR + 503): Snowflake's own backend
+            # briefly returned HTTP 503 while the connector was already retrying internally (it
+            # re-raises only after exhausting its own `RetryRequest` budget). A fresh Temporal-level
+            # retry opens a new connection and re-executes the query from scratch, which recovers
+            # cleanly once the backend blip clears, so this is self-recovering rather than a bug.
+            # The errno prefix is volatile, so we match the stable status text.
+            "HTTP 503: Service Unavailable",
+            # Snowflake error 000604 (57014): the connector arms a client-side "timebomb" on
+            # `cursor.execute()` using `network_timeout` (see `_SNOWFLAKE_QUERY_TIMEOUT_SECONDS`) and
+            # cancels the query once it elapses. The metadata/listing queries (column discovery,
+            # primary-key and clustering-key lookups) don't pass the long explicit per-query timeout,
+            # so they inherit the shorter connection-level one — usually plenty, but a cold warehouse
+            # resume or a transient backend slowdown can push a catalog scan past it. A fresh attempt
+            # opens a new connection and re-executes from scratch, so this is self-recovering rather
+            # than a bug. The query id in the message is volatile, so we match the stable phrase.
+            "SQL execution was cancelled by the client due to a timeout",
         }
 
     def reconcile_schema_metadata(

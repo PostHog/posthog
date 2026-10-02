@@ -2239,6 +2239,32 @@ class TestComputationExecutorExecute(BaseTest):
 
     @parameterized.expand(
         [
+            ("default_policy", False, None, True),
+            ("invalidated", True, None, False),
+            ("invalidated_with_grace", True, 6 * 60 * 60, False),
+        ]
+    )
+    def test_future_job_invalidation_is_opt_in(
+        self, _name: str, invalidate: bool, grace: int | None, expected_ready: bool
+    ) -> None:
+        query_info, _ = self._make_query_info()
+        start = datetime(2026, 9, 11, tzinfo=UTC)
+        end = start + timedelta(days=1)
+        schedule = parse_ttl_schedule(2 * 60 * 60, invalidate_at_window_start=invalidate)
+        with time_machine.travel(start - timedelta(minutes=25), tick=False) as clock:
+            warmed = LazyComputationExecutor(ttl_schedule=schedule).execute(
+                team=self.team, query_info=query_info, start=start, end=end, run_insert=lambda t, j: 0
+            )
+            assert warmed.ready
+            clock.shift(timedelta(minutes=25))
+            cached = LazyComputationExecutor(
+                ttl_schedule=schedule, run_inserts=False, stale_while_revalidate_seconds=grace
+            ).execute(team=self.team, query_info=query_info, start=start, end=end, run_insert=lambda t, j: 0)
+            assert cached.ready is expected_ready
+            assert cached.job_ids == (warmed.job_ids if expected_ready else [])
+
+    @parameterized.expand(
+        [
             # Expired 1h ago (created 2h ago, 1h TTL) — within the 6h grace: served as-is.
             ("within_grace", 1, True),
             # Expired 9h ago — beyond the 6h grace: the normal recompute path runs.

@@ -44,6 +44,7 @@ from posthog.hogql.query import HogQLQueryExecutor, execute_hogql_query
 from posthog.hogql.query_stats import query_stats_scope, record
 from posthog.hogql.test.utils import (
     execute_hogql_query_with_timings,
+    json_dynamic_read_sql,
     pretty_print_in_tests,
     pretty_print_response_in_tests,
 )
@@ -1151,7 +1152,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 response.results,
                 [
                     (
-                        "",  # empty string
+                        # The native-JSON table treats an empty value as absent, like a materialized column does.
+                        None if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else "",
                         None,  # null
                         None,  # undefined
                         "0",  # zero string
@@ -1511,18 +1513,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             assert clickhouse is not None
             if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
                 self.assertIn("FROM events_json AS events", clickhouse)
-                self.assertIn(
-                    "if(notEquals(toJSONString(events.properties.^string), '{}'), "
-                    "toJSONString(events.properties.^string), "
-                    "if(isNull(events.properties.string), NULL, "
-                    "if(startsWith(dynamicType(events.properties.string), 'DateTime'), "
-                    "replaceOne(toString(events.properties.string), ' ', 'T'), "
-                    "if(or(startsWith(dynamicType(events.properties.string), 'Array'), "
-                    "startsWith(dynamicType(events.properties.string), 'Map'), "
-                    "startsWith(dynamicType(events.properties.string), 'Tuple')), "
-                    "toJSONString(events.properties.string), toString(events.properties.string))))) AS string",
-                    clickhouse,
-                )
+                self.assertIn(f"{json_dynamic_read_sql('events.properties', ['string'])} AS string", clickhouse)
                 self.assertNotIn("JSONExtractRaw(events.properties,", clickhouse)
                 for property_key in [
                     "array_str",
@@ -1533,8 +1524,15 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     "array_obj_array_obj",
                 ]:
                     self.assertIn(f"events.properties.{property_key}", clickhouse)
-                self.assertIn("JSONExtractRaw(if(notEquals(toJSONString(events.properties.^array_str)", clickhouse)
-                self.assertIn("JSONExtractRaw(if(notEquals(toJSONString(events.properties.^obj_array.id)", clickhouse)
+                # An index reads the JSON text of the value, so a row holding a non-array there reads NULL.
+                self.assertIn(
+                    f"JSONExtractRaw({json_dynamic_read_sql('events.properties', ['array_str'], as_json=True)}, ",
+                    clickhouse,
+                )
+                self.assertIn(
+                    f"JSONExtractRaw({json_dynamic_read_sql('events.properties', ['obj_array', 'id'], as_json=True)}, ",
+                    clickhouse,
+                )
             else:
                 self.assertEqual(expected_legacy_clickhouse, clickhouse)
             self.assertEqual(response.results[0], tuple(random_uuid for x in alternatives))
@@ -2307,6 +2305,14 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         query = "SELECT convertCurrency('BOGUS', 'EUR', 100, _toDate('2024-01-01'))"
         response = execute_hogql_query(query, team=self.team)
         self.assertEqual(response.results, [(Decimal("0"),)])
+
+    def test_currency_conversion_with_null_currency_from(self):
+        # A source row with no currency must convert to 0 like an unknown one, not fail the whole query.
+        query = (
+            "SELECT convertCurrency(c, 'EUR', 100, _toDate('2024-01-01')) FROM (SELECT arrayJoin([NULL, 'USD']) AS c)"
+        )
+        response = execute_hogql_query(query, team=self.team)
+        self.assertEqual(response.results, [(Decimal("0"),), (Decimal("90.49"),)])
 
     def test_currency_conversion_with_bogus_currency_to(self):
         query = "SELECT convertCurrency('USD', 'BOGUS', 100, _toDate('2024-01-01'))"

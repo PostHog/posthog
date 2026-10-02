@@ -34,6 +34,43 @@ function resolveProxyArgs(): string[] {
     ]
 }
 
+// Chrome renders recording content the customer's visitors produced, so it must not hold the
+// worker's secrets in its address space. puppeteer-core defaults the browser environment to this
+// process's own, which carries SECRET_KEY, INTERNAL_API_SECRET and the pod's AWS credentials, so the
+// launch names what Chrome gets instead.
+const CHROME_ENV_ALLOWLIST = [
+    // Chrome resolves its helper binaries through PATH.
+    'PATH',
+    // Chrome puts its profile, cache and crash state below HOME, or below the XDG paths when set.
+    'HOME',
+    'XDG_CONFIG_HOME',
+    'XDG_CACHE_HOME',
+    'XDG_RUNTIME_DIR',
+    // The container root filesystem is read-only, so temporary files must go where TMPDIR points.
+    'TMPDIR',
+    // The locale decides text shaping, and the timezone decides the timestamps the player draws.
+    'LANG',
+    'LANGUAGE',
+    'LC_ALL',
+    'LC_CTYPE',
+    'TZ',
+    // fontconfig reads these when an image keeps its font configuration outside /etc/fonts. Without
+    // the fonts, the rendered frames fall back to boxes.
+    'FONTCONFIG_PATH',
+    'FONTCONFIG_FILE',
+]
+
+function chromeEnv(): NodeJS.ProcessEnv {
+    const env: NodeJS.ProcessEnv = {}
+    for (const name of CHROME_ENV_ALLOWLIST) {
+        const value = process.env[name]
+        if (value !== undefined) {
+            env[name] = value
+        }
+    }
+    return env
+}
+
 interface BrowserSlot {
     browser: Browser
     usageCount: number
@@ -66,6 +103,7 @@ export class BrowserPool {
         const browser = await launchForCapture({
             executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
             args: this.launchArgs(),
+            env: chromeEnv(),
         })
         RasterizationMetrics.browserLaunched()
         const slot: BrowserSlot = { browser, usageCount: 0 }

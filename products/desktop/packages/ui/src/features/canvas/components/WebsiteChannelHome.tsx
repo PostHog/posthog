@@ -473,6 +473,7 @@ export function WebsiteChannelHome({
           reports={isWork ? reports : undefined}
           onOpenReport={isWork ? handleOpenReport : undefined}
           showKindFilter={!isWork}
+          selectable={isWork}
         />
       </div>
 

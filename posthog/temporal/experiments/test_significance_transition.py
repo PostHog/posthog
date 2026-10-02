@@ -30,6 +30,7 @@ def _make_result(significant_variants: list[str]) -> dict:
                 "chance_to_win": 0.99 if key in significant_variants else 0.01,
                 "sum": 477.0 if key == "test" else 268.0,
                 "number_of_samples": 1000,
+                "credible_interval": [0.6, 0.96] if key == "test" else None,
             }
         )
     return {
@@ -184,6 +185,145 @@ class TestCheckSignificanceTransition(BaseTest):
         )
         assert event.properties["goal_direction"] == expected_goal_direction
         assert event.properties["chance_to_win"] == expected_chance_to_win
+
+    # The stats layer produced each fixture. Its sums per sample give a different change than its interval,
+    # because of CUPED (mean, funnel) or the denominator (ratio, retention).
+    @parameterized.expand(
+        [
+            (
+                "mean_with_cuped",
+                {
+                    "key": "control",
+                    "number_of_samples": 1000,
+                    "sum": 5000.0,
+                    "sum_squares": 40000.0,
+                    "covariate_sum": 4000.0,
+                    "covariate_sum_squares": 30000.0,
+                    "covariate_sum_product": 30000.0,
+                },
+                {
+                    "key": "test",
+                    "method": "frequentist",
+                    "number_of_samples": 1000,
+                    "sum": 6000.0,
+                    "sum_squares": 50000.0,
+                    "covariate_sum": 4400.0,
+                    "covariate_sum_squares": 33000.0,
+                    "covariate_sum_product": 35000.0,
+                    "p_value": 1.4e-11,
+                    "significant": True,
+                    "confidence_interval": [0.1037, 0.1878],
+                },
+                "(+15%)",
+            ),
+            (
+                "funnel_with_cuped",
+                {
+                    "key": "control",
+                    "number_of_samples": 1000,
+                    "sum": 268.0,
+                    "sum_squares": 268.0,
+                    "step_counts": [500, 268],
+                    "covariate_sum": 250.0,
+                    "covariate_sum_squares": 250.0,
+                    "covariate_sum_product": 150.0,
+                },
+                {
+                    "key": "test",
+                    "method": "bayesian",
+                    "number_of_samples": 1000,
+                    "sum": 331.0,
+                    "sum_squares": 331.0,
+                    "step_counts": [560, 331],
+                    "covariate_sum": 290.0,
+                    "covariate_sum_squares": 290.0,
+                    "covariate_sum_product": 180.0,
+                    "chance_to_win": 0.9969,
+                    "significant": True,
+                    "credible_interval": [0.0484, 0.2943],
+                },
+                "(+17%)",
+            ),
+            (
+                "ratio",
+                {
+                    "key": "control",
+                    "number_of_samples": 1000,
+                    "sum": 268.0,
+                    "sum_squares": 400.0,
+                    "denominator_sum": 1000.0,
+                    "denominator_sum_squares": 1400.0,
+                    "numerator_denominator_sum_product": 600.0,
+                },
+                {
+                    "key": "test",
+                    "method": "bayesian",
+                    "number_of_samples": 1000,
+                    "sum": 477.0,
+                    "sum_squares": 700.0,
+                    "denominator_sum": 1500.0,
+                    "denominator_sum_squares": 2600.0,
+                    "numerator_denominator_sum_product": 1100.0,
+                    "chance_to_win": 0.9954,
+                    "significant": True,
+                    "credible_interval": [0.046, 0.3271],
+                },
+                "(+19%)",
+            ),
+            (
+                "retention",
+                {
+                    "key": "control",
+                    "number_of_samples": 1000,
+                    "sum": 200.0,
+                    "sum_squares": 200.0,
+                    "denominator_sum": 800.0,
+                    "denominator_sum_squares": 800.0,
+                    "numerator_denominator_sum_product": 200.0,
+                },
+                {
+                    "key": "test",
+                    "method": "frequentist",
+                    "number_of_samples": 1000,
+                    "sum": 260.0,
+                    "sum_squares": 260.0,
+                    "denominator_sum": 820.0,
+                    "denominator_sum_squares": 820.0,
+                    "numerator_denominator_sum_product": 260.0,
+                    "p_value": 0.0082,
+                    "significant": True,
+                    "confidence_interval": [0.0696, 0.467],
+                },
+                "(+27%)",
+            ),
+        ]
+    )
+    @patch("posthog.temporal.experiments.utils.produce_internal_event")
+    def test_relative_change_matches_results_page_per_metric_kind(
+        self,
+        _name: str,
+        baseline: dict,
+        variant: dict,
+        expected_relative_change: str,
+        mock_produce: MagicMock,
+    ) -> None:
+        experiment = self._create_experiment()
+
+        check_significance_transition(
+            experiment,
+            "metric-123",
+            "fp",
+            {"baseline": baseline, "variant_results": [variant]},
+            datetime(2024, 1, 10, tzinfo=ZoneInfo("UTC")),
+        )
+
+        mock_produce.assert_called_once()
+        event = (
+            mock_produce.call_args.kwargs.get("event")
+            or mock_produce.call_args[1].get("event")
+            or mock_produce.call_args[0][1]
+        )
+        assert event.properties["relative_change"] == expected_relative_change
 
     @parameterized.expand([("increase",), ("decrease",)])
     @patch("posthog.temporal.experiments.utils.produce_internal_event")

@@ -12,6 +12,7 @@ import type {
     AffectedCohortRequestApi,
     AffectedCohortResponseApi,
     ApplyPromptSuggestionRequestApi,
+    BackfillCreateApi,
     BackfillEstimateResponseApi,
     BackfillWindowApi,
     BulkObserveRequestApi,
@@ -57,6 +58,7 @@ import type {
     SuggestTagsRequestApi,
     SuggestTagsResponseApi,
     VisionAlertConfigurationApi,
+    VisionAlertConfigurationDetailApi,
     VisionAlertCreateDestinationApi,
     VisionAlertDeleteDestinationApi,
     VisionAlertDestinationResponseApi,
@@ -66,6 +68,7 @@ import type {
     VisionObservationsRetrieveParams,
     VisionObservationsSearchRetrieveParams,
     VisionObservationsSearchSuggestionsRetrieveParams,
+    VisionObservationsThumbnailRetrieveParams,
     VisionQuotaApi,
     VisionScannersBackfillsListParams,
     VisionScannersImpactRetrieveParams,
@@ -74,6 +77,7 @@ import type {
     VisionScannersObservationsRetrieveParams,
     VisionScannersObservationsSignalReportsListParams,
     VisionScannersObservationsStatsRetrieveParams,
+    VisionScannersObservationsThumbnailRetrieveParams,
     VisionScannersPromptSuggestionsListParams,
     VisionScannersWatchFeedRetrieveParams,
     VisionSpendSeriesApi,
@@ -149,8 +153,8 @@ export const visionAlertsRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<VisionAlertConfigurationApi> => {
-    return apiMutator<VisionAlertConfigurationApi>(getVisionAlertsRetrieveUrl(projectId, id), {
+): Promise<VisionAlertConfigurationDetailApi> => {
+    return apiMutator<VisionAlertConfigurationDetailApi>(getVisionAlertsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -453,8 +457,24 @@ export const visionObservationsSignalReportsList = async (
     })
 }
 
-export const getVisionObservationsThumbnailRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/vision/observations/${id}/thumbnail/`
+export const getVisionObservationsThumbnailRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: VisionObservationsThumbnailRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/observations/${id}/thumbnail/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/observations/${id}/thumbnail/`
 }
 
 /**
@@ -463,9 +483,10 @@ export const getVisionObservationsThumbnailRetrieveUrl = (projectId: string, id:
 export const visionObservationsThumbnailRetrieve = async (
     projectId: string,
     id: string,
+    params?: VisionObservationsThumbnailRetrieveParams,
     options?: RequestInit
 ): Promise<unknown> => {
-    return apiMutator<unknown>(getVisionObservationsThumbnailRetrieveUrl(projectId, id), {
+    return apiMutator<unknown>(getVisionObservationsThumbnailRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -565,8 +586,8 @@ export const getVisionObservationsSearchViewedCreateUrl = (projectId: string) =>
 }
 
 /**
- * Record that the Search tab showed suggestions for this scope. A viewed scanner is what the scheduled
- * refresher keeps up to date, so the stamp lives on a CSRF-protected POST rather than the read.
+ * Record that the Search tab showed suggestions for this scope. The scheduled refresher serves viewed
+ * scanners first, so the stamp lives on a CSRF-protected POST rather than the read.
  */
 export const visionObservationsSearchViewedCreate = async (
     projectId: string,
@@ -904,14 +925,14 @@ export const getVisionScannersBackfillsCreateUrl = (projectId: string, scannerId
 export const visionScannersBackfillsCreate = async (
     projectId: string,
     scannerId: string,
-    backfillWindowApi: BackfillWindowApi,
+    backfillCreateApi: BackfillCreateApi,
     options?: RequestInit
 ): Promise<ReplayScannerBackfillApi> => {
     return apiMutator<ReplayScannerBackfillApi>(getVisionScannersBackfillsCreateUrl(projectId, scannerId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(backfillWindowApi),
+        body: JSON.stringify(backfillCreateApi),
     })
 }
 
@@ -1202,8 +1223,25 @@ export const visionScannersObservationsSignalReportsList = async (
     )
 }
 
-export const getVisionScannersObservationsThumbnailRetrieveUrl = (projectId: string, scannerId: string, id: string) => {
-    return `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/thumbnail/`
+export const getVisionScannersObservationsThumbnailRetrieveUrl = (
+    projectId: string,
+    scannerId: string,
+    id: string,
+    params?: VisionScannersObservationsThumbnailRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/thumbnail/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/thumbnail/`
 }
 
 /**
@@ -1213,9 +1251,10 @@ export const visionScannersObservationsThumbnailRetrieve = async (
     projectId: string,
     scannerId: string,
     id: string,
+    params?: VisionScannersObservationsThumbnailRetrieveParams,
     options?: RequestInit
 ): Promise<unknown> => {
-    return apiMutator<unknown>(getVisionScannersObservationsThumbnailRetrieveUrl(projectId, scannerId, id), {
+    return apiMutator<unknown>(getVisionScannersObservationsThumbnailRetrieveUrl(projectId, scannerId, id, params), {
         ...options,
         method: 'GET',
     })

@@ -9,6 +9,7 @@ from django.core.serializers.json import DjangoJSONEncoder
 from django.db import transaction
 from django.utils import timezone
 
+from prometheus_client import Counter
 from rest_framework import status
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 from rest_framework.response import Response
@@ -25,6 +26,23 @@ from products.approvals.backend.policies import PolicyDecision, PolicyEngine
 from products.approvals.backend.serializers import ChangeRequestSerializer
 
 logger = logging.getLogger(__name__)
+
+# ChangeRequest creates that raised inside the approval gate. The caller always gets
+# "Failed to create approval request", but that message does not tell a responder
+# whether the row exists. The counted block covers get_display_data (before the
+# insert), the insert itself, and the post-insert analytics call. A failure before or
+# in the insert leaves no row. A failure in the analytics call can leave a PENDING
+# row, unless an enclosing transaction rolls the insert back. A responder must check
+# for a PENDING request before advising a retry. The on_commit notification is only
+# queued here, not run. It cannot raise inside this block. Drives the
+# ApprovalsChangeRequestCreateFailing alert in PostHog/charts.
+# error_type carries the exception class name only, because the message would make the
+# label unbounded.
+CHANGE_REQUEST_CREATE_FAILURE_COUNTER = Counter(
+    "posthog_approvals_change_request_create_failures_total",
+    "ChangeRequest creations that failed inside the approval gate",
+    labelnames=["action", "error_type"],
+)
 
 
 @dataclass
@@ -353,6 +371,7 @@ def _evaluate_gate(
             extra={"action": action_class.key, "error": str(e), "error_type": type(e).__name__},
             exc_info=True,
         )
+        CHANGE_REQUEST_CREATE_FAILURE_COUNTER.labels(action=action_class.key, error_type=type(e).__name__).inc()
         error_msg = (
             f"Failed to create approval request: {type(e).__name__}: {str(e)}"
             if settings.DEBUG

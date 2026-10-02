@@ -32,6 +32,7 @@ import { sessionRecordingsListPropertiesLogic } from '../../playlist/sessionReco
 import type { MiniFilterKey } from '../inspector/miniFiltersLogic'
 import { playerInspectorLogic } from '../inspector/playerInspectorLogic'
 import type { InspectorListItem } from '../inspector/playerInspectorLogic'
+import { countryTitleFrom } from './countryTitleFrom'
 import { sessionRecordingPinnedPropertiesLogic } from './sessionRecordingPinnedPropertiesLogic'
 import { HARDCODED_DISPLAY_LABELS } from './sessionRecordingPinnedPropertiesLogic'
 
@@ -43,24 +44,6 @@ function getAllPersonProperties(sessionPlayerMetaData: SessionRecordingType | nu
 
 function canRenderDirectly(value: any): boolean {
     return typeof value === 'string' || typeof value === 'number' || React.isValidElement(value)
-}
-
-export function countryTitleFrom(
-    recordingProperties: Record<string, any> | undefined,
-    personProperties?: Record<string, any> | undefined
-): string {
-    const props = recordingProperties || personProperties
-    if (!props) {
-        return ''
-    }
-
-    // these prop names are safe between recording and person properties
-    // the "initial" person properties share the same name as the event properties
-    const country = COUNTRY_CODE_TO_LONG_NAME[props['$geoip_country_code'] as keyof typeof COUNTRY_CODE_TO_LONG_NAME]
-    const subdivision = props['$geoip_subdivision_1_name']
-    const city = props['$geoip_city_name']
-
-    return [city, subdivision, country].filter(Boolean).join(', ')
 }
 
 /**
