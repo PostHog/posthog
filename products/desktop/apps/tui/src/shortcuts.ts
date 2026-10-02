@@ -5,6 +5,7 @@ export type Shortcut =
   | "splitDown"
   | "close"
   | "newChat"
+  | "search"
   | "quit"
   | "reload";
 
@@ -17,6 +18,8 @@ export function shortcutFor(input: string, key: Key): Shortcut | null {
   if (input === "\x1c" || (key.ctrl && input === "\\")) return "splitDown";
   if (key.ctrl && (letter === "c" || letter === "d")) return "close";
   if (key.ctrl && letter === "n") return "newChat";
+  // Most macOS terminals keep Cmd+K for clearing the screen, so Ctrl+K searches too.
+  if ((key.ctrl || key.super) && letter === "k") return "search";
   if (key.ctrl && letter === "q") return "quit";
   if (key.ctrl && letter === "r") return "reload";
   return null;

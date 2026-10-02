@@ -53,6 +53,19 @@ describe("WorkList", () => {
     },
   );
 
+  it("searches my tasks for a term", async () => {
+    const { api, requests } = fakeApi(3);
+
+    const tasks = await new WorkList(api).search("flaky");
+
+    expect(tasks).toHaveLength(3);
+    const list = requests.find((url) => url.pathname.endsWith("/tasks/"));
+    expect(Object.fromEntries(list?.searchParams ?? [])).toMatchObject({
+      search: "flaky",
+      created_by: "7",
+    });
+  });
+
   it("shares one request between overlapping refreshes", async () => {
     const { api, requests } = fakeApi(3);
     const list = new WorkList(api);

@@ -21,6 +21,7 @@ import type { PiControl } from "../models";
 import { moveCursor, type SheetKey, sheetKey } from "../sheet";
 import { DoublePress, shortcutFor } from "../shortcuts";
 import type { Notice } from "./useNotice";
+import type { SearchState } from "./useSearch";
 import type { OpenModal } from "./useSheets";
 import type { SidebarState } from "./useSidebar";
 
@@ -43,6 +44,7 @@ export function useKeys({
   layout,
   setLayout,
   sidebar,
+  search,
   composerFor,
   modalFor,
   onModalKey,
@@ -54,6 +56,7 @@ export function useKeys({
   layout: LayoutState;
   setLayout: Dispatch<SetStateAction<LayoutState>>;
   sidebar: SidebarState;
+  search: SearchState;
   composerFor: (paneId: string) => Composer;
   modalFor: (paneId: string) => OpenModal | undefined;
   onModalKey: (paneId: string, modal: OpenModal, key: SheetKey) => void;
@@ -102,6 +105,10 @@ export function useKeys({
 
   useInput((input, key) => {
     const shortcut = shortcutFor(input, key);
+    if (shortcut === "search") return search.toggle();
+    if (search.open && (shortcut === "close" || key.escape)) {
+      return search.toggle();
+    }
     if (shortcut === "close") return close();
     // Layout and chats are saved as they change, so quitting loses nothing.
     if (shortcut === "quit") return exit();
@@ -112,6 +119,8 @@ export function useKeys({
       ).__posthogTuiReload?.();
       return;
     }
+    // The open search takes every other key through onKey.
+    if (search.open) return;
     if (shortcut === "newChat") {
       setLayout(newChat);
       return;
@@ -173,6 +182,10 @@ export function useKeys({
   // Typing in a focused pane goes to its composer; the app's own keys stay with the app.
   const onKey = (sequence: string): void => {
     if (isAppKey(sequence)) return;
+    if (search.open) {
+      search.onKey(sequence);
+      return;
+    }
     const paneId = workspace.focusedPaneId;
     // Typing from the sidebar carries on in the selected chat's composer.
     if (layout.focus === "sidebar") {

@@ -21,7 +21,7 @@ const INDICATOR_COLORS: Record<Exclude<Indicator, "working">, string> = {
 };
 
 // A square marks a chat that runs on this machine, a dot one that runs in the cloud.
-function IndicatorGlyph({
+export function IndicatorGlyph({
   indicator,
   local,
 }: {

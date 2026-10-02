@@ -303,6 +303,68 @@ describe("App", () => {
     }
   });
 
+  it.each([
+    ["Ctrl+K", "\x0b"],
+    ["/search", "/search\r"],
+  ])("searches tasks from %s and opens the picked one", async (_, opener) => {
+    saveLayout(initialLayout());
+    const found = {
+      ...task(),
+      id: "t9",
+      title: "Fix the flaky test",
+      last_activity_at: new Date(Date.now() - 2 * 3_600_000).toISOString(),
+    };
+    const search = vi.fn(async () => [found]);
+    const mouse: MouseEvents = new EventEmitter();
+    const { instance, output, type } = renderInTerminal(
+      <App
+        session={{
+          work: {
+            listRecent: async () => ({ tasks: [], hasMore: false }),
+            get: async () => found,
+            search,
+          } as unknown as WorkList,
+          runs: {
+            watch: () => ({ stop: () => {}, loadOlder: async () => {} }),
+            prefetch: async () => {},
+          } as unknown as CloudRuns,
+          chats: {} as PiChats,
+          control: () => ({}) as PiControl,
+          startLocal: () => Promise.reject(new Error("no local")),
+        }}
+        login={async () => {}}
+        logout={() => {}}
+        mouse={mouse}
+      />,
+    );
+    // The terminal's bytes reach both Ink and the raw key stream.
+    const press = (bytes: string): void => {
+      mouse.emit("keys", bytes);
+      type(bytes);
+    };
+    const drawnSince = (mark: number): string =>
+      stripTerminalSequences(output().slice(mark));
+    try {
+      await vi.waitFor(() => expect(output()).toContain("No work yet"));
+      press(opener);
+      await vi.waitFor(() => expect(output()).toContain("Search tasks"));
+      press("flaky");
+      await vi.waitFor(() =>
+        expect(drawnSince(0)).toMatch(/● Fix the flaky test\s+2h ago/),
+      );
+      expect(search).toHaveBeenLastCalledWith("flaky");
+
+      const picked = output().length;
+      press("\r");
+      await vi.waitFor(() =>
+        expect(drawnSince(picked)).toContain("^N new · ^S split"),
+      );
+      expect(drawnSince(picked)).toContain("Fix the flaky test");
+    } finally {
+      instance.unmount();
+    }
+  });
+
   it("starts new chats where the last /local or /cloud pointed, after a restart", async () => {
     saveLayout(initialLayout());
     const session = {

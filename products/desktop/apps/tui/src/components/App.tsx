@@ -10,6 +10,7 @@ import { useModels } from "../hooks/useModels";
 import { useNotice } from "../hooks/useNotice";
 import { usePaneViews } from "../hooks/usePaneViews";
 import { usePointer } from "../hooks/usePointer";
+import { useSearch } from "../hooks/useSearch";
 import { type Send, useSend } from "../hooks/useSend";
 import { useSheets } from "../hooks/useSheets";
 import { useShell } from "../hooks/useShell";
@@ -33,6 +34,7 @@ import { statusChips } from "../status";
 import type { WorkList } from "../work";
 import { Pane } from "./Pane";
 import { DividerColumn, PaneTree } from "./PaneTree";
+import { Search } from "./Search";
 import { Sidebar } from "./Sidebar";
 
 export interface Session {
@@ -133,6 +135,21 @@ export function App({
     onRefresh: refreshLocalActive,
   });
 
+  const turns = useTurns({
+    layout,
+    runs: runs ?? null,
+    taskOf,
+    localSessions,
+  });
+  const search = useSearch({
+    work,
+    recent: page.tasks,
+    setLayout,
+    working: turns.working,
+    waiting: turns.waiting,
+    local: { active: localActive, running: new Set(localSessions.keys()) },
+  });
+
   const { modalFor, openModal, onModalKey } = useSheets({
     layout,
     prompts,
@@ -183,6 +200,7 @@ export function App({
     openModal,
     openModelSheet,
     openEffortSheet,
+    openSearch: search.toggle,
     onChatStarted,
     runShell,
     notice,
@@ -190,12 +208,6 @@ export function App({
     logout,
   });
 
-  const turns = useTurns({
-    layout,
-    runs: runs ?? null,
-    taskOf,
-    localSessions,
-  });
   const sidebar = useSidebar({
     layout,
     setLayout,
@@ -221,6 +233,7 @@ export function App({
     layout,
     setLayout,
     sidebar,
+    search,
     composerFor,
     modalFor,
     onModalKey,
@@ -284,6 +297,8 @@ export function App({
       focused={!sidebarFocused && node.id === workspace.focusedPaneId}
     />
   );
+
+  if (search.open) return <Search search={search} />;
 
   const glyph = dividerGlyphs(workspace.root, area.width, area.height);
 
