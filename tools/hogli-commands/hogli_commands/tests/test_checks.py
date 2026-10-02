@@ -1925,6 +1925,11 @@ class TestFacadeClassImports:
                 {"destinations/contracts.py"},
             ),
             ({"destinations/enums.py": "from ...logic import Thing\n__all__ = ['Thing']\n"}, {"destinations/enums.py"}),
+            # a tests/ folder is no hiding place: only test file names are skipped
+            (
+                {"destinations/tests/s3.py": "from ....logic import Thing\n__all__ = ['Thing']\n"},
+                {"destinations/tests/s3.py"},
+            ),
         ],
     )
     def test_leaks_are_keyed_by_path_inside_facade(
