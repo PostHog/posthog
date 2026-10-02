@@ -4519,20 +4519,36 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                 OpenApiTypes.INT,
                 OpenApiParameter.PATH,
                 description="Version number of the living artifact, as listed in its versions.",
-            )
+            ),
+            OpenApiParameter(
+                "download",
+                OpenApiTypes.BOOL,
+                OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Set to true to save the version. A stored file then redirects to a short-lived presigned "
+                    "URL, so a large file never passes through the app. Leave unset for an inline preview."
+                ),
+            ),
         ],
         responses={
             (200, "application/octet-stream"): OpenApiResponse(
                 response=OpenApiTypes.BINARY,
                 description="Version content, with the content type the version was saved with",
             ),
+            302: OpenApiResponse(description="With download=true, a redirect to a presigned URL for the stored file"),
             400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Unable to read the version"),
             404: OpenApiResponse(description="Living artifact or version not found, or the version keeps no content"),
+            413: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="The stored file is too large to preview. Request it with download=true.",
+            ),
         },
         summary="Download one version of a living artifact",
         description=(
-            "Streams the content of one living artifact version from the app origin. Slack file versions return "
-            "their stored file. Slack canvas and message versions return their text."
+            "Returns the content of one living artifact version. Slack file versions return their stored file, "
+            "streamed from the app origin for a preview or redirected to a presigned URL with download=true. "
+            "Slack canvas and message versions return their text."
         ),
         operation_id="tasks_runs_living_artifacts_version_content",
     )
@@ -4544,9 +4560,32 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
     )
     def version_content(self, request, pk=None, version=None, **kwargs):
         task_id = self._ensure_task_accessible()
+        version_number = int(str(version))
+        if str(request.query_params.get("download", "")).lower() in ("1", "true"):
+            download = tasks_facade.presign_task_run_living_artifact_version_download(
+                self._run_id(), task_id, self.team_id, artifact_id=str(pk), version=version_number
+            )
+            if download.url:
+                redirect = HttpResponseRedirect(download.url)
+                redirect["Cache-Control"] = "no-store"
+                return redirect
+            if download.error == "unavailable":
+                return Response(
+                    TaskRunErrorResponseSerializer({"error": "Unable to read this version"}).data,
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if download.error != "not_stored":
+                raise NotFound()
         content, error = tasks_facade.read_task_run_living_artifact_version(
-            self._run_id(), task_id, self.team_id, artifact_id=str(pk), version=int(str(version))
+            self._run_id(), task_id, self.team_id, artifact_id=str(pk), version=version_number
         )
+        if error == "too_large":
+            return Response(
+                TaskRunErrorResponseSerializer(
+                    {"error": "This file is too large to preview. Download it instead."}
+                ).data,
+                status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            )
         if error == "read_failed":
             return Response(
                 TaskRunErrorResponseSerializer({"error": "Unable to read this version"}).data,

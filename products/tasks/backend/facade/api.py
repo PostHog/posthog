@@ -8,6 +8,7 @@ from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, S
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
+from pathlib import PurePosixPath
 from typing import Any, Literal, TypeVar
 from urllib.parse import urlparse
 from uuid import UUID, uuid4
@@ -323,6 +324,7 @@ __all__ = [
     "prepare_task_staged_artifacts",
     "presign_task_run_artifact",
     "presign_task_run_artifact_download",
+    "presign_task_run_living_artifact_version_download",
     "read_task_run_artifact",
     "read_task_run_living_artifact_version",
     "get_task_run_log_urls",
@@ -4375,10 +4377,11 @@ def read_task_run_living_artifact_version(
     """Read the content of one living artifact version.
 
     Returns ``(content, error)``: ``(None, None)`` if the run isn't found, ``(None, "not_found")`` if the
-    artifact or version isn't found or keeps no content, ``(None, "read_failed")`` if the storage read
-    raised, else ``(content, None)``.
+    artifact or version isn't found or keeps no content, ``(None, "too_large")`` if a stored version is
+    over the preview limit, ``(None, "read_failed")`` if the storage read raised, else ``(content, None)``.
     """
     from products.tasks.backend.logic.services.living_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
+        LivingArtifactVersionTooLarge,
         get_task_artifact_for_run,
         read_living_artifact_version,
     )
@@ -4395,12 +4398,57 @@ def read_task_run_living_artifact_version(
         return None, "not_found"
     try:
         content = read_living_artifact_version(artifact, version)
+    except LivingArtifactVersionTooLarge:
+        return None, "too_large"
     except Exception:
         logger.exception("Failed to read living artifact %s version %s for team %s", artifact_id, version, team_id)
         return None, "read_failed"
     if content is None:
         return None, "not_found"
     return content, None
+
+
+def presign_task_run_living_artifact_version_download(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, artifact_id: str | UUID, version: int
+) -> contracts.LivingArtifactVersionDownload:
+    """Presign a download URL for one stored living artifact version.
+
+    The error is ``"not_found"`` if the artifact or version isn't found, ``"not_stored"`` if the version
+    keeps its content as text, and ``"unavailable"`` if presigning fails. Both fields are None if the run
+    isn't found.
+    """
+    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
+
+    from products.tasks.backend.logic.services.living_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
+        get_task_artifact_for_run,
+        resolve_living_artifact_version,
+    )
+
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return contracts.LivingArtifactVersionDownload(url=None, error=None)
+    try:
+        UUID(str(artifact_id))
+    except ValueError:
+        return contracts.LivingArtifactVersionDownload(url=None, error="not_found")
+    artifact = get_task_artifact_for_run(run, artifact_id)
+    resolved = resolve_living_artifact_version(artifact, version) if artifact is not None else None
+    if artifact is None or resolved is None:
+        return contracts.LivingArtifactVersionDownload(url=None, error="not_found")
+    if not resolved.storage_path:
+        return contracts.LivingArtifactVersionDownload(url=None, error="not_stored")
+    url = object_storage.get_presigned_url(
+        resolved.storage_path,
+        content_type=resolved.content_type or None,
+        # Agent-written HTML or SVG must not render as a page, so the browser always saves it.
+        content_disposition=content_disposition_header(
+            as_attachment=True, filename=PurePosixPath(artifact.name).name or "artifact"
+        )
+        or "attachment",
+    )
+    if not url:
+        return contracts.LivingArtifactVersionDownload(url=None, error="unavailable")
+    return contracts.LivingArtifactVersionDownload(url=url, error=None)
 
 
 def create_task_run_living_artifact(
