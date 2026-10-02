@@ -7,9 +7,9 @@ description: 'Inspects URL paths and proposes, tests, orders, and applies projec
 
 Path cleaning rules normalize `$pathname` and `$entry_pathname` so that pages
 sharing the same template (`/users/123/profile`, `/users/456/profile`, …) collapse
-into one row (`/users/<id>/profile`) in Web analytics tiles, Paths insights, and
-any HogQL query that calls `apply_path_cleaning`. They are the right answer when
-a breakdown is fragmented across thousands of near-identical URLs.
+into one row (`/users/<id>/profile`) in Web analytics tiles and Paths insights.
+They are the right answer when a breakdown is fragmented across thousands of
+near-identical URLs.
 
 This skill teaches you how to:
 
@@ -104,8 +104,13 @@ Three options, pick one:
 - **Project HogQL** (via `execute-sql`):
 
   ```sql
-  SELECT replaceRegexpAll('/users/42/profile', '/users/\d+/profile', '/users/<id>/profile')
+  SELECT replaceRegexpAll('/users/42/profile', '/users/\\d+/profile', '/users/<id>/profile')
   ```
+
+  Double every backslash in the regex when you put it in a HogQL string
+  literal. HogQL reads `\d` as a string escape before the regex engine sees
+  it, so `'/users/\d+/profile'` fails with an "unrecognised escape" error.
+  This applies to all regexes in the Step 3 table, for example `'\\d{4}'`.
 
   Chain `replaceRegexpAll` calls in the same order the rules will run if you
   want to verify multi-rule interaction.
@@ -157,11 +162,14 @@ destroys whatever the team has already configured.
 
 ## Where the rules apply
 
-When the user (or a HogQL query) opts in:
+When the user opts in:
 
 - Web analytics: the **Path cleaning** toggle in the page header
 - Paths insights: the path cleaning toggle in the insight filters
-- HogQL: any query that calls `apply_path_cleaning(path_expr, team)`
+
+HogQL has no function that applies the project's rules. To get the same result
+in a raw HogQL query, chain one `replaceRegexpAll(path, regex, alias)` call per
+rule, in `order` ascending, with each regex backslash doubled.
 
 The rules are stored once per project — they are not insight-scoped.
 
