@@ -2231,10 +2231,10 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Business knowledge',
-        intents: [ProductKey.CONVERSATIONS],
+        intents: [ProductKey.BUSINESS_KNOWLEDGE],
         category: ProductItemCategory.DATA,
         href: urls.businessKnowledge(),
-        tags: ['alpha'],
+        tags: ['beta'],
         iconType: 'business_knowledge',
         iconColor: ['var(--color-product-business-knowledge-light)', 'var(--color-product-business-knowledge-dark)'],
         flag: FEATURE_FLAGS.PRODUCT_BUSINESS_KNOWLEDGE,

@@ -75,8 +75,8 @@ export function CreateKnowledgeSourceModal({
                                     />
                                 </LemonField>
                                 <p className="text-xs text-muted">
-                                    Text is chunked paragraph-by-paragraph and stored in Postgres. The support agent can
-                                    find it via SQL — no embeddings or vector DB in this stage.
+                                    Text is split into sections and made searchable. PostHog AI can use it after
+                                    processing finishes.
                                 </p>
                                 <AlwaysIncludeField />
                             </Form>
