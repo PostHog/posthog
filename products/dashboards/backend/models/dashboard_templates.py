@@ -491,7 +491,7 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                     "type": "BUTTON",
                     "color": None,
                     "transparent_background": True,
-                    "url": "/activity/explore",
+                    "url": "/activity/events",
                     "text": "Browse activity",
                     "placement": "left",
                     "style": "secondary",

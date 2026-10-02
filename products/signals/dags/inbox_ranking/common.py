@@ -17,6 +17,9 @@ from botocore.exceptions import ClientError
 
 from posthog import settings
 from posthog.dags.common import JobOwners
+from posthog.storage.object_storage import ObjectStorage
+
+from products.signals.backend.models import SignalActorKind
 
 DATASET_VERSION = "v1"
 
@@ -35,6 +38,13 @@ LABELS_EPOCH = "2026-04-01T00:00:00+00:00"
 # head predicts). already_fixed and wontfix_irrelevant are deliberately not here. Shared by the
 # labels SQL (cumulative count) and the head definition.
 WRONG_DISMISSAL_REASONS = ("analysis_wrong", "report_unclear", "wontfix_intentional")
+
+# Artefact actors whose writes count as a person acting on a report. `agent` is an external MCP
+# client that authenticates as a real user, so a person drove it. `task` is a self-driving sandbox
+# (scouts, implementation runs) and `system` is the pipeline: their claims, notes and PRs are
+# internal operational writes, far more frequent than the human ones, and say nothing about intent.
+# A null actor is a legacy or system write, so it is also excluded.
+HUMAN_ACTOR_KINDS = (SignalActorKind.USER, SignalActorKind.AGENT)
 
 partition_def = dagster.DailyPartitionsDefinition(start_date="2026-04-01")
 
@@ -103,6 +113,11 @@ def s3_client():  # noqa: ANN201
         aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         region_name=settings.OBJECT_STORAGE_REGION,
     )
+
+
+def serving_mirror_storage() -> ObjectStorage:
+    # The mirror is another deployment's store, so ambient AWS config must grant the write there.
+    return ObjectStorage(boto3.client("s3", region_name=settings.INBOX_RANKING_SERVING_MIRROR_REGION or None))
 
 
 SNAPSHOT_DATE_METADATA_KEY = "snapshot-date"

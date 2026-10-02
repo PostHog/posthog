@@ -95,6 +95,10 @@ import {
   type IFeedbackContext,
 } from "@posthog/platform/feedback-context";
 import {
+  type IScreenCapture,
+  SCREEN_CAPTURE_SERVICE,
+} from "@posthog/platform/screen-capture";
+import {
   BROWSER_TABS_CLIENT,
   type BrowserTabsClient,
 } from "@posthog/ui/features/browser-tabs/browserTabsClient";
@@ -127,10 +131,6 @@ import {
   MISSION_CONTROL_CLIENT,
   type MissionControlClient,
 } from "@posthog/ui/features/mission-control/identifiers";
-import {
-  QUICK_ASK_SETTINGS_CLIENT,
-  type QuickAskSettingsClient,
-} from "@posthog/ui/features/quick-ask/identifiers";
 import { ARTIFACT_HTML_FRAME_COMPONENT } from "@posthog/ui/features/sessions/components/artifactHtmlFrameHost";
 import { MCP_TOOL_BLOCK_COMPONENT } from "@posthog/ui/features/sessions/components/session-update/identifiers";
 import { getSessionService } from "@posthog/ui/features/sessions/sessionServiceHost";
@@ -185,6 +185,10 @@ container.bind<TRPCClient<TrpcRouter>>(TRPC_CLIENT).toConstantValue(trpcClient);
 
 container.bind(HOST_TRPC_CLIENT).toConstantValue(hostTrpcClient);
 
+container.bind(SCREEN_CAPTURE_SERVICE).toConstantValue({
+  captureRegion: (region) =>
+    hostTrpcClient.screenCapture.captureRegion.query(region),
+} satisfies IScreenCapture);
 container.bind(FEEDBACK_CONTEXT_SERVICE).toConstantValue({
   captureScreenshot: () =>
     hostTrpcClient.feedbackContext.captureScreenshot.query(),
@@ -254,24 +258,6 @@ const discordPresenceClient: DiscordPresenceClient = {
   },
 };
 container.bind(DISCORD_PRESENCE_CLIENT).toConstantValue(discordPresenceClient);
-
-const quickAskSettingsClient: QuickAskSettingsClient = {
-  getState: () => trpcClient.quickAsk.getState.query(),
-  setShortcut: (accelerator) =>
-    trpcClient.quickAsk.setShortcut.mutate({ accelerator }),
-  setSettings: (patch) =>
-    trpcClient.quickAsk.setSettings.mutate({
-      ...patch,
-      defaultAdapter: patch.defaultAdapter as
-        | ""
-        | "claude"
-        | "codex"
-        | undefined,
-    }),
-};
-container
-  .bind(QUICK_ASK_SETTINGS_CLIENT)
-  .toConstantValue(quickAskSettingsClient);
 
 // mission control overlay client
 const missionControlClient: MissionControlClient = {

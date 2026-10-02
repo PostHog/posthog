@@ -67,6 +67,7 @@ def list_notes(
     limit: int = DEFAULT_NOTES_LIST_LIMIT,
     content_max_chars: int | None = None,
     exclude_origins: Sequence[str] = (),
+    text: str | None = None,
 ) -> list[ScoutNote]:
     """Return notes for a team, newest first.
 
@@ -90,11 +91,16 @@ def list_notes(
     uses it to withhold the report-derived origins (`report_dismissal` / `report_discussion` /
     `report_feedback` / `report_reviewer_correction`, which quote report content) from callers
     without report read access.
+
+    `text` keeps only the notes whose `content` holds it, case-insensitively, before the cap.
+    It lets a run find the few notes about one entity instead of paging the newest ones.
     """
     clamped_limit = min(max(limit, 1), MAX_NOTES_LIST_LIMIT)
     qs = SignalScoutNote.objects.filter(team_id=team_id).select_related("created_by")
     if exclude_origins:
         qs = qs.exclude(origin__in=list(exclude_origins))
+    if text:
+        qs = qs.filter(content__icontains=text)
     if skill_name is not None:
         target = Q(skill_name=skill_name)
         if include_general:

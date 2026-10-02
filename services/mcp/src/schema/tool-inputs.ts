@@ -50,6 +50,14 @@ export const DashboardTileCreateSchema = z.object({
         .describe(
             'Markdown body. For image, provide exactly one Markdown image. For text, provide Markdown content that is not an image-only body.'
         ),
+    agent_context: z
+        .string()
+        .max(10000)
+        .nullable()
+        .optional()
+        .describe(
+            'Optional context for AI agents, such as semantic layer metric references, data sources, tile-specific query assumptions, caveats, or editing guidance. Keep canonical metric definitions in the semantic layer. An empty string or null means there is no agent context. Shared and exported dashboards, and organizations without AI data processing approval, omit this field. Max 10000 characters.'
+        ),
     layouts: z
         .object({
             sm: DashboardTileLayoutSchema.optional(),
@@ -212,6 +220,18 @@ const CategoricalScoreDefinitionConfigSchema = z
             .min(1)
             .optional()
             .describe('Maximum selections allowed. Only valid when selection_mode is "multiple".'),
+        passing_rule: z
+            .object({
+                categories: z
+                    .array(z.string().max(128))
+                    .describe('Passing category keys. Every returned category must be included.'),
+            })
+            .strict()
+            .nullable()
+            .optional()
+            .describe(
+                'Optional passing categories. Omit or set null for neutral scores. Each version keeps its own rule.'
+            ),
     })
     .strict()
     .describe('Config shape used when kind is "categorical".')
@@ -221,6 +241,17 @@ const NumericScoreDefinitionConfigSchema = z
         min: z.number().optional().describe('Optional inclusive minimum score.'),
         max: z.number().optional().describe('Optional inclusive maximum score (must be ≥ min).'),
         step: z.number().positive().optional().describe('Optional increment step for numeric input, e.g. 1 or 0.5.'),
+        passing_rule: z
+            .object({
+                operator: z
+                    .enum(['gte', 'lte'])
+                    .describe('Pass at or above (gte), or at or below (lte), the threshold.'),
+                threshold: z.number().describe('Finite passing threshold within any configured score bounds.'),
+            })
+            .strict()
+            .nullable()
+            .optional()
+            .describe('Optional passing rule. Omit or set null for neutral scores. Each version keeps its own rule.'),
     })
     .strict()
     .describe('Config shape used when kind is "numeric".')
@@ -229,6 +260,11 @@ const BooleanScoreDefinitionConfigSchema = z
     .object({
         true_label: z.string().min(1).optional().describe('Optional label shown for the true branch (e.g. "Yes").'),
         false_label: z.string().min(1).optional().describe('Optional label shown for the false branch (e.g. "No").'),
+        true_is_failure: z
+            .boolean()
+            .nullable()
+            .optional()
+            .describe('Whether true means failure. False, omitted, or null means true passes in offline evaluations.'),
     })
     .strict()
     .describe('Config shape used when kind is "boolean".')
@@ -240,7 +276,7 @@ export const ScoreDefinitionConfigSchema = z
         BooleanScoreDefinitionConfigSchema,
     ])
     .describe(
-        'Immutable scorer configuration. Pick the shape matching the scorer kind: categorical (options + selection_mode), numeric (min/max/step), or boolean (true_label/false_label). The server validates the shape against the kind on the parent scorer and returns 400 on a mismatch.'
+        'Immutable scorer configuration. Pick the shape matching the scorer kind: categorical (options + selection_mode + optional passing_rule.categories), numeric (min/max/step + optional passing_rule), or boolean (true_label/false_label + optional true_is_failure). The server validates the shape against the kind on the parent scorer and returns 400 on a mismatch.'
     )
 
 export const PromptListInputSchema = z.object({

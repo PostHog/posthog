@@ -179,8 +179,9 @@ _PROVIDER_TIMEOUT_ACTIVITY_TYPES = frozenset(
 )
 
 # The rasterizer sends its own `RasterizationError.code` as the ApplicationError type. This one means the recording
-# holds no renderable snapshots. It stays retryable over there (blocks can still be landing), so by the time it
-# surfaces here the render attempts are spent and the emptiness is a property of the recording, not of one attempt.
+# holds no renderable snapshots. It is retryable over there while nothing has loaded (blocks can still be landing) and
+# final when snapshots loaded but no window has a full snapshot, so either way the emptiness surfaces here as a property
+# of the recording, not of one attempt.
 _RASTERIZER_NO_SNAPSHOTS_TYPE = "NO_SNAPSHOTS"
 
 # The rasterizer refuses a recording whose snapshot blocks exceed its size cap, to keep an oversized render from

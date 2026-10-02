@@ -26,9 +26,13 @@ Manual operations:
     clear_flags_cache(team_id)
 """
 
+import sys
 from collections import defaultdict, deque
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
@@ -68,12 +72,16 @@ from posthog.storage.hypercache_manager import (
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.dependencies import extract_cohort_dependencies
 from products.experiments.backend.models.experiment import Experiment, live_experiment_exists
-from products.feature_flags.backend.facade.config import detect_config_format
-from products.feature_flags.backend.facade.references import flag_dependency_properties, referenced_cohort_ids
+from products.feature_flags.backend.facade.config import (
+    ConfigFormatError,
+    UnsupportedConfig,
+    decode_config,
+    detect_config_format,
+)
+from products.feature_flags.backend.facade.references import FlagReferences, references
 from products.feature_flags.backend.flags_cache_messages import FlagsCacheInvalidation
 from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, get_feature_flags, serialize_feature_flags
-from products.feature_flags.backend.types import FlagProperty
 
 logger = structlog.get_logger(__name__)
 
@@ -98,15 +106,17 @@ def _is_unevaluable(flag_data: dict[str, Any]) -> bool:
     return not flag_data.get("active", True) or flag_data.get("deleted", False)
 
 
-def _parse_dependency_ids(properties: list[FlagProperty]) -> set[int]:
-    """The integer flag ids the flag-reference properties name; any other ``key`` is skipped."""
-    dep_ids: set[int] = set()
-    for prop in properties:
-        try:
-            dep_ids.add(int(prop["key"]))
-        except (ValueError, KeyError, TypeError):
-            continue
-    return dep_ids
+def _evaluated_references(flag_data: dict[str, Any]) -> FlagReferences:
+    """The references of a serialized flag the matcher reads, and none for an unevaluable
+    flag, whose filters it skips.
+
+    Only flags that passed ``_omit_unsupported_flags`` are serialized, so the document is
+    a readable config version 1 or a supported v2 document.
+    """
+    if _is_unevaluable(flag_data):
+        return FlagReferences()
+    config = decode_config(flag_data.get("filters", {}))
+    return FlagReferences() if isinstance(config, UnsupportedConfig) else references(config)
 
 
 def _extract_direct_dependency_ids(flag_data: dict[str, Any]) -> set[int]:
@@ -114,34 +124,59 @@ def _extract_direct_dependency_ids(flag_data: dict[str, Any]) -> set[int]:
     Extract direct flag dependency IDs from a serialized flag's filters.
 
     Inactive/deleted flags return empty deps before their filters are read, to
-    match Rust's extract_dependencies behavior. Only flags that passed
-    ``_omit_unsupported_flags`` are serialized, so every other document here is a
-    readable config version 1.
+    match Rust's extract_dependencies behavior. A ``key`` that is not an integer id is skipped.
     """
-    if _is_unevaluable(flag_data):
-        return set()
-    return _parse_dependency_ids(flag_dependency_properties(flag_data.get("filters", {})))
+    return set(_evaluated_references(flag_data).flag_ids)
+
+
+def _validates_v2(filters: Mapping[str, Any]) -> bool:
+    """Whether the shared validator admits a v2 document under the deployed filter-size
+    limit, the bound the Rust reader also applies. Rust may still reject what it cannot
+    read; the service then returns that one flag with ``failed: true`` and a
+    ``flag_data_parsing_error`` reason and still evaluates the rest.
+    """
+    # Deferred: the validator imports posthog.hogql, which must stay off the django.setup() path.
+    from products.feature_flags.backend.facade.config_validation import (  # noqa: PLC0415
+        ConfigValidationError,
+        ValidationLimits,
+        validate_config,
+    )
+
+    limits = ValidationLimits(
+        max_config_bytes=settings.MAX_FEATURE_FLAG_FILTER_SIZE_BYTES, max_metadata_bytes=sys.maxsize
+    )
+    try:
+        validate_config(filters, limits=limits)
+    except ConfigValidationError:
+        return False
+    return True
 
 
 def _stored_dependency_ids(flag: FeatureFlag) -> set[int] | None:
     """The flag ids a stored row's release conditions reference, or ``None`` when this
     cache cannot carry the row.
 
-    A non-object or non-v1 document is rejected whatever the row's lifecycle, so an
-    inactive v2 row is never blanked into a v1-shaped entry. An unevaluable v1 object is
-    not read, since ``_blank_inactive_filters`` empties it; an evaluable one whose
-    conditions cannot be read is rejected instead of failing the team.
+    A non-object document and an unsupported discriminator are rejected whatever the
+    row's lifecycle. A v2 document is carried verbatim only when the row is active and
+    ``_validates_v2`` admits it. Any other v2 row is rejected, so an inactive v2 row is
+    never blanked into a v1-shaped entry. An unevaluable v1 object is not read, since
+    ``_blank_inactive_filters`` empties it; an evaluable one whose conditions cannot be
+    read is rejected instead of failing the team.
     """
     filters = flag.filters
     if not isinstance(filters, Mapping):
         return None
-    if detect_config_format(filters).kind != "v1":
+    kind = detect_config_format(filters).kind
+    if kind == "v2":
+        if not (flag.active and not flag.deleted and _validates_v2(filters)):
+            return None
+    elif kind != "v1":
         return None
-    if not flag.active or flag.deleted:
+    elif not flag.active or flag.deleted:
         return set()
     try:
-        return _parse_dependency_ids(flag_dependency_properties(filters))
-    except (AttributeError, TypeError):
+        return set(references(decode_config(filters)).flag_ids)
+    except (AttributeError, TypeError, ConfigFormatError):
         return None
 
 
@@ -219,9 +254,7 @@ def _extract_cohort_ids_from_flag_filters(flags_data: list[dict[str, Any]]) -> s
     """
     cohort_ids: set[int] = set()
     for flag in flags_data:
-        if _is_unevaluable(flag):
-            continue
-        cohort_ids |= referenced_cohort_ids(flag.get("filters", {}))
+        cohort_ids.update(_evaluated_references(flag).cohort_ids)
     return cohort_ids
 
 
@@ -1498,6 +1531,77 @@ def enqueue_evaluation_cache_invalidation(team_id: int) -> None:
     _enqueue_invalidation(team_id)
 
 
+# The two caches a cohort save rebuilds: the local-evaluation definitions cache and the
+# flags-service cache.
+FlagsCacheName = Literal["definitions", "service"]
+
+_deferred_rebuild_teams: ContextVar[dict[int, set[FlagsCacheName]] | None] = ContextVar(
+    "deferred_flags_cache_rebuild_teams", default=None
+)
+
+
+def defer_flags_cache_rebuild(team_id: int, cache: FlagsCacheName) -> bool:
+    """Record the team's rebuild of `cache` if a coalescing block is active.
+
+    Returns True when the rebuild was recorded, which means the caller must not enqueue its
+    own.
+    """
+    teams = _deferred_rebuild_teams.get()
+    if teams is None:
+        return False
+    teams.setdefault(team_id, set()).add(cache)
+    return True
+
+
+def _dispatch_flags_cache_rebuilds(team_id: int, caches: set[FlagsCacheName], failed_teams: set[int]) -> None:
+    """Enqueue the recorded rebuilds for one team, recording the team when a publish fails."""
+    from products.feature_flags.backend.tasks import update_team_flags_cache, update_team_service_flags_cache
+
+    tasks = {"definitions": update_team_flags_cache, "service": update_team_service_flags_cache}
+
+    failed = False
+    for cache in sorted(caches):
+        # One try per task, so a broker failure on one does not drop the other.
+        try:
+            tasks[cache].delay(team_id)
+        except Exception:
+            # The saves already committed, so raising would abort the rest of a fleet-wide run.
+            # The caller reports the team instead.
+            failed = True
+            logger.error("coalesced_flags_cache_dispatch_failed", team_id=team_id, cache=cache, exc_info=True)
+
+    if failed:
+        failed_teams.add(team_id)
+    else:
+        logger.info("coalesced_flags_cache_dispatch", team_id=team_id)
+
+
+@contextmanager
+def coalesced_cohort_flags_cache_rebuilds() -> Iterator[set[int]]:
+    """Coalesce the cohort-save flags-cache rebuilds inside the block to one dispatch per team.
+
+    A bulk cohort resave otherwise enqueues two whole-team rebuilds per cohort, where two per
+    team are sufficient. Only the two cohort receivers coalesce; flag and experiment saves
+    inside the block still enqueue their own rebuild. Each receiver records the cache it was
+    about to rebuild, so the dispatch enqueues exactly what the receivers wanted.
+
+    Yields the set of team ids whose dispatch failed, so the caller can report them. In
+    autocommit it is filled by the time the block exits; under an open transaction the dispatch
+    waits for the commit and the set fills later.
+    """
+    failed_teams: set[int] = set()
+    token = _deferred_rebuild_teams.set({})
+    try:
+        yield failed_teams
+    finally:
+        teams = _deferred_rebuild_teams.get() or {}
+        # Reset before dispatching: eager Celery runs the rebuild inline, and a cohort save
+        # inside it would otherwise record into a dict nobody reads again.
+        _deferred_rebuild_teams.reset(token)
+        for team_id, caches in sorted(teams.items()):
+            transaction.on_commit(partial(_dispatch_flags_cache_rebuilds, team_id, caches, failed_teams))
+
+
 @receiver(post_save, sender=FeatureFlag)
 @receiver(post_delete, sender=FeatureFlag)
 def feature_flag_changed_flags_cache(sender, instance: "FeatureFlag", **kwargs):
@@ -1599,6 +1703,9 @@ def cohort_changed_flags_cache(sender, instance: "Cohort", **kwargs):
 
     update_fields = kwargs.get("update_fields")
     if update_fields is not None and frozenset(update_fields) <= _COHORT_RECALCULATION_FIELDS:
+        return
+
+    if defer_flags_cache_rebuild(instance.team_id, "service"):
         return
 
     from products.feature_flags.backend.tasks import update_team_service_flags_cache

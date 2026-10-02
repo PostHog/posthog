@@ -5,7 +5,18 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitguardian import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitguardian.source import GitguardianSource
 
-ALL_ENDPOINTS = {"secret_incidents", "secret_occurrences", "sources", "honeytokens", "members", "teams"}
+ALL_ENDPOINTS = {
+    "secret_incidents",
+    "secret_occurrences",
+    "secret_incident_activity_logs",
+    "secret_detectors",
+    "sources",
+    "honeytokens",
+    "honeytoken_events",
+    "members",
+    "teams",
+    "team_memberships",
+}
 
 
 class TestGitguardianSourceConfig:
@@ -25,7 +36,7 @@ class TestGitguardianSchemas:
         for name in ("secret_incidents", "secret_occurrences"):
             assert schemas[name].supports_incremental is True
             assert [f["field"] for f in schemas[name].incremental_fields] == ["date"]
-        for name in ("sources", "honeytokens", "members", "teams"):
+        for name in ALL_ENDPOINTS - {"secret_incidents", "secret_occurrences"}:
             assert schemas[name].supports_incremental is False
 
     def test_names_filter(self) -> None:

@@ -12,7 +12,6 @@ from parameterized import parameterized
 
 from posthog.workos_radar import (
     WORKOS_RADAR_API_URL,
-    WORKOS_RADAR_BYPASS_REDIS_KEY,
     ChallengeRequired,
     RadarAction,
     RadarAuthMethod,
@@ -22,10 +21,7 @@ from posthog.workos_radar import (
     _get_raw_user_agent,
     _hash_email,
     _log_radar_event,
-    add_radar_bypass_email,
     evaluate_auth_attempt,
-    is_radar_bypass_email,
-    remove_radar_bypass_email,
 )
 
 
@@ -237,11 +233,13 @@ class TestRadarEventLogging(TestCase):
             duration_ms=75.0,
             was_blocked=was_blocked,
             was_bypassed=was_bypassed,
+            bypass_source="rule" if was_bypassed else None,
         )
 
         props = mock_capture.call_args[1]["properties"]
         assert props["was_blocked"] == was_blocked
         assert props["was_bypassed"] == was_bypassed
+        assert props["bypass_source"] == ("rule" if was_bypassed else None)
 
 
 class TestEvaluateAuthAttempt(TestCase):
@@ -365,9 +363,9 @@ class TestEvaluateAuthAttempt(TestCase):
 
     @patch("posthog.workos_radar._log_radar_event")
     @patch("posthog.workos_radar._call_radar_api")
-    @patch("posthog.workos_radar.is_radar_bypass_email", return_value=True)
+    @patch("posthog.workos_radar.is_signup_risk_exempt", return_value=True)
     @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test_key")
-    def test_block_verdict_bypassed_for_whitelisted_email(self, mock_is_bypass, mock_call_api, mock_log_event):
+    def test_block_verdict_bypassed_for_exempt_email(self, mock_is_bypass, mock_call_api, mock_log_event):
         mock_call_api.return_value = RadarVerdict.BLOCK
         factory = RequestFactory()
         request = factory.get("/", REMOTE_ADDR="1.2.3.4", HTTP_USER_AGENT="TestBrowser")
@@ -384,104 +382,7 @@ class TestEvaluateAuthAttempt(TestCase):
         log_kwargs = mock_log_event.call_args[1]
         assert log_kwargs["was_blocked"] is False
         assert log_kwargs["was_bypassed"] is True
-
-
-class TestRadarBypassEmailRedis(TestCase):
-    def setUp(self):
-        from posthog.redis import get_client
-
-        self.redis_client = get_client()
-        self.redis_client.delete(WORKOS_RADAR_BYPASS_REDIS_KEY)
-
-    def tearDown(self):
-        self.redis_client.delete(WORKOS_RADAR_BYPASS_REDIS_KEY)
-
-    def test_add_and_check_bypass_email(self):
-        assert is_radar_bypass_email("test@example.com") is False
-        add_radar_bypass_email("test@example.com")
-        assert is_radar_bypass_email("test@example.com") is True
-
-    def test_bypass_email_is_case_insensitive(self):
-        add_radar_bypass_email("Test@Example.COM")
-        assert is_radar_bypass_email("test@example.com") is True
-        assert is_radar_bypass_email("TEST@EXAMPLE.COM") is True
-
-    def test_remove_bypass_email(self):
-        add_radar_bypass_email("test@example.com")
-        assert is_radar_bypass_email("test@example.com") is True
-        remove_radar_bypass_email("test@example.com")
-        assert is_radar_bypass_email("test@example.com") is False
-
-    def test_remove_nonexistent_email_is_noop(self):
-        remove_radar_bypass_email("nonexistent@example.com")
-        assert is_radar_bypass_email("nonexistent@example.com") is False
-
-
-class TestRadarBypassViewSet(TestCase):
-    def setUp(self):
-        from django.contrib.auth import get_user_model
-
-        from posthog.redis import get_client
-
-        User = get_user_model()
-        self.staff_user = User.objects.create_user(
-            email="admin@posthog.com", password="testpass123!", is_staff=True, first_name="Admin"
-        )
-        self.non_staff_user = User.objects.create_user(
-            email="user@posthog.com", password="testpass123!", is_staff=False, first_name="User"
-        )
-        self.redis_client = get_client()
-        self.redis_client.delete(WORKOS_RADAR_BYPASS_REDIS_KEY)
-
-    def tearDown(self):
-        self.redis_client.delete(WORKOS_RADAR_BYPASS_REDIS_KEY)
-
-    def test_non_staff_user_gets_403(self):
-        self.client.force_login(self.non_staff_user)
-        response = self.client.get("/admin/api/radar-bypass/")
-        assert response.status_code == 403
-
-    def test_list_bypass_emails(self):
-        add_radar_bypass_email("a@example.com")
-        add_radar_bypass_email("b@example.com")
-        self.client.force_login(self.staff_user)
-        response = self.client.get("/admin/api/radar-bypass/")
-        assert response.status_code == 200
-        assert sorted(response.json()) == ["a@example.com", "b@example.com"]
-
-    def test_add_bypass_email(self):
-        self.client.force_login(self.staff_user)
-        response = self.client.post(
-            "/admin/api/radar-bypass/",
-            {"email": "bypass@example.com"},
-            content_type="application/json",
-        )
-        assert response.status_code == 201
-        assert response.json() == {"email": "bypass@example.com"}
-        assert is_radar_bypass_email("bypass@example.com") is True
-
-    def test_add_invalid_email_returns_400(self):
-        self.client.force_login(self.staff_user)
-        response = self.client.post(
-            "/admin/api/radar-bypass/",
-            {"email": "not-an-email"},
-            content_type="application/json",
-        )
-        assert response.status_code == 400
-        assert is_radar_bypass_email("not-an-email") is False
-
-    def test_remove_bypass_email(self):
-        add_radar_bypass_email("remove-me@example.com")
-        self.client.force_login(self.staff_user)
-        response = self.client.delete("/admin/api/radar-bypass/remove-me@example.com/")
-        assert response.status_code == 204
-        assert is_radar_bypass_email("remove-me@example.com") is False
-
-    def test_list_empty(self):
-        self.client.force_login(self.staff_user)
-        response = self.client.get("/admin/api/radar-bypass/")
-        assert response.status_code == 200
-        assert response.json() == []
+        assert log_kwargs["bypass_source"] == "rule"
 
 
 class TestChallengeFlow(TestCase):
@@ -644,11 +545,11 @@ class TestChallengeFlow(TestCase):
                 auth_method=RadarAuthMethod.PASSWORD,
             )
 
-    @patch("posthog.workos_radar.is_radar_bypass_email", return_value=True)
+    @patch("posthog.workos_radar.is_signup_risk_exempt", return_value=True)
     @patch("posthog.workos_radar._log_radar_event")
     @patch("posthog.workos_radar._call_radar_api")
     @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test_key")
-    def test_challenge_verdict_bypassed_for_whitelisted_email(self, mock_call_api, mock_log_event, mock_is_bypass):
+    def test_challenge_verdict_bypassed_for_exempt_email(self, mock_call_api, mock_log_event, mock_is_bypass):
         mock_call_api.return_value = RadarVerdict.CHALLENGE
         factory = RequestFactory()
         request = factory.get("/", REMOTE_ADDR="1.2.3.4", HTTP_USER_AGENT="TestBrowser")
@@ -663,4 +564,5 @@ class TestChallengeFlow(TestCase):
         assert result == RadarVerdict.CHALLENGE
         log_kwargs = mock_log_event.call_args[1]
         assert log_kwargs["was_bypassed"] is True
+        assert log_kwargs["bypass_source"] == "rule"
         assert log_kwargs["was_challenged"] is False

@@ -7,8 +7,13 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.web_analytics.backend.achievements.definitions import TRACKS, AchievementScope, TrackDefinition
-from products.web_analytics.backend.achievements.evaluators import EVALUATORS, EvalContext
-from products.web_analytics.backend.achievements.tasks import get_or_create_progress, persist_progress, team_local_today
+from products.web_analytics.backend.achievements.evaluators import EvalContext
+from products.web_analytics.backend.achievements.tasks import (
+    evaluate_track,
+    get_or_create_progress,
+    persist_progress,
+    team_local_today,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -51,12 +56,12 @@ def _backfill_scope(ctx: EvalContext) -> int:
 
 def _backfill_track(ctx: EvalContext, track: TrackDefinition) -> bool:
     progress = get_or_create_progress(ctx, track)
-    evaluator = EVALUATORS[track.evaluator_key]
     try:
-        value = max(evaluator(ctx), progress.progress_value)
+        evaluation = evaluate_track(ctx, track, progress)
     except Exception:
         logger.warning("wa_achievements_backfill_failed", track=str(track.key), team_id=ctx.team.id, exc_info=True)
         return False
+    value = max(evaluation.value, progress.progress_value)
     stage = track.stage_for_value(value, None)
     seeded_at = timezone.now().isoformat()
     state = dict(progress.state or {})
@@ -65,6 +70,8 @@ def _backfill_track(ctx: EvalContext, track: TrackDefinition) -> bool:
         unlocked_stages.setdefault(str(unlocked_stage), seeded_at)
     state["unlocked_stages"] = unlocked_stages
     state.setdefault("pending_celebrations", [])
+    if evaluation.checkpoint is not None:
+        state["checkpoint"] = evaluation.checkpoint
     # Leave last_computed_at untouched so the next live recompute still runs the same day a team is
     # backfilled — backfilling must not suppress real-time unlocks.
     persist_progress(progress, value, max(progress.current_stage, stage), state, bump_last_computed_at=False)

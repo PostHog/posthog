@@ -1196,7 +1196,7 @@ export const TracingSpansTraceCreateBody = /* @__PURE__ */ zod.object({
                 .describe('End of the date range. Same format as date_from. Omit or null for \"now\".'),
         })
         .optional()
-        .describe('Date range for the query. Defaults to last 24 hours.'),
+        .describe('Date range for the query. Omit it to search all retained spans for this trace.'),
     excludeAttributes: zod
         .boolean()
         .default(tracingSpansTraceCreateBodyExcludeAttributesDefault)

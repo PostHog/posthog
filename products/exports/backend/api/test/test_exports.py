@@ -1547,9 +1547,9 @@ class TestExports(APIBaseTest):
     @patch("products.exports.backend.api.exports.async_to_sync")
     @patch("products.exports.backend.api.exports.async_connect")
     def test_video_export_monthly_limit(self, mock_async_connect, mock_async_to_sync) -> None:
-        """Test that video exports are limited to 10 per calendar month"""
-        # Create 9 video exports this month (we're at the limit - 1)
-        for i in range(9):
+        """Test that video exports are limited to 25 per calendar month on the free plan"""
+        # Create 24 video exports this month (we're at the limit - 1)
+        for i in range(24):
             ExportedAsset.objects.create(
                 team=self.team,
                 export_format="video/mp4",
@@ -1557,25 +1557,25 @@ class TestExports(APIBaseTest):
                 created_by=self.user,
             )
 
-        # The 10th video export should succeed
+        # The 25th video export should succeed
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
             {
                 "export_format": "video/mp4",
                 "export_context": {
-                    "session_recording_id": "session_10",
+                    "session_recording_id": "session_25",
                 },
             },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-        # The 11th video export should fail with limit exceeded error
+        # The 26th video export should fail with limit exceeded error
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
             {
                 "export_format": "video/mp4",
                 "export_context": {
-                    "session_recording_id": "session_11",
+                    "session_recording_id": "session_26",
                 },
             },
         )
@@ -1583,14 +1583,14 @@ class TestExports(APIBaseTest):
         error_data = response.json()
         self.assertEqual(error_data["type"], "validation_error")
         self.assertEqual(error_data["attr"], "export_limit_exceeded")
-        self.assertIn("reached the limit of 10 full video exports this month", error_data["detail"])
+        self.assertIn("reached the limit of 25 full video exports this month", error_data["detail"])
 
     @patch("products.exports.backend.api.exports.async_to_sync")
     @patch("products.exports.backend.api.exports.async_connect")
     def test_video_export_limit_applies_to_all_video_formats(self, mock_async_connect, mock_async_to_sync) -> None:
         """Test that the limit applies to both MP4 and WebM session recording exports"""
-        # Create 5 MP4 and 5 WebM exports this month (at the limit)
-        for i in range(5):
+        # Create 12 MP4 and 12 WebM exports this month
+        for i in range(12):
             ExportedAsset.objects.create(
                 team=self.team,
                 export_format="video/mp4",
@@ -1603,6 +1603,13 @@ class TestExports(APIBaseTest):
                 export_context={"session_recording_id": f"session_webm_{i}"},
                 created_by=self.user,
             )
+
+        ExportedAsset.objects.create(
+            team=self.team,
+            export_format="video/mp4",
+            export_context={"session_recording_id": "session_mp4_final"},
+            created_by=self.user,
+        )
 
         # MP4 video export should fail
         response = self.client.post(
@@ -1634,8 +1641,8 @@ class TestExports(APIBaseTest):
     def test_video_export_limit_resets_monthly(self, mock_async_connect, mock_async_to_sync) -> None:
         """Test that the video export limit resets at the beginning of each month"""
 
-        # Create 10 video exports in January (at the limit)
-        for i in range(10):
+        # Create 25 video exports in January (at the limit)
+        for i in range(25):
             ExportedAsset.objects.create(
                 team=self.team,
                 export_format="video/mp4",
@@ -1672,11 +1679,11 @@ class TestExports(APIBaseTest):
     @parameterized.expand(
         [
             # name, available_product_features, expected_limit
-            ("free", [], 10),
+            ("free", [], 25),
             (
                 "paid",
                 [{"key": "recordings_file_export", "name": "Recordings file export"}],
-                15,
+                50,
             ),
             (
                 "enterprise_via_role_based_access",
@@ -1684,7 +1691,7 @@ class TestExports(APIBaseTest):
                     {"key": "recordings_file_export", "name": "Recordings file export"},
                     {"key": "role_based_access", "name": "Role based access"},
                 ],
-                25,
+                100,
             ),
             (
                 "enterprise_via_saml",
@@ -1692,12 +1699,12 @@ class TestExports(APIBaseTest):
                     {"key": "recordings_file_export", "name": "Recordings file export"},
                     {"key": "saml", "name": "SAML"},
                 ],
-                25,
+                100,
             ),
             (
                 "enterprise_via_saml_only",
                 [{"key": "saml", "name": "SAML"}],
-                25,
+                100,
             ),
         ]
     )
@@ -1744,8 +1751,8 @@ class TestExports(APIBaseTest):
             (
                 "paid_override_above_tier_wins",
                 [{"key": "recordings_file_export", "name": "Recordings file export"}],
-                20,
-                20,
+                60,
+                60,
             ),
             # Override below tier default is a no-op — tier default wins, so legacy
             # flat-10 overrides can't silently downgrade enterprise orgs post-deploy.
@@ -1756,7 +1763,7 @@ class TestExports(APIBaseTest):
                     {"key": "saml", "name": "SAML"},
                 ],
                 10,
-                25,
+                100,
             ),
             # Free tier with an override-bump also works.
             ("free_override_above_tier_wins", [], 30, 30),

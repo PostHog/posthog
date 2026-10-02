@@ -311,6 +311,25 @@ class TestFanOut:
         assert [(r["portfolio_gid"], r["gid"]) for r in rows] == [("PF1", "PR1"), ("PF2", "PR1")]
         assert not any(r for r in rows if "_portfolios_gid" in r)
         assert all("limit=" in url for url in sent if "/items" in url)
+        # Asana 400s GET /portfolios for a non-service-account token without an explicit owner.
+        assert all("owner=me" in url for url in sent if "/portfolios?" in url)
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_portfolios_scope_to_the_tokens_own_user(self, MockSession) -> None:
+        session = MockSession.return_value
+        sent = _wire(
+            session,
+            [
+                ("/workspaces?", _page([{"gid": "W1"}])),
+                ("workspace=W1", _page([{"gid": "PF1"}])),
+            ],
+        )
+
+        rows = _rows(_source("portfolios", _make_manager()))
+
+        assert [r["gid"] for r in rows] == ["PF1"]
+        # Asana 400s GET /portfolios for a non-service-account token without an explicit owner.
+        assert all("owner=me" in url for url in sent if "/portfolios?" in url)
 
     @pytest.mark.parametrize(
         "endpoint, parent_gid",

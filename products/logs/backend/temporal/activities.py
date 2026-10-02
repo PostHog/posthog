@@ -73,6 +73,7 @@ from products.logs.backend.temporal.constants import (
     EMIT_SIGNAL_CONCURRENCY,
     MAX_ALERT_COHORT_SIZE,
     MAX_COHORTS_PER_BATCH,
+    MAX_CONCURRENT_BATCHES,
     MAX_CONCURRENT_COHORTS_PER_BATCH,
     NOTIFICATION_FLUSH_TIMEOUT_SECONDS,
 )
@@ -328,6 +329,9 @@ class DiscoverCohortsOutput:
     # Recorded in workflow history so replays chunk identically even if the env
     # var changes between runs.
     batch_size: int
+    # Recorded for the same reason. The default keeps histories written before this
+    # field existed replaying with no limit, which is what they ran with.
+    max_concurrent_batches: int = 0
 
 
 @dataclasses.dataclass(frozen=True)
@@ -417,7 +421,11 @@ def _discover_cohorts_sync() -> DiscoverCohortsOutput:
     # Read MAX_COHORTS_PER_BATCH inside the activity, not in workflow code:
     # module-level env reads are non-deterministic on replay because Temporal's
     # sandbox re-imports the workflow module each time.
-    return DiscoverCohortsOutput(manifests=manifests, batch_size=MAX_COHORTS_PER_BATCH)
+    return DiscoverCohortsOutput(
+        manifests=manifests,
+        batch_size=MAX_COHORTS_PER_BATCH,
+        max_concurrent_batches=MAX_CONCURRENT_BATCHES,
+    )
 
 
 def _reschedule_due_alerts_in_quiet_hours(rows: Sequence[dict], now: datetime) -> set[UUID]:
@@ -1126,7 +1134,7 @@ def _stage_alert_for_save(dispatched: _DispatchedAlert, now: datetime) -> tuple[
         alert.next_check_at,
         alert.check_interval_minutes,
         now,
-        shard_offset_seconds=compute_shard_offset_seconds(alert.id, alert.check_interval_minutes),
+        shard_offset_seconds=compute_shard_offset_seconds(alert.team_id, alert.check_interval_minutes),
     )
     try:
         alert.next_check_at = next_allowed_check_at(
