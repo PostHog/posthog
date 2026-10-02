@@ -2,7 +2,7 @@ from typing import TypedDict
 
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import ActorsQuery, MarketingAnalyticsDrillDownLevel, PersonsArgMaxVersion
+from posthog.schema import ActorsQuery, ConversionGoalFilter3, MarketingAnalyticsDrillDownLevel, PersonsArgMaxVersion
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
@@ -93,9 +93,9 @@ class ConversionPeopleQuery(MarketingAnalyticsTableQueryRunner):
         ]
         conversions.group_by = None
         conversions.distinct = True
-        if processor.goal.kind == "DataWarehouseNode":
+        if isinstance(processor.goal, ConversionGoalFilter3):
             table_name = processor.get_table_name()
-            distinct_id = processor.goal.schema_map.get("distinct_id_field", self.config.default_distinct_id_field)
+            distinct_id = processor.goal.schema_map.get("distinct_id_field") or processor.goal.distinct_id_field
             assert conversions.select_from is not None
             conversions.select_from.next_join = ast.JoinExpr(
                 table=ast.Field(chain=["person_distinct_ids"]),

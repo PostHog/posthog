@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
@@ -13,6 +15,7 @@ from products.marketing_analytics.backend.hogql_queries.marketing_analytics_tabl
     MarketingAnalyticsTableQueryRunner,
 )
 from products.marketing_analytics.backend.services.conversion_people import ConversionPeopleQuery
+from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 
 @time_machine.travel("2026-09-20T12:00:00Z", tick=False)
@@ -137,3 +140,63 @@ class TestConversionPeople(ClickhouseTestMixin, APIBaseTest):
         result = runner.people("purchase", "winter-sale", "google", None, "", 0, 50)
         self.assertEqual(len(result["results"]), 2)
         self.assertFalse(result["preparing"])
+
+
+class TestWarehouseConversionPeople(ClickhouseTestMixin, APIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self) -> None:
+        super().setUp()
+        flags = patch(
+            "products.marketing_analytics.backend.hogql_queries.marketing_analytics_config.feature_enabled_or_false",
+            return_value=False,
+        )
+        flags.start()
+        self.addCleanup(flags.stop)
+
+    def test_goal_uses_its_top_level_identity_field(self) -> None:
+        table, *_rest, cleanup = create_data_warehouse_table_from_csv(
+            Path(__file__).parents[1] / "hogql_queries/test/external/warehouse_conversions_empty_utm.csv",
+            "conversion_people_warehouse",
+            {
+                "user_id": "String",
+                "event_timestamp": "DateTime",
+                "campaign_name": "String",
+                "source_name": "String",
+                "revenue": "Int64",
+            },
+            "test_storage_bucket-posthog.marketing_analytics.conversion_people",
+            self.team,
+        )
+        self.addCleanup(cleanup)
+        _create_person(team=self.team, distinct_ids=["dw_user_2"], properties={"email": "dw@example.com"})
+        flush_persons_and_events()
+        config = self.team.marketing_analytics_config
+        config.conversion_goals = [
+            {
+                "kind": "DataWarehouseNode",
+                "id": table.name,
+                "table_name": table.name,
+                "name": "Warehouse purchases",
+                "math": "total",
+                "conversion_goal_id": "warehouse",
+                "conversion_goal_name": "Warehouse purchases",
+                "distinct_id_field": "user_id",
+                "id_field": "user_id",
+                "timestamp_field": "event_timestamp",
+                "schema_map": {
+                    "utm_campaign_name": "campaign_name",
+                    "utm_source_name": "source_name",
+                    "timestamp_field": "event_timestamp",
+                },
+            }
+        ]
+        config.save()
+        source = MarketingAnalyticsTableQuery(
+            properties=[], dateRange=DateRange(date_from="2023-01-01", date_to="2023-01-31")
+        )
+        with time_machine.travel("2023-02-01T12:00:00Z", tick=False):
+            result = ConversionPeopleQuery(query=source, team=self.team, user=self.user).people(
+                "warehouse", "summer_sale", "google", None, "", 0, 50
+            )
+        self.assertEqual([person["name"] for person in result["results"]], ["dw@example.com"])
