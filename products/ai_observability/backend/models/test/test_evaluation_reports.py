@@ -305,7 +305,7 @@ class TestBackfillReportRunIndexColumns(BaseTest):
             period_end=now - dt.timedelta(days=3),
         )
 
-        # `metadata` is an unconstrained JSON field, so a non-object value must survive untouched.
+        # `metadata` is an unconstrained JSON field, and the report agent discards a non-object mirror.
         scalar_mirror = EvaluationReportRun.objects.create(
             report=report,
             content={"title": "Scalar mirror", "metrics": {"total_runs": 3}},
@@ -330,5 +330,5 @@ class TestBackfillReportRunIndexColumns(BaseTest):
         )
         self.assertEqual(tagged.metadata, {"total_runs": 7})
         self.assertEqual(partial.metadata, {"total_runs": 9, "legacy_key": "kept"})
-        self.assertEqual(scalar_mirror.metadata, 5)
+        self.assertEqual(scalar_mirror.metadata, {"total_runs": 3})
         self.assertEqual(scalar_mirror.evaluation_target, "generation")

@@ -271,6 +271,9 @@ async def test_store_legacy_boolean_report_emits_normalized_generic_metrics() ->
     stored_metrics = stored_content["metrics"]
     assert stored_metrics["result_counts"] == {"pass": 6, "fail": 3, "na": 1}
     assert create_report_run.call_args.kwargs["metadata"] == stored_metrics
+    assert create_report_run.call_args.kwargs["title"] == ""
+    assert create_report_run.call_args.kwargs["evaluation_target"] == "generation"
+    assert create_report_run.call_args.kwargs["generation_status"] == "completed"
     assert "pass_count" not in stored_metrics
     assert "fail_count" not in stored_metrics
     assert "na_count" not in stored_metrics
@@ -314,6 +317,8 @@ async def test_store_metrics_unavailable_report_omits_placeholder_metrics() -> N
 
     properties = create_event.call_args.kwargs["properties"]
     assert create_report_run.call_args.kwargs["metadata"] == {}
+    assert create_report_run.call_args.kwargs["title"] == "Metrics temporarily unavailable"
+    assert create_report_run.call_args.kwargs["generation_status"] == "metrics_unavailable"
     assert properties["$ai_report_generation_status"] == "metrics_unavailable"
     assert "$ai_report_total_runs" not in properties
     assert "$ai_report_result_counts" not in properties

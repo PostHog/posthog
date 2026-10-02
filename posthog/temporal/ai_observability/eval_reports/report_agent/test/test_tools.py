@@ -13,7 +13,9 @@ from unittest.mock import (
     patch,
 )
 
+from django.db import connection
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from clickhouse_driver.errors import NetworkError, SocketTimeoutError
@@ -1169,7 +1171,6 @@ class TestListAndGetReportRun(BaseTest):
         }
 
     def _create_run(self, content, report=None, **kwargs):
-        """Store a run the way store_report_run_activity does, index columns included."""
         return self.EvaluationReportRun.objects.create(
             report=report or self.report,
             content=content,
@@ -1180,9 +1181,12 @@ class TestListAndGetReportRun(BaseTest):
         )
 
     def test_list_returns_compact_index_newest_first(self):
-        # One query and no deferred load. Reading a `content` key again detoasts the blob per row.
-        with self.assertNumQueries(1):
+        # Postgres reads the whole `content` blob to answer one key of it, for every row the
+        # query touches, so the listing must neither name the column nor load it afterwards.
+        with CaptureQueriesContext(connection) as queries:
             result = json.loads(_list_recent_report_runs_fn(state=self.state))
+        self.assertEqual(len(queries), 1)
+        self.assertNotIn('"content"', queries[0]["sql"])
         self.assertEqual(len(result), 2)
         self.assertEqual(result[0]["title"], "Recent report")
         self.assertEqual(result[0]["pass_rate"], 94.2)
