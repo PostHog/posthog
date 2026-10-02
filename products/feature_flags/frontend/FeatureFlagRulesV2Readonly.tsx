@@ -9,9 +9,8 @@ import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { groupsModel } from '~/models/groupsModel'
 import { FeatureFlagRulesV2Config, FeatureFlagRulesV2Rule } from '~/types'
 
-import { formatPercentage } from 'products/feature_flags/frontend/FractionalRolloutWarning'
-
 import { FeatureFlagConfigReadonlyNotice } from './FeatureFlagConfigReadonlyNotice'
+import { formatPercentage } from './FractionalRolloutWarning'
 
 const RULE_TYPE_LABELS: Record<FeatureFlagRulesV2Rule['rule_type'], string> = {
     targeted_release: 'Targeted release',

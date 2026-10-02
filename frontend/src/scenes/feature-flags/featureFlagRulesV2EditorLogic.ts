@@ -36,13 +36,16 @@ import {
     TeamType,
 } from '~/types'
 
+import {
+    isRulesV2FeatureFlagConfig,
+    rulesV2CreateDisabledReason,
+} from 'products/feature_flags/frontend/featureFlagConfigFormat'
 import { featureFlagsCreate, featureFlagsPartialUpdate } from 'products/feature_flags/frontend/generated/api'
 import type {
     FeatureFlagCreateRequestSchemaApi,
     PatchedFeatureFlagPartialUpdateRequestSchemaApi,
 } from 'products/feature_flags/frontend/generated/api.schemas'
 
-import { isRulesV2FeatureFlagConfig, rulesV2CreateDisabledReason } from './featureFlagConfigFormat'
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import { FeatureFlagLogicProps, confirmFeatureFlagKeyChange, featureFlagLogic } from './featureFlagLogic'
 

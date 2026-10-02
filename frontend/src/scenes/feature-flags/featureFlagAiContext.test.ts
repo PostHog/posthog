@@ -119,9 +119,27 @@ describe('featureFlagAiContext', () => {
         ],
     })
 
+    function rulesV2Flag(ruleCount: number): FeatureFlagType {
+        return {
+            ...baseFeatureFlag,
+            filters: {
+                version: 2,
+                return_type: 'boolean',
+                default_value: false,
+                rules: Array.from({ length: ruleCount }, (_, index) => ({
+                    id: `rule-${index}`,
+                    rule_type: 'targeted_release' as const,
+                    targeting: { properties: personCondition.properties ?? [] },
+                    value: true,
+                })),
+            },
+        }
+    }
+
     const oversized: [string, FeatureFlagType][] = [
         ['a condition holding hundreds of pasted values', flagWithPastedValues],
         ['a very long description', { ...withFilters({ groups: [personCondition] }), name: 'x'.repeat(20000) }],
+        ['a rules v2 document with hundreds of rules', rulesV2Flag(300)],
     ]
 
     test.each(oversized)('keeps the attachment under the backend limit with %s', (_name, featureFlag) => {
@@ -138,6 +156,17 @@ describe('featureFlagAiContext', () => {
         // Without the count the agent can't tell a flag with no targeting from one whose targeting
         // was too large to send.
         expect(JSON.parse(value).release_condition_count).toBe(1)
+    })
+
+    it('attaches a rules v2 document whole, and only its config version once it is too large', () => {
+        const small = rulesV2Flag(1)
+
+        expect(JSON.parse(targetingValue(small)).config).toEqual(small.filters)
+        expect(JSON.parse(targetingValue(rulesV2Flag(300)))).toEqual({
+            key: 'test-flag',
+            active: true,
+            config_version: 2,
+        })
     })
 
     describe('featureFlagCleanupAssessmentContextItems', () => {

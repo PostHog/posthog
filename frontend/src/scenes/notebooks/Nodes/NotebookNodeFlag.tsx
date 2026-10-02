@@ -6,8 +6,6 @@ import { IconFlag, IconRocket } from '@posthog/icons'
 import { NotFound } from 'lib/components/NotFound'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { IconRecording, IconSurveys } from 'lib/lemon-ui/icons'
-import { isV1FeatureFlagConfig } from 'scenes/feature-flags/featureFlagConfigFormat'
-import { FeatureFlagConfigReadonlyNotice } from 'scenes/feature-flags/FeatureFlagConfigReadonlyNotice'
 import { FeatureFlagLogicProps, featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import {
     FEATURE_FLAG_NOTEBOOK_WIDGET_VIEWS,
@@ -18,6 +16,9 @@ import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagRe
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { getNotebookWidgetDefaultView } from 'scenes/notebooks/notebookWidgetCatalog'
 import { urls } from 'scenes/urls'
+
+import { isV1FeatureFlagConfig } from 'products/feature_flags/frontend/featureFlagConfigFormat'
+import { FeatureFlagConfigReadonlyNotice } from 'products/feature_flags/frontend/FeatureFlagConfigReadonlyNotice'
 
 import { NotebookNodeProps, NotebookNodeType } from '../types'
 import { buildEarlyAccessFeatureContent } from './NotebookNodeEarlyAccessFeature'
@@ -82,7 +83,8 @@ function FeatureFlagNotebookActions({ attributes }: NotebookNodeProps<FeatureFla
                     }
                 },
             },
-            // A flag in another config version cannot adopt a feature, but one linked elsewhere still opens.
+            // canCreateEarlyAccessFeature is false for a non-v1 flag, so the notebook never offers Create.
+            // A non-v1 flag that already has an early access feature still gets the View action.
             canCreateEarlyAccessFeature || (hasEarlyAccessFeatures && !isV1FeatureFlagConfig(featureFlag.filters))
                 ? {
                       text: `${hasEarlyAccessFeatures ? 'View' : 'Create'} early access feature`,

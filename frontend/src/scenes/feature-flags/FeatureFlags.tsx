@@ -57,21 +57,22 @@ import {
 } from '~/types'
 
 import { featureFlagsEmptyState } from 'products/feature_flags/frontend/emptyState/featureFlagsEmptyState'
+import {
+    ARCHIVE_UNAVAILABLE_DISABLED_REASON,
+    UNSUPPORTED_CONFIG_DISABLED_REASON,
+    canArchiveFeatureFlag,
+    featureFlagConfigFormat,
+    featureFlagConfigFormatLabel,
+    isRulesV2FeatureFlagConfig,
+    isV1FeatureFlagConfig,
+    rulesV2CreateDisabledReason,
+} from 'products/feature_flags/frontend/featureFlagConfigFormat'
 import { FeatureFlagRequestUsage } from 'products/feature_flags/frontend/requestUsage/FeatureFlagRequestUsage'
 
 import { ApprovalsPromoBanner } from './ApprovalsPromoBanner'
 import { BulkCopyFlagsModal, BulkCopyToProjectsButton } from './BulkCopyFlagsModal'
 import { BulkDeleteResultsModal } from './BulkDeleteResultsModal'
 import { openBulkArchiveFlagsDialog, openFeatureFlagArchiveDialog } from './featureFlagArchiveDialog'
-import {
-    ARCHIVE_UNAVAILABLE_DISABLED_REASON,
-    UNSUPPORTED_CONFIG_DISABLED_REASON,
-    featureFlagConfigFormat,
-    featureFlagConfigFormatLabel,
-    isRulesV2FeatureFlagConfig,
-    isV1FeatureFlagConfig,
-    rulesV2CreateDisabledReason,
-} from './featureFlagConfigFormat'
 import { openFeatureFlagDeleteDialog } from './featureFlagDeleteDialog'
 import { FeatureFlagFiltersSection } from './FeatureFlagFilters'
 import { FLAGS_PER_PAGE, FeatureFlagsTab, featureFlagsLogic, flagMatchesType } from './featureFlagsLogic'
@@ -247,15 +248,13 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                             Try out in Insights
                         </LemonButton>
 
-                        {isV1Config && (
-                            <LemonButton
-                                onClick={() => setIsQuickSurveyModalOpen(true)}
-                                data-attr="create-survey"
-                                fullWidth
-                            >
-                                Create survey
-                            </LemonButton>
-                        )}
+                        <LemonButton
+                            onClick={() => setIsQuickSurveyModalOpen(true)}
+                            data-attr="create-survey"
+                            fullWidth
+                        >
+                            Create survey
+                        </LemonButton>
 
                         <LemonDivider />
 
@@ -314,7 +313,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                     disabledReason={
                                         isUpdating
                                             ? 'Updating…'
-                                            : !isV1Config
+                                            : !canArchiveFeatureFlag(featureFlag.filters)
                                               ? ARCHIVE_UNAVAILABLE_DISABLED_REASON
                                               : undefined
                                     }
