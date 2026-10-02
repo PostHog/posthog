@@ -7,7 +7,8 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { isV1FeatureFlagConfig } from './featureFlagConfigFormat'
+import { isV1FeatureFlagConfig } from 'products/feature_flags/frontend/featureFlagConfigFormat'
+
 import { featureFlagLogic } from './featureFlagLogic'
 
 interface EditableOverviewSectionProps {

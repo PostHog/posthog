@@ -2,7 +2,7 @@ import { MakeLogicType, actions, connect, kea, listeners, path, props, reducers,
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
-import { LemonDialog, PaginationManual } from '@posthog/lemon-ui'
+import { LemonDialog, PaginationManual, lemonToast } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
@@ -18,10 +18,14 @@ import { urls } from 'scenes/urls'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { ActivityScope, Breadcrumb, FeatureFlagType } from '~/types'
 
+import {
+    STALE_ROW_VERSION_RELOADED_MESSAGE,
+    isStaleRowVersionError,
+    rowVersionToken,
+} from 'products/feature_flags/frontend/featureFlagConfigFormat'
 import { featureFlagsRetrieve } from 'products/feature_flags/frontend/generated/api'
 
 import { FeatureFlagArchivedSource, reportFeatureFlagArchived } from './featureFlagArchiveDialog'
-import { isStaleRowVersionError, rowVersionToken } from './featureFlagConfigFormat'
 import { openFeatureFlagDisableDialog } from './featureFlagDisableDialog'
 
 export const FLAGS_PER_PAGE = 100
@@ -502,10 +506,16 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                                   : 'update this feature flag'
                         handleFlagApprovalRequired(e, id, actionDescription)
                         if (isStaleRowVersionError(versioned, e)) {
+                            // The global error toast skips every 409, so say why the click seemed to do nothing.
+                            lemonToast.error(e?.detail || STALE_ROW_VERSION_RELOADED_MESSAGE)
                             // The row version we sent is stale: the conflicting write may have replaced the whole
                             // document, so take the fresh row whole, not only its version.
-                            const fresh = await featureFlagsRetrieve(String(values.currentProjectId), id)
-                            actions.updateFlag(fresh as unknown as FeatureFlagType)
+                            try {
+                                const fresh = await featureFlagsRetrieve(String(values.currentProjectId), id)
+                                actions.updateFlag(fresh as unknown as FeatureFlagType)
+                            } catch {
+                                // The 409 stays the failure this loader reports.
+                            }
                         }
                         throw e
                     }
