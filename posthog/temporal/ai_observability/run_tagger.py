@@ -30,6 +30,7 @@ from products.ai_observability.backend.llm.errors import (
     ProviderRequestRejectedError,
     QuotaExceededError,
     RateLimitError,
+    RetryableRateLimitError,
     StructuredOutputParseError,
 )
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
@@ -320,6 +321,12 @@ Output: {output_data}"""
                 non_retryable=True,
             )
         raise
+    except RetryableRateLimitError as e:
+        raise ApplicationError(
+            str(e),
+            {"error_type": "provider_unavailable", "provider": provider},
+            next_retry_delay=timedelta(seconds=e.retry_after) if e.retry_after is not None else None,
+        ) from e
     except RateLimitError:
         if is_byok:
             raise ApplicationError(

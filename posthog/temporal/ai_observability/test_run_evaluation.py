@@ -657,9 +657,43 @@ def test_provider_rejections_distinguish_blocked_endpoints_from_bad_inputs(
         assert "uncompressed responses no larger than 1 MiB" in result["reasoning"]
 
 
-def test_system_one_rate_limit_retries_without_disabling_the_evaluation() -> None:
+@pytest.mark.parametrize(
+    "provider, success_payload",
+    [
+        (
+            "system_one",
+            {
+                "model": "example-judge-v1",
+                "answers": {"verdict": {"type": "noul", "noul": 0.9}},
+                "usage": {"input_tokens": 12, "output_tokens": 0},
+            },
+        ),
+        (
+            "openai_compatible",
+            {
+                "id": "fixture",
+                "object": "chat.completion",
+                "created": 0,
+                "model": "example-judge-v1",
+                "choices": [
+                    {
+                        "index": 0,
+                        "finish_reason": "stop",
+                        "message": {
+                            "role": "assistant",
+                            "content": json.dumps({"verdict": True, "reasoning": "Polite greeting"}),
+                        },
+                    }
+                ],
+            },
+        ),
+    ],
+)
+def test_custom_provider_rate_limit_retries_without_disabling_the_evaluation(
+    provider: str, success_payload: dict[str, Any]
+) -> None:
     key = MagicMock(
-        provider="system_one",
+        provider=provider,
         encrypted_config={"api_key": "example-token", "base_url": "https://decisions.example.com/v1"},
     )
     with (
@@ -670,22 +704,41 @@ def test_system_one_rate_limit_retries_without_disabling_the_evaluation() -> Non
         ),
         patch(
             "httpx.AsyncHTTPTransport.handle_async_request",
-            return_value=httpx.Response(429, headers={"Retry-After": "15"}, stream=httpx.ByteStream(b"")),
-        ),
-        pytest.raises(ApplicationError) as error,
+            side_effect=[
+                httpx.Response(429, headers={"Retry-After": "15"}, stream=httpx.ByteStream(b"")),
+                httpx.Response(
+                    200,
+                    headers={"Content-Type": "application/json"},
+                    stream=httpx.ByteStream(json.dumps(success_payload).encode()),
+                ),
+            ],
+        ) as transport,
     ):
         spec.return_value.resolve.return_value = MagicMock(
-            provider="system_one", model="example-judge-v1", provider_key=key, is_byok=True
+            provider=provider, model="example-judge-v1", provider_key=key, is_byok=True
         )
-        call_llm_judge(
+        with pytest.raises(ApplicationError) as error:
+            call_llm_judge(
+                evaluation={"team_id": 1, "evaluation_config": {"prompt": "Polite?"}},
+                system_prompt="",
+                user_prompt="Hello!",
+                allows_na=False,
+            )
+        assert not error.value.non_retryable
+        assert error.value.next_retry_delay == timedelta(seconds=15)
+        assert terminal_user_error_result_from_application_error(error.value, allows_na=False) is None
+        assert transport.call_count == 1
+
+        result = call_llm_judge(
             evaluation={"team_id": 1, "evaluation_config": {"prompt": "Polite?"}},
             system_prompt="",
             user_prompt="Hello!",
             allows_na=False,
         )
-    assert not error.value.non_retryable
-    assert error.value.next_retry_delay == timedelta(seconds=15)
-    assert terminal_user_error_result_from_application_error(error.value, allows_na=False) is None
+    assert result["verdict"] is True
+    assert "terminal_user_error" not in result
+    assert "provider_key_state" not in result
+    assert transport.call_count == 2
 
 
 def _openai_status_error(status: int, message: str) -> openai.APIStatusError:

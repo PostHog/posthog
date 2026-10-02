@@ -1,7 +1,4 @@
-import math
 from collections.abc import Mapping
-from datetime import UTC, datetime
-from email.utils import parsedate_to_datetime
 from urllib.parse import urlsplit
 
 from django.conf import settings
@@ -32,6 +29,7 @@ from products.ai_observability.backend.llm.errors import (
     ProviderConnectionError,
     ProviderRequestRejectedError,
     RateLimitError,
+    RetryableRateLimitError,
     StructuredOutputParseError,
     is_context_window_error_message,
 )
@@ -71,20 +69,9 @@ class SystemOneEndpointBlockedError(LLMError):
     pass
 
 
-class SystemOneRateLimitError(RateLimitError):
+class SystemOneRateLimitError(RetryableRateLimitError):
     def __init__(self, retry_after: str | None) -> None:
-        super().__init__("The System One endpoint is temporarily unavailable. Try again later.")
-        self.retry_after: float | None = None
-        if retry_after:
-            try:
-                delay = float(retry_after)
-            except ValueError:
-                try:
-                    delay = (parsedate_to_datetime(retry_after) - datetime.now(UTC)).total_seconds()
-                except (ValueError, TypeError, OverflowError):
-                    return
-            if math.isfinite(delay):
-                self.retry_after = max(1, min(delay, 60))
+        super().__init__("The System One endpoint is temporarily unavailable. Try again later.", retry_after)
 
 
 class SystemOneClient:

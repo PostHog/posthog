@@ -48,7 +48,8 @@ Responses, including errors and streamed completions, are limited to 1 MiB.
 The endpoint must return uncompressed responses; compressed responses are rejected before decoding.
 Expired requests, rejected responses, and streams closed by the caller close their underlying connection.
 
-The OpenAI SDK does not retry custom-provider requests. Online evaluations use their existing Temporal retry policy for transient failures, and worker cancellation propagates to Temporal.
+The OpenAI SDK does not retry custom-provider requests. Online evaluations and taggers use their existing Temporal retry policies for transient failures, and worker cancellation propagates to Temporal.
+Rate-limit responses retry without disabling the evaluation or marking its connection invalid, honoring `Retry-After` up to one minute. Quota and authentication errors keep their existing terminal behavior.
 Models without native structured-output support retain the JSON fallback, which can make one additional bounded request.
 Oversized or compressed completion responses skip the evaluation as a rejected request without disabling the connection.
 The evaluation records the response limit and how to configure the endpoint.

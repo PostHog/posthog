@@ -1,7 +1,7 @@
 import json
 import uuid
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, TypedDict
 
 import pytest
@@ -852,7 +852,8 @@ class TestSkippedResultsStayOutOfErrorTracking:
         mock_capture_exception.assert_not_called()
 
 
-def test_custom_provider_tagger_uses_bounded_completion() -> None:
+@pytest.mark.parametrize("rate_limited", [False, True])
+def test_custom_provider_tagger_uses_bounded_completion(rate_limited: bool) -> None:
     key = LLMProviderKey(
         id=uuid.uuid4(),
         provider="openai_compatible",
@@ -877,25 +878,36 @@ def test_custom_provider_tagger_uses_bounded_completion() -> None:
             ],
         }
     ).encode()
+    responses = [httpx.Response(200, stream=httpx.ByteStream(payload))]
+    if rate_limited:
+        responses.insert(0, httpx.Response(429, headers={"Retry-After": "15"}, stream=httpx.ByteStream(b"")))
+    inputs = ExecuteTaggerInputs(
+        tagger={
+            "id": "test-tagger",
+            "team_id": 1,
+            "tagger_config": make_tagger_config(),
+            "model_configuration": {"provider": "openai_compatible", "model": "some-model"},
+        },
+        event_data=create_mock_event_data(1),
+    )
     with (
         patch.object(key, "save"),
         patch("posthog.temporal.ai_observability.model_resolution.EvaluationConfig") as configs,
         patch(
             "httpx.AsyncHTTPTransport.handle_async_request",
-            return_value=httpx.Response(200, stream=httpx.ByteStream(payload)),
-        ),
+            side_effect=responses,
+        ) as transport,
     ):
         configs.objects.get_or_create.return_value = (MagicMock(active_provider_key=key), False)
-        result = execute_tagger_activity(
-            ExecuteTaggerInputs(
-                tagger={
-                    "id": "test-tagger",
-                    "team_id": 1,
-                    "tagger_config": make_tagger_config(),
-                    "model_configuration": {"provider": "openai_compatible", "model": "some-model"},
-                },
-                event_data=create_mock_event_data(1),
-            )
-        )
+        if rate_limited:
+            with pytest.raises(ApplicationError) as error:
+                execute_tagger_activity(inputs)
+            assert not error.value.non_retryable
+            assert error.value.next_retry_delay == timedelta(seconds=15)
+            assert error.value.details == ({"error_type": "provider_unavailable", "provider": "openai_compatible"},)
+            assert transport.call_count == 1
+        result = execute_tagger_activity(inputs)
     assert result["tags"] == ["billing"]
     assert result["reasoning"] == "Billing question"
+    assert key.state == LLMProviderKey.State.OK
+    assert transport.call_count == (2 if rate_limited else 1)

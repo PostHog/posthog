@@ -17,9 +17,11 @@ from posthog.security.url_validation import PinnedUrlVerdict
 
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
+    LLMError,
     ProviderConfigurationError,
     ProviderRequestRejectedError,
     ProviderTimeoutError,
+    QuotaExceededError,
 )
 from products.ai_observability.backend.llm.providers import openai_compatible
 from products.ai_observability.backend.llm.providers.openai_compatible import (
@@ -370,11 +372,19 @@ class TestOpenAICompatibleRequestBounds(TestCase):
         assert isinstance(error, openai.APIConnectionError)
         assert isinstance(error.__cause__, httpx.TimeoutException)
 
-    def test_complete_preserves_authentication_errors(self) -> None:
-        response = httpx.Response(401, stream=httpx.ByteStream(b'{"error":{"message":"Invalid API key"}}'))
+    @parameterized.expand(
+        [
+            (401, {"message": "Invalid API key"}, AuthenticationError),
+            (429, {"message": "Quota exceeded", "code": "insufficient_quota"}, QuotaExceededError),
+        ]
+    )
+    def test_complete_preserves_permanent_errors(
+        self, status: int, error_body: dict[str, str], expected_error: type[LLMError]
+    ) -> None:
+        response = httpx.Response(status, stream=httpx.ByteStream(json.dumps({"error": error_body}).encode()))
         with (
             patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response),
-            pytest.raises(AuthenticationError),
+            pytest.raises(expected_error),
         ):
             OpenAICompatibleAdapter(base_url=ALLOWED_BASE_URL).complete(
                 _completion_request(), "test-key", AnalyticsContext(capture=False)

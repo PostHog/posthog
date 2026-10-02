@@ -68,7 +68,7 @@ class TestPlaygroundStreamCleanup:
         ):
             response = await asyncio.to_thread(view._create_streaming_response, stream)
             assert isinstance(response, StreamingHttpResponse)
-            iterator = cast(AsyncGenerator[bytes], aiter(response._iterator))
+            iterator = cast(AsyncGenerator[bytes], aiter(response._iterator))  # type: ignore[attr-defined]
             first_chunk = asyncio.Event()
 
             async def consume() -> None:

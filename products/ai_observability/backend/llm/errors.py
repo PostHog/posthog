@@ -1,4 +1,7 @@
+import math
 import logging
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 
 from products.ai_observability.backend.llm.types import StreamChunk
 
@@ -29,6 +32,22 @@ class AuthenticationError(LLMError):
 
 class RateLimitError(LLMError):
     """Raised when rate limit is exceeded"""
+
+
+class RetryableRateLimitError(RateLimitError):
+    def __init__(self, message: str, retry_after: str | None = None) -> None:
+        super().__init__(message)
+        self.retry_after: float | None = None
+        if retry_after:
+            try:
+                delay = float(retry_after)
+            except ValueError:
+                try:
+                    delay = (parsedate_to_datetime(retry_after) - datetime.now(UTC)).total_seconds()
+                except (ValueError, TypeError, OverflowError):
+                    return
+            if math.isfinite(delay):
+                self.retry_after = max(1, min(delay, 60))
 
 
 class QuotaExceededError(LLMError):
