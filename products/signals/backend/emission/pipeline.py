@@ -38,7 +38,7 @@ from products.signals.backend.temporal.llm import effort_kwargs
 
 logger = structlog.get_logger(__name__)
 
-LLM_MODEL = os.getenv("SIGNAL_EMISSION_LLM_MODEL", "claude-sonnet-5")
+LLM_MODEL = os.getenv("SIGNAL_EMISSION_LLM_MODEL", "claude-sonnet-5-5")
 # ai_product label for the emission-stage generations (summarization, actionability).
 EMISSION_AI_PRODUCT = "signals_emission"
 # Concurrent LLM calls limit for actionability/summarization checks

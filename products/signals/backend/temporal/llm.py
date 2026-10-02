@@ -19,12 +19,12 @@ from products.signals.backend.temporal import metrics
 
 logger = structlog.get_logger(__name__)
 
-MATCHING_MODEL = os.getenv("SIGNAL_MATCHING_LLM_MODEL", "claude-sonnet-5")
+MATCHING_MODEL = os.getenv("SIGNAL_MATCHING_LLM_MODEL", "claude-sonnet-5-5")
 
 # Both safety stages resolve their model from here. The default is a literal rather than
 # MATCHING_MODEL, so a matching-model swap leaves the gate on the model its prompt was measured
 # against, and moving the gate takes a deliberate change to this setting.
-SAFETY_MODEL = os.getenv("SIGNAL_SAFETY_LLM_MODEL") or "claude-sonnet-5"
+SAFETY_MODEL = os.getenv("SIGNAL_SAFETY_LLM_MODEL") or "claude-sonnet-5-5"
 
 
 @frozen
@@ -58,6 +58,7 @@ MODEL_CAPABILITIES: dict[str, ModelCapabilities] = {
     "claude-sonnet-4-6": ModelCapabilities(prefill=False, temperature=True, thinking="adaptive"),
     "claude-opus-4-8": _MODERN,
     "claude-sonnet-5": _MODERN,
+    "claude-sonnet-5-5": _MODERN,
     "claude-opus-5": _MODERN,
 }
 
