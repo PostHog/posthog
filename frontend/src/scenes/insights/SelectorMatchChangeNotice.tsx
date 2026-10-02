@@ -3,9 +3,11 @@ import { useValues } from 'kea'
 import { LemonBanner } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { hasSelectorMatchChange } from 'scenes/insights/selectorMatchChange'
+import { getSelectorMatchChanges } from 'scenes/insights/selectorMatchChange'
+import { urls } from 'scenes/urls'
 
 import { actionsModel } from '~/models/actionsModel'
 import { InsightLogicProps } from '~/types'
@@ -20,14 +22,34 @@ export function SelectorMatchChangeNotice({ insightProps }: SelectorMatchChangeN
     const { series } = useValues(insightVizDataLogic(insightProps))
     const { actionsById } = useValues(actionsModel)
 
-    if (!featureFlags[FEATURE_FLAGS.SELECTOR_MATCH_CHANGE_NOTICE] || !hasSelectorMatchChange(series, actionsById)) {
+    if (!featureFlags[FEATURE_FLAGS.SELECTOR_MATCH_CHANGE_NOTICE]) {
+        return null
+    }
+    const changes = getSelectorMatchChanges(series, actionsById)
+    if (changes.length === 0) {
         return null
     }
 
     return (
         <LemonBanner type="info" dismissKey={FEATURE_FLAGS.SELECTOR_MATCH_CHANGE_NOTICE}>
-            Actions now match only the elements their CSS selector describes. An action in this insight matched more
-            before, so these numbers are lower than they were, including for past dates.
+            <p>Some counts in this insight are lower than they were, including for past dates.</p>
+            <p>
+                Conditions written together in a selector, like a tag and a class, now have to be met by the same
+                element. Before, they could come from different elements. This changed the counts for:
+            </p>
+            <ul className="list-disc list-inside mb-0">
+                {changes.map((change) => (
+                    <li key={change.actionId}>
+                        <Link to={urls.action(change.actionId)}>{change.actionName}</Link>
+                        {change.selectors.map((selector, index) => (
+                            <span key={`${selector}-${index}`}>
+                                {index === 0 ? ': ' : ', '}
+                                <span className="font-mono">{selector}</span>
+                            </span>
+                        ))}
+                    </li>
+                ))}
+            </ul>
         </LemonBanner>
     )
 }
