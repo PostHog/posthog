@@ -69444,6 +69444,20 @@ export namespace Schemas {
       Filters: 'filters',
     } as const;
 
+    /**
+     * * `new` - new
+     * * `pin` - pin
+     * * `duplicate` - duplicate
+     */
+    export type SessionRecordingPlaylistCreationMethodEnum = typeof SessionRecordingPlaylistCreationMethodEnum[keyof typeof SessionRecordingPlaylistCreationMethodEnum];
+
+
+    export const SessionRecordingPlaylistCreationMethodEnum = {
+      New: 'new',
+      Pin: 'pin',
+      Duplicate: 'duplicate',
+    } as const;
+
     export type SessionRecordingPlaylistRecordingsCounts = {[key: string]: {[key: string]: number | boolean | null}};
 
     export interface SessionRecordingPlaylist {
@@ -69481,6 +69495,12 @@ export namespace Schemas {
       /** Return whether this is a synthetic playlist */
       readonly is_synthetic: boolean;
       _create_in_folder?: string;
+      /** How the PostHog app created the playlist, for product analytics. Not stored.
+       *
+       * * `new` - new
+       * * `pin` - pin
+       * * `duplicate` - duplicate */
+      creation_method?: SessionRecordingPlaylistCreationMethodEnum;
     }
 
     export interface PaginatedSessionRecordingPlaylistList {
@@ -80580,6 +80600,12 @@ export namespace Schemas {
       /** Return whether this is a synthetic playlist */
       readonly is_synthetic?: boolean;
       _create_in_folder?: string;
+      /** How the PostHog app created the playlist, for product analytics. Not stored.
+       *
+       * * `new` - new
+       * * `pin` - pin
+       * * `duplicate` - duplicate */
+      creation_method?: SessionRecordingPlaylistCreationMethodEnum;
     }
 
     /**
