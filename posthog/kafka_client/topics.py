@@ -40,10 +40,6 @@ KAFKA_CLICKHOUSE_HEATMAP_EVENTS = f"{KAFKA_PREFIX}clickhouse_heatmap_events{SUFF
 KAFKA_CLICKHOUSE_AI_EVENTS_JSON = f"{KAFKA_PREFIX}clickhouse_ai_events_json{SUFFIX}"
 KAFKA_CLICKHOUSE_FLAG_EVALUATIONS = f"{KAFKA_PREFIX}clickhouse_flag_evaluations{SUFFIX}"
 
-# Legacy session recording topic — only retained because clickhouse migration 0063 still
-# DROPs the old materialized view by name. Producers/consumers live in the Node.js services.
-KAFKA_SESSION_RECORDING_EVENTS = f"{KAFKA_PREFIX}session_recording_events{SUFFIX}"
-
 # from recordings consumer to clickhouse
 KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS = f"{KAFKA_PREFIX}clickhouse_session_replay_events{SUFFIX}"
 KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES = f"{KAFKA_PREFIX}clickhouse_session_replay_features{SUFFIX}"

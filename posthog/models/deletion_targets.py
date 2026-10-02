@@ -24,12 +24,8 @@ from clickhouse_driver.errors import ServerException
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.cluster import ClickhouseCluster, Query
-from posthog.models.event.sql import (
-    DISTRIBUTED_EVENTS_JSON_TABLE,
-    EVENTS_DATA_TABLE,
-    EVENTS_JSON_DATA_TABLE,
-    SHARDED_EVENTS_RECENT_DATA_TABLE,
-)
+from posthog.clickhouse.events_json import DISTRIBUTED_EVENTS_JSON_TABLE
+from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE, SHARDED_EVENTS_RECENT_DATA_TABLE
 from posthog.models.flag_evaluations.sql import (
     FLAG_EVALUATIONS_DATA_TABLE,
     FLAG_EVALUATIONS_SOURCE_EVENT,

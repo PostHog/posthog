@@ -3,9 +3,7 @@ import re
 import csv
 import datetime
 
-from posthog.clickhouse.client.connection import ClickHouseUser, get_clickhouse_creds
-from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
-from posthog.clickhouse.table_engines import ReplacingMergeTree
+from posthog.exchange_rate_constants import EXCHANGE_RATE_DICTIONARY_NAME as EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 
 from .currencies import SUPPORTED_CURRENCY_CODES
@@ -108,43 +106,7 @@ def HISTORICAL_EXCHANGE_RATE_TUPLES():
 
 # Re-exported from the Django-free posthog.exchange_rate_constants module so the HogQL engine can
 # use them without booting Django; kept importable here for existing callers.
-from posthog.exchange_rate_constants import (  # noqa: E402
-    EXCHANGE_RATE_DECIMAL_PRECISION,
-    EXCHANGE_RATE_DICTIONARY_NAME,
-    EXCHANGE_RATE_TABLE_NAME,
-)
-
-
-# `version` is used to ensure the latest version is kept, see https://clickhouse.com/docs/engines/table-engines/mergetree-family/replacingmergetree
-def EXCHANGE_RATE_TABLE_SQL(on_cluster=True):
-    return """
-CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause} (
-    currency String,
-    date Date,
-    rate Decimal64({decimal_precision}),
-    version UInt32 DEFAULT toUnixTimestamp(now())
-) ENGINE = {engine}
-ORDER BY (date, currency);
-""".format(
-        table_name=f"`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_TABLE_NAME}`",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
-        decimal_precision=EXCHANGE_RATE_DECIMAL_PRECISION,
-        engine=ReplacingMergeTree("exchange_rate", ver="version"),
-    )
-
-
-def DROP_EXCHANGE_RATE_TABLE_SQL(on_cluster=False):
-    return "DROP TABLE IF EXISTS {table_name} {on_cluster_clause}".format(
-        table_name=f"`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_TABLE_NAME}`",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
-    )
-
-
-def TRUNCATE_EXCHANGE_RATE_TABLE_SQL(on_cluster=False):
-    return "TRUNCATE TABLE IF EXISTS {table_name} {on_cluster_clause}".format(
-        table_name=f"`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_TABLE_NAME}`",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
-    )
+from posthog.exchange_rate_constants import EXCHANGE_RATE_TABLE_NAME  # noqa: E402
 
 
 def EXCHANGE_RATE_DATA_BACKFILL_SQL(exchange_rates=None):
@@ -200,50 +162,3 @@ WINDOW w AS (
     .strip()
 )
 EXCHANGE_RATE_DICTIONARY_QUERY = re.sub(r"\s\s+", " ", EXCHANGE_RATE_DICTIONARY_QUERY)
-
-_dict_reader_creds = get_clickhouse_creds(ClickHouseUser.DICT_READER)
-CLICKHOUSE_DICT_READER_USER = _dict_reader_creds.user
-CLICKHOUSE_DICT_READER_PASSWORD = _dict_reader_creds.password
-
-
-# Use RANGE_HASHED to simplify queries by date
-#
-# Because our underlying table is sparse (i.e. we don't have currencies for every date),
-# we'll create the concept of a "range" for each currency, which will be the date range
-# that a specific rate is valid for.
-#
-# Ideally, we'd set the `end_date` but we don't need that because Clickhouse has good
-# support for open-ended ranges, and therefore we always set it to NULL.
-# The `range_lookup_strategy 'max'` declaration will ensure that
-# we always get the latest rate for a given date and currency.
-#
-# Also, note the `anyLast` function on the query construction
-# It is used to get the latest rate for a given date and currency from the underlying table
-# given that we might have more than one while the merges haven't finished yet
-def EXCHANGE_RATE_DICTIONARY_SQL(on_cluster=False):
-    return """
-CREATE DICTIONARY IF NOT EXISTS {exchange_rate_dictionary_name} {on_cluster_clause} (
-    currency String,
-    start_date Date,
-    end_date Nullable(Date),
-    rate Decimal64({decimal_precision})
-)
-PRIMARY KEY currency
-SOURCE(CLICKHOUSE(QUERY '{query}' USER '{clickhouse_user}' PASSWORD '{clickhouse_password}'))
-LIFETIME(MIN 3000 MAX 3600)
-LAYOUT(RANGE_HASHED(range_lookup_strategy 'max'))
-RANGE(MIN start_date MAX end_date)""".format(
-        exchange_rate_dictionary_name=f"`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
-        decimal_precision=EXCHANGE_RATE_DECIMAL_PRECISION,
-        query=EXCHANGE_RATE_DICTIONARY_QUERY,
-        clickhouse_user=CLICKHOUSE_DICT_READER_USER,
-        clickhouse_password=CLICKHOUSE_DICT_READER_PASSWORD,
-    )
-
-
-def DROP_EXCHANGE_RATE_DICTIONARY_SQL(on_cluster=False):
-    return "DROP DICTIONARY IF EXISTS {dictionary_name} {on_cluster_clause}".format(
-        dictionary_name=f"`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
-    ).strip()

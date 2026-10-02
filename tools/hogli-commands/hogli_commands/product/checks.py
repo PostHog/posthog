@@ -912,17 +912,16 @@ class IsolationChainCheck(ProductCheck):
             )
 
         # Watching the permanent-interface exposures: a marked [[interfaces]] block lets core
-        # depend on these modules outside the import graph (ClickHouse DDL in the schema registry
-        # and frozen migrations). That coupling can't be sealed, so the skip stays sound only if a
-        # change to those modules still re-runs the suite — they must be in the contract-check
-        # inputs. Mirrors routes_unwatched.
+        # depend on these modules outside the facade. That coupling can't be sealed, so the skip
+        # stays sound only if a change to those modules still re-runs the suite — they must be in
+        # the contract-check inputs. Mirrors routes_unwatched.
         if has_narrowed and status.uncovered_permanent_exposures:
             globs = ", ".join(f"{m.replace('.', '/')}.py" for m in status.uncovered_permanent_exposures)
             result.issues.append(
                 "turbo.json narrows contract-check inputs but omits the permanently-exposed module(s) "
-                f"{', '.join(status.uncovered_permanent_exposures)} — core depends on them outside the import "
-                "graph (ClickHouse DDL in the schema registry and frozen migrations), so a change to them "
-                f"would skip the Django suite. Add the matching input(s) ({globs}) to keep the skip sound"
+                f"{', '.join(status.uncovered_permanent_exposures)} — core depends on them outside the facade, "
+                f"so a change to them would skip the Django suite. Add the matching input(s) ({globs}) to keep "
+                "the skip sound"
             )
 
         # Watching the wiring locations: a location the product has must stay in the contract-check
@@ -956,16 +955,16 @@ class IsolationChainCheck(ProductCheck):
             )
 
         # Guarding against marker abuse: the permanent-interface marker is only legitimate for
-        # modules core depends on outside the import graph (ClickHouse DDL in a frozen migration or
-        # the schema registry). Without this check the marker is mechanically unrestricted — a
-        # product could mark backend.models/backend.logic permanent, list it in turbo inputs, and
-        # pass the chain. Fires regardless of has_narrowed: the abuse lives in tach.toml itself, not
-        # in turbo config, so it must block even before the product narrows.
+        # the modules PERMANENT_INTERFACE_MODULES lists. Without this check the marker is
+        # mechanically unrestricted — a product could mark backend.models/backend.logic permanent,
+        # list it in turbo inputs, and pass the chain. Fires regardless of has_narrowed: the abuse
+        # lives in tach.toml itself, not in turbo config, so it must block even before the product
+        # narrows.
         if status.unqualified_permanent_exposures:
             modules = ", ".join(status.unqualified_permanent_exposures)
             result.issues.append(
-                f"permanent-interface marker covers module(s) {modules}, but they are not imported by any "
-                "frozen ClickHouse migration or the ClickHouse schema registry — so they don't qualify as a "
+                f"permanent-interface marker covers module(s) {modules}, but PERMANENT_INTERFACE_MODULES in "
+                "hogli_commands/product/isolation.py does not list them — so they don't qualify as a "
                 "permanent interface. Route them through the facade instead (or remove the marker)"
             )
 

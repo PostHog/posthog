@@ -40,8 +40,7 @@ class NodeRole(StrEnum):
     INGESTION_EVENTS = "events"
     # Same macro, named for what the role holds rather than what writes to it. The nodes carrying
     # this role run the events ingestion layer and are also the events cluster's shards, so a
-    # caller reasoning about stored data (deletion, squash) reads better against EVENTS while the
-    # migrations that create ingestion tables keep INGESTION_EVENTS.
+    # caller reasoning about stored data (deletion, squash) reads better against EVENTS.
     EVENTS = "events"
     INGESTION_SMALL = "small"
     INGESTION_MEDIUM = "medium"
@@ -55,26 +54,6 @@ class NodeRole(StrEnum):
     BATCH_EXPORTS = "batch_exports"
     OPS = "ops"
     SESSIONS = "sessions"
-
-
-# Roles that host replicated MergeTree data; valid ALTER TABLE targets.
-# LOGS hosts replicated tables too (metric_series1/metric_samples1 via migration
-# 0283); non-sharded ALTERs on it run via any_host_by_roles like the satellites.
-DATA_NODE_ROLES: frozenset[NodeRole] = frozenset(
-    {
-        NodeRole.DATA,
-        NodeRole.AI_EVENTS,
-        NodeRole.AUX,
-        NodeRole.BATCH_EXPORTS,
-        NodeRole.LOGS,
-        NodeRole.OPS,
-        NodeRole.SESSIONS,
-    }
-)
-# Single-shard data clusters: ALTER runs on one host, replication propagates.
-SINGLE_SHARD_DATA_NODE_ROLES: frozenset[NodeRole] = frozenset(
-    {NodeRole.AI_EVENTS, NodeRole.AUX, NodeRole.BATCH_EXPORTS, NodeRole.OPS, NodeRole.SESSIONS}
-)
 
 
 _default_workload = Workload.ONLINE

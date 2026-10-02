@@ -26,9 +26,10 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 
 from products.alerts.backend.facade.contracts import AlertEventKind, AnnouncedTransition, EvaluationAnnouncement
-from products.alerts.backend.models.platform_alert_events_sql import PLATFORM_ALERT_EVENTS_TABLE
 
 logger = structlog.get_logger(__name__)
+
+PLATFORM_ALERT_EVENTS_TABLE = "platform_alert_events"
 
 
 @frozen

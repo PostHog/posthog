@@ -316,9 +316,6 @@ CLICKHOUSE_PASSWORD_FILE: str | None = os.getenv("CLICKHOUSE_PASSWORD_FILE", Non
 CLICKHOUSE_DATABASE: str = CLICKHOUSE_TEST_DB if TEST else os.getenv("CLICKHOUSE_DATABASE", "default")
 CLICKHOUSE_CLUSTER: str = os.getenv("CLICKHOUSE_CLUSTER", "posthog")
 CLICKHOUSE_MIGRATIONS_CLUSTER: str = os.getenv("CLICKHOUSE_MIGRATIONS_CLUSTER", "posthog_migrations")
-CLICKHOUSE_SATELLITE_CLUSTERS: list[str] = [
-    s.strip() for s in os.getenv("CLICKHOUSE_SATELLITE_CLUSTERS", "ai_events,aux,ops,sessions").split(",") if s.strip()
-]
 CLICKHOUSE_CA: str | None = os.getenv("CLICKHOUSE_CA", None)
 CLICKHOUSE_SECURE: bool = get_from_env("CLICKHOUSE_SECURE", not TEST and not DEBUG, type_cast=str_to_bool)
 CLICKHOUSE_VERIFY: bool = get_from_env("CLICKHOUSE_VERIFY", True, type_cast=str_to_bool)
@@ -339,10 +336,6 @@ CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: bool = TEST and get_from_env(
 # query_log_archive's single data table lives on the OPS cluster; every cluster's
 # Distributed read/write tables route to it via this cluster name.
 CLICKHOUSE_OPS_CLUSTER: str = os.getenv("CLICKHOUSE_OPS_CLUSTER", "ops")
-# Opt-in flag for the multinode ClickHouse smoke-test stack. When true, migrations
-# respect their declared NodeRole(s) instead of being collapsed to NodeRole.ALL,
-# so a per-cluster topology can actually exercise routing.
-MULTINODE_CLICKHOUSE: bool = get_from_env("MULTINODE_CLICKHOUSE", False, type_cast=str_to_bool)
 CLICKHOUSE_FALLBACK_CANCEL_QUERY_ON_CLUSTER = get_from_env(
     "CLICKHOUSE_FALLBACK_CANCEL_QUERY_ON_CLUSTER", default=False, type_cast=str_to_bool
 )

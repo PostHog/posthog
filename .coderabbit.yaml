@@ -149,9 +149,9 @@ knowledge_base:
             - files: 'docs/published/handbook/engineering/safe-django-migrations.md,docs/published/handbook/engineering/databases/async-migrations.md,docs/published/handbook/engineering/databases/schema-changes.md,.agents/skills/django-migrations/SKILL.md'
               applyTo: '**/migrations/**/*.py'
 
-            # ClickHouse migrations.
-            - files: 'posthog/clickhouse/migrations/README.md,docs/published/handbook/engineering/databases/clickhouse-event-table-migrations.md,.agents/skills/clickhouse-migrations/SKILL.md'
-              applyTo: 'posthog/clickhouse/migrations/**'
+            # ClickHouse schema.
+            - files: 'posthog/clickhouse/schema/README.md,docs/published/handbook/engineering/databases/schema-changes.md,.agents/skills/clickhouse-migrations/SKILL.md'
+              applyTo: 'posthog/clickhouse/schema/**'
 
             # ClickHouse and HogQL query writing.
             - files: '.agents/skills/writing-clickhouse-queries/SKILL.md'
@@ -226,7 +226,7 @@ knowledge_base:
             - 'services/llm-gateway/PARITY.md'
 
             # Backend, data, API, and protocol contracts.
-            - 'posthog/clickhouse/hcl/README.md'
+            - 'posthog/clickhouse/schema/README.md'
             - 'posthog/hogql/ACCESS_CONTROL.md'
             - 'posthog/models/scoping/README.md'
             - 'posthog/models/team/README.md'
