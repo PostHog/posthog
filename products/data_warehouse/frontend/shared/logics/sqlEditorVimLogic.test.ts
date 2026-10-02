@@ -4,6 +4,8 @@ import { expectLogic } from 'kea-test-utils'
 
 import { userLogic } from 'scenes/userLogic'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
+import { uiCustomizationLogic } from '~/layout/uiCustomizationLogic'
 import { useMocks } from '~/mocks/jest'
 import { UserUIConfiguration } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -99,41 +101,82 @@ describe('sqlEditorVimLogic', () => {
         expect(logic.values.vimrcEditorKey).toBeNull()
     })
 
-    it('keeps an in-flight Vim mode change when the vimrc is saved before it returns', async () => {
-        const patches: Partial<UserType>[] = []
-        let releaseFirstPatch: () => void = () => {}
-        const firstPatchHeld = new Promise<void>((resolve) => {
-            releaseFirstPatch = resolve
-        })
-        useMocks({
-            patch: {
-                '/api/users/@me/': async ({ request }) => {
-                    const body = (await request.json()) as Partial<UserType>
-                    patches.push(body)
-                    if (patches.length === 1) {
-                        await firstPatchHeld
-                    }
-                    return [200, { ...MOCK_DEFAULT_USER, ...body }]
+    it.each(['vimrc', 'sidebar-after-vim', 'sidebar-before-vim'] as const)(
+        'preserves both settings when the queued change is %s',
+        async (scenario) => {
+            const patches: Partial<UserType>[] = []
+            let releaseFirstPatch: () => void = () => {}
+            let reportFirstStarted: () => void = () => {}
+            const firstStarted = new Promise<void>((resolve) => {
+                reportFirstStarted = resolve
+            })
+            const firstPatchHeld = new Promise<void>((resolve) => {
+                releaseFirstPatch = resolve
+            })
+            useMocks({
+                patch: {
+                    '/api/users/@me/': async ({ request }) => {
+                        const body = (await request.json()) as Partial<UserType>
+                        patches.push(body)
+                        if (patches.length === 1) {
+                            reportFirstStarted()
+                            await firstPatchHeld
+                        }
+                        return [200, { ...MOCK_DEFAULT_USER, ...body }]
+                    },
                 },
-            },
-        })
-        setUp({ uiConfiguration: { version: 1 } })
+            })
+            setUp({ uiConfiguration: { version: 1 } })
 
-        logic.actions.setVimModeEnabled(true)
-        logic.actions.setVimrcDraft('set relativenumber')
-        logic.actions.saveVimrc()
-        await expectLogic(logic).toDispatchActions(['updateUserSuccess'])
-        releaseFirstPatch()
-        await expectLogic(logic).toDispatchActions(['updateUserSuccess'])
+            if (scenario === 'sidebar-before-vim') {
+                uiCustomizationLogic.actions.setSidebarDensity('compact')
+            } else {
+                logic.actions.setVimModeEnabled(true)
+            }
+            await firstStarted
 
-        expect(patches.map((patch) => patch.ui_configuration?.sql_editor)).toEqual([
-            { vim_mode_enabled: true },
-            { vim_mode_enabled: true, vimrc: 'set relativenumber' },
-        ])
-    })
+            if (scenario === 'vimrc') {
+                logic.actions.setVimrcDraft('set relativenumber')
+                logic.actions.saveVimrc()
+            } else if (scenario === 'sidebar-after-vim') {
+                uiCustomizationLogic.actions.setSidebarDensity('compact')
+            } else {
+                logic.actions.setVimModeEnabled(true)
+            }
+            const requestsBeforeRelease = patches.length
+            const optimisticConfiguration = logic.values.uiConfiguration
+            await expectLogic(userLogic, releaseFirstPatch).toFinishAllListeners()
 
-    it('keeps an in-flight Vim mode change when an unrelated account update finishes first', async () => {
+            const expectedConfiguration = {
+                version: 1,
+                ...(scenario === 'vimrc' ? {} : { sidebar: { density: 'compact' } }),
+                sql_editor: {
+                    vim_mode_enabled: true,
+                    ...(scenario === 'vimrc' ? { vimrc: 'set relativenumber' } : {}),
+                },
+            }
+            expect(requestsBeforeRelease).toBe(1)
+            expect(patches).toHaveLength(2)
+            expect(optimisticConfiguration).toEqual(expectedConfiguration)
+            expect(patches[1].ui_configuration).toEqual(expectedConfiguration)
+            expect(logic.values.uiConfiguration).toEqual(expectedConfiguration)
+        }
+    )
+
+    it.each([200, 400])('keeps queued Vim changes when an unrelated update returns %s', async (status) => {
+        let releaseAccountPatch: () => void = () => {}
+        let reportAccountStarted: () => void = () => {}
         let releaseVimPatch: () => void = () => {}
+        let reportVimStarted: () => void = () => {}
+        const accountStarted = new Promise<void>((resolve) => {
+            reportAccountStarted = resolve
+        })
+        const accountPatchHeld = new Promise<void>((resolve) => {
+            releaseAccountPatch = resolve
+        })
+        const vimStarted = new Promise<void>((resolve) => {
+            reportVimStarted = resolve
+        })
         const vimPatchHeld = new Promise<void>((resolve) => {
             releaseVimPatch = resolve
         })
@@ -141,7 +184,15 @@ describe('sqlEditorVimLogic', () => {
             patch: {
                 '/api/users/@me/': async ({ request }) => {
                     const body = (await request.json()) as Partial<UserType>
-                    if (body.ui_configuration) {
+                    if (!body.ui_configuration) {
+                        reportAccountStarted()
+                        await accountPatchHeld
+                        return status === 400
+                            ? [400, { detail: 'Update rejected by server.' }]
+                            : [200, { ...MOCK_DEFAULT_USER, ...body }]
+                    }
+                    if (!body.ui_configuration.sql_editor?.vimrc) {
+                        reportVimStarted()
                         await vimPatchHeld
                     }
                     return [200, { ...MOCK_DEFAULT_USER, ...body }]
@@ -149,12 +200,51 @@ describe('sqlEditorVimLogic', () => {
             },
         })
         setUp({ uiConfiguration: { version: 1 } })
+        silenceKeaLoadersErrors()
+        try {
+            userLogic.actions.updateUser({ theme_mode: 'dark' })
+            await accountStarted
+            logic.actions.setVimModeEnabled(true)
+            logic.actions.setVimrcDraft('set relativenumber')
+            logic.actions.saveVimrc()
 
-        logic.actions.setVimModeEnabled(true)
-        userLogic.actions.updateUser({ theme_mode: 'dark' })
-        await expectLogic(logic).toDispatchActions(['updateUserSuccess'])
+            const accountFinished = expectLogic(userLogic).toDispatchActions([
+                status === 400 ? 'updateUserFailure' : 'updateUserSuccess',
+            ])
+            releaseAccountPatch()
+            await accountFinished
+            await vimStarted
 
-        expect(logic.values.vimModeEnabled).toBe(true)
-        releaseVimPatch()
+            expect(logic.values.vimModeEnabled).toBe(true)
+            expect(logic.values.vimrc).toBe('set relativenumber')
+            expect(logic.values.vimrcSaving).toBe(true)
+
+            await expectLogic(userLogic, releaseVimPatch).toFinishAllListeners()
+            expect(logic.values.vimrcSaving).toBe(false)
+            expect(logic.values.vimrc).toBe('set relativenumber')
+        } finally {
+            releaseAccountPatch()
+            releaseVimPatch()
+            resumeKeaLoadersErrors()
+        }
+    })
+
+    it('clears the loading state only when its own vimrc save fails', async () => {
+        useMocks({ patch: { '/api/users/@me/': [400, { detail: 'Update rejected by server.' }] } })
+        setUp({ uiConfiguration: { version: 1, sql_editor: { vimrc: 'set pcre' } } })
+        silenceKeaLoadersErrors()
+        try {
+            await expectLogic(userLogic, () => {
+                logic.actions.openVimrcModal('first-editor')
+                logic.actions.setVimrcDraft('set relativenumber')
+                logic.actions.saveVimrc()
+            }).toDispatchActions(['updateUserFailure'])
+
+            expect(logic.values.vimrcSaving).toBe(false)
+            expect(logic.values.isVimrcModalOpen).toBe(true)
+            expect(logic.values.vimrc).toBe('set pcre')
+        } finally {
+            resumeKeaLoadersErrors()
+        }
     })
 })

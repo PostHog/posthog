@@ -1,6 +1,7 @@
 import { VimMode } from 'monaco-vim'
 
-import { createNonrecursiveVimMapping } from './vimrcMappings'
+import { parseVimrc } from './vimrc'
+import { VimrcMappingSession, createNonrecursiveVimMapping } from './vimrcMappings'
 
 jest.mock('monaco-editor', () => ({ KeyCode: {}, editor: {}, SelectionDirection: {} }))
 
@@ -14,6 +15,7 @@ const Vim = (
         Vim: {
             mapclear: () => void
             handleKey: (cm: unknown, key: string) => void
+            handleEx: (cm: unknown, input: string) => void
             maybeInitVimState_: (cm: unknown) => void
         }
     }
@@ -99,6 +101,32 @@ describe('createNonrecursiveVimMapping', () => {
         Vim.handleKey(cm, 'j')
 
         expect(cm.state.vim!.insertMode).toBe(false)
+    })
+
+    it('preserves typed mappings when another editor opens and resets them after the last editor closes', () => {
+        const session = new VimrcMappingSession()
+        const commands = parseVimrc('nmap H j\nset pcre').commands
+        const firstEditor = createAdapter()
+        const releaseFirst = session.retainEditor()
+        session.getCommandsToApply(commands).forEach(({ command }) => Vim.handleEx(firstEditor, command))
+        Vim.handleEx(firstEditor, 'nmap H k')
+
+        const secondEditor = createAdapter()
+        const releaseSecond = session.retainEditor()
+        const secondCommands = session.getCommandsToApply(commands)
+        expect(secondCommands.map(({ command }) => command)).toEqual(['set pcre'])
+        secondCommands.forEach(({ command }) => Vim.handleEx(secondEditor, command))
+
+        Vim.handleKey(firstEditor, 'H')
+        expect(firstEditor.getCursor().line).toBe(0)
+
+        releaseFirst()
+        releaseSecond()
+        const nextEditor = createAdapter()
+        session.retainEditor()
+        session.getCommandsToApply(commands).forEach(({ command }) => Vim.handleEx(nextEditor, command))
+        Vim.handleKey(nextEditor, 'H')
+        expect(nextEditor.getCursor().line).toBe(2)
     })
 
     it('rejects unsupported key sequences instead of making them recursive', () => {

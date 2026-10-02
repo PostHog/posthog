@@ -51110,7 +51110,7 @@
             "description": "Customization of the SQL editor. Extra keys are tolerated so older servers accept configs written by newer clients.",
             "properties": {
                 "vim_mode_enabled": {
-                    "description": "Whether the SQL editor uses Vim keybindings. An absent value means off.",
+                    "description": "Whether the SQL editor uses Vim keybindings. An absent value falls back to the legacy browser preference.",
                     "type": "boolean"
                 },
                 "vimrc": {

@@ -9025,7 +9025,7 @@ export interface SidebarConfiguration {
 
 /** Customization of the SQL editor. Extra keys are tolerated so older servers accept configs written by newer clients. */
 export interface SQLEditorConfiguration {
-    /** Whether the SQL editor uses Vim keybindings. An absent value means off. */
+    /** Whether the SQL editor uses Vim keybindings. An absent value falls back to the legacy browser preference. */
     vim_mode_enabled?: boolean
     /**
      * Vim commands to run when Vim mode starts, one per line, such as `imap jj <Esc>` or `set cursorblink`.

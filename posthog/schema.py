@@ -2923,7 +2923,9 @@ class RevenueCurrencyPropertyConfig(BaseModel):
 class SQLEditorConfiguration(BaseModel):
     vim_mode_enabled: bool | None = Field(
         default=None,
-        description=("Whether the SQL editor uses Vim keybindings. An absent value means off."),
+        description=(
+            "Whether the SQL editor uses Vim keybindings. An absent value falls back to the legacy browser preference."
+        ),
     )
     vimrc: constr(max_length=10000) | None = Field(
         default=None,

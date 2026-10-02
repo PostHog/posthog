@@ -2,7 +2,7 @@ import { editor as monacoEditor } from 'monaco-editor'
 import { VimMode, initVimMode } from 'monaco-vim'
 
 import { VimrcError, parseVimrc } from './vimrc'
-import { VimMappingContext, createNonrecursiveVimMapping } from './vimrcMappings'
+import { VimMappingContext, VimrcMappingSession, createNonrecursiveVimMapping } from './vimrcMappings'
 
 export interface VimModeHandle {
     vimMode: VimMode
@@ -21,6 +21,7 @@ interface VimrcEditorState {
 }
 
 const vimrcEditorStates = new WeakMap<object, VimrcEditorState>()
+const vimrcMappingSession = new VimrcMappingSession()
 let vimrcSupportRegistered = false
 
 // Options and ex commands live on monaco-vim's global Vim object, which all editors share, so register them once.
@@ -100,8 +101,6 @@ function patchCursorBlink(cmAdapter: any): () => void {
 function applyVimrc(cmAdapter: any, vimrc: string): VimrcError[] {
     const Vim = (VimMode as any).Vim
 
-    // Mappings are global and the vimrc can change while the page is open, so start from the default keymap.
-    Vim.mapclear()
     Vim.setOption('cursorblink', false, cmAdapter)
     Vim.setOption('relativenumber', false, cmAdapter)
 
@@ -118,7 +117,7 @@ function applyVimrc(cmAdapter: any, vimrc: string): VimrcError[] {
     }
 
     try {
-        for (const { lineNumber, command } of commands) {
+        for (const { lineNumber, command } of vimrcMappingSession.getCommandsToApply(commands)) {
             captured.notification = null
             try {
                 Vim.handleEx(cmAdapter, command)
@@ -383,6 +382,7 @@ export function setupVimMode(
     const restoreCursorBlink = patchCursorBlink(cmAdapter)
     const cleanupClipboard = setupClipboardSync(editor, statusBarEl)
 
+    const releaseVimrcMappings = vimrcMappingSession.retainEditor()
     const vimrcFailures = applyVimrc(cmAdapter, options?.vimrc ?? '')
     if (vimrcFailures.length) {
         const [{ lineNumber, message }] = vimrcFailures
@@ -402,6 +402,7 @@ export function setupVimMode(
         vimMode,
         dispose: () => {
             cleanupHistoryPersistence?.()
+            releaseVimrcMappings()
             cleanupClipboard()
             restoreCursorBlink()
             restoreSetSec()
