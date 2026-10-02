@@ -841,7 +841,9 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         // A group action clamps each row to the levels it can take, so a group set to write holds a
         // read-only row at read and a project-scoped row at none.
         setScopeGroupAccess: ({ keys, level }) => {
-            const rowsByKey = new Map(values.scopeRows.map((row) => [row.scope.key, row]))
+            const rowsByKey = new Map<string, PersonalAPIKeyScopeRow>(
+                values.scopeRows.map((row) => [row.scope.key, row])
+            )
             const levels = keys.flatMap((key): [string, ScopeAccessLevel][] => {
                 const row = rowsByKey.get(key)
                 return row ? [[key, clampScopeLevel(row, level)]] : []
