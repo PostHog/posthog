@@ -15,6 +15,7 @@ from posthog.permissions import APIScopePermission
 
 from products.signals.backend.facade.rubrics import (
     MAX_CRITERIA,
+    MAX_GENERATION_CONTEXT_LENGTH,
     RUBRIC_TEAM_ID,
     ScoutRubricCriterion,
     ScoutRubricDocument,
@@ -53,6 +54,11 @@ class ScoutRubricGenerationSerializer(serializers.Serializer):
         choices=ScoutRubricGenerationStatus.choices, help_text="Background generation status."
     )
     requested_at = serializers.DateTimeField(help_text="When generation was requested.")
+    context = serializers.CharField(  # type: ignore[assignment]  # The field name shadows DRF Field.context.
+        allow_blank=True,
+        max_length=MAX_GENERATION_CONTEXT_LENGTH,
+        help_text="Optional priorities supplied for this generation only.",
+    )
     completed_at = serializers.DateTimeField(allow_null=True, help_text="When generation completed or failed.")
     task_id = serializers.UUIDField(allow_null=True, help_text="Task performing the investigation, once created.")
     task_run_id = serializers.UUIDField(
@@ -96,6 +102,17 @@ class ScoutRubricSaveSerializer(serializers.Serializer):
         if not default_ids.issubset(ids):
             raise serializers.ValidationError("Keep all default criteria. Disable any that do not apply.")
         return value
+
+
+class ScoutRubricGenerateSerializer(serializers.Serializer):
+    context = serializers.CharField(  # type: ignore[assignment]  # The field name shadows DRF Field.context.
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=MAX_GENERATION_CONTEXT_LENGTH,
+        trim_whitespace=True,
+        help_text="Optional priorities for this generation. Suggestions still cover the scout's full job.",
+    )
 
 
 class ScoutRubricAccessPermission(BasePermission):
@@ -163,7 +180,7 @@ class SignalScoutRubricViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return rubric_response(document)
 
     @extend_schema(
-        request=None,
+        request=ScoutRubricGenerateSerializer,
         responses={202: ScoutRubricDocumentSerializer},
         operation_id="signals_scout_rubrics_generate",
     )
@@ -175,8 +192,15 @@ class SignalScoutRubricViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise exceptions.NotAuthenticated()
         if self.team.organization.is_ai_data_processing_approved is not True:
             raise exceptions.PermissionDenied("Enable AI data processing for this organization to generate rubrics.")
+        serializer = ScoutRubricGenerateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
         try:
-            document = generate_scout_rubric(self.team_id, str(document.config_id), user_id=user_id)
+            document = generate_scout_rubric(
+                self.team_id,
+                str(document.config_id),
+                user_id=user_id,
+                context=serializer.validated_data["context"],
+            )
         except ScoutRubricGenerationLimitExceeded:
             raise exceptions.Throttled(
                 detail="You've reached today's rubric generation limit. Try again tomorrow."

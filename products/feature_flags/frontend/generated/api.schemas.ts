@@ -671,6 +671,7 @@ export interface FeatureFlagApi {
     is_remote_configuration?: boolean | null
     /** @nullable */
     has_encrypted_payloads?: boolean | null
+    /** Staleness classification: ACTIVE, STALE, ARCHIVED, DELETED or UNKNOWN. This is not the serving state. Read the `active` field for that. A disabled flag that is not archived or deleted reports ACTIVE, because disabled flags are not evaluated for staleness. */
     readonly status: string
     /** Specifies where this feature flag should be evaluated
      *
@@ -1418,7 +1419,7 @@ export interface FeatureFlagRolloutSummaryApi {
 }
 
 export interface FeatureFlagStatusResponseApi {
-    /** Flag staleness/evaluation status: active, stale, archived, deleted, or unknown. 'active' means the flag was recently evaluated (or has no usage data yet) — it does NOT mean the flag is fully rolled out. Use the `rollout` object to determine rollout completeness. */
+    /** Staleness classification: active, stale, archived, deleted, or unknown. This is not the serving state, and this response carries no serving-state field: read the `active` field of the flag itself from the list or retrieve endpoint. A disabled flag that is not archived or deleted reports 'active', because disabled flags are not evaluated for staleness. 'active' also does NOT mean the flag is fully rolled out. Use the `rollout` object to determine rollout completeness. */
     status: string
     /** Human-readable explanation of the status */
     reason: string
@@ -1478,7 +1479,7 @@ export interface FeatureFlagConditionAnalysisApi {
     /** Whether this condition matched properties but was excluded due to rollout */
     rollout_excluded: boolean
     /**
-     * Variant associated with this condition
+     * Variant associated with this condition. Empty or null when the condition has no variant override.
      * @nullable
      */
     variant: string | null
@@ -1606,7 +1607,7 @@ export const BulkDeleteFiltersTypeEnumApi = {
  * Allowed filter keys for bulk_delete — same shape as the list endpoint's query params.
  */
 export interface BulkDeleteFiltersApi {
-    /** Filter by active state.
+    /** 'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' returns enabled flags only, so a disabled flag is never STALE. An enabled flag matches when its last recorded `$feature_flag_called` event is more than 30 days old. With no recorded event, it matches when it is at least 30 days old and either stores `filters` as `{}` or serves one result to everyone through a release condition at 100% with no property filters. A flag with no recorded event and an empty `groups` list does not match, even when its `status` reads STALE. An SDK that sends no `$feature_flag_called` event leaves no record, so a STALE flag can still be in use.
      *
      * * `true` - true
      * * `false` - false
@@ -2126,6 +2127,9 @@ export const FeatureFlagRequestUsageListTimeInterval = {
 } as const
 
 export type FeatureFlagsListParams = {
+    /**
+     * 'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' returns enabled flags only, so a disabled flag is never STALE. An enabled flag matches when its last recorded `$feature_flag_called` event is more than 30 days old. With no recorded event, it matches when it is at least 30 days old and either stores `filters` as `{}` or serves one result to everyone through a release condition at 100% with no property filters. A flag with no recorded event and an empty `groups` list does not match, even when its `status` reads STALE. An SDK that sends no `$feature_flag_called` event leaves no record, so a STALE flag can still be in use.
+     */
     active?: FeatureFlagsListActive
     /**
      * Filter by archived state. When omitted, archived flags are excluded.

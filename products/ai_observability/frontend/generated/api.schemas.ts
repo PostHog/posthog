@@ -956,6 +956,13 @@ export interface OfflineResultPageApi {
     results: OfflineResultReadApi[]
 }
 
+export interface OfflineResultCellsApi {
+    /** Selected authorized versions, including versions with no results for these items. */
+    scorer_versions: OfflineScorerVersionReadApi[]
+    /** Submitted results for the exact selected items and versions; at most 1,000 cells. */
+    results: OfflineResultCellApi[]
+}
+
 /**
  * @nullable
  */
@@ -1803,6 +1810,7 @@ export const EvaluationTargetEnumApi = {
  * * `together_ai` - Together AI
  * * `minimax` - MiniMax
  * * `zeabur` - Zeabur AI Hub
+ * * `system_one` - System One
  * * `openai_compatible` - OpenAI-compatible
  */
 export type LLMProviderEnumApi = (typeof LLMProviderEnumApi)[keyof typeof LLMProviderEnumApi]
@@ -1817,6 +1825,7 @@ export const LLMProviderEnumApi = {
     TogetherAi: 'together_ai',
     Minimax: 'minimax',
     Zeabur: 'zeabur',
+    SystemOne: 'system_one',
     OpenaiCompatible: 'openai_compatible',
 } as const
 
@@ -2774,6 +2783,23 @@ export interface LLMProviderKeyApi {
     readonly error_message: string | null
     api_key?: string
     readonly api_key_masked: string
+    /** Public HTTPS base URL of an OpenAI-compatible or System One API. For System One, end before /systemone. */
+    base_url?: string
+    /**
+     * Model ID served by the System One endpoint.
+     * @maxLength 100
+     */
+    system_one_model?: string
+    /**
+     * Configured provider base URL (read-only, for display)
+     * @nullable
+     */
+    readonly base_url_display: string | null
+    /**
+     * Configured System One model ID.
+     * @nullable
+     */
+    readonly system_one_model_display: string | null
     /** Azure OpenAI endpoint URL */
     azure_endpoint?: string
     /**
@@ -2791,13 +2817,6 @@ export interface LLMProviderKeyApi {
      * @nullable
      */
     readonly api_version_display: string | null
-    /** Base URL of an OpenAI-compatible API (e.g. https://api.example.com/v1). Required for the openai_compatible provider; must be a public https:// URL. */
-    base_url?: string
-    /**
-     * OpenAI-compatible base URL (read-only, for display)
-     * @nullable
-     */
-    readonly base_url_display: string | null
     set_as_active?: boolean
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -3404,6 +3423,23 @@ export interface PatchedLLMProviderKeyApi {
     readonly error_message?: string | null
     api_key?: string
     readonly api_key_masked?: string
+    /** Public HTTPS base URL of an OpenAI-compatible or System One API. For System One, end before /systemone. */
+    base_url?: string
+    /**
+     * Model ID served by the System One endpoint.
+     * @maxLength 100
+     */
+    system_one_model?: string
+    /**
+     * Configured provider base URL (read-only, for display)
+     * @nullable
+     */
+    readonly base_url_display?: string | null
+    /**
+     * Configured System One model ID.
+     * @nullable
+     */
+    readonly system_one_model_display?: string | null
     /** Azure OpenAI endpoint URL */
     azure_endpoint?: string
     /**
@@ -3421,13 +3457,6 @@ export interface PatchedLLMProviderKeyApi {
      * @nullable
      */
     readonly api_version_display?: string | null
-    /** Base URL of an OpenAI-compatible API (e.g. https://api.example.com/v1). Required for the openai_compatible provider; must be a public https:// URL. */
-    base_url?: string
-    /**
-     * OpenAI-compatible base URL (read-only, for display)
-     * @nullable
-     */
-    readonly base_url_display?: string | null
     set_as_active?: boolean
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -4298,6 +4327,34 @@ export interface TaggerConditionApi {
 }
 
 /**
+ * * `openai` - Openai
+ * * `anthropic` - Anthropic
+ * * `gemini` - Gemini
+ * * `openrouter` - Openrouter
+ * * `fireworks` - Fireworks
+ * * `azure_openai` - Azure OpenAI
+ * * `together_ai` - Together AI
+ * * `minimax` - MiniMax
+ * * `zeabur` - Zeabur AI Hub
+ * * `openai_compatible` - OpenAI-compatible
+ */
+export type LLMCompletionProviderEnumApi =
+    (typeof LLMCompletionProviderEnumApi)[keyof typeof LLMCompletionProviderEnumApi]
+
+export const LLMCompletionProviderEnumApi = {
+    Openai: 'openai',
+    Anthropic: 'anthropic',
+    Gemini: 'gemini',
+    Openrouter: 'openrouter',
+    Fireworks: 'fireworks',
+    AzureOpenai: 'azure_openai',
+    TogetherAi: 'together_ai',
+    Minimax: 'minimax',
+    Zeabur: 'zeabur',
+    OpenaiCompatible: 'openai_compatible',
+} as const
+
+/**
  * Nested serializer for model configuration.
  */
 export interface TaggerModelConfigurationApi {
@@ -4313,7 +4370,7 @@ export interface TaggerModelConfigurationApi {
      * * `minimax` - MiniMax
      * * `zeabur` - Zeabur AI Hub
      * * `openai_compatible` - OpenAI-compatible */
-    provider: LLMProviderEnumApi
+    provider: LLMCompletionProviderEnumApi
     /**
      * Provider model identifier to use for this tagger.
      * @maxLength 100
@@ -4368,7 +4425,7 @@ export interface TaggerModelConfigurationWriteApi {
      * * `minimax` - MiniMax
      * * `zeabur` - Zeabur AI Hub
      * * `openai_compatible` - OpenAI-compatible */
-    provider: LLMProviderEnumApi
+    provider: LLMCompletionProviderEnumApi
     /**
      * Provider model identifier to use for this tagger.
      * @maxLength 100
@@ -4675,6 +4732,21 @@ export type AiObservabilityOfflineExperimentsItemsResultsListParams = {
      * @maxLength 739
      */
     scorer_version_ids?: string
+}
+
+export type AiObservabilityOfflineExperimentsResultCellsRetrieveParams = {
+    /**
+     * Comma-separated list of 1 to 50 distinct item UUIDs belonging to this experiment.
+     * @minLength 1
+     * @maxLength 1849
+     */
+    item_ids: string
+    /**
+     * Comma-separated list of 1 to 20 distinct authorized scorer-version UUIDs.
+     * @minLength 1
+     * @maxLength 739
+     */
+    scorer_version_ids: string
 }
 
 export type AiObservabilityOfflineExperimentsScorerSummariesListParams = {
@@ -5046,6 +5118,7 @@ export const LlmAnalyticsModelsRetrieveProvider = {
     Openai: 'openai',
     OpenaiCompatible: 'openai_compatible',
     Openrouter: 'openrouter',
+    SystemOne: 'system_one',
     TogetherAi: 'together_ai',
     Zeabur: 'zeabur',
 } as const

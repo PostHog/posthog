@@ -188,4 +188,70 @@ describe('ArtefactLogList', () => {
             expect.stringContaining('0198c0de-0000-7000-8000-000000000001')
         )
     })
+
+    it('shows the served ranking model heads, highest first, with challengers behind a disclosure', () => {
+        const { container } = render(
+            <ArtefactLogList
+                reportId="report-1"
+                artefacts={[
+                    makeArtefact(
+                        {
+                            scored_at: '2026-06-11T09:00:00Z',
+                            manifest_version: '12',
+                            served_key: 'report_embeddings@2026-06-10',
+                            results: {
+                                'report_embeddings@2026-06-10': {
+                                    status: 'scored',
+                                    roles: ['served'],
+                                    scores: { pr_merged: 0.52, action: 0.78, refund: 0.04 },
+                                    metadata: {
+                                        heads: [
+                                            { head: 'action', readable: true },
+                                            { head: 'pr_merged', readable: true },
+                                            { head: 'refund', readable: false },
+                                        ],
+                                    },
+                                },
+                                'signal_counts@2026-06-10': {
+                                    status: 'skipped',
+                                    roles: ['challenger'],
+                                    skip_reason: 'missing report vector',
+                                    scores: {},
+                                },
+                            },
+                        },
+                        'ranking_score'
+                    ),
+                ]}
+            />
+        )
+
+        expect(screen.getByText('Ranking scored')).toBeInTheDocument()
+        expect(screen.getAllByText(/^\d+%$/).map((node) => node.textContent)).toEqual(['78%', '52%', '4%'])
+        expect(screen.getByLabelText('No holdout read for this head yet').closest('span')).toHaveTextContent('4%')
+        expect(screen.getByText('Other models (1)')).toBeInTheDocument()
+        expect(container.querySelector('details')).not.toHaveAttribute('open')
+        expect(screen.getByText('Skipped: missing report vector')).toBeInTheDocument()
+    })
+
+    it.each([
+        ['a served key missing from the results', { served_key: 'gone@1', results: {} }],
+        ['content with no results', { served_key: 'a@1' }],
+        ['a served result with an unknown status', { served_key: 'a@1', results: { 'a@1': { status: 'pending' } } }],
+    ])('falls back to the ranking label alone for %s', (_name, content) => {
+        const { container } = render(
+            <ArtefactLogList reportId="report-1" artefacts={[makeArtefact(content, 'ranking_score')]} />
+        )
+        expect(screen.getByText('Ranking scored')).toBeInTheDocument()
+        expect(container.querySelector('.LemonCard')).not.toBeInTheDocument()
+    })
+
+    it.each([
+        ['work_claim', { display_name: 'Ada' }, 'Work claimed', 'Ada'],
+        ['work_release', { reason: 'taken_over' }, 'Work released', 'Taken over'],
+    ])('labels a %s row', (type, content, label, detail) => {
+        render(<ArtefactLogList reportId="report-1" artefacts={[makeArtefact(content, type)]} />)
+        expect(screen.getByText(label)).toBeInTheDocument()
+        expect(screen.getByText(detail)).toBeInTheDocument()
+    })
 })

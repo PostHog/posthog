@@ -48,6 +48,8 @@ import type {
     RecordStructuredOutputRequestApi,
     RecordStructuredOutputResponseApi,
     RememberRequestApi,
+    ReportReadStateRequestApi,
+    ReportReadStateResponseApi,
     ReportSignalsResponseApi,
     ScoutChatTaskApi,
     ScoutChatTaskCreateApi,
@@ -59,6 +61,7 @@ import type {
     ScoutNoteApi,
     ScoutNoteCreateRequestApi,
     ScoutRubricDocumentApi,
+    ScoutRubricGenerateApi,
     ScoutRubricSaveApi,
     ScoutRunIdsBatchRequestApi,
     ScoutRunTokenCostsApi,
@@ -91,6 +94,7 @@ import type {
     SignalReportSourceMetadataResponseApi,
     SignalReportStateRequestApi,
     SignalReportSuggestedReviewersArtefactApi,
+    SignalReportsForYouResponseApi,
     SignalScoutConfigApi,
     SignalScoutConfigCreateApi,
     SignalScoutCreateApi,
@@ -116,6 +120,7 @@ import type {
     SignalsReportPrReviewCommentsCreateParams,
     SignalsReportsAvailableReviewersRetrieve200,
     SignalsReportsAvailableReviewersRetrieveParams,
+    SignalsReportsForYouRetrieveParams,
     SignalsReportsListParams,
     SignalsReportsPrCiStatusesParams,
     SignalsScoutConfigListParams,
@@ -1159,6 +1164,37 @@ export const signalsReportsBulkStateCreate = async (
     })
 }
 
+export const getSignalsReportsForYouRetrieveUrl = (projectId: string, params?: SignalsReportsForYouRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/reports/for_you/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/reports/for_you/`
+}
+
+/**
+ * The open, actionable reports for the current user, best first, and how many there are in total. Uses the same ranking and count as the Today briefing, so this is the short list to show someone who asks what needs them.
+ * @summary List the reports that matter most to the current user
+ */
+export const signalsReportsForYouRetrieve = async (
+    projectId: string,
+    params?: SignalsReportsForYouRetrieveParams,
+    options?: RequestInit
+): Promise<SignalReportsForYouResponseApi> => {
+    return apiMutator<SignalReportsForYouResponseApi>(getSignalsReportsForYouRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getSignalsReportsPrCiStatusesUrl = (projectId: string, params: SignalsReportsPrCiStatusesParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -1187,6 +1223,23 @@ export const signalsReportsPrCiStatuses = async (
     return apiMutator<PullRequestCiStatusesResponseApi>(getSignalsReportsPrCiStatusesUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getSignalsReportsReadStateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/reports/read_state/`
+}
+
+export const signalsReportsReadStateCreate = async (
+    projectId: string,
+    reportReadStateRequestApi: ReportReadStateRequestApi,
+    options?: RequestInit
+): Promise<ReportReadStateResponseApi> => {
+    return apiMutator<ReportReadStateResponseApi>(getSignalsReportsReadStateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(reportReadStateRequestApi),
     })
 }
 
@@ -1643,11 +1696,14 @@ export const getSignalsScoutRubricsGenerateUrl = (projectId: string, id: string)
 export const signalsScoutRubricsGenerate = async (
     projectId: string,
     id: string,
+    scoutRubricGenerateApi?: ScoutRubricGenerateApi,
     options?: RequestInit
 ): Promise<ScoutRubricDocumentApi> => {
     return apiMutator<ScoutRubricDocumentApi>(getSignalsScoutRubricsGenerateUrl(projectId, id), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(scoutRubricGenerateApi),
     })
 }
 

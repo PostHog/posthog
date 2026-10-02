@@ -7,8 +7,10 @@ use crate::cohorts::cohort_operations::{
 };
 use crate::cohorts::membership::{CohortMembershipProvider, NoOpCohortMembershipProvider};
 use crate::database::{pool_names, PostgresRouter};
-use crate::flags::config_v2::Config;
-use crate::flags::evaluate_v2::{Evaluation, EvaluationContext, Evaluator, PersonProperties};
+use crate::flags::config_v2::{Config, NonV1Config};
+use crate::flags::evaluate_v2::{
+    Evaluation, EvaluationContext, EvaluationDetail, Evaluator, PersonProperties,
+};
 use crate::flags::flag_group_type_mapping::{
     GroupTypeCacheManager, GroupTypeIndex, GroupTypeMapping,
 };
@@ -106,6 +108,8 @@ pub struct FeatureFlagMatch {
     pub reason: FeatureFlagMatchReason,
     pub condition_index: Option<usize>,
     pub payload: Option<Value>,
+    /// Set only by `get_match_v2`; the v3 record is built from it.
+    pub evaluation_v2: Option<EvaluationDetail>,
 }
 
 impl FeatureFlagMatch {
@@ -126,6 +130,7 @@ impl FeatureFlagMatch {
             reason: FeatureFlagMatchReason::MissingDependency,
             condition_index: None,
             payload: None,
+            evaluation_v2: None,
         }
     }
 }
@@ -417,6 +422,8 @@ struct FlagSnapshot {
     key: String,
     id: FeatureFlagId,
     version: Option<i32>,
+    /// Keeps a v2 flag's error record labelled v2.
+    non_v1: Option<Arc<NonV1Config>>,
 }
 
 impl FlagSnapshot {
@@ -425,6 +432,7 @@ impl FlagSnapshot {
             key: flag.key.clone(),
             id: flag.id,
             version: flag.version,
+            non_v1: flag.filters.non_v1.clone(),
         }
     }
 }
@@ -1235,25 +1243,17 @@ impl FeatureFlagMatcher {
     /// analysis so group-typed filters resolve against the group's properties (and the
     /// `$group_key` injected into overrides) rather than the person's. Every referenced
     /// group type index is included, backed by an empty map if no properties were found.
-    fn merged_group_properties_for_flag(
+    pub(crate) fn merged_group_properties_for_flag(
         &self,
         flag: &FeatureFlag,
         group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
     ) -> HashMap<GroupTypeIndex, HashMap<String, Value>> {
-        let mut referenced_indexes: HashSet<GroupTypeIndex> = HashSet::new();
-        for group in &flag.filters.groups {
-            // Mirrors the aggregation the real matching path uses (line ~1371 below), so
-            // an explicit person aggregation (`Some(None)`) does not fall back to the
-            // flag-level group index here.
-            let condition_aggregation = group.effective_aggregation(flag.get_group_type_index());
-            if let Some(properties) = &group.properties {
-                for property in properties {
-                    if let Some(gti) = property.group_filter_index(condition_aggregation) {
-                        referenced_indexes.insert(gti);
-                    }
-                }
-            }
-        }
+        let referenced_indexes: HashSet<GroupTypeIndex> = flag
+            .filters
+            .requirements()
+            .group_property_type_indexes
+            .into_iter()
+            .collect();
 
         let mut merged = HashMap::new();
         for gti in referenced_indexes {
@@ -1373,7 +1373,10 @@ impl FeatureFlagMatcher {
                     has_experiment: default_has_experiment(),
                     active: true,
                     version: snapshot.version,
-                    filters: FlagFilters::default(),
+                    filters: FlagFilters {
+                        non_v1: snapshot.non_v1,
+                        ..FlagFilters::default()
+                    },
                     team_id,
                     name: None,
                     deleted: false,
@@ -1465,6 +1468,7 @@ impl FeatureFlagMatcher {
                     reason: FeatureFlagMatchReason::SuperConditionValue,
                     condition_index: Some(0),
                     payload,
+                    evaluation_v2: None,
                 });
             }
         }
@@ -1487,6 +1491,7 @@ impl FeatureFlagMatcher {
                     reason: evaluation_reason,
                     condition_index: None,
                     payload,
+                    evaluation_v2: None,
                 });
             }
         }
@@ -1640,6 +1645,7 @@ impl FeatureFlagMatcher {
                     reason: FeatureFlagMatchReason::OutOfRolloutBound,
                     condition_index: Some(index),
                     payload: None,
+                    evaluation_v2: None,
                 });
             }
 
@@ -1672,6 +1678,7 @@ impl FeatureFlagMatcher {
                     reason: highest_match,
                     condition_index: highest_index,
                     payload,
+                    evaluation_v2: None,
                 });
             }
         }
@@ -1700,11 +1707,13 @@ impl FeatureFlagMatcher {
             reason: highest_match,
             condition_index: highest_index,
             payload: None,
+            evaluation_v2: None,
         })
     }
 
-    /// Projects a v2 outcome onto the v1 match shape: `enabled` is the boolean value (null
-    /// default is false), never a variant or payload; the subject is the request distinct ID.
+    /// Projects a v2 outcome onto the v1 match shape: a null value is disabled, a boolean is
+    /// `enabled`, a string is the variant, and a number or object is an enabled flag whose value
+    /// travels as a JSON-encoded payload, like a v1 payload. The subject is the request distinct ID.
     fn get_match_v2(
         &self,
         config: &Config,
@@ -1734,29 +1743,34 @@ impl FeatureFlagMatcher {
             use_explicit_exact_matching: self.use_explicit_exact_matching,
             now: self.now,
         })?;
-        let (matches, reason, condition_index) = match evaluation {
+        let (value, reason, condition_index) = match evaluation {
             Evaluation::TargetingMatch { value, rule } => (
-                value,
+                Some(value),
                 FeatureFlagMatchReason::ConditionMatch,
                 Some(rule.index),
             ),
             Evaluation::RolloutMiss { value, rule } => (
-                value.unwrap_or(false),
+                value,
                 FeatureFlagMatchReason::OutOfRolloutBound,
                 Some(rule.index),
             ),
-            Evaluation::NoRuleMatch { value } => (
-                value.unwrap_or(false),
-                FeatureFlagMatchReason::NoConditionMatch,
-                None,
-            ),
+            Evaluation::NoRuleMatch { value } => {
+                (value, FeatureFlagMatchReason::NoConditionMatch, None)
+            }
+        };
+        let (matches, variant, payload) = match value {
+            None => (false, None, None),
+            Some(Value::Bool(value)) => (*value, None, None),
+            Some(Value::String(value)) => (true, Some(value.clone()), None),
+            Some(value) => (true, None, Some(Value::String(value.to_string()))),
         };
         Ok(FeatureFlagMatch {
             matches,
-            variant: None,
+            variant,
             reason,
             condition_index,
-            payload: None,
+            payload,
+            evaluation_v2: Some(evaluation.into()),
         })
     }
 
@@ -2523,23 +2537,11 @@ impl FeatureFlagMatcher {
     pub(crate) fn referenced_group_type_indexes(
         flag: &FeatureFlag,
     ) -> impl Iterator<Item = GroupTypeIndex> + '_ {
-        flag.get_group_type_index()
+        let requirements = flag.filters.requirements();
+        requirements
+            .aggregation_group_type_indexes
             .into_iter()
-            .chain(flag.get_conditions().iter().flat_map(|condition| {
-                condition
-                    .aggregation_group_type_index
-                    .flatten()
-                    .into_iter()
-                    .chain(
-                        condition
-                            .properties
-                            .iter()
-                            .flatten()
-                            // No aggregation fallback here: the arms above already chain
-                            // every aggregation index, so only explicit indexes are added.
-                            .filter_map(|prop| prop.group_filter_index(None)),
-                    )
-            }))
+            .chain(requirements.group_property_type_indexes)
     }
 
     /// Builds a paired mapping from group type index to group key for flag
@@ -2854,16 +2856,22 @@ mod tests {
                 key: "flag_a".to_string(),
                 id: 10,
                 version: Some(3),
+                non_v1: None,
             },
             FlagSnapshot {
                 key: "flag_b".to_string(),
                 id: 20,
                 version: None,
+                non_v1: Some(Arc::new(NonV1Config {
+                    parsed_v2: None,
+                    document: serde_json::value::RawValue::from_string("{}".to_string()).unwrap(),
+                })),
             },
             FlagSnapshot {
                 key: "flag_c".to_string(),
                 id: 30,
                 version: Some(1),
+                non_v1: None,
             },
         ];
 
@@ -2887,6 +2895,8 @@ mod tests {
         assert_eq!(stub_b.key, "flag_b");
         assert_eq!(stub_b.id, 20);
         assert_eq!(stub_b.version, None);
+        assert!(!stub_b.filters.is_v1());
+        assert!(stub_a.filters.is_v1());
         assert!(matches!(
             err_b,
             Err(FlagError::InternalError {

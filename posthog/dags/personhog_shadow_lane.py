@@ -31,14 +31,18 @@ from kubernetes import (
     client as k8s_client,
     config as k8s_config,
 )
+from prometheus_client import CollectorRegistry, Gauge
 from pydantic import Field
 
 from posthog.dags.common import JobOwners
+from posthog.metrics import pushed_metrics_registry
 
 SHADOW_NAMESPACE = "ingestion-analytics-team2-shadow"
 SHADOW_CONSUMER_DEPLOYMENT = "ingestion-analytics-team2-shadow-consumer"
 SHADOW_PROCESSOR_DEPLOYMENT = "ingestion-analytics-team2-shadow-processor"
 SHADOW_DB_URL_ENV_VAR = "PERSONS_SHADOW_DB_URL"
+
+START_METRICS_JOB = "personhog_shadow_lane_start"
 
 # Every table the lane writes, per path. The reset truncates both lists in one
 # statement so a validation run starts from state where "row missing on one
@@ -324,6 +328,29 @@ def _reset_shadow_state(
     context.log.info("Shadow persons database reset complete")
 
 
+def record_start_gauges(registry: CollectorRegistry, config: ShadowLaneStartConfig, completed_at: float) -> None:
+    Gauge(
+        "posthog_personhog_shadow_lane_start_last_success_timestamp_seconds",
+        "Unix time when the shadow lane last started with every replica ready",
+        ["namespace"],
+        registry=registry,
+    ).labels(namespace=config.namespace).set(completed_at)
+    Gauge(
+        "posthog_personhog_shadow_lane_start_reset_state",
+        "1 when the last start truncated the shadow persons database first, 0 when it resumed from existing state",
+        ["namespace"],
+        registry=registry,
+    ).labels(namespace=config.namespace).set(1 if config.reset_state else 0)
+    replicas = Gauge(
+        "posthog_personhog_shadow_lane_start_replicas",
+        "Replicas the last start requested, by deployment",
+        ["namespace", "deployment"],
+        registry=registry,
+    )
+    replicas.labels(namespace=config.namespace, deployment=config.consumer_deployment).set(config.consumer_replicas)
+    replicas.labels(namespace=config.namespace, deployment=config.processor_deployment).set(config.processor_replicas)
+
+
 @dagster.op
 def start_shadow_lane(context: dagster.OpExecutionContext, config: ShadowLaneStartConfig) -> None:
     apps = apps_api()
@@ -357,6 +384,9 @@ def start_shadow_lane(context: dagster.OpExecutionContext, config: ShadowLaneSta
                 "The scale was applied; check the pods in the lane namespace."
             )
         )
+
+    with pushed_metrics_registry(f"{START_METRICS_JOB}_{config.namespace}") as registry:
+        record_start_gauges(registry, config, time.time())
 
     context.add_output_metadata(
         {

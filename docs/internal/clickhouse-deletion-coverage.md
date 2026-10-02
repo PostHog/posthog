@@ -15,7 +15,7 @@ It is a property of every table that stores rows attributable to a person.
 | Event deletion (async)   | `deletes_job` → `delete_events`  | `team_id`, `uuid`                                  |
 | Queued uuid drain        | `deletes_job` → `delete_events`  | `team_id`, `uuid`, `inserted_at`                   |
 | Person removal request   | `delete_person_events_op`        | `team_id`, `person_id`, `timestamp`                |
-| Event removal request    | `execute_event_deletion`         | `team_id`, `timestamp`, `event`, + HogQL           |
+| Event removal request    | `delete_event_removal_shard`     | `team_id`, `timestamp`, `event`, + HogQL           |
 | Property removal request | `process_property_removal_shard` | `properties`, `person_properties`, + HogQL         |
 
 The first five use only columns every target declares, so they apply unchanged to any registered table.
@@ -59,7 +59,7 @@ The handle in hand is probed first, so a deployment whose tables are all on one 
 Sweeps that iterate placements dispatch each target over `placement.cluster.shards`:
 
 - `delete_person_events_op`
-- `execute_event_deletion`, immediate mode
+- `get_event_removal_shards`, which fans out one `delete_event_removal_shard` op per table and shard, so a failed delete re-executes on its own
 - `deletes_job` → `delete_events`, which also has to put its dictionaries on the second cluster; see below
 
 The rest are bound to a single handle and refuse rather than skip when a target has moved off it (`dispatchable_here`, `UnreachableTargetError`):
@@ -108,8 +108,6 @@ Listed in `TTL_ONLY_TABLES`.
 Each is a decision that erasure may lag by the retention window.
 
 - `sharded_events_recent` — a transient mirror of the last few days of events, 7-day TTL keyed on `inserted_at`. It partitions by day with `ttl_only_drop_parts = 1`, so a part drops only once its newest row expires: the real worst case is about 8 days plus TTL-merge lag, not a flat 7. Short enough to accept as the erasure bound, and a sweep would race the TTL for little benefit.
-
-- `person_property_mutation_log_data` retains submitted person updates for 30 days from the Kafka message timestamp. It stores only `team_id`, `event_uuid`, `properties`, and `ingested_at`, so person-based sweeps cannot target it directly. Daily partitions drop after their newest row expires, plus TTL-merge lag.
 
 Session recordings, the dead letter queue, and logs are likewise TTL-reclaimed.
 That decision predates this document; the older `posthog/models/async_deletion/delete_events.py` records it in a comment, but that module is legacy and is not the source of truth here.
@@ -223,7 +221,7 @@ Doing nothing means the first affected GDPR request becomes an escalation.
 
 ### Immediate event removal skips `flag_evaluations`
 
-`_run_immediate_event_deletion` leaves `flag_evaluations` out of its targets, so an immediate request neither sweeps the table nor checks it for matching rows.
+`get_event_removal_shards` leaves `flag_evaluations` out of its targets, so an immediate request neither sweeps the table nor checks it for matching rows.
 The rows age out with the table's TTL, which in practice is up to about 120 days (see above).
 Deferred event removal still queues the table's uuids, and `deletes_job` removes them.
 The skip exists because of the HogQL gap below: before it, the gate refused every immediate request with a predicate whose team had matching `$feature_flag_called` rows.

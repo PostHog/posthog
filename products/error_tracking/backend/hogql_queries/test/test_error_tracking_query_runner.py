@@ -1579,10 +1579,16 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         # bins are left-closed [start, end), so events on an exact bin boundary land in the next bin
         self.assertEqual(first_aggregations["volumeRange"], [55, 60, 5, 0])
 
-    @parameterized.expand(["issueId", "personId"])
-    def test_rejects_malformed_uuid_params(self, field):
+    @parameterized.expand(
+        [
+            ("malformed_issue_id", "issueId", "test-distinct-id"),
+            ("malformed_person_id", "personId", "test-distinct-id"),
+            ("too_many_search_tokens", "searchQuery", " ".join(["token"] * 101)),
+        ]
+    )
+    def test_rejects_invalid_params(self, _name, field, value):
         with self.assertRaises(ValidationError):
-            self._calculate(**{field: "test-distinct-id"})
+            self._calculate(**{field: value})
 
     def test_canonicalizes_uuid_params(self):
         runner = ErrorTrackingQueryRunner(
