@@ -2380,6 +2380,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         report_conversations_settings_changes(
             cast(User, self.context["request"].user),
             before_update.get("conversations_settings"),
+            after_update.get("conversations_settings"),
             updated_team,
         )
 
@@ -3170,13 +3171,17 @@ def conversations_settings_as_dict(value: object) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def report_conversations_settings_changes(user: User, before_settings: dict | None, team: Team) -> None:
+def report_conversations_settings_changes(
+    user: User, before_settings: dict | None, after_settings: dict | None, team: Team
+) -> None:
     """Fire one "support setting changed" event per changed conversations_settings key.
 
     Shared by the team and project serializers — both endpoints can PATCH the settings.
+    Pass the settings this request wrote, not the refreshed row: a write that commits
+    after this request's write would otherwise be reported as this user's change.
     """
     old_settings = conversations_settings_as_dict(before_settings)
-    new_settings = conversations_settings_as_dict(team.conversations_settings)
+    new_settings = conversations_settings_as_dict(after_settings)
     changed_keys = sorted(
         k for k in old_settings.keys() | new_settings.keys() if old_settings.get(k) != new_settings.get(k)
     )
@@ -3245,8 +3250,10 @@ def merge_conversations_settings_locked(
             validated_data, locked_team.conversations_enabled, locked_team.conversations_settings
         )
         team.conversations_settings = validated_data.get("conversations_settings", locked_team.conversations_settings)
+        # Sync the flag even when this request does not write it. Otherwise the caller's
+        # after-snapshot keeps a stale value and a concurrent toggle is logged as this user's.
+        team.conversations_enabled = validated_data.get("conversations_enabled", locked_team.conversations_enabled)
         if "conversations_enabled" in validated_data:
-            team.conversations_enabled = validated_data["conversations_enabled"]
             team.save(update_fields=["conversations_settings", "conversations_enabled", "updated_at"])
         else:
             team.save(update_fields=["conversations_settings", "updated_at"])
