@@ -108,6 +108,7 @@ the row lists both.
 | aws_cost_explorer                | HTTP                        | requests                                                        | ✅                          |
 | aws_glue_data_catalog            | HTTP                        | requests                                                        | ✅                          |
 | aws_organizations                | HTTP                        | requests                                                        | ✅                          |
+| aws_savings_plans                | HTTP                        | requests                                                        | ✅                          |
 | aws_security_hub                 | HTTP                        | requests                                                        | ✅                          |
 | aws_ses                          | HTTP                        | requests                                                        | ✅                          |
 | aws_waf                          | HTTP                        | requests                                                        | ✅                          |
@@ -929,7 +930,6 @@ doesn't conflict with concurrent PRs.
 - aws_macie
 - aws_rds_performance_insights
 - aws_sagemaker
-- aws_savings_plans
 - aws_step_functions
 - aws_support
 - aws_systems_manager
