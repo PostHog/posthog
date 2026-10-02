@@ -2,7 +2,7 @@ import datetime as dt
 
 import pytest
 import time_machine
-from posthog.test.base import ClickhouseTestMixin, _create_event
+from posthog.test.base import ClickhouseTestMixin, _create_event, flush_persons_and_events
 
 from posthog.schema import (
     EventPropertyFilter,
@@ -864,3 +864,86 @@ class TestWindowedCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
 
         # Newest-first, tie broken by descending session_id, every enumerated session exactly once.
         assert walked == ["sess-tied", "sess-0", "sess-1", "sess-2", "sess-3", "sess-4"]
+
+
+class TestBalancedVariantSamplingAgainstClickHouse(ClickhouseTestMixin):
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel(_FROZEN_TIME, tick=False):
+            yield
+
+    def setup_method(self, _method) -> None:
+        sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
+
+    def _exposed_session(self, team, distinct_id: str, variant: str, session_id: str) -> None:
+        settle_bound = _NOW - SETTLE_INTERVAL
+        create_person(team=team, distinct_ids=[distinct_id])
+        _create_event(
+            team=team,
+            event="$feature_flag_called",
+            distinct_id=distinct_id,
+            timestamp=_NOW - dt.timedelta(days=1),
+            properties={"$feature_flag": "balanced-flag", "$feature_flag_response": variant},
+        )
+        produce_replay_summary(
+            team_id=team.id,
+            session_id=session_id,
+            distinct_id=distinct_id,
+            first_timestamp=(settle_bound - dt.timedelta(minutes=20)).isoformat(),
+            last_timestamp=(settle_bound - dt.timedelta(minutes=10)).isoformat(),
+            active_milliseconds=30_000,
+        )
+
+    @pytest.mark.django_db
+    def test_per_variant_rates_gate_candidates_by_attributed_variant(self, team) -> None:
+        # Per-variant thresholds must select by each session's attributed variant, not by one
+        # scanner-wide rate: a broken join projection or multiIf would sample both arms alike.
+        from posthog.models import User
+
+        from products.experiments.backend.models.experiment import Experiment
+        from products.feature_flags.backend.models.feature_flag import FeatureFlag
+
+        creator = User.objects.create_and_join(team.organization, "balanced@posthog.com", "testtest")
+        flag = FeatureFlag.objects.create(
+            team=team,
+            key="balanced-flag",
+            created_by=creator,
+            filters={
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                }
+            },
+        )
+        experiment = Experiment.objects.create(
+            team=team,
+            name="balanced",
+            feature_flag=flag,
+            created_by=creator,
+            start_date=_NOW - dt.timedelta(days=7),
+            exposure_criteria={},
+        )
+        self._exposed_session(team, "control-user", "control", "control-session")
+        self._exposed_session(team, "test-user", "test", "test-session")
+        flush_persons_and_events()
+
+        def run(rates: dict[str, float] | None):
+            query = RecordingsQuery.model_validate(
+                {"kind": "RecordingsQuery", "experiment_exposure": {"experiment_id": experiment.id}}
+            )
+            return ScannerCandidateQuery(
+                team=team,
+                query=query,
+                user=creator,
+                last_swept_at=_NOW - dt.timedelta(days=2),
+                sampling_rate=1.0,
+                sampling_salt="scanner-1",
+                variant_sampling_rates=rates,
+            ).run()
+
+        # Control run: without rates the exposure join keeps both arms.
+        assert {c.session_id for c in run(None)} == {"control-session", "test-session"}
+        # Rate 0 vs 1 is deterministic whatever the hash: only the fully sampled arm survives.
+        assert {c.session_id for c in run({"control": 0.0, "test": 1.0})} == {"test-session"}

@@ -79,6 +79,9 @@ class ApplyScannerInputs(BaseModel, frozen=True):
     triggered_by_user_id: int | None = None
     # Set only for backfill-triggered applies; routes observation creation to the backfill's frozen snapshot.
     backfill_id: UUID | None = None
+    # The balanced per-variant rates the dispatching tick sampled at, recorded onto the
+    # observation's snapshot (experiment scanners with balancing on; None otherwise).
+    variant_sampling_rates: dict[str, float] | None = None
 
 
 class CreateObservationInputs(BaseModel, frozen=True):
@@ -89,6 +92,7 @@ class CreateObservationInputs(BaseModel, frozen=True):
     triggered_by_user_id: int | None
     workflow_id: str
     backfill_id: UUID | None = None
+    variant_sampling_rates: dict[str, float] | None = None
 
 
 class CreateObservationOutput(BaseModel, frozen=True):
