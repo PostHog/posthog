@@ -89,7 +89,7 @@ What each report status means (in roughly the order a triage agent should care a
 - `candidate` / `potential` — accumulated signals but not yet promoted to a real report
 - `failed` — processing errored
 - `suppressed` — manually hidden; not surfaced by default. What a recurrence does depends on the
-  dismissal reason: see _What happens when the issue recurs_ below
+  dismissal reason: see _Workflow: resolve, dismiss, or snooze a report_ below
 - `resolved` — the work the report asked for is done. Terminal: a resolved report never re-promotes,
   so a recurrence starts a fresh report linked back to it. Set automatically when a linked
   implementation PR merges, or directly via `inbox-reports-set-state` (see the workflow below)
@@ -397,45 +397,22 @@ Manual resolve is for fixes a PR merge will never cover — a skill-body change,
 ## Workflow: resolve, dismiss, or snooze a report
 
 Three states, one tool.
+`inbox-reports-set-state` and `inbox-reports-bulk-set-state` need the `task:write` scope, and the MCP hides them from a caller without it.
+If neither tool is available, tell the user that changing a report's state needs that scope, and stop.
+
 Pick by what actually happened to the underlying issue, and by what should happen if it comes back:
 
-| The issue is…                                     | State                      | `dismissal_reason`                                                           | If the issue recurs                  |
-| ------------------------------------------------- | -------------------------- | ---------------------------------------------------------------------------- | ------------------------------------ |
-| fixed by work you did                             | `resolved`                 | `fixed_outside_posthog` or `pr_merged`                                       | a fresh report, linked to this one   |
-| fixed by something else before the report existed | `suppressed` or `resolved` | `already_fixed`                                                              | a fresh report, linked to this one   |
-| gone without a fix (a transient problem stopped)  | `resolved`                 | `other`, with a note that says so                                            | a fresh report, linked to this one   |
-| not real, or not worth fixing                     | `suppressed`               | `wontfix_*`, `analysis_wrong`, `report_unclear`, `wrong_repo`, or `other`    | absorbed into this report, no alert  |
-| real but deferred                                 | `potential`                | any reason except the three fixed ones, or none                              | this same report promotes again      |
+| The issue is…                                     | State                      | `dismissal_reason`                                                        | If the issue recurs                 |
+| ------------------------------------------------- | -------------------------- | ------------------------------------------------------------------------- | ----------------------------------- |
+| fixed by work you did                             | `resolved`                 | `fixed_outside_posthog` or `pr_merged`                                    | a fresh report, linked to this one  |
+| fixed by something else before the report existed | `suppressed` or `resolved` | `already_fixed`                                                           | a fresh report, linked to this one  |
+| gone without a fix (a transient problem stopped)  | `resolved`                 | `other`, with a note that says so                                         | a fresh report, linked to this one  |
+| not real, or not worth fixing                     | `suppressed`               | `wontfix_*`, `analysis_wrong`, `report_unclear`, `wrong_repo`, or `other` | absorbed into this report, no alert |
+| real but deferred                                 | `potential`                | any reason except the three fixed ones, or none                           | this same report promotes again     |
 
-### What happens when the issue recurs
-
-When a new signal matches an existing report, the grouping stage decides whether the report absorbs it or a fresh report starts.
-The source of truth is `products/signals/backend/recurrence.py` and `FIXED_DISMISSAL_REASONS` in `products/signals/backend/artefact_schemas.py`.
-If this section and the code disagree, the code is right.
-
-- **`resolved`, with any reason.** The report is terminal.
-  A matching signal starts a fresh `potential` report with a `recurrence_of` link back to it, and the research agent gets the old report as context.
-- **`suppressed` with a fixed reason** (`already_fixed`, `fixed_outside_posthog`, `pr_merged`).
-  The reason claims the issue is gone, so a recurrence contradicts it and starts a fresh linked report, the same as `resolved`.
-  Only the latest dismissal counts: a later `wontfix_*` on the same report overrides an earlier `already_fixed`.
-- **`suppressed` with any other reason.** The report is a sink.
-  Matching signals raise its signal count, but it never promotes again, no new report starts, and nobody is told.
-  Pick one of these reasons only when that silence is the intended result, and say so to the user when you dismiss for them.
-- **`potential` (snoozed).** The report keeps collecting signals and promotes itself again once it passes the weight threshold and any `snooze_for` count.
-  It is the same report, not a new linked one.
-
-For a problem that stopped without a fix and should come back as a new report if it returns, resolve with `other` and a note.
-A suppress with `other` would absorb the recurrence silently.
-
-```json
-inbox-reports-set-state
-{
-  "id": "<report_uuid>",
-  "state": "resolved",
-  "dismissal_reason": "other",
-  "dismissal_note": "Stopped without a fix: the error rate went back to baseline when the upstream outage ended. Resolved so that a recurrence opens a new report."
-}
-```
+A `suppressed` report without a fixed reason absorbs matching signals silently, so pick a `wontfix_*`, `analysis_wrong`, `report_unclear`, `wrong_repo`, or `other` dismissal only when that silence is the intended result, and say so to the user.
+For a problem that stopped without a fix, resolve with `other` and a note, because a suppress with `other` would absorb the recurrence.
+[`references/recurrence.md`](references/recurrence.md) explains each recurrence outcome and has an example call for that case.
 
 Dismiss example:
 
