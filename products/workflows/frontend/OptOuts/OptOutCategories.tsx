@@ -167,7 +167,7 @@ export function OptOutCategories(): JSX.Element {
                                             icon={<IconPlus />}
                                             onClick={openNewCategoryModal}
                                         >
-                                            {words.topics.createTopic}
+                                            Create category
                                         </LemonButton>
                                     </>
                                 )

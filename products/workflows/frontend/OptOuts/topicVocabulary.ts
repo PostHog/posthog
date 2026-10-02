@@ -3,7 +3,6 @@ export interface TopicVocabulary {
         newTopic: string
         emptyStateThing: string
         emptyStateDescription: string
-        createTopic: string
         deleteTitle: string
         deleteQuestion: string
         deleteConsequence: string
@@ -78,7 +77,6 @@ export const MESSAGE_CATEGORY_WORDS: TopicVocabulary = {
         emptyStateThing: 'category',
         emptyStateDescription:
             'Configure message categories to manage user opt-out preferences for different types of communications.',
-        createTopic: 'Create category',
         deleteTitle: 'Delete category',
         deleteQuestion: 'Are you sure you want to delete the message category',
         deleteConsequence: 'All messages associated with this category must be updated manually.',
@@ -153,7 +151,6 @@ export const AUDIENCE_TOPIC_WORDS: TopicVocabulary = {
         newTopic: 'New topic',
         emptyStateThing: 'topic',
         emptyStateDescription: 'Create your first topic, or import topics from Customer.io in the More menu.',
-        createTopic: 'Create topic',
         deleteTitle: 'Delete topic',
         deleteQuestion: 'Delete the topic',
         deleteConsequence: 'Messages that use this topic need to be updated by hand.',

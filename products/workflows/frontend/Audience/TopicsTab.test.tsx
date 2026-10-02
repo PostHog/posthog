@@ -160,7 +160,7 @@ describe('the Topics tab', () => {
 
     it("keeps the More menu busy while its preview loads, even after a recipient's page opens", async () => {
         jest.spyOn(messagingApi, 'messagingPreferencesGenerateLinkCreate').mockImplementation((_, body) =>
-            body.recipient === 'jamie@example.com'
+            body?.recipient === 'jamie@example.com'
                 ? Promise.resolve({ preferences_url: 'https://example.com/preferences/jamie' })
                 : new Promise(() => {})
         )
