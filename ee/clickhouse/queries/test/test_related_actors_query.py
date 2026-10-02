@@ -222,7 +222,7 @@ class TestRelatedGroupsQuery(BaseRelatedActorsTest):
         assert self.get_ids_from_results(self.run_query()) == {"org:1", "instance:1"}
 
     def test_override_candidates_are_not_truncated(self) -> None:
-        distinct_ids = [f"historical-{index}" for index in range(2501)]
+        distinct_ids = [f"historical-{index:04d}" for index in range(2501)]
         sync_execute(
             "INSERT INTO person_distinct_id_overrides (team_id, distinct_id, person_id, version) VALUES",
             [(self.team.pk, distinct_id, str(self.person.uuid), 100) for distinct_id in distinct_ids],
