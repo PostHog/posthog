@@ -37,7 +37,9 @@ describe('recipientsLogic', () => {
     let logic: ReturnType<typeof recipientsLogic.build>
     let requests: URLSearchParams[]
 
-    function useRecipientsResponse(respond: (params: URLSearchParams) => [number, unknown]): void {
+    type MockResponse = [number, unknown]
+
+    function useRecipientsResponse(respond: (params: URLSearchParams) => MockResponse | Promise<MockResponse>): void {
         useMocks({
             get: {
                 '/api/projects/:team_id/messaging_recipients/': ({ request }) => {
@@ -109,6 +111,45 @@ describe('recipientsLogic', () => {
 
         expect(requests.at(-1)?.get('cursor')).toBeNull()
         expect(requests.at(-1)?.get('search')).toBe('sam')
+    })
+
+    it('ignores paging while a new search waits for its debounce', async () => {
+        await mountLogic()
+
+        logic.actions.setSearch('sam')
+        logic.actions.loadNextPage()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const samCursors = requests
+            .filter((params) => params.get('search') === 'sam')
+            .map((params) => params.get('cursor'))
+        expect(samCursors).toEqual([null])
+        expect(logic.values.hasPreviousPage).toBe(false)
+    })
+
+    it('keeps the newest results when an older search fails late', async () => {
+        await mountLogic()
+        let failSlowSearch = (): void => {}
+        const slowSearchFailed = new Promise<void>((resolve) => {
+            failSlowSearch = resolve
+        })
+        useRecipientsResponse(async (params) => {
+            if (params.get('search') === 'slow') {
+                await slowSearchFailed
+                return [500, { detail: 'Query timed out' }]
+            }
+            return [200, PAGES_BY_CURSOR['']]
+        })
+
+        await expectLogic(logic, () => logic.actions.setSearch('slow')).toDispatchActions(['loadAudienceRecipients'])
+        await expectLogic(logic, () => logic.actions.setSearch('jamie')).toDispatchActions([
+            'loadAudienceRecipientsSuccess',
+        ])
+        failSlowSearch()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.recipientsView).toBe('results')
+        expect(logic.values.recipients).toEqual(PAGES_BY_CURSOR[''].results)
     })
 
     it.each([
