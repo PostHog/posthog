@@ -41,7 +41,7 @@ const isPythonCell = (node: NotebookComponentBlockNode): boolean => node.tagName
 
 export function getNotebookJupyterModeConfig(
     shortId: string,
-    onRestartKernel: () => void
+    { onRestartKernel, onCommand }: Pick<MarkdownNotebookJupyterModeConfig, 'onRestartKernel' | 'onCommand'>
 ): MarkdownNotebookJupyterModeConfig {
     const projectId = (): string => String(ApiConfig.getCurrentTeamId())
     return {
@@ -51,6 +51,7 @@ export function getNotebookJupyterModeConfig(
         withCellSource: withNotebookJupyterCellSource,
         prepareCellCopy: prepareNotebookJupyterCellCopy,
         onRestartKernel,
+        onCommand,
         completeCode: async (node, code, cursorPos) => {
             if (!isPythonCell(node)) {
                 return null

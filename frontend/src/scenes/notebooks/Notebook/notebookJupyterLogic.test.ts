@@ -26,6 +26,7 @@ describe('notebookJupyterLogic', () => {
     it('numbers finished runs in order and starts again after a restart', async () => {
         const logic = notebookJupyterLogic({ shortId: SHORT_ID })
         logic.mount()
+        logic.actions.setIsActive(true)
         const staleness = notebookNodeStalenessLogic({ shortId: SHORT_ID })
 
         await expectLogic(logic, () => {
@@ -38,6 +39,15 @@ describe('notebookJupyterLogic', () => {
             logic.actions.resetExecutionCounter()
             staleness.actions.nodeRunFinished('b', 'done', null)
         }).toMatchValues({ executionCounter: 1, executionCounts: { a: 3, b: 1 } })
+    })
+
+    it('counts nothing for a notebook outside Jupyter mode', async () => {
+        const logic = notebookJupyterLogic({ shortId: SHORT_ID })
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            notebookNodeStalenessLogic({ shortId: SHORT_ID }).actions.nodeRunFinished('a', 'done', null)
+        }).toMatchValues({ executionCounter: 0, executionCounts: {} })
     })
 
     it.each([

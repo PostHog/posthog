@@ -6,15 +6,18 @@ export type MountedCodeEditor = {
     monaco: Monaco
 }
 
+/** Told which editor mounted or unmounted, so a listener can check that one editor alone. */
+export type MountedCodeEditorListener = (entry: MountedCodeEditor, change: 'mounted' | 'unmounted') => void
+
 const mountedEditors = new Set<MountedCodeEditor>()
-const listeners = new Set<() => void>()
+const listeners = new Set<MountedCodeEditorListener>()
 
 export function registerMountedCodeEditor(entry: MountedCodeEditor): () => void {
     mountedEditors.add(entry)
-    listeners.forEach((listener) => listener())
+    listeners.forEach((listener) => listener(entry, 'mounted'))
     return () => {
         mountedEditors.delete(entry)
-        listeners.forEach((listener) => listener())
+        listeners.forEach((listener) => listener(entry, 'unmounted'))
     }
 }
 
@@ -34,7 +37,7 @@ export function findMountedCodeEditorWithin(container: Element | null): MountedC
     return null
 }
 
-export function subscribeToMountedCodeEditors(listener: () => void): () => void {
+export function subscribeToMountedCodeEditors(listener: MountedCodeEditorListener): () => void {
     listeners.add(listener)
     return () => listeners.delete(listener)
 }

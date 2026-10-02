@@ -446,7 +446,16 @@ export function NotebookComponentShell({
             }
         }
         bind()
-        const unsubscribe = subscribeToMountedCodeEditors(bind)
+        // Each cell hears about every editor in the page, so it checks only the one that changed.
+        const unsubscribe = subscribeToMountedCodeEditors((entry, change) => {
+            const isOwnEditor =
+                change === 'unmounted'
+                    ? entry.editor === boundEditor
+                    : !boundEditor && !!shellRef.current?.contains(entry.editor.getContainerDomNode())
+            if (isOwnEditor) {
+                bind()
+            }
+        })
         return () => {
             unsubscribe()
             unbind?.()
@@ -479,7 +488,8 @@ export function NotebookComponentShell({
         )
         jupyter.store.pendingKey = pending
         // A split from inside the editor carries a cursor offset, so the editor binding handles it.
-        if ((!command && !pending) || command === 'split') {
+        // A block other than a code cell has no edit mode, so Enter keeps its usual meaning there.
+        if ((!command && !pending) || command === 'split' || (command === 'enter-edit-mode' && !isJupyterCell)) {
             return false
         }
         event.preventDefault()
@@ -592,10 +602,13 @@ export function NotebookComponentShell({
         event.stopPropagation()
     }
 
-    const setShellRef = (element: HTMLDivElement | null): void => {
-        shellRef.current = element
-        setBlockRef(element)
-    }
+    const setShellRef = useCallback(
+        (element: HTMLDivElement | null): void => {
+            shellRef.current = element
+            setBlockRef(element)
+        },
+        [setBlockRef]
+    )
 
     if (isJupyterCell && jupyter) {
         const isRunning = !!runHandler?.isRunning

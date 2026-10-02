@@ -100,7 +100,7 @@ const Component = ({
         ? pageResult.has_more
         : (result?.has_more ?? (result?.first_page ?? []).length >= SQL_V2_DEFAULT_PAGE_SIZE)
 
-    const hasStreamOutput = !!(result?.stdout || result?.stderr || result?.media?.length || result?.result_text)
+    const hasStreamOutput = !!(result?.stdout || result?.stderr || result?.media?.length)
     // Only results get the strip. A run that failed shows a traceback, which "Results" mislabels,
     // and a cell that never ran keeps the plain hint.
     const hasOutput = hasStreamOutput || !!dataframeResult
@@ -203,11 +203,6 @@ const Component = ({
                         {result?.stderr ? (
                             <pre className="text-xs font-mono whitespace-pre-wrap text-danger select-text m-0">
                                 {result.stderr}
-                            </pre>
-                        ) : null}
-                        {result?.result_text && !dataframeResult ? (
-                            <pre className="text-xs font-mono whitespace-pre-wrap select-text m-0">
-                                {result.result_text}
                             </pre>
                         ) : null}
                         {result?.media?.map((item, index) => (

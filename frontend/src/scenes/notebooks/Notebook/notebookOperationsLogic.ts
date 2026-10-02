@@ -17,6 +17,7 @@ export interface notebookOperationsLogicValues {
     activeOperation: NotebookOperation | null
     isBusy: boolean
     operations: Record<string, NotebookOperation>
+    releasedNodeId: string | null
     runQueue: string[]
 }
 
@@ -35,6 +36,9 @@ export interface notebookOperationsLogicActions {
         id: string
     }
     releaseQueuedRun: (nodeId: string) => {
+        nodeId: string
+    }
+    settleReleasedRun: (nodeId: string) => {
         nodeId: string
     }
     startOperation: (operation: NotebookOperation) => {
@@ -81,6 +85,8 @@ export const notebookOperationsLogic = kea<notebookOperationsLogicType>([
         dequeueRun: (nodeId: string) => ({ nodeId }),
         // The node logic with this id picks it up and starts its stored run.
         releaseQueuedRun: (nodeId: string) => ({ nodeId }),
+        // A released run that stopped before it took the notebook, e.g. while preparing its inputs.
+        settleReleasedRun: (nodeId: string) => ({ nodeId }),
     }),
     reducers({
         operations: [
@@ -97,6 +103,17 @@ export const notebookOperationsLogic = kea<notebookOperationsLogicType>([
                 },
                 finishNodeOperations: (state, { nodeId }) =>
                     Object.fromEntries(Object.entries(state).filter(([, operation]) => operation.nodeId !== nodeId)),
+            },
+        ],
+        // Released but not yet started: its inputs can take a while to prepare, and the notebook is
+        // idle meanwhile, so this keeps the queue from releasing a second cell in that gap.
+        releasedNodeId: [
+            null as string | null,
+            {
+                releaseQueuedRun: (_, { nodeId }) => nodeId,
+                startOperation: (state, { operation }) => (operation.nodeId === state ? null : state),
+                settleReleasedRun: (state, { nodeId }) => (nodeId === state ? null : state),
+                finishNodeOperations: (state, { nodeId }) => (nodeId === state ? null : state),
             },
         ],
         runQueue: [
@@ -122,13 +139,14 @@ export const notebookOperationsLogic = kea<notebookOperationsLogicType>([
     }),
     listeners(({ actions, values }) => {
         const releaseNext = (): void => {
-            if (!values.isBusy && values.runQueue.length > 0) {
+            if (!values.isBusy && !values.releasedNodeId && values.runQueue.length > 0) {
                 actions.releaseQueuedRun(values.runQueue[0])
             }
         }
         return {
             finishOperation: releaseNext,
             finishNodeOperations: releaseNext,
+            settleReleasedRun: releaseNext,
             // A run queued while the notebook was already idle again, e.g. behind a page fetch that
             // finished in the same tick, would otherwise wait for an operation that never ends.
             enqueueRun: releaseNext,

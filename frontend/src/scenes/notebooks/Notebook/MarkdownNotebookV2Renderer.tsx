@@ -132,15 +132,21 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
     } = useActions(notebookLogic)
     const { setShowKernelInfo } = useActions(notebookSettingsLogic)
     const { isJupyterMode } = useValues(notebookSettingsLogic)
-    const { requestKernelRestart } = useActions(notebookJupyterLogic({ shortId }))
+    const { requestKernelRestart, trackCommand, setIsActive } = useActions(notebookJupyterLogic({ shortId }))
     // Canvases (customer profiles and the like) are not notebooks of cells, so they keep their layout.
     const jupyterMode = useMemo(
         () =>
             isJupyterModeAvailable(featureFlags) && isJupyterMode && mountedNotebookLogic.props.mode !== 'canvas'
-                ? getNotebookJupyterModeConfig(shortId, () => requestKernelRestart())
+                ? getNotebookJupyterModeConfig(shortId, {
+                      onRestartKernel: () => requestKernelRestart(),
+                      onCommand: trackCommand,
+                  })
                 : null,
-        [featureFlags, isJupyterMode, mountedNotebookLogic.props.mode, requestKernelRestart, shortId]
+        [featureFlags, isJupyterMode, mountedNotebookLogic.props.mode, requestKernelRestart, trackCommand, shortId]
     )
+    useEffect(() => {
+        setIsActive(!!jupyterMode)
+    }, [jupyterMode, setIsActive])
     const remoteMarkdown = useMemo(() => getMarkdownNotebookMarkdown(notebook?.content), [notebook?.content])
     const [inlineAIRequests, setInlineAIRequests] = useState<InlineNotebookAIRequest[]>([])
     const [aiCaretPosition, setAICaretPosition] = useState<MarkdownNotebookCaretPosition | null>(null)

@@ -46,6 +46,7 @@ import {
     shouldPersistComponentPanelProps,
     withPersistedComponentPanelProps,
 } from './componentPanels'
+import type { NotebookComponentRunHandler } from './componentRunHandlers'
 import {
     MarkdownNotebookTextSurface,
     areNotebookDocumentsEqual,
@@ -613,6 +614,42 @@ function arraysShallowEqual(a: readonly unknown[], b: readonly unknown[]): boole
         }
     }
     return true
+}
+
+const NO_JUPYTER_STORE_SUBSCRIPTION = (): (() => void) => () => {}
+
+/**
+ * A text group's card. In Jupyter mode it reads its own cell's selection from the store, so a
+ * selection change re-renders the cards it affects instead of the whole editor.
+ */
+function MarkdownNotebookTextGroup({
+    className,
+    jupyterStore,
+    cellId,
+    children,
+}: {
+    className: string
+    jupyterStore: NotebookJupyterStore | null
+    cellId: string
+    children: ReactNode
+}): JSX.Element {
+    const subscribe = jupyterStore?.subscribe ?? NO_JUPYTER_STORE_SUBSCRIPTION
+    const isActive = useSyncExternalStore(subscribe, () => jupyterStore?.getState().activeCellId === cellId)
+    const isSelected = useSyncExternalStore(subscribe, () => {
+        const selected = jupyterStore?.getState().selectedCellIds
+        return !!selected && selected.size > 1 && selected.has(cellId)
+    })
+    return (
+        <div
+            className={clsx(
+                className,
+                isActive && 'MarkdownNotebook__text-group--jupyter-active',
+                isSelected && 'MarkdownNotebook__text-group--jupyter-selected'
+            )}
+        >
+            {children}
+        </div>
+    )
 }
 
 export function MarkdownNotebook(props: MarkdownNotebookProps): JSX.Element {
@@ -5813,6 +5850,7 @@ function MarkdownNotebookEditor({
     }
 
     const executeJupyterCommand = (command: NotebookJupyterCommand, cellOrNodeId: string | null): void => {
+        jupyterMode?.onCommand?.(command)
         const cell = findJupyterCell(cellOrNodeId ?? jupyterStore.getState().activeCellId)
         if (command === 'toggle-line-numbers') {
             jupyterStore.toggleLineNumbers()
@@ -5909,10 +5947,13 @@ function MarkdownNotebookEditor({
                 moveJupyterCell(cell, command === 'move-up' ? 'up' : 'down')
                 return
             case 'interrupt': {
+                // Like Jupyter, this stops the cell that executes, not a selected cell that only waits its turn.
+                const isExecuting = (handler: NotebookComponentRunHandler | undefined): boolean =>
+                    !!handler?.isRunning && !handler.isQueued
                 const handlers = jupyterStore.getState().runHandlers
-                const handler = handlers.get(cell.id)?.isRunning
+                const handler = isExecuting(handlers.get(cell.id))
                     ? handlers.get(cell.id)
-                    : [...handlers.values()].find((candidate) => candidate.isRunning)
+                    : [...handlers.values()].find(isExecuting)
                 handler?.interrupt?.()
                 return
             }
@@ -6031,12 +6072,6 @@ function MarkdownNotebookEditor({
             executeJupyterCommand(command, jupyterStore.getState().activeCellId)
         }
     }
-
-    const jupyterActiveCellId = useSyncExternalStore(jupyterStore.subscribe, () => jupyterStore.getState().activeCellId)
-    const jupyterSelectedCellIds = useSyncExternalStore(
-        jupyterStore.subscribe,
-        () => jupyterStore.getState().selectedCellIds
-    )
 
     // A text block never takes focus (the canvas is the editing host), so the active cell follows
     // the caret instead, for the toolbar's insert and paste targets.
@@ -7167,10 +7202,7 @@ function MarkdownNotebookEditor({
                         {renderedNodeGroups.map((group) => {
                             if (group.type === 'text') {
                                 const lastItem = group.items[group.items.length - 1]
-                                const chunks: {
-                                    surface: MarkdownNotebookTextSurface
-                                    items: typeof group.items
-                                }[] = []
+                                const chunks: { surface: MarkdownNotebookTextSurface; items: typeof group.items }[] = []
                                 for (const item of group.items) {
                                     const lastChunk = chunks[chunks.length - 1]
                                     // Code blocks never merge: each one is its own surface with its own line
@@ -7184,20 +7216,15 @@ function MarkdownNotebookEditor({
 
                                 return (
                                     <Fragment key={group.key}>
-                                        <div
+                                        <MarkdownNotebookTextGroup
                                             className={clsx(
                                                 'MarkdownNotebook__text-group',
                                                 group.key === firstTextGroupKey &&
                                                     showDebug &&
-                                                    'MarkdownNotebook__text-group--with-debug-toolbar',
-                                                jupyterMode &&
-                                                    group.items[0].node.id === jupyterActiveCellId &&
-                                                    'MarkdownNotebook__text-group--jupyter-active',
-                                                jupyterMode &&
-                                                    jupyterSelectedCellIds.size > 1 &&
-                                                    jupyterSelectedCellIds.has(group.items[0].node.id) &&
-                                                    'MarkdownNotebook__text-group--jupyter-selected'
+                                                    'MarkdownNotebook__text-group--with-debug-toolbar'
                                             )}
+                                            jupyterStore={jupyterMode ? jupyterStore : null}
+                                            cellId={group.items[0].node.id}
                                         >
                                             {group.key === firstTextGroupKey ? renderDebugToolbar() : null}
                                             {chunks.map((chunk) => {
@@ -7232,7 +7259,7 @@ function MarkdownNotebookEditor({
                                                     </Fragment>
                                                 )
                                             })}
-                                        </div>
+                                        </MarkdownNotebookTextGroup>
                                         {renderInsertBoundaryButton(lastItem.index + 1)}
                                     </Fragment>
                                 )

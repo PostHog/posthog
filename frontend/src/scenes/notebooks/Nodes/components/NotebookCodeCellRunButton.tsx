@@ -46,7 +46,13 @@ export function NotebookCodeCellRunButton({ node, updateProps }: NotebookCompone
         },
         updateAttributes
     )
-    const { isRunning: isRunningNow, isQueued, isInterrupting } = useValues(dataLogic)
+    const {
+        isRunning: isRunningNow,
+        isQueued,
+        isInterrupting,
+        operationBlockReason,
+        isJupyterModeActive,
+    } = useValues(dataLogic)
     // A queued cell shows as running, like Jupyter's In [*] for a cell waiting on the kernel.
     const isRunning = isRunningNow || isQueued
     const { runNode, interruptRun } = useActions(dataLogic)
@@ -92,8 +98,12 @@ export function NotebookCodeCellRunButton({ node, updateProps }: NotebookCompone
         canRun
             ? {
                   run,
-                  // A busy notebook queues the run, so only this cell's own run blocks the shortcut.
-                  disabledReason: isRunning ? 'This cell is already running' : null,
+                  // In Jupyter mode a busy notebook queues the run, so only this cell's own run blocks the shortcut.
+                  disabledReason: isRunning
+                      ? 'This cell is already running'
+                      : isJupyterModeActive
+                        ? null
+                        : (operationBlockReason ?? null),
                   isRunning,
                   isQueued,
                   executionCount,
@@ -120,6 +130,7 @@ export function NotebookCodeCellRunButton({ node, updateProps }: NotebookCompone
                 }
             }}
             loading={isInterrupting}
+            disabledReason={isJupyterModeActive ? undefined : (operationBlockReason ?? undefined)}
             tooltip={
                 isQueued ? 'Remove the cell from the queue' : isRunning ? 'Stop the running cell' : 'Run cell (⌘⏎)'
             }

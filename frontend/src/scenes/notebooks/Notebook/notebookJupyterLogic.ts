@@ -1,6 +1,8 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import posthog from 'posthog-js'
 
 import { ApiConfig } from 'lib/api'
+import type { NotebookJupyterCommand } from 'lib/components/MarkdownNotebook/jupyterMode'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
@@ -10,6 +12,15 @@ import { notebookKernelInfoLogic } from './notebookKernelInfoLogic'
 import { notebookNodeStalenessLogic } from './notebookNodeStalenessLogic'
 import { notebookRunLogic } from './notebookRunLogic'
 
+const UNTRACKED_COMMANDS: ReadonlySet<NotebookJupyterCommand> = new Set<NotebookJupyterCommand>([
+    'enter-edit-mode',
+    'enter-command-mode',
+    'select-previous',
+    'select-next',
+    'extend-selection-up',
+    'extend-selection-down',
+])
+
 export interface NotebookJupyterLogicProps {
     shortId: string
 }
@@ -18,6 +29,7 @@ export interface NotebookJupyterLogicProps {
 export interface notebookJupyterLogicValues {
     executionCounter: number
     executionCounts: Record<string, number>
+    isActive: boolean
     isRestartingKernel: boolean
 }
 
@@ -48,8 +60,14 @@ export interface notebookJupyterLogicActions {
     restartKernel: (runAll: boolean) => {
         runAll: boolean
     }
+    setIsActive: (isActive: boolean) => {
+        isActive: boolean
+    }
     setIsRestartingKernel: (isRestartingKernel: boolean) => {
         isRestartingKernel: boolean
+    }
+    trackCommand: (command: NotebookJupyterCommand) => {
+        command: NotebookJupyterCommand
     }
 }
 
@@ -69,6 +87,9 @@ export type notebookJupyterLogicType = MakeLogicType<
  * Jupyter's execution counter: every finished cell run takes the next number, shown as the cell's
  * `In [n]:` prompt. Like a kernel's counter it starts again at 1 after a restart, and like a saved
  * `.ipynb` the numbers a cell already shows survive a reload.
+ *
+ * `isActive` says whether this notebook renders in Jupyter mode. The renderer sets it, and the
+ * cells read it, so a notebook outside Jupyter mode keeps its own run behavior and counts nothing.
  */
 export const notebookJupyterLogic = kea<notebookJupyterLogicType>([
     props({} as NotebookJupyterLogicProps),
@@ -83,8 +104,11 @@ export const notebookJupyterLogic = kea<notebookJupyterLogicType>([
         requestKernelRestart: (runAll: boolean = false) => ({ runAll }),
         restartKernel: (runAll: boolean) => ({ runAll }),
         setIsRestartingKernel: (isRestartingKernel: boolean) => ({ isRestartingKernel }),
+        setIsActive: (isActive: boolean) => ({ isActive }),
+        trackCommand: (command: NotebookJupyterCommand) => ({ command }),
     }),
     reducers({
+        isActive: [false, { setIsActive: (_, { isActive }) => isActive }],
         executionCounter: [
             0,
             { persist: true },
@@ -110,7 +134,15 @@ export const notebookJupyterLogic = kea<notebookJupyterLogicType>([
     }),
     listeners(({ actions, values, props }) => ({
         nodeRunFinished: ({ nodeId }) => {
-            actions.assignExecutionCount(nodeId, values.executionCounter + 1)
+            if (values.isActive) {
+                actions.assignExecutionCount(nodeId, values.executionCounter + 1)
+            }
+        },
+        trackCommand: ({ command }) => {
+            // Moving between cells and modes happens on most key presses, and says nothing about which features people use.
+            if (!UNTRACKED_COMMANDS.has(command)) {
+                posthog.capture('notebook jupyter command', { command, notebook_short_id: props.shortId })
+            }
         },
         requestKernelRestart: ({ runAll }) => {
             if (values.isRestartingKernel) {
@@ -133,6 +165,10 @@ export const notebookJupyterLogic = kea<notebookJupyterLogicType>([
                 // Awaited here rather than dispatched to the kernel logic, so "run all" starts only
                 // once the fresh kernel is up.
                 await notebooksKernelRestartCreate(String(ApiConfig.getCurrentTeamId()), props.shortId)
+                posthog.capture('notebook jupyter kernel restarted', {
+                    run_all: runAll,
+                    notebook_short_id: props.shortId,
+                })
                 actions.resetExecutionCounter()
                 if (runAll) {
                     notebookRunLogic.findMounted({ shortId: props.shortId })?.actions.startRun()

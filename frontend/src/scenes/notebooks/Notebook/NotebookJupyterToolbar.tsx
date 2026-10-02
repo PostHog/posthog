@@ -53,7 +53,7 @@ export function NotebookJupyterToolbar(): JSX.Element | null {
             interruptRunAll()
             return
         }
-        const handler = activeRunHandler?.isRunning ? activeRunHandler : runningHandler
+        const handler = activeRunHandler?.isRunning && !activeRunHandler.isQueued ? activeRunHandler : runningHandler
         handler?.interrupt?.()
     }
 

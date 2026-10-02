@@ -14,6 +14,8 @@ export type MarkdownNotebookJupyterModeConfig = {
     /** Gives a pasted or restored copy of a cell identities of its own, such as a fresh run id. */
     prepareCellCopy?: (node: NotebookComponentBlockNode) => NotebookComponentBlockNode
     onRestartKernel?: () => void
+    /** Called for every command a key, the toolbar, or a cell button runs, so the host can count usage. */
+    onCommand?: (command: NotebookJupyterCommand) => void
     completeCode?: (
         node: NotebookComponentBlockNode,
         code: string,
