@@ -159,9 +159,9 @@ from products.workflows.backend.facade.proposals import (
     PROPOSAL_MERGE_BY_ID_FIELDS,
     PROPOSAL_WHOLE_LIST_FIELDS,
     UNAVAILABLE_GUARDRAILS,
-    _item_id,
     base_content_of,
     conflicting_parts,
+    content_item_id,
     count_proposals,
     create_proposal,
     describe_steps,
@@ -436,9 +436,9 @@ def strip_proposal_secrets(content: dict, live_content: dict, template_cache: Op
     actions = stripped.get("actions")
     if not isinstance(actions, list):
         return stripped
-    live_by_id = {_item_id(item): item for item in live_content.get("actions") or []}
+    live_by_id = {content_item_id(item): item for item in live_content.get("actions") or []}
     for item in actions:
-        live_step = live_by_id.get(_item_id(item))
+        live_step = live_by_id.get(content_item_id(item))
         inputs = (item.get("config") or {}).get("inputs") if isinstance(item, dict) else None
         if live_step is None or not isinstance(inputs, dict):
             continue
@@ -3900,7 +3900,7 @@ def _merge_by_id(live_items: list, changed_items: list) -> list:
     changed_by_id = {item["id"]: item for item in changed_items if isinstance(item, dict) and "id" in item}
     merged = []
     for item in live_items:
-        patch = changed_by_id.pop(_item_id(item), None)
+        patch = changed_by_id.pop(content_item_id(item), None)
         merged.append(_deep_merge(copy.deepcopy(item), patch) if patch is not None else item)
     # Anything left names a step the workflow does not have yet, so the proposal is adding it whole.
     merged.extend(changed_by_id.values())
@@ -3914,7 +3914,7 @@ def _validate_merge_keys(field: str, items: Any) -> None:
         return
     seen: set[str] = set()
     for index, item in enumerate(items):
-        item_id = _item_id(item)
+        item_id = content_item_id(item)
         if not isinstance(item_id, str) or not item_id:
             raise exceptions.ValidationError(
                 f"`{field}[{index}]` needs the `id` of the step it changes. Send only the steps you change."

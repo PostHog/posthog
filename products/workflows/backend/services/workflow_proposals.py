@@ -224,13 +224,13 @@ def set_optimization_enabled(*, hog_flow_id: UUID, enabled: bool) -> bool:
     return True
 
 
-def _item_id(item: Any) -> Any:
+def content_item_id(item: Any) -> Any:
     return item.get("id") if isinstance(item, dict) else None
 
 
 def describe_steps(hog_flow: LiveWorkflowContent, step_ids: list[str]) -> list[str]:
     """Step names for a person to read. A step deleted since has no name left, so it keeps its id."""
-    names = {_item_id(item): item.get("name") for item in hog_flow.content.get("actions") or []}
+    names = {content_item_id(item): item.get("name") for item in hog_flow.content.get("actions") or []}
     return [names.get(step_id) or step_id for step_id in step_ids]
 
 
@@ -249,7 +249,7 @@ def conflicting_parts(
         return []
     base_content = base_content_of(hog_flow, proposal)
     content = proposal_changes(proposal, base_content) if content is None else content
-    touched_steps = {_item_id(item) for item in content.get("actions") or []} - {None}
+    touched_steps = {content_item_id(item) for item in content.get("actions") or []} - {None}
     touched_lists = [field for field in PROPOSAL_WHOLE_LIST_FIELDS if field in content]
     touched_fields = [
         field
@@ -263,9 +263,9 @@ def conflicting_parts(
         # Without the snapshot the proposal read, "changed since" is unanswerable.
         return sorted({*touched_steps, *touched_fields})
     live_content = hog_flow.content
-    base_actions = {_item_id(item): item for item in base_content.get("actions") or []}
-    live_actions = {_item_id(item): item for item in live_content.get("actions") or []}
-    proposed_actions = {_item_id(item): item for item in content.get("actions") or []}
+    base_actions = {content_item_id(item): item for item in base_content.get("actions") or []}
+    live_actions = {content_item_id(item): item for item in live_content.get("actions") or []}
+    proposed_actions = {content_item_id(item): item for item in content.get("actions") or []}
     moved_steps = [
         step_id
         for step_id in touched_steps
@@ -301,10 +301,10 @@ def proposal_changes(proposal: WorkflowProposalRecord, base_content: dict | None
     content = dict(proposal.content)
     if base_content is None or "actions" not in content:
         return content
-    base_steps = {_item_id(item): item for item in base_content.get("actions") or []}
+    base_steps = {content_item_id(item): item for item in base_content.get("actions") or []}
     changed_steps = []
     for item in content.get("actions") or []:
-        base_step = base_steps.get(_item_id(item))
+        base_step = base_steps.get(content_item_id(item))
         if not isinstance(item, dict) or base_step is None:
             changed_steps.append(item)
             continue
