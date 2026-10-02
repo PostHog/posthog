@@ -106,6 +106,24 @@ class AccountAudienceProvider(Protocol):
 
 
 @frozen
+class AudienceSize:
+    """How many recipients a batch audience matches, and the most a batch trigger may send to."""
+
+    affected: int
+    total: int
+    limit: int
+    dedupe_key: str | None
+
+
+@frozen
+class AudiencePage:
+    """One cursor-paginated page of a batch audience: person, group or account ids."""
+
+    ids: list[str]
+    has_more: bool
+
+
+@frozen
 class EmailSendingTierLimits:
     """What a trust tier allows: two send-rate caps and a maximum batch audience."""
 
