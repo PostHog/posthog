@@ -2,11 +2,12 @@ import { router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { toolHrefForPath } from 'scenes/tools/toolsUtils'
 
 import { initKeaTests } from '~/test/init'
 
 import { TODAY_RAIL_WIDTH, TODAY_SIDEBAR_MAX_WIDTH, railPaneForPath, todayShellLogic } from './todayShellLogic'
-import { toolHrefForPath } from './todayToolsLogic'
 
 describe('todayShellLogic', () => {
     beforeEach(() => {
@@ -45,6 +46,22 @@ describe('todayShellLogic', () => {
     ])('selects the tool for %s', (path, href) => {
         const tools = [{ href: '/data-management' }, { href: '/data-management/destinations?tab=all' }]
         expect(toolHrefForPath(path, tools)).toBe(href)
+    })
+
+    test.each([
+        ['home', '/home'],
+        ['spaces', '/ai'],
+        ['views', '/views/new'],
+        ['library', '/library'],
+        ['tools', '/tools'],
+    ] as const)('opens the %s section when its rail item is picked', (pane, pathname) => {
+        const logic = todayShellLogic()
+        logic.mount()
+
+        router.actions.push('/project/1/airplane')
+        logic.actions.pickPane(pane)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(pathname)
+        expect(logic.values.activePane).toBe(pane)
     })
 
     it('keeps the last pane open on pages that belong to no pane', () => {

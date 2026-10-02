@@ -1047,6 +1047,7 @@ export const ViewsEmpty: Story = {
 export const ViewsNewMenu: Story = {
     parameters: { pageUrl: urls.views() },
     play: async ({ canvasElement }) => {
-        await userEvent.click(await within(canvasElement).findByText('New…'))
+        const [newView] = await within(canvasElement).findAllByText('New view')
+        await userEvent.click(newView)
     },
 }
