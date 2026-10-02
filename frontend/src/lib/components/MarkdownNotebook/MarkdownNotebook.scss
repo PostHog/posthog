@@ -2271,7 +2271,11 @@ button.MarkdownNotebook__component-title:focus-visible {
 // `In [n]:` prompt column, the active cell carries a blue bar, and outputs line up under the code.
 .MarkdownNotebook--jupyter {
     --jupyter-prompt-width: 4.75rem;
-    --jupyter-text-control-left: calc(-1 * (var(--jupyter-prompt-width) + 0.5rem));
+
+    // Where markdown text starts: past the prompt column and the 1px border of a code cell's input
+    // area, so text and code start in the same column.
+    --jupyter-text-left: calc(var(--jupyter-prompt-width) + 1px);
+    --jupyter-text-control-left: calc(-1 * var(--jupyter-text-left));
     --jupyter-prompt-font-size: 0.8125rem;
     --jupyter-input-prompt-color: var(--color-blue-600);
     --jupyter-output-prompt-color: var(--color-orange-600);
@@ -2309,7 +2313,7 @@ button.MarkdownNotebook__component-title:focus-visible {
 
     .MarkdownNotebook__text-group {
         width: 100%;
-        padding: 0.3125rem 0.5rem 0.3125rem calc(var(--jupyter-prompt-width) + 0.5rem);
+        padding: 0.3125rem 0.5rem 0.3125rem var(--jupyter-text-left);
         margin: 0.125rem 0;
         background: none;
         border: none;
@@ -2347,7 +2351,7 @@ button.MarkdownNotebook__component-title:focus-visible {
     // Comment threads keep their own placement in the margin.
     .MarkdownNotebook__row:not(.MarkdownNotebook__row--margin-comment)
         > .MarkdownNotebook__component-shell:not(.MarkdownNotebook__jupyter-cell) {
-        margin-left: calc(var(--jupyter-prompt-width) + 0.5rem);
+        margin-left: var(--jupyter-prompt-width);
     }
 
     // Row controls: the comment button sits right of the sheet's content, past the source and
@@ -2367,7 +2371,7 @@ button.MarkdownNotebook__component-title:focus-visible {
     .MarkdownNotebook__text-group .MarkdownNotebook__line-insert-menu-hit-area,
     .MarkdownNotebook__text-group .MarkdownNotebook__insert-boundary-hover-zone {
         left: var(--jupyter-text-control-left);
-        width: calc(var(--jupyter-prompt-width) + 0.5rem);
+        width: var(--jupyter-text-left);
     }
 
     .MarkdownNotebook__text-group .MarkdownNotebook__insert-boundary-button {
@@ -2381,7 +2385,7 @@ button.MarkdownNotebook__component-title:focus-visible {
 
     .MarkdownNotebook__blockquote-group .MarkdownNotebook__line-insert-menu-hit-area {
         left: calc(var(--jupyter-text-control-left) - var(--markdown-notebook-quote-indent));
-        width: calc(var(--jupyter-prompt-width) + 0.5rem + var(--markdown-notebook-quote-indent));
+        width: calc(var(--jupyter-text-left) + var(--markdown-notebook-quote-indent));
     }
 
     .MarkdownNotebook__blockquote-group .MarkdownNotebook__drag-handle {
@@ -2659,9 +2663,9 @@ button.MarkdownNotebook__component-title:focus-visible {
 
 .MarkdownNotebook__jupyter-add-cell {
     display: block;
-    width: calc(100% - var(--jupyter-prompt-width) - 0.5rem);
+    width: calc(100% - var(--jupyter-prompt-width));
     padding: 0.625rem 0.75rem;
-    margin: 0.5rem 0 0 calc(var(--jupyter-prompt-width) + 0.5rem);
+    margin: 0.5rem 0 0 var(--jupyter-prompt-width);
     font-size: 0.75rem;
     color: var(--color-text-secondary);
     text-align: left;
