@@ -1354,8 +1354,12 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 filterTestAccounts=filter_test_accounts,
                 after="-30d",
             )
-            response = EventsQueryRunner(query=query, team=self.team).run()
+            with self.capture_select_queries() as queries:
+                response = EventsQueryRunner(query=query, team=self.team).run()
 
+        page_queries = [query for query in queries if re.search(r"\bFROM\s+flag_evaluations\b", query)]
+        assert len(page_queries) == 1
+        assert len(re.findall(r"\bAS\s+flag_evaluations__person\s+ON\b", page_queries[0])) == 1
         assert isinstance(response, CachedEventsQueryResponse)
         assert f"in(flag_key, tuple('{FLAG_EVALUATIONS_FLAG_KEY}'))" in response.hogql
         assert "properties.$feature_flag," not in response.hogql
@@ -1481,6 +1485,9 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         page_queries = [query for query in queries if re.search(r"\bFROM\s+flag_evaluations\b", query)]
         assert len(page_queries) == 1
         assert not re.search(r"\bFROM\s+person\b", page_queries[0])
+        lookup_queries = [query for query in queries if re.search(r"\bFROM\s+person\b", query)]
+        assert len(lookup_queries) == 1
+        assert lookup_queries[0].index("toUUIDOrNull") < lookup_queries[0].index("GROUP BY")
         assert isinstance(response, CachedEventsQueryResponse)
         assert [row[0] for row in response.results] == [
             {"display_name": "first-user@example.com", "id": str(first.uuid), "distinct_id": "first-user"},
@@ -1677,10 +1684,15 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 kind="EventsQuery",
                 select=["person_display_name -- Person"],
                 event="$feature_flag_called",
+                orderBy=["timestamp ASC"],
                 after="-30d",
             )
-            response = EventsQueryRunner(query=query, team=self.team, user=self.user).run()
+            with self.capture_select_queries() as queries:
+                response = EventsQueryRunner(query=query, team=self.team, user=self.user).run()
 
+        page_queries = [query for query in queries if re.search(r"\bFROM\s+flag_evaluations\b", query)]
+        assert len(page_queries) == 1
+        assert not re.search(r"\bFROM\s+person\b", page_queries[0])
         assert isinstance(response, CachedEventsQueryResponse)
         assert [row[0]["display_name"] for row in response.results] == ["Flag User"]
 

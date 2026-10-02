@@ -180,10 +180,15 @@ class FlagEvaluationsTable(Table):
         return FLAG_EVALUATIONS_CLICKHOUSE_TABLE
 
 
-def events_shaped_flag_evaluations(database: "Database") -> None:
-    """Give the database's `posthog.flag_evaluations` the fields an events list reads, so its query resolves there.
+# The fields add_events_list_fields_to_flag_evaluations adds that join another table.
+EVENTS_LIST_JOINED_FIELDS = frozenset({"person", "session", *(f"group_{index}" for index in range(GROUP_TYPES_LIMIT))})
 
-    This changes the table instance that `database` holds. No other reader may share `database`.
+
+def add_events_list_fields_to_flag_evaluations(database: "Database") -> None:
+    """Add the fields an events list reads to `posthog.flag_evaluations` in `database`, so a list query resolves there.
+
+    This changes the table instance that `database` holds. Every later query compiled against `database` sees the wider
+    table. Pass a database that only the events list runner uses, such as its `shared_database`.
     """
     flag_evaluations = database.get_table(["posthog", "flag_evaluations"])
     events_session = database.get_table("events").fields["session"]

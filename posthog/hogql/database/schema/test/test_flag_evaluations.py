@@ -19,7 +19,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.schema.flag_evaluations import events_shaped_flag_evaluations
+from posthog.hogql.database.schema.flag_evaluations import add_events_list_fields_to_flag_evaluations
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
@@ -293,7 +293,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             return_value=True,
         ):
             database = Database.create_for(team=self.team)
-            events_shaped_flag_evaluations(database)
+            add_events_list_fields_to_flag_evaluations(database)
             response = execute_hogql_query(
                 f"SELECT {', '.join(SELECT_STAR_FROM_EVENTS_FIELDS)} FROM posthog.flag_evaluations AS flag_evaluations "
                 "WHERE uuid = {row_uuid} AND {filter}",

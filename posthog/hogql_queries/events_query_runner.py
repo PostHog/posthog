@@ -25,7 +25,10 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.ast import Alias
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.schema.flag_evaluations import events_shaped_flag_evaluations
+from posthog.hogql.database.schema.flag_evaluations import (
+    EVENTS_LIST_JOINED_FIELDS,
+    add_events_list_fields_to_flag_evaluations,
+)
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import (
     action_to_expr,
@@ -35,6 +38,7 @@ from posthog.hogql.property import (
     steps_to_expr,
 )
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.api.element import ElementSerializer
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
@@ -81,6 +85,8 @@ class EventsListTable:
     alias: str | None
     person_id: str
     looks_up_person_display_names: bool
+    # Fields that join another table. The outer presorted query leaves out filters on them.
+    joined_fields: frozenset[str]
 
     def join_expr(self) -> ast.JoinExpr:
         return ast.JoinExpr(table=ast.Field(chain=[*self.chain]), alias=self.alias)
@@ -91,6 +97,7 @@ EVENTS_LIST_TABLE = EventsListTable(
     alias=None,
     person_id="person.id",
     looks_up_person_display_names=False,
+    joined_fields=frozenset(),
 )
 FLAG_EVALUATIONS_LIST_TABLE = EventsListTable(
     chain=("posthog", "flag_evaluations"),
@@ -105,7 +112,26 @@ FLAG_EVALUATIONS_LIST_TABLE = EventsListTable(
     # the query picks the page. The runner reads display names for only the page's persons after the query, unless
     # the query sorts by Person and joins persons anyway.
     looks_up_person_display_names=True,
+    joined_fields=EVENTS_LIST_JOINED_FIELDS,
 )
+
+
+class _FieldUnderFinder(TraversingVisitor):
+    def __init__(self, roots: frozenset[str]) -> None:
+        super().__init__()
+        self.roots = roots
+        self.found = False
+
+    def visit_field(self, node: ast.Field) -> None:
+        if node.chain and node.chain[0] in self.roots:
+            self.found = True
+
+
+def _reads_field_under(expr: ast.Expr, roots: frozenset[str]) -> bool:
+    finder = _FieldUnderFinder(roots)
+    finder.visit(expr)
+    return finder.found
+
 
 # Pagination cursors are encoded as ``<timestamp>|<uuid>`` so a stable uuid tiebreaker can advance
 # past events that share the boundary timestamp instead of dropping every tied row beyond the page
@@ -408,7 +434,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         context = self.build_hogql_context()
         assert context.database is not None
         if table is FLAG_EVALUATIONS_LIST_TABLE:
-            events_shaped_flag_evaluations(context.database)
+            add_events_list_fields_to_flag_evaluations(context.database)
         return context
 
     def _filter_where_exprs(self, table: EventsListTable) -> list[ast.Expr]:
@@ -647,7 +673,18 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         )
 
         prefilter_sorted = parse_expr("uuid in ({inner_query})", {"inner_query": inner_query})
-        return ast.And(exprs=[prefilter_sorted, where]) if where is not None else prefilter_sorted
+        outer_where = self._presorted_outer_where(table, where)
+        return ast.And(exprs=[prefilter_sorted, outer_where]) if outer_where is not None else prefilter_sorted
+
+    @staticmethod
+    def _presorted_outer_where(table: EventsListTable, where: ast.Expr | None) -> ast.Expr | None:
+        # The inner query applies every filter. The outer query keeps a filter only to narrow its own scan.
+        # A filter that reads a joined field would join that table a second time.
+        if where is None or not table.joined_fields:
+            return where
+        exprs = where.exprs if isinstance(where, ast.And) else [where]
+        kept = [expr for expr in exprs if not _reads_field_under(expr, table.joined_fields)]
+        return ast.And(exprs=kept) if kept else None
 
     def _calculate(self) -> EventsQueryResponse:
         # Tag here (not in `to_query()`) so platform code that calls `to_query()` as a
@@ -739,7 +776,11 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         if display_name_indices and self._person_display_names_after_query(table):
             with self.timings.measure("person_display_name_lookup"):
                 names = self._person_display_names(
-                    {str(result[index][1]) for result in self.paginator.results for index in display_name_indices}
+                    {
+                        str(row[column_index][1])
+                        for row in self.paginator.results
+                        for column_index in display_name_indices
+                    }
                 )
 
         for column_index in display_name_indices:
