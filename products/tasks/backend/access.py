@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
@@ -38,6 +39,7 @@ class DesktopAccessDecision(StrEnum):
     ALLOWED = "allowed"
     STARTUP_PLAN = "startup_plan"
     PREPAID_CREDITS = "prepaid_credits"
+    SIGNUPS_PAUSED = "signups_paused"
 
     @property
     def allowed(self) -> bool:
@@ -63,10 +65,27 @@ _DECISION_OUTCOMES: dict[DesktopAccessDecision, DesktopAccessOutcome] = {
     DesktopAccessDecision.ALLOWED: "allowed",
     DesktopAccessDecision.STARTUP_PLAN: "startup_plan",
     DesktopAccessDecision.PREPAID_CREDITS: "prepaid_credits",
+    DesktopAccessDecision.SIGNUPS_PAUSED: "signups_paused",
 }
 
 
 _DECISION_VALUES = frozenset(decision.value for decision in DesktopAccessDecision)
+
+
+def _signup_cutoff() -> datetime | None:
+    raw_cutoff = settings.DESKTOP_SIGNUP_CUTOFF
+    if not raw_cutoff:
+        return None
+    try:
+        cutoff = datetime.fromisoformat(raw_cutoff)
+    except ValueError as error:
+        raise DesktopAccessResolutionError("DESKTOP_SIGNUP_CUTOFF is not an ISO 8601 datetime") from error
+    return cutoff if cutoff.tzinfo is not None else cutoff.replace(tzinfo=UTC)
+
+
+def _signed_up_after_cutoff(user: User) -> bool:
+    cutoff = _signup_cutoff()
+    return cutoff is not None and user.date_joined >= cutoff
 
 
 def _funding_decision(user: User, organization: "Organization") -> DesktopAccessDecision:
@@ -127,7 +146,9 @@ def get_desktop_access_decision(
         return DesktopAccessDecision.ALLOWED
 
     try:
-        if funding_cache_seconds > 0:
+        if _signed_up_after_cutoff(user):
+            decision = DesktopAccessDecision.SIGNUPS_PAUSED
+        elif funding_cache_seconds > 0:
             decision = _cached_funding_decision(user, organization, funding_cache_seconds)
         else:
             decision = _funding_decision(user, organization)
