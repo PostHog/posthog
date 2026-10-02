@@ -34,6 +34,7 @@ BASE_PLATFORM_ALERT_EVENTS_COLUMNS = f"""
     consecutive_failures UInt32,
     muted_notification LowCardinality(String),
     occurred_at DateTime64(6, 'UTC'),
+    source_kind LowCardinality(String),
     expires_at Date DEFAULT today() + toIntervalDay({PLATFORM_ALERT_EVENTS_TTL_DAYS})
 """.strip()
 
