@@ -9,6 +9,8 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -383,14 +385,20 @@ def _get_client_matter_rows(
         yield matters
 
 
+@frozen
+class VaultProjectPage:
+    number: int
+    projects: list[dict[str, Any]]
+    has_more: bool
+
+
 def _iter_vault_project_pages(
     session: requests.Session,
     headers: dict[str, str],
     base_url: str,
     logger: FilteringBoundLogger,
     start_page: int,
-) -> Iterator[tuple[int, list[dict[str, Any]], bool]]:
-    """Yield (page number, projects, has_more) for each page of Vault projects."""
+) -> Iterator[VaultProjectPage]:
     page = start_page
     while True:
         data = _fetch_json(session, _vault_projects_url(base_url, page, VAULT_PROJECTS_PAGE_SIZE), headers, logger)
@@ -402,7 +410,7 @@ def _iter_vault_project_pages(
 
         total_pages = (content.get("pagination") or {}).get("total_pages")
         has_more = total_pages is None or page < total_pages
-        yield page, projects, has_more
+        yield VaultProjectPage(number=page, projects=projects, has_more=has_more)
 
         if not has_more:
             return
@@ -422,10 +430,10 @@ def _get_vault_project_rows(
     resumable_source_manager: ResumableSourceManager[HarveyResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
     start_page = _resume_page(resumable_source_manager)
-    for page, projects, has_more in _iter_vault_project_pages(session, headers, base_url, logger, start_page):
-        yield projects
-        if has_more:
-            resumable_source_manager.save_state(HarveyResumeConfig(next_page=page + 1))
+    for page in _iter_vault_project_pages(session, headers, base_url, logger, start_page):
+        yield page.projects
+        if page.has_more:
+            resumable_source_manager.save_state(HarveyResumeConfig(next_page=page.number + 1))
 
 
 def _fetch_json_or_none(
@@ -576,8 +584,8 @@ def _get_project_fan_out_rows(
     get_child_rows: ProjectChildRows,
 ) -> Iterator[list[dict[str, Any]]]:
     start_page = _resume_page(resumable_source_manager)
-    for page, projects, has_more in _iter_vault_project_pages(session, headers, base_url, logger, start_page):
-        for project in projects:
+    for page in _iter_vault_project_pages(session, headers, base_url, logger, start_page):
+        for project in page.projects:
             project_id = project.get("id")
             if project_id is None:
                 continue
@@ -585,8 +593,8 @@ def _get_project_fan_out_rows(
             # Many projects yield no child rows; let the pipeline act on shutdowns between them.
             # Resuming from the staged page re-walks this page's projects, so no rows are lost.
             resumable_source_manager.safe_point()
-        if has_more:
-            resumable_source_manager.save_state(HarveyResumeConfig(next_page=page + 1))
+        if page.has_more:
+            resumable_source_manager.save_state(HarveyResumeConfig(next_page=page.number + 1))
 
 
 def get_rows(
