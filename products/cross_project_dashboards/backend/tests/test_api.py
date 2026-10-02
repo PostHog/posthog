@@ -35,6 +35,10 @@ class TestCrossProjectDashboardAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "cohort" in str(response.json())
 
+    def test_rejects_filters_over_the_size_ceiling(self, _flag):
+        response = self.client.post(self._url(), {"name": "Big", "filters": {"padding": "x" * 20_000}}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
     def test_allows_a_date_filter(self, _flag):
         response = self.client.post(
             self._url(), {"name": "X", "filters": {"date_from": "-7d", "interval": "week"}}, format="json"

@@ -109,6 +109,20 @@ class TestCrossProjectDashboardTileAPI(APIBaseTest):
         live = list(self.dashboard.tiles.filter(deleted=False).values_list("insight_id", flat=True))
         assert live == [second.pk]
 
+    def test_rejects_a_tile_past_the_per_dashboard_ceiling(self, _flag):
+        CrossProjectDashboardTile.objects.bulk_create(
+            CrossProjectDashboardTile(
+                dashboard=self.dashboard, organization=self.organization, project_id=self.team.pk, insight_id=n
+            )
+            for n in range(100)
+        )
+        insight = self._insight()
+
+        response = self.client.post(self._url(), {"project_id": self.team.pk, "insight_id": insight.pk}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert self.dashboard.tiles.filter(deleted=False).count() == 100
+
     def test_rejects_an_insight_the_user_cannot_reach(self, _flag):
         response = self.client.post(self._url(), {"project_id": 999999, "insight_id": 1}, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST

@@ -14,6 +14,9 @@ from products.cross_project_dashboards.backend.logic.access import assert_can_re
 from products.cross_project_dashboards.backend.models import CrossProjectDashboard, CrossProjectDashboardTile
 
 DUPLICATE_TILE = "That insight is already on this dashboard."
+# Bounds what one dashboard page can carry, since every page embeds each dashboard's tiles.
+MAX_TILES_PER_DASHBOARD = 100
+TOO_MANY_TILES = f"A dashboard holds at most {MAX_TILES_PER_DASHBOARD} tiles. Remove one before adding another."
 
 
 def _to_tile(tile: CrossProjectDashboardTile) -> contracts.CrossProjectTile:
@@ -145,6 +148,8 @@ def create_tile(
     ).first()
     if dashboard is None:
         raise contracts.DashboardNotFoundError()
+    if CrossProjectDashboardTile.objects.filter(dashboard=dashboard, deleted=False).count() >= MAX_TILES_PER_DASHBOARD:
+        raise serializers.ValidationError({"insight_id": TOO_MANY_TILES})
     assert_can_reference_insight(user, organization_id, tile.project_id, tile.insight_id)
     try:
         # The savepoint keeps a duplicate from breaking an enclosing transaction.
