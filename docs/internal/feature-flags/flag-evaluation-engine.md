@@ -437,7 +437,7 @@ Rust deserializes `EvaluationMetadata` and maps pre-grouped stages directly to `
 
 #### Fallback path (PostgreSQL)
 
-On a hypercache miss, the service loads flags from Postgres and computes the same metadata with `compute_flag_dependencies_or_single_stage()` in `cache_builder.rs`, which builds a DAG using `petgraph`:
+On a hypercache miss or a hypercache infrastructure error (anything other than a JSON or pickle parse error, which fails the request), the service loads flags from Postgres and computes the same metadata with `compute_flag_dependencies_or_single_stage()` in `cache_builder.rs`, which builds a DAG using `petgraph`:
 
 1. Extract dependencies from all flag property filters
 2. Build a directed graph (edges from dependent -> dependency)
