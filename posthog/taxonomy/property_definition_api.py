@@ -778,7 +778,7 @@ class PropertyDefinitionViewSet(
                 bool(search and search.strip())
                 or bool(filter_by_event_names)
                 or bool(query.validated_data.get("properties"))
-                or bool(query.validated_data.get("is_numerical"))
+                or query.validated_data.get("is_numerical") is True
                 or bool(query.validated_data.get("is_feature_flag"))
                 or query.validated_data.get("verified") is not None
             )
@@ -868,7 +868,7 @@ class PropertyDefinitionViewSet(
             "List the property definitions of a project. When a property type has more than "
             f"{PROJECT_SCAN_MAX_DEFINITIONS} definitions in the project, results are ordered by name, `count` stops "
             f"at {LARGE_PROJECT_COUNT_CAP} and `count_is_capped` is true. This does not apply when the request sets "
-            "`search`, `filter_by_event_names`, `properties`, `is_numerical`, `is_feature_flag=true` or `verified`."
+            "`search`, `filter_by_event_names`, `properties`, `is_numerical=true`, `is_feature_flag=true` or `verified`."
         ),
         parameters=[PropertyDefinitionQuerySerializer],
     )

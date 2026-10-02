@@ -46,7 +46,7 @@ The size check counts the requested type only, so a project with many event prop
 On that path the list orders by name only, and `count_is_capped` tells the caller that `count` is a lower bound.
 Small types keep the seen-on-events-first and verified-first order.
 A request with `event_names` still gets `is_seen_on_filtered_events` for each row, but seen properties do not move to the top.
-A request that sets `search`, `filter_by_event_names`, `properties`, `is_numerical`, `is_feature_flag=true` or `verified` keeps the exact count and the usual order, because those filters match too few rows for a bounded count to stop early.
+A request that sets `search`, `filter_by_event_names`, `properties`, `is_numerical=true`, `is_feature_flag=true` or `verified` keeps the exact count and the usual order, because those filters match too few rows for a bounded count to stop early.
 Virtual properties go after the last row, which is the page without a `next` link.
 
 ## Cohort names on individual insights
