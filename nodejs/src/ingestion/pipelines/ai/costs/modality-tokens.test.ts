@@ -5,6 +5,57 @@ import { createAIEvent } from './test-helpers'
 
 describe('extractModalityTokens()', () => {
     describe('Gemini direct usage metadata', () => {
+        it('extracts Gemini Interactions input, output, and cached modality tokens', () => {
+            const event = createAIEvent({
+                $ai_usage: {
+                    input_tokens_by_modality: [
+                        { modality: 'text', tokens: 250 },
+                        { modality: 'audio', tokens: 750 },
+                        { modality: 'image', tokens: 400 },
+                    ],
+                    output_tokens_by_modality: [
+                        { modality: 'text', tokens: 10 },
+                        { modality: 'audio', tokens: 20 },
+                        { modality: 'image', tokens: 1290 },
+                    ],
+                    cached_tokens_by_modality: [{ modality: 'audio', tokens: 50 }],
+                },
+            })
+
+            const result = extractModalityTokens(event)
+
+            expect(result.properties).toMatchObject({
+                $ai_text_input_tokens: 250,
+                $ai_audio_input_tokens: 750,
+                $ai_image_input_tokens: 400,
+                $ai_text_output_tokens: 10,
+                $ai_audio_output_tokens: 20,
+                $ai_image_output_tokens: 1290,
+                $ai_cache_read_audio_tokens: 50,
+            })
+            expect(result.properties['$ai_usage']).toBeUndefined()
+        })
+
+        it.each([
+            { tokens: -5, expected: undefined },
+            { tokens: Number.POSITIVE_INFINITY, expected: undefined },
+            { tokens: Number.NaN, expected: undefined },
+            { tokens: 0, expected: 0 },
+        ])('accepts only finite nonnegative Interactions token counts ($tokens)', ({ tokens, expected }) => {
+            const event = createAIEvent({
+                $ai_usage: {
+                    input_tokens_by_modality: [{ modality: 'text', tokens }],
+                    output_tokens_by_modality: [{ modality: 'text', tokens }],
+                },
+            })
+
+            const result = extractModalityTokens(event)
+
+            expect(result.properties['$ai_text_input_tokens']).toBe(expected)
+            expect(result.properties['$ai_text_output_tokens']).toBe(expected)
+            expect(result.properties['$ai_usage']).toBeUndefined()
+        })
+
         it('extracts image and text tokens from candidatesTokensDetails array format', () => {
             const event = createAIEvent({
                 $ai_usage: {

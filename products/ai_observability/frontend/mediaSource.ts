@@ -64,7 +64,14 @@ export function redactedMediaKind(item: unknown): RedactedMediaKind | null {
         return isRedactedMediaSentinel(item.source.data) ? 'image' : null
     }
     if (isGeminiImageMessage(item)) {
-        return hasRedactedGeminiInlineData(item) ? 'image' : null
+        const inlineData = getGeminiInlineData(item)
+        if (inlineData) {
+            return hasRedactedGeminiInlineData(item) ? 'image' : null
+        }
+        if (typeof item.data === 'string') {
+            return 'image'
+        }
+        return typeof item.uri === 'string' && isRenderableMediaSource(item.uri) ? null : 'image'
     }
     if (isOpenAIFileMessage(item)) {
         return isRedactedMediaSentinel(item.file.file_data) ? 'file' : null

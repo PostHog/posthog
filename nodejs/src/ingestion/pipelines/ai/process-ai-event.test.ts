@@ -489,6 +489,82 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.0003, 7)
             expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.00155, 7)
         })
+
+        it('bills Gemini Interactions cached audio at the audio cache rate', () => {
+            event.properties!.$ai_model = 'gemini-3-flash-preview'
+            event.properties!.$ai_provider = 'gemini'
+            event.properties!.$ai_input_tokens = 1000
+            event.properties!.$ai_output_tokens = 100
+            event.properties!.$ai_cache_read_input_tokens = 50
+            event.properties!.$ai_usage = {
+                input_tokens_by_modality: [
+                    { modality: 'audio', tokens: 750 },
+                    { modality: 'text', tokens: 250 },
+                ],
+                output_tokens_by_modality: [{ modality: 'text', tokens: 100 }],
+                cached_tokens_by_modality: [{ modality: 'audio', tokens: 50 }],
+            }
+
+            const result = processAiEvent(event)
+
+            expect(result.properties).toMatchObject({
+                $ai_audio_input_tokens: 750,
+                $ai_text_input_tokens: 250,
+                $ai_text_output_tokens: 100,
+                $ai_cache_read_audio_tokens: 50,
+            })
+            expect(result.properties!.$ai_usage).toBeUndefined()
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.0011825, 8)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.0003, 8)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.0014825, 8)
+        })
+
+        it('bills Gemini Interactions image output at the image rate', () => {
+            event.properties!.$ai_model = 'gemini-2.5-flash-image'
+            event.properties!.$ai_provider = 'google'
+            event.properties!.$ai_input_tokens = 600
+            event.properties!.$ai_output_tokens = 1300
+            event.properties!.$ai_usage = {
+                input_tokens_by_modality: [
+                    { modality: 'text', tokens: 200 },
+                    { modality: 'image', tokens: 400 },
+                ],
+                output_tokens_by_modality: [
+                    { modality: 'text', tokens: 10 },
+                    { modality: 'image', tokens: 1290 },
+                ],
+            }
+
+            const result = processAiEvent(event)
+
+            expect(result.properties).toMatchObject({
+                $ai_text_input_tokens: 200,
+                $ai_image_input_tokens: 400,
+                $ai_text_output_tokens: 10,
+                $ai_image_output_tokens: 1290,
+            })
+            expect(result.properties!.$ai_usage).toBeUndefined()
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.00018, 7)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.038725, 7)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.038905, 7)
+        })
+
+        it('does not bill a negative Interactions text token count', () => {
+            event.properties!.$ai_model = 'gemini-3-flash-preview'
+            event.properties!.$ai_provider = 'gemini'
+            event.properties!.$ai_input_tokens = 0
+            event.properties!.$ai_output_tokens = 10
+            event.properties!.$ai_usage = {
+                output_tokens_by_modality: [{ modality: 'text', tokens: -5 }],
+            }
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_text_output_tokens).toBeUndefined()
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.00003, 8)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.00003, 8)
+            expect(result.properties!.$ai_usage).toBeUndefined()
+        })
     })
 
     describe('cost calculation', () => {

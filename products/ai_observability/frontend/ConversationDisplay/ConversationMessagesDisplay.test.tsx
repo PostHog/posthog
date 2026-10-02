@@ -732,6 +732,146 @@ describe('ImageMessageDisplay', () => {
         expect(image).toHaveAttribute('data-attr', 'ai-message-image')
     })
 
+    it('renders a Gemini Interactions image with top-level data and mime_type', () => {
+        const imageData = 'iVBORw0KGgo='
+        const message: CompatMessage = {
+            role: 'assistant',
+            content: [{ type: 'image', data: imageData, mime_type: 'image/png' } as MultiModalContentItem],
+        }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+
+        expect(container.querySelector('[data-attr="ai-message-image"]')).toHaveAttribute(
+            'src',
+            `data:image/png;base64,${imageData}`
+        )
+        expect(container.textContent).not.toContain(imageData)
+    })
+
+    it('shows a placeholder for a redacted Gemini Interactions image', () => {
+        const message: CompatMessage = {
+            role: 'assistant',
+            content: [
+                { type: 'image', data: '[base64 image/png redacted]', mime_type: 'image/png' } as MultiModalContentItem,
+            ],
+        }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+
+        expect(container.querySelector('img')).toBeNull()
+        expect(screen.getByText('Image not captured.')).toBeInTheDocument()
+        expect(container.textContent).not.toContain('[base64 image/png redacted]')
+    })
+
+    it('renders a Gemini Interactions image from an HTTPS URI', () => {
+        const uri = 'https://example.com/image.png'
+        const message: CompatMessage = {
+            role: 'assistant',
+            content: [{ type: 'image', uri } as MultiModalContentItem],
+        }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+
+        expect(container.querySelector('[data-attr="ai-message-image"]')).toHaveAttribute('src', uri)
+    })
+
+    it('renders a Gemini Interactions image from an offloaded blob URI', () => {
+        const uri = `phaiblob://v1/sha256/${'a'.repeat(64)}?mime=image%2Fpng&size=131072`
+        const message: CompatMessage = {
+            role: 'assistant',
+            content: [{ type: 'image', uri } as MultiModalContentItem],
+        }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+
+        expect(container.querySelector('[data-attr="ai-message-image"]')).not.toBeNull()
+        expect(container.textContent).not.toContain(uri)
+    })
+
+    it('does not render a Gemini Interactions image with an unsupported URI scheme', () => {
+        const message: CompatMessage = {
+            role: 'assistant',
+            content: [{ type: 'image', uri: 'javascript:alert(1)' } as MultiModalContentItem],
+        }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+
+        expect(container.querySelector('img')).toBeNull()
+        expect(screen.getByText('Image not captured.')).toBeInTheDocument()
+    })
+
+    it('does not reveal a URI when a Gemini Interactions image has redacted data', () => {
+        const message: CompatMessage = {
+            role: 'assistant',
+            content: [
+                {
+                    type: 'image',
+                    data: '[base64 image/png redacted]',
+                    mime_type: 'image/png',
+                    uri: 'https://example.com/image.png',
+                } as MultiModalContentItem,
+            ],
+        }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+
+        expect(container.querySelector('img')).toBeNull()
+        expect(screen.getByText('Image not captured.')).toBeInTheDocument()
+        expect(container.textContent).not.toContain('https://example.com/image.png')
+    })
+
+    it('shows a placeholder for Gemini Interactions image data without a MIME type', () => {
+        const imageData = 'iVBORw0KGgo='
+        const message: CompatMessage = {
+            role: 'assistant',
+            content: [{ type: 'image', data: imageData } as MultiModalContentItem],
+        }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+
+        expect(container.querySelector('img')).toBeNull()
+        expect(screen.getByText('Image not captured.')).toBeInTheDocument()
+        expect(container.textContent).not.toContain(imageData)
+    })
+
+    it('does not use a Gemini Interactions image URI when MIME-less data was redacted', () => {
+        const uri = 'https://example.com/image.png'
+        const message: CompatMessage = {
+            role: 'assistant',
+            content: [{ type: 'image', data: '[base64 image redacted]', uri } as MultiModalContentItem],
+        }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+
+        expect(container.querySelector('img')).toBeNull()
+        expect(screen.getByText('Image not captured.')).toBeInTheDocument()
+        expect(container.textContent).not.toContain(uri)
+    })
+
     const REDACTED = '[base64 image redacted]'
     const redactedParts: [string, MultiModalContentItem, string][] = [
         ['python image sentinel', { type: 'image_url', image_url: { url: REDACTED } }, 'Image'],

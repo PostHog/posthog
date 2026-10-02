@@ -26,8 +26,8 @@ const pick = (metadata: Record<string, unknown>, ...keys: string[]): unknown => 
 }
 
 const tokenCountOf = (detail: Record<string, unknown>): number | null => {
-    const tokenCount = detail['tokenCount'] ?? detail['token_count']
-    return typeof tokenCount === 'number' ? tokenCount : null
+    const tokenCount = detail['tokenCount'] ?? detail['token_count'] ?? detail['tokens']
+    return typeof tokenCount === 'number' && Number.isFinite(tokenCount) && tokenCount >= 0 ? tokenCount : null
 }
 
 const modalityOf = (detail: Record<string, unknown>): string | null => {
@@ -127,6 +127,10 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
                     }
                     if (modality === 'image' && tokenCount > 0) {
                         event.properties['$ai_image_output_tokens'] = tokenCount
+                        extractedSources.add('gemini_output')
+                    }
+                    if (modality === 'audio' && tokenCount > 0) {
+                        event.properties['$ai_audio_output_tokens'] = tokenCount
                         extractedSources.add('gemini_output')
                     }
                     if (modality === 'text') {
@@ -278,11 +282,21 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
                 return
             }
             extractAnthropicCacheCreation(metadata)
-            extractInputModality(pick(metadata, 'promptTokensDetails', 'prompt_tokens_details'))
-            extractOutputModality(
-                pick(metadata, 'candidatesTokensDetails', 'candidates_tokens_details', 'outputTokenDetails')
+            extractInputModality(
+                pick(metadata, 'promptTokensDetails', 'prompt_tokens_details', 'input_tokens_by_modality')
             )
-            extractCacheModality(pick(metadata, 'cacheTokensDetails', 'cache_tokens_details'))
+            extractOutputModality(
+                pick(
+                    metadata,
+                    'candidatesTokensDetails',
+                    'candidates_tokens_details',
+                    'outputTokenDetails',
+                    'output_tokens_by_modality'
+                )
+            )
+            extractCacheModality(
+                pick(metadata, 'cacheTokensDetails', 'cache_tokens_details', 'cached_tokens_by_modality')
+            )
             extractOpenAIInputModality(metadata)
             extractOpenAICacheModality(metadata)
         }
