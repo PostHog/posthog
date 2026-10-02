@@ -513,14 +513,7 @@ export function TemplatePickerModal({ isOpen, onClose }: { isOpen: boolean; onCl
                 </LemonCard>
                 {templates.map((template, index) => (
                     <div key={template.id} className="w-48 h-56">
-                        <MessageTemplateCard
-                            template={template}
-                            index={index}
-                            onClick={() => {
-                                pickTemplate(template)
-                                onClose()
-                            }}
-                        />
+                        <MessageTemplateCard template={template} index={index} onClick={() => pickTemplate(template)} />
                     </div>
                 ))}
             </div>

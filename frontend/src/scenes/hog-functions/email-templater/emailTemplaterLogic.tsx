@@ -27,7 +27,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { PreflightStatus, PropertyDefinition, PropertyDefinitionType, Realm } from '~/types'
 
-import type { MessageTemplateListApi } from 'products/messaging/frontend/generated/api.schemas'
+import type { MessageTemplateApi as MessageTemplateListApi } from 'products/messaging/frontend/generated/api.schemas'
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 
 import type { EmailFieldErrors, EmailTemplate } from './types'
@@ -491,7 +491,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             [] as MessageTemplateListApi[],
             {
                 loadTemplates: async () => {
-                    const response = await api.messaging.getTemplates()
+                    const response = await api.messaging.getTemplates({ include_design: false })
                     return response.results
                 },
             },
@@ -720,6 +720,9 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         },
 
         setIsModalOpen: ({ isModalOpen }) => {
+            if (!isModalOpen) {
+                cache.pickTemplateRequestId = (cache.pickTemplateRequestId ?? 0) + 1
+            }
             if (isModalOpen && props.value) {
                 // Plain text only when the email is genuinely text-only; a blank email starts visual.
                 const plainTextOnly = !!props.value.text && !props.value.html && !props.value.design
@@ -727,11 +730,27 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             }
         },
 
+        setIsTemplatePickerOpen: ({ isOpen }) => {
+            if (!isOpen) {
+                cache.pickTemplateRequestId = (cache.pickTemplateRequestId ?? 0) + 1
+            }
+        },
+
         pickTemplate: async ({ template }) => {
+            const requestId = (cache.pickTemplateRequestId ?? 0) + 1
+            cache.pickTemplateRequestId = requestId
+
             try {
-                actions.applyTemplate(await api.messaging.getTemplate(template.id))
+                const fullTemplate = await api.messaging.getTemplate(template.id)
+                if (cache.pickTemplateRequestId !== requestId || !values.isTemplatePickerOpen) {
+                    return
+                }
+                actions.applyTemplate(fullTemplate)
+                actions.setIsTemplatePickerOpen(false)
             } catch {
-                lemonToast.error('Failed to load template')
+                if (cache.pickTemplateRequestId === requestId) {
+                    lemonToast.error('Failed to load template')
+                }
             }
         },
 

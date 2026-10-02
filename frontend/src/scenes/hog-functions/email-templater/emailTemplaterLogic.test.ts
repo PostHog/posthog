@@ -1,10 +1,12 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import type { MessageTemplateListApi } from 'products/messaging/frontend/generated/api.schemas'
+import type { MessageTemplateApi as MessageTemplateListApi } from 'products/messaging/frontend/generated/api.schemas'
 import type { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 
 import {
@@ -661,12 +663,78 @@ describe('emailTemplaterLogic', () => {
             })
             logic = emailTemplaterLogic(props)
             logic.mount()
+            logic.actions.setIsTemplatePickerOpen(true)
 
             await expectLogic(logic, () => logic.actions.pickTemplate(listTemplate)).toDispatchActions([
                 'pickTemplate',
                 'applyTemplate',
+                'setIsTemplatePickerOpen',
             ])
             expect(props.onChange).toHaveBeenCalledWith(expect.objectContaining({ design }))
+            expect(logic.values.isTemplatePickerOpen).toBe(false)
+        })
+
+        it('keeps the picker open when the template request fails', async () => {
+            const template = {
+                id: 'template-1',
+                name: 'Welcome',
+                content: { templating: 'liquid', email: { subject: 'Welcome' } },
+            } as MessageTemplateListApi
+            jest.spyOn(api.messaging, 'getTemplate').mockRejectedValue(new Error('request failed'))
+            logic = emailTemplaterLogic(makeProps())
+            logic.mount()
+            logic.actions.setIsTemplatePickerOpen(true)
+
+            await expectLogic(logic, () => logic.actions.pickTemplate(template)).toDispatchActions(['pickTemplate'])
+            expect(logic.values.isTemplatePickerOpen).toBe(true)
+            expect(logic.values.appliedTemplate).toBeNull()
+        })
+
+        it('ignores an older template request after a newer selection succeeds', async () => {
+            const listTemplate = (id: string): MessageTemplateListApi =>
+                ({
+                    id,
+                    name: id,
+                    content: { templating: 'liquid', email: { subject: id } },
+                }) as MessageTemplateListApi
+            const fullTemplate = (id: string): MessageTemplate =>
+                ({
+                    id,
+                    name: id,
+                    content: { templating: 'liquid', email: { subject: id } },
+                    created_at: null,
+                    updated_at: null,
+                    created_by: null,
+                }) as MessageTemplate
+            let resolveFirst!: (template: MessageTemplate) => void
+            let resolveSecond!: (template: MessageTemplate) => void
+            const firstRequest = new Promise<MessageTemplate>((resolve) => {
+                resolveFirst = resolve
+            })
+            const secondRequest = new Promise<MessageTemplate>((resolve) => {
+                resolveSecond = resolve
+            })
+            jest.spyOn(api.messaging, 'getTemplate').mockImplementation((id) =>
+                id === 'first' ? firstRequest : secondRequest
+            )
+            logic = emailTemplaterLogic(makeProps())
+            logic.mount()
+            logic.actions.setIsTemplatePickerOpen(true)
+
+            await expectLogic(logic, () => {
+                logic.actions.pickTemplate(listTemplate('first'))
+                logic.actions.pickTemplate(listTemplate('second'))
+            }).toDispatchActions(['pickTemplate', 'pickTemplate'])
+            resolveSecond(fullTemplate('second'))
+            await expectLogic(logic).toDispatchActions(['applyTemplate', 'setIsTemplatePickerOpen'])
+            await expectLogic(logic).toMatchValues({
+                appliedTemplate: fullTemplate('second'),
+                isTemplatePickerOpen: false,
+            })
+
+            resolveFirst(fullTemplate('first'))
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            expect(logic.values.appliedTemplate).toEqual(fullTemplate('second'))
         })
     })
 })

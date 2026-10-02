@@ -254,22 +254,62 @@ export const MessageTemplateTemplatingEnumApi = {
     Liquid: 'liquid',
 } as const
 
-export interface EmailTemplateListApi {
+/**
+ * Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}.
+ */
+export type EmailTemplateApiDesignCounters = { [key: string]: unknown }
+
+export type EmailTemplateApiDesignBodyRowsItem = { [key: string]: unknown }
+
+export type EmailTemplateApiDesignBodyHeadersItem = { [key: string]: unknown }
+
+export type EmailTemplateApiDesignBodyFootersItem = { [key: string]: unknown }
+
+/**
+ * Body-level settings: backgroundColor, contentWidth ('600px'), fontFamily, textColor.
+ */
+export type EmailTemplateApiDesignBodyValues = { [key: string]: unknown }
+
+export type EmailTemplateApiDesignBody = {
+    /** Any unique string. */
+    id?: string
+    /** Rows of {id, cells, columns[{id, contents[{id, type, values}], values}], values}. */
+    rows: EmailTemplateApiDesignBodyRowsItem[]
+    headers?: EmailTemplateApiDesignBodyHeadersItem[]
+    footers?: EmailTemplateApiDesignBodyFootersItem[]
+    /** Body-level settings: backgroundColor, contentWidth ('600px'), fontFamily, textColor. */
+    values?: EmailTemplateApiDesignBodyValues
+}
+
+/**
+ * Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill.
+ */
+export type EmailTemplateApiDesign = {
+    /** Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}. */
+    counters?: EmailTemplateApiDesignCounters
+    /** Design schema version, e.g. 16. */
+    schemaVersion: number
+    body: EmailTemplateApiDesignBody
+}
+
+export interface EmailTemplateApi {
     /** Email subject line. Supports Liquid templating. Required for email-type templates. */
     subject?: string
     /** Plain-text fallback body for clients that can't render the email. */
     text?: string
     /** Rendered email body — derived from the design at save time. The visual editor's save path supplies it directly; omit it otherwise. */
     html?: string
+    /** Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill. */
+    design?: EmailTemplateApiDesign
 }
 
-export interface MessageTemplateListContentApi {
+export interface MessageTemplateContentApi {
     /** Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.
      *
      * * `liquid` - liquid */
     templating?: MessageTemplateTemplatingEnumApi
-    /** Email message content for template previews. The editable design is available on the detail endpoint. */
-    email?: EmailTemplateListApi | null
+    /** Email message content. Replaced as a whole on update — send the complete object. */
+    email?: EmailTemplateApi | null
 }
 
 /**
@@ -329,101 +369,6 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
-export interface MessageTemplateListApi {
-    readonly id: string
-    /**
-     * Human-readable template name shown in the library.
-     * @maxLength 400
-     */
-    name: string
-    /** What the template is for and when to use it. */
-    description?: string
-    readonly created_at: string
-    readonly updated_at: string
-    /** Template content for previews. The editable design is available on the detail endpoint. */
-    content?: MessageTemplateListContentApi
-    readonly created_by: UserBasicApi
-    /**
-     * Message channel of the template. Currently 'email'.
-     * @maxLength 24
-     */
-    type?: string
-    /**
-     * Message category ID to file the template under. Must belong to the same project.
-     * @nullable
-     */
-    message_category?: string | null
-    /** Soft-delete flag. Set true to remove the template from the library. */
-    deleted?: boolean
-}
-
-export interface PaginatedMessageTemplateListListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: MessageTemplateListApi[]
-}
-
-/**
- * Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}.
- */
-export type EmailTemplateApiDesignCounters = { [key: string]: unknown }
-
-export type EmailTemplateApiDesignBodyRowsItem = { [key: string]: unknown }
-
-export type EmailTemplateApiDesignBodyHeadersItem = { [key: string]: unknown }
-
-export type EmailTemplateApiDesignBodyFootersItem = { [key: string]: unknown }
-
-/**
- * Body-level settings: backgroundColor, contentWidth ('600px'), fontFamily, textColor.
- */
-export type EmailTemplateApiDesignBodyValues = { [key: string]: unknown }
-
-export type EmailTemplateApiDesignBody = {
-    /** Any unique string. */
-    id?: string
-    /** Rows of {id, cells, columns[{id, contents[{id, type, values}], values}], values}. */
-    rows: EmailTemplateApiDesignBodyRowsItem[]
-    headers?: EmailTemplateApiDesignBodyHeadersItem[]
-    footers?: EmailTemplateApiDesignBodyFootersItem[]
-    /** Body-level settings: backgroundColor, contentWidth ('600px'), fontFamily, textColor. */
-    values?: EmailTemplateApiDesignBodyValues
-}
-
-/**
- * Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill.
- */
-export type EmailTemplateApiDesign = {
-    /** Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}. */
-    counters?: EmailTemplateApiDesignCounters
-    /** Design schema version, e.g. 16. */
-    schemaVersion: number
-    body: EmailTemplateApiDesignBody
-}
-
-export interface EmailTemplateApi {
-    /** Email subject line. Supports Liquid templating. Required for email-type templates. */
-    subject?: string
-    /** Plain-text fallback body for clients that can't render the email. */
-    text?: string
-    /** Rendered email body — derived from the design at save time. The visual editor's save path supplies it directly; omit it otherwise. */
-    html?: string
-    /** Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill. */
-    design?: EmailTemplateApiDesign
-}
-
-export interface MessageTemplateContentApi {
-    /** Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.
-     *
-     * * `liquid` - liquid */
-    templating?: MessageTemplateTemplatingEnumApi
-    /** Email message content. Replaced as a whole on update — send the complete object. */
-    email?: EmailTemplateApi | null
-}
-
 export interface MessageTemplateApi {
     readonly id: string
     /**
@@ -450,6 +395,15 @@ export interface MessageTemplateApi {
     message_category?: string | null
     /** Soft-delete flag. Set true to remove the template from the library. */
     deleted?: boolean
+}
+
+export interface PaginatedMessageTemplateListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: MessageTemplateApi[]
 }
 
 export interface PatchedMessageTemplateApi {
@@ -581,6 +535,10 @@ export type MessagingSuppressionsSuppressionsRetrieveParams = {
 }
 
 export type MessagingTemplatesListParams = {
+    /**
+     * Set to false to omit editable email designs from list responses. Defaults to true.
+     */
+    include_design?: boolean
     /**
      * Number of results to return per page.
      */

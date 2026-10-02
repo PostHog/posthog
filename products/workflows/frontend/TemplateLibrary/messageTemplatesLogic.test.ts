@@ -4,7 +4,7 @@ import api from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
 
-import type { MessageTemplateListApi } from 'products/messaging/frontend/generated/api.schemas'
+import type { MessageTemplateApi as MessageTemplateListApi } from 'products/messaging/frontend/generated/api.schemas'
 
 import { messageTemplatesLogic } from './messageTemplatesLogic'
 import type { MessageTemplate } from './types'

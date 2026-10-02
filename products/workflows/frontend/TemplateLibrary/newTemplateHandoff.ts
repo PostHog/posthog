@@ -15,7 +15,7 @@ export async function findCreatedTemplateId(name: unknown): Promise<string | nul
     if (!search) {
         return null
     }
-    const { results } = await api.messaging.getTemplates()
+    const { results } = await api.messaging.getTemplates({ include_design: false })
     const match = results
         .filter((template) => template.name === search)
         .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))[0]

@@ -37373,15 +37373,6 @@ export namespace Schemas {
       design?: EmailTemplateDesign;
     }
 
-    export interface EmailTemplateList {
-      /** Email subject line. Supports Liquid templating. Required for email-type templates. */
-      subject?: string;
-      /** Plain-text fallback body for clients that can't render the email. */
-      text?: string;
-      /** Rendered email body — derived from the design at save time. The visual editor's save path supplies it directly; omit it otherwise. */
-      html?: string;
-    }
-
     /**
      * * `off` - Off
      * * `opt_out` - Opt Out
@@ -63257,43 +63248,6 @@ export namespace Schemas {
       deleted?: boolean;
     }
 
-    export interface MessageTemplateListContent {
-      /** Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.
-       *
-       * * `liquid` - liquid */
-      templating?: MessageTemplateTemplatingEnum;
-      /** Email message content for template previews. The editable design is available on the detail endpoint. */
-      email?: EmailTemplateList | null;
-    }
-
-    export interface MessageTemplateList {
-      readonly id: string;
-      /**
-         * Human-readable template name shown in the library.
-         * @maxLength 400
-         */
-      name: string;
-      /** What the template is for and when to use it. */
-      description?: string;
-      readonly created_at: string;
-      readonly updated_at: string;
-      /** Template content for previews. The editable design is available on the detail endpoint. */
-      content?: MessageTemplateListContent;
-      readonly created_by: UserBasic;
-      /**
-         * Message channel of the template. Currently 'email'.
-         * @maxLength 24
-         */
-      type?: string;
-      /**
-         * Message category ID to file the template under. Must belong to the same project.
-         * @nullable
-         */
-      message_category?: string | null;
-      /** Soft-delete flag. Set true to remove the template from the library. */
-      deleted?: boolean;
-    }
-
     export interface MessagingError {
       /** Human-readable description of what went wrong. */
       error: string;
@@ -67869,13 +67823,13 @@ export namespace Schemas {
       results: MessageSuppression[];
     }
 
-    export interface PaginatedMessageTemplateListList {
+    export interface PaginatedMessageTemplateList {
       count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
-      results: MessageTemplateList[];
+      results: MessageTemplate[];
     }
 
     export interface PaginatedNodeList {
@@ -120411,6 +120365,10 @@ export namespace Schemas {
     };
 
     export type MessagingTemplatesListParams = {
+    /**
+     * Set to false to omit editable email designs from list responses. Defaults to true.
+     */
+    include_design?: boolean;
     /**
      * Number of results to return per page.
      */
