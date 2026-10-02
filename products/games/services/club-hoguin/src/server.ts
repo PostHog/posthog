@@ -1,0 +1,245 @@
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
+
+import type { Analytics } from './analytics.ts'
+import { MAP_HEIGHT, MAP_ROWS, MAP_WIDTH, OBJECTS, PHRASES, SKINS, SPAWN } from './content.ts'
+import { type DepartedPlayer, isClientKind, type World } from './world.ts'
+
+const MAX_BODY_BYTES = 2_048
+const TOKEN_HEADER = 'x-hoguin-token'
+
+const SECURITY_HEADERS = {
+    'x-content-type-options': 'nosniff',
+    'referrer-policy': 'no-referrer',
+}
+
+// frame-ancestors is open on purpose: anyone can embed the club in an iframe.
+const PAGE_CSP =
+    "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; " +
+    "frame-ancestors *; base-uri 'none'; form-action 'none'"
+
+const ERROR_STATUS: Record<string, number> = {
+    unknown_player: 401,
+    cooldown: 429,
+    too_far: 409,
+}
+
+export interface StaticFile {
+    body: Buffer
+    contentType: string
+    cacheControl: string
+}
+
+export interface ServerDependencies {
+    world: World
+    analytics: Analytics
+    staticFiles: ReadonlyMap<string, StaticFile>
+    now: () => number
+}
+
+class HttpError extends Error {
+    readonly status: number
+
+    constructor(status: number, message: string) {
+        super(message)
+        this.status = status
+    }
+}
+
+function sendJson(response: ServerResponse, status: number, payload: unknown): void {
+    response.writeHead(status, {
+        ...SECURITY_HEADERS,
+        'content-type': 'application/json; charset=utf-8',
+        'cache-control': 'no-store',
+    })
+    response.end(JSON.stringify(payload))
+}
+
+async function readJson(request: IncomingMessage): Promise<Record<string, unknown>> {
+    const chunks: Buffer[] = []
+    let size = 0
+    for await (const chunk of request) {
+        const buffer = chunk as Buffer
+        size += buffer.length
+        if (size > MAX_BODY_BYTES) {
+            throw new HttpError(413, 'body_too_large')
+        }
+        chunks.push(buffer)
+    }
+    if (size === 0) {
+        return {}
+    }
+    let parsed: unknown
+    try {
+        parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+    } catch {
+        throw new HttpError(400, 'invalid_json')
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new HttpError(400, 'invalid_json')
+    }
+    return parsed as Record<string, unknown>
+}
+
+function readToken(request: IncomingMessage): string | null {
+    const value = request.headers[TOKEN_HEADER]
+    return typeof value === 'string' && value.length > 0 ? value : null
+}
+
+export function trackDeparture(analytics: Analytics, departed: DepartedPlayer): void {
+    analytics.capture(departed.id, 'club hoguin left', {
+        client: departed.client,
+        reason: departed.reason,
+        duration_seconds: Math.round(departed.durationMs / 1000),
+    })
+}
+
+export function createClubHoguinServer({ world, analytics, staticFiles, now }: ServerDependencies): Server {
+    const worldDescription = JSON.stringify({
+        width: MAP_WIDTH,
+        height: MAP_HEIGHT,
+        rows: MAP_ROWS,
+        spawn: SPAWN,
+        objects: OBJECTS,
+        phrases: PHRASES,
+        skins: SKINS,
+    })
+
+    function requirePlayer(request: IncomingMessage): { token: string; id: string; client: string } {
+        const token = readToken(request)
+        const player = token ? world.touch(token, now()) : null
+        if (!token || !player) {
+            throw new HttpError(401, 'unknown_player')
+        }
+        return { token, ...player }
+    }
+
+    function fail(error: string): never {
+        throw new HttpError(ERROR_STATUS[error] ?? 400, error)
+    }
+
+    async function handleApi(request: IncomingMessage, response: ServerResponse, pathname: string): Promise<void> {
+        const method = request.method ?? 'GET'
+        if (pathname === '/api/world' && method === 'GET') {
+            response.writeHead(200, {
+                ...SECURITY_HEADERS,
+                'content-type': 'application/json; charset=utf-8',
+                'cache-control': 'public, max-age=300',
+            })
+            response.end(worldDescription)
+            return
+        }
+        if (pathname === '/api/state' && method === 'GET') {
+            const token = readToken(request)
+            if (token && !world.touch(token, now())) {
+                fail('unknown_player')
+            }
+            sendJson(response, 200, world.snapshot(token))
+            return
+        }
+        if (method !== 'POST') {
+            throw new HttpError(405, 'method_not_allowed')
+        }
+        const body = await readJson(request)
+        switch (pathname) {
+            case '/api/join': {
+                if (!isClientKind(body.client)) {
+                    fail('invalid_client')
+                }
+                const joined = world.join(body.client, now())
+                if (!joined) {
+                    throw new HttpError(503, 'club_full')
+                }
+                analytics.capture(joined.id, 'club hoguin joined', { client: body.client })
+                sendJson(response, 200, joined)
+                return
+            }
+            case '/api/move': {
+                const player = requirePlayer(request)
+                const result = world.moveTo(player.token, body.x, body.y)
+                if (!result.ok) {
+                    fail(result.error)
+                }
+                sendJson(response, 200, { ok: true })
+                return
+            }
+            case '/api/say': {
+                const player = requirePlayer(request)
+                const result = world.say(player.token, body.phraseId, now())
+                if (!result.ok) {
+                    fail(result.error)
+                }
+                analytics.capture(player.id, 'club hoguin phrase said', {
+                    client: player.client,
+                    phrase_id: String(body.phraseId),
+                })
+                sendJson(response, 200, { ok: true })
+                return
+            }
+            case '/api/poke': {
+                const player = requirePlayer(request)
+                const result = world.poke(player.token, body.objectId, now())
+                if (!result.ok) {
+                    fail(result.error)
+                }
+                analytics.capture(player.id, 'club hoguin object poked', {
+                    client: player.client,
+                    object_id: result.objectId,
+                })
+                sendJson(response, 200, { ok: true, objectId: result.objectId })
+                return
+            }
+            case '/api/leave': {
+                const token = readToken(request)
+                const departed = token ? world.leave(token, now()) : null
+                if (departed) {
+                    trackDeparture(analytics, departed)
+                }
+                sendJson(response, 200, { ok: true })
+                return
+            }
+        }
+        throw new HttpError(404, 'not_found')
+    }
+
+    function handleStatic(request: IncomingMessage, response: ServerResponse, pathname: string): void {
+        const file = request.method === 'GET' || request.method === 'HEAD' ? staticFiles.get(pathname) : undefined
+        if (!file) {
+            throw new HttpError(404, 'not_found')
+        }
+        const headers: Record<string, string> = {
+            ...SECURITY_HEADERS,
+            'content-type': file.contentType,
+            'cache-control': file.cacheControl,
+        }
+        if (file.contentType.startsWith('text/html')) {
+            headers['content-security-policy'] = PAGE_CSP
+        }
+        response.writeHead(200, headers)
+        response.end(request.method === 'HEAD' ? undefined : file.body)
+    }
+
+    return createServer((request, response) => {
+        const pathname = new URL(request.url ?? '/', 'http://club-hoguin.invalid').pathname
+        const handle = async (): Promise<void> => {
+            if (pathname === '/healthz') {
+                sendJson(response, 200, { ok: true })
+            } else if (pathname.startsWith('/api/')) {
+                await handleApi(request, response, pathname)
+            } else {
+                handleStatic(request, response, pathname)
+            }
+        }
+        handle().catch((error: unknown) => {
+            if (response.headersSent) {
+                response.destroy()
+                return
+            }
+            if (error instanceof HttpError) {
+                sendJson(response, error.status, { error: error.message })
+                return
+            }
+            console.error('club-hoguin: request failed', error)
+            sendJson(response, 500, { error: 'internal_error' })
+        })
+    })
+}

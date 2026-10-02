@@ -1,0 +1,130 @@
+:root {
+    --hog-orange: #f54e00;
+    --hog-blue: #1d4aff;
+    --hog-yellow: #f9bd2b;
+    --hog-ink: #151515;
+    --hog-paper: #eeefe9;
+    --hog-line: #d0d1c9;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    color: var(--hog-ink);
+    background: var(--hog-paper);
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    padding: 1rem;
+}
+
+.masthead h1 {
+    margin: 0;
+    font-size: 1.75rem;
+}
+
+.masthead p {
+    margin: 0.25rem 0 1rem;
+    color: #5f5f5f;
+}
+
+.club {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    align-items: flex-start;
+}
+
+.stage {
+    flex: 1 1 640px;
+    min-width: 0;
+}
+
+#world {
+    display: block;
+    width: 100%;
+    height: auto;
+    image-rendering: pixelated;
+    border: 2px solid var(--hog-ink);
+    border-radius: 8px;
+    background: #fff;
+    cursor: pointer;
+}
+
+.status {
+    margin: 0.5rem 0 0;
+    font-size: 0.875rem;
+    color: #5f5f5f;
+}
+
+.sidebar {
+    flex: 1 1 260px;
+    max-width: 360px;
+    min-width: 0;
+}
+
+.sidebar h2 {
+    margin: 0 0 0.5rem;
+    font-size: 1rem;
+}
+
+.phrases {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin-bottom: 1rem;
+}
+
+.phrases button {
+    text-align: left;
+    padding: 0.375rem 0.5rem;
+    border: 1px solid var(--hog-line);
+    border-radius: 6px;
+    background: #fff;
+    font: inherit;
+    font-size: 0.875rem;
+    cursor: pointer;
+}
+
+.phrases button:hover {
+    border-color: var(--hog-orange);
+}
+
+.phrases kbd {
+    display: inline-block;
+    min-width: 1.25rem;
+    margin-right: 0.375rem;
+    color: var(--hog-orange);
+    font-weight: 700;
+}
+
+.feed {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: 0.8125rem;
+    max-height: 16rem;
+    overflow-y: auto;
+}
+
+.feed li {
+    padding: 0.25rem 0;
+    border-bottom: 1px solid var(--hog-line);
+    overflow-wrap: anywhere;
+}
+
+.help {
+    margin-top: 1rem;
+    font-size: 0.8125rem;
+    color: #5f5f5f;
+}
+
+body.embed {
+    padding: 0.5rem;
+}
+
+body.embed .masthead,
+body.embed .help {
+    display: none;
+}

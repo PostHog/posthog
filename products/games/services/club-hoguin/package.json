@@ -1,0 +1,25 @@
+{
+    "name": "@posthog/club-hoguin",
+    "version": "0.1.0",
+    "private": true,
+    "description": "Club Hoguin: a PostHog-themed hangout for hedgehogs waiting on their agents",
+    "license": "MIT",
+    "author": "PostHog Inc.",
+    "type": "module",
+    "scripts": {
+        "start": "node src/main.ts",
+        "dev": "node --watch src/main.ts",
+        "typecheck": "tsc --noEmit -p tsconfig.json",
+        "test:mod": "cd mod && claude plugin validate . && claude plugin test"
+    },
+    "dependencies": {
+        "@posthog/hedgehog-mode": "^0.0.60"
+    },
+    "devDependencies": {
+        "@types/node": "catalog:",
+        "typescript": "catalog:"
+    },
+    "engines": {
+        "node": ">=24"
+    }
+}

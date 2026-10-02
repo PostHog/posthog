@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Club Hoguin</title>
+        <link rel="stylesheet" href="/style.css" />
+        <script type="module" src="/client.js"></script>
+    </head>
+    <body>
+        <header class="masthead">
+            <h1>Club Hoguin</h1>
+            <p>Hang out with other hedgehogs while your agent works.</p>
+        </header>
+        <main class="club">
+            <section class="stage">
+                <canvas id="world" width="960" height="384" aria-label="The Club Hoguin room"></canvas>
+                <p id="status" class="status" role="status">Waddling in…</p>
+            </section>
+            <aside class="sidebar">
+                <h2>Say something</h2>
+                <div id="phrases" class="phrases"></div>
+                <h2>What's happening</h2>
+                <ol id="feed" class="feed" aria-live="polite"></ol>
+            </aside>
+        </main>
+        <footer class="help">
+            Click to walk, or use the arrow keys. Press E near something to poke it. Press 1 to 9 to chat.
+        </footer>
+    </body>
+</html>
