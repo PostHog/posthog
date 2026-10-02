@@ -10,18 +10,23 @@ from unittest.mock import patch
 from django.utils import timezone
 
 from parameterized import parameterized
+from temporalio.exceptions import ApplicationError
 
 from posthog.clickhouse.client import sync_execute
 
 from products.replay_vision.backend import variant_synthesis
 from products.replay_vision.backend.embeddings import EMBEDDING_DOCUMENT_TYPE, EMBEDDING_PRODUCT
-from products.replay_vision.backend.models.replay_experiment_synthesis import ReplayExperimentSynthesis, ReplayExperimentSynthesisStatus
+from products.replay_vision.backend.models.replay_experiment_synthesis import (
+    ReplayExperimentSynthesis,
+    ReplayExperimentSynthesisStatus,
+)
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
     ReplayObservation,
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
+from products.replay_vision.backend.temporal.constants import SYNTHESIS_ERROR_TYPE
 from products.replay_vision.backend.tests.helpers import create_experiment, snapshot_for
 
 _MODULE = "products.replay_vision.backend.variant_synthesis"
@@ -68,6 +73,12 @@ class _SynthesisTestBase(APIBaseTest):
 
 
 class TestClaimDueRefresh(_SynthesisTestBase):
+    def setUp(self) -> None:
+        super().setUp()
+        flag = patch(f"{_MODULE}._scheduled_refresh_enabled", return_value=True)
+        self.flag_enabled = flag.start()
+        self.addCleanup(flag.stop)
+
     @parameterized.expand(
         [
             # (summaries now, last succeeded run's count or None, expected due)
@@ -112,12 +123,16 @@ class TestClaimDueRefresh(_SynthesisTestBase):
                     "observations_considered": {"control": 10},
                 },
             ),
+            ("the_kill_switch_is_off", None),
         ]
     )
-    def test_refresh_holds_back(self, _name: str, latest: dict[str, Any]) -> None:
+    def test_refresh_holds_back(self, _name: str, latest: dict[str, Any] | None) -> None:
         # Each of these bounds what an absorbed-cost refresh can spend: no second run in flight, no
-        # retry storm after a failure, no rerun within the cooldown.
-        self._run(**latest)
+        # retry storm after a failure, no rerun within the cooldown, and a flag that turns it off.
+        if latest is None:
+            self.flag_enabled.return_value = False
+        else:
+            self._run(**latest)
         with patch(f"{_MODULE}.synthesis_observations") as observations:
             observations.return_value.count.return_value = 10_000
             assert variant_synthesis.claim_due_refresh(self.scanner) is None
@@ -178,7 +193,7 @@ class TestSynthesisSteps(_SynthesisTestBase):
 
         digests = {
             "control": variant_synthesis._Digest(
-                lines=[variant_synthesis._DigestLine(theme_key="hesitates_at_checkout", statement="Control waits.")]
+                lines=[variant_synthesis._DigestLine(theme_key="Hesitates_At_Checkout", statement="Control waits.")]
             ),
             "test": variant_synthesis._Digest(
                 lines=[variant_synthesis._DigestLine(theme_key="opens_help", statement="Test asks for help.")]
@@ -214,6 +229,7 @@ class TestSynthesisSteps(_SynthesisTestBase):
             patch(f"{_MODULE}._generate", side_effect=generate),
             patch(f"{_MODULE}.query_vector_for", side_effect=query_vector),
             patch(f"{_MODULE}._theme_distances", side_effect=theme_distances),
+            patch(f"{_MODULE}.posthoganalytics.capture") as capture,
         ):
             for step in ("propose_themes", "assign_themes", "write_digests", "write_differences"):
                 getattr(variant_synthesis, step)(synthesis.id, self.team.id)
@@ -234,6 +250,70 @@ class TestSynthesisSteps(_SynthesisTestBase):
         ]
         # The theme proposal never sees which group a summary came from.
         assert "control" not in captured[0] and "test" not in captured[0].replace("A/B test", "")
+        [finished] = [
+            call.kwargs for call in capture.call_args_list if call.kwargs["event"] == variant_synthesis.FINISHED_EVENT
+        ]
+        assert (
+            finished["properties"] | {"status": "succeeded", "trigger": "scheduled", "differences": 1}
+            == finished["properties"]
+        )
+
+    @parameterized.expand(
+        [
+            # (counts per theme, given 20 control and 20 test summaries; themes the model may cite)
+            ("noise_alone_skips_the_model", {"noise": {"control": 5, "test": 6}}, []),
+            (
+                "only_a_real_gap_reaches_the_model",
+                {"noise": {"control": 5, "test": 6}, "gap": {"control": 2, "test": 12}},
+                ["gap"],
+            ),
+        ]
+    )
+    def test_differences_rest_only_on_significant_gaps(
+        self, _name: str, counts: dict[str, dict[str, int]], expected: list[str]
+    ) -> None:
+        synthesis = self._run(
+            observations_considered={"control": 20, "test": 20},
+            themes=[
+                {"key": key, "description": key, "counts_by_variant": by_variant, "examples_by_variant": {}}
+                for key, by_variant in counts.items()
+            ],
+        )
+        prompts: list[str] = []
+
+        def generate(_model: Any, _system: str, contents: str, **_kw: Any) -> Any:
+            prompts.append(contents)
+            return variant_synthesis._Differences(
+                differences=[variant_synthesis._Difference(theme_key=key, statement=key) for key in counts]
+            )
+
+        with patch(f"{_MODULE}._generate", side_effect=generate):
+            variant_synthesis.write_differences(synthesis.id, self.team.id)
+
+        synthesis.refresh_from_db()
+        assert synthesis.status == ReplayExperimentSynthesisStatus.SUCCEEDED
+        assert [difference["theme_key"] for difference in synthesis.differences] == expected
+        assert len(prompts) == (1 if expected else 0)
+        assert all("`noise`" not in prompt for prompt in prompts)
+
+    @parameterized.expand(
+        [
+            # A rate limit or timeout must reach Temporal as is, so the step retries instead of failing the run.
+            ("transient_failure_retries", RuntimeError("429 resource exhausted"), None, RuntimeError),
+            ("unusable_response_fails_the_run", None, "not json", variant_synthesis.SynthesisError),
+        ]
+    )
+    def test_model_errors(
+        self, _name: str, raised: Exception | None, text: str | None, expected: type[Exception]
+    ) -> None:
+        with patch(f"{_MODULE}.genai.Client") as client:
+            generate = client.return_value.models.generate_content
+            generate.side_effect = raised
+            generate.return_value.text = text
+            with pytest.raises(expected):
+                variant_synthesis._generate(
+                    variant_synthesis._Digest, "system", "contents", team_id=self.team.id, step="write_digest"
+                )
 
     def test_a_withdrawn_consent_stops_the_run(self) -> None:
         self._summaries("control", 10)
@@ -302,8 +382,25 @@ class TestThemeDistancesAgainstClickHouse(ClickhouseTestMixin, APIBaseTest):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("failing_step", [None, "assign"])
-async def test_workflow_runs_each_step_and_fails_the_row_on_error(failing_step: str | None) -> None:
+@pytest.mark.parametrize(
+    "error, reason",
+    [
+        (None, None),
+        # A reason written for users is shown as is.
+        (
+            ApplicationError("No summaries have embeddings yet.", type=SYNTHESIS_ERROR_TYPE),
+            "No summaries have embeddings yet.",
+        ),
+        # Anything else can carry internals, such as a query, so the row gets a generic reason.
+        (
+            ApplicationError("Code: 241. SELECT document_id FROM embeddings", type="ServerException"),
+            "The run failed. Try again later.",
+        ),
+    ],
+)
+async def test_workflow_runs_each_step_and_fails_the_row_on_error(
+    error: ApplicationError | None, reason: str | None
+) -> None:
     # A failed step must still finish the row, or the one-running constraint blocks every later run.
     from products.replay_vision.backend.temporal.activities.experiment_synthesis import (
         assign_synthesis_themes_activity,
@@ -316,21 +413,29 @@ async def test_workflow_runs_each_step_and_fails_the_row_on_error(failing_step: 
     from products.replay_vision.backend.temporal.synthesis_types import ExperimentSynthesisInputs
 
     calls: list[Any] = []
+    failures: list[Any] = []
 
     async def execute_activity(activity_fn: Any, activity_input: Any, **_kw: Any) -> None:
         calls.append(activity_fn)
-        if failing_step == "assign" and activity_fn is assign_synthesis_themes_activity:
-            raise RuntimeError("no embeddings")
+        if activity_fn is fail_experiment_synthesis_activity:
+            failures.append(activity_input)
+        if error is not None and activity_fn is assign_synthesis_themes_activity:
+            raise error
 
     inputs = ExperimentSynthesisInputs(synthesis_id=uuid.uuid4(), team_id=1)
-    with patch("temporalio.workflow.execute_activity", side_effect=execute_activity):
-        if failing_step is None:
+    with (
+        patch("temporalio.workflow.execute_activity", side_effect=execute_activity),
+        # `workflow.logger` reaches into the workflow runtime, which isn't set up here.
+        patch("temporalio.workflow.logger"),
+    ):
+        if error is None:
             await ExperimentSynthesisWorkflow().run(inputs)
         else:
-            with pytest.raises(RuntimeError):
+            with pytest.raises(ApplicationError):
                 await ExperimentSynthesisWorkflow().run(inputs)
 
-    if failing_step is None:
+    assert [failure.error for failure in failures] == ([reason] if reason else [])
+    if error is None:
         assert calls == [
             propose_synthesis_themes_activity,
             assign_synthesis_themes_activity,

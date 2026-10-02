@@ -52,6 +52,7 @@ from products.replay_vision.backend.temporal.activities.count_in_flight_applies 
     count_in_flight_by_team_activity,
 )
 from products.replay_vision.backend.temporal.activities.experiment_synthesis import (
+    fail_experiment_synthesis_activity,
     refresh_experiment_synthesis_activity,
 )
 from products.replay_vision.backend.temporal.activities.find_scanner_candidates import find_scanner_candidates_activity
@@ -1789,25 +1790,30 @@ async def test_unpatched_sweep_replays_legacy_scanner_counter() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("claimed", [True, False])
-async def test_a_due_synthesis_refresh_starts_a_detached_child(claimed: bool) -> None:
+@pytest.mark.parametrize("outcome", ["started", "not_due", "start_fails"])
+async def test_a_due_synthesis_refresh_starts_a_detached_child(outcome: str) -> None:
     synthesis_id = uuid.uuid4()
+    child_id = build_experiment_synthesis_workflow_id(synthesis_id)
     mocks = _SweepMocks(
         activity_results={
             refresh_experiment_synthesis_activity: RefreshExperimentSynthesisOutput(
-                synthesis_id=synthesis_id if claimed else None
+                synthesis_id=None if outcome == "not_due" else synthesis_id
             ),
             find_scanner_candidates_activity: FindScannerCandidatesOutput(candidates=[], saturated=False),
         },
+        child_errors_for_ids={child_id: RuntimeError("temporal down")} if outcome == "start_fails" else None,
     )
 
     await _run_sweep(mocks)
 
     synthesis_children = [call for call in mocks.child_calls if call["args"][0] == EXPERIMENT_SYNTHESIS_WORKFLOW_NAME]
-    if claimed:
-        assert [call["id"] for call in synthesis_children] == [build_experiment_synthesis_workflow_id(synthesis_id)]
-        assert synthesis_children[0]["kwargs"]["parent_close_policy"] == wf.ParentClosePolicy.ABANDON
-    else:
+    failed = [inp for fn, inp in mocks.activity_calls if fn is fail_experiment_synthesis_activity]
+    if outcome == "not_due":
         assert synthesis_children == []
+    else:
+        assert [call["id"] for call in synthesis_children] == [child_id]
+        assert synthesis_children[0]["kwargs"]["parent_close_policy"] == wf.ParentClosePolicy.ABANDON
+    # A claimed run whose child never started must not hold the running slot until it goes stale.
+    assert [inp.synthesis_id for inp in failed] == ([synthesis_id] if outcome == "start_fails" else [])
     # The refresh never holds back the scan.
     assert find_scanner_candidates_activity in [fn for fn, _ in mocks.activity_calls]

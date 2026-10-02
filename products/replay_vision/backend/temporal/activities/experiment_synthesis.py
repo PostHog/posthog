@@ -3,6 +3,7 @@ from temporalio.exceptions import ApplicationError
 
 from products.replay_vision.backend import variant_synthesis
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
+from products.replay_vision.backend.temporal.constants import SYNTHESIS_ERROR_TYPE
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.synthesis_types import (
     ExperimentSynthesisInputs,
@@ -17,7 +18,7 @@ def _run_step(step: str, inputs: ExperimentSynthesisInputs) -> None:
         getattr(variant_synthesis, step)(inputs.synthesis_id, inputs.team_id)
     except variant_synthesis.SynthesisError as e:
         # The reason is the row's error: a retry of the same input fails the same way.
-        raise ApplicationError(str(e), non_retryable=True) from e
+        raise ApplicationError(str(e), type=SYNTHESIS_ERROR_TYPE, non_retryable=True) from e
 
 
 @activity.defn

@@ -195,6 +195,32 @@ class TestExperimentSynthesisRefresh(_ExperimentScannerTestCase):
         assert ReplayExperimentSynthesis.objects.for_team(self.team.id).filter(scanner=self.scanner).count() == 1
         assert mock_async_to_sync.return_value.call_count == 1
 
+    @parameterized.expand([("nothing_new", False, 200), ("a_newer_summary", True, 202)])
+    @patch("products.replay_vision.backend.api.variants.sync_connect")
+    @patch("products.replay_vision.backend.api.variants.async_to_sync")
+    def test_refresh_after_a_run_waits_for_new_summaries(
+        self, _name: str, newer: bool, expected: int, mock_async_to_sync: MagicMock, _mock_connect: MagicMock
+    ) -> None:
+        # A rerun over the same summaries repeats the same model calls for the same answer.
+        self._enough_summaries()
+        last = ReplayExperimentSynthesis.objects.for_team(self.team.id).create(
+            scanner=self.scanner,
+            scanner_version=self.scanner.scanner_version,
+            status=ReplayExperimentSynthesisStatus.SUCCEEDED,
+            computed_at=timezone.now(),
+        )
+        if newer:
+            self._minutes_ago = -1
+            self._observation("test")
+
+        resp = self.client.post(self.refresh_url)
+
+        assert resp.status_code == expected, resp.json()
+        assert mock_async_to_sync.return_value.call_count == (1 if newer else 0)
+        if not newer:
+            assert resp.json()["status"] == ReplayExperimentSynthesisStatus.SUCCEEDED
+            assert ReplayExperimentSynthesis.objects.for_team(self.team.id).get(scanner=self.scanner).pk == last.pk
+
     @parameterized.expand([("too_few_summaries", False, True), ("ai_analysis_off", True, False)])
     def test_refresh_is_refused(self, _name: str, enough: bool, consent: bool) -> None:
         if enough:
@@ -221,7 +247,6 @@ class TestExperimentSynthesisRefresh(_ExperimentScannerTestCase):
 
         resp = self.client.post(self.refresh_url)
 
-        assert resp.status_code == 500
-
+        assert resp.status_code == 503
         run = ReplayExperimentSynthesis.objects.for_team(self.team.id).get(scanner=self.scanner)
         assert run.status == ReplayExperimentSynthesisStatus.FAILED

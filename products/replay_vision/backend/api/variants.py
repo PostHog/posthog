@@ -2,6 +2,7 @@ from typing import Any, cast
 
 from django.conf import settings
 
+import structlog
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
@@ -23,12 +24,16 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.replay_vision.backend.api.observations import ReplayObservationSerializer
 from products.replay_vision.backend.consent import AI_CONSENT_REQUIRED_CODE, is_ai_data_processing_approved
 from products.replay_vision.backend.experiment_variants import experiment_variants_readout
-from products.replay_vision.backend.models.replay_experiment_synthesis import ReplayExperimentSynthesis, ReplayExperimentSynthesisStatus
+from products.replay_vision.backend.models.replay_experiment_synthesis import (
+    ReplayExperimentSynthesis,
+    ReplayExperimentSynthesisStatus,
+)
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.scanner_access import scanner_for_recording_derived_read
 from products.replay_vision.backend.temporal.constants import (
     EXPERIMENT_SYNTHESIS_EXECUTION_TIMEOUT,
     EXPERIMENT_SYNTHESIS_WORKFLOW_NAME,
+    SYNTHESIS_FAILED_TO_START,
     build_experiment_synthesis_workflow_id,
     on_demand_priority,
 )
@@ -38,7 +43,10 @@ from products.replay_vision.backend.variant_synthesis import (
     fail_run,
     start_synthesis_run,
     synthesis_observations,
+    up_to_date_run,
 )
+
+logger = structlog.get_logger(__name__)
 
 
 class VariantsExperimentSerializer(serializers.Serializer):
@@ -166,13 +174,16 @@ class ReplayScannerVariantsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @extend_schema(
         request=None,
         responses={
+            200: VariantsSynthesisStateSerializer,
             202: VariantsSynthesisStateSerializer,
             400: OpenApiResponse(description="Not an experiment scanner, AI analysis is off, or too few summaries."),
             403: OpenApiResponse(description="The caller may not edit this scanner."),
+            503: OpenApiResponse(description="The run could not be started."),
         },
         description=(
-            "Start a synthesis of what users in each variant do differently. Returns the run to poll on "
-            "`GET variants/`; while a run is in flight, returns that run instead of starting another."
+            "Start a synthesis of what users in each variant do differently. Returns 202 with the run to poll "
+            "on `GET variants/`; while a run is in flight, returns that run instead of starting another. "
+            "Returns 200 with the latest run when no summary has completed since it started."
         ),
     )
     @action(
@@ -200,9 +211,19 @@ class ReplayScannerVariantsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 f"There are {summaries} summaries with a variant so far. A synthesis needs at least "
                 f"{MIN_OBSERVATIONS_FOR_SYNTHESIS}, so check back once more sessions are scanned."
             )
+        current = up_to_date_run(scanner)
+        if current is not None:
+            return Response(VariantsSynthesisStateSerializer(current).data, status=status.HTTP_200_OK)
         synthesis, created = start_synthesis_run(scanner, user=user)
         if created:
-            _start_synthesis_workflow(scanner, synthesis)
+            try:
+                _start_synthesis_workflow(scanner, synthesis)
+            except Exception:
+                logger.exception("replay_vision.experiment_synthesis.start_failed", scanner_id=str(scanner.id))
+                return Response(
+                    {"detail": "The synthesis couldn't start. Try again in a few minutes."},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
             report_user_action(
                 user,
                 "replay_vision_experiment_synthesis_requested",
@@ -240,5 +261,5 @@ def _start_synthesis_workflow(scanner: ReplayScanner, synthesis: ReplayExperimen
         pass
     except Exception:
         # Without a workflow nothing would ever finish the row, and it would block the next run.
-        fail_run(synthesis.id, scanner.team_id, "The run could not be started.")
+        fail_run(synthesis.id, scanner.team_id, SYNTHESIS_FAILED_TO_START)
         raise

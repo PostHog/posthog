@@ -4,6 +4,7 @@ import datetime as dt
 
 import temporalio.workflow as wf
 from temporalio import common
+from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.errors import unwrap_temporal_cause
@@ -18,6 +19,7 @@ from products.replay_vision.backend.temporal.activities.experiment_synthesis imp
 from products.replay_vision.backend.temporal.constants import (
     EXPERIMENT_SYNTHESIS_STEP_TIMEOUT,
     EXPERIMENT_SYNTHESIS_WORKFLOW_NAME,
+    SYNTHESIS_ERROR_TYPE,
 )
 from products.replay_vision.backend.temporal.synthesis_types import (
     ExperimentSynthesisInputs,
@@ -43,9 +45,16 @@ _STEPS = (
 )
 
 
-def _cause_message(e: BaseException) -> str:
+_GENERIC_FAILURE = "The run failed. Try again later."
+
+
+def _user_facing_reason(e: BaseException) -> str:
+    # The row's error is returned by the API, so only reasons written for users reach it. Anything
+    # else (a database or ClickHouse error, a timeout) can carry internals and stays in the logs.
     cause = unwrap_temporal_cause(e) or e
-    return str(getattr(cause, "message", None) or cause or type(cause).__name__)[:500]
+    if isinstance(cause, ApplicationError) and cause.type == SYNTHESIS_ERROR_TYPE and cause.message:
+        return cause.message[:500]
+    return _GENERIC_FAILURE
 
 
 @wf.defn(name=EXPERIMENT_SYNTHESIS_WORKFLOW_NAME)
@@ -65,11 +74,15 @@ class ExperimentSynthesisWorkflow(PostHogWorkflow):
                     retry_policy=_STEP_RETRY,
                 )
         except Exception as e:
+            wf.logger.warning(
+                "replay_vision.experiment_synthesis.failed",
+                extra={"synthesis_id": str(inputs.synthesis_id), "error": str(unwrap_temporal_cause(e) or e)[:500]},
+            )
             # The row is what the readout shows, so it must not stay `running` after a failure.
             await wf.execute_activity(
                 fail_experiment_synthesis_activity,
                 FailExperimentSynthesisInputs(
-                    synthesis_id=inputs.synthesis_id, team_id=inputs.team_id, error=_cause_message(e)
+                    synthesis_id=inputs.synthesis_id, team_id=inputs.team_id, error=_user_facing_reason(e)
                 ),
                 start_to_close_timeout=dt.timedelta(seconds=30),
                 retry_policy=_STATE_RETRY,

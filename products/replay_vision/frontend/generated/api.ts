@@ -1560,7 +1560,7 @@ export const getVisionScannersVariantsRefreshCreateUrl = (projectId: string, sca
 }
 
 /**
- * Start a synthesis of what users in each variant do differently. Returns the run to poll on `GET variants/`; while a run is in flight, returns that run instead of starting another.
+ * Start a synthesis of what users in each variant do differently. Returns 202 with the run to poll on `GET variants/`; while a run is in flight, returns that run instead of starting another. Returns 200 with the latest run when no summary has completed since it started.
  */
 export const visionScannersVariantsRefreshCreate = async (
     projectId: string,

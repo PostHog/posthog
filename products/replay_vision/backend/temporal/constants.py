@@ -269,6 +269,9 @@ EXPERIMENT_SYNTHESIS_WORKFLOW_NAME = "replay-vision-experiment-synthesis"
 EXPERIMENT_SYNTHESIS_EXECUTION_TIMEOUT = dt.timedelta(minutes=30)
 EXPERIMENT_SYNTHESIS_STEP_TIMEOUT = dt.timedelta(minutes=5)
 REFRESH_EXPERIMENT_SYNTHESIS_TIMEOUT = dt.timedelta(seconds=30)
+# The ApplicationError type of a failure written for users; any other failure shows a generic reason.
+SYNTHESIS_ERROR_TYPE = "SynthesisError"
+SYNTHESIS_FAILED_TO_START = "The run could not be started."
 
 
 def build_experiment_synthesis_workflow_id(synthesis_id: UUID) -> str:

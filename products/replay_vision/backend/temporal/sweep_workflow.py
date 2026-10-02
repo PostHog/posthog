@@ -27,6 +27,7 @@ from products.replay_vision.backend.temporal.activities import (
     check_scanner_budget_activity,
     count_in_flight_applies_activity,
     count_in_flight_by_team_activity,
+    fail_experiment_synthesis_activity,
     find_scanner_candidates_activity,
     refresh_experiment_synthesis_activity,
     refresh_prompt_suggestion_activity,
@@ -44,6 +45,7 @@ from products.replay_vision.backend.temporal.constants import (
     REFRESH_EXPERIMENT_SYNTHESIS_TIMEOUT,
     REFRESH_PROMPT_SUGGESTION_TIMEOUT,
     SWEEP_SCANNER_WORKFLOW_NAME,
+    SYNTHESIS_FAILED_TO_START,
     build_apply_scanner_workflow_id,
     build_experiment_synthesis_workflow_id,
     in_flight_headroom,
@@ -59,6 +61,7 @@ from products.replay_vision.backend.temporal.sweep_types import (
 )
 from products.replay_vision.backend.temporal.synthesis_types import (
     ExperimentSynthesisInputs,
+    FailExperimentSynthesisInputs,
     RefreshExperimentSynthesisInputs,
     RefreshExperimentSynthesisOutput,
 )
@@ -93,8 +96,8 @@ class SweepScannerWorkflow(PostHogWorkflow):
 
         # Same heartbeat refreshes an experiment scanner's variant synthesis once enough new summaries
         # land. The activity claims the run when one is due; the run is a detached child, so a slow
-        # synthesis never holds the sweep. Best-effort like the refresh above: a child that fails to
-        # start leaves its row `running` until it goes stale, which only delays the next refresh.
+        # synthesis never holds the sweep. Best-effort like the refresh above, but a child that fails
+        # to start fails its row, which would otherwise block the next run until it went stale.
         if wf.patched("replay-vision-experiment-synthesis-refresh"):
             try:
                 refresh: RefreshExperimentSynthesisOutput = await wf.execute_activity(
@@ -104,20 +107,33 @@ class SweepScannerWorkflow(PostHogWorkflow):
                     retry_policy=common.RetryPolicy(maximum_attempts=1),
                 )
                 if refresh.synthesis_id is not None:
-                    await wf.start_child_workflow(
-                        EXPERIMENT_SYNTHESIS_WORKFLOW_NAME,
-                        ExperimentSynthesisInputs(synthesis_id=refresh.synthesis_id, team_id=inputs.team_id),
-                        id=build_experiment_synthesis_workflow_id(refresh.synthesis_id),
-                        task_queue=settings.REPLAY_VISION_TASK_QUEUE,
-                        parent_close_policy=wf.ParentClosePolicy.ABANDON,
-                        execution_timeout=EXPERIMENT_SYNTHESIS_EXECUTION_TIMEOUT,
-                        search_attributes=TypedSearchAttributes(
-                            search_attributes=[
-                                SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=inputs.team_id),
-                                SearchAttributePair(key=POSTHOG_SCANNER_ID_KEY, value=str(inputs.scanner_id)),
-                            ]
-                        ),
-                    )
+                    try:
+                        await wf.start_child_workflow(
+                            EXPERIMENT_SYNTHESIS_WORKFLOW_NAME,
+                            ExperimentSynthesisInputs(synthesis_id=refresh.synthesis_id, team_id=inputs.team_id),
+                            id=build_experiment_synthesis_workflow_id(refresh.synthesis_id),
+                            task_queue=settings.REPLAY_VISION_TASK_QUEUE,
+                            parent_close_policy=wf.ParentClosePolicy.ABANDON,
+                            execution_timeout=EXPERIMENT_SYNTHESIS_EXECUTION_TIMEOUT,
+                            search_attributes=TypedSearchAttributes(
+                                search_attributes=[
+                                    SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=inputs.team_id),
+                                    SearchAttributePair(key=POSTHOG_SCANNER_ID_KEY, value=str(inputs.scanner_id)),
+                                ]
+                            ),
+                        )
+                    except Exception:
+                        await wf.execute_activity(
+                            fail_experiment_synthesis_activity,
+                            FailExperimentSynthesisInputs(
+                                synthesis_id=refresh.synthesis_id,
+                                team_id=inputs.team_id,
+                                error=SYNTHESIS_FAILED_TO_START,
+                            ),
+                            start_to_close_timeout=REFRESH_EXPERIMENT_SYNTHESIS_TIMEOUT,
+                            retry_policy=common.RetryPolicy(maximum_attempts=3),
+                        )
+                        raise
             except Exception:
                 wf.logger.warning(
                     "replay_vision.experiment_synthesis_refresh_failed", extra={"scanner_id": str(inputs.scanner_id)}

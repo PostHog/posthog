@@ -46,7 +46,10 @@ from products.replay_vision.backend.embeddings import (
     EMBEDDING_PRODUCT,
     OBSERVATION_EMBEDDING_MODEL,
 )
-from products.replay_vision.backend.models.replay_experiment_synthesis import ReplayExperimentSynthesis, ReplayExperimentSynthesisStatus
+from products.replay_vision.backend.models.replay_experiment_synthesis import (
+    ReplayExperimentSynthesis,
+    ReplayExperimentSynthesisStatus,
+)
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.search import query_vector_for
@@ -66,6 +69,9 @@ _REFRESH_MIN_GROWTH = 0.10
 _REFRESH_GROWTH_FLOOR = 10
 _REFRESH_MIN_INTERVAL = timedelta(hours=1)
 _FAILED_RUN_BACKOFF = timedelta(hours=1)
+# Gates the scheduled refresh, whose cost is absorbed; a person who asks for a run is not gated.
+SCHEDULED_REFRESH_FLAG = "replay-vision-experiment-synthesis-refresh"
+FINISHED_EVENT = "replay_vision_experiment_synthesis_finished"
 # A `running` row older than this belongs to a workflow that died without failing its row.
 _STALE_RUNNING_AFTER = EXPERIMENT_SYNTHESIS_EXECUTION_TIMEOUT + timedelta(minutes=10)
 
@@ -81,8 +87,12 @@ _MAX_DIFFERENCES = 5
 _EXAMPLES_PER_THEME = 3
 _DESCRIPTION_CHARS = 600
 # A summary matches a theme when its embedding sits within this cosine distance of the theme's
-# description. Untuned: each run logs its distance distribution so the cutoff can be set from data.
+# description. Untuned: each run logs every summary's nearest-theme distance and how many themes it
+# matched, so the cutoff can be set from data.
 THEME_MATCH_MAX_DISTANCE = 0.6
+# Two-sided 95%. Up to a dozen themes are tested per run, so the odd false positive gets through; the
+# counts sit next to every statement.
+_SIGNIFICANCE_Z = 1.96
 _EMBEDDINGS_TABLE = f"distributed_posthog_document_embeddings_{OBSERVATION_EMBEDDING_MODEL.value.replace('-', '_')}"
 _EMBEDDING_QUERY_TIMEOUT_S = 60
 
@@ -116,9 +126,9 @@ You compare the groups of an A/B test using a table of recurring behaviors and h
 each group show them.
 {_UNTRUSTED_DATA}
 
-Write at most {_MAX_DIFFERENCES} statements about what differs between the groups, most meaningful
-first. Each statement rests on exactly one theme from the table and names the groups it compares.
-Only report a difference the counts support; a small gap on few sessions is not one. Do not write
+Every theme in the table shows a gap between the groups that passed a significance test. Write at
+most {_MAX_DIFFERENCES} statements about what differs between the groups, most meaningful first. Each
+statement rests on exactly one theme from the table and names the groups it compares. Do not write
 numbers, counts or percentages: those are shown next to your statement. Respond with JSON matching
 the schema.
 """
@@ -191,6 +201,8 @@ def claim_due_refresh(scanner: ReplayScanner) -> ReplayExperimentSynthesis | Non
     """
     if scanner.scanner_type != ScannerType.EXPERIMENT or not is_ai_data_processing_approved(scanner.team_id):
         return None
+    if not _scheduled_refresh_enabled(scanner):
+        return None
     _fail_stale_runs(scanner)
     runs = ReplayExperimentSynthesis.objects.for_team(scanner.team_id).filter(
         scanner=scanner, scanner_version=scanner.scanner_version
@@ -202,13 +214,18 @@ def claim_due_refresh(scanner: ReplayScanner) -> ReplayExperimentSynthesis | Non
             return None
         if latest.status == ReplayExperimentSynthesisStatus.FAILED and now - latest.created_at < _FAILED_RUN_BACKOFF:
             return None
-    current = synthesis_observations(scanner, scanner.scanner_version).count()
     last_succeeded = runs.filter(status=ReplayExperimentSynthesisStatus.SUCCEEDED).order_by("-computed_at").first()
+    # The sweep calls this every tick, so the cheap time checks run before the count.
+    if (
+        last_succeeded is not None
+        and last_succeeded.computed_at is not None
+        and now - last_succeeded.computed_at < _REFRESH_MIN_INTERVAL
+    ):
+        return None
+    current = synthesis_observations(scanner, scanner.scanner_version).count()
     if last_succeeded is None:
         due = current >= MIN_OBSERVATIONS_FOR_SYNTHESIS
     else:
-        if last_succeeded.computed_at is not None and now - last_succeeded.computed_at < _REFRESH_MIN_INTERVAL:
-            return None
         considered = sum(_int_values(last_succeeded.observations_considered))
         new = current - considered
         due = new >= _REFRESH_MIN_NEW_OBSERVATIONS or (
@@ -220,10 +237,35 @@ def claim_due_refresh(scanner: ReplayScanner) -> ReplayExperimentSynthesis | Non
     return synthesis if created else None
 
 
+def up_to_date_run(scanner: ReplayScanner) -> ReplayExperimentSynthesis | None:
+    """The current version's last succeeded run when no summary has completed since it started, else None.
+
+    A rerun then would repeat the same model calls over the same summaries.
+    """
+    last = (
+        ReplayExperimentSynthesis.objects.for_team(scanner.team_id)
+        .filter(
+            scanner=scanner,
+            scanner_version=scanner.scanner_version,
+            status=ReplayExperimentSynthesisStatus.SUCCEEDED,
+        )
+        .order_by("-created_at")
+        .first()
+    )
+    if last is None:
+        return None
+    newer = synthesis_observations(scanner, scanner.scanner_version).filter(completed_at__gte=last.created_at)
+    return None if newer.exists() else last
+
+
 def fail_run(synthesis_id: uuid.UUID, team_id: int, error: str) -> None:
-    ReplayExperimentSynthesis.objects.for_team(team_id).filter(
-        pk=synthesis_id, status=ReplayExperimentSynthesisStatus.RUNNING
-    ).update(status=ReplayExperimentSynthesisStatus.FAILED, error=error[:2000], computed_at=timezone.now())
+    updated = (
+        ReplayExperimentSynthesis.objects.for_team(team_id)
+        .filter(pk=synthesis_id, status=ReplayExperimentSynthesisStatus.RUNNING)
+        .update(status=ReplayExperimentSynthesisStatus.FAILED, error=error[:2000], computed_at=timezone.now())
+    )
+    if updated:
+        _report_finished(synthesis_id, team_id)
 
 
 def synthesis_observations(scanner: ReplayScanner, scanner_version: int) -> "QuerySet[ReplayObservation]":
@@ -249,15 +291,32 @@ def _running_run(scanner: ReplayScanner) -> ReplayExperimentSynthesis | None:
 
 
 def _fail_stale_runs(scanner: ReplayScanner) -> None:
-    ReplayExperimentSynthesis.objects.for_team(scanner.team_id).filter(
+    stale = ReplayExperimentSynthesis.objects.for_team(scanner.team_id).filter(
         scanner=scanner,
         status=ReplayExperimentSynthesisStatus.RUNNING,
         created_at__lt=timezone.now() - _STALE_RUNNING_AFTER,
-    ).update(
-        status=ReplayExperimentSynthesisStatus.FAILED,
-        error="The run stopped before it finished.",
-        computed_at=timezone.now(),
     )
+    for synthesis_id in list(stale.values_list("id", flat=True)):
+        fail_run(synthesis_id, scanner.team_id, "The run stopped before it finished.")
+
+
+def _scheduled_refresh_enabled(scanner: ReplayScanner) -> bool:
+    organization_id = str(scanner.team.organization_id)
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                SCHEDULED_REFRESH_FLAG,
+                distinct_id=replay_vision_distinct_id(scanner.team_id),
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        # Fails closed: an absorbed-cost refresh waits rather than runs unchecked.
+        logger.exception("replay_vision.experiment_synthesis.flag_check_failed", team_id=scanner.team_id)
+        return False
 
 
 # Steps
@@ -319,7 +378,8 @@ def assign_themes(synthesis_id: uuid.UUID, team_id: int) -> None:
     for obs_id in embedded:
         considered[variant_of[obs_id]] += 1
 
-    nearest: list[float] = []
+    nearest: dict[str, float] = {}
+    matches: dict[str, int] = defaultdict(int)
     for theme, distances in zip(themes, distances_by_theme):
         matched = sorted(
             ((distance, obs_id) for obs_id, distance in distances.items() if obs_id in embedded),
@@ -329,6 +389,7 @@ def assign_themes(synthesis_id: uuid.UUID, team_id: int) -> None:
         counts: dict[str, int] = defaultdict(int)
         examples: dict[str, list[str]] = defaultdict(list)
         for _distance, obs_id in within:
+            matches[obs_id] += 1
             variant = variant_of[obs_id]
             counts[variant] += 1
             if len(examples[variant]) < _EXAMPLES_PER_THEME:
@@ -336,7 +397,8 @@ def assign_themes(synthesis_id: uuid.UUID, team_id: int) -> None:
         theme["counts_by_variant"] = {variant: counts.get(variant, 0) for variant in sorted(considered)}
         theme["example_observation_ids"] = [obs_id for _d, obs_id in within[:_EXAMPLES_PER_THEME]]
         theme["examples_by_variant"] = dict(examples)
-        nearest.extend(d for d, _obs_id in matched)
+        for distance, obs_id in matched:
+            nearest[obs_id] = min(nearest.get(obs_id, math.inf), distance)
 
     logger.info(
         "replay_vision.experiment_synthesis.theme_distances",
@@ -345,7 +407,10 @@ def assign_themes(synthesis_id: uuid.UUID, team_id: int) -> None:
         summaries=len(rows),
         embedded=len(embedded),
         cutoff=THEME_MATCH_MAX_DISTANCE,
-        **_quantiles(nearest),
+        unmatched=len(embedded) - len(matches),
+        # Near the theme count means the cutoff matches almost everything and flattens the differences.
+        themes_per_summary=round(sum(matches.values()) / len(embedded), 2),
+        **_quantiles(list(nearest.values())),
     )
     synthesis.themes = themes
     synthesis.observations_considered = dict(sorted(considered.items()))
@@ -376,7 +441,7 @@ def write_digests(synthesis_id: uuid.UUID, team_id: int) -> None:
             )
         contents = "\n\n".join([_experiment_preamble(synthesis.scanner), f"Group: {variant}", *blocks])
         digest = _generate(_Digest, _DIGEST_SYSTEM_PROMPT, contents, team_id=team_id, step="write_digest")
-        statements = {line.theme_key: line.statement.strip() for line in digest.lines if line.statement.strip()}
+        statements = {_slug(line.theme_key): line.statement.strip() for line in digest.lines if line.statement.strip()}
         digests[variant] = [
             {
                 "theme_key": theme["key"],
@@ -395,6 +460,10 @@ def write_differences(synthesis_id: uuid.UUID, team_id: int) -> None:
     _require_consent(team_id)
     themes = _assigned_themes(synthesis)
     considered = _int_map(synthesis.observations_considered)
+    themes = [theme for theme in themes if _significant(theme, considered)]
+    if not themes:
+        _finish(synthesis, differences=[])
+        return
     summaries = _summary_text_by_id(synthesis, themes)
     lines = [_experiment_preamble(synthesis.scanner), "Themes, with the sessions in each group that show them:"]
     for theme in themes:
@@ -423,10 +492,15 @@ def write_differences(synthesis_id: uuid.UUID, team_id: int) -> None:
                 "counts": {variant: matched["counts_by_variant"].get(variant, 0) for variant in considered},
             }
         )
-    synthesis.differences = differences[:_MAX_DIFFERENCES]
+    _finish(synthesis, differences=differences[:_MAX_DIFFERENCES])
+
+
+def _finish(synthesis: ReplayExperimentSynthesis, *, differences: list[dict[str, Any]]) -> None:
+    synthesis.differences = differences
     synthesis.status = ReplayExperimentSynthesisStatus.SUCCEEDED
     synthesis.computed_at = timezone.now()
     synthesis.save(update_fields=["differences", "status", "computed_at"])
+    _report_finished(synthesis.id, synthesis.team_id)
 
 
 # Helpers
@@ -435,31 +509,37 @@ def write_differences(synthesis_id: uuid.UUID, team_id: int) -> None:
 class _Summary:
     __slots__ = ("completed_at", "id", "text", "variant")
 
-    def __init__(self, observation: ReplayObservation) -> None:
-        result = observation.scanner_result or {}
-        output = result.get("model_output") or {}
-        title = str(output.get("title") or "").strip()
-        summary = str(output.get("summary") or "").strip()
+    def __init__(self, row: dict[str, Any]) -> None:
+        title = str(row["summary_title"] or "").strip()
+        summary = str(row["summary_body"] or "").strip()
         text = f"{title}. {summary}" if title and summary else title or summary
-        self.id = observation.id
-        self.variant = str(result.get("experiment_variant"))
-        self.completed_at: datetime | None = observation.completed_at
+        self.id: uuid.UUID = row["id"]
+        self.variant = str(row["variant"])
+        self.completed_at: datetime | None = row["completed_at"]
         self.text = text[:_SUMMARY_CHARS]
 
 
+def _summary_rows(synthesis: ReplayExperimentSynthesis) -> "QuerySet[ReplayObservation, dict[str, Any]]":
+    # Reads only the two text keys: the full scanner result is far larger, and a run reads thousands of rows.
+    return (
+        synthesis_observations(synthesis.scanner, synthesis.scanner_version)
+        .annotate(
+            summary_title=KT("scanner_result__model_output__title"),
+            summary_body=KT("scanner_result__model_output__summary"),
+        )
+        .values("id", "completed_at", "variant", "summary_title", "summary_body")
+    )
+
+
 def _read_summaries(synthesis: ReplayExperimentSynthesis) -> list[_Summary]:
-    observations = synthesis_observations(synthesis.scanner, synthesis.scanner_version).order_by("-completed_at")[
-        :_MAX_OBSERVATIONS
-    ]
-    return [_Summary(observation) for observation in observations]
+    return [_Summary(row) for row in _summary_rows(synthesis).order_by("-completed_at")[:_MAX_OBSERVATIONS]]
 
 
 def _summary_text_by_id(synthesis: ReplayExperimentSynthesis, themes: list[dict[str, Any]]) -> dict[str, str]:
     ids = {obs_id for theme in themes for ids in theme["examples_by_variant"].values() for obs_id in ids}
     if not ids:
         return {}
-    rows = synthesis_observations(synthesis.scanner, synthesis.scanner_version).filter(id__in=ids)
-    return {str(row.id): _Summary(row).text for row in rows}
+    return {str(row["id"]): _Summary(row).text for row in _summary_rows(synthesis).filter(id__in=ids)}
 
 
 def _assigned_themes(synthesis: ReplayExperimentSynthesis) -> list[dict[str, Any]]:
@@ -498,6 +578,22 @@ def _digest_themes(themes: list[dict[str, Any]], considered: dict[str, int], var
         if theme not in chosen and lift(theme) > 0:
             chosen.append(theme)
     return chosen
+
+
+def _significant(theme: dict[str, Any], considered: dict[str, int]) -> bool:
+    """Whether any variant's share of the theme differs from the other variants' pooled share (two-proportion z-test)."""
+    counts = theme["counts_by_variant"]
+    for variant, total in considered.items():
+        rest_total = sum(n for key, n in considered.items() if key != variant)
+        if not total or not rest_total:
+            continue
+        matched = counts.get(variant, 0)
+        rest_matched = sum(counts.get(key, 0) for key in considered if key != variant)
+        pooled = (matched + rest_matched) / (total + rest_total)
+        error = math.sqrt(pooled * (1 - pooled) * (1 / total + 1 / rest_total))
+        if error and abs(matched / total - rest_matched / rest_total) / error >= _SIGNIFICANCE_Z:
+            return True
+    return False
 
 
 def _theme_distances(team: Team, scanner_id: uuid.UUID, vector: list[float], *, since: datetime) -> dict[str, float]:
@@ -571,9 +667,10 @@ def _generate(
             },
             posthog_groups={"project": str(team_id)},
         )
-    except Exception as e:
+    except Exception:
+        # Re-raised as is: rate limits, timeouts and 5xx are transient, so the activity retries them.
         logger.exception("replay_vision.experiment_synthesis.model_call_failed", team_id=team_id, step=step)
-        raise SynthesisError("The model call failed.") from e
+        raise
     if not response.text:
         raise SynthesisError("The model returned nothing.")
     try:
@@ -595,9 +692,65 @@ def _experiment_preamble(scanner: ReplayScanner) -> str:
     return f"A/B test: {context.name}." + (f" What it tests: {description}" if description else "")
 
 
+def _report_finished(synthesis_id: uuid.UUID, team_id: int) -> None:
+    row = (
+        ReplayExperimentSynthesis.objects.for_team(team_id)
+        .filter(pk=synthesis_id)
+        .values(
+            "scanner_id",
+            "scanner_version",
+            "status",
+            "error",
+            "created_at",
+            "computed_at",
+            "created_by_id",
+            "themes",
+            "differences",
+            "observations_considered",
+            "team__organization_id",
+            "team__uuid",
+        )
+        .first()
+    )
+    if row is None:
+        return
+    considered = _int_map(row["observations_considered"])
+    posthoganalytics.capture(
+        distinct_id=replay_vision_distinct_id(team_id),
+        event=FINISHED_EVENT,
+        # A run finishes once, so its id dedups a repeated capture.
+        uuid=str(synthesis_id),
+        properties={
+            "synthesis_id": str(synthesis_id),
+            "scanner_id": str(row["scanner_id"]),
+            "scanner_version": row["scanner_version"],
+            "status": row["status"],
+            "trigger": "manual" if row["created_by_id"] is not None else "scheduled",
+            "duration_s": (
+                (row["computed_at"] - row["created_at"]).total_seconds() if row["computed_at"] is not None else None
+            ),
+            "themes": len(row["themes"]) if isinstance(row["themes"], list) else 0,
+            "differences": len(row["differences"]) if isinstance(row["differences"], list) else 0,
+            "variants": len(considered),
+            "observations_considered": sum(considered.values()),
+            "error": row["error"],
+            "team_id": team_id,
+            "organization_id": str(row["team__organization_id"]),
+        },
+        groups={
+            "instance": settings.SITE_URL,
+            "organization": str(row["team__organization_id"]),
+            "project": str(row["team__uuid"]),
+        },
+    )
+
+
 def _load(synthesis_id: uuid.UUID, team_id: int) -> ReplayExperimentSynthesis:
     synthesis = (
-        ReplayExperimentSynthesis.objects.for_team(team_id).select_related("scanner__team").filter(pk=synthesis_id).first()
+        ReplayExperimentSynthesis.objects.for_team(team_id)
+        .select_related("scanner__team")
+        .filter(pk=synthesis_id)
+        .first()
     )
     if synthesis is None:
         raise SynthesisError("The synthesis no longer exists.")
