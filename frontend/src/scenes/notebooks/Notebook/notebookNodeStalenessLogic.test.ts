@@ -7,6 +7,7 @@ import { initKeaTests } from '~/test/init'
 
 import { notebookNodeSQLV2Logic } from '../Nodes/notebookNodeSQLV2Logic'
 import { NotebookNodeType } from '../types'
+import { notebookKernelProviderLogic } from './browserKernel/notebookKernelProviderLogic'
 import { buildMarkdownNotebookContent, serializeMarkdownNotebookComponent } from './markdownNotebookV2'
 import { notebookNodeStalenessLogic } from './notebookNodeStalenessLogic'
 
@@ -50,6 +51,9 @@ describe('notebookNodeStalenessLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
+        // These cover the sandbox kernel; the browser kernel runs through its own endpoints.
+        notebookKernelProviderLogic({ shortId: 'nb1' }).mount()
+        notebookKernelProviderLogic({ shortId: 'nb1' }).actions.setProvider('sandbox')
         nodeLogics = []
         stalenessLogic = notebookNodeStalenessLogic({ shortId: 'nb1' })
         stalenessLogic.mount()

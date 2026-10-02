@@ -73,6 +73,7 @@ export interface notebookNodeStalenessLogicValues {
     chainQueue: string[]
     chainRootNodeId: string | null
     isChainRunning: boolean
+    isRunAllChain: boolean
     lastRunDownstreamNodeIds: string[]
     lastRunNodeId: string | null
     lastRunStaleDownstreamNodeIds: string[]
@@ -120,6 +121,13 @@ export interface notebookNodeStalenessLogicActions {
     }
     registerChainNode: (nodeId: string) => {
         nodeId: string
+    }
+    runAllChain: (
+        content: JSONContent | null,
+        nodeIds: string[]
+    ) => {
+        content: JSONContent | null
+        nodeIds: string[]
     }
     runStaleChain: (
         content: JSONContent | null,
@@ -219,6 +227,9 @@ export const notebookNodeStalenessLogic = kea<notebookNodeStalenessLogicType>([
         // every stale cell in the notebook.
         runStaleChain: (content: JSONContent | null, rootNodeId: string | null = null) => ({ content, rootNodeId }),
         runWidgetDataChain: (content: JSONContent | null, nodeIds: string[]) => ({ content, nodeIds }),
+        // Runs the given cells in document order from this tab. "Run all" uses it when the notebook
+        // runs Python in the browser, where no backend run can reach the kernel.
+        runAllChain: (content: JSONContent | null, nodeIds: string[]) => ({ content, nodeIds }),
         // Consumed by the matching notebookNodeSQLV2Logic, which builds refs and runs itself.
         dispatchChainRun: (nodeId: string) => ({ nodeId }),
         // A run the backend started for this cell, as part of a whole-notebook run. The
@@ -326,6 +337,16 @@ export const notebookNodeStalenessLogic = kea<notebookNodeStalenessLogicType>([
                 widgetDataChainFinished: () => [],
             },
         ],
+        isRunAllChain: [
+            false,
+            {
+                runAllChain: () => true,
+                runWidgetDataChain: () => false,
+                runStaleChain: () => false,
+                abortChain: () => false,
+                widgetDataChainFinished: () => false,
+            },
+        ],
         widgetDataChainCompletedNodeIds: [
             [] as string[],
             {
@@ -350,90 +371,15 @@ export const notebookNodeStalenessLogic = kea<notebookNodeStalenessLogicType>([
                 lastRunDownstreamNodeIds.filter((nodeId) => staleNodeIds[nodeId]),
         ],
     }),
-    listeners(({ actions, values }) => ({
-        nodeRunFinished: ({ nodeId, status, content }) => {
-            if (status === 'done') {
-                actions.clearNodeStale(nodeId)
-                const downstream = content ? staleDownstreamNodeIds(buildNotebookDependencyGraph(content), nodeId) : []
-                actions.markStaleNodeIds(downstream)
-                actions.setLastRun(nodeId, downstream)
-            }
-
-            if (values.chainQueue[0] !== nodeId) {
-                return
-            }
-            if (status !== 'done') {
-                actions.abortChain(nodeId)
-                return
-            }
-            const completedWidgetNodeIds = values.widgetDataChainNodeIds.length
-                ? Array.from(new Set([...values.widgetDataChainCompletedNodeIds, nodeId]))
-                : []
-            if (completedWidgetNodeIds.length) {
-                actions.setWidgetDataChainCompletedNodeIds(completedWidgetNodeIds)
-            }
-            // Rebuild the queue from the live stale set instead of shifting the snapshot:
-            // cells marked stale while the chain ran (including by this very run) join in,
-            // and cells deleted or unmounted while queued drop out rather than receiving a
-            // dispatch nobody picks up. A rooted chain stays scoped to the root's downstream
-            // so unrelated stale cells are never run by it.
-            const graph = content ? buildNotebookDependencyGraph(content) : null
-            let queue = graph ? runnableStaleNodeIds(graph, values.staleNodeIds, values.mountedNodeIds) : []
-            if (graph && values.chainRootNodeId) {
-                const scope = collectDependencyNodeIds(graph, values.chainRootNodeId, 'downstream')
-                queue = queue.filter((queuedNodeId) => scope.has(queuedNodeId))
-            } else if (values.widgetDataChainNodeIds.length) {
-                const scope = new Set(values.widgetDataChainNodeIds)
-                queue = queue.filter((queuedNodeId) => scope.has(queuedNodeId))
-            }
-            actions.setChainQueue(queue)
-            if (queue.length) {
-                actions.dispatchChainRun(queue[0])
-            } else if (values.widgetDataChainNodeIds.length) {
-                const availableNodeIds = new Set(graph?.nodes.map((node) => node.nodeId) ?? [])
-                const completedNodeIds = new Set(completedWidgetNodeIds)
-                const missingNodeId = values.widgetDataChainNodeIds.find(
-                    (widgetNodeId) =>
-                        !availableNodeIds.has(widgetNodeId) ||
-                        !values.mountedNodeIds[widgetNodeId] ||
-                        !completedNodeIds.has(widgetNodeId)
-                )
-                if (missingNodeId) {
-                    actions.abortChain(missingNodeId)
-                } else {
-                    actions.widgetDataChainFinished(values.widgetDataChainNodeIds)
-                }
-            } else {
-                actions.setChainRoot(null)
-                lemonToast.success('Stale cells re-run.')
-            }
-        },
-        runStaleChain: ({ content, rootNodeId }) => {
+    listeners(({ actions, values, cache }) => {
+        const startRequestedChain = (
+            content: JSONContent | null,
+            nodeIds: string[],
+            busyMessage: string,
+            isRunAll: boolean
+        ): void => {
             if (values.isChainRunning) {
-                lemonToast.info('Stale cells are already being re-run.')
-                return
-            }
-            if (!content) {
-                return
-            }
-            const graph = buildNotebookDependencyGraph(content)
-            let queue = runnableStaleNodeIds(graph, values.staleNodeIds, values.mountedNodeIds)
-            if (rootNodeId) {
-                const scope = collectDependencyNodeIds(graph, rootNodeId, 'downstream')
-                queue = queue.filter((queuedNodeId) => scope.has(queuedNodeId))
-            }
-            if (!queue.length) {
-                lemonToast.info('No stale cells to run.')
-                return
-            }
-            actions.setWidgetDataChainNodeIds([])
-            actions.setChainRoot(rootNodeId)
-            actions.setChainQueue(queue)
-            actions.dispatchChainRun(queue[0])
-        },
-        runWidgetDataChain: ({ content, nodeIds }) => {
-            if (values.isChainRunning) {
-                lemonToast.info('Notebook data cells are already being re-run.')
+                lemonToast.info(busyMessage)
                 return
             }
             if (!content || !nodeIds.length) {
@@ -455,28 +401,126 @@ export const notebookNodeStalenessLogic = kea<notebookNodeStalenessLogicType>([
                 return
             }
             const queue = requestedNodes.map((node) => node.nodeId)
+            cache.isRunAllChain = isRunAll
             actions.markStaleNodeIds(queue)
             actions.setChainRoot(null)
             actions.setWidgetDataChainNodeIds(queue)
             actions.setChainQueue(queue)
             actions.dispatchChainRun(queue[0])
-        },
-        widgetDataChainFinished: () => {
-            lemonToast.success('Widget data refreshed.')
-        },
-        variablesChanged: ({ variableNames, content }) => {
-            if (!variableNames.length || !content) {
-                return
-            }
-            actions.markStaleNodeIds(
-                variableDependentNodeIds(buildNotebookDependencyGraph(content), variableNames),
-                'variable'
-            )
-        },
-        abortChain: ({ reason }) => {
-            if (reason) {
-                lemonToast.warning('Stopped re-running stale cells: a cell did not finish successfully.')
-            }
-        },
-    })),
+        }
+
+        return {
+            nodeRunFinished: ({ nodeId, status, content }) => {
+                if (status === 'done') {
+                    actions.clearNodeStale(nodeId)
+                    const downstream = content
+                        ? staleDownstreamNodeIds(buildNotebookDependencyGraph(content), nodeId)
+                        : []
+                    actions.markStaleNodeIds(downstream)
+                    actions.setLastRun(nodeId, downstream)
+                }
+
+                if (values.chainQueue[0] !== nodeId) {
+                    return
+                }
+                if (status !== 'done') {
+                    actions.abortChain(nodeId)
+                    return
+                }
+                const completedWidgetNodeIds = values.widgetDataChainNodeIds.length
+                    ? Array.from(new Set([...values.widgetDataChainCompletedNodeIds, nodeId]))
+                    : []
+                if (completedWidgetNodeIds.length) {
+                    actions.setWidgetDataChainCompletedNodeIds(completedWidgetNodeIds)
+                }
+                // Rebuild the queue from the live stale set instead of shifting the snapshot:
+                // cells marked stale while the chain ran (including by this very run) join in,
+                // and cells deleted or unmounted while queued drop out rather than receiving a
+                // dispatch nobody picks up. A rooted chain stays scoped to the root's downstream
+                // so unrelated stale cells are never run by it.
+                const graph = content ? buildNotebookDependencyGraph(content) : null
+                let queue = graph ? runnableStaleNodeIds(graph, values.staleNodeIds, values.mountedNodeIds) : []
+                if (graph && values.chainRootNodeId) {
+                    const scope = collectDependencyNodeIds(graph, values.chainRootNodeId, 'downstream')
+                    queue = queue.filter((queuedNodeId) => scope.has(queuedNodeId))
+                } else if (values.widgetDataChainNodeIds.length) {
+                    const scope = new Set(values.widgetDataChainNodeIds)
+                    queue = queue.filter((queuedNodeId) => scope.has(queuedNodeId))
+                }
+                actions.setChainQueue(queue)
+                if (queue.length) {
+                    actions.dispatchChainRun(queue[0])
+                } else if (values.widgetDataChainNodeIds.length) {
+                    const availableNodeIds = new Set(graph?.nodes.map((node) => node.nodeId) ?? [])
+                    const completedNodeIds = new Set(completedWidgetNodeIds)
+                    const missingNodeId = values.widgetDataChainNodeIds.find(
+                        (widgetNodeId) =>
+                            !availableNodeIds.has(widgetNodeId) ||
+                            !values.mountedNodeIds[widgetNodeId] ||
+                            !completedNodeIds.has(widgetNodeId)
+                    )
+                    if (missingNodeId) {
+                        actions.abortChain(missingNodeId)
+                    } else {
+                        actions.widgetDataChainFinished(values.widgetDataChainNodeIds)
+                    }
+                } else {
+                    actions.setChainRoot(null)
+                    lemonToast.success('Stale cells re-run.')
+                }
+            },
+            runStaleChain: ({ content, rootNodeId }) => {
+                if (values.isChainRunning) {
+                    lemonToast.info('Stale cells are already being re-run.')
+                    return
+                }
+                if (!content) {
+                    return
+                }
+                const graph = buildNotebookDependencyGraph(content)
+                let queue = runnableStaleNodeIds(graph, values.staleNodeIds, values.mountedNodeIds)
+                if (rootNodeId) {
+                    const scope = collectDependencyNodeIds(graph, rootNodeId, 'downstream')
+                    queue = queue.filter((queuedNodeId) => scope.has(queuedNodeId))
+                }
+                if (!queue.length) {
+                    lemonToast.info('No stale cells to run.')
+                    return
+                }
+                actions.setWidgetDataChainNodeIds([])
+                actions.setChainRoot(rootNodeId)
+                actions.setChainQueue(queue)
+                actions.dispatchChainRun(queue[0])
+            },
+            runWidgetDataChain: ({ content, nodeIds }) => {
+                startRequestedChain(content, nodeIds, 'Notebook data cells are already being re-run.', false)
+            },
+            runAllChain: ({ content, nodeIds }) => {
+                startRequestedChain(content, nodeIds, 'The notebook is already running.', true)
+            },
+            widgetDataChainFinished: () => {
+                lemonToast.success(cache.isRunAllChain ? 'All cells ran.' : 'Widget data refreshed.')
+                cache.isRunAllChain = false
+            },
+            variablesChanged: ({ variableNames, content }) => {
+                if (!variableNames.length || !content) {
+                    return
+                }
+                actions.markStaleNodeIds(
+                    variableDependentNodeIds(buildNotebookDependencyGraph(content), variableNames),
+                    'variable'
+                )
+            },
+            abortChain: ({ reason }) => {
+                if (reason) {
+                    lemonToast.warning(
+                        cache.isRunAllChain
+                            ? 'Stopped the run: a cell did not finish successfully.'
+                            : 'Stopped re-running stale cells: a cell did not finish successfully.'
+                    )
+                }
+                cache.isRunAllChain = false
+            },
+        }
+    }),
 ])

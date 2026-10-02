@@ -177,6 +177,31 @@ Dependencies (`jupyter_client`, `pyarrow`, `duckdb`, `pandas`, `requests`) are a
 
 Because the package is plain Python with no Django imports, it gets normal unit tests in CI (auth round-trip, envelope building, run_node against a real in-process DuckDB, data-plane client against a stub Arrow server).
 
+## The browser kernel
+
+A notebook can run its Python and DuckDB cells in the user's tab instead of a sandbox.
+The kernel selector at the top of the notebook picks the kernel per person and per notebook, and the browser is the default.
+SQL that only reads PostHog data runs in ClickHouse on either kernel.
+
+The browser kernel is Pyodide in a web worker (`frontend/src/scenes/notebooks/Notebook/browserKernel/`).
+Pyodide, pandas, DuckDB and every other wheel load from one pinned jsDelivr release, which the CSP names by path.
+The worker runs a port of `KernelSession`, so the envelope, the result-frame rule, the variable binding and the column type names match the sandbox.
+
+The backend keeps its role as the owner of what a cell means:
+
+- `POST sql_v2/browser_plan/` resolves a cell like dispatch does and starts nothing (`sql_v2_browser.plan_browser_run`).
+  A `hogql` plan goes to the direct lane as usual.
+  A `python` or `duckdb` plan lists its inputs, and each HogQL input carries the upstream run's query bounded to the query API's row limit.
+- The browser fetches those rows through the query API and keeps them keyed by the upstream run id, so an unchanged input is not fetched again.
+- `POST sql_v2/browser_runs/` records the finished envelope as a terminal `NotebookNodeRun` marked `executor: browser`.
+  Widget generation, cross-cell references, reloads and the agent state view read it like any other run.
+  A browser DuckDB run is recorded as `duckdb`, so a later reference to that cell resolves to a local frame.
+
+The full frames live only in the tab.
+Paging, widget frame reads and SQL over Python frames go to the worker, and the page endpoint refuses a browser run with a message to run the cell again.
+"Run all" walks the cells from the tab through the staleness chain, because a backend-orchestrated run would send Python to a sandbox.
+A page without cross-origin isolation cannot interrupt a running cell, so a stop restarts the kernel.
+
 ## Failure handling
 
 - **Kernel dies mid-run** (OOM, segfault): the server's executor notices (execute reply timeout / `km.is_alive()` false), POSTs a `{status: "failed", error: "kernel_died"}` envelope to the callback, and can restart the kernel on the next run. The backend-side watchdog stays as the outer net for the case where the whole _sandbox_ dies and no callback can ever arrive.

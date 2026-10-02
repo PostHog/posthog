@@ -11,6 +11,11 @@ export const WORKER_ENTRIES = [
         define: { process: 'undefined', require: 'undefined' },
     },
     {
+        name: 'Notebook Python Worker',
+        entryPoint: 'src/scenes/notebooks/Notebook/browserKernel/browserKernelWorker.ts',
+        outfileName: 'notebookPythonWorker.js',
+    },
+    {
         name: 'Decompression Worker',
         entryPoint: 'src/scenes/session-recordings/player/snapshot-processing/decompressionWorker.ts',
         outfileName: 'decompressionWorker.js',

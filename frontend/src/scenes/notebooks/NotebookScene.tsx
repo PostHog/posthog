@@ -17,6 +17,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 
+import { NotebookKernelSelector } from './Notebook/browserKernel/NotebookKernelSelector'
 import { Notebook } from './Notebook/Notebook'
 import { NotebookLoadingState } from './Notebook/NotebookLoadingState'
 import { notebookLogic } from './Notebook/notebookLogic'
@@ -136,6 +137,7 @@ export function NotebookScene(): JSX.Element {
                     {isTemplate && <LemonTag type="highlight">TEMPLATE</LemonTag>}
                     <UserActivityIndicator at={notebook?.last_modified_at} by={notebook?.last_modified_by} />
                     <BindLogic logic={notebookLogic} props={{ shortId: notebookId, target: NotebookTarget.Scene }}>
+                        <NotebookKernelSelector type="tertiary" size="small" />
                         <NotebookVariablesButton type="tertiary" size="small" />
                         <NotebookRunAllButton type="tertiary" size="small" />
                     </BindLogic>

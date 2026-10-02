@@ -374,6 +374,67 @@ class NotebookSQLV2RunResponseSerializer(serializers.Serializer):
     )
 
 
+class NotebookBrowserRunInputSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Dataframe name the cell reads.")
+    # CharField, not ChoiceField: a `kind` enum collides with other generated enums under --fail-on-warn.
+    kind = serializers.CharField(
+        help_text=(
+            "'hogql' is an upstream SQL result the browser fetches with `query`; 'local' is a frame "
+            "the browser kernel must already hold."
+        )
+    )
+    node_id = serializers.CharField(
+        required=False, allow_null=True, help_text="Upstream cell that produced a 'hogql' input."
+    )
+    key = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Upstream run id. The browser reuses rows it already loaded for the same key.",
+    )
+    query = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="HogQL that returns the upstream rows, bounded to the query API's row limit.",
+    )
+
+
+class NotebookBrowserRunPlanResponseSerializer(serializers.Serializer):
+    node_type = serializers.CharField(
+        help_text=(
+            "Where the cell runs: 'hogql' pushes to ClickHouse through the regular run endpoint; "
+            "'python' and 'duckdb' run in the browser kernel."
+        )
+    )
+    code = serializers.CharField(
+        allow_blank=True,
+        help_text="Code to execute. DuckDB code carries `$name` parameters in place of `{name}` variables.",
+    )
+    inputs = NotebookBrowserRunInputSerializer(many=True, help_text="Frames the run reads, in dependency order.")
+    variables = serializers.DictField(
+        child=serializers.JSONField(help_text="A string, number, boolean or null."),
+        help_text="Python: globals to bind before the run. DuckDB: values for the `$name` parameters.",
+    )
+
+
+class NotebookBrowserRunNodeType(models.TextChoices):
+    PYTHON = "python", "python"
+    DUCKDB = "duckdb", "duckdb"
+
+
+class NotebookBrowserRunRecordRequestSerializer(serializers.Serializer):
+    node_id = serializers.CharField(max_length=128, help_text="Node id of the cell the browser ran.")
+    node_type = serializers.ChoiceField(
+        choices=NotebookBrowserRunNodeType.choices,
+        help_text="'python' for a Python cell, 'duckdb' for a SQL cell that read a browser dataframe.",
+    )
+    code = serializers.CharField(allow_blank=True, help_text="The code the browser executed.")
+    envelope = NotebookSQLV2EnvelopeSerializer(help_text="The result envelope the browser kernel produced.")
+
+
+class NotebookBrowserRunRecordResponseSerializer(serializers.Serializer):
+    run_id = serializers.UUIDField(help_text="Id of the recorded run, readable through the run result endpoint.")
+
+
 class NotebookSQLV2RunStatusResponseSerializer(serializers.Serializer):
     # CharField, not ChoiceField: a `status` enum collides with other generated enums under
     # --fail-on-warn (same precedent as the envelope's status field).

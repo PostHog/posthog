@@ -11,6 +11,7 @@ import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } 
 import { NotebookCellOutputHeader } from './components/NotebookCellOutputHeader'
 import { NotebookCellOutputNameFooter } from './components/NotebookCellOutputNameFooter'
 import { NotebookDataframeTable } from './components/NotebookDataframeTable'
+import { NotebookKernelStartCaption } from './components/NotebookKernelStartCaption'
 import { NotebookRunDownstreamBanner } from './components/NotebookRunDownstreamBanner'
 import { NotebookStaleCellBanner } from './components/NotebookStaleCellBanner'
 import { notebookNodeLogic } from './notebookNodeLogic'
@@ -19,9 +20,9 @@ import type { NotebookNodeSQLV2Result } from './NotebookNodeSQLV2'
 import { SQL_V2_DEFAULT_PAGE_SIZE } from './notebookNodeSQLV2Logic'
 import { NotebookDataframeResult } from './pythonExecution'
 
-// The revamped Python cell: code runs in the notebook's sandbox kernel via the SQLV2 run
-// path, with sibling SQLV2 frames materialized as pandas frames. A separate node type from
-// the legacy ph-python cell (in-browser kernel) so the two flows never share run wiring.
+// The revamped Python cell: code runs in the notebook's kernel (Pyodide in the browser, or a
+// sandbox) via the SQLV2 run path, with sibling SQLV2 frames materialized as pandas frames. A
+// separate node type from the legacy ph-python cell so the two flows never share run wiring.
 
 export type NotebookNodePythonV2Attributes = {
     code: string
@@ -147,8 +148,11 @@ const Component = ({
                         />
                     </div>
                 ) : null}
-                {isRunning && pendingKernelStart ? (
-                    <div className="shrink-0 px-2 pt-1 pb-2 text-xs text-muted">Starting compute sandbox…</div>
+                {isRunning ? (
+                    <NotebookKernelStartCaption
+                        notebookShortId={notebookLogic.props.shortId}
+                        pendingKernelStart={pendingKernelStart}
+                    />
                 ) : null}
                 {hasOutput ? <NotebookCellOutputHeader>Results</NotebookCellOutputHeader> : null}
                 {hasStreamOutput ? (

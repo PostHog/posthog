@@ -21,6 +21,7 @@ import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel } from '~/types'
 
+import { notebookKernelProviderLogic } from '../../Notebook/browserKernel/notebookKernelProviderLogic'
 import { type NotebookLogicProps, notebookLogic } from '../../Notebook/notebookLogic'
 import { NotebookNodeType, type NotebookType } from '../../types'
 import { NotebookCodeCellRunButton } from './NotebookCodeCellRunButton'
@@ -89,6 +90,9 @@ describe('NotebookCodeCellRunButton', () => {
     beforeEach(() => {
         localStorage.clear()
         initKeaTests()
+        // These cover the sandbox kernel; the browser kernel runs through its own endpoints.
+        notebookKernelProviderLogic({ shortId: SHORT_ID }).mount()
+        notebookKernelProviderLogic({ shortId: SHORT_ID }).actions.setProvider('sandbox')
         jest.spyOn(api.notebooks, 'collabStream').mockResolvedValue(undefined as any)
         runSpy = jest.spyOn(api.notebooks, 'sqlV2Run').mockResolvedValue({ run_id: 'r1' })
         jest.spyOn(api.notebooks, 'sqlV2RunResult').mockResolvedValue({ status: 'running', result: null, error: null })

@@ -20,6 +20,7 @@ import { prepareNotebookInsightDataframes } from '../prepareNotebookInsightDataf
 import { applyReusableWidgetBinding, getReusableWidgetInputBinding } from '../ReusableWidget/reusableWidgetBindings'
 import {
     formatWidgetElapsed,
+    loadBrowserWidgetFrame,
     loadWidgetFrame,
     notebookNodeGeneratedWidgetLogic,
 } from './notebookNodeGeneratedWidgetLogic'
@@ -352,6 +353,29 @@ function ExpandedWidget({
                             title="Widget"
                             allowedFrames={activeFrameNames}
                             onReadFrame={async (name, offset, limit, runId, signal) => {
+                                const binding = getReusableWidgetInputBinding(status?.input_bindings ?? {}, name)
+                                const sourceName =
+                                    binding?.source ??
+                                    status?.input_contract.find((input) => input.slot === name)?.sourceName ??
+                                    name
+                                const browserFrame = await loadBrowserWidgetFrame(
+                                    notebookShortId,
+                                    name,
+                                    sourceName,
+                                    offset,
+                                    limit,
+                                    runId
+                                )
+                                if (browserFrame) {
+                                    return applyReusableWidgetBinding(
+                                        browserFrame,
+                                        name,
+                                        binding,
+                                        status?.input_contract
+                                            .find((input) => input.slot === name)
+                                            ?.columns?.map((column) => column.name) ?? []
+                                    )
+                                }
                                 const frame = await loadWidgetFrame(
                                     String(currentTeamId),
                                     notebookShortId,

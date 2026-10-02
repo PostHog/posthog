@@ -20,6 +20,7 @@ import { NotebookCellOutputNameFooter } from './components/NotebookCellOutputNam
 import { notebookDataframeHintLogic } from './components/notebookDataframeHintLogic'
 import { NotebookDataframeHintPopover } from './components/NotebookDataframeHintPopover'
 import { NotebookDataframeTable } from './components/NotebookDataframeTable'
+import { NotebookKernelStartCaption } from './components/NotebookKernelStartCaption'
 import { getCellLabel } from './components/NotebookNodeTitle'
 import { NotebookRunDownstreamBanner } from './components/NotebookRunDownstreamBanner'
 import { NotebookCodeSQLEditorSettings } from './components/NotebookSQLEditor'
@@ -276,8 +277,11 @@ const Component = ({
                         />
                     </div>
                 ) : null}
-                {isRunning && pendingKernelStart ? (
-                    <div className="shrink-0 px-2 pt-1 pb-2 text-xs text-muted">Starting compute sandbox…</div>
+                {isRunning ? (
+                    <NotebookKernelStartCaption
+                        notebookShortId={notebookLogic.props.shortId}
+                        pendingKernelStart={pendingKernelStart}
+                    />
                 ) : null}
                 {resultRestoreUnavailable ? (
                     <div className="p-2 text-xs text-muted">Run the cell again to see its full results.</div>
