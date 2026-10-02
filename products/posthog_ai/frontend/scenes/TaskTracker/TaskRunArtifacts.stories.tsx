@@ -403,6 +403,7 @@ function taskMocks(
                     headers: { 'Content-Type': 'text/plain' },
                 })
             },
+            [`/api/projects/:team_id/tasks/${TASK_ID}/runs/:run_id/artifacts/dismiss/`]: { artifacts },
         },
     }
 }

@@ -147,6 +147,20 @@ describe('taskRunArtifacts', () => {
         ])
     })
 
+    it('collectRunArtifacts applies dismissals over run manifests from before the change', () => {
+        const run = {
+            id: 'run-1',
+            artifacts: [
+                artifact({ id: 'dismissed-here' }),
+                artifact({ id: 'restored-here', dismissed_at: '2026-09-28T19:00:00Z' }),
+                artifact({ id: 'untouched' }),
+            ],
+        }
+        expect(
+            collectRunArtifacts([run], { 'dismissed-here': true, 'restored-here': false }).map(({ id }) => id)
+        ).toEqual(['restored-here', 'untouched'])
+    })
+
     test.each([
         [
             'merges one name across runs, newest first',

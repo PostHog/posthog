@@ -94,6 +94,12 @@ export function artifactPreviewKind(
     return 'none'
 }
 
+/** A cited object with no live embed shows only a card, so it gets no full page view. */
+export function hasFullPageView(artifact: TaskRunArtifactResponseApi & { living?: LivingVersion }): boolean {
+    const ref = postHogObjectRef(artifact)
+    return ref ? LIVE_OBJECT_KINDS.has(ref.objectKind) : artifactPreviewKind(artifact) !== 'reference'
+}
+
 export function isTextPreview(kind: ArtifactPreviewKind): boolean {
     return kind === 'markdown' || kind === 'html' || kind === 'csv' || kind === 'text'
 }
@@ -202,15 +208,27 @@ interface RunWithArtifacts {
 /**
  * Agent files from every run of a task. A resumed task keeps writing new runs, so the files from earlier
  * runs in the chain are only on those runs. The first run that lists an id wins, so pass the live run first.
+ * `dismissals` maps an artifact id to the dismissed state this page last set. It wins over the run data,
+ * because the runs can hold a manifest from before that change.
  */
-export function collectRunArtifacts(runs: readonly (RunWithArtifacts | null | undefined)[]): RunArtifact[] {
+export function collectRunArtifacts(
+    runs: readonly (RunWithArtifacts | null | undefined)[],
+    dismissals: Readonly<Record<string, boolean>> = {}
+): RunArtifact[] {
     const byId = new Map<string, RunArtifact>()
     for (const run of runs) {
         if (!run) {
             continue
         }
-        for (const artifact of visibleRunArtifacts(run.artifacts ?? [])) {
-            if (artifact.id && !byId.has(artifact.id)) {
+        const manifest = (run.artifacts ?? []).map((artifact) => {
+            if (!artifact.id || dismissals[artifact.id] !== false) {
+                return artifact
+            }
+            const { dismissed_at: _dismissedAt, ...restored } = artifact
+            return restored
+        })
+        for (const artifact of visibleRunArtifacts(manifest)) {
+            if (artifact.id && !dismissals[artifact.id] && !byId.has(artifact.id)) {
                 byId.set(artifact.id, { ...artifact, runId: run.id })
             }
         }
