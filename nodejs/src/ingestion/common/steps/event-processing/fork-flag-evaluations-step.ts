@@ -120,6 +120,10 @@ export function createForkFlagEvaluationsStep<T extends ForkFlagEvaluationsStepI
             // side effect; the rest stop the process or the pod (see
             // PipelineContext.sideEffects). The backfill owns history for this table,
             // so a lost dual-written row costs less than a stopped consumer.
+            //
+            // The fork alerts in PostHog/charts alerts/specs/feature-flags.yaml match these
+            // outcome names. FlagEvaluationsForkStalled must list every outcome counted
+            // below, or a healthy pod that emits only a new outcome pages as stalled.
             const settled = ack.then(
                 () => {
                     flagEvaluationsPendingAcks.dec(messages.length)
