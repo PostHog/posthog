@@ -296,9 +296,10 @@ def _facet_filter(filters: Iterable[RecipientFilter], topics: _Topics) -> ast.Ex
 
 
 def _facet_group_filter(filters: list[RecipientFilter], topics: _Topics) -> ast.Expr:
-    matches_any = [_facet_condition(f, topics) for f in filters if not f.negated]
-    matches_none = [ast.Not(expr=_facet_condition(f, topics)) for f in filters if f.negated]
-    return ast.And(exprs=([ast.Or(exprs=matches_any)] if matches_any else []) + matches_none)
+    matches_any: list[ast.Expr] = [_facet_condition(f, topics) for f in filters if not f.negated]
+    conditions: list[ast.Expr] = [ast.Or(exprs=matches_any)] if matches_any else []
+    conditions += [ast.Not(expr=_facet_condition(f, topics)) for f in filters if f.negated]
+    return ast.And(exprs=conditions)
 
 
 def _facet_condition(recipient_filter: RecipientFilter, topics: _Topics) -> ast.Expr:
