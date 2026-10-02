@@ -341,6 +341,7 @@ impl FlagEvaluationState {
                         Some(Value::String(variant)) => Some(FlagValue::String(variant.clone())),
                         _ => None,
                     });
+                // A variant that no filter names passes the same filters as `true`.
                 let can_match = [FlagValue::Boolean(false), FlagValue::Boolean(true)]
                     .into_iter()
                     .chain(variants)
@@ -458,9 +459,9 @@ pub struct FeatureFlagMatcher {
     rayon_dispatcher: Option<RayonDispatcher>,
     /// When true, skip all writes to PostgreSQL and Redis.
     skip_writes: bool,
-    /// Keys of flags whose caller reads only `enabled`. A failed dependency fails one of these
-    /// flags only when it could change whether the flag matches. Every other flag keeps the
-    /// variant comparison, because a dependent can filter on its variant.
+    /// Keys of flags whose variant neither the caller nor any evaluated flag reads. A failed
+    /// dependency fails one of these flags only when it could change whether the flag matches.
+    /// Every other flag keeps the variant comparison.
     enabled_only_flag_keys: HashSet<String>,
     /// Flag IDs that should be skipped during evaluation.
     /// Populated once per request from `FeatureFlagList::filtered_out_flag_ids`.
@@ -1711,8 +1712,9 @@ impl FeatureFlagMatcher {
         let early_exit_enabled = flag.filters.early_exit.unwrap_or(false);
         // A condition on a failed flag cannot settle the answer. Each such condition records the
         // answer the flag would give if the failed flag matched it. The flag fails only when one
-        // of those answers differs from the real answer. Server SDKs read `failed: true` as false.
-        // Failing every dependent would therefore turn a settled `true` into false.
+        // of those answers differs from the answer from its other conditions. Server SDKs read
+        // `failed: true` as false. Failing every dependent would therefore turn a settled `true`
+        // into false.
         let mut answers_if_dependency_matched: Vec<AnswerIfDependencyMatched> = Vec::new();
         let condition_timer = common_metrics::timing_guard(FLAG_EVALUATE_ALL_CONDITIONS_TIME, &[]);
         for (index, condition) in conditions {

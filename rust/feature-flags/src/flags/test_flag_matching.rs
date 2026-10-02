@@ -1562,6 +1562,18 @@ mod tests {
                 )]
             )
         );
+        let dependent_on_flag_and_its_variant_flag = mock!(FeatureFlag,
+            id: 19,
+            key: "dependent_on_flag_and_its_variant_flag".mock_into(),
+            filters: mock!(FlagFilters,
+                groups: vec![mock!(FlagPropertyGroup,
+                    properties: Some(vec![
+                        dep_filter(person_flag.id, FlagValue::Boolean(true)),
+                        dep_filter(person_flag.id, FlagValue::String("test".to_string())),
+                    ])
+                )]
+            )
+        );
         let mut flags = flag_list_with_metadata(vec![
             rollout_flag,
             person_flag,
@@ -1581,6 +1593,7 @@ mod tests {
             dependent_with_conflicting_filters_flag,
             pinned_variant_dependency_flag,
             dependent_on_pinned_variant_dependency_flag,
+            dependent_on_flag_and_its_variant_flag,
         ]);
         // Preloaded cohorts keep the cohort definitions lookup off the failing pool.
         flags.cohorts = Some(Arc::from(Vec::new()));
@@ -1621,6 +1634,7 @@ mod tests {
             "dependent_on_variant_flag",
             "pinned_variant_dependency_flag",
             "dependent_on_pinned_variant_dependency_flag",
+            "dependent_on_flag_and_its_variant_flag",
         ];
         if batch_endpoint {
             settled.push((
