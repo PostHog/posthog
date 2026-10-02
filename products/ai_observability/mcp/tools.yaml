@@ -1211,6 +1211,11 @@ tools:
             payloads allow 1 MiB and result payloads 256 KiB; use small batches through MCP and the API for bulk
             uploads. Correct validation errors before retrying; never generate new IDs merely to retry an uncertain
             response.
+        param_overrides:
+            items:
+                input_schema: OfflineExperimentUploadItemsSchema
+            results:
+                input_schema: OfflineExperimentUploadResultsSchema
         feature_flag: ai-observability-offline-evaluations
     llma-offline-scorer-history:
         operation: ai_observability_offline_scorers_history_list

@@ -3,7 +3,12 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/ai_observability/api'
-import { PromptListInputSchema, ScoreDefinitionConfigSchema } from '@/schema/tool-inputs'
+import {
+    OfflineExperimentUploadItemsSchema,
+    OfflineExperimentUploadResultsSchema,
+    PromptListInputSchema,
+    ScoreDefinitionConfigSchema,
+} from '@/schema/tool-inputs'
 import { normalizeParamAliases } from '@/tools/cast-helpers'
 import { createQueryWrapper } from '@/tools/query-wrapper-factory'
 import {
@@ -1957,9 +1962,9 @@ const LlmaOfflineExperimentUploadSchema = () => {
         orvalSchemas.AiObservabilityOfflineExperimentsUploadCreateBody()
     const AiObservabilityOfflineExperimentsUploadCreateParams =
         orvalSchemas.AiObservabilityOfflineExperimentsUploadCreateParams()
-    return AiObservabilityOfflineExperimentsUploadCreateParams.omit({ project_id: true }).extend(
-        AiObservabilityOfflineExperimentsUploadCreateBody.shape
-    )
+    return AiObservabilityOfflineExperimentsUploadCreateParams.omit({ project_id: true })
+        .extend(AiObservabilityOfflineExperimentsUploadCreateBody.shape)
+        .extend({ items: OfflineExperimentUploadItemsSchema, results: OfflineExperimentUploadResultsSchema })
 }
 
 const llmaOfflineExperimentUpload = (): ToolBase<

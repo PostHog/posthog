@@ -58,15 +58,27 @@ describe('offline evaluation MCP tools', () => {
     it('sends exact scorer-version identities and typed result values on upload', async () => {
         const { context, request } = createContext({ items: [], results: [] })
         const tool = GENERATED_TOOLS['llma-offline-experiment-upload']!()
+        const items = [{ id: itemId, payload: { input: { question: 'q' }, output: 'a', metadata: { source: 'ci' } } }]
         const results = [{ item_id: itemId, scorer_version_id: versionId, status: 'ok', value: false }]
-        await tool.handler(context, tool.schema.parse({ id: experimentId, results }))
+        await tool.handler(context, tool.schema.parse({ id: experimentId, items, results }))
         expect(request).toHaveBeenCalledExactlyOnceWith({
             method: 'POST',
             path: `/api/projects/17/ai_observability/offline_experiments/${experimentId}/upload/`,
-            body: { results },
+            body: { items, results },
         })
         expect(
             tool.schema.safeParse({ id: experimentId, results: [{ ...results[0], scorer_version_id: 1 }] }).success
+        ).toBe(false)
+        expect(
+            tool.schema.safeParse({
+                id: experimentId,
+                items: [{ id: itemId, payload: { inputs: 'question', output: 'answer' } }],
+                results,
+            }).success
+        ).toBe(false)
+        expect(
+            tool.schema.safeParse({ id: experimentId, results: [{ ...results[0], payload: { explanation: 'why' } }] })
+                .success
         ).toBe(false)
     })
 

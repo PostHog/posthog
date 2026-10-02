@@ -73,6 +73,7 @@
                         "type": "string"
                     },
                     "payload": {
+                        "additionalProperties": false,
                         "description": "Optional input/output payload, up to 1 MiB and 32 JSON levels. Omission, {} and null properties differ.",
                         "properties": {
                             "expected_output": {
@@ -238,6 +239,7 @@
                         "type": "string"
                     },
                     "payload": {
+                        "additionalProperties": false,
                         "description": "Optional reasoning, error message, and metadata, up to 256 KiB and 32 JSON levels.",
                         "properties": {
                             "error_message": {
