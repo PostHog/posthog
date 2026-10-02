@@ -65,38 +65,15 @@ class TestMessagePreferencesProjectSecretKeyAccess(APIBaseTest):
                 {"identifier": "user@example.com", "category_key": "newsletter"},
             )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
         preference = MessageRecipientPreference.objects.get(team=self.team, identifier="user@example.com")
         self.assertEqual(preference.get_preference(str(self.category.id)), expected_status)
         self.assertIsNone(preference.created_by)
         mock_sync.assert_called_once_with(self.team.id, "user@example.com", preference.preferences)
 
-    @parameterized.expand(
-        [
-            ("add_new_recipient", "add_opt_out", PreferenceStatus.OPTED_OUT, False),
-            ("add_existing_recipient", "add_opt_out", PreferenceStatus.OPTED_OUT, True),
-            ("remove_new_recipient", "remove_opt_out", PreferenceStatus.OPTED_IN, False),
-            ("remove_existing_recipient", "remove_opt_out", PreferenceStatus.OPTED_IN, True),
-        ]
-    )
-    def test_write_only_response_reveals_nothing_stored(self, _name, endpoint, written_status, recipient_exists):
-        if recipient_exists:
-            self._store_opted_out_recipient()
-        token = self._create_project_secret_key(self.team, ["messaging_preference:write"])
-
-        response = self._sdk_request(
-            endpoint, f"Bearer {token}", {"identifier": "user@example.com", "category_key": "newsletter"}
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
-        self.assertEqual(
-            response.json(),
-            {"identifier": "user@example.com", "preferences": {str(self.category.id): written_status.value}},
-        )
-
-    def test_write_response_shows_stored_preferences_to_a_key_that_can_read(self):
+    def test_write_response_returns_the_stored_preferences(self):
         stored_preferences = self._store_opted_out_recipient()
-        token = self._create_project_secret_key(self.team, ["messaging_preference:read", "messaging_preference:write"])
+        token = self._create_project_secret_key(self.team, ["messaging_preference:write"])
 
         response = self._sdk_request(
             "add_opt_out", f"Bearer {token}", {"identifier": "user@example.com", "category_key": "newsletter"}
@@ -135,13 +112,14 @@ class TestMessagePreferencesProjectSecretKeyAccess(APIBaseTest):
 
     @parameterized.expand(
         [
-            (["messaging_preference:write"], "opt_outs", status.HTTP_403_FORBIDDEN),
-            (["messaging_preference:write"], "export_opt_outs_csv", status.HTTP_403_FORBIDDEN),
             (["messaging_preference:read"], "opt_outs", status.HTTP_200_OK),
             (["messaging_preference:read"], "export_opt_outs_csv", status.HTTP_200_OK),
+            (["messaging_preference:write"], "opt_outs", status.HTTP_200_OK),
+            (["messaging_preference:write"], "export_opt_outs_csv", status.HTTP_200_OK),
+            (["hog_flow:write"], "opt_outs", status.HTTP_403_FORBIDDEN),
         ]
     )
-    def test_reading_the_opt_out_list_needs_the_read_scope(self, scopes, endpoint, expected_status):
+    def test_reading_the_opt_out_list_needs_a_messaging_preference_scope(self, scopes, endpoint, expected_status):
         token = self._create_project_secret_key(self.team, scopes)
 
         response = self.client.get(
@@ -153,7 +131,7 @@ class TestMessagePreferencesProjectSecretKeyAccess(APIBaseTest):
 
     @parameterized.expand([("generate_link", "post"), ("webhook_url", "get")])
     def test_session_only_actions_reject_project_secret_keys(self, endpoint, http_method):
-        token = self._create_project_secret_key(self.team, ["messaging_preference:read", "messaging_preference:write"])
+        token = self._create_project_secret_key(self.team, ["messaging_preference:write"])
 
         response = self.client.generic(
             http_method.upper(),
@@ -195,7 +173,7 @@ class TestMessagePreferencesProjectSecretKeyAccess(APIBaseTest):
 
         response = self._sdk_request("add_opt_out", f"Bearer {token}")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
         self.assertTrue(
             MessageRecipientPreference.objects.filter(team=other_team, identifier="user@example.com").exists()
         )
@@ -229,5 +207,5 @@ class TestMessagePreferencesProjectSecretKeyAccess(APIBaseTest):
         first_response = self._sdk_request("add_opt_out", f"Bearer {first_key}")
         second_response = self._sdk_request("add_opt_out", f"Bearer {second_key}")
 
-        self.assertEqual(first_response.status_code, status.HTTP_200_OK, first_response.content)
+        self.assertEqual(first_response.status_code, status.HTTP_201_CREATED, first_response.content)
         self.assertEqual(second_response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)

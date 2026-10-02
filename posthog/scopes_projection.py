@@ -39,7 +39,6 @@ def render_oauth_scopes() -> str:
     scopes_globals = runpy.run_path(str(SCOPES_PY))
     all_scopes: list[str] = scopes_globals["get_oauth_scopes_supported"]()
     hidden_scopes: list[str] = sorted(scopes_globals["OAUTH_SCOPES_HIDDEN"])
-    write_excludes_read: list[str] = sorted(scopes_globals["WRITE_EXCLUDES_READ_SCOPE_OBJECTS"])
 
     body = ",\n".join(f"    {json.dumps(s)}" for s in all_scopes)
     hidden_body = ",\n".join(f"    {json.dumps(s)}" for s in hidden_scopes)
@@ -66,9 +65,6 @@ def render_oauth_scopes() -> str:
         "export const OAUTH_SCOPES_HIDDEN = [\n"
         f"{hidden_body},\n"
         "] as const\n"
-        "\n"
-        "// Scope objects whose `:write` does not cover `:read` (mirrors posthog/scopes.py).\n"
-        f"export const WRITE_EXCLUDES_READ_SCOPE_OBJECTS: readonly string[] = {json.dumps(write_excludes_read)}\n"
     )
     return output
 

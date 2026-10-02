@@ -22,7 +22,6 @@ interface ScopeAccessRowProps {
     muted?: boolean
     /** Optional warning content rendered as a sub-row below the main row. */
     warning?: string | JSX.Element | null
-    offerReadAndWrite?: boolean
 }
 
 export function ScopeAccessRow({
@@ -35,7 +34,6 @@ export function ScopeAccessRow({
     info,
     muted = false,
     warning,
-    offerReadAndWrite = false,
 }: ScopeAccessRowProps): JSX.Element {
     return (
         <>
@@ -55,15 +53,6 @@ export function ScopeAccessRow({
                         { label: 'No access', value: 'none', disabledReason: noneDisabledReason },
                         { label: 'Read', value: 'read', disabledReason: readDisabledReason },
                         { label: 'Write', value: 'write', disabledReason: writeDisabledReason },
-                        ...(offerReadAndWrite
-                            ? [
-                                  {
-                                      label: 'Read and write',
-                                      value: 'read_write',
-                                      disabledReason: readDisabledReason ?? writeDisabledReason,
-                                  },
-                              ]
-                            : []),
                     ]}
                     size="xsmall"
                 />

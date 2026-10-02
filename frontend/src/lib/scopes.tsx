@@ -272,7 +272,7 @@ API_SCOPES.sort((a, b) => a.objectName.localeCompare(b.objectName))
 export const API_SCOPES_OMITTED_FROM_MODAL: Partial<Record<APIScopeObject, string>> = {
     // OAUTH_HIDDEN_SCOPE_OBJECTS — pasteable into a PAT, but never advertised via OAuth/CLI/MCP.
     batch_import_support: 'OAuth-hidden: staff-only, pasteable into a PAT but not advertised.',
-    messaging_preference: 'OAuth-hidden: offered on project secret API keys, where write does not include read.',
+    messaging_preference: 'OAuth-hidden: offered on project secret API keys.',
     query_performance: 'OAuth-hidden: staff-only, pasteable into a PAT but not advertised.',
     wizard_session: 'OAuth-hidden: pasteable into a PAT but not advertised.',
     wizard_run: 'OAuth-hidden: pasteable into a PAT but not advertised.',

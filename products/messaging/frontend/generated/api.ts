@@ -15,7 +15,6 @@ import type {
     BulkAddOptOutsResultApi,
     GenerateLinkRequestApi,
     MessageCategoryApi,
-    MessagePreferenceWriteResultApi,
     MessagePreferencesApi,
     MessageSuppressionApi,
     MessageTemplateApi,
@@ -355,16 +354,13 @@ export const messagingPreferencesAddOptOutCreate = async (
     projectId: string,
     addOptOutRequestApi: AddOptOutRequestApi,
     options?: RequestInit
-): Promise<MessagePreferenceWriteResultApi | MessagePreferencesApi> => {
-    return apiMutator<MessagePreferenceWriteResultApi | MessagePreferencesApi>(
-        getMessagingPreferencesAddOptOutCreateUrl(projectId),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(addOptOutRequestApi),
-        }
-    )
+): Promise<MessagePreferencesApi> => {
+    return apiMutator<MessagePreferencesApi>(getMessagingPreferencesAddOptOutCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(addOptOutRequestApi),
+    })
 }
 
 export const getMessagingPreferencesBulkAddOptOutsCreateUrl = (projectId: string) => {
@@ -489,16 +485,13 @@ export const messagingPreferencesRemoveOptOutCreate = async (
     projectId: string,
     removeOptOutRequestApi: RemoveOptOutRequestApi,
     options?: RequestInit
-): Promise<MessagePreferenceWriteResultApi | MessagePreferencesApi> => {
-    return apiMutator<MessagePreferenceWriteResultApi | MessagePreferencesApi>(
-        getMessagingPreferencesRemoveOptOutCreateUrl(projectId),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(removeOptOutRequestApi),
-        }
-    )
+): Promise<MessagePreferencesApi> => {
+    return apiMutator<MessagePreferencesApi>(getMessagingPreferencesRemoveOptOutCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(removeOptOutRequestApi),
+    })
 }
 
 export const getMessagingPreferencesWebhookUrlRetrieveUrl = (projectId: string) => {

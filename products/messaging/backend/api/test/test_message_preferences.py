@@ -900,8 +900,8 @@ class TestMessagePreferencesAPIKeyAccess(APIBaseTest):
             (["hog_flow:read"], "post", "remove_opt_out", status.HTTP_403_FORBIDDEN),
             (["hog_flow:write"], "post", "add_opt_out", status.HTTP_201_CREATED),
             (["hog_flow:write"], "post", "remove_opt_out", status.HTTP_201_CREATED),
-            (["messaging_preference:write"], "post", "add_opt_out", status.HTTP_200_OK),
-            (["messaging_preference:write"], "get", "opt_outs", status.HTTP_403_FORBIDDEN),
+            (["messaging_preference:write"], "post", "add_opt_out", status.HTTP_201_CREATED),
+            (["messaging_preference:write"], "get", "opt_outs", status.HTTP_200_OK),
             (["messaging_preference:read"], "get", "opt_outs", status.HTTP_200_OK),
             (["messaging_preference:read"], "post", "add_opt_out", status.HTTP_403_FORBIDDEN),
         ]

@@ -60,7 +60,7 @@ const OptOutsRemoveSchema = () => {
     return MessagingPreferencesRemoveOptOutCreateBody
 }
 
-const optOutsRemove = (): ToolBase<ReturnType<typeof OptOutsRemoveSchema>, Schemas.MessagePreferenceWriteResult> => ({
+const optOutsRemove = (): ToolBase<ReturnType<typeof OptOutsRemoveSchema>, Schemas.MessagePreferences> => ({
     name: 'opt-outs-remove',
     schema: OptOutsRemoveSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof OptOutsRemoveSchema>>) => {
@@ -72,7 +72,7 @@ const optOutsRemove = (): ToolBase<ReturnType<typeof OptOutsRemoveSchema>, Schem
         if (params.category_key !== undefined) {
             body['category_key'] = params.category_key
         }
-        const result = await context.api.request<Schemas.MessagePreferenceWriteResult>({
+        const result = await context.api.request<Schemas.MessagePreferences>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_preferences/remove_opt_out/`,
             body,

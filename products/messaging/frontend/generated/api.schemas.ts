@@ -69,22 +69,6 @@ export interface AddOptOutRequestApi {
     category_key?: string
 }
 
-/**
- * The recipient's preferences. A caller without read access sees only the preference this request set, and nothing that shows whether the recipient existed before.
- */
-export type MessagePreferenceWriteResultApiPreferences = { [key: string]: 'OPTED_IN' | 'OPTED_OUT' | 'NO_PREFERENCE' }
-
-export interface MessagePreferenceWriteResultApi {
-    /** Server-assigned UUID for this recipient's preference record. Omitted for callers without read access. */
-    id?: string
-    /** The recipient identifier from the request. */
-    identifier: string
-    /** When the preference was last updated. Omitted for callers without read access. */
-    updated_at?: string
-    /** The recipient's preferences. A caller without read access sees only the preference this request set, and nothing that shows whether the recipient existed before. */
-    preferences: MessagePreferenceWriteResultApiPreferences
-}
-
 export interface MessagePreferencesApi {
     /** Server-assigned UUID for this recipient's preference record. */
     readonly id: string

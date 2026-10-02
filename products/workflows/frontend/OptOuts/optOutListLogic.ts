@@ -28,7 +28,6 @@ import {
 } from 'products/messaging/frontend/generated/api'
 import type {
     BulkAddOptOutsResultApi,
-    MessagePreferenceWriteResultApi,
     MessagePreferencesApi,
     PaginatedOptOutsApi,
 } from 'products/messaging/frontend/generated/api.schemas'
@@ -50,8 +49,6 @@ async function parseCsvFile(file: File): Promise<string[][]> {
 
 export type { OptOutPersonPreference }
 
-type AddOptOutResult = MessagePreferenceWriteResultApi | MessagePreferencesApi
-
 const EMPTY_OPT_OUTS: PaginatedOptOutsApi = { count: 0, next: null, previous: null, results: [] }
 
 export type OptOutListLogicProps = {
@@ -62,7 +59,7 @@ export type OptOutListLogicProps = {
 export interface optOutListLogicValues {
     preferencesUrlLoading: boolean // optOutSceneLogic
     currentTeamId: number | null // teamLogic
-    addOptOut: AddOptOutResult | null
+    addOptOut: MessagePreferencesApi | null
     addOptOutLoading: boolean
     csvExport: null
     csvExportLoading: boolean
@@ -100,10 +97,10 @@ export interface optOutListLogicActions {
         errorObject?: any
     }
     addOptOutSuccess: (
-        addOptOut: AddOptOutResult,
+        addOptOut: MessagePreferencesApi,
         payload?: string
     ) => {
-        addOptOut: AddOptOutResult
+        addOptOut: MessagePreferencesApi
         payload?: string
     }
     clearCsvImportResult: () => any
@@ -383,8 +380,8 @@ export const optOutListLogic = kea<optOutListLogicType>([
 
         return {
             addOptOut: {
-                __default: null as AddOptOutResult | null,
-                addOptOut: async (identifier: string): Promise<AddOptOutResult> => {
+                __default: null as MessagePreferencesApi | null,
+                addOptOut: async (identifier: string): Promise<MessagePreferencesApi> => {
                     if (values.currentTeamId === null) {
                         throw new Error('No current project')
                     }
