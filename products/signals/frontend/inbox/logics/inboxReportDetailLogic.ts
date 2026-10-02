@@ -182,6 +182,24 @@ export function openableRunInFlight(reportTasks: ReportTaskEntry[] | null): bool
     })
 }
 
+/**
+ * The newest implementation task that exists but has no run yet, or `null` when none is waiting.
+ *
+ * Such a task holds the implementation slot, but no work has started, so the reader must not see it
+ * as a run in progress. Returns `null` when another implementation task has a run or a PR, because
+ * that task is the one to send the reader to.
+ */
+export function notStartedImplementationTask(reportTasks: ReportTaskEntry[] | null): ReportTaskEntry | null {
+    const implementations = (reportTasks ?? []).filter((entry) => entry.purpose === 'implementation')
+    if (implementations.some((entry) => entry.task.latest_run)) {
+        return null
+    }
+    return (
+        [...implementations].sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())[0] ??
+        null
+    )
+}
+
 // While the report is still being worked, poll linked tasks every 5s. Mirrors desktop.
 const ACTIVE_STATUSES: SignalReportStatus[] = [
     SignalReportStatus.CANDIDATE,
@@ -310,6 +328,7 @@ export interface inboxReportDetailLogicValues {
     isReportActive: boolean
     isUpdatingReviewers: boolean
     latestCommitArtefact: SignalReportArtefact | null
+    notStartedImplementationTask: ReportTaskEntry | null
     optimisticReviewers: EnrichedReviewer[] | null
     postingThreadKey: string | null
     prChecks: readonly PullRequestCheckApi[] | null
@@ -635,6 +654,7 @@ export interface inboxReportDetailLogicMeta {
         implementationSlotClaim: (reportTasks: ReportTaskEntry[] | null) => ImplementationSlotClaim | null
         primaryTask: (reportTasks: ReportTaskEntry[] | null) => ReportTaskEntry | null
         reportTaskToOpen: (reportTasks: ReportTaskEntry[] | null) => ReportTaskEntry | null
+        notStartedImplementationTask: (reportTasks: ReportTaskEntry[] | null) => ReportTaskEntry | null
         selectedTask: (
             reportTasks: ReportTaskEntry[] | null,
             selectedTaskId: string | null,
@@ -1341,6 +1361,11 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                     reportTasks?.find((entry) => entry.purpose === 'implementation' && getTaskPrUrl(entry.task)) ?? null
                 )
             },
+        ],
+        notStartedImplementationTask: [
+            (s) => [s.reportTasks],
+            (reportTasks: ReportTaskEntry[] | null): ReportTaskEntry | null =>
+                notStartedImplementationTask(reportTasks),
         ],
         // The linked task the viewer renders: the explicit selection if it still exists, else `primaryTask`.
         selectedTask: [

@@ -11,7 +11,12 @@ import { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 import { ReportTaskPurpose } from '../components/detail/artefactTypes'
 import { INBOX_EVENTS } from '../inboxAnalytics'
 import { EnrichedReviewer, SignalReport } from '../types'
-import { ReportTaskEntry, implementationSlotClaim, inboxReportDetailLogic } from './inboxReportDetailLogic'
+import {
+    ReportTaskEntry,
+    implementationSlotClaim,
+    inboxReportDetailLogic,
+    notStartedImplementationTask,
+} from './inboxReportDetailLogic'
 
 const REPORT = { id: 'report-1', status: 'ready', title: 'Checkout errors spiked' } as unknown as SignalReport
 
@@ -142,6 +147,28 @@ describe('inboxReportDetailLogic', () => {
             expect(implementationSlotClaim([linkedTask('research', TaskRunStatus.IN_PROGRESS)])).toBeNull()
             expect(implementationSlotClaim([linkedTask('other', TaskRunStatus.IN_PROGRESS)])).toBeNull()
             expect(implementationSlotClaim(null)).toBeNull()
+        })
+    })
+
+    describe('notStartedImplementationTask', () => {
+        it.each([
+            { label: 'a task with no run yet', tasks: [linkedTask('implementation', null)], waiting: true },
+            {
+                label: 'a task with a queued run',
+                tasks: [linkedTask('implementation', TaskRunStatus.QUEUED)],
+                waiting: false,
+            },
+            {
+                label: 'a no-run task beside a task that shipped a PR',
+                tasks: [
+                    linkedTask('implementation', null),
+                    linkedTask('implementation', TaskRunStatus.COMPLETED, 'https://github.com/acme/web/pull/1'),
+                ],
+                waiting: false,
+            },
+            { label: 'a research task with no run', tasks: [linkedTask('research', null)], waiting: false },
+        ])('$label reads as not started: $waiting', ({ tasks, waiting }) => {
+            expect(notStartedImplementationTask(tasks) !== null).toBe(waiting)
         })
     })
 
