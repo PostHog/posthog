@@ -14701,6 +14701,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "self-optimising-workflows"
     }
 }
