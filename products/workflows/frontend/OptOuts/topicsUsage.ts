@@ -11,6 +11,8 @@ type TopicsUsageEvent =
     | 'messaging topic deleted'
     | 'messaging customer.io import completed'
     | 'messaging preferences page opened'
+    | 'messaging opt-outs exported'
+    | 'messaging opt-outs imported'
 
 type TopicsSurface = 'workflows' | 'broadcasts' | 'audience'
 
@@ -26,6 +28,6 @@ function currentTopicsSurface(): TopicsSurface {
 }
 
 /** Captures a topic usage event with the surface (Workflows, Broadcasts or Audience) it happened on. */
-export function captureTopicsUsage(event: TopicsUsageEvent, properties: Record<string, string> = {}): void {
+export function captureTopicsUsage(event: TopicsUsageEvent, properties: Record<string, string | number> = {}): void {
     posthog.capture(event, { ...properties, surface: currentTopicsSurface() })
 }

@@ -13,7 +13,6 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import Papa from 'papaparse'
-import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -36,6 +35,7 @@ import type {
 import { MessageCategory } from './optOutCategoriesLogic'
 import { BULK_OPT_OUT_CHUNK_SIZE, MAX_REPORTED_ERRORS, parseOptOutRows, remapEntryErrors } from './optOutCsvImport'
 import { optOutSceneLogic } from './optOutSceneLogic'
+import { captureTopicsUsage } from './topicsUsage'
 import type { TopicVocabulary } from './topicVocabulary'
 import { topicVocabularyLogic } from './topicVocabularyLogic'
 import type { OptOutPersonPreference } from './types'
@@ -458,8 +458,7 @@ export const optOutListLogic = kea<optOutListLogicType>([
                     try {
                         const blob = await api.messaging.exportOptOutsCsv(props.category?.key)
                         downloadFile(new File([blob], `opt-outs-${props.category?.key ?? 'all-marketing'}.csv`))
-                        // pinned: analytics event name
-                        posthog.capture('messaging opt-outs exported')
+                        captureTopicsUsage('messaging opt-outs exported')
                     } catch {
                         lemonToast.error(values.words.unsubscribedList.exportFailed)
                     }
@@ -536,8 +535,7 @@ export const optOutListLogic = kea<optOutListLogicType>([
                     }
 
                     if (result.opted_out > 0) {
-                        // pinned: analytics event name
-                        posthog.capture('messaging opt-outs imported', { count: result.opted_out })
+                        captureTopicsUsage('messaging opt-outs imported', { count: result.opted_out })
                         lemonToast.success(values.words.unsubscribedList.imported(result.opted_out.toLocaleString()))
                         actions.loadOptOutPersons()
                     } else {
