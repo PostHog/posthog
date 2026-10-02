@@ -488,12 +488,16 @@ function StoryPage({
     tab = 'artifacts',
     fileName,
     versionId,
+    commentsOpen = false,
 }: {
     tab?: TaskRunTab
     fileName?: string
     versionId?: string
+    commentsOpen?: boolean
 }): JSX.Element {
-    const { setActiveTab, selectArtifact, selectVersion } = useActions(taskRunArtifactsLogic({ taskId: TASK_ID }))
+    const { setActiveTab, selectArtifact, selectVersion, setCommentsOpen } = useActions(
+        taskRunArtifactsLogic({ taskId: TASK_ID })
+    )
     useEffect(() => {
         if (fileName) {
             selectArtifact(fileName)
@@ -502,7 +506,8 @@ function StoryPage({
             selectVersion(versionId)
         }
         setActiveTab(tab)
-    }, [tab, fileName, versionId, setActiveTab, selectArtifact, selectVersion])
+        setCommentsOpen(commentsOpen)
+    }, [tab, fileName, versionId, commentsOpen, setActiveTab, selectArtifact, selectVersion, setCommentsOpen])
     return (
         <TodayWebLayout>
             <TaskDetailPage taskId={TASK_ID} isMobile={false} />
@@ -661,4 +666,162 @@ export const LivingArtifact: Story = {
 export const ResumedTask: Story = {
     parameters: { msw: { mocks: taskMocks(ARTIFACTS, { resumed: true }) } },
     render: () => <StoryPage fileName={REPORT_FILE_NAME} />,
+}
+
+const REVIEWER = {
+    id: 2,
+    uuid: 'user-uuid-2',
+    distinct_id: 'user-2',
+    first_name: 'Jamie',
+    last_name: 'Rivera',
+    email: 'jamie@example.com',
+}
+const ANALYST = {
+    id: 3,
+    uuid: 'user-uuid-3',
+    distinct_id: 'user-3',
+    first_name: 'Priya',
+    last_name: 'Shah',
+    email: 'priya@example.com',
+}
+
+function artifactComment(
+    id: string,
+    itemId: string,
+    createdBy: typeof REVIEWER,
+    content: string,
+    createdAt: string,
+    itemContext: Record<string, unknown>,
+    sourceComment: string | null = null
+): Record<string, unknown> {
+    return {
+        id,
+        created_by: createdBy,
+        completed_by: null,
+        slack_thread: null,
+        version: 0,
+        scope: 'task_artifact',
+        item_id: itemId,
+        item_context: { taskId: TASK_ID, ...itemContext },
+        content,
+        created_at: createdAt,
+        completed_at: null,
+        source_comment: sourceComment,
+        deleted: false,
+    }
+}
+
+// The stored offsets are made up, so the highlight has to find its quote by text, as a Desktop comment does.
+const QUOTE = 'The start trial button now sits below the fold'
+const ARTIFACT_COMMENTS = [
+    artifactComment(
+        'comment-quote',
+        'artifact-report',
+        REVIEWER,
+        'Which screen sizes did you check?',
+        '2026-09-28T18:22:00Z',
+        {
+            anchor: { kind: 'text', quote: QUOTE, prefix: '', suffix: '', start: 0, end: QUOTE.length },
+        }
+    ),
+    artifactComment(
+        'comment-quote-reply',
+        'artifact-report',
+        ANALYST,
+        'Every laptop size in the funnel. 1366 × 768 has the most people.',
+        '2026-09-28T18:24:00Z',
+        {},
+        'comment-quote'
+    ),
+    artifactComment(
+        'comment-document',
+        'artifact-report',
+        ANALYST,
+        'Can we share this with the growth team on Monday?',
+        '2026-09-28T18:25:00Z',
+        {
+            anchor: { kind: 'document' },
+        }
+    ),
+    artifactComment(
+        'comment-resolved',
+        'artifact-report',
+        REVIEWER,
+        'Add the week of Sep 7 to the table.',
+        '2026-09-28T18:20:00Z',
+        { anchor: { kind: 'document' } }
+    ),
+    artifactComment(
+        'comment-resolved-state',
+        'artifact-report',
+        ANALYST,
+        'Resolved this thread',
+        '2026-09-28T18:21:00Z',
+        { anchor: { kind: 'document' }, threadState: 'resolved' },
+        'comment-resolved'
+    ),
+    artifactComment(
+        'comment-pin-1',
+        'artifact-chart',
+        REVIEWER,
+        'This bar looks too tall next to the others.',
+        '2026-09-28T18:23:00Z',
+        {
+            anchor: { kind: 'region', x: 0.21, y: 0.2, width: 0.035, height: 0.035 },
+        }
+    ),
+    artifactComment(
+        'comment-pin-2',
+        'artifact-chart',
+        ANALYST,
+        'Label the drop here so people see it at once.',
+        '2026-09-28T18:26:00Z',
+        {
+            anchor: { kind: 'region', x: 0.44, y: 0.56, width: 0.035, height: 0.035 },
+        }
+    ),
+]
+
+function commentMocks(): ReturnType<typeof taskMocks> {
+    const mocks = taskMocks(ARTIFACTS)
+    // New comments are kept for the story's lifetime, so a comment made in the story shows in the list.
+    const comments = [...ARTIFACT_COMMENTS]
+    return {
+        get: {
+            ...mocks.get,
+            '/api/projects/:team_id/comments/': ({ request }: { request: Request }) => {
+                const itemId = new URL(request.url).searchParams.get('item_id')
+                return [200, { results: comments.filter((comment) => comment.item_id === itemId), next: null }]
+            },
+        },
+        post: {
+            ...mocks.post,
+            '/api/projects/:team_id/comments/': async ({ request }: { request: Request }) => {
+                const body = (await request.json()) as Record<string, unknown>
+                const saved = {
+                    ...artifactComment(
+                        `comment-new-${comments.length}`,
+                        String(body.item_id),
+                        REVIEWER,
+                        String(body.content),
+                        '2026-09-28T18:30:00Z',
+                        {}
+                    ),
+                    ...body,
+                }
+                comments.push(saved)
+                return [201, saved]
+            },
+        },
+    }
+}
+
+export const MarkdownComments: Story = {
+    parameters: { msw: { mocks: commentMocks() } },
+    render: () => <StoryPage fileName={REPORT_FILE_NAME} commentsOpen />,
+}
+
+export const ImageCommentPins: Story = {
+    parameters: { msw: { mocks: commentMocks() } },
+    render: () => <StoryPage fileName="trial-starts-by-step.svg" commentsOpen />,
 }

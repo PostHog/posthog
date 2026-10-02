@@ -86,7 +86,9 @@ import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
+import { isCommentableArtifact, regionAnchorAt, supportsSelectionComments } from '../artifactComments'
 import { withStrictCsp } from '../artifactHtml'
+import { TaskArtifactCommentsLogicProps, taskArtifactCommentsLogic } from '../taskArtifactCommentsLogic'
 import {
     ArtifactFile,
     ArtifactPreviewKind,
@@ -102,7 +104,11 @@ import {
     postHogObjectRef,
 } from '../taskRunArtifacts'
 import { artifactDownloadUrl, taskRunArtifactsLogic } from '../taskRunArtifactsLogic'
+import { ArtifactCommentActions } from './ArtifactCommentActions'
+import { ArtifactCommentsPanel } from './ArtifactCommentsPanel'
+import { ArtifactImagePins } from './ArtifactImagePins'
 import { ArtifactImageViewer } from './ArtifactImageViewer'
+import { ArtifactTextAnnotations } from './ArtifactTextAnnotations'
 
 const MAX_CSV_ROWS = 500
 
@@ -111,6 +117,15 @@ const ArtifactObjectEmbed = lazy(() =>
 )
 
 type PreviewMode = 'rendered' | 'source'
+
+/** The comments logic for an artifact version, or null when the artifact takes no comments. */
+function commentLogicProps(
+    taskId: string,
+    artifact: RunArtifact | null,
+    kind: ArtifactPreviewKind | null
+): TaskArtifactCommentsLogicProps | null {
+    return isCommentableArtifact(artifact) && kind ? { taskId, artifactId: artifact.id, kind } : null
+}
 
 function KindIcon({ kind, className }: { kind: ArtifactPreviewKind; className?: string }): JSX.Element {
     const Icon =
@@ -275,6 +290,37 @@ function SourceView({ text }: { text: string }): JSX.Element {
     )
 }
 
+function MarkdownArticle({ text }: { text: string }): JSX.Element {
+    return (
+        <div className="px-6 py-8">
+            <article className="mx-auto max-w-3xl rounded-lg border border-border bg-card px-10 py-8 text-card-foreground">
+                <LemonMarkdown disableImages="all">{text}</LemonMarkdown>
+            </article>
+        </div>
+    )
+}
+
+function CommentableImage({
+    logicProps,
+    src,
+    alt,
+}: {
+    logicProps: TaskArtifactCommentsLogicProps
+    src: string
+    alt: string
+}): JSX.Element {
+    const { pinMode } = useValues(taskArtifactCommentsLogic(logicProps))
+    const { setPendingAnchor } = useActions(taskArtifactCommentsLogic(logicProps))
+    return (
+        <ArtifactImageViewer
+            src={src}
+            alt={alt}
+            overlay={<ArtifactImagePins logicProps={logicProps} />}
+            onPlace={pinMode ? (x, y) => setPendingAnchor(regionAnchorAt(x, y), null) : undefined}
+        />
+    )
+}
+
 function TextLoading(): JSX.Element {
     return (
         <div className="px-6 py-8">
@@ -410,9 +456,17 @@ function ArtifactPreview({ taskId, mode }: { taskId: string; mode: PreviewMode }
     if (!selectedArtifact || !selectedKind) {
         return null
     }
+    const comments = commentLogicProps(taskId, selectedArtifact, selectedKind)
     if (selectedKind === 'image') {
         const src = artifactDownloadUrl(currentProjectId, taskId, selectedArtifact)
-        return src ? <ArtifactImageViewer key={selectedArtifact.id} src={src} alt={selectedArtifact.name} /> : null
+        if (!src) {
+            return null
+        }
+        return comments ? (
+            <CommentableImage key={selectedArtifact.id} logicProps={comments} src={src} alt={selectedArtifact.name} />
+        ) : (
+            <ArtifactImageViewer key={selectedArtifact.id} src={src} alt={selectedArtifact.name} />
+        )
     }
     if (selectedKind === 'reference') {
         return <ReferencePreview taskId={taskId} artifact={selectedArtifact} />
@@ -473,6 +527,18 @@ function ArtifactPreview({ taskId, mode }: { taskId: string; mode: PreviewMode }
             </Empty>
         )
     }
+    // Desktop counts a markdown quote in the rendered page, not in the source, so only the page takes selections.
+    if (comments && supportsSelectionComments(selectedKind) && (mode === 'rendered' || selectedKind === 'text')) {
+        return (
+            <ArtifactTextAnnotations key={selectedArtifact.id} logicProps={comments}>
+                {selectedKind === 'markdown' ? (
+                    <MarkdownArticle text={selectedText.text} />
+                ) : (
+                    <SourceView text={selectedText.text} />
+                )}
+            </ArtifactTextAnnotations>
+        )
+    }
     if (mode === 'source') {
         return <SourceView text={selectedText.text} />
     }
@@ -483,13 +549,7 @@ function ArtifactPreview({ taskId, mode }: { taskId: string; mode: PreviewMode }
         return <CsvPreview text={selectedText.text} />
     }
     if (selectedKind === 'markdown') {
-        return (
-            <div className="px-6 py-8">
-                <article className="mx-auto max-w-3xl rounded-lg border border-border bg-card px-10 py-8 text-card-foreground">
-                    <LemonMarkdown disableImages="all">{selectedText.text}</LemonMarkdown>
-                </article>
-            </div>
-        )
+        return <MarkdownArticle text={selectedText.text} />
     }
     return <SourceView text={selectedText.text} />
 }
@@ -730,6 +790,7 @@ function ArtifactToolbar({
     )
     const { stepArtifact, downloadArtifact, reportObjectOpened } = useActions(taskRunArtifactsLogic({ taskId }))
     const kind = artifactPreviewKind(artifact)
+    const comments = commentLogicProps(taskId, artifact, kind)
     const objectRef = postHogObjectRef(artifact)
     const objectLink =
         objectRef && currentProjectId !== null
@@ -792,6 +853,7 @@ function ArtifactToolbar({
                         </ToggleGroupItem>
                     </ToggleGroup>
                 )}
+                {comments && <ArtifactCommentActions logicProps={comments} />}
                 {isTextPreview(kind) && <CopySourceAction text={selectedText?.text ?? null} />}
                 {/* The file list replaces these once there is room for it. */}
                 <div className="flex items-center gap-1 @[52rem]/main-content:hidden">
@@ -868,6 +930,21 @@ function PreviewSurface({ taskId, mode }: { taskId: string; mode: PreviewMode })
     )
 }
 
+/** The preview, with the comments panel beside it when it is open. */
+function PreviewBody({ taskId, mode }: { taskId: string; mode: PreviewMode }): JSX.Element {
+    const { selectedArtifact, selectedKind, commentsOpen } = useValues(taskRunArtifactsLogic({ taskId }))
+    const comments = commentLogicProps(taskId, selectedArtifact, selectedKind)
+    return (
+        <div className="relative flex min-h-0 flex-1">
+            <div className="flex min-w-0 flex-1 flex-col">
+                <OlderVersionNotice taskId={taskId} />
+                <PreviewSurface taskId={taskId} mode={mode} />
+            </div>
+            {comments && commentsOpen && <ArtifactCommentsPanel key={comments.artifactId} logicProps={comments} />}
+        </div>
+    )
+}
+
 function ArtifactsWorkspace({ taskId }: { taskId: string }): JSX.Element {
     const { files, selectedArtifact } = useValues(taskRunArtifactsLogic({ taskId }))
     const { setActiveTab } = useActions(taskRunArtifactsLogic({ taskId }))
@@ -912,12 +989,7 @@ function ArtifactsWorkspace({ taskId }: { taskId: string }): JSX.Element {
             <ArtifactNav taskId={taskId} />
             <section className="flex min-w-0 flex-1 flex-col">
                 {toolbar}
-                {!expanded && (
-                    <>
-                        <OlderVersionNotice taskId={taskId} />
-                        <PreviewSurface taskId={taskId} mode={mode} />
-                    </>
-                )}
+                {!expanded && <PreviewBody taskId={taskId} mode={mode} />}
             </section>
             <Dialog open={expanded} onOpenChange={setExpanded}>
                 <DialogContent size="full" showCloseButton={false} className="flex h-full flex-col gap-0 p-0">
@@ -925,8 +997,7 @@ function ArtifactsWorkspace({ taskId }: { taskId: string }): JSX.Element {
                     {/* The toolbar hides parts by container width, so the dialog gets its own container. */}
                     <div className="@container/main-content flex min-h-0 flex-1 flex-col">
                         {toolbar}
-                        <OlderVersionNotice taskId={taskId} />
-                        <PreviewSurface taskId={taskId} mode={mode} />
+                        <PreviewBody taskId={taskId} mode={mode} />
                     </div>
                 </DialogContent>
             </Dialog>
