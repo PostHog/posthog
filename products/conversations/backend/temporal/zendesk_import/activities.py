@@ -278,9 +278,11 @@ def _resolve_email_channels(
 
 
 def _partition_new_tickets(team_id: int, ticket_ids: list[int]) -> _TicketPartition:
+    # all_objects so a soft-deleted import still counts as present. Re-inserting it
+    # would hit the zendesk ticket unique constraint, or reopen a deleted thread.
     existing_ids = {
         tid
-        for tid in Ticket.objects.filter(team_id=team_id)
+        for tid in Ticket.all_objects.filter(team_id=team_id)
         .filter(zendesk_ticket_id__in=ticket_ids)
         .values_list("zendesk_ticket_id", flat=True)
         if tid is not None

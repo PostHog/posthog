@@ -21,7 +21,7 @@ import { userLogic } from 'scenes/userLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, AvailableFeature, Breadcrumb } from '~/types'
 
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
@@ -41,6 +41,7 @@ import { RelatedGroupsPanel } from './RelatedGroupsPanel'
 import { SessionRecordingPanel } from './SessionRecordingPanel'
 import { StaffActionsPanel } from './StaffActionsPanel'
 import { supportTicketSceneLogic } from './supportTicketSceneLogic'
+import { SupportTicketSceneMenuBar } from './SupportTicketSceneMenuBar'
 import { useDiscussionTimelineExtras } from './ThreadDiscussions'
 import { reportTimelineExtras } from './ThreadReports'
 import { TicketActivityPanel } from './TicketActivityPanel'
@@ -100,6 +101,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         hasUnsavedChanges,
         unsavedTicketChanges,
         ticketUpdating,
+        ticketDeleting,
         draftContent,
         draftIsPrivate,
         draftModeEnabled,
@@ -138,12 +140,13 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         startEditingMessage,
         cancelEditingMessage,
         deleteMessage,
+        deleteTicket,
         loadFullEmail,
         closeFullEmail,
         applyAiDraft,
     } = useActions(logic)
 
-    const { user } = useValues(userLogic)
+    const { user, hasAvailableFeature } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
     const aiSuggestionsEnabled = !!currentTeam?.conversations_settings?.ai_suggestions_enabled
 
@@ -169,6 +172,14 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                   </>
               ),
           }[emailReplyBlockedReason]
+        : undefined
+
+    const deleteDisabledReason = hasAvailableFeature(AvailableFeature.ACCESS_CONTROL)
+        ? (getAccessControlDisabledReason(
+              AccessControlResourceType.Ticket,
+              AccessControlLevel.Manager,
+              ticket?.user_access_level
+          ) ?? undefined)
         : undefined
 
     const canEditTicket = accessLevelSatisfied(
@@ -232,6 +243,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
 
     return (
         <SceneContent className="flex-1 min-h-0 pb-4">
+            <SupportTicketSceneMenuBar ticketId={ticketId} />
             <SceneTitleSection
                 name={`Ticket: ${ticket?.ticket_number?.toString() || ticket?.id || ''}`}
                 nameSuffix={
@@ -575,7 +587,18 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                 />
                             </div>
                         </div>
-                        <div className="mt-3 pt-3 border-t flex justify-end">
+                        <div className="mt-3 pt-3 border-t flex justify-between gap-2">
+                            <LemonButton
+                                type="secondary"
+                                status="danger"
+                                size="small"
+                                onClick={() => deleteTicket()}
+                                loading={ticketDeleting}
+                                disabledReason={deleteDisabledReason}
+                                data-attr="ticket-delete"
+                            >
+                                Delete ticket
+                            </LemonButton>
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.Ticket}
                                 minAccessLevel={AccessControlLevel.Editor}

@@ -94,6 +94,41 @@ class TestSlackMessageRouting(BaseTest):
         mock_create_or_update.assert_called_once()
         assert mock_create_or_update.call_args.kwargs["is_thread_reply"] is True
 
+    @patch("products.conversations.backend.slack.resolve_posthog_user_for_slack", return_value=None)
+    @patch("products.conversations.backend.slack.resolve_slack_user", return_value={"name": "Ada", "email": None})
+    @patch("products.conversations.backend.slack.extract_slack_files", return_value=[])
+    @patch("products.conversations.backend.slack.get_slack_client")
+    def test_reply_on_deleted_ticket_does_not_open_another(self, _client, _files, _user, _posthog_user) -> None:
+        # A later Slack message on a deleted thread must not create a replacement ticket.
+        from django.utils import timezone
+
+        from products.conversations.backend.slack import create_or_update_slack_ticket
+
+        deleted = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.SLACK,
+            widget_session_id="",
+            distinct_id="",
+            slack_channel_id="C_CONFIG",
+            slack_thread_ts="1700000000.000100",
+        )
+        deleted.deleted_at = timezone.now()
+        deleted.save(update_fields=["deleted_at"])
+
+        result = create_or_update_slack_ticket(
+            team=self.team,
+            slack_channel_id="C_CONFIG",
+            thread_ts="1700000000.000100",
+            slack_user_id="U123",
+            text="Still here",
+            is_thread_reply=True,
+            post_confirmation=False,
+        )
+
+        assert result is None
+        assert Ticket.objects.filter(team=self.team).count() == 0
+        assert Ticket.all_objects.filter(team=self.team, slack_thread_ts="1700000000.000100").count() == 1
+
     @patch("products.conversations.backend.slack.create_or_update_slack_ticket")
     def test_thread_reply_in_non_configured_channel_is_ignored_without_existing_ticket(self, mock_create_or_update):
         handle_support_message(

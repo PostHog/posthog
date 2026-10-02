@@ -885,7 +885,13 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             return
         try:
             ticket = Ticket.objects.get(team_id=self.team_id, id=item_id)
-        except (Ticket.DoesNotExist, ValueError, django_exceptions.ValidationError):
+        except Ticket.DoesNotExist:
+            # The live manager hides soft-deleted tickets. Their comments are still ticket
+            # content, so a detail fetch must not keep serving them.
+            if Ticket.all_objects.filter(team_id=self.team_id, id=item_id, deleted_at__isnull=False).exists():
+                raise exceptions.NotFound()
+            return
+        except (ValueError, django_exceptions.ValidationError):
             return
         if not self.user_access_control.check_access_level_for_object(ticket, required_level="viewer"):
             # Match the list path, where a denied ticket's comments are simply absent.

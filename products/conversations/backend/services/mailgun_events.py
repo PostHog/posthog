@@ -718,6 +718,15 @@ def _process_support_email(
         return
 
     existing_ticket = _find_thread_ticket(team.id, email.in_reply_to, email.references)
+    if existing_ticket is not None and existing_ticket.deleted_at is not None:
+        # Threading headers point at a deleted ticket. A new ticket would split the thread.
+        logger.info(
+            "email_inbound_deleted_ticket",
+            team_id=team.id,
+            ticket_id=str(existing_ticket.id),
+            message_id=email.message_id,
+        )
+        return
     sender_name = email.sender.name
     sender_email = email.sender.email
     cc_list = _collect_participants(
@@ -750,6 +759,15 @@ def _process_support_email(
             if existing_ticket:
                 ticket = Ticket.objects.select_for_update().filter(id=existing_ticket.id, team=team).first()
                 if not ticket:
+                    # Deleted between the lookup and the lock. Do not open a second ticket.
+                    if Ticket.all_objects.filter(id=existing_ticket.id, team=team, deleted_at__isnull=False).exists():
+                        logger.info(
+                            "email_inbound_deleted_ticket",
+                            team_id=team.id,
+                            ticket_id=str(existing_ticket.id),
+                            message_id=email.message_id,
+                        )
+                        return
                     existing_ticket = None
 
             if not ticket:
