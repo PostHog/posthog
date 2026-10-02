@@ -62,13 +62,13 @@ const CrossProjectDashboardsListSchema = () => {
 
 const crossProjectDashboardsList = (): ToolBase<
     ReturnType<typeof CrossProjectDashboardsListSchema>,
-    WithPostHogUrl<Schemas.PaginatedCrossProjectDashboardList>
+    WithPostHogUrl<Schemas.PaginatedCrossProjectDashboardListItemList>
 > => ({
     name: 'cross-project-dashboards-list',
     schema: CrossProjectDashboardsListSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof CrossProjectDashboardsListSchema>>) => {
         const orgId = await context.stateManager.getOrgID()
-        const result = await context.api.request<Schemas.PaginatedCrossProjectDashboardList>({
+        const result = await context.api.request<Schemas.PaginatedCrossProjectDashboardListItemList>({
             method: 'GET',
             path: `/api/organizations/${encodeURIComponent(String(orgId))}/cross_project_dashboards/`,
             query: {

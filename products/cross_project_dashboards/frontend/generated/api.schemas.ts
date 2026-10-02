@@ -7,6 +7,51 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface CrossProjectDashboardCreatorApi {
+    /** Id of the user who created the dashboard. */
+    readonly id: number
+    /** First name of the user who created the dashboard. */
+    readonly first_name: string
+    /** Email of the user who created the dashboard. */
+    readonly email: string
+}
+
+/**
+ * A dashboard in the list. It counts its tiles instead of carrying them; read one dashboard for its tiles.
+ */
+export interface CrossProjectDashboardListItemApi {
+    /** Id of the dashboard. */
+    readonly id: string
+    /** Name shown in the dashboard list and page header. */
+    readonly name: string
+    /** Optional longer description. */
+    readonly description: string
+    /** Dashboard-level filters applied to every tile. Supports a date range, an interval, and property filters that refer to a property by name. Filters carrying a project-specific id are rejected. */
+    readonly filters: unknown
+    /** Tiles from the projects the reader can open. */
+    readonly tile_count: number
+    /** Distinct projects among the tiles the reader can open. */
+    readonly project_count: number
+    /** The user who created the dashboard. */
+    readonly created_by: CrossProjectDashboardCreatorApi | null
+    /** When the dashboard was created. */
+    readonly created_at: string
+    /**
+     * When the dashboard last changed.
+     * @nullable
+     */
+    readonly updated_at: string | null
+}
+
+export interface PaginatedCrossProjectDashboardListItemListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: CrossProjectDashboardListItemApi[]
+}
+
 export interface CrossProjectDashboardTileApi {
     /** Id of the tile. */
     readonly id: string
@@ -24,15 +69,6 @@ export interface CrossProjectDashboardTileApi {
     color?: string | null
     /** Filters applied to this tile only, overriding the dashboard's. Supports a date range and an interval. Filters carrying a project-specific id are rejected. */
     filters_overrides?: unknown
-}
-
-export interface CrossProjectDashboardCreatorApi {
-    /** Id of the user who created the dashboard. */
-    readonly id: number
-    /** First name of the user who created the dashboard. */
-    readonly first_name: string
-    /** Email of the user who created the dashboard. */
-    readonly email: string
 }
 
 /**
@@ -67,15 +103,6 @@ export interface CrossProjectDashboardApi {
      * @nullable
      */
     readonly updated_at: string | null
-}
-
-export interface PaginatedCrossProjectDashboardListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: CrossProjectDashboardApi[]
 }
 
 export interface PaginatedCrossProjectDashboardTileListApi {

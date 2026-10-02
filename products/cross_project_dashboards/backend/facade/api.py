@@ -16,7 +16,7 @@ def validate_cross_project_filters(filters: Any) -> dict[str, Any]:
 
 
 def list_dashboards(*, organization_id: UUID | str, user: User, offset: int, limit: int) -> contracts.DashboardPage:
-    """One page of the organization's dashboards, each with only the tiles from projects the user can open."""
+    """One page of the organization's dashboards. Each counts only the tiles from projects the user can open."""
     return dashboards.list_dashboards(organization_id=organization_id, user=user, offset=offset, limit=limit)
 
 

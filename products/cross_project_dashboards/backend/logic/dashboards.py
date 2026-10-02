@@ -3,7 +3,7 @@
 from uuid import UUID
 
 from django.db import IntegrityError, transaction
-from django.db.models import Prefetch, QuerySet
+from django.db.models import Count, Prefetch, Q, QuerySet
 
 from rest_framework import serializers
 
@@ -30,8 +30,28 @@ def _to_tile(tile: CrossProjectDashboardTile) -> contracts.CrossProjectTile:
     )
 
 
-def _to_dashboard(dashboard: CrossProjectDashboard) -> contracts.CrossProjectDashboard:
+def _creator(dashboard: CrossProjectDashboard) -> contracts.DashboardCreator | None:
     creator = dashboard.created_by
+    if creator is None:
+        return None
+    return contracts.DashboardCreator(id=creator.id, first_name=creator.first_name, email=creator.email)
+
+
+def _to_summary(dashboard: CrossProjectDashboard) -> contracts.CrossProjectDashboardSummary:
+    return contracts.CrossProjectDashboardSummary(
+        id=dashboard.id,
+        name=dashboard.name,
+        description=dashboard.description,
+        filters=dashboard.filters or {},
+        tile_count=dashboard.visible_tile_count,  # type: ignore[attr-defined]
+        project_count=dashboard.visible_project_count,  # type: ignore[attr-defined]
+        created_by=_creator(dashboard),
+        created_at=dashboard.created_at,
+        updated_at=dashboard.updated_at,
+    )
+
+
+def _to_dashboard(dashboard: CrossProjectDashboard) -> contracts.CrossProjectDashboard:
     return contracts.CrossProjectDashboard(
         id=dashboard.id,
         name=dashboard.name,
@@ -39,11 +59,7 @@ def _to_dashboard(dashboard: CrossProjectDashboard) -> contracts.CrossProjectDas
         filters=dashboard.filters or {},
         # Filled by the visible_tiles prefetch, so the reader never sees a tile they cannot open.
         tiles=[_to_tile(tile) for tile in dashboard.visible_tiles],  # type: ignore[attr-defined]
-        created_by=(
-            contracts.DashboardCreator(id=creator.id, first_name=creator.first_name, email=creator.email)
-            if creator
-            else None
-        ),
+        created_by=_creator(dashboard),
         created_at=dashboard.created_at,
         updated_at=dashboard.updated_at,
     )
@@ -86,9 +102,18 @@ def _tile_row(organization_id: UUID | str, dashboard_id: UUID, tile_id: UUID, us
 
 
 def list_dashboards(*, organization_id: UUID | str, user: User, offset: int, limit: int) -> contracts.DashboardPage:
-    dashboards = _dashboards(organization_id, user)
+    visible = Q(tiles__deleted=False, tiles__project_id__in=visible_project_ids(user, organization_id))
+    dashboards = (
+        CrossProjectDashboard.objects.filter(organization_id=organization_id, deleted=False)
+        .select_related("created_by")
+        .annotate(
+            visible_tile_count=Count("tiles", filter=visible),
+            visible_project_count=Count("tiles__project_id", filter=visible, distinct=True),
+        )
+        .order_by("-created_at", "-id")
+    )
     page = dashboards[offset : offset + limit]
-    return contracts.DashboardPage(results=[_to_dashboard(dashboard) for dashboard in page], count=dashboards.count())
+    return contracts.DashboardPage(results=[_to_summary(dashboard) for dashboard in page], count=dashboards.count())
 
 
 def get_dashboard(*, organization_id: UUID | str, dashboard_id: UUID, user: User) -> contracts.CrossProjectDashboard:

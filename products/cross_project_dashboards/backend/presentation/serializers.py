@@ -73,6 +73,26 @@ class CrossProjectDashboardCreatorSerializer(serializers.Serializer):
     email = serializers.EmailField(read_only=True, help_text="Email of the user who created the dashboard.")
 
 
+class CrossProjectDashboardListItemSerializer(serializers.Serializer):
+    """A dashboard in the list. It counts its tiles instead of carrying them; read one dashboard for its tiles."""
+
+    id = serializers.UUIDField(read_only=True, help_text="Id of the dashboard.")
+    name = serializers.CharField(read_only=True, help_text="Name shown in the dashboard list and page header.")
+    description = serializers.CharField(read_only=True, help_text="Optional longer description.")
+    filters = serializers.JSONField(read_only=True, help_text=DASHBOARD_FILTERS_HELP)
+    tile_count = serializers.IntegerField(read_only=True, help_text="Tiles from the projects the reader can open.")
+    project_count = serializers.IntegerField(
+        read_only=True, help_text="Distinct projects among the tiles the reader can open."
+    )
+    created_by = CrossProjectDashboardCreatorSerializer(
+        read_only=True, allow_null=True, help_text="The user who created the dashboard."
+    )
+    created_at = serializers.DateTimeField(read_only=True, help_text="When the dashboard was created.")
+    updated_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When the dashboard last changed."
+    )
+
+
 class CrossProjectDashboardSerializer(serializers.Serializer):
     """Carries tile references only.
 

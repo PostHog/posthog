@@ -48,8 +48,23 @@ class CrossProjectDashboard:
 
 
 @dataclass(frozen=True)
+class CrossProjectDashboardSummary:
+    """A list row. It counts the tiles instead of carrying them, so a page stays small."""
+
+    id: UUID
+    name: str
+    description: str
+    filters: dict[str, Any]
+    tile_count: int
+    project_count: int
+    created_by: DashboardCreator | None
+    created_at: datetime
+    updated_at: datetime | None
+
+
+@dataclass(frozen=True)
 class DashboardPage:
-    results: list[CrossProjectDashboard]
+    results: list[CrossProjectDashboardSummary]
     count: int
 
 

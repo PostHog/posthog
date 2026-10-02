@@ -219,8 +219,11 @@ class TestCrossProjectDashboardTileAPI(APIBaseTest):
             f"/api/organizations/{self.organization.id}/cross_project_dashboards/{self.dashboard.id}/"
         ).json()
 
+        listed = self.client.get(f"/api/organizations/{self.organization.id}/cross_project_dashboards/").json()
+
         assert [tile["id"] for tile in tiles] == [str(visible.id)]
         assert [tile["id"] for tile in dashboard["tiles"]] == [str(visible.id)]
+        assert (listed["results"][0]["tile_count"], listed["results"][0]["project_count"]) == (1, 1)
 
     def test_dashboard_patch_no_longer_writes_tiles(self, _flag):
         insight = self._insight()

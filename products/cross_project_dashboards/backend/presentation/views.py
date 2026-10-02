@@ -18,6 +18,7 @@ from posthog.permissions import PostHogFeatureFlagPermission, get_authenticator_
 
 from ..facade import api, contracts
 from .serializers import (
+    CrossProjectDashboardListItemSerializer,
     CrossProjectDashboardSerializer,
     CrossProjectDashboardTileSerializer,
     CrossProjectDashboardTileUpdateSerializer,
@@ -91,7 +92,7 @@ class CrossProjectDashboardViewSet(TeamAndOrgViewSetMixin, _FacadePageMixin, vie
     def _object_id(self) -> UUID:
         return _uuid(self.kwargs["id"])
 
-    @extend_schema(responses={200: CrossProjectDashboardSerializer(many=True)})
+    @extend_schema(responses={200: CrossProjectDashboardListItemSerializer(many=True)})
     def list(self, request: Request, **kwargs: Any) -> Response:
         page = api.list_dashboards(
             organization_id=self.organization_id,
@@ -99,7 +100,7 @@ class CrossProjectDashboardViewSet(TeamAndOrgViewSetMixin, _FacadePageMixin, vie
             offset=self._offset(request),
             limit=self._limit(request),
         )
-        return self._paginated(request, page, CrossProjectDashboardSerializer(page.results, many=True).data)
+        return self._paginated(request, page, CrossProjectDashboardListItemSerializer(page.results, many=True).data)
 
     @extend_schema(request=CrossProjectDashboardSerializer, responses={201: CrossProjectDashboardSerializer})
     def create(self, request: Request, **kwargs: Any) -> Response:
