@@ -309,7 +309,8 @@ def simulated_email_domains(domains: SimulatedEmailDomains = SIMULATED_EMAIL_DOM
     """Route SES, DNS and Domain Connect calls for the example domains through `domains`.
 
     Lookups for any other name reach the real resolver, so suites running alongside this
-    one in the same process keep working.
+    one in the same process keep working. Their Domain Connect lookups use a fresh cache
+    while this runs, which costs a repeated lookup and nothing else.
     """
     original_resolver_method = dns.resolver.Resolver.resolve
     original_resolve = dns.resolver.resolve

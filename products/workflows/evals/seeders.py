@@ -52,6 +52,8 @@ __all__ = [
     "seed_claimed_domain",
     "seed_domain_connect_support",
     "seed_existing_dmarc",
+    "seed_existing_spf",
+    "seed_helpdesk_mx",
     "seed_member_without_admin",
     "seed_new_sender",
     "seed_shared_domain_sender",
@@ -72,6 +74,7 @@ EXISTING_DMARC_SENDER = f"hello@mail.dmarc-{RUN_LABEL}.example.org"
 EXISTING_DMARC_VALUE = "v=DMARC1; p=quarantine; rua=mailto:dmarc@example.org"
 EXISTING_SPF_SENDER = f"hello@mail.spf-{RUN_LABEL}.example.org"
 EXISTING_SPF_INCLUDE = "include:_spf.google.com"
+HELPDESK_MX_HOST = "mx.helpdesk.example.com"
 MEMBER_SENDER = f"hello@mail.member-{RUN_LABEL}.example.com"
 MAIL_FROM_TAKEN_SENDER = f"hello@mail.helpdesk-{RUN_LABEL}.example.com"
 
@@ -142,6 +145,20 @@ def seed_existing_dmarc(context: CustomPromptSandboxContext) -> dict[str, Any]:
     domain = domain_of(EXISTING_DMARC_SENDER)
     SIMULATED_EMAIL_DOMAINS.publish([DnsRecord(name=f"_dmarc.{domain}", record_type="TXT", value=EXISTING_DMARC_VALUE)])
     return _seeded(context, EXISTING_DMARC_SENDER)
+
+
+def seed_existing_spf(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    domain = domain_of(EXISTING_SPF_SENDER)
+    SIMULATED_EMAIL_DOMAINS.publish(
+        [DnsRecord(name=domain, record_type="TXT", value=f"v=spf1 {EXISTING_SPF_INCLUDE} ~all")]
+    )
+    return _seeded(context, EXISTING_SPF_SENDER)
+
+
+def seed_helpdesk_mx(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    domain = domain_of(MAIL_FROM_TAKEN_SENDER)
+    SIMULATED_EMAIL_DOMAINS.publish([DnsRecord(name=f"feedback.{domain}", record_type="MX", value=HELPDESK_MX_HOST)])
+    return _seeded(context, MAIL_FROM_TAKEN_SENDER)
 
 
 def seed_member_without_admin(context: CustomPromptSandboxContext) -> dict[str, Any]:

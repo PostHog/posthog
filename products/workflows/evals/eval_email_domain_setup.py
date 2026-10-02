@@ -56,6 +56,8 @@ from products.workflows.evals.seeders import (
     seed_claimed_domain,
     seed_domain_connect_support,
     seed_existing_dmarc,
+    seed_existing_spf,
+    seed_helpdesk_mx,
     seed_member_without_admin,
     seed_new_sender,
     seed_shared_domain_sender,
@@ -72,9 +74,7 @@ from products.workflows.evals.simulated_email_domains import (
     verification_token,
 )
 
-GENERIC_CREATE_TOOL = "integrations-create"
 EMAIL_CREATE_TOOL = "integrations-email-create"
-NO_GENERIC_CREATE = {"tools": [GENERIC_CREATE_TOOL]}
 
 WAITS_FOR_DOMAIN_CONNECT_APPROVAL = (
     "A user asked an assistant to set up a sending domain for email. The assistant can only prepare a "
@@ -92,7 +92,8 @@ WAITS_FOR_MANUAL_RECORDS = (
 READY_WITHOUT_DNS_WORK = (
     "A user asked an assistant to set up an email sender on a domain whose DNS records are already in "
     "place and verified. Does the message below tell the user the sender is verified and ready to send, "
-    "without asking them to add or change any DNS records?"
+    "without making sending wait on new DNS records? A reminder to keep the existing SPF records published "
+    "is fine."
 )
 FREE_MAILBOX_EXPLAINED = (
     "A user asked an assistant to set up email sending from an address at a free mailbox provider such "
@@ -167,7 +168,6 @@ def _cases() -> list[SandboxedEvalCase]:
             expected={
                 "senders_in_project": {"senders": {DOMAIN_CONNECT_SENDER: {"name": "Hedgebox"}}},
                 "shared_apply_url": {},
-                "avoided_tool": NO_GENERIC_CREATE,
                 "bounded_verify_polling": {"max_calls": 3},
                 "waits_for_domain_connect_approval": {},
             },
@@ -183,7 +183,6 @@ def _cases() -> list[SandboxedEvalCase]:
                 "senders_in_project": {"senders": {MANUAL_SENDER: {"name": "Hedgebox"}}},
                 "final_message_mentions": {"values": _exact_values(domain_of(MANUAL_SENDER))},
                 "handed_over_records": {"records": _records_reference(ses_records(domain_of(MANUAL_SENDER)))},
-                "avoided_tool": NO_GENERIC_CREATE,
                 "bounded_verify_polling": {"max_calls": 3},
                 "waits_for_manual_records": {},
             },
@@ -194,7 +193,7 @@ def _cases() -> list[SandboxedEvalCase]:
             setup=seed_verified_sender,
             expected={
                 "senders_in_project": {"senders": {VERIFIED_SENDER: {"verified": True}}},
-                "avoided_tool": {"tools": [GENERIC_CREATE_TOOL, EMAIL_CREATE_TOOL]},
+                "avoided_tool": {"tools": [EMAIL_CREATE_TOOL]},
                 "bounded_verify_polling": {"max_calls": 3},
                 "ready_without_dns_work": {},
             },
@@ -217,7 +216,6 @@ def _cases() -> list[SandboxedEvalCase]:
                         },
                     }
                 },
-                "avoided_tool": NO_GENERIC_CREATE,
                 "bounded_verify_polling": {"max_calls": 3},
                 "ready_without_dns_work": {},
             },
@@ -235,7 +233,6 @@ def _cases() -> list[SandboxedEvalCase]:
                 "handed_over_records_keeping_dmarc": {
                     "records": _records_reference(_without_dmarc(domain_of(EXISTING_DMARC_SENDER)))
                 },
-                "avoided_tool": NO_GENERIC_CREATE,
                 "bounded_verify_polling": {"max_calls": 3},
             },
         ),
@@ -246,7 +243,7 @@ def _cases() -> list[SandboxedEvalCase]:
                 f"That domain already has an SPF record, `v=spf1 {EXISTING_SPF_INCLUDE} ~all`, for our "
                 "Google Workspace mail. I'll update DNS myself, so give me the exact records."
             ),
-            setup=seed_new_sender(EXISTING_SPF_SENDER),
+            setup=seed_existing_spf,
             expected={
                 "senders_in_project": {"senders": {EXISTING_SPF_SENDER: {"name": "Hedgebox"}}},
                 "merged_spf_record": {"includes": [EXISTING_SPF_INCLUDE, "include:amazonses.com"]},
@@ -254,7 +251,6 @@ def _cases() -> list[SandboxedEvalCase]:
                 "handed_over_records_merging_spf": {
                     "records": _records_reference(_with_merged_root_spf(domain_of(EXISTING_SPF_SENDER)))
                 },
-                "avoided_tool": NO_GENERIC_CREATE,
                 "bounded_verify_polling": {"max_calls": 3},
             },
         ),
@@ -265,10 +261,9 @@ def _cases() -> list[SandboxedEvalCase]:
                 f"feedback.{domain_of(MAIL_FROM_TAKEN_SENDER)} already has an MX record for our helpdesk "
                 "tool, and that has to keep working."
             ),
-            setup=seed_new_sender(MAIL_FROM_TAKEN_SENDER),
+            setup=seed_helpdesk_mx,
             expected={
                 "senders_in_project": {"senders": {MAIL_FROM_TAKEN_SENDER: {"mail_from_subdomain_not": "feedback"}}},
-                "avoided_tool": NO_GENERIC_CREATE,
                 "bounded_verify_polling": {"max_calls": 3},
             },
         ),
@@ -278,7 +273,6 @@ def _cases() -> list[SandboxedEvalCase]:
             setup=seed_new_sender(FREE_MAILBOX_SENDER),
             expected={
                 "senders_in_project": {"senders": {}},
-                "avoided_tool": NO_GENERIC_CREATE,
                 "free_mailbox_explained": {},
             },
         ),
@@ -288,7 +282,6 @@ def _cases() -> list[SandboxedEvalCase]:
             setup=seed_claimed_domain,
             expected={
                 "senders_in_project": {"senders": {}},
-                "avoided_tool": NO_GENERIC_CREATE,
                 "claimed_domain_explained": {},
             },
         ),
@@ -297,7 +290,7 @@ def _cases() -> list[SandboxedEvalCase]:
             prompt=f"Set up {MEMBER_SENDER} as our Workflows email sender, display name Hedgebox.",
             setup=seed_member_without_admin,
             expected={
-                "avoided_tool": NO_GENERIC_CREATE,
+                "senders_in_project": {"senders": {MEMBER_SENDER: {"name": "Hedgebox"}}},
                 "bounded_verify_polling": {"max_calls": 2},
                 "admin_needed_explained": {},
             },
