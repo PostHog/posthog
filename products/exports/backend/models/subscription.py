@@ -221,11 +221,6 @@ class Subscription(ModelActivityMixin, models.Model):
     # permanently invalid (e.g. Slack integration disconnected).
     enabled = models.BooleanField(default=True)
 
-    # When a requester last passed the table-access check for what this subscription delivers and
-    # who receives it. Null when no requester has passed that check, and always null for AI prompt
-    # subscriptions, which the check does not cover.
-    query_access_verified_at = models.DateTimeField(null=True, blank=True)
-
     summary_enabled = models.BooleanField(default=False)
     summary_prompt_guide = models.CharField(max_length=500, blank=True, default="")
     delivery_config = models.JSONField(default=dict)
