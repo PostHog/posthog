@@ -1475,15 +1475,24 @@ class TestPollFailureLiveness:
         consumer = BatchConsumer(config=config, process_batch=AsyncMock())
 
         succeeded = asyncio.Event()
+        refailed = asyncio.Event()
         fetch_calls = 0
+        jitter_windows: list[float] = []
 
         async def fetch(*args: Any, **kwargs: Any) -> list[PendingBatch]:
             nonlocal fetch_calls
             fetch_calls += 1
-            if fetch_calls <= 2:
+            if fetch_calls in (1, 2, 4):
                 await asyncio.sleep(3600)  # times out
-            succeeded.set()
+            if fetch_calls == 3:
+                succeeded.set()
+            if fetch_calls >= 5:
+                refailed.set()
             return []
+
+        def record_window(low: float, high: float) -> float:
+            jitter_windows.append(high)
+            return low
 
         with (
             patch.object(
@@ -1503,12 +1512,17 @@ class TestPollFailureLiveness:
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.release_all_owned_leases",
                 new_callable=AsyncMock,
             ),
+            patch(f"{batch_consumer_module.__name__}.random.uniform", side_effect=record_window),
         ):
             run_task = asyncio.create_task(consumer.run())
             await asyncio.wait_for(succeeded.wait(), timeout=2.0)
             assert consumer._consecutive_poll_failures == 0
+            await asyncio.wait_for(refailed.wait(), timeout=2.0)
             consumer._shutdown.set()
             await asyncio.wait_for(run_task, timeout=5.0)
+
+        # The failure after the successful poll starts the backoff over at one interval.
+        assert jitter_windows == [0.01, 0.02, 0.01]
 
 
 class TestStatementTimeoutBackstop:
@@ -1545,35 +1559,36 @@ class TestStatementTimeoutBackstop:
 
 
 class TestPollBackoff:
-    def test_delay_grows_exponentially_and_caps(self):
-        # Losing the backoff means lockstep fleet retries; losing the cap means
-        # unbounded delays.
-        consumer = _make_consumer(poll_interval_seconds=2.0)
-        with patch(
-            "products.warehouse_sources_queue.backend.core.batch_consumer.random.uniform",
-            return_value=0.0,
-        ):
-            consumer._consecutive_poll_failures = 1
-            assert consumer._poll_retry_delay() == 2.0
-            consumer._consecutive_poll_failures = 2
-            assert consumer._poll_retry_delay() == 4.0
-            consumer._consecutive_poll_failures = 3
-            assert consumer._poll_retry_delay() == 8.0
-            consumer._consecutive_poll_failures = 20  # far past the cap
-            assert consumer._poll_retry_delay() == 30.0  # POLL_BACKOFF_MAX_SECONDS
+    @pytest.mark.parametrize(
+        "failures,window",
+        [
+            (0, 2.0),  # defensive: a delay asked for before any failure uses the first step
+            (1, 2.0),
+            (2, 4.0),
+            (3, 8.0),
+            (5, 32.0),
+            (6, 60.0),  # POLL_BACKOFF_MAX_SECONDS
+            (20, 60.0),
             # A prolonged outage grows the count without bound; 2 ** (failures - 1) used
             # to overflow float here and crash the consumer instead of returning the cap.
-            consumer._consecutive_poll_failures = 5000
-            assert consumer._poll_retry_delay() == 30.0
-
-    def test_jitter_is_added_within_one_interval(self):
+            (5000, 60.0),
+        ],
+    )
+    @pytest.mark.parametrize("draw", ["low", "high"])
+    def test_delay_is_the_interval_plus_full_jitter_over_a_doubling_capped_window(self, failures, window, draw):
+        # Losing the doubling or the full jitter puts the fleet's retries back in
+        # lockstep; losing the cap means unbounded delays; losing the floor lets a
+        # failing pod poll faster than a healthy one.
         consumer = _make_consumer(poll_interval_seconds=2.0)
-        consumer._consecutive_poll_failures = 1
+        consumer._consecutive_poll_failures = failures
         with patch(
-            "products.warehouse_sources_queue.backend.core.batch_consumer.random.uniform",
-            return_value=1.5,
-        ):
-            assert consumer._poll_retry_delay() == 3.5  # 2.0 backoff + 1.5 jitter
+            f"{batch_consumer_module.__name__}.random.uniform",
+            side_effect=lambda low, high: low if draw == "low" else high,
+        ) as mock_uniform:
+            delay = consumer._poll_retry_delay()
+
+        mock_uniform.assert_called_once_with(0, window)
+        assert delay == (2.0 if draw == "low" else 2.0 + window)
 
 
 class TestFailRun:
