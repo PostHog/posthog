@@ -1464,6 +1464,13 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                       )
                                                                                       // Recent picks carry no filters, so fetch the full flag for the variant picker.
                                                                                       if (!flag.filters) {
+                                                                                          // Drop the result if the user picked another flag meanwhile.
+                                                                                          const isStillSelected =
+                                                                                              (): boolean =>
+                                                                                                  mountedSurveyLogic
+                                                                                                      .values.survey
+                                                                                                      .linked_flag_id ===
+                                                                                                  id
                                                                                           featureFlagsRetrieve(
                                                                                               String(
                                                                                                   ApiConfig.getCurrentProjectId()
@@ -1471,12 +1478,8 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                               id
                                                                                           )
                                                                                               .then((fullFlag) => {
-                                                                                                  // Drop the response if the user picked another flag meanwhile.
                                                                                                   if (
-                                                                                                      mountedSurveyLogic
-                                                                                                          .values.survey
-                                                                                                          .linked_flag_id ===
-                                                                                                      id
+                                                                                                      isStillSelected()
                                                                                                   ) {
                                                                                                       setSurveyValue(
                                                                                                           'linked_flag',
@@ -1485,9 +1488,13 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                                   }
                                                                                               })
                                                                                               .catch(() => {
-                                                                                                  lemonToast.error(
-                                                                                                      "Couldn't load this flag's variants. Select the flag again to retry."
-                                                                                                  )
+                                                                                                  if (
+                                                                                                      isStillSelected()
+                                                                                                  ) {
+                                                                                                      lemonToast.error(
+                                                                                                          "Couldn't load this flag's variants. Select the flag again to retry."
+                                                                                                      )
+                                                                                                  }
                                                                                               })
                                                                                       }
                                                                                       // Reset variant selection when flag changes
