@@ -26,7 +26,8 @@ import structlog
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
-from products.alerts.backend.facade.contracts import (
+from products.alerts_platform.backend.facade.api import due_checks, slot_of
+from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertEventKind,
     MuteReason,
@@ -36,7 +37,7 @@ from products.alerts.backend.facade.contracts import (
     SourceBatchEvaluation,
     SourceKind,
 )
-from products.alerts.backend.facade.lifecycle import (
+from products.alerts_platform.backend.facade.lifecycle import (
     PLATFORM_LOGS_ALERT_POLICY,
     AlertCheckOutcome,
     AlertSnapshot,
@@ -49,8 +50,7 @@ from products.alerts.backend.facade.lifecycle import (
     decide_firing_episode,
     evaluate_alert_check,
 )
-from products.alerts.backend.facade.platform_alerts import due_checks, slot_of
-from products.alerts.backend.facade.platform_metrics import (
+from products.alerts_platform.backend.facade.platform_metrics import (
     increment_checks,
     increment_checks_skipped,
     increment_deliveries_deferred,
@@ -60,7 +60,7 @@ from products.alerts.backend.facade.platform_metrics import (
     record_scheduler_lag,
     safe_record,
 )
-from products.alerts.backend.facade.scheduling import is_utc_datetime_blocked, parse_blocked_windows_tuples
+from products.alerts_platform.backend.facade.scheduling import is_utc_datetime_blocked, parse_blocked_windows_tuples
 from products.logs.backend.alert_check_query import (
     BatchedAlertCheckQuery,
     BucketedCount,
