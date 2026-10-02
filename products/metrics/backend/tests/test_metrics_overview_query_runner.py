@@ -8,6 +8,8 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.clickhouse.client import sync_execute
+
 from products.metrics.backend import metrics_overview_query_runner
 from products.metrics.backend.metrics_overview_query_runner import MetricsOverviewQueryRunner
 from products.metrics.backend.tests._seeder import seed_metric, seed_metric_event, truncate_metrics_tables
@@ -64,6 +66,29 @@ class TestMetricsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(api_row.metric_names, 2)
         self.assertEqual(api_row.series, 3)
         self.assertEqual(dt.datetime.fromisoformat(api_row.last_seen), anchor)
+
+    def test_services_query_reads_the_hourly_projection(self):
+        anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
+        seed_metric(team_id=self.team.id, metric_name="http.duration", points=[(anchor, 1.0)], service_name="api")
+
+        MetricsOverviewQueryRunner(team=self.team).run()
+
+        sync_execute("SYSTEM FLUSH LOGS")
+        rows = sync_execute(
+            """
+            SELECT projections
+            FROM system.query_log
+            WHERE type = 'QueryFinish'
+              AND event_time > now() - INTERVAL 10 MINUTE
+              AND JSONExtractString(log_comment, 'query_type') = 'MetricsOverviewServicesQuery'
+              AND JSONExtractInt(log_comment, 'team_id') = %(team_id)s
+            ORDER BY event_time_microseconds DESC
+            LIMIT 1
+            """,
+            {"team_id": self.team.id},
+        )
+        self.assertEqual(len(rows), 1)
+        self.assertTrue(any(name.endswith(".services_by_hour") for name in rows[0][0]), rows[0][0])
 
     def test_quiet_project_keeps_overall_last_seen_but_lists_no_services(self):
         stale = timezone.now().replace(microsecond=0) - dt.timedelta(days=3)
