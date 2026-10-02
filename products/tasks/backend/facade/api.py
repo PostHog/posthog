@@ -48,6 +48,7 @@ from django.utils.http import content_disposition_header
 import posthoganalytics
 
 from posthog.api.tagged_item import cleanup_orphan_tags, set_tags_on_object
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.ingress.contracts import WebhookDelivery
@@ -2870,6 +2871,7 @@ def task_accessible_for_run_view(
     bypass_visibility: bool = False,
     for_control: bool = False,
     sandbox_task_id: UUID | None = None,
+    sandbox_request: bool = False,
 ) -> bool:
     """Whether the parent task exists and (unless bypassed) is visible to the user.
 
@@ -2893,13 +2895,25 @@ def task_accessible_for_run_view(
     there is nobody the widened read is for. See ``PRIVATE_CONVERSATION_TYPES``.
     """
     trial_visibility = scout_trial_visibility_q(user_id)
-    if sandbox_task_id is not None:
-        trial_visibility |= Q(id=sandbox_task_id)
-    task_filter = Task.objects.filter(id=task_id, team_id=team_id, deleted=False).filter(trial_visibility)
+    if sandbox_request or sandbox_task_id is not None:
+        trial_visibility = ~Task.scout_experiment_q() | Q(id=sandbox_task_id)
+    visibility = trial_visibility & Q(deleted=False)
     if not bypass_visibility:
         scope_q = task_control_q(user_id) if for_control else task_visibility_q(user_id) | _shared_slack_thread_q()
-        task_filter = task_filter.filter(scope_q)
-    return task_filter.exists()
+        visibility &= scope_q
+    # Classify the same row used for authorization, including denied reads whose errors stay private.
+    task = (
+        Task.objects.filter(id=task_id, team_id=team_id)
+        .annotate(
+            is_trial=Case(When(Task.scout_experiment_q(), then=Value(True)), default=Value(False)),
+            accessible=Exists(Task.objects.filter(id=OuterRef("pk"), team_id=team_id).filter(visibility)),
+        )
+        .values("is_trial", "accessible")
+        .first()
+    )
+    if task is not None and task["is_trial"]:
+        tag_queries(is_scout_experiment=True)
+    return task is not None and bool(task["accessible"])
 
 
 def list_task_runs(
@@ -6429,14 +6443,10 @@ def task_visible(task_id: str | UUID, team_id: int, user_id: int | None, *, for_
     return _visible_task_qs(team_id, user_id, for_control=for_control).filter(id=task_id).exists()
 
 
-def scout_trial_task_ids(
-    team_id: int, *, visible_task_id: UUID | None = None, visible_user_id: int | None = None
-) -> Iterable[UUID]:
+def scout_trial_task_ids(team_id: int, *, visible_task_id: UUID | None = None) -> Iterable[UUID]:
     tasks = Task.objects.filter(Task.scout_experiment_q(), team_id=team_id)
     if visible_task_id is not None:
         tasks = tasks.exclude(id=visible_task_id)
-    if visible_user_id is not None:
-        tasks = tasks.exclude(created_by_id=visible_user_id)
     return tasks.values_list("id", flat=True)
 
 

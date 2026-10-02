@@ -79,7 +79,7 @@ describe('RequestContext', () => {
         { impersonated: true, apiToken: 'phx_test', suppressed: true },
         { impersonated: false, apiToken: 'phx_test', suppressed: false },
         { impersonated: undefined, apiToken: 'phx_test', suppressed: false },
-        { impersonated: undefined, apiToken: 'pha_test', suppressed: true },
+        { impersonated: undefined, apiToken: 'pha_test', suppressed: false },
     ])(
         'passes trusted capture policy=$suppressed to captured events',
         async ({ impersonated, apiToken, suppressed }) => {

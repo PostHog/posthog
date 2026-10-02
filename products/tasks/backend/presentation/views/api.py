@@ -550,6 +550,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ).exclude(id__in=_hidden_scout_trial_task_ids(request, self.team_id))
         page = self.paginate_queryset(tasks)
         assert page is not None, "TaskViewSet list requires an active paginator"
+        if any(task.is_scout_experiment for task in page):
+            tag_queries(is_scout_experiment=True)
         # Description bodies dominate the list payload. A summary surface asks for basic=true
         # and gets the smaller rows without them.
         basic = getattr(request, "validated_query_data", {}).get("basic", False)
@@ -1680,7 +1682,8 @@ def _sandbox_bound_task_id(request) -> UUID | None:
 def _hidden_scout_trial_task_ids(request: Request, team_id: int) -> Iterable[UUID]:
     if is_sandbox_oauth_request(request):
         return tasks_facade.scout_trial_task_ids(team_id, visible_task_id=_sandbox_bound_task_id(request))
-    return tasks_facade.scout_trial_task_ids(team_id, visible_user_id=request.user.pk)
+    # Ordinary reads already apply creator-only trial visibility in the facade.
+    return ()
 
 
 def _ensure_scout_trial_visible(request: Request, team_id: int, task_id: str) -> None:
@@ -1728,10 +1731,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # Fallback for drf-spectacular introspection only; every action declares its own
     # request/response schema via @validated_request / @extend_schema.
     serializer_class = TaskRunDetailSerializer
+    _authorized_task_id: str | None = None
 
     def initial(self, request: Request, *args: object, **kwargs: object) -> None:
         super().initial(request, *args, **kwargs)
-        _ensure_scout_trial_visible(request, self.team_id, self._task_id())
+        self._authorized_task_id = self._ensure_task_accessible()
 
     @staticmethod
     def _is_trial_lifecycle_update(payload: object) -> bool:
@@ -1807,6 +1811,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # teammates watch a run, never command it. connection_token is a GET but
     # mints a write-capable token, so it is deliberately absent.
     _READ_ONLY_ACTIONS = (
+        "metadata",
         "list",
         "retrieve",
         "logs",
@@ -1843,6 +1848,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def _ensure_task_accessible(self) -> str:
         """Gate access to the parent task, including exact task-bound sandbox access."""
+        if self._authorized_task_id is not None:
+            return self._authorized_task_id
         task_id = self._task_id()
         is_read_only = self.action in self._READ_ONLY_ACTIONS
         is_visibility_only = self.action in self._VISIBILITY_ONLY_ACTIONS
@@ -1856,6 +1863,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             bypass_visibility=bypass_visibility,
             for_control=not (is_read_only or is_visibility_only),
             sandbox_task_id=_sandbox_bound_task_id(self.request),
+            sandbox_request=is_sandbox_oauth_request(self.request),
         ):
             raise NotFound("Task not found")
         run_id = self.kwargs.get("pk")
@@ -3851,6 +3859,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if is_sandbox_origin_request(request):
             return _agent_run_disabled_response()
         task_id = self._ensure_task_accessible()
+        _reject_scout_trial_run_creation(task_id, self.team_id)
         if tasks_facade.get_task_run_detail(pk, task_id, self.team_id) is None:
             raise NotFound()
         if tasks_facade.get_task_run_source(pk, task_id, self.team_id) == RunSource.AGENT and not _agent_run_enabled(
@@ -4286,10 +4295,11 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
     # Fallback for drf-spectacular introspection only; every action declares its own
     # request/response schema via @validated_request.
     serializer_class = TaskRunLivingArtifactResponseSerializer
+    _authorized_task_id: str | None = None
 
     def initial(self, request: Request, *args: object, **kwargs: object) -> None:
         super().initial(request, *args, **kwargs)
-        _ensure_scout_trial_visible(request, self.team_id, self._task_id())
+        self._authorized_task_id = self._ensure_task_accessible()
 
     def _task_id(self) -> str:
         task_id = self.kwargs.get("parent_lookup_task_id")
@@ -4313,8 +4323,10 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
 
     def _ensure_task_accessible(self) -> str:
         """Gate access to the parent task, mirroring ``TaskRunViewSet._ensure_task_accessible``."""
+        if self._authorized_task_id is not None:
+            return self._authorized_task_id
         task_id = self._task_id()
-        is_read = self.action in ("list", "retrieve", "version_content")
+        is_read = self.action in ("metadata", "list", "retrieve", "version_content")
         bypass_visibility = is_read and _can_bypass_visibility(self.request, self.team_id)
         if not tasks_facade.task_accessible_for_run_view(
             task_id,
@@ -4323,6 +4335,7 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             bypass_visibility=bypass_visibility,
             for_control=not is_read,
             sandbox_task_id=_sandbox_bound_task_id(self.request),
+            sandbox_request=is_sandbox_oauth_request(self.request),
         ):
             raise NotFound("Task not found")
         if not is_read and not tasks_facade.task_run_matches_current_ownership(self._run_id(), task_id, self.team_id):

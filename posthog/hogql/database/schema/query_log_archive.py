@@ -299,6 +299,9 @@ class RawQueryLogArchiveTable(Table):
         return "query_log_archive"
 
     def to_printed_clickhouse_table_ref(self, context: "HogQLContext", use_logical_alias: bool = True) -> str:
+        if context.team_id != 2:
+            return self.to_printed_clickhouse(context)
+        # Retained trial queries stay private even after new trials are disabled.
         # Keep private activity in operator logs without exposing the raw log metadata through HogQL.
         # Archive fields are ALIAS columns, so the nested * must include them.
         table = (

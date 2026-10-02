@@ -1219,6 +1219,7 @@ tools:
     scout-trial-create:
         operation: signals_scout_config_trial
         enabled: true
+        feature_flag: scout-trials
         scopes:
             - signal_scout:write
             - llm_skill:write
@@ -1236,6 +1237,7 @@ tools:
     scout-trial-get:
         operation: signals_scout_config_trial_result
         enabled: true
+        feature_flag: scout-trials
         scopes:
             - signal_scout:write
             - llm_skill:write

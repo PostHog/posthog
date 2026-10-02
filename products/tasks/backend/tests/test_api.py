@@ -413,16 +413,22 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
                 search_text="saved scout result",
             )
 
-    @parameterized.expand([("run", "cloud"), ("warm", "cloud"), ("runs", "local"), ("runs", "cloud")])
+    @parameterized.expand(
+        [("run", "cloud"), ("warm", "cloud"), ("runs", "local"), ("runs", "cloud"), ("resume_in_cloud", "cloud")]
+    )
     def test_operator_cannot_start_ordinary_runs_for_a_trial_task(self, action: str, environment: str) -> None:
         task, run = self.trial_tasks[0], self.trial_runs[0]
+        run.status = TaskRun.Status.COMPLETED
+        run.save(update_fields=["status"])
         payload = {"resume_from_run_id": str(run.id)} if action == "warm" else {"environment": environment}
+        path = f"runs/{run.id}/resume_in_cloud" if action == "resume_in_cloud" else action
         with (
             patch.object(tasks_facade, "run_task") as start,
             patch.object(tasks_facade, "warm_task_resume_sandbox") as warm,
             patch.object(tasks_facade, "bootstrap_task_run") as bootstrap,
+            patch.object(tasks_facade, "resume_task_run_in_cloud") as resume,
         ):
-            response = self.client.post(f"/api/projects/@current/tasks/{task.id}/{action}/", payload, format="json")
+            response = self.client.post(f"/api/projects/@current/tasks/{task.id}/{path}/", payload, format="json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["detail"] == (
@@ -431,6 +437,9 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
         start.assert_not_called()
         warm.assert_not_called()
         bootstrap.assert_not_called()
+        resume.assert_not_called()
+        run.refresh_from_db()
+        assert run.status == TaskRun.Status.COMPLETED
         assert list(task.runs.values_list("id", flat=True)) == [run.id]
 
     def _trial_log_client(
@@ -739,11 +748,24 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
         for client in (agent, self.client):
             response = client.get(base)
             assert response.status_code == status.HTTP_200_OK
+            assert response["X-PostHog-Suppress-Analytics"] == "true"
             assert "scout_trial" not in response.json()["state"]
             assert "scout_trial_private" not in response.json()["state"]
             with patch.object(tasks_facade, "read_task_run_logs", return_value=""):
                 assert client.get(f"{base}logs/").status_code == status.HTTP_200_OK
                 assert client.get(f"{base}session_logs/").status_code == status.HTTP_200_OK
+
+    def test_list_capture_policy_only_marks_pages_containing_trial_tasks(self) -> None:
+        base = "/api/projects/@current/tasks/"
+        mixed = self.client.get(base)
+        assert mixed.status_code == status.HTTP_200_OK
+        assert any(row["id"] == str(self.trial_tasks[0].id) for row in mixed.json()["results"])
+        assert mixed["X-PostHog-Suppress-Analytics"] == "true"
+
+        ordinary = self.client.get(base, {"origin_product": Task.OriginProduct.USER_CREATED})
+        assert ordinary.status_code == status.HTTP_200_OK
+        assert ordinary.json()["results"]
+        assert "X-PostHog-Suppress-Analytics" not in ordinary
 
     @parameterized.expand([("ordinary", False, False), ("private", True, False), ("sibling", True, True)])
     def test_log_read_exception_capture_uses_verified_task(self, _name: str, is_trial: bool, sandbox: bool) -> None:
@@ -782,6 +804,7 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
                     status.HTTP_404_NOT_FOUND if sandbox else status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
                 assert read.call_count == (0 if sandbox else 1)
+                assert (response.get("X-PostHog-Suppress-Analytics") == "true") == is_trial
                 assert len(captures) == 1
                 assert (captures[0] is None) == is_trial
                 assert get_query_tags().is_scout_experiment is not True
@@ -790,6 +813,24 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
 
 
 class TestTaskCreatorScoping(BaseTaskAPITest):
+    @parameterized.expand([("runs",), ("living_artifacts",)])
+    def test_readable_task_run_metadata_does_not_require_control(self, endpoint: str) -> None:
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.create_organization_user("experiment-owner"),
+            title="Experiment follow-up",
+            description="Review experiment results",
+            origin_product=Task.OriginProduct.EXPERIMENTS,
+        )
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+        path = f"/api/projects/@current/tasks/{task.id}/runs/"
+        if endpoint == "living_artifacts":
+            path += f"{run.id}/living_artifacts/"
+
+        response = self.client.options(path)
+
+        assert response.status_code == status.HTTP_200_OK
+
     def _create_legacy_task(self, title: str = "Legacy") -> Task:
         return Task.objects.create(
             team=self.team,

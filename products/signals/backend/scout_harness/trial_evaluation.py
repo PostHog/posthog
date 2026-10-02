@@ -170,6 +170,37 @@ def read_trial_evaluation(team_id: int, evaluation_id: UUID) -> TrialEvaluationS
     return snapshot
 
 
+def _save_trial_judge_inputs(snapshot: TrialEvaluationSnapshot) -> None:
+    # Project only from the committed snapshot so concurrent preparation cannot freeze different evidence.
+    for evidence in snapshot.runs:
+        judge_input = snapshot.model_copy(update={"runs": [evidence]})
+        saved = _write_once(
+            _key(snapshot.team_id, snapshot.evaluation_id, f"judge-inputs/{evidence.launch_id}"), judge_input
+        )
+        if saved != judge_input:
+            raise TrialEvaluationError("The saved judge input does not match this evaluation.")
+
+
+def _read_trial_judge_input(team_id: int, evaluation_id: UUID, launch_id: UUID) -> TrialEvaluationSnapshot | None:
+    snapshot = _read_document(_key(team_id, evaluation_id, f"judge-inputs/{launch_id}"), TrialEvaluationSnapshot)
+    if snapshot is None:
+        # Evaluations saved before per-run inputs remain resumable from their frozen snapshot.
+        return read_trial_evaluation(team_id, evaluation_id)
+    if (
+        snapshot.team_id != team_id
+        or snapshot.evaluation_id != evaluation_id
+        or snapshot.request.evaluation_id != evaluation_id
+        or len(snapshot.runs) != 1
+        or snapshot.runs[0].launch_id != launch_id
+        or not any(
+            variant.id == snapshot.runs[0].variant_id and launch_id in variant.launch_ids
+            for variant in snapshot.request.variants
+        )
+    ):
+        raise TrialEvaluationError("The saved judge input does not match this trial.")
+    return snapshot
+
+
 def _assert_context_access(
     context: TrialContext | TrialComparisonHistoryEntry | TrialComparisonPlan, *, config: SignalScoutConfig, user: User
 ) -> None:
@@ -492,6 +523,7 @@ def prepare_trial_evaluation(
         assert_evaluation_access(existing, config=config, user=user)
         if existing.request_hash != request_hash:
             raise TrialEvaluationError("This evaluation ID was already used for a different request.")
+        _save_trial_judge_inputs(existing)
         return existing
     if request.rubric_source != "saved":
         raise TrialEvaluationError(
@@ -590,6 +622,7 @@ def prepare_trial_evaluation(
     stored = _write_once(_key(config.team_id, request.evaluation_id, "snapshot"), snapshot)
     if stored.request_hash != request_hash:
         raise TrialEvaluationError("This evaluation ID was already used for a different request.")
+    _save_trial_judge_inputs(stored)
     return stored
 
 
@@ -644,7 +677,7 @@ async def run_evaluation_run(team_id: int, evaluation_id: UUID, launch_id: UUID)
     )
 
     with private_capture_context():
-        snapshot = await asyncio.to_thread(read_trial_evaluation, team_id, evaluation_id)
+        snapshot = await asyncio.to_thread(_read_trial_judge_input, team_id, evaluation_id, launch_id)
         if snapshot is None:
             raise TrialEvaluationError("The saved evaluation was not found.")
         evidence = next((run for run in snapshot.runs if run.launch_id == launch_id), None)

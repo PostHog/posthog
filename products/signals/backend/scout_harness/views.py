@@ -46,6 +46,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.clickhouse.query_tagging import tag_queries
 
 # PostHog's `SessionAuthentication` (not DRF's) calls `enforce_two_factor()`.
 # Authenticators are tried in order and a browser-session request authenticates on
@@ -643,6 +644,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 .first()
             )
         if target is not None:
+            tag_queries(is_scout_experiment=True)
             bound = _sandbox_bound_task_id(request)
             if (bound is not None and bound != target.task_run.task_id) or (
                 bound is None and target.task_run.task.created_by_id != request.user.pk

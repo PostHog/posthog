@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ApiClient } from '@/api/client'
 import { MemoryCache } from '@/lib/cache/MemoryCache'
 import { PostHogApiError } from '@/lib/errors'
+import { getPostHogClient } from '@/lib/posthog'
 import { StateManager } from '@/lib/StateManager'
 import type { ApiRedactedPersonalApiKey, ApiUser } from '@/schema/api'
 import type { State } from '@/tools/types'
@@ -31,6 +32,29 @@ describe('StateManager', () => {
         cache = new MemoryCache('test-user')
         await cache.clear()
         stateManager = new StateManager(cache, {} as ApiClient)
+    })
+
+    it.each([true, false, undefined])('reports lookup errors with cached suppression=%s', async (suppressed) => {
+        const capture = vi.spyOn(getPostHogClient(), 'captureException').mockImplementation(() => {})
+        const error = new Error('Synthetic project lookup failure')
+        const lookup = vi
+            .spyOn(stateManager, 'getApiKey')
+            .mockRejectedValue(new Error('Synthetic introspection failure'))
+        if (suppressed === undefined) {
+            vi.spyOn(cache, 'get').mockRejectedValue(new Error('Synthetic cache failure'))
+        } else {
+            await cache.set('apiKey', { ...mockApiKey, suppress_analytics: suppressed })
+        }
+
+        await (stateManager as any)._reportException(error, 'default_org_project_projects_list_failed')
+
+        expect(capture).toHaveBeenCalledWith(
+            error,
+            undefined,
+            expect.objectContaining({ suppress_analytics: suppressed === true })
+        )
+        expect(lookup).not.toHaveBeenCalled()
+        capture.mockRestore()
     })
 
     describe('getUser', () => {

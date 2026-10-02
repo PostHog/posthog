@@ -43,6 +43,7 @@ from products.signals.backend.scout_harness.trial_evaluation import (
     MAX_TRACE_BYTES,
     TrialEvaluationError,
     TrialEvaluationNotReady,
+    _read_trial_judge_input,
     _request_hash,
     assert_evaluation_access,
     finish_trial_evaluation,
@@ -59,7 +60,11 @@ from products.signals.backend.scout_harness.trial_evaluation_types import (
     TrialRunEvidence,
     TrialRunJudgment,
 )
-from products.signals.backend.scout_harness.trial_judge import TrialJudgeExecutionError, parse_trial_judgment
+from products.signals.backend.scout_harness.trial_judge import (
+    TrialJudgeExecutionError,
+    build_trial_judge_messages,
+    parse_trial_judgment,
+)
 from products.signals.backend.scout_harness.trial_launch import (
     ScoutTrialLaunchError,
     ScoutTrialsDisabled,
@@ -78,7 +83,7 @@ from products.signals.backend.temporal.agentic.scout_trial_evaluation import (
     start_trial_evaluation,
 )
 from products.signals.backend.test.test_scout_harness_api import _make_run
-from products.signals.backend.test.test_scout_trial_judge import _opaque_trace_table, _reference_context
+from products.signals.backend.test.test_scout_trial_judge import _opaque_trace_table, _reference_context, _snapshot
 from products.skills.backend.models.skills import LLMSkill
 
 if TYPE_CHECKING:
@@ -114,11 +119,38 @@ class TestScoutTrialEvaluationValidation(SimpleTestCase):
         with self.assertRaises(TrialEvaluationError):
             prepare_trial_evaluation(config=SignalScoutConfig(team_id=2), user=User(id=17), request=request)
 
-    def test_malformed_snapshot_error_does_not_expose_source_text(self) -> None:
+    @parameterized.expand([False, True])
+    def test_malformed_snapshot_error_does_not_expose_source_text(self, per_run: bool) -> None:
         with patch(f"{MODULE}.object_storage.read", return_value=json.dumps({"team_id": "private fixture value"})):
             with self.assertRaisesMessage(TrialEvaluationError, "The saved evaluation document is invalid.") as error:
-                read_trial_evaluation(2, uuid4())
+                if per_run:
+                    _read_trial_judge_input(2, uuid4(), uuid4())
+                else:
+                    read_trial_evaluation(2, uuid4())
         assert "private fixture value" not in str(error.exception)
+
+    @parameterized.expand(["team", "evaluation", "request", "launch", "variant", "multiple_runs"])
+    def test_rejects_judge_input_bound_to_another_trial(self, mismatch: str) -> None:
+        snapshot = _snapshot()
+        launch_id = snapshot.runs[0].launch_id
+        evaluation_id = snapshot.evaluation_id
+        if mismatch == "team":
+            snapshot = snapshot.model_copy(update={"team_id": 3})
+        elif mismatch == "evaluation":
+            snapshot = snapshot.model_copy(update={"evaluation_id": uuid4()})
+        elif mismatch == "request":
+            snapshot = snapshot.model_copy(
+                update={"request": snapshot.request.model_copy(update={"evaluation_id": uuid4()})}
+            )
+        elif mismatch in {"launch", "variant"}:
+            snapshot = snapshot.model_copy(
+                update={"runs": [snapshot.runs[0].model_copy(update={f"{mismatch}_id": uuid4()})]}
+            )
+        else:
+            snapshot = snapshot.model_copy(update={"runs": snapshot.runs * 2})
+        with patch(f"{MODULE}.object_storage.read", return_value=snapshot.model_dump_json()):
+            with self.assertRaisesMessage(TrialEvaluationError, "The saved judge input does not match this trial."):
+                _read_trial_judge_input(2, evaluation_id, launch_id)
 
 
 @override_settings(
@@ -268,6 +300,48 @@ class TestScoutTrialEvaluation(BaseTest):
         assert len(snapshot.runs) == 120
         assert len(snapshot.model_dump_json().encode()) > 8 * 1024 * 1024
         assert read_trial_evaluation(self.team.id, request.evaluation_id) == snapshot
+        selected = snapshot.runs[0]
+        judgment = TrialRunJudgment(
+            launch_id=selected.launch_id,
+            variant_id=selected.variant_id,
+            status="judge_error",
+            summary="Synthetic unavailable judgment.",
+        )
+        with (
+            patch(f"{MODULE}.read_trial_evaluation", side_effect=AssertionError("Judge loaded the full comparison")),
+            patch(f"{JUDGE_MODULE}.judge_trial_run", AsyncMock(return_value=judgment)) as judge,
+        ):
+            async_to_sync(run_evaluation_run)(self.team.id, snapshot.evaluation_id, selected.launch_id)
+        judge.assert_awaited_once()
+        judge_snapshot, judge_evidence = judge.await_args.args
+        assert judge_snapshot == snapshot.model_copy(update={"runs": [selected]})
+        assert judge_evidence == selected
+        assert build_trial_judge_messages(judge_snapshot, judge_evidence) == build_trial_judge_messages(
+            snapshot, selected
+        )
+
+    def test_judge_input_preparation_recovers_without_changing_frozen_evidence(self) -> None:
+        def interrupted_write(key: str, content: str, **kwargs: object) -> None:
+            if "/judge-inputs/" in key:
+                raise object_storage.ObjectStorageError("Synthetic interrupted preparation")
+            self._write(key, content, **kwargs)
+
+        with patch.object(object_storage, "write", side_effect=interrupted_write):
+            with self.assertRaises(object_storage.ObjectStorageError):
+                prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
+        saved = read_trial_evaluation(self.team.id, self.request.evaluation_id)
+        assert saved is not None
+        self.scout_run.summary = "This later edit must not change the frozen judge input."
+        self.scout_run.save(update_fields=["summary"])
+        changed_request = self.request.model_copy(
+            update={"variants": [self.request.variants[0].model_copy(update={"label": "Different request"})]}
+        )
+        with patch.object(object_storage, "write") as write:
+            with self.assertRaisesMessage(TrialEvaluationError, "different request"):
+                prepare_trial_evaluation(config=self.config, user=self.user, request=changed_request)
+            write.assert_not_called()
+        assert prepare_trial_evaluation(config=self.config, user=self.user, request=self.request) == saved
+        assert _read_trial_judge_input(self.team.id, saved.evaluation_id, self.launch.id) == saved
 
     @parameterized.expand([(str(version),) for version in range(1, 16)])
     def test_snapshot_is_frozen_and_reused_only_for_the_same_request(self, prompt_version: str) -> None:
@@ -293,6 +367,9 @@ class TestScoutTrialEvaluation(BaseTest):
         self.documents[f"signals/scout-trials/{self.team.id}/evaluations/{snapshot.evaluation_id}/snapshot.json"] = (
             snapshot.model_dump_json(exclude_none=True)
         )
+        del self.documents[
+            f"signals/scout-trials/{self.team.id}/evaluations/{snapshot.evaluation_id}/judge-inputs/{self.launch.id}.json"
+        ]
         self.scout_run.summary = "A later edit must not change the evidence."
         self.scout_run.save(update_fields=["summary"])
         self.skill.body = "The current skill changed after capture."
@@ -712,9 +789,23 @@ class TestScoutTrialEvaluation(BaseTest):
             assert not traces[-2].text.endswith("[Tool trace truncated]")
         assert any("Tool trace evidence was truncated" in value for value in snapshot.runs[0].limitations)
 
-    @parameterized.expand([(False, "returned"), (True, "returned"), (False, "unexpected"), (False, "revocation")])
-    def test_retries_do_not_repeat_paid_judgments(self, interrupted: bool, failure_kind: str) -> None:
+    @parameterized.expand(
+        [
+            (False, "returned", False),
+            (True, "returned", False),
+            (False, "unexpected", False),
+            (False, "revocation", False),
+            (False, "returned", True),
+        ]
+    )
+    def test_retries_do_not_repeat_paid_judgments(
+        self, interrupted: bool, failure_kind: str, legacy_snapshot: bool
+    ) -> None:
         snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
+        if legacy_snapshot:
+            del self.documents[
+                f"signals/scout-trials/{self.team.id}/evaluations/{snapshot.evaluation_id}/judge-inputs/{self.launch.id}.json"
+            ]
         judgment = TrialRunJudgment(
             launch_id=self.launch.id,
             variant_id=self.request.baseline_variant_id,

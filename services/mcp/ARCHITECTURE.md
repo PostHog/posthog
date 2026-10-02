@@ -115,7 +115,8 @@ New `$mcp_*` events and properties belong in the SDK, not in this server.
 Private scout credentials derive capture suppression from their server-issued OAuth scope.
 The existing SDK `beforeSend` hook drops those events; request headers and tool arguments cannot enable this policy.
 Operator trial launch/result tools also omit analytics, including calls through `exec`.
-Task content retrieval retains call metrics but omits content spans, free-text intent, and exception payloads so private transcripts do not become analytics data.
+Private task reads are marked by the PostHog API's response header, including lists and connected-project responses.
+The MCP client applies suppression to that call only, keeping ordinary task telemetry unchanged.
 
 #### Three correlation identifiers
 

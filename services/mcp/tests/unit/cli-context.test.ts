@@ -38,7 +38,7 @@ describe('CLI context', () => {
     })
 
     it.each(['phx_secret-token', 'pha_test-token', undefined])(
-        'keeps OAuth capture private when identity resolution fails with API key %s',
+        'retains telemetry when identity resolution fails with API key %s',
         async (apiKey) => {
             const context = await buildCliContext({ apiKey, host: 'https://us.posthog.com', version: 2 })
 
@@ -47,18 +47,12 @@ describe('CLI context', () => {
             const expectedId = apiKey
                 ? `posthog-cli:${createHash('sha256').update(apiKey).digest('hex').slice(0, 16)}`
                 : 'posthog-cli:anonymous'
-            expect(mocks.capture.mock.calls).toEqual(
-                apiKey?.startsWith('pha_')
-                    ? []
-                    : [
-                          [
-                              expect.objectContaining({
-                                  distinctId: expectedId,
-                                  event: AnalyticsEvent.MCP_TOOL_CALL,
-                                  properties: expect.objectContaining({ is_impersonated: false }),
-                              }),
-                          ],
-                      ]
+            expect(mocks.capture).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    distinctId: expectedId,
+                    event: AnalyticsEvent.MCP_TOOL_CALL,
+                    properties: expect.objectContaining({ is_impersonated: false, suppress_analytics: false }),
+                })
             )
             if (apiKey) {
                 expect(JSON.stringify(mocks.capture.mock.calls)).not.toContain(apiKey)
@@ -80,6 +74,25 @@ describe('CLI context', () => {
             })
         )
         expect(JSON.stringify(mocks.capture.mock.calls)).not.toContain(apiKey)
+    })
+
+    it('suppresses only the CLI invocation that received private content', async () => {
+        const privateContext = await buildCliContext({
+            apiKey: 'phx_test-token',
+            host: 'https://example.com',
+            version: 2,
+        })
+        const ordinaryContext = await buildCliContext({
+            apiKey: 'phx_test-token',
+            host: 'https://example.com',
+            version: 2,
+        })
+        privateContext.api.config.onPrivateResponse?.()
+
+        await privateContext.trackEvent(AnalyticsEvent.MCP_TOOL_CALL)
+        await ordinaryContext.trackEvent(AnalyticsEvent.MCP_TOOL_CALL)
+
+        expect(mocks.capture.mock.calls.map(([event]) => event.properties.suppress_analytics)).toEqual([true, false])
     })
 
     it('uses an anonymous analytics distinct ID for feedback without an API key', async () => {

@@ -16,7 +16,7 @@ import {
 } from '@/lib/posthog/analytics'
 import type { RequestProperties } from '@/lib/request-properties'
 import { resolveScopePreset } from '@/lib/scope-preset'
-import { isPrivateScoutTrialTool, isTaskContentReadTool } from '@/lib/tool-privacy'
+import { isPrivateScoutTrialTool } from '@/lib/tool-privacy'
 import type { SkillInvocation } from '@/tools/exec-learn'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolCategory, getToolDescription } from '@/tools/toolDefinitions'
@@ -167,8 +167,6 @@ export async function trackToolCall(
     if (isPrivateScoutTrialTool(toolName) || isPrivateScoutTrialTool(extraProperties?.$mcp_exec_target_tool)) {
         return
     }
-    const captureIntent =
-        !isTaskContentReadTool(toolName) && !isTaskContentReadTool(extraProperties?.$mcp_exec_target_tool)
     try {
         const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
         const requestContext = state.requestContext
@@ -209,8 +207,8 @@ export async function trackToolCall(
             // Omitted rather than set to `undefined`: the SDK applies caller properties last, so
             // an explicit `undefined` erases the value it maps from this field.
             ...(requestContext.mcpConversationId ? { conversationId: requestContext.mcpConversationId } : {}),
-            ...(captureIntent && analyticsMeta?.intent ? { intent: analyticsMeta.intent } : {}),
-            ...(captureIntent && analyticsMeta?.intentSource ? { intentSource: analyticsMeta.intentSource } : {}),
+            ...(analyticsMeta?.intent ? { intent: analyticsMeta.intent } : {}),
+            ...(analyticsMeta?.intentSource ? { intentSource: analyticsMeta.intentSource } : {}),
             ...(analyticsMeta?.llmModel ? { llmModel: analyticsMeta.llmModel } : {}),
             ...(analyticsMeta?.llmModelSource ? { llmModelSource: analyticsMeta.llmModelSource } : {}),
             properties: {
@@ -322,8 +320,7 @@ function isMetadataQuery(query: string): boolean {
 const PRESIGNED_UPLOAD_TOOL_NAME = 'media-image-upload-start'
 
 function shouldCaptureToolSpan(toolName: string, input: unknown): boolean {
-    // Ordinary operator credentials can retrieve private scout transcripts through Tasks APIs.
-    if (isPrivateScoutTrialTool(toolName) || isTaskContentReadTool(toolName)) {
+    if (isPrivateScoutTrialTool(toolName)) {
         return false
     }
     // A proxied third-party tool's args and result are the vendor's content — an issue

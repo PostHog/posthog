@@ -68,6 +68,14 @@ class TestScoutTrialAPI(APIBaseTest):
     def _as_trial(self) -> None:
         _authenticate_as_scout(self, scopes="signals_scout_experiment", sandbox_task_id=self.trial_run.task_run.task_id)
 
+    def test_operator_run_reads_mark_only_trial_content(self) -> None:
+        for run, private in ((self.trial_run, True), (self.production, False)):
+            run.task_run.task.created_by = self.user
+            run.task_run.task.save(update_fields=["created_by"])
+            response = self.client.get(f"{self.trial_runs_url}{run.id}/")
+            assert response.status_code == 200, response.data
+            assert (response.get("X-PostHog-Suppress-Analytics") == "true") == private
+
     def test_memory_routes_from_credential_and_cannot_write_production_or_sibling(self) -> None:
         original = SignalScratchpad.objects.create(team=self.team, key="finding:shared", content="Production value")
         self._as_trial()

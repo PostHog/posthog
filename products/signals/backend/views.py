@@ -1140,6 +1140,8 @@ class SignalReportViewSet(
     def read_state(self, request, **kwargs):
         serializer = ReportReadStateRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        if "read" in serializer.validated_data and trial_store_for_request(request, self.team_id) is not None:
+            raise exceptions.PermissionDenied("Private scout trials cannot change inbox read state.")
         requested = serializer.validated_data["report_ids"]
         ids = list(self.get_queryset().filter(id__in=requested).values_list("id", flat=True))
         if len(set(requested)) != len(ids):

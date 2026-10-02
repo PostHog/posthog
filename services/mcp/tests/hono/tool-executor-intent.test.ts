@@ -58,14 +58,16 @@ describe('ToolExecutor analytics capture', () => {
                 [
                     ['scout-trial-create', 'private'],
                     ['scout-trial-get', 'private'],
-                    ['scout-runs-retrieve', 'metadata'],
-                    ['signals-scout-runs-retrieve', 'metadata'],
-                    ['tasks-list', 'metadata'],
-                    ['tasks-retrieve', 'metadata'],
-                    ['tasks-runs-list', 'metadata'],
-                    ['tasks-runs-session-logs-retrieve', 'metadata'],
-                    ['tasks-runs-retrieve', 'metadata'],
+                    ['scout-runs-retrieve', 'ordinary'],
+                    ['signals-scout-runs-retrieve', 'ordinary'],
+                    ['tasks-list', 'ordinary'],
+                    ['tasks-retrieve', 'ordinary'],
+                    ['tasks-runs-list', 'ordinary'],
+                    ['tasks-runs-session-logs-retrieve', 'ordinary'],
+                    ['tasks-runs-retrieve', 'ordinary'],
                     ['projects-get', 'ordinary'],
+                    ['tasks-list', 'marked'],
+                    ['tasks-runs-session-logs-retrieve', 'marked'],
                 ].map(([name, capture]) => ({ mode, fails, name: name!, capture }))
             )
         )
@@ -85,7 +87,10 @@ describe('ToolExecutor analytics capture', () => {
                 scopes: [],
                 annotations: { readOnlyHint: true },
                 schema: z.object({ body: z.string() }),
-                handler: vi.fn(async () => {
+                handler: vi.fn(async (context) => {
+                    if (capture === 'marked') {
+                        context.api.config.onPrivateResponse()
+                    }
                     if (fails) {
                         throw new Error('Synthetic private report error')
                     }
@@ -118,11 +123,13 @@ describe('ToolExecutor analytics capture', () => {
             expect(metric).toHaveBeenCalledWith({ tool: name, status: fails ? 'error' : 'success' })
             expect(state.suppressAnalytics).toBe(false)
             expect(toolCall).toHaveBeenCalledTimes(capture === 'private' ? 0 : 1)
-            expect(span).toHaveBeenCalledTimes(capture === 'ordinary' ? 1 : 0)
+            expect(span).toHaveBeenCalledTimes(capture === 'private' ? 0 : 1)
             if (capture !== 'private') {
-                expect(toolCall.mock.calls[0]![0].intent).toBe(
-                    capture === 'ordinary' ? 'Compare synthetic scout variants' : undefined
-                )
+                expect(toolCall.mock.calls[0]![0].intent).toBe('Compare synthetic scout variants')
+            }
+            if (capture !== 'private') {
+                expect(toolCall.mock.calls[0]![0].properties?.suppress_analytics).toBe(capture === 'marked')
+                expect(span.mock.calls[0]![0].properties?.suppress_analytics).toBe(capture === 'marked')
             }
             if (fails) {
                 expect(exception).toHaveBeenCalledWith(
@@ -136,6 +143,49 @@ describe('ToolExecutor analytics capture', () => {
             }
         }
     )
+
+    it('keeps parallel ordinary calls visible when another call receives a private response', async () => {
+        const capture = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
+        const tool = {
+            name: 'tasks-retrieve',
+            title: 'Read task',
+            description: 'Synthetic task read',
+            scopes: [],
+            annotations: { readOnlyHint: true },
+            schema: z.object({ private: z.boolean() }),
+            handler: async (context: any, params: { private: boolean }) => {
+                if (params.private) {
+                    context.api.config.onPrivateResponse()
+                }
+                await new Promise((resolve) => setImmediate(resolve))
+                return { title: 'Synthetic task' }
+            },
+        }
+        vi.spyOn(catalog, 'getToolByName').mockReturnValue({
+            build: () => tool,
+            meta: undefined,
+            rawInputSchema: undefined,
+            definition: undefined,
+        })
+        const state = makeToolExecutorState([tool], { suppressAnalytics: false })
+
+        await Promise.all(
+            [true, false].map((privateResult) =>
+                executor.handleToolCall(
+                    {
+                        name: tool.name,
+                        arguments: { private: privateResult },
+                    },
+                    state
+                )
+            )
+        )
+        await new Promise((resolve) => setImmediate(resolve))
+
+        expect(capture.mock.calls.map(([call]) => call.properties?.suppress_analytics).sort()).toEqual([false, true])
+        expect(state.suppressAnalytics).toBe(false)
+        expect(state.context.api.config.onPrivateResponse).toBeUndefined()
+    })
 
     it('injects the analytics arguments into advertised tools', async () => {
         const state = makeToolExecutorState([], { useSingleExec: true })

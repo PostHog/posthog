@@ -50,6 +50,7 @@ export async function buildCliContext(config: CliConfig): Promise<Context> {
         ...(config.projectId ? { projectId: config.projectId } : {}),
     })
 
+    let privateResponse = false
     const api = new ApiClient({
         apiToken: config.apiKey ?? '',
         baseUrl: config.host.replace(/\/+$/, ''),
@@ -57,6 +58,9 @@ export async function buildCliContext(config: CliConfig): Promise<Context> {
         mcpClientName: 'posthog-cli',
         mcpClientVersion: sanitizeHeaderValue(process.env.POSTHOG_CLI_VERSION),
         mcpConsumer: 'posthog-cli',
+        onPrivateResponse: () => {
+            privateResponse = true
+        },
     })
     const stateManager = new StateManager(cache, api)
     const sessionManager = new SessionManager(cache)
@@ -77,9 +81,6 @@ export async function buildCliContext(config: CliConfig): Promise<Context> {
                         stateManager.getAnalyticsContext().catch(() => undefined),
                         stateManager.getApiKey().catch(() => undefined),
                     ])
-                    if (!apiKey && config.apiKey?.startsWith('pha_')) {
-                        return
-                    }
                     const groups = analyticsContext ? buildMCPAnalyticsGroups(analyticsContext) : {}
 
                     getPostHogClient().capture({
@@ -99,7 +100,7 @@ export async function buildCliContext(config: CliConfig): Promise<Context> {
                             $session_id: await sessionManager.getSessionUuid(sessionId),
                             ...properties,
                             is_impersonated: apiKey?.is_impersonated === true,
-                            suppress_analytics: apiKey?.suppress_analytics === true,
+                            suppress_analytics: privateResponse || apiKey?.suppress_analytics === true,
                         },
                     })
                 } catch {}

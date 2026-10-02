@@ -26,7 +26,7 @@ SCOUT_LIVE_TRIALS_ENABLED=true
 SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=true
 ```
 
-Enable the `scout-trials` feature flag for the `project` group with `id = 2`. Trials require both the deployment setting and the flag; a missing or unreadable flag blocks new work. The team-2 and staff restrictions still apply even if the flag targets another project.
+Enable the `scout-trials` feature flag for the `project` group with `id = 2`. Trials require both the deployment setting and the flag; a missing or unreadable flag blocks new work. The team-2 and staff restrictions still apply even if the flag targets another project. Production MCP also hides trial tools until the flag is enabled.
 
 Switching the flag off blocks new trials, resumes, and queued scout or judge work. Already-running scouts and judge jobs can finish, and saved results remain readable. After re-enabling the flag, resume interrupted trials to recover saved work.
 

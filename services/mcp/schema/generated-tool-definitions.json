@@ -11136,7 +11136,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
+        },
+        "feature_flag": "scout-trials"
     },
     "scout-trial-get": {
         "description": "Read an operator-owned trial's status, privately captured report payloads, proposed edits, and memory changes. These combine saved context with protected execution state and are available only through this API, not SQL. A null cost means unknown. Sandbox agents cannot use this tool to inspect trials. Use the returned task and run IDs with ordinary log tools.",
@@ -11150,7 +11151,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "scout-trials"
     },
     "session-recording-bulk-delete": {
         "description": "Delete a batch of session recordings by session ID, up to 100 per call. Deletion is permanent and cannot be undone — confirm with the user before deleting. Prefer this over `session-recording-delete` whenever more than one recording needs deleting: find the target IDs with `query-session-recordings-list`, then delete in batches. Pass `date_from` (e.g. '-30d') when the recordings' age is known — it makes the lookup much faster. IDs with no matching recording are skipped, so a `deleted_count` below `total_requested` is normal when some recordings were already deleted or never existed.",
