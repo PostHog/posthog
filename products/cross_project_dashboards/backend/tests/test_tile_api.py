@@ -232,7 +232,7 @@ class TestCrossProjectDashboardTileAPI(APIBaseTest):
         assert [tile["id"] for tile in dashboard["tiles"]] == [str(visible.id)]
         assert (listed["results"][0]["tile_count"], listed["results"][0]["project_count"]) == (1, 1)
 
-    @parameterized.expand([("patch",), ("delete",), ("add_tile",)])
+    @parameterized.expand([("patch",), ("delete",), ("add_tile",), ("patch_tile",), ("delete_tile",)])
     def test_a_member_denied_a_tile_project_cannot_change_the_dashboard(self, _flag, method: str):
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
@@ -247,16 +247,26 @@ class TestCrossProjectDashboardTileAPI(APIBaseTest):
         )
         url = f"/api/organizations/{self.organization.id}/cross_project_dashboards/{self.dashboard.id}/"
 
+        visible = CrossProjectDashboardTile.objects.create(
+            dashboard=self.dashboard, organization=self.organization, project_id=self.team.pk, insight_id=1
+        )
+
         if method == "add_tile":
             body = {"project_id": self.team.pk, "insight_id": self._insight().pk}
             response = self.client.post(self._url(), body, format="json")
+        elif method == "patch_tile":
+            response = self.client.patch(self._url(f"{visible.id}/"), {"color": "red"}, format="json")
+        elif method == "delete_tile":
+            response = self.client.delete(self._url(f"{visible.id}/"))
         else:
             response = getattr(self.client, method)(url, {"name": "Renamed"}, format="json")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         self.dashboard.refresh_from_db()
         assert (self.dashboard.name, self.dashboard.deleted) == ("Company overview", False)
-        assert self.dashboard.tiles.filter(deleted=False).count() == 1
+        assert self.dashboard.tiles.filter(deleted=False).count() == 2
+        visible.refresh_from_db()
+        assert visible.color is None
 
     def test_dashboard_patch_no_longer_writes_tiles(self, _flag):
         insight = self._insight()

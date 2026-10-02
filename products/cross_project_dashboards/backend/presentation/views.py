@@ -244,6 +244,8 @@ class CrossProjectDashboardTileViewSet(TeamAndOrgViewSetMixin, _FacadePageMixin,
             )
         except contracts.TileNotFoundError:
             raise NotFound()
+        except contracts.DashboardChangeDeniedError:
+            raise PermissionDenied(CHANGE_DENIED)
         return Response(CrossProjectDashboardTileSerializer(tile).data)
 
     @extend_schema(parameters=[PARENT_DASHBOARD_ID, TILE_ID], responses={204: None})
@@ -257,4 +259,6 @@ class CrossProjectDashboardTileViewSet(TeamAndOrgViewSetMixin, _FacadePageMixin,
             )
         except contracts.TileNotFoundError:
             raise NotFound()
+        except contracts.DashboardChangeDeniedError:
+            raise PermissionDenied(CHANGE_DENIED)
         return Response(status=status.HTTP_204_NO_CONTENT)
