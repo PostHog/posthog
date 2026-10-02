@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
-import { IconCheck, IconPin, IconRefresh } from '@posthog/icons'
+import { IconCheck, IconPin, IconRefresh, IconX } from '@posthog/icons'
 import { Badge, Button, Text, ThreadItemAction, ThreadItemGroup, cn } from '@posthog/quill-primitives'
 
 import { ArtifactCommentThread } from '../artifactComments'
@@ -13,9 +13,11 @@ import { ArtifactCommentEntry } from './ArtifactCommentEntry'
 export function ArtifactCommentThreadCard({
     logicProps,
     thread,
+    inline = false,
 }: {
     logicProps: TaskArtifactCommentsLogicProps
     thread: ArtifactCommentThread
+    inline?: boolean
 }): JSX.Element {
     const { activeThreadId, writing, drafts } = useValues(taskArtifactCommentsLogic(logicProps))
     const { activateThread, setThreadResolved, replyToThread, setDraft } = useActions(
@@ -28,10 +30,10 @@ export function ArtifactCommentThreadCard({
 
     // A click on a highlight or a pin in the preview brings its thread into view.
     useEffect(() => {
-        if (active) {
+        if (active && !inline) {
             ref.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
         }
-    }, [active])
+    }, [active, inline])
 
     const resolveAction = (
         <ThreadItemAction
@@ -51,6 +53,70 @@ export function ArtifactCommentThreadCard({
             : thread.pinNumber
               ? `Comments on pin ${thread.pinNumber}`
               : 'Comments on this file'
+
+    if (inline) {
+        return (
+            <section
+                aria-label={anchorLabel}
+                className="flex min-h-0 flex-col"
+                data-attr="task-artifact-comment-thread"
+            >
+                <div className="flex min-w-0 items-start gap-2 border-b border-border py-2 pr-1 pl-3">
+                    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+                        {anchor?.kind === 'text' && (
+                            <Text
+                                size="xs"
+                                variant="muted"
+                                render={<span />}
+                                className="line-clamp-2 w-full border-l-2 border-warning pl-2 italic"
+                            >
+                                {anchor.quote}
+                            </Text>
+                        )}
+                        {thread.pinNumber && (
+                            <Badge variant="info">
+                                <IconPin />
+                                {`Pin ${thread.pinNumber}`}
+                            </Badge>
+                        )}
+                        {thread.resolved && <Badge variant="completed">Resolved</Badge>}
+                    </div>
+                    <Button
+                        size="icon-sm"
+                        aria-label="Close comment"
+                        onClick={() => activateThread(null)}
+                        data-attr="task-artifact-comment-thread-close"
+                    >
+                        <IconX />
+                    </Button>
+                </div>
+                <div className="min-h-0 flex-1 overflow-y-auto py-2">
+                    <ThreadItemGroup>
+                        <ArtifactCommentEntry comment={thread.root} actions={resolveAction} />
+                        {thread.replies.map((reply) => (
+                            <ArtifactCommentEntry key={reply.id} comment={reply} />
+                        ))}
+                    </ThreadItemGroup>
+                </div>
+                {!thread.resolved && (
+                    <div className="border-t border-border p-2">
+                        <ArtifactCommentComposer
+                            value={drafts[rootId] ?? ''}
+                            onChange={(value) => setDraft(rootId, value)}
+                            onSubmit={() => replyToThread(rootId)}
+                            saving={writing === rootId}
+                            busy={!!writing && writing !== rootId}
+                            label="Reply"
+                            placeholder="Reply"
+                            submitLabel="Reply"
+                            rows={2}
+                            dataAttr="task-artifact-comment-reply"
+                        />
+                    </div>
+                )}
+            </section>
+        )
+    }
 
     return (
         <section
