@@ -318,7 +318,7 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     @extend_schema(
         request=AddOptOutRequestSerializer,
-        responses={201: MessagePreferencesSerializer},
+        responses={200: MessagePreferencesSerializer, 201: MessagePreferencesSerializer},
         summary="Manually add a recipient to the opt-out list",
     )
     @action(detail=False, methods=["post"])
@@ -356,7 +356,7 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     @extend_schema(
         request=RemoveOptOutRequestSerializer,
-        responses={201: MessagePreferencesSerializer},
+        responses={200: MessagePreferencesSerializer, 201: MessagePreferencesSerializer},
         summary="Remove a recipient from the opt-out list",
     )
     @action(detail=False, methods=["post"])
