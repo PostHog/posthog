@@ -2,6 +2,7 @@ import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
 import { ingestionLagGauge, ingestionLagHistogram } from '~/common/metrics'
+import { UsageIngestionClient } from '~/common/usage-ingestion/client'
 import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import {
@@ -151,10 +152,38 @@ describe('SessionRecordingIngester', () => {
         })
     }
 
+    const recordOneSession = (): void => {
+        const parsedMessage: ParsedMessageData = {
+            metadata: { partition: 0, topic: consumeTopic, offset: 42, timestamp: 1000, rawSize: 100 },
+            distinct_id: 'distinct-1',
+            session_id: 'session-1',
+            token: 'token',
+            eventsByWindowId: { window1: [{ type: 2, timestamp: 1000, data: {} }] },
+            eventsRange: { start: DateTime.fromMillis(1000), end: DateTime.fromMillis(1000) },
+            snapshot_source: 'web',
+            snapshot_library: 'posthog-js',
+        }
+        runPipelineMock.mockImplementation(async (_pipeline, _messages, recorder) => {
+            await recorder.record(
+                {
+                    team: { teamId: 1, consoleLogIngestionEnabled: false, aiTrainingOptedIn: false },
+                    message: parsedMessage,
+                },
+                '30d',
+                createMockSessionKey()
+            )
+            return progress(new Map([[0, 42]]))
+        })
+    }
+
     beforeEach(() => {
         events = []
         runPipelineMock.mockReset()
         createIngester()
+    })
+
+    afterEach(() => {
+        jest.restoreAllMocks()
     })
 
     it('stop() stores the in-flight batch offsets only after its side effects settle, before disconnect', async () => {
@@ -250,27 +279,7 @@ describe('SessionRecordingIngester', () => {
     it('persists replay metadata when usage ingestion fails', async () => {
         createIngester({ SESSION_RECORDING_MAX_BATCH_AGE_MS: 0 })
         jest.spyOn(UsageRecordBatch.prototype, 'flush').mockRejectedValueOnce(new Error('usage unavailable'))
-        const parsedMessage: ParsedMessageData = {
-            metadata: { partition: 0, topic: consumeTopic, offset: 42, timestamp: 1000, rawSize: 100 },
-            distinct_id: 'distinct-1',
-            session_id: 'session-1',
-            token: 'token',
-            eventsByWindowId: { window1: [{ type: 2, timestamp: 1000, data: {} }] },
-            eventsRange: { start: DateTime.fromMillis(1000), end: DateTime.fromMillis(1000) },
-            snapshot_source: 'web',
-            snapshot_library: 'posthog-js',
-        }
-        runPipelineMock.mockImplementation(async (_pipeline, _messages, recorder) => {
-            await recorder.record(
-                {
-                    team: { teamId: 1, consoleLogIngestionEnabled: false, aiTrainingOptedIn: false },
-                    message: parsedMessage,
-                },
-                '30d',
-                createMockSessionKey()
-            )
-            return progress(new Map([[0, 42]]))
-        })
+        recordOneSession()
 
         await expect(ingester.handleEachBatch([kafkaMessage(0, 42)])).resolves.toBeUndefined()
 
@@ -280,6 +289,31 @@ describe('SessionRecordingIngester', () => {
         expect(jest.mocked(ingester.kafkaConsumer).offsetsStore).toHaveBeenCalledWith([
             { topic: consumeTopic, partition: 0, offset: 43 },
         ])
+    })
+
+    it.each<[string, Partial<SessionRecordingIngesterCollaborators>, unknown[]]>([
+        [
+            'the main lane bills a persisted session',
+            {},
+            [[[expect.objectContaining({ teamId: 1, usageKey: 'session_replay_recordings', recordId: 'session-1' })]]],
+        ],
+        ['the ML mirror lane bills nothing', { reportUsage: false }, []],
+    ])('%s', async (_name, collaborators, expectedIngestCalls) => {
+        createIngester(
+            {
+                SESSION_RECORDING_MAX_BATCH_AGE_MS: 0,
+                USAGE_INGESTION_ADDR: 'localhost:1',
+                USAGE_INGESTION_REPORT_TEAMS: '*',
+            },
+            collaborators
+        )
+        const ingest = jest.spyOn(UsageIngestionClient.prototype, 'ingest').mockResolvedValue(undefined)
+        recordOneSession()
+
+        await ingester.handleEachBatch([kafkaMessage(0, 42)])
+
+        expect(metadataStore.storeSessionBlocks).toHaveBeenCalledTimes(1)
+        expect(ingest.mock.calls).toEqual(expectedIngestCalls)
     })
 
     it('samples the pipeline OK-result messages, not the raw consumed batch', async () => {

@@ -181,6 +181,7 @@ export class IngestionSessionReplayMlMirrorServer extends MlMirrorConsumerServer
             // would then fetch a missing key and record cleartext.
             redisKeyNamespace: 'ml-mirror',
             captureWatermark: new CaptureWatermark('ml_mirror'),
+            reportUsage: false,
         }
 
         const ingester = new SessionRecordingIngester(

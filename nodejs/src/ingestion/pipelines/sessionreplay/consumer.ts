@@ -90,6 +90,8 @@ export interface SessionRecordingIngesterCollaborators {
     redisKeyNamespace?: string
     /** The ML mirror reports how far back its events are complete; the main lane leaves this unset. */
     captureWatermark?: CaptureWatermark
+    /** The ML mirror sets this to false, because the main lane already bills the same recordings. The main lane leaves it unset. */
+    reportUsage?: boolean
 }
 
 export class SessionRecordingIngester {
@@ -162,10 +164,13 @@ export class SessionRecordingIngester {
         this.isDebugLoggingEnabled = buildIntegerMatcher(config.SESSION_RECORDING_DEBUG_PARTITION, true)
 
         this.promiseScheduler = new PromiseScheduler()
-        this.usageBatch = new UsageRecordBatch(createUsageIngestionClient(config, 'session_replay'), {
-            unit: 'recordings',
-            isTeamEnabled: usageReportTeamMatcher(config),
-        })
+        this.usageBatch = new UsageRecordBatch(
+            collaborators.reportUsage === false ? null : createUsageIngestionClient(config, 'session_replay'),
+            {
+                unit: 'recordings',
+                isTeamEnabled: usageReportTeamMatcher(config),
+            }
+        )
 
         this.runner =
             collaborators.runner ??
