@@ -10,14 +10,17 @@ import { EmailMetricsTotalsCard } from './EmailMetricsTotalsCard'
 import { TurnOnEngagementEvents } from './TurnOnEngagementEvents'
 
 export function AudienceEngagement(): JSX.Element {
-    const { engagementEventsCaptured } = useValues(audienceEngagementLogic)
-
-    return engagementEventsCaptured ? <EngagementTiles /> : <EngagementWithoutEvents />
-}
-
-function EngagementTiles(): JSX.Element {
-    const { createdDashboardLoading } = useValues(audienceEngagementLogic)
+    const { engagementEventsCaptured, createdDashboardLoading } = useValues(audienceEngagementLogic)
     const { createDashboard } = useActions(audienceEngagementLogic)
+
+    if (!engagementEventsCaptured) {
+        return (
+            <div className="flex flex-col gap-4 max-w-3xl" data-attr="audience-engagement-without-events">
+                <EmailMetricsTotalsCard />
+                <TurnOnEngagementEvents surface="engagement" />
+            </div>
+        )
+    }
 
     return (
         <div className="flex flex-col gap-4" data-attr="audience-engagement">
@@ -41,15 +44,6 @@ function EngagementTiles(): JSX.Element {
                     <AudienceEngagementTileCard key={tile.key} tile={tile} />
                 ))}
             </div>
-        </div>
-    )
-}
-
-function EngagementWithoutEvents(): JSX.Element {
-    return (
-        <div className="flex flex-col gap-4 max-w-3xl" data-attr="audience-engagement-without-events">
-            <EmailMetricsTotalsCard />
-            <TurnOnEngagementEvents surface="engagement" />
         </div>
     )
 }

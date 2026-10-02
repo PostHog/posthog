@@ -20,7 +20,7 @@ export function WorkflowsEngagementEventsSettings(): JSX.Element {
             id="workflows-capture-engagement-events"
             onChange={setEngagementEventsCapture}
             checked={engagementEventsCaptured}
-            disabled={currentTeamLoading}
+            loading={currentTeamLoading}
             disabledReason={restrictedReason}
             label="Capture email engagement events"
             bordered

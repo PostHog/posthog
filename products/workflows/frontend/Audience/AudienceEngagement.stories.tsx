@@ -1,6 +1,7 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import type { Meta, StoryObj } from '@storybook/react'
+import clsx from 'clsx'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
@@ -127,16 +128,15 @@ export default meta
 
 type Story = StoryObj<typeof AudienceScene>
 
-// 520px is the scene width left by a 1280px window with the nav sidebar and the side panel open.
-const NARROW_SCENE_WIDTH = 520
+type SceneWidth = 'full' | 'narrow'
 
-function engagementStory({
-    engagementEventsCaptured,
-    containerWidth,
-}: {
-    engagementEventsCaptured: boolean
-    containerWidth?: number
-}): Story {
+const SCENE_WIDTH_CLASSES: Record<SceneWidth, string> = {
+    full: 'w-full',
+    // 520px is the scene width left by a 1280px window with the nav sidebar and the side panel open.
+    narrow: 'w-[520px]',
+}
+
+function engagementStory(engagementEventsCaptured: boolean, sceneWidth: SceneWidth): Story {
     return {
         render: function Render() {
             const { engagementEventsCaptured: captured } = useValues(engagementEventsLogic)
@@ -153,7 +153,7 @@ function engagementStory({
                 }
             }, [captured])
             return (
-                <div className="@container/main-content" style={{ width: containerWidth ?? '100%' }}>
+                <div className={clsx('@container/main-content', SCENE_WIDTH_CLASSES[sceneWidth])}>
                     <AudienceScene />
                 </div>
             )
@@ -161,13 +161,7 @@ function engagementStory({
     }
 }
 
-export const EngagementEventsOn: Story = engagementStory({ engagementEventsCaptured: true })
-export const EngagementEventsOnNarrow: Story = engagementStory({
-    engagementEventsCaptured: true,
-    containerWidth: NARROW_SCENE_WIDTH,
-})
-export const EngagementEventsOff: Story = engagementStory({ engagementEventsCaptured: false })
-export const EngagementEventsOffNarrow: Story = engagementStory({
-    engagementEventsCaptured: false,
-    containerWidth: NARROW_SCENE_WIDTH,
-})
+export const EngagementEventsOn: Story = engagementStory(true, 'full')
+export const EngagementEventsOnNarrow: Story = engagementStory(true, 'narrow')
+export const EngagementEventsOff: Story = engagementStory(false, 'full')
+export const EngagementEventsOffNarrow: Story = engagementStory(false, 'narrow')

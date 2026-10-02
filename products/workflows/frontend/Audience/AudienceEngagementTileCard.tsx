@@ -50,7 +50,12 @@ export function AudienceEngagementTileCard({ tile }: { tile: AudienceEngagementT
                     query={tile.query}
                     readOnly
                     inSharedMode
-                    context={{ insightProps, suppressSlowQuerySuggestions: true }}
+                    context={{
+                        insightProps,
+                        suppressSlowQuerySuggestions: true,
+                        emptyStateHeading: 'No emails sent in the last 30 days',
+                        emptyStateDetail: 'Engagement events show here after a workflow or broadcast sends an email.',
+                    }}
                 />
             </div>
         </LemonCard>
