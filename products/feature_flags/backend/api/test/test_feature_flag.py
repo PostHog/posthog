@@ -15294,7 +15294,7 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
 
     @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
     @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
-    def test_test_evaluation_accepts_blank_condition_variant(self, mock_get_flags):
+    def test_test_evaluation_accepts_blank_variant_and_null_property_value(self, mock_get_flags):
         flag = FeatureFlag.objects.create(team=self.team, key="test-flag")
         create_person(team=self.team, distinct_ids=["test-user"])
         mock_get_flags.return_value = {
@@ -15312,7 +15312,17 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
                             "rollout_percentage": 100.0,
                             "rollout_excluded": False,
                             "variant": "",
-                            "properties": [],
+                            "properties": [
+                                {
+                                    "key": "email",
+                                    "operator": "is_set",
+                                    "value": None,
+                                    "type": "person",
+                                    "actual_value": None,
+                                    "matched": False,
+                                    "explanation": "Property 'email' is not set",
+                                }
+                            ],
                         }
                     ],
                 }
@@ -15326,7 +15336,9 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["conditions"][0]["variant"], "")
+        condition = response.json()["conditions"][0]
+        self.assertEqual(condition["variant"], "")
+        self.assertIsNone(condition["properties"][0]["value"])
 
     @patch("products.feature_flags.backend.api.feature_flag.capture_exception")
     @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
