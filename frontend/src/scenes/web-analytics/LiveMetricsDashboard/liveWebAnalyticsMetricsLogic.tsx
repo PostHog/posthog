@@ -74,6 +74,7 @@ const LIVE_QUERY_CONCURRENCY = 4
 const LIVE_QUERY_MAX_ATTEMPTS = 3
 const LIVE_QUERY_RETRY_DELAY_MS = 250
 const RELOAD_DEBOUNCE_MS = 300
+const HOGQL_RELOAD_INTERVAL_MS = 30000
 const PAUSE_GRACE_MS = 2000
 const TRANSIENT_QUERY_STATUSES = new Set([502, 503, 504])
 
@@ -694,6 +695,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                         cache.loadAbortController?.abort()
                         cache.eventsConnection?.abort()
                         cache.geoConnection?.abort()
+                        cache.disposables.dispose('hogqlReload')
                         cache.batch = []
                         cache.geoBatch = []
                         stopFlushInterval(cache as FlushCache)
@@ -848,6 +850,15 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
         updateConnection: () => {
             cache.eventsConnection?.abort()
 
+            if (values.featureFlags[FEATURE_FLAGS.LIVESTREAM_HOGQL]) {
+                // loadInitialData calls this on every load, so each load schedules the next one.
+                cache.disposables.add(() => {
+                    const timeoutId = setTimeout(() => actions.loadInitialData(true), HOGQL_RELOAD_INTERVAL_MS)
+                    return () => clearTimeout(timeoutId)
+                }, 'hogqlReload')
+                return
+            }
+
             const token = values.currentTeam?.live_events_token
             if (!token) {
                 return
@@ -903,6 +914,10 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
         },
         updateGeoConnection: () => {
             cache.geoConnection?.abort()
+
+            if (values.featureFlags[FEATURE_FLAGS.LIVESTREAM_HOGQL]) {
+                return
+            }
 
             const token = values.currentTeam?.live_events_token
             if (!token) {

@@ -15,6 +15,7 @@ import { AnyPropertyFilter, LiveEvent, PropertyFilterValue, PropertyOperator } f
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { TeamPublicType, TeamType } from '../../../types'
 import { deduplicateEvents } from './deduplicateEvents'
+import { LIVE_EVENTS_QUERY_POLL_MS, loadRecentLiveEvents } from './liveEventsQuery'
 
 const ERROR_TOAST_ID = 'live-stream-error'
 
@@ -197,6 +198,31 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
             }
 
             if (!values.currentTeam) {
+                return
+            }
+
+            if (values.featureFlags[FEATURE_FLAGS.LIVESTREAM_HOGQL]) {
+                const teamId = values.currentTeam.id
+                const { eventType } = values.filters
+                cache.disposables.add(() => {
+                    let cancelled = false
+                    const poll = async (): Promise<void> => {
+                        try {
+                            const events = await loadRecentLiveEvents(teamId, eventType)
+                            if (!cancelled) {
+                                actions.addEvents(events)
+                            }
+                        } catch (error) {
+                            console.error('Failed to load recent events', error)
+                        }
+                    }
+                    void poll()
+                    const intervalId = setInterval(() => void poll(), LIVE_EVENTS_QUERY_POLL_MS)
+                    return () => {
+                        cancelled = true
+                        clearInterval(intervalId)
+                    }
+                }, 'eventsConnection')
                 return
             }
 
