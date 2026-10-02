@@ -230,6 +230,42 @@ class TestReportCheckProgressAPI(APIBaseTest):
         self.assertEqual(self.client.get(url).json(), [])
 
     @time_machine.travel("2026-10-03T12:23:00Z", tick=False)
+    def test_cached_progress_does_not_use_the_refresh_limit(self) -> None:
+        now = datetime(2026, 10, 3, 12, 23, tzinfo=UTC)
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.MONITORING,
+            monitoring_started_at=now - timedelta(days=2),
+            title="Example failure",
+        )
+        query = trends_metric_query(series=[{"kind": "EventsNode", "event": "example_failure"}])
+        for _ in range(2):
+            SignalReportCheck.objects.for_team(self.team.id).create(
+                team=self.team,
+                report=report,
+                title="Failures stay below 70",
+                kind="metric_threshold",
+                status="active",
+                config={"query": query, "comparison": {"operator": "lte", "value": 70}},
+                next_run_at=now + timedelta(days=12),
+                expires_at=now + timedelta(days=40),
+            )
+        url = f"/api/projects/{self.team.id}/signals/reports/{report.id}/checks/progress/"
+        measured = SimpleNamespace(
+            results=[{"aggregated_value": 4, "days": [now.isoformat()], "data": [4]}], last_refresh=now
+        )
+
+        with (
+            patch("products.signals.backend.report_check_progress.MAX_PROGRESS_SOURCE_RUNS", 3),
+            patch("products.signals.backend.report_metric_refresh.run_cached_trends_query", return_value=measured),
+        ):
+            first = [progress["status"] for progress in self.client.get(url).json()]
+            second = [progress["status"] for progress in self.client.get(url).json()]
+
+        self.assertEqual(sorted(first), ["error", "on_track"])
+        self.assertEqual(second, ["on_track", "on_track"])
+
+    @time_machine.travel("2026-10-03T12:23:00Z", tick=False)
     def test_query_permission_blocks_measurement_and_query_disclosure(self) -> None:
         report = SignalReport.objects.create(
             team=self.team,

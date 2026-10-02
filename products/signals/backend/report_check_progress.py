@@ -207,8 +207,30 @@ def evaluate_progress(
     return CheckProgressStatus.ON_TRACK if matches else CheckProgressStatus.OFF_TRACK
 
 
+class ProgressQueryBudget:
+    def __init__(self) -> None:
+        self.deadline = time.monotonic() + REPORT_METRIC_REFRESH_TIME_BUDGET_SECONDS
+        self.source_runs = 0
+
+    def charge(self, check: SignalReportCheck) -> bool:
+        main_query = check.config.get("query") or {}
+        eligibility = check.config.get("eligibility_query") or main_query
+        cost = 2 * len(main_query.get("source", {}).get("series", [])) + len(
+            eligibility.get("source", {}).get("series", [])
+        )
+        if self.source_runs + cost > MAX_PROGRESS_SOURCE_RUNS or time.monotonic() >= self.deadline:
+            return False
+        self.source_runs += cost
+        return True
+
+
 def measure_progress(
-    *, check: SignalReportCheck, report: SignalReport, team: Team, policy: ReportMetricAccessPolicy, deadline: float
+    *,
+    check: SignalReportCheck,
+    report: SignalReport,
+    team: Team,
+    policy: ReportMetricAccessPolicy,
+    budget: ProgressQueryBudget,
 ) -> CheckProgress:
     check_id = str(check.id)
     config = parse_check_config(check.kind, check.config)
@@ -263,10 +285,16 @@ def measure_progress(
         if config.eligibility_query
         else observation_count_query(query)
     )
-    sample_size, measured_at = whole_window_value(evidence, team, deadline=deadline)
+    if not budget.charge(check):
+        return CheckProgress(
+            check_id=check_id,
+            status=CheckProgressStatus.ERROR,
+            explanation="The refresh limit was reached. Reopen the report to try again.",
+        )
+    sample_size, measured_at = whole_window_value(evidence, team, deadline=budget.deadline)
     value: float | None = None
     if sample_size > 0 or target_type == "proportional":
-        value, measured_at = whole_window_value(query, team, deadline=deadline)
+        value, measured_at = whole_window_value(query, team, deadline=budget.deadline)
     comparison = interim_comparison(
         config.comparison, target_type=target_type, fraction=(end - start).total_seconds() / window_seconds
     )
@@ -288,7 +316,7 @@ def measure_progress(
     )
     points: list[ProgressPoint] | None = None
     try:
-        series = metric_series(query, team, deadline=deadline)
+        series = metric_series(query, team, deadline=budget.deadline)
         points = []
         for index, at in enumerate(series.dates):
             bucket_end = series.dates[index + 1] if index + 1 < len(series.dates) else end
@@ -326,27 +354,11 @@ def measure_progress(
 def report_check_progress(
     *, checks: list[SignalReportCheck], report: SignalReport, team: Team, policy: ReportMetricAccessPolicy
 ) -> list[CheckProgress]:
-    deadline = time.monotonic() + REPORT_METRIC_REFRESH_TIME_BUDGET_SECONDS
+    budget = ProgressQueryBudget()
     results: list[CheckProgress] = []
-    source_runs = 0
     for check in checks[:MAX_PROGRESS_CHECKS]:
-        main_query = check.config.get("query") or {}
-        eligibility = check.config.get("eligibility_query") or main_query
-        cost = 2 * len(main_query.get("source", {}).get("series", [])) + len(
-            eligibility.get("source", {}).get("series", [])
-        )
-        if source_runs + cost > MAX_PROGRESS_SOURCE_RUNS or time.monotonic() >= deadline:
-            results.append(
-                CheckProgress(
-                    check_id=str(check.id),
-                    status=CheckProgressStatus.ERROR,
-                    explanation="The refresh limit was reached. Reopen the report to try again.",
-                )
-            )
-            continue
-        source_runs += cost
         try:
-            results.append(measure_progress(check=check, report=report, team=team, policy=policy, deadline=deadline))
+            results.append(measure_progress(check=check, report=report, team=team, policy=policy, budget=budget))
         except Exception:
             logger.exception("signals.check_progress.failed", team_id=team.id, check_id=str(check.id))
             results.append(
