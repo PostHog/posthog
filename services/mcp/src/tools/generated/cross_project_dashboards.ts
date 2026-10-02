@@ -6,22 +6,25 @@ import * as orvalSchemas from '@/generated/cross_project_dashboards/api'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const CrossProjectDashboardsListSchema = () => {
-    const CrossProjectDashboardsListQueryParams = orvalSchemas.CrossProjectDashboardsListQueryParams()
-    return CrossProjectDashboardsListQueryParams
+const CrossProjectDashboardTilesListSchema = () => {
+    const CrossProjectDashboardsTilesListParams = orvalSchemas.CrossProjectDashboardsTilesListParams()
+    const CrossProjectDashboardsTilesListQueryParams = orvalSchemas.CrossProjectDashboardsTilesListQueryParams()
+    return CrossProjectDashboardsTilesListParams.omit({ organization_id: true }).extend(
+        CrossProjectDashboardsTilesListQueryParams.shape
+    )
 }
 
-const crossProjectDashboardsList = (): ToolBase<
-    ReturnType<typeof CrossProjectDashboardsListSchema>,
-    WithPostHogUrl<Schemas.PaginatedCrossProjectDashboardList>
+const crossProjectDashboardTilesList = (): ToolBase<
+    ReturnType<typeof CrossProjectDashboardTilesListSchema>,
+    WithPostHogUrl<Schemas.PaginatedCrossProjectDashboardTileList>
 > => ({
-    name: 'cross-project-dashboards-list',
-    schema: CrossProjectDashboardsListSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof CrossProjectDashboardsListSchema>>) => {
+    name: 'cross-project-dashboard-tiles-list',
+    schema: CrossProjectDashboardTilesListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CrossProjectDashboardTilesListSchema>>) => {
         const orgId = await context.stateManager.getOrgID()
-        const result = await context.api.request<Schemas.PaginatedCrossProjectDashboardList>({
+        const result = await context.api.request<Schemas.PaginatedCrossProjectDashboardTileList>({
             method: 'GET',
-            path: `/api/organizations/${encodeURIComponent(String(orgId))}/cross_project_dashboards/`,
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/cross_project_dashboards/${encodeURIComponent(String(params.dashboard_id))}/tiles/`,
             query: {
                 limit: params.limit,
                 offset: params.offset,
@@ -52,25 +55,22 @@ const crossProjectDashboardsGet = (): ToolBase<
     },
 })
 
-const CrossProjectDashboardTilesListSchema = () => {
-    const CrossProjectDashboardsTilesListParams = orvalSchemas.CrossProjectDashboardsTilesListParams()
-    const CrossProjectDashboardsTilesListQueryParams = orvalSchemas.CrossProjectDashboardsTilesListQueryParams()
-    return CrossProjectDashboardsTilesListParams.omit({ organization_id: true }).extend(
-        CrossProjectDashboardsTilesListQueryParams.shape
-    )
+const CrossProjectDashboardsListSchema = () => {
+    const CrossProjectDashboardsListQueryParams = orvalSchemas.CrossProjectDashboardsListQueryParams()
+    return CrossProjectDashboardsListQueryParams
 }
 
-const crossProjectDashboardTilesList = (): ToolBase<
-    ReturnType<typeof CrossProjectDashboardTilesListSchema>,
-    WithPostHogUrl<Schemas.PaginatedCrossProjectDashboardTileList>
+const crossProjectDashboardsList = (): ToolBase<
+    ReturnType<typeof CrossProjectDashboardsListSchema>,
+    WithPostHogUrl<Schemas.PaginatedCrossProjectDashboardList>
 > => ({
-    name: 'cross-project-dashboard-tiles-list',
-    schema: CrossProjectDashboardTilesListSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof CrossProjectDashboardTilesListSchema>>) => {
+    name: 'cross-project-dashboards-list',
+    schema: CrossProjectDashboardsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CrossProjectDashboardsListSchema>>) => {
         const orgId = await context.stateManager.getOrgID()
-        const result = await context.api.request<Schemas.PaginatedCrossProjectDashboardTileList>({
+        const result = await context.api.request<Schemas.PaginatedCrossProjectDashboardList>({
             method: 'GET',
-            path: `/api/organizations/${encodeURIComponent(String(orgId))}/cross_project_dashboards/${encodeURIComponent(String(params.dashboard_id))}/tiles/`,
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/cross_project_dashboards/`,
             query: {
                 limit: params.limit,
                 offset: params.offset,
@@ -81,7 +81,7 @@ const crossProjectDashboardTilesList = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'cross-project-dashboards-list': crossProjectDashboardsList,
-    'cross-project-dashboards-get': crossProjectDashboardsGet,
     'cross-project-dashboard-tiles-list': crossProjectDashboardTilesList,
+    'cross-project-dashboards-get': crossProjectDashboardsGet,
+    'cross-project-dashboards-list': crossProjectDashboardsList,
 }
