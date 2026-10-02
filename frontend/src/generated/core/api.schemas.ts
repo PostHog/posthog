@@ -672,20 +672,6 @@ export interface PaginatedProjectBackwardCompatBasicListApi {
     results: ProjectBackwardCompatBasicApi[]
 }
 
-export type ProjectCreateRequestApiGroupTypesItem = { [key: string]: unknown }
-
-export type ProjectCreateRequestApiDefaultModifiers = { [key: string]: unknown }
-
-export type ProjectCreateRequestApiProductIntentsItem = {
-    product_type?: string
-    created_at?: string
-    /** @nullable */
-    onboarding_completed_at?: string | null
-    updated_at?: string
-}
-
-export type ProjectCreateRequestApiManagedViewsets = { [key: string]: boolean }
-
 /**
  * * `30d` - 30 Days
  * * `90d` - 90 Days
@@ -724,154 +710,6 @@ export const BusinessModelEnumApi = {
     B2b: 'b2b',
     B2c: 'b2c',
     Other: 'other',
-} as const
-
-/**
- * * `ingest_first_event` - ingest_first_event
- * * `set_up_reverse_proxy` - set_up_reverse_proxy
- * * `create_first_insight` - create_first_insight
- * * `create_first_dashboard` - create_first_dashboard
- * * `track_custom_events` - track_custom_events
- * * `define_actions` - define_actions
- * * `set_up_cohorts` - set_up_cohorts
- * * `explore_trends_insight` - explore_trends_insight
- * * `create_funnel` - create_funnel
- * * `explore_retention_insight` - explore_retention_insight
- * * `explore_paths_insight` - explore_paths_insight
- * * `explore_stickiness_insight` - explore_stickiness_insight
- * * `explore_lifecycle_insight` - explore_lifecycle_insight
- * * `add_authorized_domain` - add_authorized_domain
- * * `set_up_web_vitals` - set_up_web_vitals
- * * `review_web_analytics_dashboard` - review_web_analytics_dashboard
- * * `filter_web_analytics` - filter_web_analytics
- * * `set_up_web_analytics_conversion_goals` - set_up_web_analytics_conversion_goals
- * * `visit_web_vitals_dashboard` - visit_web_vitals_dashboard
- * * `setup_session_recordings` - setup_session_recordings
- * * `watch_session_recording` - watch_session_recording
- * * `configure_recording_settings` - configure_recording_settings
- * * `create_recording_playlist` - create_recording_playlist
- * * `enable_console_logs` - enable_console_logs
- * * `create_feature_flag` - create_feature_flag
- * * `implement_flag_in_code` - implement_flag_in_code
- * * `update_feature_flag_release_conditions` - update_feature_flag_release_conditions
- * * `create_multivariate_flag` - create_multivariate_flag
- * * `set_up_flag_payloads` - set_up_flag_payloads
- * * `set_up_flag_evaluation_runtimes` - set_up_flag_evaluation_runtimes
- * * `create_experiment` - create_experiment
- * * `implement_experiment_variants` - implement_experiment_variants
- * * `launch_experiment` - launch_experiment
- * * `review_experiment_results` - review_experiment_results
- * * `create_survey` - create_survey
- * * `launch_survey` - launch_survey
- * * `collect_survey_responses` - collect_survey_responses
- * * `connect_source` - connect_source
- * * `run_first_query` - run_first_query
- * * `join_external_data` - join_external_data
- * * `create_saved_view` - create_saved_view
- * * `enable_error_tracking` - enable_error_tracking
- * * `upload_source_maps` - upload_source_maps
- * * `view_first_error` - view_first_error
- * * `resolve_first_error` - resolve_first_error
- * * `ingest_first_llm_event` - ingest_first_llm_event
- * * `view_first_trace` - view_first_trace
- * * `track_costs` - track_costs
- * * `set_up_llm_evaluation` - set_up_llm_evaluation
- * * `run_ai_playground` - run_ai_playground
- * * `enable_log_capture` - enable_log_capture
- * * `view_first_logs` - view_first_logs
- * * `create_first_workflow` - create_first_workflow
- * * `set_up_first_workflow_channel` - set_up_first_workflow_channel
- * * `configure_workflow_trigger` - configure_workflow_trigger
- * * `add_workflow_action` - add_workflow_action
- * * `launch_workflow` - launch_workflow
- * * `create_first_endpoint` - create_first_endpoint
- * * `configure_endpoint` - configure_endpoint
- * * `test_endpoint` - test_endpoint
- * * `create_early_access_feature` - create_early_access_feature
- * * `update_feature_stage` - update_feature_stage
- * * `use_posthog_ai` - use_posthog_ai
- * * `use_posthog_code` - use_posthog_code
- * * `use_posthog_mcp` - use_posthog_mcp
- * * `use_posthog_in_slack` - use_posthog_in_slack
- */
-export type AvailableSetupTaskIdsEnumApi =
-    (typeof AvailableSetupTaskIdsEnumApi)[keyof typeof AvailableSetupTaskIdsEnumApi]
-
-export const AvailableSetupTaskIdsEnumApi = {
-    IngestFirstEvent: 'ingest_first_event',
-    SetUpReverseProxy: 'set_up_reverse_proxy',
-    CreateFirstInsight: 'create_first_insight',
-    CreateFirstDashboard: 'create_first_dashboard',
-    TrackCustomEvents: 'track_custom_events',
-    DefineActions: 'define_actions',
-    SetUpCohorts: 'set_up_cohorts',
-    ExploreTrendsInsight: 'explore_trends_insight',
-    CreateFunnel: 'create_funnel',
-    ExploreRetentionInsight: 'explore_retention_insight',
-    ExplorePathsInsight: 'explore_paths_insight',
-    ExploreStickinessInsight: 'explore_stickiness_insight',
-    ExploreLifecycleInsight: 'explore_lifecycle_insight',
-    AddAuthorizedDomain: 'add_authorized_domain',
-    SetUpWebVitals: 'set_up_web_vitals',
-    ReviewWebAnalyticsDashboard: 'review_web_analytics_dashboard',
-    FilterWebAnalytics: 'filter_web_analytics',
-    SetUpWebAnalyticsConversionGoals: 'set_up_web_analytics_conversion_goals',
-    VisitWebVitalsDashboard: 'visit_web_vitals_dashboard',
-    SetupSessionRecordings: 'setup_session_recordings',
-    WatchSessionRecording: 'watch_session_recording',
-    ConfigureRecordingSettings: 'configure_recording_settings',
-    CreateRecordingPlaylist: 'create_recording_playlist',
-    EnableConsoleLogs: 'enable_console_logs',
-    CreateFeatureFlag: 'create_feature_flag',
-    ImplementFlagInCode: 'implement_flag_in_code',
-    UpdateFeatureFlagReleaseConditions: 'update_feature_flag_release_conditions',
-    CreateMultivariateFlag: 'create_multivariate_flag',
-    SetUpFlagPayloads: 'set_up_flag_payloads',
-    SetUpFlagEvaluationRuntimes: 'set_up_flag_evaluation_runtimes',
-    CreateExperiment: 'create_experiment',
-    ImplementExperimentVariants: 'implement_experiment_variants',
-    LaunchExperiment: 'launch_experiment',
-    ReviewExperimentResults: 'review_experiment_results',
-    CreateSurvey: 'create_survey',
-    LaunchSurvey: 'launch_survey',
-    CollectSurveyResponses: 'collect_survey_responses',
-    ConnectSource: 'connect_source',
-    RunFirstQuery: 'run_first_query',
-    JoinExternalData: 'join_external_data',
-    CreateSavedView: 'create_saved_view',
-    EnableErrorTracking: 'enable_error_tracking',
-    UploadSourceMaps: 'upload_source_maps',
-    ViewFirstError: 'view_first_error',
-    ResolveFirstError: 'resolve_first_error',
-    IngestFirstLlmEvent: 'ingest_first_llm_event',
-    ViewFirstTrace: 'view_first_trace',
-    TrackCosts: 'track_costs',
-    SetUpLlmEvaluation: 'set_up_llm_evaluation',
-    RunAiPlayground: 'run_ai_playground',
-    EnableLogCapture: 'enable_log_capture',
-    ViewFirstLogs: 'view_first_logs',
-    CreateFirstWorkflow: 'create_first_workflow',
-    SetUpFirstWorkflowChannel: 'set_up_first_workflow_channel',
-    ConfigureWorkflowTrigger: 'configure_workflow_trigger',
-    AddWorkflowAction: 'add_workflow_action',
-    LaunchWorkflow: 'launch_workflow',
-    CreateFirstEndpoint: 'create_first_endpoint',
-    ConfigureEndpoint: 'configure_endpoint',
-    TestEndpoint: 'test_endpoint',
-    CreateEarlyAccessFeature: 'create_early_access_feature',
-    UpdateFeatureStage: 'update_feature_stage',
-    UsePosthogAi: 'use_posthog_ai',
-    UsePosthogCode: 'use_posthog_code',
-    UsePosthogMcp: 'use_posthog_mcp',
-    UsePosthogInSlack: 'use_posthog_in_slack',
-} as const
-
-export type FlagEvaluationsModeEnumApi = (typeof FlagEvaluationsModeEnumApi)[keyof typeof FlagEvaluationsModeEnumApi]
-
-export const FlagEvaluationsModeEnumApi = {
-    Number0: 0,
-    Number1: 1,
-    Number2: 2,
 } as const
 
 /**
@@ -1919,8 +1757,6 @@ export const CookielessServerHashModeEnumApi = {
  * onto /api/projects/ never loses a field.
  */
 export interface ProjectCreateRequestApi {
-    readonly id: number
-    readonly organization: string
     /**
      * Project name. Must be unique within the organization (case-insensitive). If omitted on creation, a unique default name is generated.
      * @minLength 1
@@ -1938,22 +1774,11 @@ export interface ProjectCreateRequestApi {
      * @items.maxLength 255
      */
     tags?: string[]
-    readonly created_at: string
-    readonly effective_membership_level: OrganizationMembershipLevelEnumApi
-    readonly has_group_types: boolean
-    readonly group_types: readonly ProjectCreateRequestApiGroupTypesItem[]
-    /** @nullable */
-    readonly live_events_token: string | null
-    /** @nullable */
-    readonly updated_at: string | null
-    readonly uuid: string
-    readonly api_token: string
     /** @items.maxLength 200 */
     app_urls?: (string | null)[]
     /** When true, PostHog drops the IP address from every ingested event. */
     anonymize_ips?: boolean
     completed_snippet_onboarding?: boolean
-    readonly ingested_event: boolean
     /** Filter groups that identify internal/test traffic to be excluded from insights. */
     test_account_filters?: unknown
     /**
@@ -2658,12 +2483,10 @@ export interface ProjectCreateRequestApi {
      * @items.maxLength 200
      */
     recording_domains?: (string | null)[] | null
-    readonly person_on_events_querying_enabled: boolean
     /** @nullable */
     inject_web_apps?: boolean | null
     extra_settings?: unknown
     modifiers?: unknown
-    readonly default_modifiers: ProjectCreateRequestApiDefaultModifiers
     has_completed_onboarding_for?: unknown
     /**
      * Enables displaying surveys via posthog-js on allowed origins.
@@ -2675,21 +2498,11 @@ export interface ProjectCreateRequestApi {
      * @nullable
      */
     heatmaps_opt_in?: boolean | null
-    readonly product_intents: readonly ProjectCreateRequestApiProductIntentsItem[]
     /**
      * Default value for the `persist` option on newly created feature flags.
      * @nullable
      */
     flags_persistence_default?: boolean | null
-    /** @nullable */
-    readonly secret_api_token: string | null
-    /** @nullable */
-    readonly secret_api_token_backup: string | null
-    /**
-     * Value this project's heatmap screenshots send as a cookie scoped to your domain, so bot protection can allow them. Only project admins can read it; null for everyone else and when none has been generated.
-     * @nullable
-     */
-    readonly heatmaps_screenshot_secret: string | null
     /** @nullable */
     receive_org_level_activity_logs?: boolean | null
     /** Whether this project serves B2B or B2C customers. Used to optimize default UI layouts.
@@ -2707,27 +2520,6 @@ export interface ProjectCreateRequestApi {
     logs_settings?: unknown
     /** @nullable */
     proactive_tasks_enabled?: boolean | null
-    readonly available_setup_task_ids: readonly AvailableSetupTaskIdsEnumApi[]
-    /**
-     * Set to True when project deletion has been initiated. Blocks UI access to this project until the async task completes.
-     * @nullable
-     */
-    readonly is_pending_deletion: boolean | null
-    /**
-     * When the scheduled project deletion will run.
-     * @nullable
-     */
-    readonly deletion_scheduled_at: string | null
-    /** ID of the project this environment belongs to. */
-    readonly project_id: number
-    /**
-     * The effective access level the user has for this object
-     * @nullable
-     */
-    readonly user_access_level: string | null
-    readonly managed_viewsets: ProjectCreateRequestApiManagedViewsets
-    /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
-    readonly flag_evaluations_mode: FlagEvaluationsModeEnumApi
     revenue_analytics_config?: TeamRevenueAnalyticsConfigApi
     marketing_analytics_config?: TeamMarketingAnalyticsConfigApi
     customer_analytics_config?: TeamCustomerAnalyticsConfigApi
@@ -2780,6 +2572,154 @@ export type ProjectBackwardCompatApiProductIntentsItem = {
 }
 
 export type ProjectBackwardCompatApiManagedViewsets = { [key: string]: boolean }
+
+/**
+ * * `ingest_first_event` - ingest_first_event
+ * * `set_up_reverse_proxy` - set_up_reverse_proxy
+ * * `create_first_insight` - create_first_insight
+ * * `create_first_dashboard` - create_first_dashboard
+ * * `track_custom_events` - track_custom_events
+ * * `define_actions` - define_actions
+ * * `set_up_cohorts` - set_up_cohorts
+ * * `explore_trends_insight` - explore_trends_insight
+ * * `create_funnel` - create_funnel
+ * * `explore_retention_insight` - explore_retention_insight
+ * * `explore_paths_insight` - explore_paths_insight
+ * * `explore_stickiness_insight` - explore_stickiness_insight
+ * * `explore_lifecycle_insight` - explore_lifecycle_insight
+ * * `add_authorized_domain` - add_authorized_domain
+ * * `set_up_web_vitals` - set_up_web_vitals
+ * * `review_web_analytics_dashboard` - review_web_analytics_dashboard
+ * * `filter_web_analytics` - filter_web_analytics
+ * * `set_up_web_analytics_conversion_goals` - set_up_web_analytics_conversion_goals
+ * * `visit_web_vitals_dashboard` - visit_web_vitals_dashboard
+ * * `setup_session_recordings` - setup_session_recordings
+ * * `watch_session_recording` - watch_session_recording
+ * * `configure_recording_settings` - configure_recording_settings
+ * * `create_recording_playlist` - create_recording_playlist
+ * * `enable_console_logs` - enable_console_logs
+ * * `create_feature_flag` - create_feature_flag
+ * * `implement_flag_in_code` - implement_flag_in_code
+ * * `update_feature_flag_release_conditions` - update_feature_flag_release_conditions
+ * * `create_multivariate_flag` - create_multivariate_flag
+ * * `set_up_flag_payloads` - set_up_flag_payloads
+ * * `set_up_flag_evaluation_runtimes` - set_up_flag_evaluation_runtimes
+ * * `create_experiment` - create_experiment
+ * * `implement_experiment_variants` - implement_experiment_variants
+ * * `launch_experiment` - launch_experiment
+ * * `review_experiment_results` - review_experiment_results
+ * * `create_survey` - create_survey
+ * * `launch_survey` - launch_survey
+ * * `collect_survey_responses` - collect_survey_responses
+ * * `connect_source` - connect_source
+ * * `run_first_query` - run_first_query
+ * * `join_external_data` - join_external_data
+ * * `create_saved_view` - create_saved_view
+ * * `enable_error_tracking` - enable_error_tracking
+ * * `upload_source_maps` - upload_source_maps
+ * * `view_first_error` - view_first_error
+ * * `resolve_first_error` - resolve_first_error
+ * * `ingest_first_llm_event` - ingest_first_llm_event
+ * * `view_first_trace` - view_first_trace
+ * * `track_costs` - track_costs
+ * * `set_up_llm_evaluation` - set_up_llm_evaluation
+ * * `run_ai_playground` - run_ai_playground
+ * * `enable_log_capture` - enable_log_capture
+ * * `view_first_logs` - view_first_logs
+ * * `create_first_workflow` - create_first_workflow
+ * * `set_up_first_workflow_channel` - set_up_first_workflow_channel
+ * * `configure_workflow_trigger` - configure_workflow_trigger
+ * * `add_workflow_action` - add_workflow_action
+ * * `launch_workflow` - launch_workflow
+ * * `create_first_endpoint` - create_first_endpoint
+ * * `configure_endpoint` - configure_endpoint
+ * * `test_endpoint` - test_endpoint
+ * * `create_early_access_feature` - create_early_access_feature
+ * * `update_feature_stage` - update_feature_stage
+ * * `use_posthog_ai` - use_posthog_ai
+ * * `use_posthog_code` - use_posthog_code
+ * * `use_posthog_mcp` - use_posthog_mcp
+ * * `use_posthog_in_slack` - use_posthog_in_slack
+ */
+export type AvailableSetupTaskIdsEnumApi =
+    (typeof AvailableSetupTaskIdsEnumApi)[keyof typeof AvailableSetupTaskIdsEnumApi]
+
+export const AvailableSetupTaskIdsEnumApi = {
+    IngestFirstEvent: 'ingest_first_event',
+    SetUpReverseProxy: 'set_up_reverse_proxy',
+    CreateFirstInsight: 'create_first_insight',
+    CreateFirstDashboard: 'create_first_dashboard',
+    TrackCustomEvents: 'track_custom_events',
+    DefineActions: 'define_actions',
+    SetUpCohorts: 'set_up_cohorts',
+    ExploreTrendsInsight: 'explore_trends_insight',
+    CreateFunnel: 'create_funnel',
+    ExploreRetentionInsight: 'explore_retention_insight',
+    ExplorePathsInsight: 'explore_paths_insight',
+    ExploreStickinessInsight: 'explore_stickiness_insight',
+    ExploreLifecycleInsight: 'explore_lifecycle_insight',
+    AddAuthorizedDomain: 'add_authorized_domain',
+    SetUpWebVitals: 'set_up_web_vitals',
+    ReviewWebAnalyticsDashboard: 'review_web_analytics_dashboard',
+    FilterWebAnalytics: 'filter_web_analytics',
+    SetUpWebAnalyticsConversionGoals: 'set_up_web_analytics_conversion_goals',
+    VisitWebVitalsDashboard: 'visit_web_vitals_dashboard',
+    SetupSessionRecordings: 'setup_session_recordings',
+    WatchSessionRecording: 'watch_session_recording',
+    ConfigureRecordingSettings: 'configure_recording_settings',
+    CreateRecordingPlaylist: 'create_recording_playlist',
+    EnableConsoleLogs: 'enable_console_logs',
+    CreateFeatureFlag: 'create_feature_flag',
+    ImplementFlagInCode: 'implement_flag_in_code',
+    UpdateFeatureFlagReleaseConditions: 'update_feature_flag_release_conditions',
+    CreateMultivariateFlag: 'create_multivariate_flag',
+    SetUpFlagPayloads: 'set_up_flag_payloads',
+    SetUpFlagEvaluationRuntimes: 'set_up_flag_evaluation_runtimes',
+    CreateExperiment: 'create_experiment',
+    ImplementExperimentVariants: 'implement_experiment_variants',
+    LaunchExperiment: 'launch_experiment',
+    ReviewExperimentResults: 'review_experiment_results',
+    CreateSurvey: 'create_survey',
+    LaunchSurvey: 'launch_survey',
+    CollectSurveyResponses: 'collect_survey_responses',
+    ConnectSource: 'connect_source',
+    RunFirstQuery: 'run_first_query',
+    JoinExternalData: 'join_external_data',
+    CreateSavedView: 'create_saved_view',
+    EnableErrorTracking: 'enable_error_tracking',
+    UploadSourceMaps: 'upload_source_maps',
+    ViewFirstError: 'view_first_error',
+    ResolveFirstError: 'resolve_first_error',
+    IngestFirstLlmEvent: 'ingest_first_llm_event',
+    ViewFirstTrace: 'view_first_trace',
+    TrackCosts: 'track_costs',
+    SetUpLlmEvaluation: 'set_up_llm_evaluation',
+    RunAiPlayground: 'run_ai_playground',
+    EnableLogCapture: 'enable_log_capture',
+    ViewFirstLogs: 'view_first_logs',
+    CreateFirstWorkflow: 'create_first_workflow',
+    SetUpFirstWorkflowChannel: 'set_up_first_workflow_channel',
+    ConfigureWorkflowTrigger: 'configure_workflow_trigger',
+    AddWorkflowAction: 'add_workflow_action',
+    LaunchWorkflow: 'launch_workflow',
+    CreateFirstEndpoint: 'create_first_endpoint',
+    ConfigureEndpoint: 'configure_endpoint',
+    TestEndpoint: 'test_endpoint',
+    CreateEarlyAccessFeature: 'create_early_access_feature',
+    UpdateFeatureStage: 'update_feature_stage',
+    UsePosthogAi: 'use_posthog_ai',
+    UsePosthogCode: 'use_posthog_code',
+    UsePosthogMcp: 'use_posthog_mcp',
+    UsePosthogInSlack: 'use_posthog_in_slack',
+} as const
+
+export type FlagEvaluationsModeEnumApi = (typeof FlagEvaluationsModeEnumApi)[keyof typeof FlagEvaluationsModeEnumApi]
+
+export const FlagEvaluationsModeEnumApi = {
+    Number0: 0,
+    Number1: 1,
+    Number2: 2,
+} as const
 
 /**
  * A project and its settings, including the settings that live on its passthrough Team.

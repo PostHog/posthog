@@ -849,7 +849,7 @@ export const getOrganizationsProjectsCreateUrl = (organizationId: string) => {
  */
 export const organizationsProjectsCreate = async (
     organizationId: string,
-    projectCreateRequestApi?: NonReadonly<ProjectCreateRequestApi>,
+    projectCreateRequestApi?: ProjectCreateRequestApi,
     options?: RequestInit
 ): Promise<ProjectBackwardCompatApi> => {
     return apiMutator<ProjectBackwardCompatApi>(getOrganizationsProjectsCreateUrl(organizationId), {

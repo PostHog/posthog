@@ -1427,6 +1427,9 @@ class ProjectBackwardCompatSerializer(
 
 
 class ProjectCreateRequestSerializer(ProjectBackwardCompatSerializer):
+    def get_fields(self) -> dict[str, serializers.Field]:
+        return {name: field for name, field in super().get_fields().items() if not field.read_only}
+
     class Meta(ProjectBackwardCompatSerializer.Meta):
         fields = tuple(field for field in ProjectBackwardCompatSerializer.Meta.fields if field != "home_tab_dashboard")
 
