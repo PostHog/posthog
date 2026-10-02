@@ -39,6 +39,7 @@ from posthog.schema import (
 from posthog.hogql.constants import LimitContext
 
 from posthog.api.query import (
+    CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS,
     CONCURRENCY_LIMIT_USER_MESSAGE,
     MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE,
     MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_MESSAGE,
@@ -100,6 +101,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         detail = response.json()["detail"]
         self.assertEqual(detail, CONCURRENCY_LIMIT_USER_MESSAGE)
         self.assertNotIn("app:query:per-org", detail)
+        self.assertEqual(response["Retry-After"], str(CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS))
 
     @parameterized.expand(
         [

@@ -90,6 +90,8 @@ tracer = trace.get_tracer(__name__)
 # exception embeds an internal Redis key + task id, so we log that for debugging and surface this
 # friendly message instead of leaking implementation details into the UI.
 CONCURRENCY_LIMIT_USER_MESSAGE = "Too many queries are running right now — please try again in a moment."
+# The limiter already waited for a slot before it rejected the query, so a short Retry-After is enough.
+CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS = 5
 MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_MESSAGE = (
     "This managed warehouse connection is no longer available. Select a source and run the query again."
 )
@@ -276,7 +278,10 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     def _raise_concurrency_throttled(self, exc: ConcurrencyLimitExceeded) -> NoReturn:
         # Log the raw detail (Redis key + task id) for Loki, but surface a clean message to the user.
         logger.warning("query_concurrency_limit_exceeded", detail=str(exc))
-        raise Throttled(detail=CONCURRENCY_LIMIT_USER_MESSAGE)
+        throttled = Throttled(detail=CONCURRENCY_LIMIT_USER_MESSAGE)
+        # Set wait after init so DRF sends Retry-After without "Expected available in N seconds." in the message.
+        throttled.wait = CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS  # type: ignore[attr-defined]
+        raise throttled
 
     @extend_schema(
         request=QueryRequest,
