@@ -478,9 +478,9 @@ def test_tune_partition_autovacuum_sets_options_once(existing_options: str, expe
             with patch.object(conn, "execute", side_effect=recording_execute):
                 activities_module._tune_partition_autovacuum(conn, partition, errors)
 
-            options = conn.execute("SELECT reloptions FROM pg_class WHERE oid = %s::regclass", [partition]).fetchone()[
-                0
-            ]
+            row = conn.execute("SELECT reloptions FROM pg_class WHERE oid = %s::regclass", [partition]).fetchone()
+            assert row is not None
+            options = row[0]
         finally:
             conn.execute(f"DROP TABLE IF EXISTS {table}")
 
