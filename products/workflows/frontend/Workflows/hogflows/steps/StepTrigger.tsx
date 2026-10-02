@@ -24,6 +24,7 @@ import {
     LemonLabel,
     LemonSegmentedButton,
     LemonSelect,
+    Link,
     Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
@@ -46,6 +47,8 @@ import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter/Tes
 import { teamLogic } from 'scenes/teamLogic'
 
 import { tagsModel } from '~/models/tagsModel'
+import { AccountsQuery } from '~/queries/schema/schema-general'
+import { isAccountsQuery } from '~/queries/utils'
 import { PropertyFilterType } from '~/types'
 
 import { accountsColumnConfigLogic } from 'products/customer_analytics/frontend/components/Accounts/accountsColumnConfigLogic'
@@ -59,6 +62,7 @@ import { TriggerFrequencyOption, getRegisteredTriggerTypes } from '../registry/t
 import { HogFlowAction } from '../types'
 import { createAccountAssignmentFilterUpdate, parseAccountAssignmentFilter } from './accountAssignmentFilter'
 import { batchTriggerLogic, getAudienceDedupeKey, hogFlowSendsEmail } from './batchTriggerLogic'
+import { BatchAudienceAccountsModal } from './components/BatchAudienceAccountsModal'
 import { ConversionGoalEditor } from './components/ConversionGoalEditor'
 import { EmailSendingRateLimitPicker } from './components/EmailSendingRateLimitPicker'
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
@@ -576,6 +580,7 @@ function StepTriggerAffectedUsers({ actionId, filters }: { actionId: string; fil
     const dedupeKey = isAccountAudience ? undefined : getAudienceDedupeKey(workflow)
     const logic = batchTriggerLogic({ id: actionId, filters, dedupeKey, sendsEmail: hogFlowSendsEmail(workflow) })
     const { blastRadiusLoading, blastRadius, blastRadiusError } = useValues(logic)
+    const [audienceModalOpen, setAudienceModalOpen] = useState(false)
 
     if (blastRadiusLoading) {
         return <Spinner className="mt-1" />
@@ -604,15 +609,38 @@ function StepTriggerAffectedUsers({ actionId, filters }: { actionId: string; fil
     }
 
     const { affected, total, limit } = blastRadius
+    const audienceQuery = isAccountsQuery(blastRadius.audience_query as Record<string, any> | null)
+        ? (blastRadius.audience_query as AccountsQuery)
+        : null
 
     if (affected != null && total != null) {
         const exceeded = limit != null && affected > limit
         return (
             <div className="text-muted">
                 <div className={exceeded ? 'text-danger font-semibold' : 'text-muted'}>
-                    approximately {humanFriendlyNumber(affected)} of {humanFriendlyNumber(total)}{' '}
-                    {isAccountAudience ? 'accounts' : 'persons'}.
+                    approximately{' '}
+                    {audienceQuery && affected > 0 ? (
+                        <Link
+                            onClick={() => setAudienceModalOpen(true)}
+                            className="font-semibold"
+                            data-attr="workflows-batch-audience-accounts-link"
+                        >
+                            {humanFriendlyNumber(affected)}
+                        </Link>
+                    ) : (
+                        humanFriendlyNumber(affected)
+                    )}{' '}
+                    of {humanFriendlyNumber(total)} {isAccountAudience ? 'accounts' : 'persons'}.
                 </div>
+                {audienceQuery && (
+                    <BatchAudienceAccountsModal
+                        actionId={actionId}
+                        audienceQuery={audienceQuery}
+                        affected={affected}
+                        isOpen={audienceModalOpen}
+                        onClose={() => setAudienceModalOpen(false)}
+                    />
+                )}
                 {exceeded && limit != null && (
                     <div className="text-danger text-xs">
                         Your audience is above this project's batch limit of {humanFriendlyNumber(limit)}{' '}

@@ -413,13 +413,20 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertFalse(response.hasMore)
         self.assertEqual(response.offset, 0)
 
-    def test_name_column_carries_id_external_id_and_display_name(self):
-        account = create_account(team_id=self.team.id, name="A", external_id="ext-A")
+    @parameterized.expand(
+        [
+            ("no_domains", {}, None),
+            ("website_domain", {"website_domain": "acme.com", "email_domains": ["acme.io"]}, "acme.com"),
+            ("first_company_email_domain", {"email_domains": ["gmail.com", "acme.io"]}, "acme.io"),
+        ]
+    )
+    def test_name_column_carries_identity_and_logo_domain(self, _name, properties, expected_logo_domain):
+        account = create_account(team_id=self.team.id, name="A", external_id="ext-A", properties=properties)
         runner, response = self._run_query()
         name_idx = runner.columns.index("name")
         self.assertEqual(
             response.results[0][name_idx],
-            {"name": "A", "external_id": "ext-A", "id": str(account.id)},
+            {"name": "A", "external_id": "ext-A", "id": str(account.id), "logo_domain": expected_logo_domain},
         )
 
     def test_name_column_is_prepended_when_not_in_select(self):

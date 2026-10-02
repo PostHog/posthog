@@ -1,3 +1,5 @@
+import json
+
 import posthoganalytics
 
 from posthog.schema import AccountsQuery, AccountsQueryResponse, CachedAccountsQueryResponse
@@ -14,6 +16,7 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.customer_analytics.backend.logic.account_logo import resolve_logo_domain
 
 NAME_COLUMN = "name"
 
@@ -35,6 +38,26 @@ def _normalize_order_clause(raw: str) -> str:
     if stripped.startswith("-"):
         return f"{stripped[1:].strip()} DESC"
     return stripped
+
+
+def _name_cell(cell: tuple) -> dict[str, str | None]:
+    name, external_id, account_id, website_domain, raw_email_domains = cell
+    return {
+        "name": name,
+        "external_id": external_id,
+        "id": account_id,
+        "logo_domain": resolve_logo_domain(
+            website_domain=website_domain or None, email_domains=_parse_email_domains(raw_email_domains)
+        ),
+    }
+
+
+def _parse_email_domains(raw: str | None) -> list[str]:
+    try:
+        domains = json.loads(raw) if raw else []
+    except ValueError:
+        return []
+    return [domain for domain in domains if isinstance(domain, str)] if isinstance(domains, list) else []
 
 
 class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
@@ -122,6 +145,8 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
                     ast.Field(chain=["name"]),
                     ast.Field(chain=["external_id"]),
                     ast.Call(name="toString", args=[ast.Field(chain=["id"])]),
+                    ast.Field(chain=["properties", "website_domain"]),
+                    ast.Field(chain=["properties", "email_domains"]),
                 ],
             ),
         )
@@ -247,10 +272,7 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
 
         name_index = self.columns.index(NAME_COLUMN)
         results = [
-            [
-                {"name": cell[0], "external_id": cell[1], "id": cell[2]} if index == name_index else cell
-                for index, cell in enumerate(row)
-            ]
+            [_name_cell(cell) if index == name_index else cell for index, cell in enumerate(row)]
             for row in self.paginator.results
         ]
 
