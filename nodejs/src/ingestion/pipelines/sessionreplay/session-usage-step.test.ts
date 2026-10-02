@@ -1,23 +1,13 @@
-import { DateTime } from 'luxon'
-import { register } from 'prom-client'
-
 import { UsageIngestionClient, UsageRecordInput } from '~/common/usage-ingestion/client'
 import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
-import { drop, ok } from '~/ingestion/framework/results'
+import {
+    SessionBlockMetadata,
+    createNoopBlockMetadata,
+} from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
 
-import { ParsedMessageData } from './kafka/types'
-import { Recordable, SessionReplayHeaders } from './pipeline-types'
-import { createRecordSessionUsageStep, trackUnbilledNewSessions } from './session-usage-step'
-import { TeamForReplay } from './teams/types'
+import { recordPersistedSessionUsage } from './session-usage-step'
 
-type SessionUsageValue = Recordable<{
-    team: TeamForReplay
-    headers: SessionReplayHeaders
-    parsedMessage: ParsedMessageData
-    isNewSession: boolean
-}>
-
-describe('createRecordSessionUsageStep', () => {
+describe('session usage', () => {
     let ingested: UsageRecordInput[]
     let usageBatch: UsageRecordBatch
 
@@ -32,97 +22,44 @@ describe('createRecordSessionUsageStep', () => {
         usageBatch = new UsageRecordBatch(client, { unit: 'recordings', isTeamEnabled: () => true })
     })
 
-    function buildValue(
-        snapshotSource: string | null,
-        snapshotLibrary: string | null,
-        isNewSession: boolean
-    ): SessionUsageValue {
+    function metadata(snapshotSource: string | null, captureTimestampMs?: number): SessionBlockMetadata {
         return {
-            team: { teamId: 42, consoleLogIngestionEnabled: false, aiTrainingOptedIn: false },
-            headers: { token: 'token', session_id: 'session-1', distinct_id: 'distinct-1' },
-            parsedMessage: {
-                distinct_id: 'distinct-1',
-                session_id: 'session-1',
-                token: 'token',
-                eventsByWindowId: { window1: [] },
-                eventsRange: { start: DateTime.fromMillis(0), end: DateTime.fromMillis(0) },
-                snapshot_source: snapshotSource,
-                snapshot_library: snapshotLibrary,
-                metadata: { partition: 0, topic: 'test-topic', rawSize: 0, offset: 0, timestamp: 0 },
-            },
-            isNewSession,
-            status: 'allowed',
-            sessionKey: {
-                plaintextKey: Buffer.alloc(0),
-                encryptedKey: Buffer.alloc(0),
-                sessionState: 'ciphertext',
-            },
+            ...createNoopBlockMetadata('session-1', 42),
+            snapshotSource,
+            captureTimestampMs,
         }
     }
 
-    async function record(
-        snapshotSource: string | null,
-        snapshotLibrary: string | null,
-        isNewSession = true
-    ): Promise<string[]> {
-        const step = createRecordSessionUsageStep(usageBatch)
-        await step(buildValue(snapshotSource, snapshotLibrary, isNewSession))
-
+    async function record(sessions: SessionBlockMetadata[]): Promise<string[]> {
+        recordPersistedSessionUsage(usageBatch, sessions)
         await usageBatch.flush()
         return ingested.map((record) => record.usageKey)
     }
 
     it.each([
-        ['web', 'posthog-js', ['session_replay_recordings']],
-        ['mobile', 'posthog-ios', ['mobile_replay_recordings']],
-        ['mobile', 'posthog-flutter', ['mobile_replay_recordings']],
-        // The report bills mobile replay only from four named libraries. The meter reads the
-        // source instead, so a mobile recording bills whatever library it names.
-        ['mobile', 'posthog-python', ['mobile_replay_recordings']],
-        ['mobile', null, ['mobile_replay_recordings']],
-        // Nothing validates the source, so anything but 'mobile' bills as web rather than for free.
-        ['desktop', 'posthog-js', ['session_replay_recordings']],
-        [null, null, ['session_replay_recordings']],
-    ])('bills a %s session from %s under %j', async (source, library, expectedUsageKeys) => {
-        expect(await record(source, library)).toEqual(expectedUsageKeys)
+        ['web', ['session_replay_recordings']],
+        ['mobile', ['mobile_replay_recordings']],
+        ['desktop', ['session_replay_recordings']],
+        [null, ['session_replay_recordings']],
+    ])('bills persisted %s metadata under %j', async (source, expectedUsageKeys) => {
+        expect(await record([metadata(source, 1_700_000_000_000)])).toEqual(expectedUsageKeys)
     })
 
-    it('bills nothing for a session already seen in this batch', async () => {
-        expect(await record('web', 'posthog-js', false)).toEqual([])
+    it('uses the persisted session identity and trusted capture timestamp once', async () => {
+        const persisted = metadata('web', 1_700_000_000_000)
+
+        await record([persisted, persisted])
+
+        expect(ingested).toEqual([
+            expect.objectContaining({
+                recordId: 'session-1',
+                quantity: 1,
+                timestampMs: 1_700_000_000_000,
+            }),
+        ])
     })
 
-    it('uses trusted capture time from replay headers', async () => {
-        const capturedAtMs = 1_700_000_000_000
-        const value = buildValue('web', 'posthog-js', true)
-        value.headers.now = new Date(capturedAtMs)
-
-        await createRecordSessionUsageStep(usageBatch)(value)
-        await usageBatch.flush()
-
-        expect(ingested[0]).toEqual(expect.objectContaining({ timestampMs: capturedAtMs }))
-    })
-
-    describe('trackUnbilledNewSessions', () => {
-        async function unbilledCount(): Promise<number> {
-            const metric = register.getSingleMetric('recording_blob_ingestion_v2_unbilled_new_session')!
-            const data = (await metric.get()) as { values: { value: number }[] }
-            return data.values.reduce((total, entry) => total + entry.value, 0)
-        }
-
-        it.each([
-            ['counts a new session whose message fails', true, false, 1],
-            ['counts nothing for a session already seen', false, false, 0],
-            ['counts nothing for a new session that parses', true, true, 0],
-        ])('%s', async (_name, isNewSession, succeeds, expectedIncrease) => {
-            const value = buildValue('web', 'posthog-js', isNewSession)
-            const before = await unbilledCount()
-            const step = trackUnbilledNewSessions(() =>
-                Promise.resolve(succeeds ? ok(value) : drop<typeof value>('message_contained_no_valid_rrweb_events'))
-            )
-
-            await step(value)
-
-            expect(await unbilledCount()).toEqual(before + expectedIncrease)
-        })
+    it('bills nothing without persisted replay metadata', async () => {
+        expect(await record([])).toEqual([])
     })
 })

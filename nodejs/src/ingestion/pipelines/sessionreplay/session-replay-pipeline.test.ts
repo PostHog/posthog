@@ -1189,7 +1189,8 @@ describe('session-replay-pipeline', () => {
                     }),
                 }),
                 '30d',
-                expect.objectContaining({ sessionState: 'cleartext' })
+                expect.objectContaining({ sessionState: 'cleartext' }),
+                undefined
             )
         })
 
