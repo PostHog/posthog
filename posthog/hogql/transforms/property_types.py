@@ -620,9 +620,7 @@ class PropertySwapper(CloningVisitor):
 
     @staticmethod
     def _anchor_to_timezone(expr: ast.Expr, tz: str) -> ast.Expr:
-        inner = expr
-        if isinstance(inner, ast.Alias):
-            inner = inner.expr
+        inner = unwrap_alias(expr)
 
         if isinstance(inner, ast.Call):
             if inner.name in ("toDateTime", "toDateTime64", "toTimeZone"):

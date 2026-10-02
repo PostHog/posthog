@@ -2326,7 +2326,7 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         # The HAVING max(timestamp) comparison should preserve toTimeZone
         assert re.search(r"HAVING.*toTimeZone", sql), f"Expected toTimeZone preserved in HAVING, got:\n{sql}"
 
-    def _assert_correct_results(self, hogql: str, timezone: str, expected_count: int):
+    def _assert_correct_results(self, hogql: str | ast.SelectQuery, timezone: str, expected_count: int) -> None:
         self.team.timezone = timezone
         self.team.save()
         response = execute_hogql_query(hogql, team=self.team)
@@ -2390,15 +2390,32 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
             ("and_call", "and(timestamp >= toTimeZone({bound}, 'Asia/Tokyo'), 1)"),
             ("comparison_call", "greaterOrEquals(timestamp, toTimeZone({bound}, 'Asia/Tokyo'))"),
             ("nullable_wrapper", "timestamp >= assumeNotNull(toTimeZone({bound}, 'Asia/Tokyo'))"),
+            (
+                "nested_aliases",
+                "timestamp >= {bound}",
+                "toTimeZone(toDateTime64('2024-03-01 12:00:00.000000500', 9, 'UTC'), 'Asia/Tokyo')",
+                2,
+            ),
         ]
     )
-    def test_nanosecond_bound_keeps_its_precision(self, _name: str, comparison: str) -> None:
+    def test_nanosecond_bound_keeps_its_precision(
+        self,
+        _name: str,
+        comparison: str,
+        bound_sql: str = "toDateTime64('2024-03-01 12:00:00.000000500', 9, 'UTC')",
+        alias_depth: int = 0,
+    ) -> None:
         for timestamp in (datetime(2024, 3, 1, 12, 0, 0), datetime(2024, 3, 1, 12, 0, 1)):
             _create_event(team=self.team, distinct_id="nano_user", event="nano_test", timestamp=timestamp)
         flush_persons_and_events()
 
-        where = comparison.format(bound="toDateTime64('2024-03-01 12:00:00.000000500', 9, 'UTC')")
-        hogql = f"SELECT count() FROM events WHERE event = 'nano_test' AND {where}"
+        bound = parse_select(f"SELECT {bound_sql}").select[0]
+        for alias_index in range(alias_depth):
+            bound = ast.Alias(alias=f"date_bound_{alias_index}", expr=bound, hidden=True)
+        where = comparison.format(bound="{bound}")
+        hogql = parse_select(
+            f"SELECT count() FROM events WHERE event = 'nano_test' AND {where}", placeholders={"bound": bound}
+        )
         self._assert_correct_results(hogql, timezone="UTC", expected_count=1)
 
     def test_positive_utc_offset_does_not_drop_events(self):
@@ -2465,15 +2482,23 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         hogql = "SELECT count() FROM events WHERE event = 'lhi_test' AND timestamp >= '2024-01-16' AND timestamp < '2024-01-17'"
         self._assert_correct_results(hogql, timezone="Australia/Lord_Howe", expected_count=2)
 
-    @parameterized.expand(["UTC", "America/New_York", "Asia/Tokyo"])
-    def test_iso8601_z_suffixed_filter_value_does_not_error(self, tz):
+    @parameterized.expand([("UTC", 0), ("America/New_York", 0), ("Asia/Tokyo", 0), ("UTC", 2)])
+    def test_iso8601_z_suffixed_filter_value_does_not_error(self, tz: str, alias_depth: int) -> None:
         """ISO 8601 filter values with a trailing `Z` must parse (not hit the strict
         toDateTime64 parser, which throws) and honor the UTC offset regardless of the
         team timezone — so all three timezones select the same three UTC instants."""
-        hogql = (
-            "SELECT count() FROM events WHERE event = '$pageview' "
-            "AND timestamp >= '2024-03-12T00:00:00.000Z' "
-            "AND timestamp < '2024-03-15T00:00:00.000Z'"
+        bounds: dict[str, ast.Expr] = {
+            "start": ast.Constant(value="2024-03-12T00:00:00.000Z"),
+            "end": ast.Constant(value="2024-03-15T00:00:00.000Z"),
+        }
+        for alias_index in range(alias_depth):
+            bounds = {
+                name: ast.Alias(alias=f"{name}_{alias_index}", expr=bound, hidden=True)
+                for name, bound in bounds.items()
+            }
+        hogql = parse_select(
+            "SELECT count() FROM events WHERE event = '$pageview' AND timestamp >= {start} AND timestamp < {end}",
+            placeholders=bounds,
         )
         self._assert_correct_results(hogql, timezone=tz, expected_count=3)
 
