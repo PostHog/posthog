@@ -56,17 +56,17 @@ export interface recipientsLogicActions {
         page: RecipientPageApi
         payload?: RecipientsRequest
     }
-    loadCoverage: () => {
+    loadAudienceCoverage: () => {
         value: true
     }
-    loadCoverageFailure: (
+    loadAudienceCoverageFailure: (
         error: string,
         errorObject?: any
     ) => {
         error: string
         errorObject?: any
     }
-    loadCoverageSuccess: (
+    loadAudienceCoverageSuccess: (
         coverage: number | null,
         payload?: {
             value: true
@@ -168,7 +168,7 @@ export const recipientsLogic = kea<recipientsLogicType>([
         coverage: [
             null as number | null,
             {
-                loadCoverage: async (): Promise<number | null> => {
+                loadAudienceCoverage: async (): Promise<number | null> => {
                     const coverage = await api.messagingRecipientsCoverageRetrieve(currentTeamId())
                     return coverage.persons_without_email
                 },
@@ -238,6 +238,6 @@ export const recipientsLogic = kea<recipientsLogicType>([
     })),
     afterMount(({ actions }) => {
         actions.loadAudienceRecipients(FIRST_PAGE)
-        actions.loadCoverage()
+        actions.loadAudienceCoverage()
     }),
 ])

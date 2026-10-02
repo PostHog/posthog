@@ -1,7 +1,7 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
-import posthog from 'posthog-js'
 
+import { PERSON_DISPLAY_NAME_COLUMN_NAME } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -55,7 +55,7 @@ describe('recipientsLogic', () => {
     async function mountLogic(): Promise<void> {
         logic = recipientsLogic()
         logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadAudienceRecipientsSuccess', 'loadCoverageSuccess'])
+        await expectLogic(logic).toDispatchActions(['loadAudienceRecipientsSuccess', 'loadAudienceCoverageSuccess'])
     }
 
     beforeEach(() => {
@@ -65,7 +65,9 @@ describe('recipientsLogic', () => {
     })
 
     afterEach(() => {
-        logic?.unmount()
+        if (logic?.isMounted()) {
+            logic.unmount()
+        }
         jest.useRealTimers()
         jest.restoreAllMocks()
     })
@@ -87,7 +89,10 @@ describe('recipientsLogic', () => {
     it('pages forward with the returned cursor and back to the first page', async () => {
         await mountLogic()
 
-        await expectLogic(logic, () => logic.actions.loadNextPage())
+        logic.actions.loadNextPage()
+        expect(logic.values.hasNextPage).toBe(false)
+        logic.actions.loadNextPage()
+        await expectLogic(logic)
             .toDispatchActions(['loadAudienceRecipientsSuccess'])
             .toMatchValues({ recipients: [recipient('sam@example.com')], hasNextPage: false, hasPreviousPage: true })
 
@@ -124,6 +129,7 @@ describe('recipientsLogic', () => {
             .filter((params) => params.get('search') === 'sam')
             .map((params) => params.get('cursor'))
         expect(samCursors).toEqual([null])
+        expect(requests).toHaveLength(2)
         expect(logic.values.hasPreviousPage).toBe(false)
     })
 
@@ -152,6 +158,24 @@ describe('recipientsLogic', () => {
         expect(logic.values.recipients).toEqual(PAGES_BY_CURSOR[''].results)
     })
 
+    it('keeps the current page on screen when the next page fails', async () => {
+        await mountLogic()
+        useRecipientsResponse((params) =>
+            params.get('cursor') ? [500, { detail: 'Query timed out' }] : [200, PAGES_BY_CURSOR['']]
+        )
+
+        await expectLogic(logic, () => logic.actions.loadNextPage()).toDispatchActions([
+            'loadAudienceRecipientsFailure',
+        ])
+
+        expect(logic.values).toMatchObject({
+            recipientsView: 'results',
+            loadFailed: true,
+            recipients: PAGES_BY_CURSOR[''].results,
+            hasNextPage: true,
+        })
+    })
+
     it.each([
         { name: 'no recipient at all', search: '', response: [200, { results: [], next_cursor: null }], view: 'empty' },
         {
@@ -159,6 +183,12 @@ describe('recipientsLogic', () => {
             search: 'nobody',
             response: [200, { results: [], next_cursor: null }],
             view: 'no-match',
+        },
+        {
+            name: 'a search of only spaces',
+            search: '   ',
+            response: [200, { results: [], next_cursor: null }],
+            view: 'empty',
         },
         { name: 'a failed request', search: 'slow', response: [500, { detail: 'Query timed out' }], view: 'error' },
         { name: 'a page of recipients', search: 'jamie', response: [200, PAGES_BY_CURSOR['']], view: 'results' },
@@ -173,20 +203,17 @@ describe('recipientsLogic', () => {
         expect(logic.values.recipientsView).toBe(view)
     })
 
-    it('links unreachable persons to the persons list filtered to persons with no email', async () => {
-        const capture = jest.spyOn(posthog, 'capture')
-        await mountLogic()
-
+    it('links unreachable persons to the persons list filtered to persons with no email', () => {
         router.actions.push(unreachablePersonsUrl())
         const { q } = router.values.hashParams
 
         expect(router.values.location.pathname).toContain(urls.persons())
+        expect(q.full).toBe(true)
         expect(q.source.kind).toBe('ActorsQuery')
+        // Without an explicit select the persons list renders its person column as "Unknown"
+        expect(q.source.select).toContain(PERSON_DISPLAY_NAME_COLUMN_NAME)
         expect(q.source.properties).toEqual([
             { type: PropertyFilterType.Person, key: 'email', operator: PropertyOperator.IsNotSet },
         ])
-
-        logic.actions.openUnreachablePersons()
-        expect(capture).toHaveBeenCalledWith('audience unreachable persons opened', { count: 12 })
     })
 })
