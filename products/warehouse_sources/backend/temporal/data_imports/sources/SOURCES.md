@@ -112,8 +112,10 @@ the row lists both.
 | aws_inspector                    | HTTP                        | requests                                                        | ✅                          |
 | aws_organizations                | HTTP                        | requests                                                        | ✅                          |
 | aws_sagemaker                    | HTTP                        | requests                                                        | ✅                          |
+| aws_savings_plans                | HTTP                        | requests                                                        | ✅                          |
 | aws_security_hub                 | HTTP                        | requests                                                        | ✅                          |
 | aws_ses                          | HTTP                        | requests                                                        | ✅                          |
+| aws_step_functions               | HTTP                        | requests                                                        | ✅                          |
 | aws_systems_manager              | HTTP                        | requests                                                        | ✅                          |
 | aws_waf                          | HTTP                        | requests                                                        | ✅                          |
 | azure_cost_management            | HTTP                        | requests                                                        | ✅                          |
@@ -930,8 +932,6 @@ doesn't conflict with concurrent PRs.
 - aws_iam_access_analyzer
 - aws_macie
 - aws_rds_performance_insights
-- aws_savings_plans
-- aws_step_functions
 - aws_support
 - aws_trusted_advisor
 - aws_xray

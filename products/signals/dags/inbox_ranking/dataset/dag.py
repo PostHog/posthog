@@ -116,7 +116,7 @@ from products.signals.dags.inbox_ranking.dataset.queries import (
     valid_report_uuids,
 )
 
-FEATURE_SCHEMA_VERSION = 7
+FEATURE_SCHEMA_VERSION = 9
 
 STATE_TABLE = "inbox_report_state"
 EMBEDDINGS_TABLE = "inbox_report_embeddings"
@@ -246,6 +246,10 @@ LABEL_FIELDS: list[tuple[str, pa.DataType]] = [
     ("first_dismissal_reason", pa.string()),
     ("wrong_dismissal_count", pa.int32()),
     ("first_wrong_dismissed_at", _TIMESTAMP),
+    ("fixed_count", pa.int32()),
+    ("first_fixed_at", _TIMESTAMP),
+    ("lowvalue_dismissal_count", pa.int32()),
+    ("first_lowvalue_dismissed_at", _TIMESTAMP),
     ("status_event_priority", pa.string()),
     ("status_event_actionability", pa.string()),
     ("status_event_team_id", pa.int64()),

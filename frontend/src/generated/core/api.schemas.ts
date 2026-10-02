@@ -684,6 +684,12 @@ export type ProjectBackwardCompatApiProductIntentsItem = {
     updated_at?: string
 }
 
+/**
+ * Settings for Conversations. Must be a JSON object or null.
+ * @nullable
+ */
+export type ProjectBackwardCompatApiConversationsSettings = { [key: string]: unknown } | null
+
 export type ProjectBackwardCompatApiManagedViewsets = { [key: string]: boolean }
 
 /**
@@ -2703,7 +2709,11 @@ export interface ProjectBackwardCompatApi {
      * @nullable
      */
     conversations_enabled?: boolean | null
-    conversations_settings?: unknown
+    /**
+     * Settings for Conversations. Must be a JSON object or null.
+     * @nullable
+     */
+    conversations_settings?: ProjectBackwardCompatApiConversationsSettings
     logs_settings?: unknown
     /** @nullable */
     proactive_tasks_enabled?: boolean | null
@@ -2778,6 +2788,12 @@ export type PatchedProjectBackwardCompatApiProductIntentsItem = {
     onboarding_completed_at?: string | null
     updated_at?: string
 }
+
+/**
+ * Settings for Conversations. Must be a JSON object or null.
+ * @nullable
+ */
+export type PatchedProjectBackwardCompatApiConversationsSettings = { [key: string]: unknown } | null
 
 export type PatchedProjectBackwardCompatApiManagedViewsets = { [key: string]: boolean }
 
@@ -3572,7 +3588,11 @@ export interface PatchedProjectBackwardCompatApi {
      * @nullable
      */
     conversations_enabled?: boolean | null
-    conversations_settings?: unknown
+    /**
+     * Settings for Conversations. Must be a JSON object or null.
+     * @nullable
+     */
+    conversations_settings?: PatchedProjectBackwardCompatApiConversationsSettings
     logs_settings?: unknown
     /** @nullable */
     proactive_tasks_enabled?: boolean | null

@@ -404,6 +404,13 @@ def test_dismissed_as_wrong_prefers_the_cumulative_count(frame, expected):
             [True, True, True, True],
             [True, True, True, False],
         ),
+        # fixed: cohort is everyone, label is a fix read from the status stream.
+        (
+            "fixed",
+            pd.DataFrame({"fixed_count": [1, 0, 0], "pr_merged_count": [0, 1, 0]}),
+            [True, True, True],
+            [True, False, False],
+        ),
         # discuss: cohort is everyone, so a never-impressed report counts; label is a discuss action.
         (
             "discuss",
@@ -438,6 +445,19 @@ def test_dismissed_as_wrong_prefers_the_cumulative_count(frame, expected):
             [True, True, True, True],
             [True, True, False, True],
         ),
+        # dismiss_lowvalue: cohort is everyone, label is a low-value dismissal, never a wrong one.
+        (
+            "dismiss_lowvalue",
+            pd.DataFrame(
+                {
+                    "impression_unit_count": [1, 0, 1],
+                    "lowvalue_dismissal_count": [1, 1, 0],
+                    "wrong_dismissal_count": [0, 0, 1],
+                }
+            ),
+            [True, True, True],
+            [True, True, False],
+        ),
     ],
 )
 def test_new_heads_read_the_right_cohort_and_label_columns(head_name, frame, expected_cohort, expected_label):
@@ -468,9 +488,11 @@ class _ParquetS3:
     "head_name,positive_column",
     [
         ("pr_merged", "pr_merged_count"),
+        ("fixed", "fixed_count"),
         ("refund", "refund_count"),
         ("thumbs_up", "feedback_positive_count"),
         ("reviewer_fix", "reviewer_add_count"),
+        ("dismiss_lowvalue", "lowvalue_dismissal_count"),
         *(("action", column) for column in ACTION_LABEL_COLUMNS),
     ],
 )
@@ -485,9 +507,11 @@ def test_new_head_label_columns_survive_the_load_snapshots_projection(head_name,
         column: [0]
         for column in (
             "pr_merged_count",
+            "fixed_count",
             "refund_count",
             "feedback_positive_count",
             "reviewer_add_count",
+            "lowvalue_dismissal_count",
             *ACTION_LABEL_COLUMNS,
         )
     }

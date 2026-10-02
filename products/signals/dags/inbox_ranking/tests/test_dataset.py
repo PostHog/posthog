@@ -571,6 +571,21 @@ class TestStatusStream(ClickhouseTestMixin, BaseTest):
         assert row["first_wrong_dismissed_at"] == T1
 
     @parameterized.expand([(datetime.timedelta(hours=1),), (datetime.timedelta(minutes=1),)])
+    def test_lowvalue_dismissal_count_survives_a_restore_and_ignores_wrong_reasons(self, gap):
+        # A wrong dismissal is not a low-value one. The later wontfix_irrelevant dismissal counts, and
+        # the restore after it must not take the cumulative label back to 0.
+        self._transition(T1, "ready", "suppressed", "analysis_wrong")
+        self._transition(T1 + gap, "suppressed", "ready")
+        self._transition(T1 + 2 * gap, "ready", "suppressed", "wontfix_irrelevant")
+        self._transition(T1 + 3 * gap, "suppressed", "ready")
+
+        row = self._status_row()
+        assert row["wrong_dismissal_count"] == 1
+        assert row["first_wrong_dismissed_at"] == T1
+        assert row["lowvalue_dismissal_count"] == 1
+        assert row["first_lowvalue_dismissed_at"] == T1 + 2 * gap
+
+    @parameterized.expand([(datetime.timedelta(hours=1),), (datetime.timedelta(minutes=1),)])
     def test_a_reasonless_first_dismissal_carries_no_reason_forward(self, gap):
         # A dismissal with no reason is normal: the PR-closed path suppresses a report with no
         # artefact. The earliest dismissal must not borrow the reason of a later one, or a consumer
@@ -599,6 +614,31 @@ class TestStatusStream(ClickhouseTestMixin, BaseTest):
         assert row["wrong_dismissal_count"] == 1
         assert row["first_dismissed_server_at"] == T1
         assert row["first_wrong_dismissed_at"] == T1 + 2 * gap
+
+    @parameterized.expand(
+        [
+            ("reasonless_resolve", "ready", "resolved", None, 1),
+            ("already_fixed_dismissal", "ready", "suppressed", "already_fixed", 1),
+            ("analysis_wrong_resolve", "ready", "resolved", "analysis_wrong", 0),
+            ("other_dismissal", "ready", "suppressed", "other", 0),
+        ]
+    )
+    def test_fixed_count_reads_the_transition_and_its_reason(self, _name, previous, status, reason, expected):
+        self._transition(T1, previous, status, reason)
+
+        row = self._status_row()
+        assert row["fixed_count"] == expected
+        assert row["first_fixed_at"] == (T1 if expected else None)
+
+    @parameterized.expand([(datetime.timedelta(hours=1),), (datetime.timedelta(minutes=1),)])
+    def test_fixed_count_survives_a_reopen(self, gap):
+        self._transition(T1, "ready", "resolved", None)
+        self._transition(T1 + gap, "resolved", "ready")
+
+        row = self._status_row()
+        assert row["latest_status_event"] == "ready"
+        assert row["fixed_count"] == 1
+        assert row["first_fixed_at"] == T1
 
     @parameterized.expand(
         [
@@ -648,7 +688,8 @@ class TestStatusStream(ClickhouseTestMixin, BaseTest):
         genuine_only = self._status_row()
 
         for status in statuses:
-            self._transition(T1, "ready", status, "analysis_wrong", team_id=999)
+            for reason in ("analysis_wrong", "wontfix_irrelevant"):
+                self._transition(T1, "ready", status, reason, team_id=999)
 
         assert self._status_row() == genuine_only
 
