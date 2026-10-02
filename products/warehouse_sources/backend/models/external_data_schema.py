@@ -6,7 +6,7 @@ from collections.abc import Callable, Generator, Iterable
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from functools import partial
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
@@ -1412,6 +1412,11 @@ def process_incremental_value(value: Any | None, field_type: IncrementalFieldTyp
     if field_type == IncrementalFieldType.DateTime or field_type == IncrementalFieldType.Timestamp:
         if isinstance(value, datetime):
             return value
+
+        # A date-only column (e.g. a MySQL DATE) can back a DateTime/Timestamp field when the column
+        # type changed after the incremental field was saved.
+        if isinstance(value, date):
+            return datetime.combine(value, time.min)
 
         # Some sources (e.g. Stripe `created`) expose datetime cursors as Unix-epoch numbers.
         # dateutil can't parse a non-string, so pass epochs through unchanged for the source query.
