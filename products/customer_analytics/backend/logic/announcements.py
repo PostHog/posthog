@@ -9,6 +9,7 @@ import structlog
 
 from products.conversations.backend.facade.api import (
     SupportMessageSendError,
+    SupportSenderIdentityUnavailable,
     SupportSlackChannelsUnavailable,
     SupportSlackNotConfigured,
     SupportSlackSender,
@@ -51,6 +52,14 @@ def _resolve_user_sender(team_id: int, user: User) -> SupportSlackSender:
         sender = resolve_support_slack_sender(team_id, email)
     except SupportSlackNotConfigured:
         raise AnnouncementValidationError("The SupportHog Slack bot is not connected.")
+    except SupportSenderIdentityUnavailable:
+        # Every channel would fail the same way at post time, so stop before the first one.
+        raise AnnouncementValidationError(
+            {
+                "send_as": "This Slack workspace was connected before PostHog could post under your "
+                "name, so reconnect the SupportHog bot in Support settings — or send as SupportHog."
+            }
+        )
     if sender is None:
         raise AnnouncementValidationError(
             {

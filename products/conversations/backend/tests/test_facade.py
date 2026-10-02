@@ -18,6 +18,7 @@ from posthog.models.comment import Comment
 from products.conversations.backend.channel_summary_ids import build_channel_summary_workflow_id
 from products.conversations.backend.facade.api import (
     SupportMessageSendError,
+    SupportSenderIdentityUnavailable,
     SupportSlackSender,
     get_public_human_replies,
     list_account_ticket_messages,
@@ -163,6 +164,32 @@ class TestResolveSupportSlackSender(BaseTest):
         mock_get_client.return_value = self._client_returning({"ok": False, "error": "users_not_found"})
 
         assert resolve_support_slack_sender(self.team.pk, "nobody@example.com") is None
+
+    @patch(CLIENT)
+    def test_refuses_when_the_install_cannot_post_a_custom_identity(self, mock_get_client: MagicMock):
+        # Slack would reject every such post, so fail before resolving a profile we can't use.
+        self.team.conversations_settings = {"slack_scopes": ["chat:write", "users:read.email"]}
+        self.team.save()
+        client = self._client_returning({"ok": True, "user": {"profile": {"display_name": "Ada"}}})
+        mock_get_client.return_value = client
+
+        with self.assertRaises(SupportSenderIdentityUnavailable):
+            resolve_support_slack_sender(self.team.pk, "ada@example.com")
+        client.users_lookupByEmail.assert_not_called()
+
+    @patch(CLIENT)
+    def test_allows_an_install_whose_scopes_were_never_recorded(self, mock_get_client: MagicMock):
+        # Predates scope recording, and the scope has been requested for longer than that — so an
+        # empty list is "unknown", not "missing", and refusing would block a working install.
+        self.team.conversations_settings = {"slack_enabled": True}
+        self.team.save()
+        mock_get_client.return_value = self._client_returning(
+            {"ok": True, "user": {"profile": {"display_name": "Ada"}}}
+        )
+
+        assert resolve_support_slack_sender(self.team.pk, "ada@example.com") == SupportSlackSender(
+            name="Ada", icon_url=""
+        )
 
 
 class TestListAccountTickets(BaseTest):
