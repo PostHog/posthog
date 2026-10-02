@@ -7,6 +7,7 @@ import { colonDelimitedDuration } from 'lib/utils/durations'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { observationsDockLogic } from '../logics/observationsDockLogic'
+import type { TimelineMarker } from '../utils/recordingTimeline'
 import { visionSurfaceShown } from '../utils/visionSurface'
 
 interface ObservationSeekbarMarksProps {
@@ -37,22 +38,33 @@ function ObservationSeekbarMarksContent({
         return null
     }
 
+    // Scans can share a key moment, and stacked marks would hide all but the top one.
+    const groups = new Map<number, TimelineMarker[]>()
+    for (const marker of timeline.markers) {
+        groups.set(marker.timestampMs, [...(groups.get(marker.timestampMs) ?? []), marker])
+    }
+
     return (
         <>
-            {timeline.markers.map((marker) => {
-                const position = (marker.timestampMs / endTimeMs) * 100
+            {[...groups.entries()].map(([timestampMs, markers]) => {
+                const position = (timestampMs / endTimeMs) * 100
                 if (position < 0 || position > 100) {
                     return null
                 }
+                const marker = markers[0]
                 return (
                     <Tooltip
-                        key={marker.observationId}
+                        key={timestampMs}
                         title={
                             <div className="flex flex-col gap-0.5">
                                 <span className="font-medium">
-                                    {colonDelimitedDuration(Math.floor(marker.timestampMs / 1000), null)}
+                                    {colonDelimitedDuration(Math.floor(timestampMs / 1000), null)}
                                 </span>
-                                <span>{[marker.scannerName, marker.result].filter(Boolean).join(' · ')}</span>
+                                {markers.map((m) => (
+                                    <span key={m.observationId}>
+                                        {[m.scannerName, m.result].filter(Boolean).join(' · ')}
+                                    </span>
+                                ))}
                             </div>
                         }
                         placement="top"
@@ -60,7 +72,7 @@ function ObservationSeekbarMarksContent({
                         <div
                             className={cn(
                                 'PlayerSeekbar__observation',
-                                marker.flagged && 'PlayerSeekbar__observation--flagged',
+                                markers.some((m) => m.flagged) && 'PlayerSeekbar__observation--flagged',
                                 hoveredMarkMs === marker.timestampMs && 'PlayerSeekbar__observation--hovered'
                             )}
                             data-attr="vision-seekbar-observation-mark"
