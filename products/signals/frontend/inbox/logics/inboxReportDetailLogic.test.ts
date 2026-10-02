@@ -166,6 +166,11 @@ describe('inboxReportDetailLogic', () => {
                 ],
                 waiting: false,
             },
+            {
+                label: 'a no-run task beside a failed task with no PR',
+                tasks: [linkedTask('implementation', TaskRunStatus.FAILED), linkedTask('implementation', null)],
+                waiting: true,
+            },
             { label: 'a research task with no run', tasks: [linkedTask('research', null)], waiting: false },
         ])('$label reads as not started: $waiting', ({ tasks, waiting }) => {
             expect(notStartedImplementationTask(tasks) !== null).toBe(waiting)

@@ -87,7 +87,7 @@ describe('ReportStatusSection', () => {
         render(<ReportStatusSection report={makeReport({ pull_requests: [] })} notStartedTaskId="task-1" />)
 
         expect(screen.getByText('Not started')).toBeInTheDocument()
-        expect(screen.getByRole('link', { name: 'Open task' })).toHaveAttribute(
+        expect(screen.getByText('Open task').closest('a')).toHaveAttribute(
             'href',
             expect.stringContaining('/tasks/task-1')
         )
