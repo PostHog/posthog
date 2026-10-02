@@ -35,20 +35,11 @@ class RouterMode(StrEnum):
     ENFORCE = "enforce"
 
 
-@frozen
-class ClassPolicy:
-    max_wait_seconds: float
-
-
 # Every class may start a query while the pool is under its limit; the class decides only the order of the
-# queue. A waiting query holds a web thread or a worker slot, so the waits are short and a query joins the
-# queue only when it is likely to start within its wait.
-CLASS_POLICIES: dict[QueryClass, ClassPolicy] = {
-    QueryClass.INTERACTIVE: ClassPolicy(max_wait_seconds=2.0),
-    QueryClass.API: ClassPolicy(max_wait_seconds=5.0),
-    QueryClass.ASYNC: ClassPolicy(max_wait_seconds=10.0),
-    QueryClass.BACKGROUND: ClassPolicy(max_wait_seconds=10.0),
-}
+# queue. The wait is the same for every class, so a class never joins the queue where a more important one
+# would be refused. A waiting query holds a web thread or a worker slot, so the wait is short and a query
+# joins the queue only when it is likely to start within it.
+MAX_WAIT_SECONDS = 5.0
 
 
 @frozen
@@ -74,9 +65,9 @@ STALE_WAITER_MS = 3_000
 # window makes the estimate follow a pool that stops draining within seconds.
 DRAIN_WINDOW_MS = 5_000
 
-# A query joins the queue only when its estimated wait is at most this fraction of its class's
-# max_wait_seconds. The estimate is rough, and a query that waits its full time and is dropped holds a
-# worker for nothing, so the router refuses a doubtful query on arrival instead.
+# A query joins the queue only when its estimated wait is at most this fraction of MAX_WAIT_SECONDS. The
+# estimate is rough, and a query that waits its full time and is dropped holds a worker for nothing, so the
+# router refuses a doubtful query on arrival instead.
 QUEUE_WAIT_MARGIN = 0.5
 
 # The controller rewrites the limit every second. The expiry makes admission fall back to the pool

@@ -16,12 +16,11 @@ from redis.exceptions import RedisError
 
 from posthog.clickhouse.query_router import config
 from posthog.clickhouse.query_router.config import (
-    CLASS_POLICIES,
     DRAIN_WINDOW_MS,
+    MAX_WAIT_SECONDS,
     QUEUE_WAIT_MARGIN,
     RANK_CLASS_MULTIPLIER,
     STALE_WAITER_MS,
-    ClassPolicy,
     Pool,
     QueryClass,
     RouterMode,
@@ -326,9 +325,7 @@ class QueryRouter:
         except RedisError:
             self._record_slot_error("release")
 
-    def _try_enter(
-        self, slot: _Slot, *, policy: ClassPolicy, rank: int, ceiling: int, enforcing: bool, first_attempt: bool
-    ) -> _Reply:
+    def _try_enter(self, slot: _Slot, *, rank: int, ceiling: int, enforcing: bool, first_attempt: bool) -> _Reply:
         answer, total, limit, ahead = self._try_enter_script(
             keys=[
                 *(running_key(slot.pool, query_class) for query_class in QueryClass),
@@ -350,21 +347,18 @@ class QueryRouter:
                 int(enforcing),
                 int(first_attempt),
                 DRAIN_WINDOW_MS,
-                round(policy.max_wait_seconds * 1000 * QUEUE_WAIT_MARGIN),
+                round(MAX_WAIT_SECONDS * 1000 * QUEUE_WAIT_MARGIN),
             ],
         )
         return _Reply(answer=_Answer(answer.decode()), total=int(total), limit=int(limit), ahead=int(ahead))
 
     def _poll(self, slot: _Slot, *, enforcing: bool, ceiling: int, started_at: float) -> _Decision:
-        policy = CLASS_POLICIES[slot.query_class]
-        deadline = started_at + policy.max_wait_seconds
+        deadline = started_at + MAX_WAIT_SECONDS
         # The rank keeps the first poll's time, so a waiter keeps its place in the queue on every poll.
         rank = int(slot.query_class) * RANK_CLASS_MULTIPLIER + int(started_at * 1000)
         queued = False
         while True:
-            reply = self._try_enter(
-                slot, policy=policy, rank=rank, ceiling=ceiling, enforcing=enforcing, first_attempt=not queued
-            )
+            reply = self._try_enter(slot, rank=rank, ceiling=ceiling, enforcing=enforcing, first_attempt=not queued)
             if reply.answer == _Answer.ADMITTED:
                 outcome = AdmissionOutcome.ADMITTED_AFTER_WAIT if queued else AdmissionOutcome.ADMITTED
                 return _Decision(outcome=outcome, reply=reply, queued=queued)

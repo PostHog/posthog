@@ -18,8 +18,8 @@ from posthog.clickhouse.query_router.admission import (
     QueryRouter,
 )
 from posthog.clickhouse.query_router.config import (
-    CLASS_POLICIES,
     DRAIN_WINDOW_MS,
+    MAX_WAIT_SECONDS,
     STALE_WAITER_MS,
     Pool,
     PoolBounds,
@@ -205,15 +205,13 @@ class TestQueryRouterAdmission(SimpleTestCase):
                 with self._admit(QueryClass.BACKGROUND):
                     pass
 
-        self.assertAlmostEqual(
-            self.clock.now - started_at, CLASS_POLICIES[QueryClass.BACKGROUND].max_wait_seconds, places=3
-        )
+        self.assertAlmostEqual(self.clock.now - started_at, MAX_WAIT_SECONDS, places=3)
         assert 3 <= dropped.exception.wait <= 8
         assert self.redis.zcard(waiting_key(Pool.OFFLINE)) == 0
         assert self.redis.zcard(waiting_seen_key(Pool.OFFLINE)) == 0
 
     def test_waiter_that_wakes_after_its_max_wait_is_dropped_even_when_the_pool_has_freed(self) -> None:
-        max_wait_seconds = CLASS_POLICIES[QueryClass.API].max_wait_seconds
+        max_wait_seconds = MAX_WAIT_SECONDS
         self._drain()
         with ExitStack() as held:
             self._hold(held, 1)
