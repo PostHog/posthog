@@ -13,6 +13,8 @@ from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
 
+from products.signals.backend.facade import api as signals
+
 from ..facade import api
 from .serializers import BriefingSerializer, CandidateListSerializer, TodayQuerySerializer
 
@@ -39,7 +41,10 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def briefing(self, request: Request, **kwargs) -> Response:
         user = self._user()
         briefing = api.get_briefing(
-            team=self.team, user=user, timezone_name=request.validated_query_data.get("timezone")
+            team=self.team,
+            user=user,
+            timezone_name=request.validated_query_data.get("timezone"),
+            metric_access=signals.ReportMetricAccessPolicy(request=request, team=self.team),
         )
         return Response(BriefingSerializer(briefing).data)
 
@@ -53,7 +58,10 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def refresh(self, request: Request, **kwargs) -> Response:
         user = self._user()
         briefing = api.refresh_briefing(
-            team=self.team, user=user, timezone_name=request.validated_query_data.get("timezone")
+            team=self.team,
+            user=user,
+            timezone_name=request.validated_query_data.get("timezone"),
+            metric_access=signals.ReportMetricAccessPolicy(request=request, team=self.team),
         )
         return Response(BriefingSerializer(briefing).data)
 

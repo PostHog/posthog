@@ -233,7 +233,12 @@ export class RoutingPersonsStore implements PersonsStore {
      * are not compared because the backends allocate independently; the
      * uuid is derived the same way on both.
      */
-    private comparePerson(verb: string, authoritative: unknown, shadow: unknown): void {
+    private comparePerson(
+        verb: string,
+        authoritative: unknown,
+        shadow: unknown,
+        compareProperties: boolean = true
+    ): void {
         // Absence arrives as null from either backend, and as undefined from
         // a caller that answered nothing at all; both mean the same thing
         // here and neither may be dereferenced.
@@ -254,7 +259,7 @@ export class RoutingPersonsStore implements PersonsStore {
         if (left.is_identified !== right.is_identified) {
             this.recordDivergence(verb, 'is_identified')
         }
-        if (!propertiesMatch(left.properties, right.properties)) {
+        if (compareProperties && !propertiesMatch(left.properties, right.properties)) {
             this.recordDivergence(verb, 'properties')
         }
     }
@@ -293,7 +298,13 @@ export class RoutingPersonsStore implements PersonsStore {
             'fetchForChecking',
             () => this.pg.fetchForChecking(teamId, distinctId, batchId),
             () => this.personhog.fetchForChecking(teamId, distinctId, batchId),
-            { compare: (authoritative, shadow) => this.comparePerson('fetchForChecking', authoritative, shadow) }
+            // A checking read resolves identity only: personhog answers it from the identity service without
+            // the leader's document, so its properties are empty unless a projection happens to be cached, and
+            // the personless step never reads them.
+            {
+                compare: (authoritative, shadow) =>
+                    this.comparePerson('fetchForChecking', authoritative, shadow, false),
+            }
         )
     }
 

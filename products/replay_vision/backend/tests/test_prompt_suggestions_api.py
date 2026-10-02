@@ -22,6 +22,7 @@ from products.replay_vision.backend.prompt_suggestions import (
     generate_prompt_suggestion,
     refresh_prompt_suggestion_if_stale,
 )
+from products.replay_vision.backend.tests.helpers import create_experiment
 from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
 
 
@@ -347,6 +348,35 @@ class TestPromptSuggestions(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 400)
         scanner.refresh_from_db()
         self.assertEqual(scanner.scanner_config["prompt"], "keep me")
+
+    def test_apply_rejects_a_config_that_changes_the_experiment(self) -> None:
+        # Apply writes the config directly, so without this guard an edited config could retarget
+        # the scanner's watched experiment — skipping the serializer's experiment access re-check.
+        experiment = create_experiment(self.team, "apply-scope-flag")
+        current = {"prompt": "p", "experiment_id": experiment.id}
+        scanner = self._create_scanner(name="exp-apply", scanner_type="experiment", scanner_config=dict(current))
+        suggestion = ReplayScannerPromptSuggestion.objects.create(
+            scanner=scanner,
+            team=self.team,
+            suggested_prompt="new",
+            base_prompt="p",
+            base_config=dict(current),
+            suggested_config={"prompt": "new", "experiment_id": experiment.id},
+            changes=[{"field": "prompt", "kind": "prompt", "op": "set", "before": "p", "after": "new"}],
+            status=PromptSuggestionStatus.PENDING,
+            scanner_version=scanner.scanner_version,
+        )
+
+        url = f"{self.scanners_url}{scanner.id}/prompt_suggestions/{suggestion.id}/apply/"
+        resp = self.client.post(
+            url, {"config": {"prompt": "edited", "experiment_id": experiment.id + 1}}, format="json"
+        )
+
+        self.assertEqual(resp.status_code, 400)
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.scanner_config, current)
+        suggestion.refresh_from_db()
+        self.assertEqual(suggestion.status, PromptSuggestionStatus.PENDING)
 
     def test_apply_old_prompt_only_row_still_works(self) -> None:
         # Rows generated before config-generic suggestions existed have suggested_config=None.

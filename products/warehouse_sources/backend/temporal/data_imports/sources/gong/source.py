@@ -43,7 +43,7 @@ class GongSource(ResumableSource[GongSourceConfig, GongResumeConfig]):
             name=ExternalDataSourceType.GONG,
             category=DataWarehouseSourceCategory.SALES,
             label="Gong",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Gong API credentials to pull your Gong data into the PostHog Data warehouse.
 
 Create an **Access Key** and **Access Key Secret** in Gong under **Company Settings > Ecosystem > API**.

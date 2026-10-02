@@ -1,3 +1,4 @@
+from products.canvas.backend.artifacts import create_canvas_sandbox_document_url as create_canvas_sandbox_document_url
 from products.canvas.backend.connectors import (
     ConnectorCallStatus as ConnectorCallStatus,
     ConnectorKind as ConnectorKind,

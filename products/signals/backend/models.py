@@ -2232,9 +2232,8 @@ class SignalReportCheck(UUIDModel):
     config = models.JSONField(default=dict, db_default={})
 
     next_run_at = models.DateTimeField()
-    # How long after the report resolves a PENDING check waits before its first run. Null on a check
-    # created ACTIVE, which named its own `next_run_at` instead. Kept after the check is armed, so a
-    # reader can see what window the verdict was measured over.
+    measurement_start_at = models.DateTimeField(null=True, blank=True)
+    # Minimum wait after resolution, separate from the query window a metric check must fill.
     soak_minutes = models.PositiveIntegerField(null=True, blank=True)
     # Null means one-shot. A recurring check re-arms at this interval until it runs out of runs or
     # reaches its expiry.

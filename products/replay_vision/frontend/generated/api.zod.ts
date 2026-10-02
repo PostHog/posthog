@@ -486,6 +486,8 @@ export const visionScannersCreateBodyTagsItemMax = 255
 
 export const visionScannersCreateBodyTagsMax = 32
 
+export const visionScannersCreateBodyGoalMax = 2000
+
 export const visionScannersCreateBodySamplingRateMin = 0
 export const visionScannersCreateBodySamplingRateMax = 1
 
@@ -512,12 +514,19 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod
                 "Organizational tags for this scanner. Distinct from a classifier's categories in scanner_config. Tags cannot contain commas."
             ),
         scanner_type: zod
-            .enum(['monitor', 'classifier', 'scorer', 'summarizer'])
+            .enum(['monitor', 'classifier', 'scorer', 'summarizer', 'experiment'])
             .describe(
-                '\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer'
+                '\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer\n\* `experiment` - Experiment'
             )
             .describe(
-                'What the scanner does: monitor, classifier, scorer, or summarizer.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer'
+                'What the scanner does: monitor, classifier, scorer, or summarizer.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer\n\* `experiment` - Experiment'
+            ),
+        goal: zod
+            .string()
+            .max(visionScannersCreateBodyGoalMax)
+            .nullish()
+            .describe(
+                "The goal an AI draft was built from, in the creator's own words, so the scanner keeps what it was meant to find. Set on create only and ignored on update."
             ),
         creation_method: zod
             .union([
@@ -626,6 +635,8 @@ export const visionScannersPartialUpdateBodyTagsItemMax = 255
 
 export const visionScannersPartialUpdateBodyTagsMax = 32
 
+export const visionScannersPartialUpdateBodyGoalMax = 2000
+
 export const visionScannersPartialUpdateBodySamplingRateMin = 0
 export const visionScannersPartialUpdateBodySamplingRateMax = 1
 
@@ -653,13 +664,20 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod
                 "Organizational tags for this scanner. Distinct from a classifier's categories in scanner_config. Tags cannot contain commas."
             ),
         scanner_type: zod
-            .enum(['monitor', 'classifier', 'scorer', 'summarizer'])
+            .enum(['monitor', 'classifier', 'scorer', 'summarizer', 'experiment'])
             .describe(
-                '\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer'
+                '\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer\n\* `experiment` - Experiment'
             )
             .optional()
             .describe(
-                'What the scanner does: monitor, classifier, scorer, or summarizer.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer'
+                'What the scanner does: monitor, classifier, scorer, or summarizer.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer\n\* `experiment` - Experiment'
+            ),
+        goal: zod
+            .string()
+            .max(visionScannersPartialUpdateBodyGoalMax)
+            .nullish()
+            .describe(
+                "The goal an AI draft was built from, in the creator's own words, so the scanner keeps what it was meant to find. Set on create only and ignored on update."
             ),
         creation_method: zod
             .union([
@@ -1293,13 +1311,13 @@ export const VisionScannersInlineScanCreateBody = /* @__PURE__ */ zod
                 'What to look for in these sessions, in plain language. The same instruction a saved scanner carries.'
             ),
         scanner_type: zod
-            .enum(['monitor', 'classifier', 'scorer', 'summarizer'])
+            .enum(['monitor', 'classifier', 'scorer', 'summarizer', 'experiment'])
             .describe(
-                '\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer'
+                '\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer\n\* `experiment` - Experiment'
             )
             .default(visionScannersInlineScanCreateBodyScannerTypeDefault)
             .describe(
-                "What the scan produces. Defaults to monitor, an open-ended observation against the prompt. Use `summarizer` to get PostHog's own AI summary of a recording. An inline scan is keyed by its whole config, so the Summarize button in the replay player shares this scan only when the prompt and `scanner_config` match the ones it sends.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer"
+                "What the scan produces. Defaults to monitor, an open-ended observation against the prompt. Use `summarizer` to get PostHog's own AI summary of a recording. An inline scan is keyed by its whole config, so the Summarize button in the replay player shares this scan only when the prompt and `scanner_config` match the ones it sends.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer\n\* `experiment` - Experiment"
             ),
         scanner_config: zod
             .unknown()

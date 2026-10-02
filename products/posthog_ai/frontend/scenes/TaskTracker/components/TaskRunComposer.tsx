@@ -19,7 +19,6 @@ import { ModelAccessEnumApi } from 'products/tasks/frontend/generated/api.schema
 
 import { AttachedContextBar } from '../../../components/composer/AttachedContextBar'
 import { AttachedContextChips } from '../../../components/composer/AttachedContextChips'
-import { AttachedContextPicker } from '../../../components/composer/AttachedContextPicker'
 import { CommandResultCard } from '../../../components/composer/CommandResultCard'
 import { ComposerAttachmentChips } from '../../../components/composer/ComposerAttachmentChips'
 import { ComposerAttachments, useComposerAttachmentPaste } from '../../../components/composer/ComposerAttachments'
@@ -33,6 +32,7 @@ import { ComposerModePicker } from '../../../components/composer/ComposerModePic
 import { ComposerModeShortcut } from '../../../components/composer/ComposerModeShortcut'
 import { useDebouncedDraft } from '../../../components/composer/useDebouncedDraft'
 import { ContextUsageChip } from '../../../components/ContextUsageChip'
+import { QuillAttachedContextPicker } from '../../../components/quill/QuillAttachedContextPicker'
 import { QuillComposerAttachButton } from '../../../components/quill/QuillComposerAttachButton'
 import { QuillComposerLayout } from '../../../components/quill/QuillComposerLayout'
 import { QuillComposerSendButton } from '../../../components/quill/QuillComposerSendButton'
@@ -260,10 +260,7 @@ export function TaskRunComposer({
                         controls={
                             <>
                                 <QuillComposerAttachButton attachmentsKey={attachmentsKey} dropTargetRef={groupRef} />
-                                {/* The picker is Lemon, so it keeps Lemon's colors inside the quill row. */}
-                                <div data-not-quill className="flex">
-                                    <AttachedContextPicker className="flex-shrink-0" />
-                                </div>
+                                <QuillAttachedContextPicker />
                                 {pickers(modelPicker, modePicker)}
                             </>
                         }

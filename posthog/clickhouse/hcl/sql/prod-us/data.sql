@@ -211,6 +211,12 @@ CREATE TABLE posthog.distributed_events_recent (
   inserted_at DateTime64(6, 'UTC') DEFAULT now64(),
   _timestamp_ms DateTime64(3)
 ) ENGINE = Distributed('batch_exports', 'posthog', 'sharded_events_recent', sipHash64(distinct_id));
+CREATE TABLE posthog.distributed_person_group_membership_config (
+  team_id Int64,
+  group_type_index UInt8,
+  enabled UInt8,
+  version UInt64
+) ENGINE = Distributed('aux', 'posthog', 'person_group_membership_config', sipHash64(team_id));
 CREATE TABLE posthog.distributed_posthog_document_embeddings (
   team_id Int64,
   product LowCardinality(String),
@@ -712,6 +718,14 @@ CREATE TABLE posthog.person_distinct_id_overrides_to_delete_join (
   distinct_id String,
   version Int64
 ) ENGINE = Join(ANY, LEFT, team_id, distinct_id);
+CREATE TABLE posthog.person_group_membership (
+  team_id Int64,
+  group_type_index UInt8,
+  group_key String,
+  distinct_id String,
+  first_seen SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+  last_seen SimpleAggregateFunction(max, DateTime64(6, 'UTC'))
+) ENGINE = Distributed('aux', 'posthog', 'sharded_person_group_membership', sipHash64(team_id, group_type_index, group_key));
 CREATE TABLE posthog.person_overrides (
   team_id Int32,
   old_person_id UUID,
