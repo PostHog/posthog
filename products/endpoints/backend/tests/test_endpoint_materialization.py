@@ -602,7 +602,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
         runner = mock.Mock()
         runner.query = object()
-        materialized_result = {"results": []}
+        materialized_result: dict[str, Any] = {"results": []}
         with mock.patch(
             "products.endpoints.backend.insight_transformers.get_query_runner",
             return_value=runner,
