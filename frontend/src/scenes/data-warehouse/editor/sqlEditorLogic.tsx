@@ -1478,10 +1478,16 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         ) {
             actions.initialize()
 
-            const pendingUrlOpen = cache.pendingUrlOpen
-            if (pendingUrlOpen) {
-                cache.pendingUrlOpen = null
-                void pendingUrlOpen()
+            if (cache.pendingUrlOpen) {
+                // propsChanged runs inside the SQLEditor render, so open the URL target after the render
+                cache.disposables.add(() => {
+                    const timeoutId = window.setTimeout(() => {
+                        const pendingUrlOpen = cache.pendingUrlOpen
+                        cache.pendingUrlOpen = null
+                        void pendingUrlOpen?.()
+                    }, 0)
+                    return () => window.clearTimeout(timeoutId)
+                }, 'pendingUrlOpen')
             }
 
             // Listen for cursor position changes to update the active query highlight.
@@ -3869,7 +3875,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             if (props.monaco) {
                 await createQueryTab()
             } else {
-                // The newest URL wins, so drop an older URL target that still waits for Monaco
+                // The newest URL wins. A run that a newer URL replaced drops its target when its wait times out.
+                const urlOpenGeneration = (cache.urlOpenGeneration ?? 0) + 1
+                cache.urlOpenGeneration = urlOpenGeneration
                 cache.pendingUrlOpen = null
                 const waitUntilMonaco = async (): Promise<void> => {
                     return await new Promise((resolve, reject) => {
@@ -3895,7 +3903,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     // Monaco timed out - still try to create tab if monaco loaded late
                     if (props.monaco) {
                         await createQueryTab()
-                    } else {
+                    } else if (cache.urlOpenGeneration === urlOpenGeneration) {
                         // A hidden browser tab can delay Monaco past the wait, and nothing runs this handler
                         // again when Monaco loads. propsChanged opens the URL target when Monaco arrives.
                         cache.pendingUrlOpen = createQueryTab
