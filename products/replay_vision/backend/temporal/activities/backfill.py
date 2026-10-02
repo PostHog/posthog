@@ -178,6 +178,7 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
         scope=snapshot.experiment_scope(),
         scanner_config=snapshot.scanner_config,
         sampling_rate=snapshot.sampling_rate,
+        user=backfill.created_by,
         scanner_id=str(backfill.scanner_id),
     )
     candidate_query = WindowedCandidateQuery(

@@ -930,9 +930,17 @@ class TestBalancedVariantSamplingAgainstClickHouse(ClickhouseTestMixin):
         self._exposed_session(team, "counts-test", "test", "counts-session-c")
         flush_persons_and_events()
 
-        counts = _variant_exposure_counts(team, experiment_id=experiment.id, selected=None, scanner_id="scanner-1")
+        counts = _variant_exposure_counts(
+            team, experiment_id=experiment.id, selected=None, user=creator, scanner_id="scanner-1"
+        )
 
         assert counts == {"control": 2.0, "test": 1.0, "beta": 0.0}
+        # Exposure counts are experiment data; without a principal to authorize they stay uncounted
+        # and the tick falls back to plain sampling.
+        assert (
+            _variant_exposure_counts(team, experiment_id=experiment.id, selected=None, user=None, scanner_id=None)
+            is None
+        )
 
     @pytest.mark.django_db
     def test_per_variant_rates_gate_candidates_by_attributed_variant(self, team) -> None:
