@@ -14,7 +14,7 @@ import { urls } from 'scenes/urls'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { notebooksModel } from '~/models/notebooksModel'
 import { DataVisualizationNode, FileSystemIconType, HogQLFilters, NodeKind } from '~/queries/schema/schema-general'
-import { Breadcrumb } from '~/types'
+import { Breadcrumb, ProjectTreeRef } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { DataWarehouseSavedQuery, LinkBreadcrumb, InsightModel } from '../../../types'
@@ -112,6 +112,7 @@ export interface editorSceneLogicValues {
     viewLoading: boolean // sqlEditorLogic
     breadcrumbs: Breadcrumb[]
     isHistoryModalOpen: boolean
+    projectTreeRef: ProjectTreeRef | null
     saveAsMenuItems: {
         primary: SaveAsMenuItem
         secondary: SaveAsMenuItem[]
@@ -190,6 +191,9 @@ export interface editorSceneLogicActions {
 export interface editorSceneLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        projectTreeRef: (
+            editingInsight: InsightModel<import('~/queries/schema/schema-general').Node<Record<string, any>>> | null
+        ) => ProjectTreeRef | null
         breadcrumbs: (activeTab: QueryTab | null) => Breadcrumb[]
         titleSectionProps: (
             editingInsight: InsightModel<import('~/queries/schema/schema-general').Node<Record<string, any>>> | null,
@@ -288,6 +292,11 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
         ],
     }),
     selectors({
+        projectTreeRef: [
+            (s) => [s.editingInsight],
+            (editingInsight: InsightModel | null): ProjectTreeRef | null =>
+                editingInsight ? { type: 'insight', ref: editingInsight.short_id } : null,
+        ],
         breadcrumbs: [
             (s) => [s.activeTab],
             (activeTab: null | import('./sqlEditorLogic').QueryTab): Breadcrumb[] => {
