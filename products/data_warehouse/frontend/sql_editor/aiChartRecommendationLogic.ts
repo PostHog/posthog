@@ -292,7 +292,6 @@ export interface aiChartRecommendationLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         statusMessage: (
             featureFlags: FeatureFlagsSet,
-            preflight: PreflightStatus | null,
             dataProcessingAccepted: boolean,
             enabled: boolean,
             recommendationStatus: RecommendationStatus
@@ -367,16 +366,15 @@ export const aiChartRecommendationLogic: LogicWrapper<aiChartRecommendationLogic
         }),
         selectors({
             statusMessage: [
-                (s) => [s.featureFlags, s.preflight, s.dataProcessingAccepted, s.enabled, s.recommendationStatus],
+                (s) => [s.featureFlags, s.dataProcessingAccepted, s.enabled, s.recommendationStatus],
                 (
                     flags: FeatureFlagsSet,
-                    preflight: PreflightStatus | null,
                     consent: boolean,
                     enabled: boolean,
                     status: RecommendationStatus
                 ): string | null => {
                     if (!flags[FEATURE_FLAGS.JEV_CHART_AUTODETECTION]) {
-                        return preflight?.is_debug ? 'AI chart selection is off' : null
+                        return null
                     }
                     if (!consent) {
                         return 'AI chart selection needs organization AI consent'
