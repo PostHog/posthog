@@ -153,6 +153,7 @@ from products.replay_vision.backend.scanner_config import (
     MAX_PROMPT_LENGTH,
     MAX_TAG_LENGTH,
     acting_user,
+    analytics_source_kwargs,
     scanner_config_error,
 )
 from products.replay_vision.backend.scanner_draft import DraftError, draft_scanner_from_goal, draft_scanner_from_goal_v2
@@ -1049,7 +1050,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
                 "creation_method": _reported_creation_method(self.context, creation_method),
             },
             team=team,
-            request=self.context.get("request"),
+            **analytics_source_kwargs(self.context),
         )
         return scanner
 
@@ -1101,7 +1102,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         changed_fields = sorted(field for field, value in before.items() if getattr(scanner, field) != value)
         if tags_changed:
             changed_fields = sorted([*changed_fields, "tags"])
-        request = self.context.get("request")
+        source_kwargs = analytics_source_kwargs(self.context)
         user = acting_user(self.context)
         team = self.context["get_team"]()
         if scanner.enabled != was_enabled:
@@ -1110,7 +1111,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
                 "replay_vision_scanner_enabled" if scanner.enabled else "replay_vision_scanner_disabled",
                 scanner_lifecycle_properties(scanner),
                 team=team,
-                request=request,
+                **source_kwargs,
             )
         # A pure enable/disable toggle is not a config edit. A save that also flips enabled fires both events.
         if any(field != "enabled" for field in changed_fields):
@@ -1124,7 +1125,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
                     "edit_source": "manual",
                 },
                 team=team,
-                request=request,
+                **source_kwargs,
             )
         return scanner
 
