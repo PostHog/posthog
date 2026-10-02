@@ -52,6 +52,7 @@ Hence the explicit separation between the data and view layers.
   - Before building new UI, read a few comparable scenes or components and model yours on the ones that follow these conventions. The codebase contains legacy that predates them — an existing violation is not license to repeat it. Conventions outrank precedent, and compliant precedent outranks invention.
   - Extract a shared component once the same shape appears in several places and the call sites read as content, not markup. Keep new generics next to the feature that uses them, and promote to `lib/` only when a second feature needs them. Don't build wrappers with a single consumer, and don't add boolean variant props so one caller can switch half the component off — that's two components.
   - Interactive elements are real `<button>`/`<a>` elements (`LemonButton` renders one) — never `onClick` on a `<div>`.
+  - With `focusBasedKeyboardNavigation` enabled, `LemonMenu` moves focus between its trigger and menu items with the arrow keys, including after the menu reopens. Custom triggers must forward `onFocus` and `onKeyDown` to preserve keyboard navigation and focus return.
   - Loading, empty, and error are three different screens. Never show an empty state from data that hasn't resolved yet — branch on the loading state first.
   - When renaming a feature, sweep code symbols completely — but analytics-facing strings (event names, property names and values, `data-attr` values) and persisted keys are a frozen API: leave them as-is, with a comment noting they're pinned.
 - Scenes
@@ -188,7 +189,7 @@ Escalating to the next rung is the last resort, not the default.
 - **Use `TestCase`, not `TransactionTestCase`, unless you truly need it.** `TransactionTestCase` flushes the DB between tests instead of rolling back a transaction — dramatically slower, and a common source of cross-test interference. For `transaction.on_commit` side effects use `self.captureOnCommitCallbacks(execute=True)`; reaching ClickHouse is not a reason to switch (`ClickhouseTestMixin` runs on a plain `TestCase`).
 - Mock only true boundaries — network, external APIs, the clock, queues. Don't mock your own internal helpers; that's how change-detector tests are born.
 - Frontend: prefer a kea logic test (`logic.actions` / `logic.values`) over a full component render whenever the behavior lives in the logic, and don't snapshot large rendered trees — assert specific fields instead.
-- Keep tests deterministic and isolated: no `time.sleep` or arbitrary waits (use `freeze_time` or wait on a real condition), no real network or live external services, and they must pass in any order. Don't leave a `@skip`/`xfail`/`.only` without a one-line reason and a linked issue.
+- Keep tests deterministic and isolated: no `time.sleep` or arbitrary waits (use `time_machine.travel(..., tick=False)` or wait on a real condition), no real network or live external services, and they must pass in any order. Don't leave a `@skip`/`xfail`/`.only` without a one-line reason and a linked issue.
 
 #### Fast developer ("unit") tests
 

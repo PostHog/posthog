@@ -30,6 +30,7 @@ const buttonVariants = cva(
                 'icon-xs': 'quill-button--size-icon-xs',
                 'icon-sm': 'quill-button--size-icon-sm',
                 'icon-lg': 'quill-button--size-icon-lg',
+                row: 'quill-button--size-row',
             },
             focusableWhenDisabled: {
                 true: '',

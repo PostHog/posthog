@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -7,16 +8,23 @@ import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.alpha_vantage.alpha_vantage import (
-    LISTING_CHUNK_SIZE,
+    CSV_CHUNK_SIZE,
+    EARNINGS_CALENDAR_HORIZON,
     LISTING_STATES,
     AlphaVantageAPIError,
     AlphaVantageRetryableError,
+    _earnings_calendar_rows,
     _fetch,
     _fetch_csv,
     _listing_status_rows,
+    _news_rows,
+    _news_time_from,
     _normalize_key,
     _parse_corporate_action,
     _parse_earnings,
+    _parse_insider,
+    _parse_institutional,
+    _parse_news,
     _parse_overview,
     _parse_quote,
     _parse_reports,
@@ -56,6 +64,23 @@ def _session_returning(responses: list[MagicMock]) -> MagicMock:
     session = MagicMock()
     session.get.side_effect = responses
     return session
+
+
+def _article(url: str, time_published: str) -> dict:
+    return {
+        "url": url,
+        "title": f"headline {url}",
+        "time_published": time_published,
+        "authors": [],
+        "topics": [{"topic": "technology", "relevance_score": "0.9"}],
+        "overall_sentiment_score": 0.4,
+        "overall_sentiment_label": "Bullish",
+        "ticker_sentiment": [{"ticker": "IBM", "ticker_sentiment_label": "Bullish"}],
+    }
+
+
+def _news_response(*articles: dict) -> MagicMock:
+    return _response(body={"items": str(len(articles)), "feed": list(articles)})
 
 
 def _collect_rows(batches: Any) -> list[dict]:
@@ -402,10 +427,10 @@ class TestAlphaVantage:
 
     def test_listing_status_rows_chunks_large_listings(self) -> None:
         header = "symbol,status\n"
-        body = header + "".join(f"SYM{i},Active\n" for i in range(LISTING_CHUNK_SIZE + 1))
+        body = header + "".join(f"SYM{i},Active\n" for i in range(CSV_CHUNK_SIZE + 1))
         session = _session_returning([_text_response(body), _text_response("{}")])
         batches = list(_listing_status_rows(session, "KEY", MagicMock()))
-        assert [len(batch) for batch in batches] == [LISTING_CHUNK_SIZE, 1]
+        assert [len(batch) for batch in batches] == [CSV_CHUNK_SIZE, 1]
 
     def test_get_rows_does_not_fan_out_the_listing_over_symbols(self) -> None:
         # LISTING_STATUS covers the whole market, so the request count must not scale with the symbols.
@@ -416,6 +441,307 @@ class TestAlphaVantage:
         assert session.get.call_count == len(LISTING_STATES)
         assert rows == [{"symbol": "IBM", "status": "Active"}]
 
+    def test_parse_news_injects_symbol_and_keeps_the_nested_blocks(self) -> None:
+        article = _article("https://news.example.com/a", "20260911T025650")
+        assert list(_parse_news({"feed": [article]}, "IBM")) == [{"symbol": "IBM", **article}]
+
+    @parameterized.expand([("missing_feed", {"items": "0"}), ("not_a_list", {"feed": {}})])
+    def test_parse_news_empty(self, _name: str, body: dict) -> None:
+        assert list(_parse_news(body, "IBM")) == []
+
+    def test_parse_news_raises_when_url_missing(self) -> None:
+        # `url` is a primary key; an article without one must raise rather than land unkeyed.
+        with pytest.raises(KeyError):
+            list(_parse_news({"feed": [{"title": "no link", "time_published": "20260911T025650"}]}, "IBM"))
+
+    def test_parse_insider_injects_symbol_alongside_the_reported_ticker(self) -> None:
+        body = {
+            "data": [
+                {
+                    "transaction_date": "2026-08-27",
+                    "ticker": "IBM",
+                    "executive": "KRISHNA, ARVIND",
+                    "executive_title": "Director, Chairman, President & CEO",
+                    "security_type": "Phantom Stock",
+                    "acquisition_or_disposal": "A",
+                    "shares": "8375.5601",
+                    "share_price": "238.79",
+                }
+            ]
+        }
+        assert list(_parse_insider(body, "IBM")) == [
+            {
+                "symbol": "IBM",
+                "transaction_date": "2026-08-27",
+                "ticker": "IBM",
+                "executive": "KRISHNA, ARVIND",
+                "executive_title": "Director, Chairman, President & CEO",
+                "security_type": "Phantom Stock",
+                "acquisition_or_disposal": "A",
+                "shares": "8375.5601",
+                "share_price": "238.79",
+            }
+        ]
+
+    def test_parse_insider_nulls_placeholders(self) -> None:
+        body = {"data": [{"transaction_date": "2026-08-27", "executive_title": "None"}]}
+        assert list(_parse_insider(body, "IBM")) == [
+            {"symbol": "IBM", "transaction_date": "2026-08-27", "executive_title": None}
+        ]
+
+    def test_parse_insider_raises_when_transaction_date_missing(self) -> None:
+        with pytest.raises(KeyError):
+            list(_parse_insider({"data": [{"executive": "NO DATE"}]}, "IBM"))
+
+    @parameterized.expand([("missing_data", {}), ("not_a_list", {"data": {}})])
+    def test_parse_insider_empty(self, _name: str, body: dict) -> None:
+        assert list(_parse_insider(body, "IBM")) == []
+
+    def test_parse_institutional_rides_the_symbol_totals_on_every_holder_row(self) -> None:
+        # One function means one table, so dropping the symbol-level totals would lose them entirely.
+        body = {
+            "symbol": "IBM",
+            "total_institutional_holders": "3932",
+            "total_institutional_ownership_percentage": "76%",
+            "holdings": [
+                {"holder_name": "VANGUARD GROUP INC", "shares_held": "97216131", "last_reported": "2025-12-31"},
+                {"holder_name": "BLACKROCK", "shares_held": "76763481", "last_reported": "2026-06-30"},
+            ],
+        }
+        assert list(_parse_institutional(body, "IBM")) == [
+            {
+                "symbol": "IBM",
+                "total_institutional_holders": "3932",
+                "total_institutional_ownership_percentage": "76%",
+                "holder_name": "VANGUARD GROUP INC",
+                "shares_held": "97216131",
+                "last_reported": "2025-12-31",
+            },
+            {
+                "symbol": "IBM",
+                "total_institutional_holders": "3932",
+                "total_institutional_ownership_percentage": "76%",
+                "holder_name": "BLACKROCK",
+                "shares_held": "76763481",
+                "last_reported": "2026-06-30",
+            },
+        ]
+
+    def test_parse_institutional_raises_when_holder_name_missing(self) -> None:
+        with pytest.raises(KeyError):
+            list(_parse_institutional({"symbol": "IBM", "holdings": [{"shares_held": "1"}]}, "IBM"))
+
+    @parameterized.expand([("missing_holdings", {"symbol": "IBM"}), ("not_a_list", {"holdings": {}})])
+    def test_parse_institutional_empty(self, _name: str, body: dict) -> None:
+        assert list(_parse_institutional(body, "IBM")) == []
+
+    @parameterized.expand(
+        [
+            ("none", None, None),
+            ("datetime", datetime(2026, 9, 11, 2, 56, 50, tzinfo=UTC), "20260911T0256"),
+            # A watermark reaches the source as whatever the pipeline persisted, which is a string for
+            # this table because `time_published` lands as the vendor's own compact format.
+            ("string", "20260911T025650", "20260911T0256"),
+            ("unparseable", "not a date", None),
+        ]
+    )
+    def test_news_time_from(self, _name: str, value: Any, expected: str | None) -> None:
+        assert _news_time_from(value) == expected
+
+    @parameterized.expand(
+        [
+            ("full_refresh", None, False),
+            ("incremental", datetime(2026, 8, 1, tzinfo=UTC), True),
+        ]
+    )
+    def test_request_params_adds_the_insider_from_filter_only_with_a_watermark(
+        self, _name: str, watermark: Any, expects_filter: bool
+    ) -> None:
+        params = _request_params(ALPHA_VANTAGE_ENDPOINTS["insider_transactions"], "IBM", "KEY", watermark)
+        assert params["function"] == "INSIDER_TRANSACTIONS"
+        if expects_filter:
+            assert params["from"] == "2026-08-01"
+        else:
+            assert "from" not in params
+
+    def test_request_params_ignores_a_watermark_for_a_full_refresh_function(self) -> None:
+        # Only INSIDER_TRANSACTIONS takes a server-side date bound; sending one elsewhere would be
+        # silently ignored by the API and misleading to a reader.
+        params = _request_params(
+            ALPHA_VANTAGE_ENDPOINTS["global_quote"], "IBM", "KEY", datetime(2026, 8, 1, tzinfo=UTC)
+        )
+        assert "from" not in params
+
+    def test_news_rows_stops_on_a_short_page(self) -> None:
+        session = _session_returning([_news_response(_article("https://a", "20260101T010000"))])
+        with patch(f"{MODULE}.NEWS_PAGE_LIMIT", 2):
+            rows = _collect_rows(_news_rows(session, "KEY", "IBM", None, MagicMock()))
+        assert [row["url"] for row in rows] == ["https://a"]
+        assert session.get.call_count == 1
+        params = session.get.call_args.kwargs["params"]
+        assert params["tickers"] == "IBM"
+        # Oldest-first, so the watermark advances monotonically and the walk can resume from the end.
+        assert params["sort"] == "EARLIEST"
+        assert "time_from" not in params
+
+    def test_news_rows_walks_forward_from_the_last_article_of_a_full_page(self) -> None:
+        session = _session_returning(
+            [
+                _news_response(_article("https://a", "20260101T010000"), _article("https://b", "20260102T020000")),
+                _news_response(_article("https://c", "20260103T030000")),
+            ]
+        )
+        with patch(f"{MODULE}.NEWS_PAGE_LIMIT", 2):
+            rows = _collect_rows(_news_rows(session, "KEY", "IBM", None, MagicMock()))
+        assert [row["url"] for row in rows] == ["https://a", "https://b", "https://c"]
+        # `time_from` is minute-granular, so the second page resumes from the last article's minute.
+        assert session.get.call_args_list[1].kwargs["params"]["time_from"] == "20260102T0200"
+
+    def test_news_rows_passes_through_the_starting_watermark(self) -> None:
+        session = _session_returning([_news_response(_article("https://a", "20260101T010000"))])
+        with patch(f"{MODULE}.NEWS_PAGE_LIMIT", 2):
+            _collect_rows(_news_rows(session, "KEY", "IBM", "20251231T2359", MagicMock()))
+        assert session.get.call_args.kwargs["params"]["time_from"] == "20251231T2359"
+
+    def test_news_rows_does_not_yield_the_boundary_article_twice(self) -> None:
+        # Resuming from a minute re-reads every article published in it, and a merge cannot dedupe
+        # within one batch sequence, so the walk has to drop what it already yielded.
+        repeated = _article("https://b", "20260102T020000")
+        session = _session_returning(
+            [
+                _news_response(_article("https://a", "20260101T010000"), repeated),
+                _news_response(repeated),
+            ]
+        )
+        with patch(f"{MODULE}.NEWS_PAGE_LIMIT", 2):
+            batches = list(_news_rows(session, "KEY", "IBM", None, MagicMock()))
+        assert [[row["url"] for row in batch] for batch in batches] == [["https://a", "https://b"]]
+
+    def test_news_rows_stops_when_the_cursor_cannot_advance(self) -> None:
+        # A full page that fits inside one minute would make the next request repeat it forever.
+        page = _news_response(_article("https://a", "20260101T010000"), _article("https://b", "20260101T010030"))
+        session = _session_returning([page, _news_response(_article("https://c", "20260101T010045"))])
+        logger = MagicMock()
+        with patch(f"{MODULE}.NEWS_PAGE_LIMIT", 2):
+            _collect_rows(_news_rows(session, "KEY", "IBM", "20260101T0100", logger))
+        assert session.get.call_count == 1
+        logger.warning.assert_called_once()
+
+    def test_news_rows_stops_on_an_unparseable_published_timestamp(self) -> None:
+        session = _session_returning(
+            [_news_response(_article("https://a", ""), _article("https://b", "")), _news_response()]
+        )
+        logger = MagicMock()
+        with patch(f"{MODULE}.NEWS_PAGE_LIMIT", 2):
+            rows = _collect_rows(_news_rows(session, "KEY", "IBM", None, logger))
+        assert [row["url"] for row in rows] == ["https://a", "https://b"]
+        assert session.get.call_count == 1
+        logger.warning.assert_called_once()
+
+    def test_news_rows_stops_at_the_page_cap(self) -> None:
+        pages = [_news_response(_article(f"https://{i}", f"2026010{i}T010000")) for i in range(1, 4)]
+        session = _session_returning(pages)
+        logger = MagicMock()
+        with patch(f"{MODULE}.NEWS_PAGE_LIMIT", 1), patch(f"{MODULE}.NEWS_MAX_PAGES", 2):
+            rows = _collect_rows(_news_rows(session, "KEY", "IBM", None, logger))
+        assert [row["url"] for row in rows] == ["https://1", "https://2"]
+        assert session.get.call_count == 2
+        logger.warning.assert_called_once()
+
+    def test_news_rows_skips_a_symbol_on_error_message(self) -> None:
+        session = _session_returning([_response(body={"Error Message": "Invalid API call"})])
+        logger = MagicMock()
+        assert _collect_rows(_news_rows(session, "KEY", "BADSYM", None, logger)) == []
+        logger.warning.assert_called_once()
+
+    def test_get_rows_fans_news_out_over_symbols_with_the_watermark(self) -> None:
+        responses = [
+            _news_response(_article("https://ibm", "20260101T010000")),
+            _news_response(_article("https://aapl", "20260101T020000")),
+        ]
+        session = _session_returning(responses)
+        with patch(f"{MODULE}.make_tracked_session", return_value=session):
+            rows = _collect_rows(get_rows("KEY", ["IBM", "AAPL"], "news_sentiment", MagicMock(), "20251231T235900"))
+        assert [(row["symbol"], row["url"]) for row in rows] == [("IBM", "https://ibm"), ("AAPL", "https://aapl")]
+        assert [call.kwargs["params"]["tickers"] for call in session.get.call_args_list] == ["IBM", "AAPL"]
+        assert all(call.kwargs["params"]["time_from"] == "20251231T2359" for call in session.get.call_args_list)
+
+    def test_earnings_calendar_rows_requests_the_widest_horizon_and_chunks(self) -> None:
+        header = "symbol,name,reportDate,fiscalDateEnding,estimate,currency,timeOfTheDay\n"
+        body = header + "".join(
+            f"SYM{i},Co {i},2026-10-22,2026-09-30,1.0,USD,post-market\n" for i in range(CSV_CHUNK_SIZE + 1)
+        )
+        session = _session_returning([_text_response(body)])
+        batches = list(_earnings_calendar_rows(session, "KEY", MagicMock()))
+        assert [len(batch) for batch in batches] == [CSV_CHUNK_SIZE, 1]
+        params = session.get.call_args.kwargs["params"]
+        assert params["function"] == "EARNINGS_CALENDAR"
+        assert params["horizon"] == EARNINGS_CALENDAR_HORIZON
+        # Market-wide, so the request carries no symbol.
+        assert "symbol" not in params
+        assert batches[0][0] == {
+            "symbol": "SYM0",
+            "name": "Co 0",
+            "reportDate": "2026-10-22",
+            "fiscalDateEnding": "2026-09-30",
+            "estimate": "1.0",
+            "currency": "USD",
+            "timeOfTheDay": "post-market",
+        }
+
+    def test_earnings_calendar_rows_skips_a_json_reply(self) -> None:
+        session = _session_returning([_text_response("{}")])
+        logger = MagicMock()
+        assert _collect_rows(_earnings_calendar_rows(session, "KEY", logger)) == []
+        logger.warning.assert_called_once()
+
+    def test_get_rows_does_not_fan_out_the_earnings_calendar_over_symbols(self) -> None:
+        header = "symbol,reportDate,fiscalDateEnding\n"
+        session = _session_returning([_text_response(header + "IBM,2026-10-22,2026-09-30\n")])
+        with patch(f"{MODULE}.make_tracked_session", return_value=session):
+            rows = _collect_rows(get_rows("KEY", ["IBM", "AAPL", "MSFT"], "earnings_calendar", MagicMock()))
+        assert session.get.call_count == 1
+        assert rows == [{"symbol": "IBM", "reportDate": "2026-10-22", "fiscalDateEnding": "2026-09-30"}]
+
+    @parameterized.expand(
+        [
+            # Verbatim from the live API: a refused CSV function answers with the normal header and the
+            # envelope key spelled one character per column, not with a JSON body.
+            ("information", "Informa", AlphaVantageAPIError, "rate_limit_or_premium"),
+            ("error_message", "Error M", AlphaVantageAPIError, "rate_limit_or_premium"),
+            ("note", "Not", AlphaVantageRetryableError, "rate_limit"),
+        ]
+    )
+    def test_fetch_csv_detects_an_envelope_leaked_into_the_csv_body(
+        self, _name: str, leaked: str, expected_error: type[Exception], expected_marker: str
+    ) -> None:
+        header = "symbol,name,reportDate,fiscalDateEnding,estimate,currency,timeOfTheDay"
+        body = f"{header}\r\n{','.join(leaked)}\r\n"
+        session = _session_returning([_text_response(body)] * 5)
+        with patch("time.sleep"), pytest.raises(expected_error) as exc:
+            _fetch_csv(session, {"function": "EARNINGS_CALENDAR"})
+        assert expected_marker in str(exc.value)
+
+    def test_fetch_csv_accepts_a_real_data_row(self) -> None:
+        body = "symbol,name,reportDate\r\nIBM,International Business Machines,2026-10-22\r\n"
+        assert _fetch_csv(_session_returning([_text_response(body)]), {"function": "EARNINGS_CALENDAR"}) == body
+
+    def test_fetch_csv_accepts_a_header_only_body(self) -> None:
+        body = "symbol,name,reportDate\r\n"
+        assert _fetch_csv(_session_returning([_text_response(body)]), {"function": "EARNINGS_CALENDAR"}) == body
+
+    @parameterized.expand(
+        [
+            ("insider_is_newest_first", "insider_transactions", "desc"),
+            ("news_is_oldest_first", "news_sentiment", "asc"),
+            ("full_refresh_default", "time_series_daily", "asc"),
+        ]
+    )
+    def test_alpha_vantage_source_reports_the_order_rows_arrive_in(
+        self, _name: str, endpoint: str, expected: str
+    ) -> None:
+        assert alpha_vantage_source("KEY", ["IBM"], endpoint, MagicMock()).sort_mode == expected
+
     @parameterized.expand(
         [
             ("time_series_daily", ["symbol", "date"], "date"),
@@ -423,6 +749,9 @@ class TestAlphaVantage:
             ("company_overview", ["symbol"], None),
             ("income_statement", ["symbol", "fiscalDateEnding", "report_type"], "fiscalDateEnding"),
             ("earnings", ["symbol", "fiscalDateEnding", "report_type"], "fiscalDateEnding"),
+            ("news_sentiment", ["symbol", "url"], "time_published"),
+            ("earnings_calendar", ["symbol", "reportDate", "fiscalDateEnding"], None),
+            ("institutional_holdings", ["symbol", "holder_name", "last_reported", "shares_held"], None),
         ]
     )
     def test_alpha_vantage_source_maps_primary_keys_and_partitioning(

@@ -86,6 +86,20 @@ describe('BoxPlot', () => {
         expect(maxTickNumeric).toBeGreaterThanOrEqual(250)
     })
 
+    it('lists the labels down the y-axis and the values along x when horizontal', () => {
+        const { chart } = renderHogChart(
+            <BoxPlot
+                series={TWO_SERIES}
+                labels={LABELS}
+                theme={THEME}
+                config={{ axisOrientation: 'horizontal' }}
+            />
+        )
+        expect(chart.yTicks()).toEqual(LABELS)
+        const values = chart.xTicks().map((tick) => parseFloat(tick.replace(/[^\d.-]/g, '')))
+        expect(Math.max(...values)).toBeGreaterThanOrEqual(100)
+    })
+
     it('forwards `dataAttr` to the chart wrapper', () => {
         const { chart } = renderHogChart(
             <BoxPlot series={TWO_SERIES} labels={LABELS} theme={THEME} dataAttr="boxplot-instance" />

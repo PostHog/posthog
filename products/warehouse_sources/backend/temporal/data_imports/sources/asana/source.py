@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.asana.asana import (
     AsanaResumeConfig,
     asana_source,
@@ -48,7 +46,7 @@ class AsanaSource(ResumableSource[AsanaSourceConfig, AsanaResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.ASANA,
+            name=ExternalDataSourceType.ASANA,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Asana",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -61,9 +59,14 @@ Grant these read scopes so every table can sync:
 - `users:read`
 - `projects:read`
 - `tasks:read`
+- `stories:read`
+- `goals:read`
+- `time_tracking_entries:read`
 - `tags:read`
 - `teams:read`
 - `custom_fields:read`
+- `team_memberships:read`
+- `portfolios:read`
 
 The AI Studio usage tables (`ai_studio_runs`, `ai_studio_seats`) additionally need the `admin.ai_studio_usage:read` scope on an AI Studio-licensed organization. Skip them if you don't use AI Studio.
 """,

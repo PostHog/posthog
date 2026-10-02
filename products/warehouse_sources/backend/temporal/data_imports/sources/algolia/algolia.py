@@ -1,4 +1,7 @@
 import re
+import dataclasses
+from collections.abc import Iterable
+from datetime import date, datetime, timedelta
 from typing import Any, Optional, cast
 from urllib.parse import quote
 
@@ -9,24 +12,33 @@ from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.algolia.settings import (
     ALGOLIA_ENDPOINTS,
+    ANALYTICS_LOOKBACK_DAYS,
     AlgoliaApi,
     AlgoliaEndpointConfig,
     PaginationStyle,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+    build_dependent_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BasePaginator,
     JSONResponseCursorPaginator,
     OffsetPaginator,
     PageNumberPaginator,
+    SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
     Endpoint,
     HTTPMethodBasic,
+    IncrementalConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -68,6 +80,8 @@ class AlgoliaResumeConfig:
     page: int | None = None
     # Row offset for the offset-paginated analytics / A-B testing endpoints.
     offset: int | None = None
+    # Fan-out progress, in the shape the shared fan-out builder checkpoints.
+    fanout: dict[str, Any] | None = None
 
 
 def _base_url(application_id: str) -> str:
@@ -144,6 +158,8 @@ class AlgoliaPageNumberPaginator(PageNumberPaginator):
 
 
 def _build_paginator(config: AlgoliaEndpointConfig) -> BasePaginator:
+    if config.pagination == PaginationStyle.SINGLE:
+        return SinglePagePaginator()
     if config.pagination == PaginationStyle.CURSOR:
         # Browse pages via an opaque cursor carried in the POST body; a missing cursor in the
         # response signals end of index.
@@ -167,19 +183,111 @@ def _build_paginator(config: AlgoliaEndpointConfig) -> BasePaginator:
     )
 
 
-def algolia_source(
-    endpoint: str,
+def _analytics_params(config: AlgoliaEndpointConfig, index_name: str | None) -> dict[str, Any]:
+    params: dict[str, Any] = {}
+    if config.requires_index and index_name:
+        params["index"] = index_name
+    if config.click_analytics:
+        params["clickAnalytics"] = "true"
+    return params
+
+
+def _to_start_date(value: Any) -> str | None:
+    """Format an incremental watermark as Algolia's `startDate`, floored by the lookback window.
+
+    None (the first incremental sync, before a watermark exists) drops the param so Algolia
+    applies its own default period, which every plan's analytics retention covers. An
+    unparseable watermark degrades the same way rather than asking for a window Algolia rejects.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        day = value.date()
+    elif isinstance(value, date):
+        day = value
+    else:
+        parsed = parse_datetime_value(value)
+        if parsed is None:
+            return None
+        day = parsed.date()
+    return (day - timedelta(days=ANALYTICS_LOOKBACK_DAYS)).isoformat()
+
+
+def _client_config(
+    application_id: str,
+    api_key: str,
+    config: AlgoliaEndpointConfig,
+    region: str,
+) -> ClientConfig:
+    return {
+        "base_url": _base_url_for(config, application_id, region),
+        # The API key is supplied via the framework auth config so its value is redacted from
+        # logs; only the non-secret application ID / content headers are set here.
+        "headers": {
+            "X-Algolia-Application-Id": application_id,
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        },
+        "auth": {"type": "api_key", "api_key": api_key, "name": "X-Algolia-API-Key", "location": "header"},
+    }
+
+
+def _fanout_items(
+    config: AlgoliaEndpointConfig,
+    fanout_config: DependentEndpointConfig,
     application_id: str,
     api_key: str,
     index_name: str | None,
     team_id: int,
     job_id: str,
     manager: ResumableSourceManager[AlgoliaResumeConfig],
-    region: str = "us",
-) -> SourceResponse:
-    config = ALGOLIA_ENDPOINTS[endpoint]
-    is_cursor = config.pagination == PaginationStyle.CURSOR
+    region: str,
+) -> Iterable[Any]:
+    parent_config = ALGOLIA_ENDPOINTS[fanout_config.parent_name]
+    # The index is required on both requests but only known at run time, so it is bound here
+    # rather than in the static endpoint catalog.
+    fanout = dataclasses.replace(fanout_config, parent_params=_analytics_params(parent_config, index_name))
 
+    resume = manager.load_state() if manager.can_resume() else None
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state:
+            manager.save_state(AlgoliaResumeConfig(fanout=state))
+
+    return build_dependent_resource(
+        endpoint_configs=ALGOLIA_ENDPOINTS,
+        child_endpoint=config.name,
+        fanout=fanout,
+        client_config=_client_config(application_id, api_key, config, region),
+        path_format_values={},
+        team_id=team_id,
+        job_id=job_id,
+        db_incremental_field_last_value=None,
+        # A facet attribute name is a record attribute path, so percent-encode it before the
+        # builder binds it into the path with `str.format`, which escapes nothing.
+        parent_data_map=lambda row: {**row, "attribute": quote(str(row.get("attribute", "")), safe="")},
+        parent_endpoint_extra={
+            "data_selector": parent_config.data_selector,
+            "paginator": _build_paginator(parent_config),
+        },
+        child_endpoint_extra={
+            "data_selector": config.data_selector,
+            "paginator": _build_paginator(config),
+        },
+        child_params_extra=_analytics_params(config, index_name),
+        # The paginators supply `limit` themselves; adding a page-size param would duplicate it.
+        page_size_param=None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=resume.fanout if resume is not None else None,
+    )
+
+
+def _endpoint_config(
+    config: AlgoliaEndpointConfig,
+    index_name: str | None,
+    should_use_incremental_field: bool,
+    incremental_field: str | None,
+) -> Endpoint:
     endpoint_config: Endpoint = {
         "path": _endpoint_path(config, index_name),
         "method": cast(HTTPMethodBasic, config.method),
@@ -189,76 +297,111 @@ def algolia_source(
     if config.api == AlgoliaApi.ANALYTICS:
         # The paginator supplies `offset`/`limit`; the index (when the endpoint is index-scoped)
         # and the click-analytics toggle travel as static query params alongside it.
-        params: dict[str, Any] = {}
-        if config.requires_index and index_name:
-            params["index"] = index_name
-        if config.click_analytics:
-            params["clickAnalytics"] = "true"
-        endpoint_config["params"] = params
+        endpoint_config["params"] = _analytics_params(config, index_name)
+        if should_use_incremental_field and config.start_param:
+            incremental: IncrementalConfig = {
+                "start_param": config.start_param,
+                "cursor_path": incremental_field or config.default_incremental_field or "date",
+                "convert": _to_start_date,
+            }
+            endpoint_config["incremental"] = incremental
     elif config.method == "POST":
         # Rows requested per page (`hitsPerPage`) travel where the page token does: in the POST body
         # for browse/search, in the query string for the GET indices listing.
         endpoint_config["json"] = {"hitsPerPage": config.page_size}
     else:
         endpoint_config["params"] = {"hitsPerPage": config.page_size}
+    return endpoint_config
 
-    rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": _base_url_for(config, application_id, region),
-            # The API key is supplied via the framework auth config so its value is redacted from
-            # logs; only the non-secret application ID / content headers are set here.
-            "headers": {
-                "X-Algolia-Application-Id": application_id,
-                "Accept": "application/json",
-                "Content-Type": "application/json",
-            },
-            "auth": {"type": "api_key", "api_key": api_key, "name": "X-Algolia-API-Key", "location": "header"},
-        },
-        "resource_defaults": {},
-        "resources": [{"name": endpoint, "endpoint": endpoint_config}],
-    }
 
-    initial_paginator_state: Optional[dict[str, Any]] = None
-    if manager.can_resume():
-        resume = manager.load_state()
-        if resume is not None:
-            if is_cursor and resume.cursor is not None:
-                initial_paginator_state = {"cursor": resume.cursor}
-            elif config.pagination == PaginationStyle.OFFSET and resume.offset is not None:
-                initial_paginator_state = {"offset": resume.offset}
-            elif config.pagination == PaginationStyle.PAGE and resume.page is not None:
-                initial_paginator_state = {"page": resume.page}
+def _resume_state(
+    config: AlgoliaEndpointConfig,
+    manager: ResumableSourceManager[AlgoliaResumeConfig],
+) -> Optional[dict[str, Any]]:
+    """Seed the paginator from saved state, in whichever token the endpoint pages by."""
+    if not manager.can_resume():
+        return None
+    resume = manager.load_state()
+    if resume is None:
+        return None
+    if config.pagination == PaginationStyle.CURSOR and resume.cursor is not None:
+        return {"cursor": resume.cursor}
+    if config.pagination == PaginationStyle.OFFSET and resume.offset is not None:
+        return {"offset": resume.offset}
+    if config.pagination == PaginationStyle.PAGE and resume.page is not None:
+        return {"page": resume.page}
+    return None
 
-    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
-        # Persist only when a next page remains; the hook fires AFTER a page is yielded so a crash
-        # re-yields the last page (merge dedupes on the primary key) rather than skipping it.
-        if not state:
-            return
-        if is_cursor:
-            if state.get("cursor") is not None:
-                manager.save_state(AlgoliaResumeConfig(cursor=state["cursor"]))
-        elif config.pagination == PaginationStyle.OFFSET:
-            if state.get("offset") is not None:
-                manager.save_state(AlgoliaResumeConfig(offset=int(state["offset"])))
-        elif state.get("page") is not None:
-            manager.save_state(AlgoliaResumeConfig(page=int(state["page"])))
 
-    resource = rest_api_resource(
-        rest_config,
-        team_id,
-        job_id,
-        None,
-        resume_hook=save_checkpoint,
-        initial_paginator_state=initial_paginator_state,
-    )
+def _save_resume_state(
+    config: AlgoliaEndpointConfig,
+    manager: ResumableSourceManager[AlgoliaResumeConfig],
+    state: Optional[dict[str, Any]],
+) -> None:
+    # Persist only when a next page remains; the framework calls this AFTER a page is yielded so a
+    # crash re-yields the last page (merge dedupes on the primary key) rather than skipping it.
+    if not state:
+        return
+    if config.pagination == PaginationStyle.CURSOR:
+        if state.get("cursor") is not None:
+            manager.save_state(AlgoliaResumeConfig(cursor=state["cursor"]))
+    elif config.pagination == PaginationStyle.OFFSET:
+        if state.get("offset") is not None:
+            manager.save_state(AlgoliaResumeConfig(offset=int(state["offset"])))
+    elif state.get("page") is not None:
+        manager.save_state(AlgoliaResumeConfig(page=int(state["page"])))
+
+
+def algolia_source(
+    endpoint: str,
+    application_id: str,
+    api_key: str,
+    index_name: str | None,
+    team_id: int,
+    job_id: str,
+    manager: ResumableSourceManager[AlgoliaResumeConfig],
+    region: str = "us",
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
+    incremental_field: str | None = None,
+) -> SourceResponse:
+    config = ALGOLIA_ENDPOINTS[endpoint]
+
+    if config.fanout is not None:
+        items: Iterable[Any] = _fanout_items(
+            config, config.fanout, application_id, api_key, index_name, team_id, job_id, manager, region
+        )
+    else:
+        rest_config: RESTAPIConfig = {
+            "client": _client_config(application_id, api_key, config, region),
+            "resource_defaults": {},
+            "resources": [
+                {
+                    "name": endpoint,
+                    "endpoint": _endpoint_config(config, index_name, should_use_incremental_field, incremental_field),
+                }
+            ],
+        }
+        items = rest_api_resource(
+            rest_config,
+            team_id,
+            job_id,
+            db_incremental_field_last_value if should_use_incremental_field else None,
+            resume_hook=lambda state: _save_resume_state(config, manager, state),
+            initial_paginator_state=_resume_state(config, manager),
+        )
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: resource,
+        items=lambda: items,
         primary_keys=config.primary_keys,
-        # Full-refresh endpoints with no stable datetime field to partition on.
+        # Full-refresh endpoints with no stable datetime field to partition on. The daily
+        # analytics tables stay unpartitioned too: they hold at most one row per day.
         partition_count=1,
         partition_size=1,
+        # The time-series endpoints return their whole window in one response, so the watermark
+        # is the max `date` of a single batch regardless of the order Algolia lists the days in.
+        sort_mode="asc",
     )
 
 
@@ -282,6 +425,11 @@ def validate_credentials(
     if config is None:
         config = ALGOLIA_ENDPOINTS["records"] if index_name else ALGOLIA_ENDPOINTS["indices"]
 
+    # A fan-out endpoint's path carries a parameter resolved from its parent's rows, so there is
+    # no URL to probe directly. The parent needs the same `analytics` ACL, so probe that instead.
+    if config.fanout is not None:
+        config = ALGOLIA_ENDPOINTS[config.fanout.parent_name]
+
     # An index-scoped probe with no index name configured falls back to listing indices.
     if config.requires_index and not index_name:
         config = ALGOLIA_ENDPOINTS["indices"]
@@ -295,8 +443,9 @@ def validate_credentials(
     session = make_tracked_session(redact_values=(api_key,))
     try:
         if config.api == AlgoliaApi.ANALYTICS:
-            # Confirm the `analytics` ACL with a one-row read against the analytics host.
-            params: dict[str, Any] = {"limit": 1}
+            # Only the paginated breakdowns take `limit`, so sending one to a time-series
+            # endpoint would be an undocumented param on an ACL probe.
+            params: dict[str, Any] = {"limit": 1} if config.pagination == PaginationStyle.OFFSET else {}
             if config.requires_index and index_name:
                 params["index"] = index_name
             response = session.get(url, headers=headers, params=params, timeout=10)

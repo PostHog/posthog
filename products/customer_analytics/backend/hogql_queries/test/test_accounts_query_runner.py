@@ -155,7 +155,11 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
             team_id=self.team.id, name=definition_name
         )
         return relationships_logic.assign(
-            team_id=self.team.id, account=account, definition=definition, user=user, created_by=user
+            team_id=self.team.id,
+            account=account,
+            definition=definition,
+            user=user,
+            actor=relationships_logic.Actor.human(user),
         )
 
     def test_all_roles_unassigned(self):
@@ -165,11 +169,22 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         previously_assigned = create_account(team_id=self.team.id, name="Previously assigned")
         rel = self._assign(previously_assigned, holder)
         relationships_logic.end_relationship(
-            team_id=self.team.id, account_id=str(previously_assigned.id), relationship_id=str(rel.id)
+            team_id=self.team.id,
+            account_id=str(previously_assigned.id),
+            relationship_id=str(rel.id),
+            actor=relationships_logic.Actor.human(),
         )
         never_assigned = create_account(team_id=self.team.id, name="Never assigned")
 
         self.assertEqual(set(self._ids(allRolesUnassigned=True)), {str(previously_assigned.id), str(never_assigned.id)})
+
+    def test_assigned_only(self):
+        holder = self._create_user("holder@x.com")
+        assigned = create_account(team_id=self.team.id, name="Assigned")
+        self._assign(assigned, holder)
+        create_account(team_id=self.team.id, name="Unassigned")
+
+        self.assertEqual(self._ids(assignedOnly=True), [str(assigned.id)])
 
     def test_combined_assigned_to_and_tags(self):
         enterprise_tag = Tag.objects.create(name="enterprise", team=self.team)
@@ -212,7 +227,10 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         account = create_account(team_id=self.team.id, name="Handed off")
         rel = self._assign(account, holder)
         relationships_logic.end_relationship(
-            team_id=self.team.id, account_id=str(account.id), relationship_id=str(rel.id)
+            team_id=self.team.id,
+            account_id=str(account.id),
+            relationship_id=str(rel.id),
+            actor=relationships_logic.Actor.human(),
         )
         self.assertEqual(self._ids(assignedToUserIds=[holder.id]), [])
 
@@ -269,7 +287,11 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
             team_id=other_team.id, name="CSM"
         )
         relationships_logic.assign(
-            team_id=other_team.id, account=theirs, definition=their_definition, user=holder, created_by=holder
+            team_id=other_team.id,
+            account=theirs,
+            definition=their_definition,
+            user=holder,
+            actor=relationships_logic.Actor.human(holder),
         )
         mine = create_account(team_id=self.team.id, name="Mine")
         self._assign(mine, holder)

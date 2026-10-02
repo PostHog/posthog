@@ -323,7 +323,7 @@ describeAddon('native image collection', () => {
     const PSEUDO_TEAM = '0123456789abcdef0123456789abcdef'
     const CONTENT_KEY = 'fedcba9876543210fedcba9876543210'
 
-    function imagePayload(): Buffer {
+    function imagePayload(remoteImageUrls: string[] = []): Buffer {
         const inner = JSON.stringify({
             event: '$snapshot_items',
             properties: {
@@ -341,6 +341,12 @@ describeAddon('native image collection', () => {
                                         attributes: { src: `data:image/png;base64,${PNG_B64}` },
                                         childNodes: [],
                                     },
+                                    ...remoteImageUrls.map((src) => ({
+                                        type: 2,
+                                        tagName: 'img',
+                                        attributes: { src },
+                                        childNodes: [],
+                                    })),
                                 ],
                             },
                             initialOffset: { top: 0, left: 0 },
@@ -354,31 +360,78 @@ describeAddon('native image collection', () => {
         return Buffer.from(JSON.stringify({ distinct_id: 'd-1', data: inner }))
     }
 
-    it('replaces the image with a consumer-parseable ref and returns the original bytes', async () => {
+    it.each([PSEUDO_TEAM, '42'])(
+        'emits a consumer-parseable ref for team %s and returns the original bytes',
+        async (team) => {
+            rustAddon!.initAnonymizer({ text: [], url: [] })
+            const result = await rustAddon!.anonymizeKafkaPayload(imagePayload(), undefined, team, CONTENT_KEY)
+            expect(result.failed).toBe(false)
+
+            const png = Buffer.from(PNG_B64, 'base64')
+            const expectedRef = imageRef(team, hashImageBytes(CONTENT_KEY, png))
+            expect(isImageRef(expectedRef)).toBe(true)
+            expect(result.lines!.toString()).toContain(expectedRef)
+            expect(result.lines!.toString()).not.toContain(PNG_B64)
+
+            const meta = parseJSON(result.meta!) as { images?: { hash: string; offset: number; len: number }[] }
+            expect(meta.images).toHaveLength(1)
+            const entry = meta.images![0]
+            const bytes = result.images!.subarray(entry.offset, entry.offset + entry.len)
+            expect(Buffer.from(bytes)).toEqual(png)
+            // The Rust-emitted hash must be the keyed HMAC of the returned bytes.
+            expect(hashImageBytes(CONTENT_KEY, Buffer.from(bytes))).toBe(entry.hash)
+            // `source` is what tells a reader whether the hash names the bytes or only the URL they
+            // came from. An inlined image is content-addressed, so it must read as `bytes`.
+            expect(parseImageRef(expectedRef)).toEqual({
+                ...(team === PSEUDO_TEAM ? { pseudoTeam: team } : { teamId: team }),
+                hash: entry.hash,
+                source: 'bytes',
+            })
+        }
+    )
+
+    it('leaves out what an earlier message produced, and still writes those refs into the lines', async () => {
+        // The produce steps claim with refs that JS builds, and the addon drops with refs it builds
+        // itself. If the two ever disagree, nothing is dropped and every duplicate crosses into JS.
         rustAddon!.initAnonymizer({ text: [], url: [] })
-        const result = await rustAddon!.anonymizeKafkaPayload(imagePayload(), undefined, PSEUDO_TEAM, CONTENT_KEY)
-        expect(result.failed).toBe(false)
+        const namespace = 'v3:42:2026-09'
+        const producedRefDedup = {
+            images: new rustAddon!.RefDedupCache(10),
+            urls: new rustAddon!.RefDedupCache(10),
+            urlTimeBucket: 7,
+        }
+        const anonymize = () =>
+            rustAddon!.anonymizeKafkaPayload(
+                imagePayload(['https://cdn.example.com/a.png']),
+                undefined,
+                namespace,
+                CONTENT_KEY,
+                'url-key',
+                namespace,
+                producedRefDedup
+            )
 
-        const png = Buffer.from(PNG_B64, 'base64')
-        const expectedRef = imageRef(PSEUDO_TEAM, hashImageBytes(CONTENT_KEY, png))
-        expect(isImageRef(expectedRef)).toBe(true)
-        expect(result.lines!.toString()).toContain(expectedRef)
-        expect(result.lines!.toString()).not.toContain(PNG_B64)
+        const first = await anonymize()
+        const firstMeta = parseJSON(first.meta!) as { urls?: { hash: string; url: string }[] }
+        expect(firstMeta.urls).toHaveLength(1)
+        const imageRefs = [imageRef(namespace, hashImageBytes(CONTENT_KEY, Buffer.from(PNG_B64, 'base64')))]
+        const urlRefs = firstMeta.urls!.map(({ hash }) => `imageurl:${namespace}:${hash}`)
+        const urls = firstMeta.urls!.map(({ url }) => url)
+        // The anonymize call only reads the caches, so the first message's refs are still unclaimed.
+        expect(producedRefDedup.images.claimRefs(imageRefs)).toEqual([true])
+        expect(producedRefDedup.urls.claimTransportUrls(urlRefs, urls, 7)).toEqual([true])
 
-        const meta = parseJSON(result.meta!) as { images?: { hash: string; offset: number; len: number }[] }
-        expect(meta.images).toHaveLength(1)
-        const entry = meta.images![0]
-        const bytes = result.images!.subarray(entry.offset, entry.offset + entry.len)
-        expect(Buffer.from(bytes)).toEqual(png)
-        // The Rust-emitted hash must be the keyed HMAC of the returned bytes.
-        expect(hashImageBytes(CONTENT_KEY, Buffer.from(bytes))).toBe(entry.hash)
-        // `source` is what tells a reader whether the hash names the bytes or only the URL they
-        // came from. An inlined image is content-addressed, so it must read as `bytes`.
-        expect(parseImageRef(expectedRef)).toEqual({
-            pseudoTeam: PSEUDO_TEAM,
-            hash: entry.hash,
-            source: 'bytes',
+        const second = await anonymize()
+        expect(second).toMatchObject({
+            failed: false,
+            images: null,
+            dedupedImageCount: 1,
+            dedupedUrlCount: 1,
+            collectedUrlDomainCount: 1,
         })
+        expect((parseJSON(second.meta!) as { urls?: unknown[] }).urls).toBeUndefined()
+        expect(second.lines!.toString()).toContain(imageRefs[0])
+        expect(second.lines!.toString()).toContain(urlRefs[0])
     })
 
     it('collects nothing without the collection keys and blurs inline instead', async () => {
@@ -390,11 +443,11 @@ describeAddon('native image collection', () => {
         expect(result.lines!.toString()).not.toContain('image:')
     })
 
-    it('requires a pseudonym only for the inline image key', async () => {
+    it('requires a team ID only for the inline image key', async () => {
         rustAddon!.initAnonymizer({ text: [], url: [] })
         await expect(
             rustAddon!.anonymizeKafkaPayload(imagePayload(), undefined, undefined, CONTENT_KEY)
-        ).rejects.toThrow('contentKey requires pseudoTeam')
+        ).rejects.toThrow('contentKey requires teamId')
         await expect(
             rustAddon!.anonymizeKafkaPayload(imagePayload(), undefined, undefined, undefined, CONTENT_KEY)
         ).resolves.toMatchObject({ failed: false })

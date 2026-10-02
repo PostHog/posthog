@@ -3,7 +3,7 @@ import datetime as dt
 from typing import Any, Optional, cast
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 import requests
@@ -352,7 +352,7 @@ class TestSendOperation:
         session.post.return_value = make_response(200, {"ResultsByTime": []})
         credentials = aws_cost_explorer.Credentials("AKIAEXAMPLE", "secret")
 
-        with freeze_time("2024-03-05T10:00:00Z"):
+        with time_machine.travel("2024-03-05T10:00:00Z", tick=False):
             send_operation(session, credentials, "GetCostAndUsage", {"Granularity": "DAILY"})
 
         _, kwargs = session.post.call_args
@@ -441,8 +441,12 @@ class TestValidateCredentials:
             )
 
 
-@freeze_time("2024-03-03T12:00:00Z")
 class TestGetRows:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2024-03-03T12:00:00Z", tick=False):
+            yield
+
     def _run(
         self,
         responses: list[dict[str, Any]],

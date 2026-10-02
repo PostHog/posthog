@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Optional
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -31,11 +31,11 @@ from products.warehouse_sources.backend.facade.testing import create_data_wareho
 TEST_BUCKET = "test_storage_bucket-posthog.hogql.datawarehouse.boxplot"
 
 
-@freeze_time("2024-01-01T00:00:00Z")
+@time_machine.travel("2024-01-01T00:00:00Z", tick=False)
 class TestBoxPlotTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _create_events(self, data, event="$pageview"):
         for id, timestamps in data:
-            with freeze_time(timestamps[0][0]):
+            with time_machine.travel(timestamps[0][0], tick=False):
                 _create_person(
                     team_id=self.team.pk,
                     distinct_ids=[id],
@@ -571,7 +571,7 @@ class TestBoxPlotTrendsQueryRunnerDataWarehouse(ClickhouseTestMixin, APIBaseTest
                 math_property_type="data_warehouse_properties",
             )
         )
-        with freeze_time("2024-01-01T00:00:00Z"):
+        with time_machine.travel("2024-01-01T00:00:00Z", tick=False):
             response = BoxPlotTrendsQueryRunner(team=self.team, query=query).calculate()
         data = [BoxPlotDatum(**d) for d in response.results]
 
@@ -601,7 +601,7 @@ class TestBoxPlotTrendsQueryRunnerDataWarehouse(ClickhouseTestMixin, APIBaseTest
                 timestamp_field="created",
             )
         )
-        with freeze_time("2024-01-01T00:00:00Z"):
+        with time_machine.travel("2024-01-01T00:00:00Z", tick=False):
             response = BoxPlotTrendsQueryRunner(team=self.team, query=query).calculate()
 
         assert response.results == []

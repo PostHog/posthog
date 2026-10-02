@@ -10,6 +10,7 @@ use capture::outputs::{OutputRegistry, PublishEvents};
 use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::{router, BATCH_BODY_SIZE};
 use capture::time::TimeSource;
+use capture::v0_request::AiLanePredicate;
 use capture::v0_request::ProcessedEvent;
 use chrono::{DateTime, Utc};
 use common_redis::MockRedisClient;
@@ -92,6 +93,7 @@ fn make_test_client(mode: CaptureMode) -> (TestClient, CapturingSink) {
         // Far above any body this file sends: the AI-lane event ceiling must not
         // be what produces a 413 here, or the wire cap would go untested.
         BATCH_BODY_SIZE as u64 * 5, // ai_max_event_bytes
+        AiLanePredicate::Allowlist,
         None,
         256,
         10 * 1024 * 1024,

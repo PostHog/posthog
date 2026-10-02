@@ -28,7 +28,7 @@ function Cards({
 }: CardsState): JSX.Element {
     useStorybookMocks({
         get: {
-            '/api/environments/:team_id/integrations/': { results: connected ? [WORKSPACE] : [] },
+            '/api/projects/:team_id/integrations/': { results: connected ? [WORKSPACE] : [] },
             '/api/environments/:team_id/integrations/:id/channels': { channels: CHANNELS, has_more: false },
             '/api/projects/:team_id/signals/config/': {
                 id: 'cfg-1',

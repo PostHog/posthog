@@ -27,6 +27,7 @@ from products.tasks.backend.constants import (
     WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG,
 )
 from products.tasks.backend.facade.agents import TurnPollResult
+from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.utils import mcp_exec_skills_env_vars
 
 
@@ -173,7 +174,17 @@ async def test_eval_run_preserves_bundled_skills_unless_exec_is_selected(
     environments: list[dict[str, str]] = []
 
     async def suite(ctx: EvalContext) -> None:
-        task_context = SimpleNamespace(interaction_origin=origin, organization_id="org-1", distinct_id="user-1")
+        task_context = TaskProcessingContext(
+            task_id="task-id",
+            run_id="run-id",
+            team_id=1,
+            team_uuid="team-1",
+            organization_id="org-1",
+            github_integration_id=None,
+            repository=None,
+            distinct_id="user-1",
+            state={"interaction_origin": origin},
+        )
         environments.append(await asyncio.to_thread(mcp_exec_skills_env_vars, task_context))
 
     results = await harness._run_suites(

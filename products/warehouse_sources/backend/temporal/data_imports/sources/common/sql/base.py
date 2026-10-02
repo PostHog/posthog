@@ -58,6 +58,7 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
 
     supports_column_selection: bool = True
     supports_row_filters: bool = True
+    detects_primary_keys: bool = True
 
     @property
     @abstractmethod
@@ -116,7 +117,7 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
         api_version: str | None = None,
     ) -> list[SourceSchema]:
         impl = self.get_implementation
-        with impl.connect(config) as conn:
+        with impl.connect(config, team_id=team_id) as conn:
             columns_by_table = impl.get_columns(conn, config, names)
             if not columns_by_table:
                 return []

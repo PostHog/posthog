@@ -1,7 +1,7 @@
 import json
 import uuid
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from parameterized import parameterized
@@ -112,7 +112,7 @@ class TestImpactApi(ClickhouseTestMixin, APIBaseTest):
             ("empty_window", {"date_from": "2000-01-01T00:00:00Z", "date_to": "2000-01-02T00:00:00Z"}, _ZERO_IMPACT),
         ]
     )
-    @freeze_time("2025-12-18T12:00:00Z")
+    @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
     def test_impact_counts_identity_coverage(self, _name: str, date_range: dict, expected: dict) -> None:
         response = self._impact({"dateRange": date_range})
         # topK breaks count ties in an unspecified order, so only the value set is stable.
@@ -120,19 +120,19 @@ class TestImpactApi(ClickhouseTestMixin, APIBaseTest):
             response[top_list] = sorted(response[top_list], key=lambda entry: entry["value"])
         self.assertEqual(response, expected)
 
-    @freeze_time("2025-12-18T12:00:00Z")
+    @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
     def test_impact_accepts_null_filter_lists(self) -> None:
         response = self._impact({"dateRange": _FIXTURE_WINDOW, "severityLevels": None, "serviceNames": None})
         self.assertEqual(response["total"], 7)
 
-    @freeze_time("2025-12-18T12:00:00Z")
+    @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
     def test_impact_applies_filters(self) -> None:
         # The only error-severity row carries no identity attributes, so every
         # identity count must drop to zero with it.
         response = self._impact({"dateRange": _FIXTURE_WINDOW, "severityLevels": ["error"]})
         self.assertEqual(response, {**_ZERO_IMPACT, "total": 1})
 
-    @freeze_time("2025-12-18T12:00:00Z")
+    @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
     def test_impact_counts_team_configured_session_keys(self) -> None:
         TeamLogsConfig.objects.update_or_create(
             team=self.team, defaults={"logs_session_id_attribute_keys": ["my_session"]}

@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
@@ -16,7 +16,7 @@ ErrorTrackingIssue = apps.get_model("error_tracking", "ErrorTrackingIssue")
 ErrorTrackingIssueFingerprintV2 = apps.get_model("error_tracking", "ErrorTrackingIssueFingerprintV2")
 
 
-@freeze_time("2025-01-15T12:00:00Z")
+@time_machine.travel("2025-01-15T12:00:00Z", tick=False)
 class TestErrorTrackingIssueContext(ClickhouseTestMixin, APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
@@ -89,7 +89,7 @@ class TestErrorTrackingIssueContext(ClickhouseTestMixin, APIBaseTest):
         exception_list=None,
     ):
         if timestamp:
-            with freeze_time(timestamp):
+            with time_machine.travel(timestamp, tick=False):
                 self.create_issue(issue_id, fingerprint, name=issue_name, status=status)
         else:
             self.create_issue(issue_id, fingerprint, name=issue_name, status=status)

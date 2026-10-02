@@ -16,7 +16,12 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 #   - "ranks":  /ranks — a columnar response (a `dates` array plus one series per product/country/
 #               category holding position/delta arrays) whose product ids and date range live in the
 #               URL path, so we fan out over the account's products in chunks and walk date windows.
-EndpointKind = Literal["paged", "object", "report", "ranks"]
+#   - "aso":    /aso — a paginated list of the keywords tracked for one product in one country, each
+#               carrying its latest position rather than a dated series. One product and one country
+#               per request, so we fan out over both and stamp the day the sync ran.
+#   - "aso_stats": /aso/stats — the same fan-out, but a single flat object of keyword aggregates per
+#               product and country instead of a list.
+EndpointKind = Literal["paged", "object", "report", "ranks", "aso", "aso_stats"]
 
 
 @frozen
@@ -39,6 +44,9 @@ class AppfiguresEndpointConfig:
     data_key: Optional[str] = None
     # Query param name for the server-side creation-date lower bound (yyyy-mm-dd), if any.
     start_param: Optional[str] = None
+    # Upper bound param paired with `start_param`. /aso spells the pair start_date/end_date and
+    # /aso/stats spells it start/end, so both names come from the config.
+    end_param: Optional[str] = None
     # Sort param value to force a stable ascending order so the incremental watermark advances.
     sort: Optional[str] = None
     page_size: int = 500
@@ -148,6 +156,47 @@ APPFIGURES_ENDPOINTS: dict[str, AppfiguresEndpointConfig] = {
         default_incremental_field="date",
         incremental_fields=[_REPORT_DATE_FIELD],
     ),
+    # Daily ad-publishing revenue by network: requests, fill rate, impressions, eCPM, and the
+    # revenue those ads earned, which the sales and revenue reports do not cover.
+    "ads_report": AppfiguresEndpointConfig(
+        name="ads_report",
+        path="/reports/ads",
+        kind="report",
+        primary_keys=["date"],
+        group_by="dates",
+        granularity="daily",
+        window_days=30,
+        partition_key="date",
+        default_incremental_field="date",
+        incremental_fields=[_REPORT_DATE_FIELD],
+    ),
+    # Daily user-acquisition campaign spend: installs, clicks, impressions, cost, CPC, and CPA, so
+    # spend can be set against the revenue report.
+    "adspend_report": AppfiguresEndpointConfig(
+        name="adspend_report",
+        path="/reports/adspend",
+        kind="report",
+        primary_keys=["date"],
+        group_by="dates",
+        granularity="daily",
+        window_days=30,
+        partition_key="date",
+        default_incremental_field="date",
+        incremental_fields=[_REPORT_DATE_FIELD],
+    ),
+    # Daily expected payouts, which reconcile recognized revenue to the cash the stores pay out.
+    "payments_report": AppfiguresEndpointConfig(
+        name="payments_report",
+        path="/reports/payments",
+        kind="report",
+        primary_keys=["date"],
+        group_by="dates",
+        granularity="daily",
+        window_days=30,
+        partition_key="date",
+        default_incremental_field="date",
+        incremental_fields=[_REPORT_DATE_FIELD],
+    ),
     # Store category rank history per product, country, and category.
     "ranks": AppfiguresEndpointConfig(
         name="ranks",
@@ -164,6 +213,42 @@ APPFIGURES_ENDPOINTS: dict[str, AppfiguresEndpointConfig] = {
         # /ranks takes its product ids in the path, so there is no cheap request to probe. Ranks and
         # reviews both need `public:read`, so probing reviews checks the same grant.
         probe_path="/reviews",
+    ),
+    # Search position of every keyword tracked in Appfigures, per product and country. Appfigures
+    # returns the latest position rather than a dated series, so each sync stamps the day it ran and
+    # the table builds up a daily snapshot per keyword.
+    "aso_keywords": AppfiguresEndpointConfig(
+        name="aso_keywords",
+        path="/aso",
+        kind="aso",
+        primary_keys=["date", "product_id", "country", "keyword_id"],
+        data_key="results",
+        start_param="start_date",
+        end_param="end_date",
+        granularity="daily",
+        window_days=30,
+        partition_key="date",
+        # One request per product per country, paginated. Requests cost account credits, so leave it
+        # to the user to turn on once they have picked the countries they track keywords in.
+        should_sync_default=False,
+        # /aso needs a product and a country, so there is no cheap request to probe. The fan-out
+        # reads the product catalog before anything else, so probe that instead.
+        probe_path="/products/mine",
+    ),
+    # Per-product, per-country summary of the tracked keyword set: average position, how many
+    # keywords sit in the top 5/25/100, and how many moved up or down.
+    "aso_stats": AppfiguresEndpointConfig(
+        name="aso_stats",
+        path="/aso/stats",
+        kind="aso_stats",
+        primary_keys=["date", "product_id", "country"],
+        start_param="start",
+        end_param="end",
+        granularity="daily",
+        window_days=30,
+        partition_key="date",
+        should_sync_default=False,
+        probe_path="/products/mine",
     ),
     # Store metadata resolving the `store` / `store_id` codes on products and rank rows.
     "stores": AppfiguresEndpointConfig(

@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -42,7 +40,7 @@ class GongSource(ResumableSource[GongSourceConfig, GongResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.GONG,
+            name=ExternalDataSourceType.GONG,
             category=DataWarehouseSourceCategory.SALES,
             label="Gong",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -61,6 +59,11 @@ To also sync the `calls_extensive` table (call participants and CRM associations
 
 To also sync the `transcripts` table (what was said on each call), additionally grant:
 - `api:calls:read:transcript`
+
+To also sync these tables, additionally grant the scope listed next to each:
+- `trackers` (keyword tracker definitions): `api:settings:trackers:read`
+- `answered_scorecards` (scorecard reviews of calls): `api:stats:scorecards`
+- `interaction_stats` (daily talk ratio, patience, and other conversation metrics per user): `api:stats:interaction`
 """,
             iconPath="/static/services/gong.png",
             docsUrl="https://posthog.com/docs/cdp/sources/gong",

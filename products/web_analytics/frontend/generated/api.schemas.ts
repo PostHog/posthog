@@ -7,6 +7,88 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface HeatmapCapturePageApi {
+    /** A page URL that currently sends heatmap data. */
+    url: string
+    /** Heatmap events captured on this page in the last 30 days. */
+    count: number
+}
+
+export interface HeatmapCapturePagesApi {
+    /** Top pages by recent heatmap volume, most active first. */
+    pages: HeatmapCapturePageApi[]
+}
+
+/**
+ * * `all` - All URLs
+ * * `url_allowlist` - Only listed URLs
+ */
+export type TeamHeatmapConfigCaptureModeEnumApi =
+    (typeof TeamHeatmapConfigCaptureModeEnumApi)[keyof typeof TeamHeatmapConfigCaptureModeEnumApi]
+
+export const TeamHeatmapConfigCaptureModeEnumApi = {
+    All: 'all',
+    UrlAllowlist: 'url_allowlist',
+} as const
+
+export interface HeatmapCaptureSettingsApi {
+    /** Whether to capture heatmap data from every page ('all') or only listed URLs ('url_allowlist').
+     *
+     * * `all` - All URLs
+     * * `url_allowlist` - Only listed URLs */
+    capture_mode: TeamHeatmapConfigCaptureModeEnumApi
+    /**
+     * Full http(s) URLs that may send heatmap data. Use * to match any characters.
+     * @items.maxLength 2000
+     */
+    url_allowlist: string[]
+    /** Whether this installation enforces the URL allow-list for heatmap capture. */
+    readonly enforcement_enabled: boolean
+    /** Whether this organization's plan may capture heatmaps on every page. */
+    readonly can_capture_all_urls: boolean
+    /**
+     * How many URLs this plan may capture, or null when the plan captures all pages.
+     * @nullable
+     */
+    readonly capture_url_limit: number | null
+}
+
+export interface PatchedHeatmapCaptureSettingsRequestApi {
+    /** Whether to capture heatmap data from every page ('all') or only listed URLs ('url_allowlist').
+     *
+     * * `all` - All URLs
+     * * `url_allowlist` - Only listed URLs */
+    capture_mode?: TeamHeatmapConfigCaptureModeEnumApi
+    /**
+     * Full http(s) URLs that may send heatmap data. Use * to match any characters.
+     * @maxItems 100
+     * @items.maxLength 2000
+     */
+    url_allowlist?: string[]
+}
+
+export interface HeatmapScreenshotSettingsApi {
+    /**
+     * Exact DNS hostnames approved to receive the screenshot cookie. No URLs, wildcards, or IP addresses.
+     * @maxItems 100
+     * @items.maxLength 253
+     */
+    allowed_hostnames: string[]
+    /** Whether this installation permits screenshot cookie delivery to its renderer. */
+    readonly cookie_delivery_enabled: boolean
+    /** Whether a screenshot bypass secret has been generated. */
+    readonly has_secret: boolean
+}
+
+export interface PatchedHeatmapScreenshotSettingsRequestApi {
+    /**
+     * Exact DNS hostnames approved to receive the screenshot cookie. No URLs, wildcards, or IP addresses.
+     * @maxItems 100
+     * @items.maxLength 253
+     */
+    allowed_hostnames?: string[]
+}
+
 /**
  * * `screenshot` - Screenshot
  * * `iframe` - Iframe
@@ -313,10 +395,12 @@ export interface SavedHeatmapCaptureRequestApi {
      */
     widths?: number[]
     /**
-     * Exact page URL the screenshot was captured on. Wildcards are not allowed; this is stored as both the heatmap URL and its data URL, so the overlay reads aggregate data for this exact URL.
+     * Exact page URL the screenshot was captured on. Wildcards are not allowed.
      * @maxLength 2000
      */
     url: string
+    /** URL or wildcard pattern used to select the heatmap data overlaid on the screenshot. Defaults to the captured page URL when omitted or empty. */
+    data_url?: string
     /**
      * Human-readable label for the saved heatmap. Defaults to the URL when omitted.
      * @maxLength 400
@@ -691,19 +775,288 @@ export interface RecordVisitResponseApi {
     recorded: boolean
 }
 
-export interface CustomBotRuleApi {
+export interface WebAnalyticsBotConditionApi {
+    /**
+     * Stable id for the condition. Generated when omitted.
+     * @maxLength 100
+     */
+    id?: string
+    /** Event property the condition reads. One of: $raw_user_agent, $ip, $lib, $host, $pathname, $current_url, $browser, $os, $browser_language, $screen_width, $screen_height, $geoip_country_code, $referrer, $referring_domain. */
+    key: string
+    /** How `pattern` is compared: 'contains' (case-insensitive substring), 'regex' (RE2), 'exact' (case-sensitive equality), or 'cidr' (an IP network range, only valid with the `$ip` property). */
+    matcher: string
+    /** Value matched against the property named by `key`. For 'cidr' this is a network range like 192.0.2.0/24. */
+    pattern: string
+}
+
+export interface WebAnalyticsBotRuleApi {
     /** Stable id for the rule. Pass it to the delete endpoint. */
     readonly id: string
     /** Label reported by the `Bot name` property when the rule matches. Also the operator for a rule on a bot PostHog does not know. */
     name: string
-    /** Event property the rule reads. One of: $raw_user_agent, $ip, $lib, $host, $pathname, $current_url, $browser, $os, $browser_language, $screen_width, $screen_height, $geoip_country_code, $referrer, $referring_domain. */
-    key: string
-    /** How `pattern` is compared: 'contains' (case-insensitive substring), 'regex' (RE2), or 'cidr' (an IP network range, only valid with the `$ip` property). */
-    matcher: string
-    /** Value matched against the property named by `key`. For 'cidr' this is a network range like 192.0.2.0/24. */
-    pattern: string
     /** Reported by the `Traffic category` property. Defaults to 'custom'. A built-in category such as ai_crawler or search_crawler relabels the traffic type too. */
     category?: string
+    /** How the conditions combine: 'AND' flags an event only when every condition matches, 'OR' when any one of them does. */
+    combiner?: string
+    /** The conditions of this rule. Each one reads a single event property. */
+    items: WebAnalyticsBotConditionApi[]
+}
+
+/**
+ * * `ai_visibility_gap` - AI visibility gap
+ */
+export type ContentAutopilotOpportunityKindEnumApi =
+    (typeof ContentAutopilotOpportunityKindEnumApi)[keyof typeof ContentAutopilotOpportunityKindEnumApi]
+
+export const ContentAutopilotOpportunityKindEnumApi = {
+    AiVisibilityGap: 'ai_visibility_gap',
+} as const
+
+/**
+ * * `new_content` - New content
+ * * `page_improvement` - Page improvement
+ */
+export type ContentAutopilotProposalProposalTypeEnumApi =
+    (typeof ContentAutopilotProposalProposalTypeEnumApi)[keyof typeof ContentAutopilotProposalProposalTypeEnumApi]
+
+export const ContentAutopilotProposalProposalTypeEnumApi = {
+    NewContent: 'new_content',
+    PageImprovement: 'page_improvement',
+} as const
+
+/**
+ * * `poor_ctr` - Poor click-through rate
+ * * `content_gap` - Content gap
+ * * `organic_decline` - Organic decline
+ * * `ai_visibility_gap` - AI visibility gap
+ * * `site_hygiene` - Site hygiene
+ */
+export type OpportunityKindEnumApi = (typeof OpportunityKindEnumApi)[keyof typeof OpportunityKindEnumApi]
+
+export const OpportunityKindEnumApi = {
+    PoorCtr: 'poor_ctr',
+    ContentGap: 'content_gap',
+    OrganicDecline: 'organic_decline',
+    AiVisibilityGap: 'ai_visibility_gap',
+    SiteHygiene: 'site_hygiene',
+} as const
+
+export interface ContentAutopilotEvidenceApi {
+    /** Reason the opportunity was selected.
+     *
+     * * `poor_ctr` - Poor click-through rate
+     * * `content_gap` - Content gap
+     * * `organic_decline` - Organic decline
+     * * `ai_visibility_gap` - AI visibility gap
+     * * `site_hygiene` - Site hygiene */
+    opportunity_kind: OpportunityKindEnumApi
+    /** Plain-language explanation of the supporting evidence. */
+    explanation: string
+    /** Page supported by this evidence. */
+    page_url?: string
+    /** Search query supported by this evidence. */
+    query?: string
+}
+
+export interface ContentAutopilotEngineAnswerApi {
+    /** Answer engine that gave the answer. */
+    engine: string
+    /** The engine's most recent answer. Third-party text. */
+    answer_text: string
+    /** When the answer was recorded, in ISO 8601. */
+    checked_at: string
+}
+
+export interface ContentAutopilotCitationGapApi {
+    /** Successful citation checks in the lookback window. */
+    checks: number
+    /** Checks whose answer cited the site. */
+    cited_checks: number
+    /** Checks whose answer named the site's brand or cited the site. */
+    mentioned_checks?: number
+    /** Share of checks that cited the site, from 0 to 1. */
+    citation_rate: number
+    /** Engines that answered the prompt. */
+    engines: string[]
+    /** Engines that never cited the site in the window. */
+    engines_not_citing: string[]
+    /** Other sites' pages the engines cited, most frequent first. */
+    competitor_urls: string[]
+    /** Domains the engines cited instead, most frequent first. */
+    competitor_domains: string[]
+    /** Web searches the engines ran while answering. */
+    engine_search_queries: string[]
+    /** Site pages the engines cited when they did cite the site. */
+    our_cited_urls: string[]
+    /** Most recent answer per engine. */
+    latest_answers: ContentAutopilotEngineAnswerApi[]
+    /** When the prompt was last checked, in ISO 8601. */
+    last_checked_at: string
+}
+
+/**
+ * * `new` - New
+ * * `dismissed` - Dismissed
+ * * `queued` - Queued
+ * * `drafted` - Drafted
+ */
+export type ContentAutopilotOpportunityStatusEnumApi =
+    (typeof ContentAutopilotOpportunityStatusEnumApi)[keyof typeof ContentAutopilotOpportunityStatusEnumApi]
+
+export const ContentAutopilotOpportunityStatusEnumApi = {
+    New: 'new',
+    Dismissed: 'dismissed',
+    Queued: 'queued',
+    Drafted: 'drafted',
+} as const
+
+export interface ContentAutopilotOpportunityApi {
+    readonly id: string
+    /** Site profile this opportunity belongs to. */
+    readonly profile_id: string
+    /**
+     * Latest run that drafted this opportunity.
+     * @nullable
+     */
+    readonly run_id: string | null
+    /**
+     * Latest proposal drafted for this opportunity.
+     * @nullable
+     */
+    readonly proposal_id: string | null
+    /** Type of visibility gap.
+     *
+     * * `ai_visibility_gap` - AI visibility gap */
+    readonly kind: ContentAutopilotOpportunityKindEnumApi
+    /** The prompt the site isn't cited for. */
+    readonly title: string
+    /** Priority from 0 to 1. Higher means a clearer, more consistent gap. */
+    readonly score: number
+    /** `page_improvement` when the engines cited a site page for the prompt. Otherwise `new_content`, and drafting decides between a new page and an existing one.
+     *
+     * * `new_content` - New content
+     * * `page_improvement` - Page improvement */
+    readonly recommended_type: ContentAutopilotProposalProposalTypeEnumApi
+    /** Site page the engines cited for the prompt, to improve. Empty when no page was cited. */
+    readonly target_url: string
+    /** Why this opportunity was selected. */
+    evidence: ContentAutopilotEvidenceApi[]
+    /** Citation check results behind this opportunity. */
+    gap: ContentAutopilotCitationGapApi
+    /** Where the opportunity is in the drafting workflow.
+     *
+     * * `new` - New
+     * * `dismissed` - Dismissed
+     * * `queued` - Queued
+     * * `drafted` - Drafted */
+    readonly status: ContentAutopilotOpportunityStatusEnumApi
+    /** When the citation data was last read. */
+    readonly last_refreshed_at: string
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PaginatedContentAutopilotOpportunityListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ContentAutopilotOpportunityApi[]
+}
+
+export interface ContentAutopilotOpportunityDraftRequestApi {
+    /** Site profile the opportunities belong to. */
+    profile_id: string
+    /**
+     * Opportunities to draft, up to 5 at a time.
+     * @minItems 1
+     * @maxItems 5
+     */
+    opportunity_ids: string[]
+}
+
+/**
+ * * `pending` - Pending
+ * * `generating` - Generating
+ * * `ready_for_review` - Ready for review
+ * * `completed` - Completed
+ * * `canceled` - Canceled
+ * * `failed` - Failed
+ */
+export type ContentAutopilotRunRunStatusEnumApi =
+    (typeof ContentAutopilotRunRunStatusEnumApi)[keyof typeof ContentAutopilotRunRunStatusEnumApi]
+
+export const ContentAutopilotRunRunStatusEnumApi = {
+    Pending: 'pending',
+    Generating: 'generating',
+    ReadyForReview: 'ready_for_review',
+    Completed: 'completed',
+    Canceled: 'canceled',
+    Failed: 'failed',
+} as const
+
+/**
+ * * `standard` - Standard
+ * * `lower` - Lower
+ */
+export type ContentAutopilotSnapshotConfidenceEnumApi =
+    (typeof ContentAutopilotSnapshotConfidenceEnumApi)[keyof typeof ContentAutopilotSnapshotConfidenceEnumApi]
+
+export const ContentAutopilotSnapshotConfidenceEnumApi = {
+    Standard: 'standard',
+    Lower: 'lower',
+} as const
+
+export interface ContentAutopilotSnapshotApi {
+    /** Site domain used for the run. */
+    domain?: string
+    /** Confidence level based on the available data sources.
+     *
+     * * `standard` - Standard
+     * * `lower` - Lower */
+    confidence?: ContentAutopilotSnapshotConfidenceEnumApi
+    /** Public sources authorized for this run. */
+    source_urls?: string[]
+    /** Site paths authorized for this run. */
+    content_boundaries?: string[]
+    /** Editorial rules captured for this run. */
+    brand_rules?: string[]
+}
+
+export interface ContentAutopilotErrorApi {
+    /** Stable machine-readable error code. */
+    error_code: string
+    /** Error explanation suitable for the review workspace. */
+    message: string
+}
+
+export interface ContentAutopilotRunApi {
+    readonly id: string
+    /** Site profile used by this run. */
+    readonly profile_id: string
+    /** Current durable workflow status.
+     *
+     * * `pending` - Pending
+     * * `generating` - Generating
+     * * `ready_for_review` - Ready for review
+     * * `completed` - Completed
+     * * `canceled` - Canceled
+     * * `failed` - Failed */
+    readonly run_status: ContentAutopilotRunRunStatusEnumApi
+    /** Immutable inputs captured at run start. */
+    input_snapshot: ContentAutopilotSnapshotApi
+    /** Inspectable workflow errors from this run. */
+    errors: ContentAutopilotErrorApi[]
+    readonly created_at: string
+    readonly updated_at: string
+    /** @nullable */
+    readonly completed_at: string | null
+}
+
+export interface ContentAutopilotOpportunityRefreshRequestApi {
+    /** Site profile to refresh opportunities for. */
+    profile_id: string
 }
 
 export interface ContentAutopilotSiteProfileApi {
@@ -784,18 +1137,6 @@ export interface ContentAutopilotSiteDiscoveryResponseApi {
 }
 
 /**
- * * `new_content` - New content
- * * `page_improvement` - Page improvement
- */
-export type ContentAutopilotProposalProposalTypeEnumApi =
-    (typeof ContentAutopilotProposalProposalTypeEnumApi)[keyof typeof ContentAutopilotProposalProposalTypeEnumApi]
-
-export const ContentAutopilotProposalProposalTypeEnumApi = {
-    NewContent: 'new_content',
-    PageImprovement: 'page_improvement',
-} as const
-
-/**
  * * `generating` - Generating
  * * `ready_for_review` - Ready for review
  * * `rejected` - Rejected
@@ -812,40 +1153,6 @@ export const ContentAutopilotProposalLifecycleStatusEnumApi = {
     Exported: 'exported',
     Failed: 'failed',
 } as const
-
-/**
- * * `poor_ctr` - Poor click-through rate
- * * `content_gap` - Content gap
- * * `organic_decline` - Organic decline
- * * `ai_visibility_gap` - AI visibility gap
- * * `site_hygiene` - Site hygiene
- */
-export type OpportunityKindEnumApi = (typeof OpportunityKindEnumApi)[keyof typeof OpportunityKindEnumApi]
-
-export const OpportunityKindEnumApi = {
-    PoorCtr: 'poor_ctr',
-    ContentGap: 'content_gap',
-    OrganicDecline: 'organic_decline',
-    AiVisibilityGap: 'ai_visibility_gap',
-    SiteHygiene: 'site_hygiene',
-} as const
-
-export interface ContentAutopilotEvidenceApi {
-    /** Reason the opportunity was selected.
-     *
-     * * `poor_ctr` - Poor click-through rate
-     * * `content_gap` - Content gap
-     * * `organic_decline` - Organic decline
-     * * `ai_visibility_gap` - AI visibility gap
-     * * `site_hygiene` - Site hygiene */
-    opportunity_kind: OpportunityKindEnumApi
-    /** Plain-language explanation of the supporting evidence. */
-    explanation: string
-    /** Page supported by this evidence. */
-    page_url?: string
-    /** Search query supported by this evidence. */
-    query?: string
-}
 
 export interface ContentAutopilotValidationCheckApi {
     /** Stable identifier for the validation gate. */
@@ -915,6 +1222,70 @@ export interface ContentAutopilotPackageApi {
     internal_links: string[]
     /** Portable source notes included with the export. */
     source_notes: string[]
+    /** JSON-LD structured data to embed in the page, such as an FAQPage document. */
+    json_ld?: string
+    /** Suggested llms.txt entry for the page. */
+    llms_txt_line?: string
+}
+
+export interface ContentAutopilotBriefCompetitorApi {
+    /** Product to compare against. */
+    name: string
+    /** The product's own page to research. */
+    url: string
+}
+
+export interface ContentAutopilotBriefApi {
+    /** What the person asking wants to know or decide. */
+    intent?: string
+    /** Who the content is for. */
+    audience?: string
+    /** Whether the brief recommends new_content or page_improvement. */
+    recommended_type?: string
+    /** Site page the brief chose to improve. Empty for a new page. */
+    target_page?: string
+    /** Site pages the brief asked to read for facts. */
+    site_pages_to_read?: string[]
+    /** Products the brief asked to research for a comparison. */
+    competitors_to_research?: ContentAutopilotBriefCompetitorApi[]
+    /** Working title for the page. */
+    working_title?: string
+    /** Planned sections, in order. */
+    outline?: string[]
+    /** Questions the page must answer. */
+    questions_to_answer?: string[]
+    /** Topics the cited competitor pages cover that the site's pages don't. */
+    competitor_coverage?: string[]
+    /** What AI answer engines currently say, including what they get wrong. */
+    engine_answer_summary?: string
+    /** What the question means, when AI answer engines misread which product or company it asks about. */
+    disambiguation?: string
+}
+
+/**
+ * * `site` - site
+ * * `competitor` - competitor
+ */
+export type ContentAutopilotSourceLedgerEntryKindEnumApi =
+    (typeof ContentAutopilotSourceLedgerEntryKindEnumApi)[keyof typeof ContentAutopilotSourceLedgerEntryKindEnumApi]
+
+export const ContentAutopilotSourceLedgerEntryKindEnumApi = {
+    Site: 'site',
+    Competitor: 'competitor',
+} as const
+
+export interface ContentAutopilotSourceLedgerEntryApi {
+    /** Factual claim the draft makes. */
+    claim: string
+    /** Page that supports the claim. */
+    source_url: string
+    /** Short quote from the source page. */
+    quote: string
+    /** Whether the source is one of the site's pages or a competitor's own page.
+     *
+     * * `site` - site
+     * * `competitor` - competitor */
+    kind?: ContentAutopilotSourceLedgerEntryKindEnumApi
 }
 
 export interface ContentAutopilotProposalApi {
@@ -950,6 +1321,10 @@ export interface ContentAutopilotProposalApi {
     readonly original_markdown: string
     /** Full proposed Markdown after edits. */
     readonly proposed_markdown: string
+    /** Content brief the draft was written from. */
+    brief: ContentAutopilotBriefApi
+    /** Factual claims in the draft and the site pages that support them. */
+    source_ledger: ContentAutopilotSourceLedgerEntryApi[]
     readonly created_at: string
     readonly updated_at: string
 }
@@ -971,84 +1346,6 @@ export interface ContentAutopilotExportResponseApi {
     markdown: string
     /** Structured JSON package for a CMS adapter. */
     content_package: ContentAutopilotPackageApi
-}
-
-/**
- * * `pending` - Pending
- * * `generating` - Generating
- * * `ready_for_review` - Ready for review
- * * `completed` - Completed
- * * `canceled` - Canceled
- * * `failed` - Failed
- */
-export type ContentAutopilotRunRunStatusEnumApi =
-    (typeof ContentAutopilotRunRunStatusEnumApi)[keyof typeof ContentAutopilotRunRunStatusEnumApi]
-
-export const ContentAutopilotRunRunStatusEnumApi = {
-    Pending: 'pending',
-    Generating: 'generating',
-    ReadyForReview: 'ready_for_review',
-    Completed: 'completed',
-    Canceled: 'canceled',
-    Failed: 'failed',
-} as const
-
-/**
- * * `standard` - Standard
- * * `lower` - Lower
- */
-export type ContentAutopilotSnapshotConfidenceEnumApi =
-    (typeof ContentAutopilotSnapshotConfidenceEnumApi)[keyof typeof ContentAutopilotSnapshotConfidenceEnumApi]
-
-export const ContentAutopilotSnapshotConfidenceEnumApi = {
-    Standard: 'standard',
-    Lower: 'lower',
-} as const
-
-export interface ContentAutopilotSnapshotApi {
-    /** Site domain used for the run. */
-    domain?: string
-    /** Confidence level based on the available data sources.
-     *
-     * * `standard` - Standard
-     * * `lower` - Lower */
-    confidence?: ContentAutopilotSnapshotConfidenceEnumApi
-    /** Public sources authorized for this run. */
-    source_urls?: string[]
-    /** Site paths authorized for this run. */
-    content_boundaries?: string[]
-    /** Editorial rules captured for this run. */
-    brand_rules?: string[]
-}
-
-export interface ContentAutopilotErrorApi {
-    /** Stable machine-readable error code. */
-    error_code: string
-    /** Error explanation suitable for the review workspace. */
-    message: string
-}
-
-export interface ContentAutopilotRunApi {
-    readonly id: string
-    /** Site profile used by this run. */
-    readonly profile_id: string
-    /** Current durable workflow status.
-     *
-     * * `pending` - Pending
-     * * `generating` - Generating
-     * * `ready_for_review` - Ready for review
-     * * `completed` - Completed
-     * * `canceled` - Canceled
-     * * `failed` - Failed */
-    readonly run_status: ContentAutopilotRunRunStatusEnumApi
-    /** Immutable inputs captured at run start. */
-    input_snapshot: ContentAutopilotSnapshotApi
-    /** Inspectable workflow errors from this run. */
-    errors: ContentAutopilotErrorApi[]
-    readonly created_at: string
-    readonly updated_at: string
-    /** @nullable */
-    readonly completed_at: string | null
 }
 
 export interface PaginatedContentAutopilotRunListApi {
@@ -1394,6 +1691,21 @@ export type WebAnalyticsWeeklyDigestParams = {
      * Lookback window in days (1–90). Defaults to 7.
      */
     days?: number
+}
+
+export type WebAnalyticsContentAutopilotOpportunitiesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Site profile to list opportunities for.
+     */
+    profile_id: string
 }
 
 export type WebAnalyticsContentAutopilotProfilesListParams = {

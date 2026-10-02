@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -28,11 +28,11 @@ from products.product_analytics.backend.hogql_queries.trends.slope_graph_trends_
 )
 
 
-@freeze_time("2024-06-15T12:00:00Z")
+@time_machine.travel("2024-06-15T12:00:00Z", tick=False)
 class TestSlopeGraphTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _create_events(self, data, event="$pageview"):
         for distinct_id, timestamps in data:
-            with freeze_time(timestamps[0][0]):
+            with time_machine.travel(timestamps[0][0], tick=False):
                 _create_person(team_id=self.team.pk, distinct_ids=[distinct_id], properties={"name": distinct_id})
             for timestamp, *rest in timestamps:
                 _create_event(

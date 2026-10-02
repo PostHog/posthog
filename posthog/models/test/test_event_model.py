@@ -1,15 +1,19 @@
 import re
+from uuid import uuid4
 
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
+from posthog.clickhouse.client import sync_execute
 from posthog.models import Element
 from posthog.models.element.element import elements_to_string
 from posthog.models.event import Selector
+from posthog.models.event.util import bulk_create_events, create_event, events_only_in_active_schema
 from posthog.models.property.util import build_selector_regex
+from posthog.test.test_journeys import journeys_for
 
 
 class TestSelectors(BaseTest):
@@ -107,6 +111,19 @@ class TestSelectors(BaseTest):
         self.assertEqual(selector1.parts[1].direct_descendant, True)
         self.assertEqual(selector1.parts[1].unique_order, 0)
 
+    @parameterized.expand(
+        [
+            (
+                "a class name that contains the pseudo-class text",
+                "div.foo-nth-child(2)",
+                [{"tag_name": "div", "attr_class__contains": ["foo-nth-child(2)"]}],
+            ),
+            ("the pseudo-class text with no colon", "nth-child(2)", [{"tag_name": "nth-child(2)"}]),
+        ]
+    )
+    def test_nth_child_without_a_colon_is_not_a_positional_selector(self, _name, selector, expected):
+        self.assertEqual([part.data for part in Selector(selector).parts], expected)
+
     def test_unique_order(self):
         selector1 = Selector("div > div")
         self.assertEqual(selector1.parts[0].data, {"tag_name": "div"})
@@ -188,6 +205,81 @@ class TestSelectorRegexMatching(SimpleTestCase):
                         tag_name="input", attributes={"attr__style": "display: flex; gap: 4px", "attr__type": "text"}
                     )
                 ],
+                True,
+            ),
+            (
+                "two attributes with others between them, in any order",
+                '[type="button"][ng-click="continue()"]',
+                [
+                    Element(
+                        tag_name="button",
+                        attributes={
+                            "attr__type": "button",
+                            "attr__ng-disabled": "busy",
+                            "attr__ng-click": "continue()",
+                        },
+                    )
+                ],
+                True,
+            ),
+            (
+                "two attributes in single quotes after a tag",
+                "button[type='button'][data-x='a']",
+                [Element(tag_name="button", attributes={"attr__data-x": "a", "attr__type": "button"})],
+                True,
+            ),
+            (
+                "two attributes on different elements",
+                '[type="button"][ng-click="continue()"]',
+                [
+                    Element(tag_name="button", attributes={"attr__type": "button"}),
+                    Element(tag_name="div", attributes={"attr__ng-click": "continue()"}),
+                ],
+                False,
+            ),
+            (
+                "a tag and its two attributes on different elements",
+                "button[type='button'][data-x='a']",
+                [
+                    Element(tag_name="button"),
+                    Element(tag_name="div", attributes={"attr__data-x": "a", "attr__type": "button"}),
+                ],
+                False,
+            ),
+            (
+                "two attributes followed by a class the element does not have",
+                'button[type="button"][data-x="a"].active',
+                [Element(tag_name="button", attributes={"attr__data-x": "a", "attr__type": "button"})],
+                False,
+            ),
+            (
+                "the same attribute with two different values",
+                '[data-x="a"][data-x="b"]',
+                [Element(tag_name="div", attributes={"attr__data-x": "b"})],
+                False,
+            ),
+            (
+                "two attributes with an escaped quote in a value",
+                "[title='it\\'s'][data-x='a']",
+                [Element(tag_name="div", attributes={"attr__data-x": "a", "attr__title": "it's"})],
+                True,
+            ),
+            (
+                "two attribute names that only match the end of longer names",
+                'button[foo="1"][bar="2"]',
+                [Element(tag_name="button", attributes={"attr__data-bar": "2", "attr__data-foo": "1"})],
+                False,
+            ),
+            (
+                "two attributes after a tag and a position the element does not have",
+                'button:nth-child(2)[type="button"][data-x="a"]',
+                [Element(tag_name="div", nth_child=1, attributes={"attr__data-x": "a", "attr__type": "button"})],
+                False,
+            ),
+            (
+                "an attribute value with nested quotes and an equals sign",
+                "[ng-class=\"{'selected': data.raising_for=='myself'}\"]",
+                [Element(tag_name="div", attributes={"attr__ng-class": "{'selected': data.raising_for=='myself'}"})],
                 True,
             ),
             (
@@ -296,3 +388,66 @@ class TestSelectorRegexMonotonicity(SimpleTestCase):
                     newly_matching_pairs += 1
         # the corpus has to exercise the widening, or the superset check is vacuous
         self.assertGreater(newly_matching_pairs, 0)
+
+
+@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+class TestNativeEventInserts(ClickhouseTestMixin, BaseTest):
+    @parameterized.expand(["bulk", "single"])
+    def test_native_only_scope_restores_dual_writes(self, insertion: str) -> None:
+        def insert(event: str) -> None:
+            if insertion == "bulk":
+                bulk_create_events([{"team": self.team, "event": event, "distinct_id": "test"}])
+            else:
+                create_event(event_uuid=uuid4(), team=self.team, event=event, distinct_id="test")
+
+        with self.assertRaisesRegex(ValueError, "fixture failed"):
+            with events_only_in_active_schema():
+                with events_only_in_active_schema():
+                    insert("nested")
+                insert("outer")
+                raise ValueError("fixture failed")
+
+        insert("after")
+
+        self.assertEqual(
+            sync_execute(
+                "SELECT event FROM events WHERE team_id = %(team_id)s ORDER BY event", {"team_id": self.team.pk}
+            ),
+            [("after",)],
+        )
+        self.assertEqual(
+            sync_execute(
+                "SELECT event FROM events_json WHERE team_id = %(team_id)s ORDER BY event", {"team_id": self.team.pk}
+            ),
+            [("after",), ("nested",), ("outer",)],
+        )
+
+    @parameterized.expand(["bulk", "single", "journey"])
+    def test_properties_follow_ingestion_cleanup(self, insertion: str) -> None:
+        properties = {
+            "$feature/enabled": True,
+            "$feature/disabled": False,
+            "$feature_flags": {"existing": "control"},
+            "$sdk_debug_replay_internal_buffer_length": 0,
+        }
+        if insertion == "journey":
+            journeys_for({"test": [{"event": "test", "properties": properties}]}, self.team)
+        elif insertion == "bulk":
+            bulk_create_events([{"team": self.team, "event": "test", "distinct_id": "test", "properties": properties}])
+        else:
+            create_event(event_uuid=uuid4(), team=self.team, event="test", distinct_id="test", properties=properties)
+
+        result = sync_execute(
+            "SELECT properties.`$feature_flags`, "
+            "toJSONString(temporary_properties.`$sdk_debug_replay_internal_buffer_length`), "
+            "isNull(properties.`$sdk_debug_replay_internal_buffer_length`) "
+            "FROM events_json WHERE team_id = %(team_id)s",
+            {"team_id": self.team.pk},
+        )
+        assert result == [
+            (
+                {"disabled": "false", "enabled": "true", "existing": "control"},
+                "0",
+                1,
+            )
+        ]

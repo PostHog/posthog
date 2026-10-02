@@ -33,7 +33,7 @@ Import from a domain-scoped `api/<module>` entry. Never reach into `components/.
 
 ```ts
 import { useAttachedContext, useToolStreamListener } from 'products/posthog_ai/frontend/api/logics'
-import { registerToolRenderers } from 'products/posthog_ai/frontend/api/tools'
+import type { ToolRegistryEntry } from 'products/posthog_ai/frontend/api/tools'
 ```
 
 Pick the narrowest module that does the job — the split preserves code-splitting, and a fat import drags the markdown/virtualization thread or the side-effectful tool registry into your chunk. The full tier table lives in [`frontend/README.md`](./frontend/README.md#2-which-surface-do-i-use).
@@ -120,27 +120,50 @@ From a kea logic, either listen to `toolStreamEventsLogic.actionTypes.emitToolEv
 
 ## Seam 4 — render your own tool cards
 
-Register a renderer so your product's tool calls display as a real card in the thread instead of the generic MCP fallback. Call it once at module load from your scene's entrypoint:
+Export a typed declaration list from `products/<product>/frontend/posthogAiToolRenderers.tsx`.
+Add one direct import and one spread to `frontend/src/posthogAiToolRenderers.ts` for your product.
+Keep individual entries with their product; import no scenes or broad component barrels from declaration modules.
+Use **type-only** imports from `api/tools` for the contract, so declarations cannot create a runtime cycle with the registry.
+
+The registry initializes synchronously from built-ins and this manifest before rendering.
+The manifest is the sole extension mechanism: there is no runtime registration, subscription, or asynchronous initialization.
+`toolRegistry.lookup` and `lookupToolRenderer` remain available; keep headless `api/logics` and `api/types` free of registry imports.
 
 ```tsx
-import { registerToolRenderers } from 'products/posthog_ai/frontend/api/tools'
+import { IconBolt } from '@posthog/icons'
 
-registerToolRenderers([
+import { lazyWithRetry } from 'lib/utils/retryImport'
+
+import type { ToolRegistryEntry } from 'products/posthog_ai/frontend/api/tools'
+
+export const posthogAiToolRenderers: ToolRegistryEntry[] = [
   {
     key: 'cdp-functions-partial-update',
     displayName: 'Update function',
     icon: <IconBolt />,
-    renderPermissionPreview: renderPartialUpdatePreview,
+    PermissionPreview: lazyWithRetry(() =>
+      import('./HogFunctionPermissionPreview').then((m) => ({ default: m.HogFunctionPermissionPreview }))
+    ),
     requiresPostHogOrigin: true,
   },
-])
+]
 ```
 
-`key` is the inner exec tool name. A `Renderer` draws the result card; `renderPermissionPreview` draws the approval prompt shown _before_ a write runs. Set `requiresPostHogOrigin: true` so the entry only matches calls that came through the trusted PostHog server. Wrap a heavy renderer in `lazyWithRetry`.
+`key` is the inner exec tool name. `Renderer` draws the result card; `PermissionPreview` draws the approval evidence before a write runs.
+Either component can use `lazyWithRetry`; importing declarations never evaluates their implementations.
+Set `requiresPostHogOrigin: true` for PostHog entities so colliding third-party tool names retain generic cards and evidence.
+Unknown tools and preview-only entries keep the generic result card.
+
+`PermissionPreview` receives `{ request, fallback }`, typed as `PermissionPreviewProps` from `api/tools`.
+Return `fallback` when there is no available matching mounted configuration or no changes to show.
+Do not mount or fetch a product scene to produce a preview.
+`PermissionInput` supplies its evidence block as fallback, and wraps the preview in `Suspense` and `PostHogErrorBoundary`.
+Both boundaries use that evidence fallback; approval controls remain outside them and stay usable during loading or failure.
+Errors retain the `posthog_ai_permission_preview` feature tag, and a new permission request resets the error boundary.
 
 **A tool card is two header lines plus an accordion.** `ToolActivity` gives you a `title` and one `subtitle` — the single most salient input. Everything else your tool produces goes in the collapsible `body`, never in always-visible `children`, so a thread with twenty tool calls stays scannable. Reserve `children` for payloads the user must act on.
 
-The built-in PostHog widgets (insights, dashboards, recordings, error tracking, notebooks, query results) live in `frontend/components/tool/widgets/` and self-register the same way — that's the reference implementation.
+Insights, dashboards, recordings, notebooks, and query widgets live in `frontend/components/tool/widgets/`, with declarations in `frontend/posthogAiToolRenderers.tsx`. The query renderer also handles `insight-query` saved-insight results. Error tracking owns its widgets under `products/error_tracking/frontend/posthogAi/` and declares them in its frontend-root `posthogAiToolRenderers.tsx`. Replay vision owns its scan widget and polling logic under `products/replay_vision/frontend/posthogAi/`; Max composes that widget directly. CDP declares its preview in `products/cdp/frontend/posthogAiToolRenderers.tsx`.
 
 > **MCP UI apps are a different mechanism.** The `@posthog/mcp-ui` components under `products/*/mcp/apps/` render tool results in _external_ clients like Claude Desktop, served through `services/mcp/`. They do not render inside PostHog AI threads. See [`/implementing-mcp-ui-apps`](../../.agents/skills/implementing-mcp-ui-apps/SKILL.md).
 

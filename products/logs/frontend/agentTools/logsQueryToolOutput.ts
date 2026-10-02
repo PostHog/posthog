@@ -1,4 +1,4 @@
-import { asRecord, parseToolOutputRecord } from 'products/posthog_ai/frontend/api/tools'
+import { asRecord, getToolOutputRecord } from 'products/posthog_ai/frontend/api/tools'
 import type { ToolCallMessage } from 'products/posthog_ai/frontend/api/types'
 
 export interface LogRowSummary {
@@ -21,7 +21,7 @@ function stringList(value: unknown): string[] {
  * the widget falls back to the generic card rather than showing an empty rows panel.
  */
 export function extractLogRows(message: ToolCallMessage): LogRowSummary[] | null {
-    const output = parseToolOutputRecord(message)
+    const output = getToolOutputRecord(message)
     const results = output?.results
     if (!Array.isArray(results)) {
         return null

@@ -41,6 +41,18 @@ def _scouts(scouts: dict, team_id: int = _TEAM_ID) -> dict:
     return {"teams": {str(team_id): {"scouts": scouts}}}
 
 
+def _tier_counts(payload: object, model: str, n: int = 400) -> dict[str | None, int]:
+    # Tiers across many run ids, with model and runtime held fixed: a same-model queue trial's arms
+    # must differ by tier alone.
+    counts: dict[str | None, int] = {}
+    for i in range(n):
+        resolved = _resolve_full(run_id=f"run-{i}", payload=payload)
+        assert resolved.model == model
+        assert resolved.runtime_adapter == "codex"
+        counts[resolved.service_tier] = counts.get(resolved.service_tier, 0) + 1
+    return counts
+
+
 def _share(payload: object, skill: str = _SKILL, n: int = 400) -> dict[str | None, int]:
     # Empirical model split across many run ids — buckets are uniform, so shares track the config.
     counts: dict[str | None, int] = {}
@@ -148,21 +160,46 @@ class TestResolveScoutModel:
                 }
             }
         )
-        tiers: dict[str | None, int] = {}
-        for i in range(400):
-            resolved = _resolve_full(run_id=f"run-{i}", payload=payload)
-            assert resolved.model == GLM_MODEL
-            assert resolved.runtime_adapter == "codex"
-            tiers[resolved.service_tier] = tiers.get(resolved.service_tier, 0) + 1
+        tiers = _tier_counts(payload, GLM_MODEL)
         assert set(tiers) == {"flex", None}
         assert 5 <= tiers["flex"] <= 45  # ~5% of 400, loose enough not to flake
 
-    def test_object_form_drops_malformed_fraction(self) -> None:
-        # A pinned runtime can't rescue a malformed fraction — the entry is dropped, agent default kept.
-        resolved = _resolve_full(
-            payload=_scouts({_SKILL: {GLM_MODEL: {"fraction": "lots", "runtime_adapter": "codex"}}})
+    @parameterized.expand(
+        [
+            # A bad `model` drops the entry rather than falling back to the key the way a bad pin
+            # falls back to inference: with `model` set the key is a label, not a model id to route to.
+            ("fraction", {"fraction": "lots", "runtime_adapter": "codex"}),
+            ("model_empty", {"model": "", "fraction": 1}),
+            ("model_non_string", {"model": 5, "fraction": 1}),
+            ("model_null", {"model": None, "fraction": 1}),
+            ("model_list", {"model": [_GPT], "fraction": 1}),
+        ]
+    )
+    def test_object_form_drops_malformed_entry(self, _name: str, spec: dict) -> None:
+        assert _resolve_full(payload=_scouts({_SKILL: {GLM_MODEL: spec}})) == ScoutModel(
+            model=None, runtime_adapter=None
         )
-        assert resolved == ScoutModel(model=None, runtime_adapter=None)
+
+    def test_labelled_entry_resolves_to_the_model_it_names(self) -> None:
+        # The key is only a label, so the stamp and the runtime both come from `model`. Inferring the
+        # runtime off this label would say `claude` for a GPT arm and route it to the wrong provider.
+        resolved = _resolve_full(payload=_scouts({_SKILL: {"claude-sounding-label": {"model": _GPT, "fraction": 1}}}))
+        assert resolved == ScoutModel(model=_GPT, runtime_adapter="codex")
+
+    def test_two_labelled_arms_of_one_model_are_separate_slices(self) -> None:
+        # Keyed by model id these two entries would collapse into one, and the flex-vs-standard read
+        # would compare a model against itself on a single queue.
+        payload = _scouts(
+            {
+                _SKILL: {
+                    "sol-flex": {"model": _GPT, "fraction": 0.5, "service_tier": "flex"},
+                    "sol": {"model": _GPT, "fraction": 0.5},
+                }
+            }
+        )
+        tiers = _tier_counts(payload, _GPT)
+        assert set(tiers) == {"flex", None}
+        assert 150 <= tiers["flex"] <= 250  # ~half of 400, loose enough not to flake
 
     def test_named_default_remainder_infers_its_runtime(self) -> None:
         # The remainder model (named `default`) also gets a runtime inferred from its id. With no

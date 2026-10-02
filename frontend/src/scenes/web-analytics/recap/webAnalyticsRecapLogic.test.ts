@@ -91,6 +91,23 @@ describe('webAnalyticsRecapLogic', () => {
         )
     })
 
+    it('keeps a failed load distinct from an empty recap until a retry succeeds', async () => {
+        mockRecap.mockRejectedValueOnce(new Error('Query timed out'))
+        logic = webAnalyticsRecapLogic()
+        logic.mount()
+
+        await expectLogic(logic)
+            .toDispatchActions(['markRecapLoadFailed', 'loadRecapSuccess'])
+            .toMatchValues({ recap: null, recapLoadFailed: true, recapLoading: false })
+
+        mockRecap.mockResolvedValue(makeRecap())
+        logic.actions.loadRecap()
+
+        await expectLogic(logic)
+            .toDispatchActions(['loadRecap', 'loadRecapSuccess'])
+            .toMatchValues({ recapLoadFailed: false, recap: expect.objectContaining({ project_name: 'Test' }) })
+    })
+
     it('copies the recap link and records the share', async () => {
         mockRecap.mockResolvedValue(makeRecap())
         logic = webAnalyticsRecapLogic()

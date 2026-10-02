@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -28,6 +29,7 @@ import type {
     SnapshotApi,
     ToleratedHashEntryApi,
 } from '../generated/api.schemas'
+import { type RecentTolerations, countRecentTolerations } from '../lib/quarantineNudge'
 import { isReportingOnlyRun } from '../lib/runPredicates'
 import { visualReviewPreferencesLogic } from './visualReviewPreferencesLogic'
 
@@ -41,6 +43,8 @@ export interface visualReviewRunSceneLogicValues {
     addImagesToComment: boolean // visualReviewPreferencesLogic
     breadcrumbs: Breadcrumb[]
     changedSnapshots: SnapshotApi[]
+    deepLinkedSnapshot: SnapshotApi | null
+    deepLinkedSnapshotLoading: boolean
     failedThumbnails: Set<string>
     hasChanges: boolean
     isApprovingSnapshot: boolean
@@ -52,6 +56,7 @@ export interface visualReviewRunSceneLogicValues {
     quarantinedIdentifierSet: Set<string>
     quarantinedIdentifiers: QuarantinedIdentifierEntryApi[]
     quarantinedIdentifiersLoading: boolean
+    recentTolerations: RecentTolerations | null
     repo: RepoApi | null
     repoFullName: string | null
     repoLoading: boolean
@@ -61,6 +66,7 @@ export interface visualReviewRunSceneLogicValues {
     selectedSnapshotId: string | null
     showQuarantinedThumbnails: boolean
     snapshots: SnapshotApi[]
+    snapshotsLoaded: boolean
     snapshotsLoading: boolean
     sortedChangedSnapshots: SnapshotApi[]
     thumbnailBasePath: string | null
@@ -91,6 +97,21 @@ export interface visualReviewRunSceneLogicActions {
     }
     finalizeRunSuccess: () => {
         value: true
+    }
+    loadDeepLinkedSnapshot: (snapshotId: string) => string
+    loadDeepLinkedSnapshotFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadDeepLinkedSnapshotSuccess: (
+        deepLinkedSnapshot: SnapshotApi | null,
+        payload?: string
+    ) => {
+        deepLinkedSnapshot: SnapshotApi | null
+        payload?: string
     }
     loadQuarantinedIdentifiers: () => any
     loadQuarantinedIdentifiersFailure: (
@@ -177,10 +198,12 @@ export interface visualReviewRunSceneLogicActions {
         reason: string,
         identifiers: string[],
         expiresAt: string | null,
-        sourceRunId?: string | null
+        sourceRunId?: string | null,
+        notifyOwners?: boolean
     ) => {
         expiresAt: string | null
         identifiers: string[]
+        notifyOwners: boolean
         reason: string
         sourceRunId: string | null
     }
@@ -211,8 +234,13 @@ export interface visualReviewRunSceneLogicMeta {
         selectedSnapshot: (
             snapshots: SnapshotApi[],
             selectedSnapshotId: string | null,
-            quarantinedIdentifierSet: Set<string>
+            quarantinedIdentifierSet: Set<string>,
+            deepLinkedSnapshot: SnapshotApi | null
         ) => SnapshotApi | null
+        recentTolerations: (
+            toleratedHashes: ToleratedHashEntryApi[],
+            toleratedHashesLoading: boolean
+        ) => RecentTolerations | null
         changedSnapshots: (snapshots: SnapshotApi[]) => SnapshotApi[]
         sortedChangedSnapshots: (changedSnapshots: SnapshotApi[]) => SnapshotApi[]
         hasChanges: (changedSnapshots: SnapshotApi[]) => boolean
@@ -237,6 +265,16 @@ export type visualReviewRunSceneLogicType = MakeLogicType<
     visualReviewRunSceneLogicMeta
 >
 
+function loadSelectedSnapshotIfMissing(
+    values: visualReviewRunSceneLogicType['values'],
+    actions: visualReviewRunSceneLogicType['actions']
+): void {
+    const { selectedSnapshotId } = values
+    if (selectedSnapshotId && values.snapshotsLoaded && !values.selectedSnapshot) {
+        actions.loadDeepLinkedSnapshot(selectedSnapshotId)
+    }
+}
+
 export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
     path(['products', 'visual_review', 'frontend', 'scenes', 'visualReviewRunSceneLogic']),
     props({} as VisualReviewRunSceneLogicProps),
@@ -258,12 +296,14 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             reason: string,
             identifiers: string[],
             expiresAt: string | null,
-            sourceRunId: string | null = null
+            sourceRunId: string | null = null,
+            notifyOwners: boolean = false
         ) => ({
             reason,
             identifiers,
             expiresAt,
             sourceRunId,
+            notifyOwners,
         }),
         unquarantineSnapshot: (snapshot: SnapshotApi) => ({ snapshot }),
         recomputeRun: true,
@@ -273,10 +313,25 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
         toggleQuarantinedThumbnails: true,
     }),
     reducers({
+        // kea-loaders keeps the last success when a load fails, which would let the
+        // previous snapshot's tolerations drive the quarantine nudge. Clearing at the
+        // start, not on failure, also keeps an overtaken failure from wiping newer data.
+        toleratedHashes: [
+            [] as ToleratedHashEntryApi[],
+            {
+                loadToleratedHashes: () => [],
+            },
+        ],
         selectedSnapshotId: [
             null as string | null,
             {
                 setSelectedSnapshotId: (_, { snapshotId }) => snapshotId,
+            },
+        ],
+        snapshotsLoaded: [
+            false,
+            {
+                loadSnapshotsSuccess: () => true,
             },
         ],
         isFinalizing: [
@@ -336,8 +391,28 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                     const response = await visualReviewRunsSnapshotsList(String(values.currentProjectId), props.runId, {
                         limit: 10000,
                         include_quarantined: true,
+                        exclude_unchanged: true,
                     })
                     return response.results
+                },
+            },
+        ],
+        // A deep link can name an unchanged snapshot (the snapshot history page links to every
+        // baseline move), which the changes-only list above does not hold.
+        deepLinkedSnapshot: [
+            null as SnapshotApi | null,
+            {
+                loadDeepLinkedSnapshot: async (snapshotId: string, breakpoint) => {
+                    const response = await visualReviewRunsSnapshotsList(String(values.currentProjectId), props.runId, {
+                        include_quarantined: true,
+                        snapshot_id: snapshotId,
+                    })
+                    breakpoint()
+                    // The user may have gone back to a snapshot cached here, which starts no request.
+                    if (values.selectedSnapshotId !== snapshotId) {
+                        return values.deepLinkedSnapshot
+                    }
+                    return response.results[0] ?? null
                 },
             },
         ],
@@ -356,12 +431,14 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
         toleratedHashes: [
             [] as ToleratedHashEntryApi[],
             {
-                loadToleratedHashes: async (identifier: string) => {
+                loadToleratedHashes: async (identifier: string, breakpoint) => {
                     const response = await visualReviewRunsToleratedHashesList(
                         String(values.currentProjectId),
                         props.runId,
                         { identifier }
                     )
+                    // Drop a response that a newer selection overtook, so it can't land last.
+                    breakpoint()
                     return response.results
                 },
             },
@@ -386,19 +463,29 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
     })),
     selectors({
         selectedSnapshot: [
-            (s) => [s.snapshots, s.selectedSnapshotId, s.quarantinedIdentifierSet],
+            (s) => [s.snapshots, s.selectedSnapshotId, s.quarantinedIdentifierSet, s.deepLinkedSnapshot],
             (
                 snapshots: SnapshotApi[],
                 selectedSnapshotId: string | null,
-                quarantinedIdentifierSet: Set<string>
+                quarantinedIdentifierSet: Set<string>,
+                deepLinkedSnapshot: SnapshotApi | null
             ): SnapshotApi | null => {
                 if (selectedSnapshotId) {
-                    return snapshots.find((s) => s.id === selectedSnapshotId) || null
+                    return (
+                        snapshots.find((s) => s.id === selectedSnapshotId) ||
+                        (deepLinkedSnapshot?.id === selectedSnapshotId ? deepLinkedSnapshot : null)
+                    )
                 }
                 const changed = snapshots.filter((s) => s.result !== 'unchanged')
                 const changedNotQuarantined = changed.filter((s) => !quarantinedIdentifierSet.has(s.identifier))
                 return changedNotQuarantined[0] || changed[0] || snapshots[0] || null
             },
+        ],
+        // Null while loading, so the list of a previous snapshot never drives the quarantine nudge.
+        recentTolerations: [
+            (s) => [s.toleratedHashes, s.toleratedHashesLoading],
+            (toleratedHashes: ToleratedHashEntryApi[], toleratedHashesLoading: boolean): RecentTolerations | null =>
+                toleratedHashesLoading ? null : countRecentTolerations(toleratedHashes, dayjs()),
         ],
         changedSnapshots: [
             (s) => [s.snapshots],
@@ -510,6 +597,13 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             if (snapshot) {
                 actions.loadToleratedHashes(snapshot.identifier)
             }
+            loadSelectedSnapshotIfMissing(values, actions)
+        },
+        loadDeepLinkedSnapshotSuccess: () => {
+            const snapshot = values.selectedSnapshot
+            if (snapshot) {
+                actions.loadToleratedHashes(snapshot.identifier)
+            }
         },
         loadRunSuccess: () => {
             actions.loadRepo()
@@ -520,6 +614,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             if (snapshot) {
                 actions.loadToleratedHashes(snapshot.identifier)
             }
+            loadSelectedSnapshotIfMissing(values, actions)
         },
         finalizeRun: async () => {
             const { run } = values
@@ -621,7 +716,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 lemonToast.error(e?.detail || e?.message || 'Failed to mark as tolerated')
             }
         },
-        quarantineSnapshot: async ({ reason, identifiers, expiresAt, sourceRunId }) => {
+        quarantineSnapshot: async ({ reason, identifiers, expiresAt, sourceRunId, notifyOwners }) => {
             const { run } = values
             if (!run) {
                 return
@@ -633,12 +728,14 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             const effectiveSourceRunId = sourceRunId ?? run.id
             try {
                 await Promise.all(
-                    identifiers.map((identifier) =>
+                    identifiers.map((identifier, index) =>
                         visualReviewReposQuarantineCreate(String(values.currentProjectId), run.repo_id, run.run_type, {
                             identifier,
                             reason,
                             expires_at: expiresAt,
                             source_run_id: effectiveSourceRunId,
+                            // Theme variants of one story share a team, so only the first asks for a notice.
+                            notify_owners: notifyOwners && index === 0,
                         })
                     )
                 )

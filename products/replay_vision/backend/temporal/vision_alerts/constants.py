@@ -25,3 +25,8 @@ MAX_MATCHES_PER_BUNDLE = 500
 # Caps the rows one drain tick loads into memory; a larger backlog drains over later ticks.
 MAX_DRAIN_ALERTS_PER_TICK = 100
 MATCH_DESCRIPTOR_MAX_CHARS = 200
+# Each summary line carries the scanner's own prose after the descriptor, so the message says what
+# happened without a click. Both caps keep every line short enough that MATCH_SUMMARY_LINES of them
+# fit the total, which holds the whole message under Slack's 3000-character section block.
+MATCH_EXPLANATION_MAX_CHARS = 200
+MATCH_SUMMARY_MAX_CHARS = 2500

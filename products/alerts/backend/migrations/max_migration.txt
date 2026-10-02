@@ -1,1 +1,1 @@
-0006_alter_alert_insight_alter_alert_team_and_more
+0010_alertconfiguration_evaluation_delay_intervals

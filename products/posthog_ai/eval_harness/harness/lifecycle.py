@@ -106,6 +106,7 @@ class SandboxedEvalHarness:
         self._database: EvalDatabase | None = None
         self._live_server: EvalLiveServer | None = None
         self._posthog_client: Posthog | None = None
+        self._posthog_evaluation_client: Posthog | None = None
         self._demo_data: SandboxedDemoData | None = None
 
     def run(self) -> int:
@@ -279,6 +280,11 @@ class SandboxedEvalHarness:
         if self._posthog_client is not None:
             self._stack.callback(self._posthog_client.shutdown)
 
+        # Each suite's no_send_logs setting controls result uploads to both services.
+        self._posthog_evaluation_client = get_client("US", disabled=False)
+        if self._posthog_evaluation_client is not None:
+            self._stack.callback(self._posthog_evaluation_client.shutdown)
+
         if Infra.DEMO_DATA in required:
             assert self._database is not None
             self._demo_data = ensure_demo_ready(
@@ -389,6 +395,7 @@ class SandboxedEvalHarness:
             case_filter=self.options.case_filter,
             demo_data=self._demo_data,
             posthog_client=self._posthog_client,
+            posthog_evaluation_client=self._posthog_evaluation_client,
             sandbox_slots=asyncio.Semaphore(self.options.max_sandboxes) if Infra.SANDBOX in required else None,
             team_setup_slots=asyncio.Semaphore(self.options.team_setup_concurrency),
             one_shot_slots=asyncio.Semaphore(DEFAULT_ONE_SHOT_CONCURRENCY),

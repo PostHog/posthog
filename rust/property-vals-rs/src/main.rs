@@ -162,7 +162,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         events_handle.clone(),
         move |e: &Event| fan_out(e, &excluded_events, length_caps),
         "events",
-        ReductionConfig::default(),
+        ReductionConfig {
+            max_values_per_key: 0,
+            seen_cache_capacity: shared_config.events_seen_cache_capacity,
+        },
     ));
     tokio::spawn(worker_loop::<GroupIdentify, _, _>(
         shared_config.clone(),

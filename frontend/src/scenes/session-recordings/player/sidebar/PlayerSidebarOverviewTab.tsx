@@ -1,10 +1,13 @@
 import { useValues } from 'kea'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 import { playerMetaLogic } from '../player-meta/playerMetaLogic'
+import { TTLWarning } from '../player-meta/PlayerMetaTopSettings'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { PlayerSidebarExperimentsSection } from './PlayerSidebarExperimentsSection'
 import { PlayerSidebarOverviewGrid } from './PlayerSidebarOverviewGrid'
@@ -39,6 +42,7 @@ export function ResolutionView(): JSX.Element {
 export function PlayerSidebarOverviewTab(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { sessionPerson } = useValues(playerMetaLogic(logicProps))
+    const consolidatedControls = useFeatureFlag('REPLAY_CONSOLIDATED_CONTROLS')
 
     return (
         <div className="flex flex-col overflow-auto bg-primary px-2 py-1 h-full deprecated-space-y-1">
@@ -48,6 +52,7 @@ export function PlayerSidebarOverviewTab(): JSX.Element {
                 </div>
                 <ResolutionView />
             </div>
+            {consolidatedControls && <TTLWarning variant="inline" />}
             <PlayerSidebarOverviewGrid />
             <PlayerSidebarExperimentsSection />
             <PlayerSidebarOverviewOtherWatchers />

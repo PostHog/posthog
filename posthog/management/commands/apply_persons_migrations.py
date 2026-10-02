@@ -9,16 +9,21 @@ Tracks applied migrations in a _persons_migrations_applied table so each
 migration is only executed once. Also bridges the sqlx _sqlx_migrations
 tracking table so that environments transitioning from sqlx don't re-apply
 already-applied migrations.
+
+Each file runs inside a transaction, unless it opens with the -- no-transaction
+marker that CONCURRENTLY index builds need.
 """
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 import psycopg
+import sqlparse
 from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict
 
@@ -34,6 +39,22 @@ HOBBY_SKIP_MIGRATIONS = {
 }
 
 TRACKING_TABLE = "_persons_migrations_applied"
+
+# Marker a migration file opens with when it must not run inside a transaction, because
+# Postgres rejects CREATE/DROP INDEX CONCURRENTLY there. Same convention as the sqlx
+# runners that read these files in Rust.
+NO_TRANSACTION_MARKER = "-- no-transaction"
+
+# The index a concurrent build names, so the invalid-index guard below can look at that index
+# alone. Postgres does not accept a schema-qualified name here: the index lands in the table's
+# schema. Inside a quoted name it writes an embedded quote as two quotes, so the name branch
+# accepts a doubled quote to keep such a name parseable.
+CONCURRENT_INDEX_CREATE = re.compile(
+    r"""^\s*CREATE\s+(?:UNIQUE\s+)?INDEX\s+CONCURRENTLY\s+
+        (?:IF\s+NOT\s+EXISTS\s+)?
+        (?P<name>"(?:[^"]|"")+"|[A-Za-z_][A-Za-z0-9_$]*)\s+ON\b""",
+    re.IGNORECASE | re.VERBOSE,
+)
 
 
 def _ensure_tracking_table(cursor) -> None:
@@ -72,6 +93,111 @@ def _get_sqlx_applied_versions(cursor) -> set[str]:
 
 def _record_migration(cursor, filename: str) -> None:
     cursor.execute(f"INSERT INTO {TRACKING_TABLE} (filename) VALUES (%s)", [filename])
+
+
+def _runs_outside_transaction(sql_content: str) -> bool:
+    """Report whether a migration opens with the marker.
+
+    sqlx tests the raw file content with starts_with, so a marker below a header comment or
+    a blank line is transactional under the Rust runners. Match that test exactly: a file
+    this runner accepts must behave the same way in the sqlx job that applies it.
+    """
+    return sql_content.startswith(NO_TRANSACTION_MARKER)
+
+
+def _holds_multiple_statements(sql_content: str) -> bool:
+    """Report whether a migration holds more than one statement.
+
+    A semicolon split miscounts a predicate such as ``WHERE value = ';'``, so leave the
+    parsing to sqlparse. Drop a fragment that is only a comment: the trailing note these
+    files carry is not a statement.
+    """
+    statements = [
+        statement
+        for statement in sqlparse.split(sql_content)
+        if sqlparse.format(statement, strip_comments=True).strip(" \t\r\n;")
+    ]
+    return len(statements) > 1
+
+
+def _concurrent_index_target(sql_content: str) -> str | None:
+    """Return the index name a concurrent build creates, or None for any other statement.
+
+    A concurrent drop returns None on purpose. Its target is often the invalid index itself,
+    so the guard below must let it run.
+    """
+    match = CONCURRENT_INDEX_CREATE.match(sqlparse.format(sql_content, strip_comments=True).strip())
+    if not match:
+        return None
+    name = match.group("name")
+    if not name.startswith('"'):
+        return name.lower()
+    # pg_class holds the name unescaped, so collapse each doubled quote back to one.
+    return name[1:-1].replace('""', '"')
+
+
+def _invalid_indexes_named(cursor, index_name: str) -> list[str]:
+    """Return the qualified names of invalid indexes that carry ``index_name``.
+
+    The connected database can hold indexes this runner does not own: hobby deploys keep the
+    persons tables in the main PostHog database. Match the one name the migration is about to
+    build, so an unrelated interrupted build does not stop the queue.
+    """
+    cursor.execute(
+        """
+        SELECT n.nspname, c.relname
+        FROM pg_index i
+        JOIN pg_class c ON c.oid = i.indexrelid
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE NOT i.indisvalid
+          AND c.relkind = 'i'
+          AND c.relname = %s
+          AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+        ORDER BY n.nspname, c.relname
+        """,
+        [index_name],
+    )
+    return [f"{schema}.{name}" for schema, name in cursor.fetchall()]
+
+
+def _apply_without_transaction(cursor, filename: str, sql_content: str) -> None:
+    """Apply a migration with no transaction around it, on the autocommit connection.
+
+    The tracking insert is no longer atomic with the migration body, so an interrupted run
+    can leave the statement applied and unrecorded. A rerun of a CONCURRENTLY build is
+    harmless, except when the interruption left the index INVALID: IF NOT EXISTS then skips
+    the rebuild and the migration is recorded over a broken index. Refuse the run instead,
+    and name the index to drop. Only the index this file builds is checked.
+    """
+    if _holds_multiple_statements(sql_content):
+        raise CommandError(
+            f"{filename} is marked '{NO_TRANSACTION_MARKER}' but holds more than one statement. "
+            "Postgres runs a multi-statement batch in one implicit transaction, which "
+            "CONCURRENTLY rejects. Give each statement its own migration file."
+        )
+
+    target = _concurrent_index_target(sql_content)
+    invalid_indexes = _invalid_indexes_named(cursor, target) if target else []
+    if invalid_indexes:
+        drops = "\n".join(f"  DROP INDEX CONCURRENTLY {index};" for index in invalid_indexes)
+        raise CommandError(
+            f"Cannot apply {filename}: the index it builds is INVALID, left by an interrupted "
+            f"CONCURRENTLY build. Drop it, then re-run the migrations:\n{drops}"
+        )
+
+    cursor.execute(sql_content)
+    _record_migration(cursor, filename)
+
+
+def _apply_migration(conn, cursor, sql_file: Path) -> None:
+    sql_content = sql_file.read_text()
+    if _runs_outside_transaction(sql_content):
+        _apply_without_transaction(cursor, sql_file.name, sql_content)
+        return
+
+    with conn.transaction():
+        cursor.execute(sql_content)
+        _record_migration(cursor, sql_file.name)
 
 
 def _ensure_database_exists(persons_url: str) -> None:
@@ -188,11 +314,8 @@ class Command(BaseCommand):
                     applied_count += 1
                     continue
 
-                sql_content = sql_file.read_text()
                 self.stdout.write(f"  Applying {sql_file.name}...")
-                with conn.transaction():
-                    cursor.execute(sql_content)
-                    _record_migration(cursor, sql_file.name)
+                _apply_migration(conn, cursor, sql_file)
                 applied_count += 1
 
         action = "Would apply" if dry_run else "Applied"

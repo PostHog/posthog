@@ -14,19 +14,35 @@ import {
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { TZLabel } from 'lib/components/TZLabel'
 
-import type { AccountRelationshipApi } from 'products/customer_analytics/frontend/generated/api.schemas'
+import type {
+    AccountRelationshipApi,
+    AccountRelationshipSourceEnumApi,
+} from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { accountRelationshipsLogic } from './accountRelationshipsLogic'
+import type { AccountViewTileLogicProps } from './accountViewTileConfig'
 
 const PAGE_SIZE = 10
+
+const SOURCE_LABELS: Record<AccountRelationshipSourceEnumApi, string> = {
+    human: 'Person',
+    workflow: 'Workflow',
+    ai: 'AI',
+    salesforce_claim: 'Salesforce',
+    migration: 'Migration',
+}
+
+interface AccountRelationshipsExpansionProps extends AccountViewTileLogicProps {
+    accountId: string
+    embedded?: boolean
+}
 
 export function AccountRelationshipsExpansion({
     accountId,
     embedded = true,
-}: {
-    accountId: string
-    embedded?: boolean
-}): JSX.Element {
+    ...tileProps
+}: AccountRelationshipsExpansionProps): JSX.Element {
+    const logic = accountRelationshipsLogic({ accountId, ...tileProps })
     const {
         relationships,
         relationshipsLoading,
@@ -39,7 +55,7 @@ export function AccountRelationshipsExpansion({
         canDeleteRelationships,
         relationshipSaving,
         relationshipToDelete,
-    } = useValues(accountRelationshipsLogic({ accountId }))
+    } = useValues(logic)
     const {
         setDefinitionFilter,
         setAssignDefinitionId,
@@ -48,7 +64,7 @@ export function AccountRelationshipsExpansion({
         openDeleteConfirmation,
         closeDeleteConfirmation,
         deleteRelationship,
-    } = useActions(accountRelationshipsLogic({ accountId }))
+    } = useActions(logic)
 
     const columns: LemonTableColumns<AccountRelationshipApi> = [
         {
@@ -70,6 +86,17 @@ export function AccountRelationshipsExpansion({
                 ),
         },
         {
+            title: 'Assigned by',
+            key: 'source',
+            width: 110,
+            render: (_, relationship) =>
+                relationship.source ? (
+                    SOURCE_LABELS[relationship.source]
+                ) : (
+                    <span className="text-muted">Not recorded</span>
+                ),
+        },
+        {
             title: 'Started',
             key: 'started_at',
             width: 140,
@@ -78,7 +105,7 @@ export function AccountRelationshipsExpansion({
         {
             title: 'Ended',
             key: 'ended_at',
-            width: 140,
+            width: 160,
             render: (_, relationship) =>
                 relationship.ended_at ? (
                     <TZLabel time={relationship.ended_at} />

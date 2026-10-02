@@ -1,14 +1,18 @@
 import uuid
+from datetime import UTC, datetime
 
 import pytest
-from posthog.test.base import BaseTest
+import time_machine
+from posthog.test.base import BaseTest, NonAtomicBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.db import OperationalError, transaction
+from django.db import OperationalError, connections, transaction
 
 from asgiref.sync import async_to_sync
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
+
+from posthog.models import Team
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -20,10 +24,16 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
     resolve_table_and_folder_names,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
+    REGISTERED_SCHEMA_FINGERPRINT_KEY,
     _refresh_cumulative_row_count,
     merge_columns,
+    register_cdc_companion_table,
     update_last_synced_at,
     validate_schema_and_update_table,
+)
+from products.warehouse_sources.backend.temporal.data_imports.query_folder_state import (
+    QueryFolderPointerHistory,
+    advance_query_folder_pointer,
 )
 from products.warehouse_sources.backend.types import (
     DataWarehouseTableCreatedVia,
@@ -315,6 +325,42 @@ class TestRegisterCDCCompanionTable(BaseTest):
         assert companions.count() == 0
 
 
+# transaction=True: the real async function (not the sync mirror above) writes from the async thread
+# pool (database_sync_to_async_pool), which can't see an atomic TestCase's uncommitted rows.
+@pytest.mark.django_db(transaction=True)
+class TestRegisterCdcCompanionTableStamp:
+    def test_stamps_the_companion_folder_activation_on_the_schema(self, team):
+        # The companion table shares the schema row with the snapshot table, so its stamp has to land
+        # under its own folder name or the snapshot's publish step would read the wrong flip time.
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=team, source_type="Postgres"
+        )
+        schema = ExternalDataSchema.objects.create(name="orders", team=team, source=source)
+        job = ExternalDataJob.objects.create(
+            team=team, pipeline=source, schema=schema, status=ExternalDataJobStatus.RUNNING, rows_synced=10
+        )
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", return_value={}),
+            patch.object(DataWarehouseTable, "get_count", return_value=100),
+        ):
+            async_to_sync(register_cdc_companion_table)(
+                run_id=str(job.id),
+                team_id=team.pk,
+                schema_id=schema.id,
+                resource_name="orders_cdc",
+                row_count=100,
+                table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
+                queryable_folder="orders_cdc__query_a",
+            )
+
+        schema.refresh_from_db()
+        history = QueryFolderPointerHistory.from_config(schema.sync_type_config, "orders_cdc__query")
+        assert history is not None
+        assert history.active == "orders_cdc__query_a"
+        assert history.active_job_id == str(job.id)
+
+
 # transaction=True: validate_schema_and_update_table writes to the DB from the async thread pool
 # (database_sync_to_async_pool), which can't see an atomic TestCase's uncommitted rows.
 @pytest.mark.django_db(transaction=True)
@@ -363,10 +409,18 @@ class TestValidateSchemaAndUpdateTable:
         assert not table.columns
         assert table.created_via == DataWarehouseTableCreatedVia.SOURCE
 
-    def _linked_table(self, team, schema, job, *, queryable_folder: str) -> DataWarehouseTable:
+    def _linked_table(
+        self,
+        team: Team,
+        schema: ExternalDataSchema,
+        job: ExternalDataJob,
+        *,
+        queryable_folder: str,
+        storage_name: str | None = None,
+    ) -> DataWarehouseTable:
         names = resolve_table_and_folder_names(schema.name, schema.resolved_s3_folder_name)
         table = DataWarehouseTable.objects.create(
-            name=build_table_name(job.pipeline, names.table_storage_name),
+            name=build_table_name(job.pipeline, storage_name or names.table_storage_name),
             format=DataWarehouseTableFormat.DeltaS3Wrapper,
             url_pattern="s3://bucket/orders_v1/*.parquet",
             team=team,
@@ -404,14 +458,212 @@ class TestValidateSchemaAndUpdateTable:
         # A reported 0 must not zero a table that was just republished.
         assert table.row_count == 150
 
-    def test_zero_row_first_sync_creates_no_table(self, team):
-        # No table yet plus zero rows is a genuinely empty first sync - do not create an empty table.
+    def test_a_schema_linked_to_its_cdc_companion_gets_its_own_table(self, team: Team) -> None:
+        schema, job = self._schema_and_job(team)
+        companion = self._linked_table(
+            team, schema, job, queryable_folder="orders_cdc__query_a", storage_name="orders_cdc"
+        )
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", return_value={}),
+            patch.object(DataWarehouseTable, "get_count", return_value=150),
+        ):
+            async_to_sync(validate_schema_and_update_table)(
+                run_id=str(job.id),
+                team_id=team.pk,
+                schema_id=schema.id,
+                row_count=10,
+                table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
+                queryable_folder="orders__query_a",
+            )
+
+        schema.refresh_from_db()
+        companion.refresh_from_db()
+        assert schema.table is not None
+        assert (schema.table.name, schema.table.queryable_folder) == (
+            build_table_name(job.pipeline, "orders"),
+            "orders__query_a",
+        )
+        assert companion.queryable_folder == "orders_cdc__query_a"
+
+    def test_a_schema_whose_own_table_has_the_companion_name_keeps_it(self, team: Team) -> None:
+        schema, job = self._schema_and_job(team)
+        schema.s3_folder_name = "orders_cdc"
+        schema.save()
+        own_table = self._linked_table(team, schema, job, queryable_folder="orders_cdc__query_a")
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", return_value={}),
+            patch.object(DataWarehouseTable, "get_count", return_value=150),
+        ):
+            async_to_sync(validate_schema_and_update_table)(
+                run_id=str(job.id),
+                team_id=team.pk,
+                schema_id=schema.id,
+                row_count=10,
+                table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
+                queryable_folder="orders_cdc__query_b",
+            )
+
+        schema.refresh_from_db()
+        assert schema.table_id == own_table.id
+        assert DataWarehouseTable.objects.filter(team=team, deleted=False).count() == 1
+
+    @pytest.mark.parametrize(
+        ("recorded_active", "expect_restart"),
+        [
+            # The recorded active folder is the one the pointer is on: the history stays contiguous, so
+            # the publish step may keep trusting that an unrecorded slot has not been read since it began.
+            pytest.param("orders__query_a", False, id="recorded_move"),
+            # The pointer is not where the record says: a move was lost (a crash between the pointer
+            # write and the record). Trusting the old history would let a slot that was read moments
+            # ago be rewritten, so the history restarts now.
+            pytest.param("orders__query_c", True, id="unrecorded_move"),
+        ],
+    )
+    @time_machine.travel("2026-01-02T12:00:00Z", tick=False)
+    def test_records_the_pointer_move_and_restarts_the_history_after_a_gap(
+        self, team, recorded_active: str, expect_restart: bool
+    ):
+        schema, job = self._schema_and_job(team)
+        self._linked_table(team, schema, job, queryable_folder="orders__query_a")
+        long_ago = datetime(2026, 1, 1, tzinfo=UTC)
+        config: dict = {}
+        advance_query_folder_pointer(
+            config, previous_folder="orders__query_b", queryable_folder=recorded_active, job_id="old-job", now=long_ago
+        )
+        advance_query_folder_pointer(
+            config, previous_folder=None, queryable_folder="orders_cdc__query_a", job_id="cdc-job", now=long_ago
+        )
+        schema.sync_type_config = config
+        schema.save()
+        before = datetime.now(UTC)
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", return_value={}),
+            patch.object(DataWarehouseTable, "get_count", return_value=150),
+        ):
+            async_to_sync(validate_schema_and_update_table)(
+                run_id=str(job.id),
+                team_id=team.pk,
+                schema_id=schema.id,
+                row_count=10,
+                table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
+                queryable_folder="orders__query_b",
+            )
+
+        schema.refresh_from_db()
+        history = QueryFolderPointerHistory.from_config(schema.sync_type_config, "orders__query")
+        assert history is not None
+        assert history.active == "orders__query_b"
+        assert history.active_job_id == str(job.id)
+        a_stopped = history.stopped_being_active("orders__query_a")
+        assert a_stopped is not None and a_stopped >= before
+        assert history.stopped_being_active("orders__query_b") is None
+        assert history.history_since is not None
+        assert (history.history_since >= before) is expect_restart
+        companion = QueryFolderPointerHistory.from_config(schema.sync_type_config, "orders_cdc__query")
+        assert companion is not None and companion.active == "orders_cdc__query_a"
+
+    def _register(
+        self,
+        team,
+        schema,
+        job,
+        *,
+        queryable_folder: str,
+        delta_schema_json: str,
+        table_schema_dict: dict[str, str] | None = None,
+    ) -> None:
+        async_to_sync(validate_schema_and_update_table)(
+            run_id=str(job.id),
+            team_id=team.pk,
+            schema_id=schema.id,
+            row_count=10,
+            table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
+            queryable_folder=queryable_folder,
+            table_schema_dict=table_schema_dict or {"id": "IntegerDatabaseField"},
+            delta_schema_json=delta_schema_json,
+        )
+
+    @pytest.mark.parametrize(
+        ("changes", "expect_introspection"),
+        [
+            pytest.param({}, False, id="same_inputs"),
+            # The Delta log gained a column: the DESCRIBE result changes with it.
+            pytest.param({"delta_schema_json": '{"fields": ["id", "email"]}'}, True, id="delta_schema_changed"),
+            # The user deselected a column: the projection over the same introspection changes.
+            pytest.param({"enabled_columns": ["id"]}, True, id="enabled_columns_changed"),
+            # The loader typed a column differently (JSON detection): the merge changes.
+            pytest.param({"table_schema_dict": {"id": "StringJSONDatabaseField"}}, True, id="table_schema_changed"),
+        ],
+    )
+    def test_introspects_again_only_when_a_registration_input_changed(
+        self, team, changes: dict, expect_introspection: bool
+    ):
+        # A DESCRIBE of the published files runs against ClickHouse on every sync although the
+        # schema rarely changes. Skipping it must not go further than that: the pointer flip and the
+        # row count are what make the new files queryable, and any input the columns depend on must
+        # bring the introspection back, or a deselected column would stay in HogQL.
+        schema, job = self._schema_and_job(team)
+        table = self._linked_table(team, schema, job, queryable_folder="orders__query_a")
+        delta_schema_json = '{"fields": ["id"]}'
+
+        with (
+            patch.object(
+                DataWarehouseTable, "get_columns", return_value={"id": {"clickhouse": "Int64", "hogql": "x"}}
+            ) as get_columns,
+            patch.object(DataWarehouseTable, "get_count", return_value=150),
+        ):
+            self._register(team, schema, job, queryable_folder="orders__query_a", delta_schema_json=delta_schema_json)
+            assert get_columns.call_count == 1
+            if "enabled_columns" in changes:
+                ExternalDataSchema.objects.filter(id=schema.id).update(enabled_columns=changes["enabled_columns"])
+            self._register(
+                team,
+                schema,
+                job,
+                queryable_folder="orders__query_b",
+                delta_schema_json=changes.get("delta_schema_json", delta_schema_json),
+                table_schema_dict=changes.get("table_schema_dict"),
+            )
+
+        assert get_columns.call_count == (2 if expect_introspection else 1)
+        table.refresh_from_db()
+        assert table.queryable_folder == "orders__query_b"
+        assert table.row_count == 10
+        assert table.columns is not None
+        assert table.columns["id"]["clickhouse"] == "Int64"
+        schema.refresh_from_db()
+        assert schema.sync_type_config[REGISTERED_SCHEMA_FINGERPRINT_KEY]
+
+    def test_a_failed_introspection_leaves_no_fingerprint_behind(self, team):
+        # get_columns() can fail on a table with no committed files (tolerated, see above). The next
+        # sync must introspect again rather than trust a fingerprint for columns that were never written.
+        schema, job = self._schema_and_job(team)
+        self._linked_table(team, schema, job, queryable_folder="orders__query_a")
+        no_files_error = ServerException("No files in log segment (in snapshot).", code=742)
+
+        with (
+            patch(f"{_TABLE_MODULE}.sync_execute", side_effect=no_files_error),
+            patch(f"{_TABLE_MODULE}.time.sleep"),
+            patch.object(DataWarehouseTable, "get_count", return_value=0),
+        ):
+            self._register(team, schema, job, queryable_folder="orders__query_a", delta_schema_json="{}")
+
+        schema.refresh_from_db()
+        assert REGISTERED_SCHEMA_FINGERPRINT_KEY not in schema.sync_type_config
+
+    def test_zero_row_sync_creates_no_table(self, team):
+        # The publish step republishes the whole delta table every run, so files being queryable
+        # says nothing about this run writing any. A table born here has no column types to take -
+        # the run wrote no arrow batches - and registers empty, which reads as data loss.
         schema, job = self._schema_and_job(team)
         assert schema.table is None
 
         with (
             patch.object(DataWarehouseTable, "get_columns", return_value={}),
-            patch.object(DataWarehouseTable, "get_count", return_value=0),
+            patch.object(DataWarehouseTable, "get_count", return_value=150),
         ):
             async_to_sync(validate_schema_and_update_table)(
                 run_id=str(job.id),
@@ -425,6 +677,63 @@ class TestValidateSchemaAndUpdateTable:
         schema.refresh_from_db()
         assert schema.table is None
         assert not DataWarehouseTable.objects.filter(external_data_source=schema.source, deleted=False).exists()
+
+    def test_relinks_a_table_an_earlier_run_left_unlinked(self, team):
+        # An orphan must be adopted and repointed, not left unlinked and not duplicated.
+        schema, job = self._schema_and_job(team)
+        orphan = self._linked_table(team, schema, job, queryable_folder="s3://bucket/orders_v1")
+        ExternalDataSchema.objects.filter(id=schema.id).update(table=None)
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", return_value={}),
+            patch.object(DataWarehouseTable, "get_count", return_value=150),
+        ):
+            async_to_sync(validate_schema_and_update_table)(
+                run_id=str(job.id),
+                team_id=team.pk,
+                schema_id=schema.id,
+                row_count=0,
+                table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
+                queryable_folder="s3://bucket/orders_v2",
+            )
+
+        schema.refresh_from_db()
+        orphan.refresh_from_db()
+        assert schema.table_id == orphan.id
+        assert orphan.queryable_folder == "s3://bucket/orders_v2"
+        assert DataWarehouseTable.objects.filter(external_data_source=schema.source, deleted=False).count() == 1
+
+    def test_does_not_adopt_a_table_another_schema_owns(self, team):
+        # A pinned folder makes "public.orders" resolve to the same table name as "orders", so a
+        # lookup on name alone would hand one schema the table its sibling is already using.
+        owner, job = self._schema_and_job(team)
+        owned = self._linked_table(team, owner, job, queryable_folder="s3://bucket/orders_v1")
+        sibling = ExternalDataSchema.objects.create(
+            name="public.orders", team=team, source=owner.source, s3_folder_name="orders"
+        )
+        sibling_job = ExternalDataJob.objects.create(
+            team=team, pipeline=owner.source, schema=sibling, status=ExternalDataJobStatus.RUNNING, rows_synced=10
+        )
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", return_value={}),
+            patch.object(DataWarehouseTable, "get_count", return_value=150),
+        ):
+            async_to_sync(validate_schema_and_update_table)(
+                run_id=str(sibling_job.id),
+                team_id=team.pk,
+                schema_id=sibling.id,
+                row_count=10,
+                table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
+                queryable_folder="s3://bucket/orders_v2",
+            )
+
+        owner.refresh_from_db()
+        sibling.refresh_from_db()
+        owned.refresh_from_db()
+        assert owner.table_id == owned.id
+        assert sibling.table_id not in (None, owned.id)
+        assert owned.queryable_folder == "s3://bucket/orders_v1"
 
 
 class TestUpdateLastSyncedAt:
@@ -472,13 +781,16 @@ class TestSetInitialSyncComplete(BaseTest):
     wiped), and NEVER purged when the schema is already streaming (those files are live,
     unconsumed changes)."""
 
-    def _schema(self, *, sync_type: str, config: dict, initial_sync_complete: bool) -> ExternalDataSchema:
+    def _schema(
+        self, *, sync_type: str, config: dict, initial_sync_complete: bool, job_inputs: dict | None = None
+    ) -> ExternalDataSchema:
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
             source_id=str(uuid.uuid4()),
             connection_id=str(uuid.uuid4()),
             status="Completed",
             source_type="Postgres",
+            job_inputs=job_inputs or {},
         )
         return ExternalDataSchema.objects.create(
             team_id=self.team.pk,
@@ -522,7 +834,7 @@ class TestSetInitialSyncComplete(BaseTest):
             calls.append(schema_id)
 
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.cdc.buffer.purge_buffer_prefix",
+            "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.purge_buffer_prefix",
             side_effect=_record_purge,
         ):
             _purge_stale_buffer_then_mark_initial_sync_complete(str(schema.id), self.team.pk, MagicMock())
@@ -531,3 +843,77 @@ class TestSetInitialSyncComplete(BaseTest):
         assert schema.initial_sync_complete is True
         assert (calls == [str(schema.id)]) is expects_purge
         assert schema.sync_type_config.get("cdc_mode") == expected_cdc_mode
+
+    def test_a_snapshot_the_buffer_carried_keeps_its_files_and_the_flip_clears_the_marker(self) -> None:
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
+            _purge_stale_buffer_then_mark_initial_sync_complete,
+        )
+
+        schema = self._schema(
+            sync_type="cdc",
+            config={"cdc_mode": "snapshot", "cdc_snapshot_lane": "buffer"},
+            initial_sync_complete=False,
+            job_inputs={"cdc_ingest_mode": "buffered"},
+        )
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.purge_buffer_prefix"
+        ) as purge:
+            _purge_stale_buffer_then_mark_initial_sync_complete(str(schema.id), self.team.pk, MagicMock())
+
+        purge.assert_not_called()
+        schema.refresh_from_db()
+        assert schema.initial_sync_complete is True
+        assert schema.sync_type_config.get("cdc_mode") == "streaming"
+        assert "cdc_snapshot_lane" not in schema.sync_type_config
+
+
+class TestSnapshotHandoverHoldsTheRowLock(NonAtomicBaseTest):
+    def test_capture_cannot_mark_the_table_while_the_hand_over_purges(self) -> None:
+        # Capture marks the table under this row lock before it writes. Were the lock released
+        # between the hand-over's marker read and its purge, capture could mark the table and write a
+        # file that the purge then deletes.
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
+            _purge_stale_buffer_then_mark_initial_sync_complete,
+        )
+
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Completed",
+            source_type="Postgres",
+            job_inputs={"cdc_ingest_mode": "buffered"},
+        )
+        schema = ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source=source,
+            name="public.users",
+            sync_type="cdc",
+            sync_type_config={"cdc_mode": "snapshot"},
+            initial_sync_complete=False,
+        )
+        row_free_during_purge: list[bool] = []
+
+        def _lock_from_another_connection(*_args, **_kwargs) -> None:
+            other = connections.create_connection("default")
+            try:
+                with other.cursor() as cursor:
+                    cursor.execute(
+                        "SELECT 1 FROM posthog_externaldataschema WHERE id = %s FOR UPDATE NOWAIT", [str(schema.id)]
+                    )
+                    row_free_during_purge.append(cursor.fetchone() is not None)
+            except OperationalError:
+                row_free_during_purge.append(False)
+            finally:
+                other.close()
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.purge_buffer_prefix",
+            side_effect=_lock_from_another_connection,
+        ):
+            _purge_stale_buffer_then_mark_initial_sync_complete(str(schema.id), self.team.pk, MagicMock())
+
+        assert row_free_during_purge == [False]
+        schema.refresh_from_db()
+        assert schema.sync_type_config["cdc_mode"] == "streaming"

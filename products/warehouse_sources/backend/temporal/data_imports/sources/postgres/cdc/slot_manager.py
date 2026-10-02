@@ -45,6 +45,7 @@ def cdc_pg_connection(source: ExternalDataSource, connect_timeout: int = 15) -> 
             password=config.password,
             require_ssl=require_ssl,
             connect_timeout=connect_timeout,
+            team_id=source.team_id,
         )
         try:
             yield conn

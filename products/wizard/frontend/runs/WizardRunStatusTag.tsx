@@ -1,44 +1,49 @@
 import { IconCheckCircle, IconClock, IconX, IconXCircle } from '@posthog/icons'
-import { LemonTag, Spinner } from '@posthog/lemon-ui'
+import { Badge, Spinner } from '@posthog/quill-primitives'
 
 import type { WizardRunApi } from '../generated/api.schemas'
 
 export function WizardRunStatusTag({ status }: { status: WizardRunApi['status'] }): JSX.Element {
     if (status === 'completed') {
         return (
-            <LemonTag type="success" size="medium" icon={<IconCheckCircle />}>
+            <Badge variant="success">
+                <IconCheckCircle />
                 Completed
-            </LemonTag>
+            </Badge>
         )
     }
 
     if (status === 'failed') {
         return (
-            <LemonTag type="danger" size="medium" icon={<IconXCircle />}>
+            <Badge variant="destructive">
+                <IconXCircle />
                 Failed
-            </LemonTag>
+            </Badge>
         )
     }
 
     if (status === 'running') {
         return (
-            <LemonTag type="warning" size="medium" icon={<Spinner textColored />}>
+            <Badge variant="warning">
+                <Spinner />
                 Running
-            </LemonTag>
+            </Badge>
         )
     }
 
     if (status === 'cancelled') {
         return (
-            <LemonTag type="muted" size="medium" icon={<IconX />}>
+            <Badge variant="default">
+                <IconX />
                 Canceled
-            </LemonTag>
+            </Badge>
         )
     }
 
     return (
-        <LemonTag type="warning" size="medium" icon={<IconClock />}>
+        <Badge variant="warning">
+            <IconClock />
             Starting
-        </LemonTag>
+        </Badge>
     )
 }

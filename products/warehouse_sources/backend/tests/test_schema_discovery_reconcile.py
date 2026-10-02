@@ -18,6 +18,8 @@ from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
+_PAUSE_FN = "products.data_warehouse.backend.facade.api.pause_external_data_schedule"
+
 
 # Managed/scheduled discovery calls sync_old_schemas_with_new_schemas with no rename step, so a
 # qualified/bare name mismatch against the stored row used to flip the live row to should_sync=False.
@@ -131,12 +133,13 @@ class TestSchemaDiscoveryReconcile(BaseTest):
             team_id=self.team.pk, source_id=source.pk, name="acme/other.commits", should_sync=False
         )
 
-        sync_old_schemas_with_new_schemas(
-            {"issues": None},
-            source_id=str(source.pk),
-            team_id=self.team.pk,
-            strict_name_match=True,
-        )
+        with patch(_PAUSE_FN) as mock_pause, self.captureOnCommitCallbacks(execute=True):
+            sync_old_schemas_with_new_schemas(
+                {"issues": None},
+                source_id=str(source.pk),
+                team_id=self.team.pk,
+                strict_name_match=True,
+            )
 
         legacy.refresh_from_db()
         synced_removed.refresh_from_db()
@@ -145,6 +148,7 @@ class TestSchemaDiscoveryReconcile(BaseTest):
         assert synced_removed.should_sync is False
         assert synced_removed.deleted is False
         assert unsynced_removed.deleted is True
+        mock_pause.assert_called_once_with(str(synced_removed.id))
 
     def test_dropped_user_enabled_schema_is_disabled_not_deleted_before_first_sync(self) -> None:
         # A row the user enabled that never produced a table (every sync failed, then discovery
@@ -155,17 +159,43 @@ class TestSchemaDiscoveryReconcile(BaseTest):
             team_id=self.team.pk, source_id=source.pk, name="leads", should_sync=True
         )
 
-        sync_result = sync_old_schemas_with_new_schemas(
-            {"contacts": None},
-            source_id=str(source.pk),
-            team_id=self.team.pk,
-        )
+        with patch(_PAUSE_FN) as mock_pause, self.captureOnCommitCallbacks(execute=True):
+            sync_result = sync_old_schemas_with_new_schemas(
+                {"contacts": None},
+                source_id=str(source.pk),
+                team_id=self.team.pk,
+            )
 
         enabled_unsynced.refresh_from_db()
         assert sync_result.deleted == []
         assert enabled_unsynced.deleted is False
         assert enabled_unsynced.should_sync is False
         assert enabled_unsynced.status == ExternalDataSchema.Status.COMPLETED
+        mock_pause.assert_called_once_with(str(enabled_unsynced.id))
+
+    def test_failed_pause_leaves_the_table_on_and_still_pauses_the_others(self) -> None:
+        # A row written off while its schedule still runs keeps billing, and the next discovery run
+        # would skip it as already off, so a failed pause has to leave the row on for that retry.
+        source = self._make_source()
+        unreachable = self._make_synced_schema(source, "leads")
+        other_removed = self._make_synced_schema(source, "deals")
+
+        def pause(schema_id: str) -> None:
+            if schema_id == str(unreachable.id):
+                raise Exception("temporal unavailable")
+
+        with patch(_PAUSE_FN, side_effect=pause) as mock_pause, self.captureOnCommitCallbacks(execute=True):
+            sync_old_schemas_with_new_schemas(
+                {"contacts": None},
+                source_id=str(source.pk),
+                team_id=self.team.pk,
+            )
+
+        unreachable.refresh_from_db()
+        other_removed.refresh_from_db()
+        assert {call.args[0] for call in mock_pause.call_args_list} == {str(unreachable.id), str(other_removed.id)}
+        assert unreachable.should_sync is True
+        assert other_removed.should_sync is False
 
 
 class TestSchemaNameMatchesAutoSyncPatterns(SimpleTestCase):

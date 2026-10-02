@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
@@ -63,7 +63,7 @@ def _hogql_table_tree(node: TableNode) -> dict[str, Any]:
     }
 
 
-@freeze_time("2026-01-02T12:00:00Z")
+@time_machine.travel("2026-01-02T12:00:00Z", tick=False)
 class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
     def setUp(self) -> None:
         super().setUp()

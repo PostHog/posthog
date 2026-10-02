@@ -18,12 +18,16 @@ export function TaskRunLog({
     taskId,
     optimisticStreamKey,
     optimisticRunId,
+    interactionKey,
+    autoFocus,
 }: {
     taskId: string
     /** Client `streamKey` of an optimistic-create stream to adopt — set only during the create handoff. */
     optimisticStreamKey?: string
     /** Run id created by the optimistic flow, before the runs list has loaded it. */
     optimisticRunId?: string
+    interactionKey?: string
+    autoFocus?: boolean
 }): JSX.Element | null {
     const logic = taskDetailSceneLogic({ taskId })
     const {
@@ -59,7 +63,13 @@ export function TaskRunLog({
     if (optimisticStreamKey && effectiveRunId) {
         return (
             <div className="flex-1 min-h-0">
-                <TaskRunChat taskId={taskId} runId={effectiveRunId} streamKey={optimisticStreamKey} />
+                <TaskRunChat
+                    taskId={taskId}
+                    runId={effectiveRunId}
+                    streamKey={optimisticStreamKey}
+                    interactionKey={effectiveRunId === optimisticRunId ? interactionKey : undefined}
+                    autoFocus={effectiveRunId === optimisticRunId && autoFocus}
+                />
             </div>
         )
     }

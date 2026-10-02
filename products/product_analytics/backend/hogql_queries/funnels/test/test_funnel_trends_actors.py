@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 
 from posthog.schema import (
@@ -33,7 +33,7 @@ funnels_query = FunnelsQuery(
 )
 
 
-@freeze_time("2021-05-01")
+@time_machine.travel("2021-05-01", tick=False)
 class TestFunnelTrendsActors(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_funnel_trend_persons_returns_recordings(self):

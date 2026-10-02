@@ -6,26 +6,22 @@ import { Link } from '@posthog/lemon-ui'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { isTrustedPostHogUrl } from 'lib/utils/trustedUrl'
-import { urls } from 'scenes/urls'
 
 import type {
     ConversationsTicketImageApi,
     ConversationsTicketSignalExtraApi,
 } from 'products/signals/frontend/generated/api.schemas'
 import { safeHttpUrl } from 'products/signals/frontend/inbox/utils/reportPresentation'
+import { conversationsTicketUrl } from 'products/signals/frontend/inbox/utils/signalLinks'
 
 import { SignalCardShell } from './SignalCardShell'
 import type { SignalCardEntry, SignalCardProps } from './types'
 
-/** Guard for Conversations ticket extras. Keys on the ticket number + channel source unique to this source. */
-export function isConversationsTicketExtra(
-    value: unknown
-): value is Record<string, unknown> & ConversationsTicketSignalExtraApi {
-    if (typeof value !== 'object' || value === null) {
-        return false
-    }
-    const extra = value as Record<string, unknown>
-    return 'ticket_number' in extra && 'channel_source' in extra
+/** Every field is optional so that evidence stored before the emitter carried it still renders. */
+type TicketExtra = Partial<ConversationsTicketSignalExtraApi>
+
+function ticketExtra(value: unknown): TicketExtra {
+    return typeof value === 'object' && value !== null ? (value as TicketExtra) : {}
 }
 
 /** How many attachment thumbnails to show before pointing at the ticket for the rest. */
@@ -72,10 +68,10 @@ function TicketImageThumbnail({ image }: { image: ConversationsTicketImageApi })
 
 export function ConversationsTicketSignalCard({ signal }: SignalCardProps): JSX.Element {
     const redesign = useFeatureFlag('INBOX_REDESIGN')
-    const extra = signal.extra as Record<string, unknown> & ConversationsTicketSignalExtraApi
+    const extra = ticketExtra(signal.extra)
     // Attachment thumbnails are part of the redesign's evidence rail.
     const images = redesign && Array.isArray(extra.images) ? extra.images : []
-    const ticketUrl = urls.supportTicketDetail(extra.ticket_number)
+    const ticketUrl = conversationsTicketUrl(signal)
 
     return (
         <SignalCardShell signal={signal} label={extra.email_subject ?? undefined}>
@@ -90,21 +86,33 @@ export function ConversationsTicketSignalCard({ signal }: SignalCardProps): JSX.
                         <TicketImageThumbnail key={`${image.url}-${index}`} image={image} />
                     ))}
                     {images.length > IMAGE_PREVIEW_COUNT && (
-                        <li>
-                            <Link to={ticketUrl} className="text-xs font-medium">
-                                +{images.length - IMAGE_PREVIEW_COUNT} more
-                            </Link>
+                        <li className="text-xs font-medium">
+                            {ticketUrl ? (
+                                <Link to={ticketUrl}>+{images.length - IMAGE_PREVIEW_COUNT} more</Link>
+                            ) : (
+                                <span className="text-tertiary">+{images.length - IMAGE_PREVIEW_COUNT} more</span>
+                            )}
                         </li>
                     )}
                 </ul>
             )}
             <div className="flex items-center gap-2 text-xs text-tertiary">
-                <span className="font-mono font-medium">#{extra.ticket_number}</span>
+                {typeof extra.ticket_number === 'number' && (
+                    <span className="font-mono font-medium">#{extra.ticket_number}</span>
+                )}
                 <span className="flex-1" />
-                <Link to={ticketUrl} className="flex items-center gap-1 text-xs font-medium">
-                    Open ticket
-                    <IconChevronRight />
-                </Link>
+                {ticketUrl ? (
+                    <Link
+                        to={ticketUrl}
+                        className="flex items-center gap-1 text-xs font-medium"
+                        data-attr="inbox-evidence-open-ticket"
+                    >
+                        Open ticket
+                        <IconChevronRight />
+                    </Link>
+                ) : (
+                    <span>Source ticket unavailable</span>
+                )}
             </div>
         </SignalCardShell>
     )
@@ -112,6 +120,6 @@ export function ConversationsTicketSignalCard({ signal }: SignalCardProps): JSX.
 
 export const conversationsTicketSignalCardEntry: SignalCardEntry = {
     key: 'conversations',
-    matches: (signal) => signal.source_product === 'conversations' && isConversationsTicketExtra(signal.extra),
+    matches: (signal) => signal.source_product === 'conversations' && signal.source_type === 'ticket',
     Component: ConversationsTicketSignalCard,
 }

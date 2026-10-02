@@ -7,6 +7,10 @@ use crate::cohorts::cohort_operations::{
 };
 use crate::cohorts::membership::{CohortMembershipProvider, NoOpCohortMembershipProvider};
 use crate::database::{pool_names, PostgresRouter};
+use crate::flags::config_v2::{Config, NonV1Config};
+use crate::flags::evaluate_v2::{
+    Evaluation, EvaluationContext, EvaluationDetail, Evaluator, PersonProperties,
+};
 use crate::flags::flag_group_type_mapping::{
     GroupTypeCacheManager, GroupTypeIndex, GroupTypeMapping,
 };
@@ -40,6 +44,7 @@ use crate::properties::property_models::{PropertyFilter, PropertyType};
 use crate::rayon_dispatcher::RayonDispatcher;
 use crate::utils::graph_utils::PrecomputedDependencyGraph;
 use anyhow::Result;
+use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
 use common_metrics::{histogram, inc, timing_guard, timing_guard_high_precision};
 use common_types::collections::HashMapExt;
@@ -103,6 +108,8 @@ pub struct FeatureFlagMatch {
     pub reason: FeatureFlagMatchReason,
     pub condition_index: Option<usize>,
     pub payload: Option<Value>,
+    /// Set only by `get_match_v2`; the v3 record is built from it.
+    pub evaluation_v2: Option<EvaluationDetail>,
 }
 
 impl FeatureFlagMatch {
@@ -123,6 +130,7 @@ impl FeatureFlagMatch {
             reason: FeatureFlagMatchReason::MissingDependency,
             condition_index: None,
             payload: None,
+            evaluation_v2: None,
         }
     }
 }
@@ -403,6 +411,8 @@ pub struct FeatureFlagMatcher {
     /// relative dates), so flag evaluation matches HogQL/ClickHouse cohort behavior.
     /// Parsed once per request and reused across every property comparison.
     timezone: Tz,
+    /// Request evaluation time. Only v2 relative-date predicates read it; tests pin it.
+    now: DateTime<Utc>,
 }
 
 /// Lightweight snapshot of a flag's identity fields, saved before moving
@@ -412,6 +422,8 @@ struct FlagSnapshot {
     key: String,
     id: FeatureFlagId,
     version: Option<i32>,
+    /// Keeps a v2 flag's error record labelled v2.
+    non_v1: Option<Arc<NonV1Config>>,
 }
 
 impl FlagSnapshot {
@@ -420,6 +432,7 @@ impl FlagSnapshot {
             key: flag.key.clone(),
             id: flag.id,
             version: flag.version,
+            non_v1: flag.filters.non_v1.clone(),
         }
     }
 }
@@ -473,7 +486,13 @@ impl FeatureFlagMatcher {
             detailed_analysis: false,
             only_use_override_person_properties: false,
             timezone: Tz::UTC,
+            now: Utc::now(),
         }
+    }
+
+    pub fn with_now(mut self, now: DateTime<Utc>) -> Self {
+        self.now = now;
+        self
     }
 
     /// Sets the team timezone used to interpret naive datetime filter values.
@@ -859,14 +878,39 @@ impl FeatureFlagMatcher {
         let mut errors_while_computing_flags = overrides.hash_key_override_error;
         let mut evaluated_flags_map = HashMap::new();
 
+        // Joining `filtered_out_flag_ids` pre-seeds the flag false below, like an inactive
+        // flag, so a dependent's `flag_evaluates_to: false` condition still resolves.
+        let mut unsupported_flag_ids: Vec<FeatureFlagId> = Vec::new();
+        for flag in evaluation_stages.iter().flatten() {
+            if self.filtered_out_flag_ids.contains(&flag.id) {
+                continue;
+            }
+            if let Err(error) = flag.filters.require_supported() {
+                evaluated_flags_map.insert(
+                    flag.key.clone(),
+                    FlagDetails::create_error(flag, &error, None),
+                );
+                unsupported_flag_ids.push(flag.id);
+            }
+        }
+        if !unsupported_flag_ids.is_empty() {
+            errors_while_computing_flags = true;
+            self.filtered_out_flag_ids.extend(unsupported_flag_ids);
+        }
+
         // Collect flags from evaluation stages for preparation steps
-        let flags: Vec<&FeatureFlag> = evaluation_stages.iter().flatten().collect();
+        let flags: Vec<&FeatureFlag> = evaluation_stages
+            .iter()
+            .flatten()
+            .filter(|flag| flag.filters.is_supported())
+            .collect();
 
         // Handle hash key override errors by creating error responses for flags that need experience continuity
         if overrides.hash_key_override_error && overrides.hash_key_overrides.is_none() {
             let hash_key_error = FlagError::HashKeyOverrideError;
             for flag in flags.iter().filter(|flag| {
                 !self.filtered_out_flag_ids.contains(&flag.id)
+                    && flag.filters.is_v1()
                     && flag.ensure_experience_continuity.unwrap_or(false)
             }) {
                 evaluated_flags_map.insert(
@@ -1199,25 +1243,17 @@ impl FeatureFlagMatcher {
     /// analysis so group-typed filters resolve against the group's properties (and the
     /// `$group_key` injected into overrides) rather than the person's. Every referenced
     /// group type index is included, backed by an empty map if no properties were found.
-    fn merged_group_properties_for_flag(
+    pub(crate) fn merged_group_properties_for_flag(
         &self,
         flag: &FeatureFlag,
         group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
     ) -> HashMap<GroupTypeIndex, HashMap<String, Value>> {
-        let mut referenced_indexes: HashSet<GroupTypeIndex> = HashSet::new();
-        for group in &flag.filters.groups {
-            // Mirrors the aggregation the real matching path uses (line ~1371 below), so
-            // an explicit person aggregation (`Some(None)`) does not fall back to the
-            // flag-level group index here.
-            let condition_aggregation = group.effective_aggregation(flag.get_group_type_index());
-            if let Some(properties) = &group.properties {
-                for property in properties {
-                    if let Some(gti) = property.group_filter_index(condition_aggregation) {
-                        referenced_indexes.insert(gti);
-                    }
-                }
-            }
-        }
+        let referenced_indexes: HashSet<GroupTypeIndex> = flag
+            .filters
+            .requirements()
+            .group_property_type_indexes
+            .into_iter()
+            .collect();
 
         let mut merged = HashMap::new();
         for gti in referenced_indexes {
@@ -1337,7 +1373,10 @@ impl FeatureFlagMatcher {
                     has_experiment: default_has_experiment(),
                     active: true,
                     version: snapshot.version,
-                    filters: FlagFilters::default(),
+                    filters: FlagFilters {
+                        non_v1: snapshot.non_v1,
+                        ..FlagFilters::default()
+                    },
                     team_id,
                     name: None,
                     deleted: false,
@@ -1394,6 +1433,10 @@ impl FeatureFlagMatcher {
         hash_key_overrides: Option<&HashMap<String, String>>,
         request_hash_key_override: &Option<String>,
     ) -> Result<FeatureFlagMatch, FlagError> {
+        if let Some(config) = flag.filters.supported_v2() {
+            return self.get_match_v2(config, person_property_overrides);
+        }
+        flag.filters.require_v1()?;
         // Seed with the lowest-priority "could not evaluate" reason so any real evaluation
         // result outranks it via `get_highest_priority_match_evaluation`. NoGroupType is
         // the floor: a pure-group flag whose only condition is skipped for missing context
@@ -1425,6 +1468,7 @@ impl FeatureFlagMatcher {
                     reason: FeatureFlagMatchReason::SuperConditionValue,
                     condition_index: Some(0),
                     payload,
+                    evaluation_v2: None,
                 });
             }
         }
@@ -1447,6 +1491,7 @@ impl FeatureFlagMatcher {
                     reason: evaluation_reason,
                     condition_index: None,
                     payload,
+                    evaluation_v2: None,
                 });
             }
         }
@@ -1465,11 +1510,20 @@ impl FeatureFlagMatcher {
             if aggregation.is_none() {
                 use crate::flags::flag_models::BucketingIdentifier;
 
-                if flag.get_bucketing_identifier() == BucketingIdentifier::DeviceId
-                    && self
-                        .device_id
-                        .as_ref()
-                        .is_none_or(|device_id| device_id.is_empty())
+                let buckets_on_device_id =
+                    flag.get_bucketing_identifier() == BucketingIdentifier::DeviceId;
+                let has_device_id = self
+                    .device_id
+                    .as_ref()
+                    .is_some_and(|device_id| !device_id.is_empty());
+
+                // Without a device_id there is nothing to bucket on, so the condition is
+                // withheld rather than bucketed on the wrong identifier. Withholding a
+                // condition whose outcome the hash cannot change would instead disable the
+                // flag for everyone it targets, so the guard asks whether it can.
+                if buckets_on_device_id
+                    && !has_device_id
+                    && flag.condition_needs_bucketing_hash(condition)
                 {
                     inc(
                         FLAG_CONDITION_SKIPPED_COUNTER,
@@ -1497,7 +1551,7 @@ impl FeatureFlagMatcher {
                     highest_index = new_highest_index;
                     continue;
                 }
-                if flag.get_bucketing_identifier() == BucketingIdentifier::DeviceId {
+                if buckets_on_device_id && has_device_id {
                     with_canonical_log(|log| log.eval.flags_device_id_bucketing += 1);
                 }
             }
@@ -1591,6 +1645,7 @@ impl FeatureFlagMatcher {
                     reason: FeatureFlagMatchReason::OutOfRolloutBound,
                     condition_index: Some(index),
                     payload: None,
+                    evaluation_v2: None,
                 });
             }
 
@@ -1606,32 +1661,14 @@ impl FeatureFlagMatcher {
             highest_index = new_highest_index;
 
             if is_match {
-                // Check for variant override in the condition
-                let variant = if let Some(variant_override) = &condition.variant {
-                    // Check if the override is a valid variant
-                    if flag
-                        .get_variants()
-                        .iter()
-                        .any(|v| &v.key == variant_override)
-                    {
-                        Some(variant_override.clone())
-                    } else {
-                        // If override isn't valid, fall back to computed variant
-                        self.get_matching_variant(
-                            flag,
-                            aggregation,
-                            hash_key_overrides,
-                            request_hash_key_override,
-                        )?
-                    }
-                } else {
-                    // No override, use computed variant
-                    self.get_matching_variant(
+                let variant = match flag.pinned_variant(condition) {
+                    Some(pinned) => Some(pinned.to_string()),
+                    None => self.get_matching_variant(
                         flag,
                         aggregation,
                         hash_key_overrides,
                         request_hash_key_override,
-                    )?
+                    )?,
                 };
                 let payload = self.get_matching_payload(variant.as_deref(), flag);
 
@@ -1641,6 +1678,7 @@ impl FeatureFlagMatcher {
                     reason: highest_match,
                     condition_index: highest_index,
                     payload,
+                    evaluation_v2: None,
                 });
             }
         }
@@ -1669,6 +1707,70 @@ impl FeatureFlagMatcher {
             reason: highest_match,
             condition_index: highest_index,
             payload: None,
+            evaluation_v2: None,
+        })
+    }
+
+    /// Projects a v2 outcome onto the v1 match shape: a null value is disabled, a boolean is
+    /// `enabled`, a string is the variant, and a number or object is an enabled flag whose value
+    /// travels as a JSON-encoded payload, like a v1 payload. The subject is the request distinct ID.
+    fn get_match_v2(
+        &self,
+        config: &Config,
+        person_property_overrides: Option<&HashMap<String, Value>>,
+    ) -> Result<FeatureFlagMatch, FlagError> {
+        // A config without predicates never reads properties, so skip the merge.
+        let merged = if config.rules.iter().any(|rule| !rule.targeting.is_empty()) {
+            Some(self.get_person_properties(person_property_overrides)?)
+        } else {
+            None
+        };
+        // An overrides-only request treats its map as authoritative, as v1 does.
+        let properties = match &merged {
+            Some(map)
+                if self.only_use_override_person_properties
+                    || self.flag_evaluation_state.get_person_properties().is_some() =>
+            {
+                PersonProperties::Complete(map)
+            }
+            Some(map) if person_property_overrides.is_some() => PersonProperties::Partial(map),
+            _ => PersonProperties::Unavailable,
+        };
+        let evaluation = Evaluator::new(config).evaluate(&EvaluationContext {
+            person_identifier: &self.distinct_id,
+            properties,
+            timezone: self.timezone,
+            use_explicit_exact_matching: self.use_explicit_exact_matching,
+            now: self.now,
+        })?;
+        let (value, reason, condition_index) = match evaluation {
+            Evaluation::TargetingMatch { value, rule } => (
+                Some(value),
+                FeatureFlagMatchReason::ConditionMatch,
+                Some(rule.index),
+            ),
+            Evaluation::RolloutMiss { value, rule } => (
+                value,
+                FeatureFlagMatchReason::OutOfRolloutBound,
+                Some(rule.index),
+            ),
+            Evaluation::NoRuleMatch { value } => {
+                (value, FeatureFlagMatchReason::NoConditionMatch, None)
+            }
+        };
+        let (matches, variant, payload) = match value {
+            None => (false, None, None),
+            Some(Value::Bool(value)) => (*value, None, None),
+            Some(Value::String(value)) => (true, Some(value.clone()), None),
+            Some(value) => (true, None, Some(Value::String(value.to_string()))),
+        };
+        Ok(FeatureFlagMatch {
+            matches,
+            variant,
+            reason,
+            condition_index,
+            payload,
+            evaluation_v2: Some(evaluation.into()),
         })
     }
 
@@ -2061,10 +2163,9 @@ impl FeatureFlagMatcher {
         if let Some(holdout) = &flag.filters.holdout {
             let percentage = holdout.exclusion_percentage_clamped();
 
-            if percentage < 100.0
-                && self.get_holdout_hash(flag, None, request_hash_key_override)?
-                    > (percentage / 100.0)
-            {
+            if !crate::flags::v1_bucketing::is_in_rollout(percentage, || {
+                self.get_holdout_hash(flag, None, request_hash_key_override)
+            })? {
                 // User's hash is above the exclusion threshold — not in holdout
                 return Ok((false, None, FeatureFlagMatchReason::OutOfRolloutBound));
             }
@@ -2172,9 +2273,9 @@ impl FeatureFlagMatcher {
             request_hash_key_override,
         )?;
         if hashed_identifier.is_empty() {
-            // Return a hash value that will make the flag evaluate to false; since we
-            // can't evaluate a flag without an identifier.
-            return Ok(0.0); // NB: A flag with 0.0 hash will always evaluate to false
+            // Nothing to hash. `check_rollout` compares `hash <= percentage / 100.0`, so a
+            // 0.0 hash matches every rollout threshold, including 0.
+            return Ok(0.0);
         }
 
         calculate_hash(&format!("{}.", feature_flag.key), &hashed_identifier, salt)
@@ -2209,17 +2310,16 @@ impl FeatureFlagMatcher {
         hash_key_overrides: Option<&HashMap<String, String>>,
         request_hash_key_override: &Option<String>,
     ) -> Result<(bool, FeatureFlagMatchReason), FlagError> {
-        if rollout_percentage == 100.0 {
-            return Ok((true, FeatureFlagMatchReason::ConditionMatch));
-        }
-        let hash = self.get_hash(
-            feature_flag,
-            "",
-            aggregation_group_type_index,
-            hash_key_overrides,
-            request_hash_key_override,
-        )?;
-        if hash <= (rollout_percentage / 100.0) {
+        let included = crate::flags::v1_bucketing::is_in_rollout(rollout_percentage, || {
+            self.get_hash(
+                feature_flag,
+                "",
+                aggregation_group_type_index,
+                hash_key_overrides,
+                request_hash_key_override,
+            )
+        })?;
+        if included {
             Ok((true, FeatureFlagMatchReason::ConditionMatch))
         } else {
             Ok((false, FeatureFlagMatchReason::OutOfRolloutBound))
@@ -2242,15 +2342,10 @@ impl FeatureFlagMatcher {
             hash_key_overrides,
             request_hash_key_override,
         )?;
-        let mut cumulative_percentage = 0.0;
-
-        for variant in feature_flag.get_variants() {
-            cumulative_percentage += variant.rollout_percentage / 100.0;
-            if hash < cumulative_percentage {
-                return Ok(Some(variant.key.clone()));
-            }
-        }
-        Ok(None)
+        Ok(
+            crate::flags::v1_bucketing::select_variant(hash, feature_flag.get_variants())
+                .map(str::to_owned),
+        )
     }
 
     /// Get matching payload for a feature flag.
@@ -2442,23 +2537,11 @@ impl FeatureFlagMatcher {
     pub(crate) fn referenced_group_type_indexes(
         flag: &FeatureFlag,
     ) -> impl Iterator<Item = GroupTypeIndex> + '_ {
-        flag.get_group_type_index()
+        let requirements = flag.filters.requirements();
+        requirements
+            .aggregation_group_type_indexes
             .into_iter()
-            .chain(flag.get_conditions().iter().flat_map(|condition| {
-                condition
-                    .aggregation_group_type_index
-                    .flatten()
-                    .into_iter()
-                    .chain(
-                        condition
-                            .properties
-                            .iter()
-                            .flatten()
-                            // No aggregation fallback here: the arms above already chain
-                            // every aggregation index, so only explicit indexes are added.
-                            .filter_map(|prop| prop.group_filter_index(None)),
-                    )
-            }))
+            .chain(requirements.group_property_type_indexes)
     }
 
     /// Builds a paired mapping from group type index to group key for flag
@@ -2773,16 +2856,22 @@ mod tests {
                 key: "flag_a".to_string(),
                 id: 10,
                 version: Some(3),
+                non_v1: None,
             },
             FlagSnapshot {
                 key: "flag_b".to_string(),
                 id: 20,
                 version: None,
+                non_v1: Some(Arc::new(NonV1Config {
+                    parsed_v2: None,
+                    document: serde_json::value::RawValue::from_string("{}".to_string()).unwrap(),
+                })),
             },
             FlagSnapshot {
                 key: "flag_c".to_string(),
                 id: 30,
                 version: Some(1),
+                non_v1: None,
             },
         ];
 
@@ -2806,6 +2895,8 @@ mod tests {
         assert_eq!(stub_b.key, "flag_b");
         assert_eq!(stub_b.id, 20);
         assert_eq!(stub_b.version, None);
+        assert!(!stub_b.filters.is_v1());
+        assert!(stub_a.filters.is_v1());
         assert!(matches!(
             err_b,
             Err(FlagError::InternalError {

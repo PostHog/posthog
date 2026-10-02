@@ -97,8 +97,8 @@ export function ScannerScoutsTab({ scannerId }: { scannerId: string }): JSX.Elem
     } = useValues(logic)
     const { openCreateModal, loadScoutConfigs } = useActions(logic)
     const templates = useMemo(
-        () => scannerScoutTemplates(scannerId, scanner?.scanner_type),
-        [scannerId, scanner?.scanner_type]
+        () => scannerScoutTemplates(scannerId, scanner?.scanner_type, scannerName),
+        [scannerId, scanner?.scanner_type, scannerName]
     )
 
     if (scoutConfigs === null && scoutConfigsLoading) {

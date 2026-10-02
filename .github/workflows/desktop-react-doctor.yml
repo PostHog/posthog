@@ -6,7 +6,7 @@ name: Desktop React Doctor
 
 on:
     pull_request:
-        types: [opened, synchronize, reopened, ready_for_review]
+        types: [opened, synchronize, reopened]
         # Workflow-level paths only work because react-doctor is not a required
         # check. If it ever becomes required, move the skip into a gate job like
         # desktop-ci.yml, or path-skipped PRs will wait on it forever.

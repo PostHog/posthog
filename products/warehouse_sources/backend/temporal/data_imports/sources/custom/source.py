@@ -16,17 +16,15 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from requests import PreparedRequest, Response, Timeout
 from urllib3.util.retry import Retry
 
-from posthog.schema import (
+from posthog.cloud_utils import is_cloud
+
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
-from posthog.cloud_utils import is_cloud
-
 from products.warehouse_sources.backend.models.custom_oauth2_integration import (
     CustomOAuth2Integration,
     get_custom_oauth2_integration,
@@ -476,6 +474,22 @@ def _render_error_location(loc: tuple[Any, ...]) -> str:
     return rendered
 
 
+def _blank_builder_field_label(error: Any) -> str | None:
+    """Name a blank required field the way the source builder labels it, e.g.
+    ``("resources", 0, "endpoint", "path")`` -> ``table 1 path``."""
+    if error["type"] != "string_too_short":
+        return None
+    loc = tuple(error["loc"])
+    if loc == ("client", "base_url"):
+        return "base URL"
+    if len(loc) >= 3 and loc[0] == "resources" and isinstance(loc[1], int):
+        if loc[2:] == ("name",):
+            return f"table {loc[1] + 1} name"
+        if loc[2:] == ("endpoint", "path"):
+            return f"table {loc[1] + 1} path"
+    return None
+
+
 def _format_validation_errors(exc: ValidationError) -> str:
     """Render Pydantic's validation errors as a single user-facing string.
 
@@ -483,8 +497,15 @@ def _format_validation_errors(exc: ValidationError) -> str:
     have at least 1 character") read like internals to someone editing manifest
     JSON, so mirror the JSON path and swap the common messages for plainer English.
     """
+    errors = exc.errors()
+    # Blank builder fields are the common wizard failure, and the builder shows form labels
+    # rather than manifest paths, so name the fields the way the form does.
+    blank_labels = [_blank_builder_field_label(error) for error in errors]
+    if errors and all(blank_labels):
+        return f"These required fields are empty: {', '.join(cast(list[str], blank_labels))}. Fill them in, then try again."
+
     messages: list[str] = []
-    for error in exc.errors():
+    for error in errors:
         location = _render_error_location(error["loc"])
         message = _VALIDATION_MESSAGE_OVERRIDES.get(error["type"], error["msg"].removeprefix("Value error, "))
         messages.append(f"{location}: {message}" if location else message)
@@ -539,6 +560,13 @@ def _has_leading_http_method(url: str) -> bool:
     return bool(rest) and head.upper() in _HTTP_METHODS
 
 
+def _has_wrapping_quote(url: str) -> bool:
+    """True when a URL keeps a quote character from a copied code sample or JSON snippet, e.g.
+    '"https://api.example.com'. urlparse then reads no host, same as the leading-method case."""
+    stripped = url.strip()
+    return bool(stripped) and (stripped[0] in "\"'" or stripped[-1] in "\"'")
+
+
 def _check_url(url: str, team_id: int) -> tuple[bool, str | None]:
     # `_url_hostname` mirrors the real connect host (backslash/whitespace-normalized) so the
     # validator can't be fooled into vetting a different host than the request reaches.
@@ -549,9 +577,14 @@ def _check_url(url: str, team_id: int) -> tuple[bool, str | None]:
                 False,
                 "Remove the HTTP method from the URL and enter just the address (for example, https://api.example.com).",
             )
-        return False, f"URL {url!r} is missing a hostname"
+        if _has_wrapping_quote(url):
+            return (
+                False,
+                "Remove the quote marks from the URL and enter just the address (for example, https://api.example.com).",
+            )
+        return False, "Enter a full URL that includes the host, for example https://api.example.com."
     if is_cloud() and urlparse(url).scheme != "https":
-        return False, f"URL {url!r} must use https:// on PostHog Cloud"
+        return False, "Enter a URL that starts with https://. PostHog Cloud does not connect over plain http."
     return _is_host_safe(hostname, team_id)
 
 
@@ -798,13 +831,13 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CUSTOM,
+            name=ExternalDataSourceType.CUSTOM,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Custom REST source",
             # The generic HTTP/API connector. Match the terms people search when no named
             # connector for their API exists yet.
             keywords=["rest", "api", "http", "https", "rest api", "http api", "custom api", "endpoint"],
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             caption=(
                 "Set up a source using custom configured mappings. "
                 "Define a REST API source by providing a manifest that follows the same shape "

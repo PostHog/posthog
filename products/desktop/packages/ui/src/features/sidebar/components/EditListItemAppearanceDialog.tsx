@@ -38,6 +38,7 @@ interface PreviewTask
   id: string;
   title: string;
   creatorName: string;
+  spaceName: string;
 }
 
 /** Ages that read as a list someone is actually working in. */
@@ -63,6 +64,7 @@ const PREVIEW_TASKS: Omit<PreviewTask, "lastActivityAt">[] = [
     branchName: "posthog/session-list",
     linkedBranch: "posthog/session-list",
     creatorName: "Ada Lovelace",
+    spaceName: "session-list",
   },
   {
     id: "preview-replay",
@@ -75,6 +77,7 @@ const PREVIEW_TASKS: Omit<PreviewTask, "lastActivityAt">[] = [
     branchName: "fix/replay-loading",
     linkedBranch: "fix/replay-loading",
     creatorName: "Grace Hopper",
+    spaceName: "replay",
   },
   {
     id: "preview-docs",
@@ -87,6 +90,7 @@ const PREVIEW_TASKS: Omit<PreviewTask, "lastActivityAt">[] = [
     branchName: "docs/sdk-installation",
     linkedBranch: null,
     creatorName: "Katherine Johnson",
+    spaceName: "docs",
   },
 ];
 
@@ -219,7 +223,12 @@ export function EditListItemAppearanceDialog({
                   // list, so the preview reads as the list it stands for.
                   icon={<TaskStatusDot dot={taskDot({})} />}
                   label={task.title}
-                  subtitle={taskMetadata(task, task.creatorName, visibleFields)}
+                  subtitle={taskMetadata(
+                    task,
+                    task.creatorName,
+                    visibleFields,
+                    task.spaceName,
+                  )}
                   tabIndex={-1}
                 />
               ))}

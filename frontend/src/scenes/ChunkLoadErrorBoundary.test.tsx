@@ -31,6 +31,11 @@ function ThrowRegularError(): JSX.Element {
     throw new Error('regular render failure')
 }
 
+function ThrowGenericNetworkError(): JSX.Element {
+    // Same shape a failed import() takes on Safari/Firefox, thrown by an unrelated fetch here.
+    throw new TypeError('Load failed')
+}
+
 describe('ChunkLoadErrorBoundary', () => {
     let consoleErrorSpy: jest.SpyInstance
     let consoleWarnSpy: jest.SpyInstance
@@ -118,5 +123,20 @@ describe('ChunkLoadErrorBoundary', () => {
 
         expect(reload).not.toHaveBeenCalled()
         expect(screen.getByText('regular render failure')).toBeInTheDocument()
+    })
+
+    it('lets an unmarked generic network error bubble instead of reloading', () => {
+        const reload = jest.fn()
+
+        render(
+            <TestErrorBoundary>
+                <ChunkLoadErrorBoundary reload={reload}>
+                    <ThrowGenericNetworkError />
+                </ChunkLoadErrorBoundary>
+            </TestErrorBoundary>
+        )
+
+        expect(reload).not.toHaveBeenCalled()
+        expect(screen.getByText('Load failed')).toBeInTheDocument()
     })
 })

@@ -3,7 +3,10 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 import { MessageRejected, SendingPausedException, TooManyRequestsException } from '@aws-sdk/client-sesv2'
 
 import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
-import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
+import {
+    CyclotronInvocationQueueParametersEmailSchema,
+    CyclotronInvocationQueueParametersEmailType,
+} from '~/cdp/schema/cyclotron'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
@@ -773,6 +776,9 @@ describe('EmailService', () => {
                 const scheduledMs = result.invocation.queueScheduledAt!.toMillis()
                 expect(scheduledMs).toBeGreaterThanOrEqual(before + minMs)
                 expect(scheduledMs).toBeLessThan(before + maxMs + 5000)
+                // A real denial names the cap it hit, which is what makes the limiter-fault case
+                // above distinguishable to the customer reading the run's logs.
+                expect(result.logs.map((log) => log.message).join(' ')).toContain('reached its email sending limit of')
             })
 
             it('retries on the token bucket cadence when the limiter reports no horizon', async () => {
@@ -794,6 +800,10 @@ describe('EmailService', () => {
                 const scheduledMs = result.invocation.queueScheduledAt!.toMillis()
                 expect(scheduledMs).toBeGreaterThanOrEqual(before + 5 * 60 * 1000)
                 expect(scheduledMs).toBeLessThan(before + 5 * 60 * 1000 + 5000)
+                // No bucket denied, so the customer must not be told they hit a cap they never hit.
+                const messages = result.logs.map((log) => log.message).join(' ')
+                expect(messages).not.toContain('reached its email sending limit')
+                expect(messages).toContain("Could not check this project's email sending limit")
             })
 
             it('sends when the claim is granted', async () => {
@@ -1133,6 +1143,65 @@ describe('EmailService', () => {
                 expect(result.metrics).toEqual([])
             })
 
+            // A per-workflow pause holds one workflow's email while the rest of the project keeps
+            // sending. Same choke point as the team switch above, so no upstream route bypasses it.
+            it('does not call SES while the workflow is paused and records email_paused', async () => {
+                invocation.hogFunction.metadata = {
+                    email_sending_paused_at: '2026-01-01T00:00:00Z',
+                    email_sending_paused_reason: 'Spam complaints reached 2% of the 400 emails sent.',
+                }
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(sendEmailSpy).not.toHaveBeenCalled()
+                expect(result.metrics.map((m) => m.metric_name)).toEqual(['email_paused'])
+                expect(invocation.state.vmState?.stack).toEqual([{ success: false }])
+                expect(result.logs.map((l) => l.message).join(' ')).toContain('Spam complaints reached 2%')
+                // Flags the skip so the flow-level billing gate charges nothing for a send that never sent.
+                expect(result.skipped).toBe(true)
+            })
+
+            it('tells a staff-paused workflow to contact support instead of the resume button', async () => {
+                invocation.hogFunction.metadata = {
+                    email_sending_paused_at: '2026-01-01T00:00:00Z',
+                    email_sending_paused_reason:
+                        "PostHog staff paused this workflow's email to protect delivery for everyone.",
+                    email_sending_paused_by: 'staff',
+                }
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(sendEmailSpy).not.toHaveBeenCalled()
+                const messages = result.logs.map((l) => l.message).join(' ')
+                expect(messages).toContain('Contact support')
+                expect(messages).not.toContain('Resume it from the workflow page')
+            })
+
+            it('blocks editor test sends while the workflow is paused without recording metrics', async () => {
+                invocation.hogFunction.metadata = { email_sending_paused_at: '2026-01-01T00:00:00Z' }
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+                const result = await service.executeSendEmail(invocation, true)
+
+                expect(sendEmailSpy).not.toHaveBeenCalled()
+                expect(result.metrics).toEqual([])
+            })
+
+            it('sends once the workflow pause is cleared', async () => {
+                invocation.hogFunction.metadata = {
+                    email_sending_paused_at: null,
+                    email_sending_paused_reason: null,
+                }
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+                expect(result.metrics.map((m) => m.metric_name)).toContain('email_sent')
+            })
+
             const setProviderTenantStatus = async (status: string): Promise<void> => {
                 await hub.postgres.query(
                     PostgresUse.COMMON_WRITE,
@@ -1284,22 +1353,23 @@ describe('EmailService', () => {
             ])
         })
 
-        it('should send plaintext-only email when html is empty', async () => {
+        it.each([
+            ['text only', { html: '', text: 'Hello, this is a plain text email.' }, ['Text']],
+            ['html only, no text', { html: '<p>Hello</p>', text: undefined }, ['Html']],
+            ['html only, empty text', { html: '<p>Hello</p>', text: '' }, ['Html']],
+        ])('sends only the parts that have content: %s', async (_name, content, expectedParts) => {
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             invocation.hogFunction.metadata = { message_category_type: 'transactional' }
-            invocation.queueParameters = createEmailParams({
-                from: { integrationId: 1 },
-                html: '',
-                text: 'Hello, this is a plain text email.',
-            })
+            invocation.queueParameters = CyclotronInvocationQueueParametersEmailSchema.parse(
+                createEmailParams({ from: { integrationId: 1 }, ...content })
+            )
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
             const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-            expect(sentCommand.input.Content.Simple.Body.Text).toEqual({
-                Data: 'Hello, this is a plain text email.',
-                Charset: 'UTF-8',
-            })
-            expect(sentCommand.input.Content.Simple.Body.Html).toBeUndefined()
+            expect(Object.keys(sentCommand.input.Content.Simple.Body)).toEqual(expectedParts)
+            if (content.text) {
+                expect(sentCommand.input.Content.Simple.Body.Text).toEqual({ Data: content.text, Charset: 'UTF-8' })
+            }
         })
 
         it('should not include preheader span if not in params', async () => {
@@ -1355,6 +1425,22 @@ describe('EmailService', () => {
             expect(headerNames).not.toContain('List-Unsubscribe-Post')
             expect(headerNames).toContain('X-PostHog-Tracking-Code')
         })
+
+        it.each(['transactional', 'marketing'])(
+            'marks a %s send as auto-generated so autoresponders do not answer it',
+            async (categoryType) => {
+                // Without this an autoresponder answers the workflow, and when the address it
+                // answers is a support inbox the reply re-enters the same workflow as a new ticket.
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+                invocation.hogFunction.metadata = { message_category_type: categoryType }
+                const result = await service.executeSendEmail(invocation)
+                expect(result.error).toBeUndefined()
+                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+                expect(sentCommand.input.Content.Simple.Headers).toEqual(
+                    expect.arrayContaining([{ Name: 'Auto-Submitted', Value: 'auto-generated' }])
+                )
+            }
+        )
 
         it('attaches the X-PostHog-Tracking-Code header carrying the full signed code', async () => {
             // The header is the authoritative tracking-code carrier (the EmailTag is the

@@ -93,6 +93,8 @@ const ROW_BASE_STYLE: CSSProperties = { position: 'absolute', top: 0, left: 0, w
 const HEADER_KEY = '__vt_header__'
 const FOOTER_KEY = '__vt_footer__'
 
+const lastReadItems = new Map<string, string>()
+
 interface RootContextValue {
     isFollowing: boolean
     /** Inspecting expanded content should release automatic following, just like scrolling up. */
@@ -101,6 +103,8 @@ interface RootContextValue {
     measureElement: (node: Element | null) => void
     /** Inter-row spacing (px), applied as bottom padding on the measured row so heights include it. */
     gap: number
+    /** The last row takes no gap: nothing follows it, and an empty footer would otherwise leave a blank strip. */
+    lastIndex: number
     maxWidthClassName: string
     /** When false, rows render in document flow (no virtualization) and an ancestor owns scroll. */
     virtualized: boolean
@@ -170,6 +174,7 @@ export interface VirtualizedThreadRootProps<T> {
      * and follows the streaming answer; the sent message rides up naturally as the response grows.
      */
     anchorItemKey?: string | null
+    scrollRestorationKey?: string
     /**
      * True while `items` are still being assembled (a history replay in flight). Defers the once-only
      * opening scroll and the anchor-key adoption: partial fold commits can carry renderable items —
@@ -187,6 +192,7 @@ export interface VirtualizedThreadRootProps<T> {
      */
     virtualized?: boolean
     listClassName?: string
+    endInset?: number
     children: (item: T, index: number) => ReactNode
 }
 
@@ -208,10 +214,12 @@ function Root<T>({
     stickToBottom = true,
     turnActive = false,
     anchorItemKey,
+    scrollRestorationKey,
     itemsLoading = false,
     maxWidthClassName = 'max-w-180',
     className,
     listClassName,
+    endInset = 0,
     virtualized = true,
     children,
 }: VirtualizedThreadRootProps<T>): JSX.Element {
@@ -221,6 +229,7 @@ function Root<T>({
 
     const scrollRef = useRef<HTMLDivElement>(null)
     const didInitialScrollRef = useRef(false)
+    const savedReadItem = useRef(scrollRestorationKey ? lastReadItems.get(scrollRestorationKey) : undefined)
     // Content growth can move the bottom before the next follow write. Track reader intent separately:
     // the ref updates scroll handlers immediately; state publishes the same mode to activity lists.
     const pinnedRef = useRef(true)
@@ -345,6 +354,7 @@ function Root<T>({
         estimateSize: estimateVirtualRow,
         overscan: overscanCount,
         getItemKey: getVirtualItemKey,
+        paddingEnd: endInset,
         // The virtualizer writes container height + row offsets to the DOM itself, in the same tick as each
         // measurement — no stale-offset overlap while rows measure, and React re-renders only on range change.
         directDomUpdates: true,
@@ -403,7 +413,13 @@ function Root<T>({
                       if (itemsLoading) {
                           return 0
                       }
-                      const anchorIndex = anchorItemKey != null ? findVirtualIndexForKey(anchorItemKey) : -1
+                      const savedIndex = savedReadItem.current ? findVirtualIndexForKey(savedReadItem.current) : -1
+                      const anchorIndex =
+                          savedIndex >= 0
+                              ? savedIndex
+                              : anchorItemKey != null
+                                ? findVirtualIndexForKey(anchorItemKey)
+                                : -1
                       const limit = anchorIndex >= 0 ? anchorIndex : rowCount
                       let total = 0
                       for (let i = 0; i < limit; i++) {
@@ -414,6 +430,34 @@ function Root<T>({
               }
             : {}),
     })
+
+    useEffect(() => {
+        const element = scrollRef.current
+        if (!scrollRestorationKey || !element || itemsLoading) {
+            return
+        }
+        const rememberPosition = (): void => {
+            if (!didInitialScrollRef.current || element.clientHeight === 0 || element.clientWidth === 0) {
+                return
+            }
+            // `item.key`, not a re-derivation from `item.index`: the virtualizer produced that key from
+            // its current `getItemKey`, while this listener is only re-bound in the passive phase, so a
+            // scroll event arriving after an append can otherwise map a new index through the old `items`.
+            const firstVisibleItem = virtualizer.getVirtualItems().find((item) => {
+                const itemKey = String(item.key)
+                return item.end > element.scrollTop && itemKey !== HEADER_KEY && !itemKey.startsWith(FOOTER_KEY)
+            })
+            if (firstVisibleItem) {
+                lastReadItems.delete(scrollRestorationKey)
+                lastReadItems.set(scrollRestorationKey, String(firstVisibleItem.key))
+                if (lastReadItems.size > 100) {
+                    lastReadItems.delete(lastReadItems.keys().next().value!)
+                }
+            }
+        }
+        element.addEventListener('scroll', rememberPosition, { passive: true })
+        return () => element.removeEventListener('scroll', rememberPosition)
+    }, [scrollRestorationKey, virtualizer, itemsLoading])
 
     // The only way to flip pinning. Two pins have to move together and in the same tick as the gesture:
     // ours, and the core's at-end growth compensation, which is a second pin we do not otherwise control.
@@ -547,7 +591,9 @@ function Root<T>({
             return
         }
         didInitialScrollRef.current = true
-        const anchorIndex = anchorItemKey != null ? findVirtualIndexForKey(anchorItemKey) : -1
+        const savedIndex = savedReadItem.current ? findVirtualIndexForKey(savedReadItem.current) : -1
+        const anchorIndex =
+            savedIndex >= 0 ? savedIndex : anchorItemKey != null ? findVirtualIndexForKey(anchorItemKey) : -1
         const el = scrollRef.current
         if (anchorIndex >= 0) {
             // Provisional anchor landing — this commit only has estimates for the rows under the anchor,
@@ -562,7 +608,9 @@ function Root<T>({
             setPinned(false)
             bottomRepinBlockedUntilRef.current = performance.now() + BOTTOM_REPIN_BLOCK_MS
             scheduleAnchorSettle(anchorIndex)
-            scheduleOpenDecision(anchorIndex)
+            if (savedIndex < 0) {
+                scheduleOpenDecision(anchorIndex)
+            }
             return
         }
         if (turnActive && el) {
@@ -852,12 +900,13 @@ function Root<T>({
         () => ({
             measureElement: virtualizer.measureElement,
             gap,
+            lastIndex: rowCount - 1,
             maxWidthClassName,
             virtualized,
             isFollowing: stickToBottom && (!virtualized || pinned),
             pauseFollowing: () => setPinned(false),
         }),
-        [virtualizer, gap, maxWidthClassName, virtualized, stickToBottom, pinned, setPinned]
+        [virtualizer, gap, rowCount, maxWidthClassName, virtualized, stickToBottom, pinned, setPinned]
     )
 
     // Flow mode: render rows directly so an ancestor scroll container (and its auto-scroller) keeps working.
@@ -925,7 +974,7 @@ function Row({ children, className }: { children: ReactNode; className?: string 
     if (!root || !row) {
         throw new Error('VirtualizedThread.Row must be rendered inside VirtualizedThread.Root')
     }
-    const { measureElement, gap, maxWidthClassName, virtualized } = root
+    const { measureElement, gap, lastIndex, maxWidthClassName, virtualized } = root
     const { index } = row
 
     // Re-registers the node whenever `index` changes: the virtualizer's element cache (which both direct
@@ -955,9 +1004,10 @@ function Row({ children, className }: { children: ReactNode; className?: string 
     // child. Border-box measurement is transform-safe, so the imperative positioning does not distort it.
     return (
         <div ref={measureRef} style={ROW_BASE_STYLE}>
+            {/* A row whose content renders nothing (such as the trailing row between turns) takes no space, so the thread does not jump. */}
             <div
-                className={cn('w-full mx-auto @container/thread', maxWidthClassName, className)}
-                style={{ paddingBottom: gap }}
+                className={cn('w-full mx-auto @container/thread empty:hidden', maxWidthClassName, className)}
+                style={{ paddingBottom: index === lastIndex ? 0 : gap }}
             >
                 {children}
             </div>

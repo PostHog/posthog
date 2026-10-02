@@ -1,7 +1,8 @@
 from datetime import UTC, datetime, timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.utils import timezone
 
@@ -19,6 +20,7 @@ from products.review_hog.backend.reviewer.artefact_content import (
     ThreadVerdictArtefact,
     ValidationVerdict,
 )
+from products.review_hog.backend.reviewer.constants import DEFAULT_REVIEW_ARM
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, IssuesReview, LineRange
 from products.review_hog.backend.reviewer.models.perspective_selection import (
@@ -33,6 +35,7 @@ from products.review_hog.backend.reviewer.persistence import (
     persist_pr_snapshot,
 )
 from products.review_hog.backend.reviewer.progress import RESOLUTION_RUN_NOTE_AUTHOR
+from products.review_hog.backend.temporal.heartbeat import ReviewActivityHeartbeater
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import NoteArtefact
 
@@ -76,6 +79,7 @@ def _issues_review(count: int) -> IssuesReview:
 class TestRecentReviewsAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        self.enterContext(patch("posthoganalytics.feature_enabled", return_value=True))
         self.url = f"/api/projects/{self.team.id}/review_hog/reviews/"
 
     def _report(
@@ -145,7 +149,7 @@ class TestRecentReviewsAPI(APIBaseTest):
         # (stale, never completed) run must not appear — a filter regression would leak other users'
         # review activity or show a dead run as forever in progress.
         mine = self._report(pr_number=1, acting_user=self.user)
-        with freeze_time(timezone.now() - timedelta(hours=2)):
+        with time_machine.travel(timezone.now() - timedelta(hours=2), tick=False):
             self._report(pr_number=2, acting_user=self.user, completed=False)
         other = User.objects.create_and_join(self.organization, "other-reviews@posthog.com", None)
         self._report(pr_number=3, acting_user=other)
@@ -298,12 +302,14 @@ class TestRecentReviewsAPI(APIBaseTest):
             report_id=report_id,
             head_sha="old-sha",
             results={(1, 1): _issues_review(9)},
+            review_arm=DEFAULT_REVIEW_ARM,
         )
         persist_perspective_results(
             team_id=self.team.id,
             report_id=report_id,
             head_sha="new-sha",
             results={(1, 1): _issues_review(2), (2, 1): _issues_review(1), (1000, 1): _issues_review(1)},
+            review_arm=DEFAULT_REVIEW_ARM,
         )
         # A stale-head selection must not surface; the reviewed head's one aggregates to run/skipped.
         persist_perspective_selection(
@@ -439,6 +445,7 @@ class TestRecentReviewsAPI(APIBaseTest):
             report_id=running_id,
             head_sha="sha1",
             results={(1, 1): _issues_review(1), (2, 1): _issues_review(0)},
+            review_arm=DEFAULT_REVIEW_ARM,
         )
         # No persisted plan (a fallback run): the dense estimate — 2 chunks × (3 canonical
         # perspectives + the blind-spot sweep) = 8 expected reads.
@@ -474,6 +481,7 @@ class TestRecentReviewsAPI(APIBaseTest):
             report_id=running_id,
             head_sha="sha1",
             results={(1000, 0): _issues_review(0)},
+            review_arm=DEFAULT_REVIEW_ARM,
         )
         assert self.client.get(self.url).json()["results"][0]["progress"] == {
             "review_stage": "deduplicating",
@@ -496,6 +504,61 @@ class TestRecentReviewsAPI(APIBaseTest):
             "done": 2,
             "total": 2,
         }
+
+    @parameterized.expand(
+        [
+            ("active", "sha1", False, True),
+            ("idle", "sha1", False, False),
+            ("active", "another-head", False, False),
+            ("active", "sha1", True, False),
+        ]
+    )
+    def test_activity_heartbeat_keeps_only_its_active_review_visible(
+        self, status: str, heartbeat_head: str, another_team: bool, visible: bool
+    ) -> None:
+        now = timezone.now()
+        with time_machine.travel(now - IN_PROGRESS_STALE_AFTER - timedelta(minutes=1), tick=False):
+            running = self._report(
+                pr_number=2, acting_user=self.user, completed=False, run_count=0, head_sha="sha1", status=status
+            )
+        heartbeat_team_id = self.team.id
+        if another_team:
+            heartbeat_team_id = Team.objects.create(organization=self.organization, name="another project").id
+        heartbeat = ReviewActivityHeartbeater(
+            team_id=heartbeat_team_id, report_id=str(running.id), head_sha=heartbeat_head
+        )
+
+        with time_machine.travel(now, tick=False):
+            assert self.client.get(self.url).json()["results"] == []
+            before_pulse = running.updated_at
+            heartbeat.touch_report()
+            running.refresh_from_db()
+            assert running.updated_at == (now if visible else before_pulse)
+            rows = self.client.get(self.url).json()["results"]
+            assert bool(rows) is visible
+            if visible:
+                assert rows[0]["pr_number"] == 2
+                assert rows[0]["in_progress"] is True
+                assert rows[0]["run_count"] == 0
+
+        with time_machine.travel(now + IN_PROGRESS_STALE_AFTER + timedelta(seconds=1), tick=False):
+            assert self.client.get(self.url).json()["results"] == []
+
+    def test_heartbeating_first_turn_outranks_newer_stale_first_turns(self) -> None:
+        # Crashed first turns stay ACTIVE. More of them than the probe slice, all newer than a live
+        # run, must not push that live run out of the list.
+        now = timezone.now()
+        with time_machine.travel(now - timedelta(hours=2), tick=False):
+            live = self._report(pr_number=1, acting_user=self.user, completed=False, run_count=0, head_sha="sha1")
+        with time_machine.travel(now - IN_PROGRESS_STALE_AFTER - timedelta(minutes=1), tick=False):
+            for pr_number in range(2, 5):
+                self._report(pr_number=pr_number, acting_user=self.user, completed=False, run_count=0)
+
+        with time_machine.travel(now, tick=False):
+            ReviewActivityHeartbeater(team_id=self.team.id, report_id=str(live.id), head_sha="sha1").touch_report()
+            rows = self.client.get(self.url, {"limit": 1}).json()["results"]
+
+        assert [(row["pr_number"], row["in_progress"]) for row in rows] == [(1, True)]
 
     def _resolution_run(self, report: ReviewReport, thread_ids: list[str], *, skipped: int = 0) -> None:
         ReviewReportArtefact.append_resolution_run(
@@ -531,7 +594,7 @@ class TestRecentReviewsAPI(APIBaseTest):
         # redelivered foreign verdict, not a previous run's verdict for a re-queued thread, and not
         # a judged thread whose GitHub writes haven't landed.
         report = self._report(pr_number=5, acting_user=self.user, status=ReviewReport.Status.ACTIVE)
-        with freeze_time(timezone.now() - timedelta(hours=1)):
+        with time_machine.travel(timezone.now() - timedelta(hours=1), tick=False):
             # A previous run already judged PRRT_3; a new comment re-queued it, so only a verdict
             # written during THIS run may count toward its progress.
             self._thread_verdict(report, "PRRT_3", "fixed")
@@ -566,7 +629,7 @@ class TestRecentReviewsAPI(APIBaseTest):
         # closing note is the completion marker), and a crashed run must yield the row to a newer
         # review turn's own progress instead of pinning a stale "didn't finish" on it.
         report = self._report(pr_number=5, acting_user=self.user, status=ReviewReport.Status.ACTIVE, head_sha="sha1")
-        with freeze_time(timezone.now() - timedelta(hours=2)):
+        with time_machine.travel(timezone.now() - timedelta(hours=2), tick=False):
             self._resolution_run(report, ["PRRT_1"])
             self._thread_verdict(report, "PRRT_1", "fixed")
             if scenario == "completed_run_via_closing_note":
@@ -589,7 +652,7 @@ class TestRecentReviewsAPI(APIBaseTest):
         # The silent-death mode: a resolution that dies partway used to leave no trace anywhere.
         # With the run anchor present, no closing note, and activity past the staleness window, the
         # row must say where it stopped instead of nothing.
-        with freeze_time(timezone.now() - timedelta(hours=2)):
+        with time_machine.travel(timezone.now() - timedelta(hours=2), tick=False):
             report = self._report(pr_number=5, acting_user=self.user, status=ReviewReport.Status.IDLE)
             self._resolution_run(report, ["PRRT_1", "PRRT_2", "PRRT_3"])
             self._thread_verdict(report, "PRRT_1", "fixed")

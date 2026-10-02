@@ -5,8 +5,7 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
-
+from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
 from products.warehouse_sources.backend.temporal.data_imports.sources.finnhub.source import FinnhubSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.finnhub import (
     FinnhubSourceConfig,
@@ -14,7 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 
 
 def _config(**overrides: Any) -> FinnhubSourceConfig:
-    base: dict[str, Any] = {"api_key": "key", "symbols": "AAPL", "exchange": "US"}
+    base: dict[str, Any] = {"api_key": "key", "symbols": "AAPL", "indices": "^GSPC", "exchange": "US"}
     base.update(overrides)
     return FinnhubSourceConfig.from_dict(base)
 
@@ -22,12 +21,13 @@ def _config(**overrides: Any) -> FinnhubSourceConfig:
 class TestSourceConfig:
     def test_fields(self) -> None:
         fields = {f.name: f for f in FinnhubSource().get_source_config.fields if isinstance(f, SourceFieldInputConfig)}
-        assert set(fields) == {"api_key", "symbols", "exchange"}
+        assert set(fields) == {"api_key", "symbols", "indices", "exchange"}
         assert fields["api_key"].type == SourceFieldInputConfigType.PASSWORD
         assert fields["api_key"].required is True
         assert fields["api_key"].secret is True
         # The fan-out and exchange fields must be optional so market-wide tables work alone.
         assert fields["symbols"].required is False
+        assert fields["indices"].required is False
         assert fields["exchange"].required is False
 
 
@@ -46,13 +46,28 @@ class TestGetSchemas:
             "basic_financials",
             "recommendation_trends",
             "earnings_surprises",
+            "financials_reported",
+            "stock_candles",
+            "sec_filings",
+            "insider_transactions",
+            "dividends",
+            "peers",
+            "index_constituents",
+            "economic_calendar",
         }
 
-    def test_only_company_news_is_incremental(self) -> None:
+    def test_incremental_endpoints_advertise_their_cursor(self) -> None:
+        # Only endpoints Finnhub lets us filter server-side may advertise incremental sync.
         schemas = {s.name: s for s in FinnhubSource().get_schemas(_config(), team_id=1)}
-        incremental = {name for name, s in schemas.items() if s.supports_incremental}
-        assert incremental == {"company_news"}
-        assert schemas["company_news"].incremental_fields[0]["field"] == "datetime"
+        incremental = {name: s.incremental_fields[0]["field"] for name, s in schemas.items() if s.supports_incremental}
+        assert incremental == {
+            "company_news": "datetime",
+            "financials_reported": "endDate",
+            "stock_candles": "t",
+            "sec_filings": "filedDate",
+            "insider_transactions": "transactionDate",
+            "dividends": "date",
+        }
 
     @parameterized.expand(
         [
@@ -67,6 +82,14 @@ class TestGetSchemas:
             ("basic_financials", False),
             ("recommendation_trends", False),
             ("earnings_surprises", False),
+            ("financials_reported", False),
+            ("stock_candles", False),
+            ("sec_filings", False),
+            ("insider_transactions", False),
+            ("dividends", False),
+            ("peers", False),
+            ("index_constituents", False),
+            ("economic_calendar", False),
         ]
     )
     def test_should_sync_default(self, endpoint: str, expected_default: bool) -> None:
@@ -92,7 +115,7 @@ class TestDocumentedTables:
     def test_lists_tables_without_credentials(self) -> None:
         assert FinnhubSource.lists_tables_without_credentials is True
         tables = FinnhubSource().get_documented_tables()
-        assert len(tables) == 11
+        assert len(tables) == 19
 
 
 class TestSourceForPipeline:

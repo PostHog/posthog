@@ -22,6 +22,7 @@ from products.replay_vision.backend.prompt_suggestions import (
     generate_prompt_suggestion,
     refresh_prompt_suggestion_if_stale,
 )
+from products.replay_vision.backend.tests.helpers import create_experiment
 from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
 
 
@@ -169,6 +170,44 @@ class TestPromptSuggestions(_VisionAPITestCase):
         self.assertEqual(body["status"], "applied")
         self.assertIsNotNone(body["applied_at"])
 
+    def test_apply_reports_the_recommendation_and_the_scanner_edit(self) -> None:
+        # Guards both events: apply bypasses the serializer, so it reports the edit itself.
+        self._create_rated_observation("sess-1", False, "should be yes")
+        suggestion_id = self.client.post(self._suggestions_url("generate/")).json()["id"]
+
+        with patch("posthoganalytics.capture") as capture:
+            resp = self.client.post(self._suggestions_url(f"{suggestion_id}/apply/"))
+        self.assertEqual(resp.status_code, 200, resp.json())
+
+        applied = self._captured(capture, "replay_vision_prompt_suggestion_applied")
+        self.assertEqual(len(applied), 1)
+        self.assertEqual(applied[0]["suggestion_id"], suggestion_id)
+        self.assertEqual(applied[0]["applied_fields"], ["allow_inconclusive", "prompt"])
+        self.assertEqual(applied[0]["based_on_down"], 1)
+        self.assertFalse(applied[0]["was_edited"])
+        # Nobody tested this one before applying it, which is the behavior the funnel exists to measure.
+        self.assertFalse(applied[0]["was_evaluated"])
+
+        edited = self._captured(capture, "replay_vision_scanner_edited")
+        self.assertEqual(len(edited), 1)
+        self.assertEqual(edited[0]["edit_source"], "prompt_suggestion")
+        self.assertEqual(edited[0]["scanner_id"], str(self.scanner.id))
+
+    def test_generate_and_dismiss_report_calibration_events(self) -> None:
+        self._create_rated_observation("sess-1", False, "should be yes")
+        with patch("posthoganalytics.capture") as capture:
+            suggestion_id = self.client.post(self._suggestions_url("generate/")).json()["id"]
+        generated = self._captured(capture, "replay_vision_prompt_suggestion_generated")
+        self.assertEqual(len(generated), 1)
+        self.assertEqual(generated[0]["rated_count"], 1)
+        self.assertEqual(generated[0]["changed_fields"], ["allow_inconclusive", "prompt"])
+
+        with patch("posthoganalytics.capture") as capture:
+            self.client.post(self._suggestions_url(f"{suggestion_id}/dismiss/"))
+        dismissed = self._captured(capture, "replay_vision_prompt_suggestion_dismissed")
+        self.assertEqual(len(dismissed), 1)
+        self.assertEqual(dismissed[0]["suggestion_id"], suggestion_id)
+
     def test_apply_rejects_non_pending_and_version_mismatched_suggestions(self) -> None:
         self._create_rated_observation("sess-1", False, "should be yes")
         superseded_id = self.client.post(self._suggestions_url("generate/")).json()["id"]
@@ -261,6 +300,32 @@ class TestPromptSuggestions(_VisionAPITestCase):
         suggestion.refresh_from_db()
         self.assertEqual(suggestion.status, PromptSuggestionStatus.APPLIED)
 
+    def test_apply_edited_back_to_the_current_config_reports_no_edit(self) -> None:
+        # The config did not move, so counting it as a scanner edit inflates every edit metric.
+        current = {"prompt": "p", "tags": ["a", "b"]}
+        scanner = self._create_scanner(name="classifier-noop", scanner_type="classifier", scanner_config=dict(current))
+        suggestion = ReplayScannerPromptSuggestion.objects.create(
+            scanner=scanner,
+            team=self.team,
+            suggested_prompt="new",
+            base_prompt="p",
+            base_config=dict(current),
+            suggested_config={"prompt": "new", "tags": ["a", "b"]},
+            changes=[{"field": "prompt", "kind": "prompt", "op": "set", "before": "p", "after": "new"}],
+            status=PromptSuggestionStatus.PENDING,
+            scanner_version=scanner.scanner_version,
+        )
+
+        url = f"{self.scanners_url}{scanner.id}/prompt_suggestions/{suggestion.id}/apply/"
+        with patch("posthoganalytics.capture") as capture:
+            resp = self.client.post(url, {"config": dict(current)}, format="json")
+        self.assertEqual(resp.status_code, 200, resp.json())
+
+        applied = self._captured(capture, "replay_vision_prompt_suggestion_applied")
+        self.assertEqual(len(applied), 1)
+        self.assertEqual(applied[0]["applied_fields"], [])
+        self.assertEqual(self._captured(capture, "replay_vision_scanner_edited"), [])
+
     def test_apply_rejects_invalid_edited_config(self) -> None:
         scanner = self._create_scanner(
             name="monitor-edit", scanner_type="monitor", scanner_config={"prompt": "keep me"}
@@ -283,6 +348,35 @@ class TestPromptSuggestions(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 400)
         scanner.refresh_from_db()
         self.assertEqual(scanner.scanner_config["prompt"], "keep me")
+
+    def test_apply_rejects_a_config_that_changes_the_experiment(self) -> None:
+        # Apply writes the config directly, so without this guard an edited config could retarget
+        # the scanner's watched experiment — skipping the serializer's experiment access re-check.
+        experiment = create_experiment(self.team, "apply-scope-flag")
+        current = {"prompt": "p", "experiment_id": experiment.id}
+        scanner = self._create_scanner(name="exp-apply", scanner_type="experiment", scanner_config=dict(current))
+        suggestion = ReplayScannerPromptSuggestion.objects.create(
+            scanner=scanner,
+            team=self.team,
+            suggested_prompt="new",
+            base_prompt="p",
+            base_config=dict(current),
+            suggested_config={"prompt": "new", "experiment_id": experiment.id},
+            changes=[{"field": "prompt", "kind": "prompt", "op": "set", "before": "p", "after": "new"}],
+            status=PromptSuggestionStatus.PENDING,
+            scanner_version=scanner.scanner_version,
+        )
+
+        url = f"{self.scanners_url}{scanner.id}/prompt_suggestions/{suggestion.id}/apply/"
+        resp = self.client.post(
+            url, {"config": {"prompt": "edited", "experiment_id": experiment.id + 1}}, format="json"
+        )
+
+        self.assertEqual(resp.status_code, 400)
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.scanner_config, current)
+        suggestion.refresh_from_db()
+        self.assertEqual(suggestion.status, PromptSuggestionStatus.PENDING)
 
     def test_apply_old_prompt_only_row_still_works(self) -> None:
         # Rows generated before config-generic suggestions existed have suggested_config=None.

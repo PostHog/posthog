@@ -101,7 +101,7 @@ export function ToolErrorRateChart({
                 }
                 empty={<div className="py-6 text-center text-[12px] text-secondary">No tool calls yet.</div>}
             >
-                <div className="flex flex-1 flex-col">
+                <div className="flex min-h-80 flex-1 flex-col">
                     <BarChart series={series} labels={labels} config={config} theme={theme} tooltip={renderTooltip}>
                         <ValueLabels
                             valueFormatter={(value) => formatPercentage(value, { compact: true })}

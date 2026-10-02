@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 import unittest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     BaseTest,
     ClickhouseTestMixin,
@@ -322,7 +322,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         assert [p1.uuid] == [r[0] for r in res]
 
     def test_performed_event_with_event_filters_and_explicit_date(self):
-        with freeze_time(datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)):
+        with time_machine.travel(datetime.now().replace(hour=0, minute=0, second=0, microsecond=0), tick=False):
             p1 = _create_person(
                 team_id=self.team.pk,
                 distinct_ids=["p1"],
@@ -388,7 +388,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
     def test_performed_event_with_explicit_date_range(self):
         """Upper bound (`explicit_datetime_to`) is inclusive of the full to-date in both engines."""
-        with freeze_time(datetime.now().replace(hour=12, minute=0, second=0, microsecond=0)):
+        with time_machine.travel(datetime.now().replace(hour=12, minute=0, second=0, microsecond=0), tick=False):
             # p1 is inside the window: [-14d, -7d inclusive]
             p1 = _create_person(
                 team_id=self.team.pk,
@@ -1010,7 +1010,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
     def test_performed_event_first_time_with_explicit_date_range(self):
         """First occurrence (not just any occurrence) must fall inside the explicit window."""
-        with freeze_time(datetime.now().replace(hour=12, minute=0, second=0, microsecond=0)):
+        with time_machine.travel(datetime.now().replace(hour=12, minute=0, second=0, microsecond=0), tick=False):
             # p1's first event is inside the window [-14d, -7d inclusive]
             p1 = _create_person(
                 team_id=self.team.pk,
@@ -1166,7 +1166,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
     )
     def test_performed_event_regularly_not_in_total(self):
         now = datetime.now()
-        with freeze_time(now.replace(hour=0, minute=0, second=0, microsecond=0)):
+        with time_machine.travel(now.replace(hour=0, minute=0, second=0, microsecond=0), tick=False):
             p1 = _create_person(
                 team_id=self.team.pk,
                 distinct_ids=["p1"],
@@ -1221,7 +1221,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
     def test_performed_event_regularly_with_variable_event_counts_in_each_period(self):
         # Pin to midnight so events at now-12h stay on yesterday: the cohort date range ends
         # at "-1d", so when CI runs after noon UTC those events land on today and get excluded
-        with freeze_time(datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)):
+        with time_machine.travel(datetime.now().replace(hour=0, minute=0, second=0, microsecond=0), tick=False):
             self._assert_performed_event_regularly_with_variable_event_counts()
 
     def _assert_performed_event_regularly_with_variable_event_counts(self):
@@ -2629,7 +2629,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         assert [p1.uuid] == [r[0] for r in res]
 
     def test_performed_event_sequence_with_person_properties(self):
-        with freeze_time(datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)):
+        with time_machine.travel(datetime.now().replace(hour=0, minute=0, second=0, microsecond=0), tick=False):
             p1 = _create_person(
                 team_id=self.team.pk,
                 distinct_ids=["p1"],
@@ -2822,7 +2822,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         assert [p1.uuid] == [r[0] for r in res]
 
     def test_performed_event_sequence_and_clause_with_additional_event(self):
-        with freeze_time(datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)):
+        with time_machine.travel(datetime.now().replace(hour=0, minute=0, second=0, microsecond=0), tick=False):
             p1 = _create_person(
                 team_id=self.team.pk,
                 distinct_ids=["p1"],

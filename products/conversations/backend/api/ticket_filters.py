@@ -40,11 +40,15 @@ MAX_SEARCH_LENGTH = 200
 SLA_FILTER_VALUES = ["breached", "at-risk", "on-track"]
 AI_TRIAGE_FILTER_VALUES = [
     "persisted",
+    "suggested",
+    "escalated_with_findings",
     "escalated_with_best",
     "escalated_no_reply",
     "skipped_unactionable",
     "blocked_unsafe",
     "blocked_unsafe_reply",
+    "clarified",
+    "suggested_clarification",
     "in_progress",
 ]
 
@@ -182,7 +186,10 @@ class TicketViewFiltersSerializer(serializers.Serializer):
     aiTriageResult = serializers.ListField(
         child=serializers.ChoiceField(choices=AI_TRIAGE_FILTER_VALUES),
         required=False,
-        help_text="AI triage outcomes to include. 'in_progress' matches tickets still being triaged.",
+        help_text="AI triage outcomes to include. 'in_progress' matches tickets still being triaged. "
+        "Valid values: persisted, suggested, escalated_with_findings, escalated_with_best, "
+        "escalated_no_reply, skipped_unactionable, blocked_unsafe, blocked_unsafe_reply, "
+        "clarified, suggested_clarification, in_progress.",
     )
     assignee = TicketViewAssigneeFilterField(
         required=False,

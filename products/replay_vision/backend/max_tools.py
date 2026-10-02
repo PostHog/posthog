@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from rest_framework.exceptions import Throttled
 
 from posthog.clickhouse.client.connection import ClickHouseUser
-from posthog.event_usage import EventSource
+from posthog.event_usage import EventSource, report_user_action
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -302,7 +302,7 @@ class SummarizeReplayVisionSummariesTool(ReplayVisionGatesMixin, MaxTool):
             scanner, "viewer"
         ) or not can_read_targeted_experiment(self.user_access_control, self._team.id, scanner):
             return f"Scanner {scanner_id} not found.", {"error": "forbidden"}
-        if scanner.scanner_type != ScannerType.SUMMARIZER:
+        if scanner.scanner_type not in (ScannerType.SUMMARIZER, ScannerType.EXPERIMENT):
             # Never interpolate the user-editable scanner name into tool output — it's outside the data fence.
             return (
                 f"That scanner is a {scanner.scanner_type} scanner, not a summarizer.",
@@ -310,8 +310,12 @@ class SummarizeReplayVisionSummariesTool(ReplayVisionGatesMixin, MaxTool):
             )
 
         observations = (
-            ReplayObservation.objects.filter(
-                team_id=self._team.id, scanner_id=scanner_id, status=ObservationStatus.SUCCEEDED
+            accessible_observations(
+                self.user_access_control,
+                self._team.id,
+                ReplayObservation.objects.filter(
+                    team_id=self._team.id, scanner_id=scanner_id, status=ObservationStatus.SUCCEEDED
+                ),
             )
             .order_by("-created_at")
             .values_list("scanner_result", "created_at")[:MAX_SUMMARIES]
@@ -500,10 +504,8 @@ class SearchReplayVisionObservationsTool(ReplayVisionGatesMixin, MaxTool):
         """Sync ClickHouse rank + ORM fetch + format — runs after the embedding HTTP call has resolved."""
         empty = (f"No recordings from {scope_label} matched that search yet.", {"result_count": 0})
 
-        # Filter + rank in one ClickHouse query: the structured outcome filters run against the embedding
-        # metadata, so the semantic ranking only ever sees recordings that already match the exact outcome.
         response = search_observations(
-            self._team, self._user, self.user_access_control, scanner_ids, query_vector, capped_limit, filters
+            self._team, self.user_access_control, scanner_ids, lambda: query_vector, capped_limit, filters
         )
 
         lines: list[str] = []
@@ -925,7 +927,7 @@ def _scanner_config_for(
         config["tags"] = tags
     if scanner_type == ScannerType.SCORER and (scale_min is not None or scale_max is not None):
         config["scale"] = {"min": scale_min, "max": scale_max}
-    if scanner_type == ScannerType.SUMMARIZER and length is not None:
+    if scanner_type in (ScannerType.SUMMARIZER, ScannerType.EXPERIMENT) and length is not None:
         config["length"] = length
     return config
 
@@ -1086,6 +1088,7 @@ class CreateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
             context={
                 "get_team": lambda: self._team,
                 "user": self._user,
+                "user_access_control": self.user_access_control,
                 "event_source": EventSource.POSTHOG_AI,
             },
         )
@@ -1246,7 +1249,13 @@ class UpdateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
             scanner,
             data=data,
             partial=True,
-            context={"get_team": lambda: self._team, "user": self._user},
+            # No HTTP request here, so the serializer can't derive the access control from one; without
+            # it the experiment-scope write guard would treat the caller as unrestricted.
+            context={
+                "get_team": lambda: self._team,
+                "user": self._user,
+                "user_access_control": self.user_access_control,
+            },
         )
         if not serializer.is_valid():
             return _first_error(serializer.errors), {"error": "invalid_config"}
@@ -1520,17 +1529,46 @@ class LabelReplayVisionObservationTool(ReplayVisionGatesMixin, MaxTool):
         observation = self._observation_for(observation_id)
         if observation is None:
             return f"Observation {observation_id} not found.", {"error": "not_found"}
+        cleaned_feedback = (feedback or "").strip()[:MAX_FEEDBACK_LENGTH]
         # One shared label per observation, like the API: a second rating replaces the first. Atomic
         # because the one-to-one turns two concurrent labels into an IntegrityError rather than a retry.
         with transaction.atomic():
-            ReplayObservationLabel.objects.update_or_create(
+            # The same parent lock the API path takes. Without it the `previous` read can land before a
+            # concurrent rater commits, and this path then reports a change that never happened.
+            ReplayObservation.objects.select_for_update().only("pk").filter(
+                pk=observation.pk, team_id=observation.team_id
+            ).first()
+            previous = (
+                ReplayObservationLabel.objects.filter(observation=observation, team_id=observation.team_id)
+                .values("is_correct", "feedback")
+                .first()
+            )
+            label, is_new = ReplayObservationLabel.objects.update_or_create(
                 observation=observation,
                 team_id=observation.team_id,
                 defaults={
                     "is_correct": is_correct,
-                    "feedback": (feedback or "").strip()[:MAX_FEEDBACK_LENGTH],
+                    "feedback": cleaned_feedback,
                     "created_by": self._user,
                 },
+            )
+        verdict_changed = previous is None or previous["is_correct"] != label.is_correct
+        feedback_changed = previous is None or previous["feedback"] != label.feedback
+        # Same gate as the API path, so a re-rate that changes nothing does not count a second time.
+        if verdict_changed or feedback_changed:
+            report_user_action(
+                self._user,
+                "replay_vision_observation_rated",
+                {
+                    "observation_id": str(observation.id),
+                    "scanner_id": str(observation.scanner_id),
+                    "is_correct": label.is_correct,
+                    "has_feedback": bool(label.feedback),
+                    "is_new": is_new,
+                    "verdict_changed": verdict_changed,
+                },
+                team=self._team,
+                analytics_props={"source": EventSource.POSTHOG_AI},
             )
         verdict = "correct" if is_correct else "wrong"
         return f"Recorded that the scanner was {verdict} on that recording.", {

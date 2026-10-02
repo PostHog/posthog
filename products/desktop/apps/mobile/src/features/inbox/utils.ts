@@ -22,6 +22,8 @@ export function sourceLine(signal: Signal): string {
     return "Session replay · Session problem";
   if (source_product === "llm_analytics" && source_type === "evaluation")
     return "AI observability · Evaluation";
+  if (source_product === "conversations" && source_type === "ticket")
+    return "Conversations · Ticket";
   if (source_product === "zendesk" && source_type === "ticket")
     return "Zendesk · Ticket";
   if (source_product === "github" && source_type === "issue")

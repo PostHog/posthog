@@ -659,6 +659,7 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
       <div className="min-h-0 flex-1">
         <ChatThread
           events={session.events}
+          historyVersion={session.historyVersion}
           isPromptPending={isStreaming}
           taskId={taskId}
           repoPath={repoPath}

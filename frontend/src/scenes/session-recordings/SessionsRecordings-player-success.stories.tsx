@@ -97,16 +97,12 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
-        // This file covers the REPLAY_PLAYER_OWN_DOCUMENT path, where rrweb mounts inside the
-        // player's own document. The other replay story files stay on the default path.
-        featureFlags: [FEATURE_FLAGS.REPLAY_PLAYER_OWN_DOCUMENT],
         waitForSelector: 'iframe.PlayerFrame__document >>> .PlayerFrame__content .replayer-wrapper iframe',
         pageUrl: urls.replay(),
     },
     decorators: [
         mswDecorator({
             get: {
-                '/stats': () => [200, { users_on_product: 42, active_recordings: 7 }],
                 '/api/environments/:team_id/session_recordings': ({ request }) => {
                     const version = new URL(request.url).searchParams.get('version')
                     return [
@@ -176,6 +172,10 @@ const meta: Meta = {
                 '/api/environments/:team_id/query/:kind': async ({ request }) => {
                     const body = (await request.json()) as Record<string, any>
 
+                    if (body.query.kind === 'HogQLQuery' && body.query.query.includes('raw_session_replay_events')) {
+                        return [200, { results: [[7]] }]
+                    }
+
                     if (body.query.kind === 'HogQLQuery' && body.query.query.includes('$session_id as session_id')) {
                         return HttpResponse.json({
                             results: recordings.map((r) => [
@@ -209,6 +209,10 @@ export default meta
 type Story = StoryObj<{}>
 export const RecentRecordings: Story = {
     parameters: { pageUrl: sceneUrl(urls.replay()) },
+}
+
+export const RecentRecordingsConsolidatedControls: Story = {
+    parameters: { pageUrl: sceneUrl(urls.replay()), featureFlags: [FEATURE_FLAGS.REPLAY_CONSOLIDATED_CONTROLS] },
 }
 
 export const RecordingsPlayListNoPinnedRecordings: Story = {

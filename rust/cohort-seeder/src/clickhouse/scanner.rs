@@ -3,6 +3,7 @@
 //! `sql`/`row` modules; never on `store` or `kafka`.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use chrono::Utc;
 use chrono_tz::Tz;
@@ -17,26 +18,31 @@ use metrics::{counter, histogram};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
+use super::client::ClickHouseClient;
 use super::log_comment::{ScanLogComment, LOG_COMMENT_OPTION};
+use super::materialized::MaterializedColumns;
 use super::row::{row_to_event, EventRow};
 use super::scan_volume::{self, ScanKind};
-use super::sql::{plan_scan, scan_sql, ScanPlan, ScanSpec};
+use super::sql::{fits_client_get, plan_scan, row_filter_sql, scan_sql, ScanPlan, ScanSpec};
 use crate::domain::{
     conditions_active_on, diff_tiles, ActiveConditions, AggregateError, BlobSource, CancelCause,
     ChunkAccumulator, ChunkDomainError, ChunkProjection, ChunkSpec, ClaimedChunk,
     ConditionAnalyses, DayIdx, EventNameSet, Halted, PinnedCondition, PinnedRun, RecordOutcome,
-    RecordStats, ScanVolume, ScannedChunk, SeedDomain, SeedTile, TileDiff, UtcMillis,
+    RecordStats, ScanRowFilter, ScanVolume, ScannedChunk, SeedDomain, SeedTile, TileDiff,
+    UtcMillis,
 };
 use crate::observability::metrics::{
     team_label, MetricTimer, AGGREGATE_ENTRIES, CHUNKS_PROJECTED, CHUNKS_VACUOUS,
     CHUNK_SCAN_DURATION_SECONDS, CONDITIONS_EVALUATED, EVENTS_SKIPPED, HOGVM_ERRORS,
-    PROJECTION_KEYS, ROWS_SCANNED, SHADOW_COMPARE, SHADOW_COMPARE_DURATION_SECONDS,
-    SHADOW_COMPARE_LEGACY_SKIPPED,
+    PROJECTION_KEYS, ROWS_SCANNED, SCAN_ROW_FILTER, SHADOW_COMPARE,
+    SHADOW_COMPARE_DURATION_SECONDS, SHADOW_COMPARE_LEGACY_SKIPPED,
 };
+
+const MATERIALIZED_LOOKUP_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Clone)]
 pub struct ChunkScanner {
-    client: clickhouse::Client,
+    client: ClickHouseClient,
     /// Only what bounds the `team_id` label on the projection metrics. The scanner makes no
     /// admission decision from it — discovery already did, and re-deciding here would give one
     /// chunk a second, quieter place to be dropped.
@@ -51,7 +57,7 @@ pub struct ChunkScanner {
 }
 
 impl ChunkScanner {
-    pub fn new(client: clickhouse::Client, allowlist: TeamAllowlist, shadow_compare: bool) -> Self {
+    pub fn new(client: ClickHouseClient, allowlist: TeamAllowlist, shadow_compare: bool) -> Self {
         Self {
             client,
             allowlist,
@@ -132,6 +138,10 @@ impl ChunkScanner {
         };
         let projection = analyses.projection(&active);
         self.record_projection(run.team_id, &projection);
+        let row_filter = analyses.row_filter(&event_names, &run.filters, &active);
+        let scan_spec = self
+            .filter_rows(run.team_id, scan_spec, &row_filter, &projection)
+            .await;
 
         let (tiles, volume, projected_fold) = self
             .scan_once(
@@ -332,6 +342,57 @@ impl ChunkScanner {
         Ok(())
     }
 
+    /// Drops the filter when the query would be too long to send, since every attempt would fail.
+    async fn filter_rows(
+        &self,
+        team_id: TeamId,
+        spec: ScanSpec,
+        row_filter: &ScanRowFilter,
+        projection: &ChunkProjection,
+    ) -> ScanSpec {
+        let (spec, outcome) = if row_filter.is_empty() {
+            (spec, RowFilterOutcome::None)
+        } else {
+            let keys = row_filter.keys();
+            let columns = match tokio::time::timeout(
+                MATERIALIZED_LOOKUP_TIMEOUT,
+                MaterializedColumns::lookup(&self.client, &keys),
+            )
+            .await
+            {
+                Ok(Ok(columns)) => columns,
+                Ok(Err(error)) => {
+                    warn!(error = ?error, "materialized column lookup failed; the row filter reads the properties blob");
+                    MaterializedColumns::default()
+                }
+                Err(_) => {
+                    warn!("materialized column lookup timed out; the row filter reads the properties blob");
+                    MaterializedColumns::default()
+                }
+            };
+            let outcome = if keys.iter().all(|key| columns.column_for(key).is_some()) {
+                RowFilterOutcome::Materialized
+            } else {
+                RowFilterOutcome::PropertiesBlob
+            };
+            let filtered = spec
+                .clone()
+                .with_row_filter(row_filter_sql(row_filter, &columns));
+            // Both renderings, because the shadow compare sends the wide one with the same filter.
+            let fits = [projection, &ChunkProjection::FullColumns]
+                .into_iter()
+                .all(|projection| fits_client_get(&scan_sql(&filtered, projection)));
+            if fits {
+                (filtered, outcome)
+            } else {
+                (spec, RowFilterOutcome::TooLong)
+            }
+        };
+        let team = team_label(&self.allowlist, team_id);
+        counter!(SCAN_ROW_FILTER, "outcome" => outcome.as_str(), "team_id" => team).increment(1);
+        spec
+    }
+
     /// Publish what this chunk's scan narrowed to, so a team that stops projecting is visible
     /// before its scan cost is.
     fn record_projection(&self, team_id: TeamId, projection: &ChunkProjection) {
@@ -363,6 +424,25 @@ fn record_projected_keys(blob: &'static str, source: &BlobSource, team: Arc<str>
         BlobSource::Keys(keys) => keys.count(),
     };
     histogram!(PROJECTION_KEYS, "blob" => blob, "team_id" => team).record(keys as f64);
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RowFilterOutcome {
+    None,
+    Materialized,
+    PropertiesBlob,
+    TooLong,
+}
+
+impl RowFilterOutcome {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Materialized => "materialized",
+            Self::PropertiesBlob => "properties_blob",
+            Self::TooLong => "too_long",
+        }
+    }
 }
 
 /// Why a chunk's compare is not worth issuing, when it is not. Each case would spend a second
@@ -656,13 +736,7 @@ mod tests {
     const HASH: &str = "aaaaaaaaaaaaaaaa";
 
     fn domain() -> SeedDomain {
-        SeedDomain::new(
-            1,
-            Boundary::new(UtcMillis::new(2 * 86_400_000), UTC),
-            UTC,
-            SChunkMs(200_000_000),
-        )
-        .unwrap()
+        SeedDomain::new(1, UTC, SChunkMs(200_000_000)).unwrap()
     }
 
     fn filters() -> TeamFilters {
@@ -794,7 +868,7 @@ mod tests {
     #[test]
     fn the_projection_metrics_report_each_blob_by_its_own_rule() {
         let scanner = ChunkScanner::new(
-            clickhouse::Client::default(),
+            ClickHouseClient::new(clickhouse::Client::default(), Default::default()),
             TeamAllowlist::Only(std::collections::HashSet::from([2])),
             false,
         );
@@ -1003,11 +1077,12 @@ mod tests {
     }
 
     /// Disaster-recovery shape: the boundary is a past instant, so the scan runs days after the
-    /// plan was anchored. Every pre-boundary day still inside the wall-clock window must stay
-    /// admitted (those days feed membership the live replay cannot reconstruct); days that slid
-    /// out of every window are skipped, matching the consumer's drop-below-window apply rule.
+    /// plan was anchored. Every planned day still inside the wall-clock window must stay admitted
+    /// (the days before the boundary feed membership the live replay cannot reconstruct, and the
+    /// boundary day holds events from before the replay resumed); days that slid out of every
+    /// window are skipped, matching the consumer's drop-below-window apply rule.
     #[test]
-    fn dr_scan_admits_every_pre_boundary_day_still_inside_the_window() {
+    fn dr_scan_admits_every_planned_day_still_inside_the_window() {
         let hash = ConditionHash::parse(HASH).unwrap();
         let conditions = [PinnedCondition {
             cohort_id: CohortId(1),
@@ -1017,7 +1092,7 @@ mod tests {
         }];
         let boundary = Boundary::new(UtcMillis::new(100 * 86_400_000), UTC);
         let planned = plan_days(&conditions, boundary, &PlanCaps::default());
-        assert_eq!(planned, BTreeSet::from_iter(93..=99));
+        assert_eq!(planned, BTreeSet::from_iter(93..=100));
 
         let admitted_at = |now_day: i64| {
             planned
@@ -1030,12 +1105,12 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         // Scanned the boundary day (enablement shape): every planned day is admitted.
-        assert_eq!(admitted_at(100), (93..=99).collect::<Vec<_>>());
+        assert_eq!(admitted_at(100), (93..=100).collect::<Vec<_>>());
         // Scanned three days later (DR shape): the window is [96, 103]; days 93-95 can no longer
-        // affect any evaluation and are skipped, days 96-99 are still scanned.
-        assert_eq!(admitted_at(103), (96..=99).collect::<Vec<_>>());
-        // Boundary older than the window: live replay from the boundary covers the whole window,
-        // so the seed correctly has nothing left to contribute.
-        assert_eq!(admitted_at(107), Vec::<DayIdx>::new());
+        // affect any evaluation and are skipped, days 96-100 are still scanned.
+        assert_eq!(admitted_at(103), (96..=100).collect::<Vec<_>>());
+        // Boundary day older than the window: live replay from the boundary covers the whole
+        // window, so the seed correctly has nothing left to contribute.
+        assert_eq!(admitted_at(108), Vec::<DayIdx>::new());
     }
 }

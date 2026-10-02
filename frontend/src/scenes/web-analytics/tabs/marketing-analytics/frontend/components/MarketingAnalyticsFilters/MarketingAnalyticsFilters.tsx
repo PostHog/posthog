@@ -18,9 +18,10 @@ import { teamLogic } from 'scenes/teamLogic'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
 
+import { AddIntegrationButton } from 'products/marketing_analytics/frontend/components/AddIntegrationButton'
+
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from '../../logic/marketingAnalyticsTilesLogic'
-import { AddIntegrationButton } from './AddIntegrationButton'
 import { ConversionGoalFilterButton } from './ConversionGoalFilterButton'
 import { ConversionGoalModal } from './ConversionGoalModal'
 import { IntegrationFilter } from './IntegrationFilter'
@@ -39,8 +40,15 @@ export const MarketingAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
             <FilterBar
                 top={tabs}
+                className="[&>div]:flex-wrap"
                 left={
-                    <div className="flex items-center gap-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <DateFilter
+                            allowTimePrecision
+                            dateFrom={dateFilter.dateFrom}
+                            dateTo={dateFilter.dateTo}
+                            onChange={setDates}
+                        />
                         <Shortcut
                             name="MarketingAnalyticsRefresh"
                             keybind={[keyBinds.refresh]}
@@ -72,17 +80,6 @@ export const MarketingAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.
                                 // Ordered by how often they get touched, so the rarely-changed
                                 // project setting sits last.
                                 <div className="flex w-80 max-w-[90vw] flex-col gap-4 p-3">
-                                    <div>
-                                        <div className="text-muted mb-2 text-xs font-semibold uppercase">
-                                            Date range
-                                        </div>
-                                        <DateFilter
-                                            allowTimePrecision
-                                            dateFrom={dateFilter.dateFrom}
-                                            dateTo={dateFilter.dateTo}
-                                            onChange={setDates}
-                                        />
-                                    </div>
                                     <div>
                                         <div className="text-muted mb-2 text-xs font-semibold uppercase">
                                             Comparison

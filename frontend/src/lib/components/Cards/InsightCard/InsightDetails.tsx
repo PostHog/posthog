@@ -31,7 +31,6 @@ import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
 import { humanizePathsEventTypes, hasUnsupportedBreakdownForDataWarehouseTrends } from 'scenes/insights/utils'
 import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
-import { MathCategory, apiValueToMathType, mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
 
 import {
@@ -83,6 +82,11 @@ import {
 } from '~/types'
 
 import { journeysSummaryParts } from 'products/product_analytics/frontend/insights/journeys/journeysSummary'
+import {
+    MathCategory,
+    apiValueToMathType,
+    mathsLogic,
+} from 'products/product_analytics/frontend/insights/trends/mathsLogic'
 
 import { PropertyKeyInfo } from '../../PropertyKeyInfo'
 import { TZLabel } from '../../TZLabel'

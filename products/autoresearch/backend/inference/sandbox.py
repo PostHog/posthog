@@ -45,6 +45,8 @@ from dataclasses import field
 from decimal import Decimal
 from typing import Any, Protocol
 
+from django.utils import timezone as django_timezone
+
 import pandas as pd
 import pyarrow as pa
 import structlog
@@ -63,7 +65,12 @@ from posthog.models.user import User
 
 from products.autoresearch.backend.dataset.labeling import (
     LABELER_QUERY_MODIFIERS,
+    MATERIALIZE_ROW_LIMIT,
+    TrainingSample,
+    TrainingSampleTooLarge,
+    build_inference_anchors_sql,
     build_inference_features_sql,
+    build_random_t0_labeler_sql,
     build_training_features_sql,
 )
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline
@@ -110,9 +117,7 @@ _PREDICT_TIMEOUT_S = 120
 # A sandbox that outlives its command is a worker that died mid-run. The TTL is the
 # backstop that reclaims it: long enough for uploads, the command, and readback.
 _SANDBOX_TTL_S = 20 * 60
-# Without an explicit bound HogQL caps a query at its default of 100 rows, which would
-# shrink the train, holdout, and score matrices to a tiny sample. Mirrors FEATURE_QUERY_LIMIT.
-_MATERIALIZE_ROW_LIMIT = 50_000
+_MATERIALIZE_ROW_LIMIT = MATERIALIZE_ROW_LIMIT
 _OUTPUT_JSON = "data/output.json"
 _SCORES_PARQUET = "data/scores.parquet"
 _SCRIPT_LOG = "data/script.log"
@@ -150,6 +155,8 @@ class MaterializedData:
     feature_cols: list[str]
     train_rows: list[dict[str, Any]] = field(default_factory=list)
     holdout_rows: list[dict[str, Any]] = field(default_factory=list)
+    # The rate the rows were drawn at; the fitted model's scores need its prior correction.
+    negative_sample_rate: float = 1.0
 
 
 @frozen
@@ -170,10 +177,16 @@ def fit_champion_model(
     prefix: str,
     bundle: ArtifactBundle | None = None,
     user: User | None = None,
+    anchor_ts: int | None = None,
+    model_id: str | None = None,
 ) -> dict[str, Any]:
     """
     Train run: fit the champion against the LABELED training population and persist
     the resulting ``model.pkl`` under ``prefix``. Idempotent: it overwrites any prior fit.
+
+    Pass the training run's ``anchor_ts`` so the fit sees the anchor set the agent scored.
+    The fit's negative sample rate is saved on the ``model_id`` row before ``model.pkl`` is
+    written, so no scoring run can load the model without the rate its correction needs.
 
     ``predict.py`` runs once against the holdout features before the model is persisted,
     so a bundle whose two scripts disagree fails here rather than on the first cadence.
@@ -189,13 +202,20 @@ def fit_champion_model(
     acting_user = _resolve_acting_user(team=team, pipeline=pipeline, user=user)
     _validate_bundle_feature_sql(bundle)
 
-    data = materialize_training_data(team=team, pipeline=pipeline, feature_sql=bundle.features_sql, user=acting_user)
+    data = materialize_training_data(
+        team=team, pipeline=pipeline, feature_sql=bundle.features_sql, user=acting_user, anchor_ts=anchor_ts
+    )
     if not data.train_rows:
         raise SandboxInferenceError("No training rows to fit on")
     if not data.feature_cols:
         raise SandboxInferenceError("No numeric feature columns produced by feature SQL")
 
     model_bytes, metrics = _run_train_in_sandbox(bundle=bundle, data=data, pipeline=pipeline)
+    metrics = {**metrics, "negative_sample_rate": data.negative_sample_rate}
+    if model_id is not None:
+        AutoresearchModel.objects.for_team(team.pk).filter(pk=model_id).update(
+            negative_sample_rate=data.negative_sample_rate
+        )
     write_model(prefix, model_bytes)
     write_artifact(prefix, _FEATURE_COLUMNS_JSON, json.dumps(data.feature_cols).encode("utf-8"))
     logger.info(
@@ -204,6 +224,7 @@ def fit_champion_model(
         prefix=prefix,
         model_bytes=len(model_bytes),
         holdout_auc=metrics.get("holdout_auc"),
+        negative_sample_rate=data.negative_sample_rate,
     )
     return metrics
 
@@ -247,10 +268,13 @@ def score_via_sandbox(
     score_rows = _materialize_score_data(
         team=team, pipeline=pipeline, feature_sql=bundle.features_sql, cutoff_ts=cutoff_ts, user=acting_user
     )
-    feature_cols = _fitted_feature_cols(prefix) or _numeric_feature_cols(score_rows)
-    # Cheap guards before paying for a sandbox.
+    n_train = int((model.metrics or {}).get("n_train") or 0)
+    # A population that matches nobody today is a real zero, not a failure: retrying cannot
+    # change it, and the recipe path completes the same cadence with no rows.
     if not score_rows:
-        raise SandboxInferenceError("No inference rows to score")
+        return SandboxScoreResult(scored_rows=[], holdout_auc=model.holdout_score, n_train=n_train, n_features=0)
+    feature_cols = _fitted_feature_cols(prefix) or _numeric_feature_cols(score_rows)
+    # Cheap guard before paying for a sandbox.
     if not feature_cols:
         raise SandboxInferenceError("No numeric feature columns produced by feature SQL")
 
@@ -260,7 +284,7 @@ def score_via_sandbox(
     return SandboxScoreResult(
         scored_rows=scored_rows,
         holdout_auc=model.holdout_score,
-        n_train=int((model.metrics or {}).get("n_train") or 0),
+        n_train=n_train,
         n_features=len(feature_cols),
     )
 
@@ -289,20 +313,28 @@ def _resolve_acting_user(*, team: Team, pipeline: AutoresearchPipeline, user: Us
 def _validate_bundle_feature_sql(bundle: ArtifactBundle) -> None:
     """
     The recipe snapshot was validated at upload; the bundle's ``features.sql`` is what
-    actually runs, so it goes through the same validator here. A trailing LIMIT, OFFSET,
-    or SETTINGS clause is refused as well: inference runs the feature SQL as the top-level
-    query and appends the framework's own LIMIT after it.
+    actually runs, so it goes through the same validator here.
+    """
+    validate_runnable_feature_sql(bundle.features_sql, source="Bundle features.sql")
+
+
+def validate_runnable_feature_sql(feature_sql: str, *, source: str = "feature_sql") -> None:
+    """
+    ``validate_feature_sql`` plus the rule inference adds: no trailing LIMIT, OFFSET, or
+    SETTINGS clause, because inference runs the feature SQL as the top-level query and
+    appends the framework's own LIMIT after it. Shared by both champion shapes, so a
+    recipe-only champion cannot reach a scoring run with SQL the bundle path would refuse.
     """
     try:
-        validate_feature_sql(bundle.features_sql)
+        validate_feature_sql(feature_sql)
     except RecipeValidationError as exc:
-        raise SandboxInferenceError(f"Bundle features.sql failed validation: {exc}") from exc
-    node = parse_select(bundle.features_sql)
+        raise SandboxInferenceError(f"{source} failed validation: {exc}") from exc
+    node = parse_select(feature_sql)
     if not isinstance(node, ast.SelectQuery):
-        raise SandboxInferenceError("Bundle features.sql must be a single SELECT")
+        raise SandboxInferenceError(f"{source} must be a single SELECT")
     if node.limit is not None or node.offset is not None or node.limit_by is not None or node.settings is not None:
         raise SandboxInferenceError(
-            "Bundle features.sql must not end with LIMIT, OFFSET, or SETTINGS; the framework bounds the result"
+            f"{source} must not end with LIMIT, OFFSET, or SETTINGS; the framework bounds the result"
         )
 
 
@@ -332,14 +364,24 @@ def _feature_lookback_days(pipeline: AutoresearchPipeline) -> int:
 
 
 def materialize_training_data(
-    *, team: Team, pipeline: AutoresearchPipeline, feature_sql: str, user: User | None = None
+    *,
+    team: Team,
+    pipeline: AutoresearchPipeline,
+    feature_sql: str,
+    user: User | None = None,
+    anchor_ts: int | None = None,
 ) -> MaterializedData:
     """
     Train run materialization: the bundle's feature SQL against the LABELED training
     anchors (per-user random T0, with __label + __fold). Splits train/holdout by fold
     so the bundle never sees __fold. The labeler window is the pipeline's configured
-    training_lookback_days.
+    training_lookback_days, ending at ``anchor_ts`` (default: now).
+    training_lookback_days, ending at ``anchor_ts`` (default: now). A population above the training budget is case-control sampled
+    (see ``TrainingSample``), and the rows are checked against the sampled anchor count.
     """
+    if anchor_ts is None:
+        anchor_ts = int(django_timezone.now().timestamp())
+    sample = measure_training_sample(team=team, pipeline=pipeline, anchor_ts=anchor_ts, user=user)
     feature_sql_resolved = feature_sql.replace("{lookback_days}", str(_feature_lookback_days(pipeline)))
     train_sql, train_values = build_training_features_sql(
         feature_sql=feature_sql_resolved,
@@ -349,9 +391,14 @@ def materialize_training_data(
         horizon_days=pipeline.horizon_days,
         lookback_days=pipeline.training_lookback_days,
         training_population=pipeline.training_population,
+        anchor_ts=anchor_ts,
+        negative_sample_rate=sample.negative_sample_rate,
     )
     training_rows = _materialize_rows(team=team, sql=train_sql, values=train_values, user=user)
-    _validate_rows_key_one_person(training_rows, source="training feature_sql")
+    expected = count_training_anchors(
+        team=team, pipeline=pipeline, anchor_ts=anchor_ts, user=user, negative_sample_rate=sample.negative_sample_rate
+    )
+    _validate_rows_key_one_person(training_rows, source="training feature_sql", expected_count=expected)
     # The training wrapper LEFT JOINs the labels onto the feature rows. A feature row
     # whose distinct_id matched no anchor comes back with NULL label and fold, and the
     # fold split below would file it as a negative holdout example.
@@ -369,8 +416,14 @@ def materialize_training_data(
         n_train=len(train_rows),
         n_holdout=len(holdout_rows),
         n_features=len(feature_cols),
+        negative_sample_rate=sample.negative_sample_rate,
     )
-    return MaterializedData(feature_cols=feature_cols, train_rows=train_rows, holdout_rows=holdout_rows)
+    return MaterializedData(
+        feature_cols=feature_cols,
+        train_rows=train_rows,
+        holdout_rows=holdout_rows,
+        negative_sample_rate=sample.negative_sample_rate,
+    )
 
 
 def _materialize_score_data(
@@ -398,16 +451,113 @@ def _materialize_score_data(
         team=team,
     )
     score_rows = _materialize_rows(team=team, sql=score_sql, values=score_values, user=user)
-    _validate_rows_key_one_person(score_rows, source="inference feature_sql")
+    expected = count_inference_anchors(team=team, pipeline=pipeline, cutoff_ts=cutoff_ts, user=user)
+    _validate_rows_key_one_person(score_rows, source="inference feature_sql", expected_count=expected)
     logger.info(
         "autoresearch_score_materialized", pipeline_id=str(pipeline.pk), n_score=len(score_rows), cutoff_ts=cutoff_ts
     )
     return score_rows
 
 
-def _validate_rows_key_one_person(rows: list[dict[str, Any]], *, source: str) -> None:
+def measure_training_sample(
+    *, team: Team, pipeline: AutoresearchPipeline, anchor_ts: int | None = None, user: User | None = None
+) -> TrainingSample:
+    """
+    Count the whole labeled population and its positives, and choose the negative sample rate
+    that fits it under the training budget. The counts are aggregates, so no row cap applies.
+    """
+    sql, values = _labeler_sql(team=team, pipeline=pipeline, anchor_ts=anchor_ts)
+    row = _count_rows(team=team, sql=sql, values=values, user=user, what="Training population")
+    population, positives = int(row[0] or 0), int(row[1] or 0)
     try:
-        validate_unique_distinct_ids(rows, source=source)
+        return TrainingSample.plan(population=population, positives=positives)
+    except TrainingSampleTooLarge as exc:
+        raise SandboxInferenceError(str(exc)) from exc
+
+
+def _labeler_sql(
+    *, team: Team, pipeline: AutoresearchPipeline, anchor_ts: int | None = None, negative_sample_rate: float = 1.0
+) -> tuple[str, dict[str, Any]]:
+    return build_random_t0_labeler_sql(
+        target_event=pipeline.target_event,
+        target_definition=pipeline.target_definition,
+        team=team,
+        horizon_days=pipeline.horizon_days,
+        lookback_days=pipeline.training_lookback_days,
+        training_population=pipeline.training_population,
+        sample_limit=None,
+        anchor_ts=anchor_ts,
+        negative_sample_rate=negative_sample_rate,
+    )
+
+
+def count_training_anchors(
+    *,
+    team: Team,
+    pipeline: AutoresearchPipeline,
+    anchor_ts: int | None = None,
+    user: User | None = None,
+    negative_sample_rate: float = 1.0,
+) -> int:
+    """
+    How many labeled anchors the trainer materializes at ``negative_sample_rate``, so feature SQL
+    that drops some of them fails: a selection-biased fit and a distorted holdout AUC look valid
+    row by row. Pass the rate and anchor time the training rows used, or the counts cannot agree.
+    """
+    sql, values = _labeler_sql(
+        team=team, pipeline=pipeline, anchor_ts=anchor_ts, negative_sample_rate=negative_sample_rate
+    )
+    return _count(team=team, sql=sql, values=values, user=user, what="Training anchor count")
+
+
+def count_inference_anchors(
+    *, team: Team, pipeline: AutoresearchPipeline, cutoff_ts: int | None = None, user: User | None = None
+) -> int:
+    """
+    How many people the inference anchors hold, so a feature query that drops some of them
+    fails: an inner join or a WHERE on the joined table loses anchors without any row looking
+    wrong, and a lost person is never scored again once the cadence advances past them.
+    """
+    anchors_sql, values = build_inference_anchors_sql(
+        lookback_days=_feature_lookback_days(pipeline),
+        inference_population=pipeline.inference_population,
+        cutoff_ts=cutoff_ts,
+        target_event=pipeline.target_event,
+        target_definition=pipeline.target_definition,
+        team=team,
+    )
+    return _count(
+        team=team, sql=f"SELECT count() FROM ({anchors_sql.strip()})", values=values, user=user, what="Anchor count"
+    )
+
+
+def _count(*, team: Team, sql: str, values: dict[str, Any], user: User | None, what: str) -> int:
+    """Run a query whose first column of its first row is the count the caller wants."""
+    return int(_count_rows(team=team, sql=sql, values=values, user=user, what=what)[0])
+
+
+def _count_rows(*, team: Team, sql: str, values: dict[str, Any], user: User | None, what: str) -> list[Any]:
+    """Run a query that returns one aggregate row, and return that row."""
+    try:
+        tag_queries(product=Product.AUTORESEARCH, feature=Feature.QUERY)
+        result = run_hogql(
+            team=team,
+            query=HogQLQuery(query=sql, values=values, modifiers=LABELER_QUERY_MODIFIERS),
+            user=user,
+            execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+        )
+    except Exception as exc:
+        raise SandboxInferenceError(f"{what} query failed: {exc}") from exc
+    if len(result.rows) != 1 or not result.rows[0]:
+        raise SandboxInferenceError(f"{what} query did not return a single row")
+    return list(result.rows[0])
+
+
+def _validate_rows_key_one_person(
+    rows: list[dict[str, Any]], *, source: str, expected_count: int | None = None
+) -> None:
+    try:
+        validate_unique_distinct_ids(rows, source=source, expected_count=expected_count)
     except RecipeValidationError as exc:
         raise SandboxInferenceError(str(exc)) from exc
 
@@ -612,10 +762,19 @@ def labels_parquet(rows: list[dict[str, Any]]) -> bytes:
     df = pd.DataFrame(
         {
             "distinct_id": [str(r.get("distinct_id", "")) for r in rows],
-            _LABEL_COL: [int(r.get(_LABEL_COL) or 0) for r in rows],
+            _LABEL_COL: [_label(r) for r in rows],
         }
     )
     return _to_parquet_bytes(df)
+
+
+def label_classes(rows: list[dict[str, Any]]) -> set[int]:
+    """The distinct label values ``labels_parquet`` would write for ``rows``."""
+    return {_label(r) for r in rows}
+
+
+def _label(row: dict[str, Any]) -> int:
+    return int(row.get(_LABEL_COL) or 0)
 
 
 def _to_parquet_bytes(df: pd.DataFrame) -> bytes:

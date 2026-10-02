@@ -9,10 +9,16 @@ import (
 )
 
 var (
-	ErrInvalidScope    = errors.New("team ID and user ID must be positive")
-	ErrInvalidRevision = errors.New("invalid catalog revision")
-	ErrCatalogTooLarge = errors.New("catalog exceeds cache capacity")
+	ErrInvalidScope     = errors.New("team ID and user ID must be positive")
+	ErrInvalidRevision  = errors.New("invalid catalog revision")
+	ErrInvalidCatalog   = errors.New("catalog must contain tables and properties")
+	ErrInvalidAliases   = errors.New("table aliases must map non-empty alternate names directly to canonical table keys")
+	ErrCatalogTooLarge  = errors.New("catalog exceeds cache capacity")
+	ErrInvalidRelations = errors.New("catalog contains invalid traversal relations")
 )
+
+const MaxRelationDefinitions = 4096
+const MaxRelationFields = 120000
 
 type Registry struct {
 	mu         sync.Mutex
@@ -25,7 +31,7 @@ type Registry struct {
 }
 
 type registryEntry struct {
-	catalog    *Catalog
+	catalog    *PreparedCatalog
 	revision   string
 	createdAt  time.Time
 	lastAccess time.Time
@@ -46,17 +52,97 @@ func newRegistry(maxEntries int, maxBytes int64, ttl time.Duration, now func() t
 	return &Registry{entries: map[serviceauth.Authorization]registryEntry{}, maxEntries: maxEntries, maxBytes: maxBytes, ttl: ttl, now: now}
 }
 
-func (r *Registry) Put(authorization serviceauth.Authorization, revision string, value *Catalog) error {
-	if !authorization.Valid() {
-		return ErrInvalidScope
-	}
+func ValidateRevision(revision string) error {
 	if revision == "" || len(revision) > 128 {
 		return ErrInvalidRevision
 	}
+	return nil
+}
+
+func ValidateCatalog(value *Catalog) error {
 	if value == nil || value.Tables == nil || value.Properties == nil {
-		return errors.New("catalog must contain tables and properties")
+		return ErrInvalidCatalog
 	}
-	sizeBytes := estimatedSize(value)
+	for alias, target := range value.TableAliases {
+		if alias == "" || target == "" {
+			return ErrInvalidAliases
+		}
+		if _, targetExists := value.Tables[target]; !targetExists {
+			return ErrInvalidAliases
+		}
+		if _, aliasIsCanonical := value.Tables[alias]; aliasIsCanonical && alias != target {
+			return ErrInvalidAliases
+		}
+	}
+	if len(value.Relations) > MaxRelationDefinitions {
+		return ErrInvalidRelations
+	}
+	relationFields := 0
+	validateFields := func(fields map[string]Field) error {
+		for _, field := range fields {
+			if field.Relation != "" && field.PropertyNamespace != "" {
+				return ErrInvalidRelations
+			}
+			if field.Relation != "" {
+				if _, ok := value.Relations[field.Relation]; !ok {
+					return ErrInvalidRelations
+				}
+			}
+			if field.PropertyNamespace != "" {
+				if _, ok := value.Properties[field.PropertyNamespace]; !ok {
+					return ErrInvalidRelations
+				}
+			}
+		}
+		return nil
+	}
+	for _, table := range value.Tables {
+		if err := validateFields(table.Fields); err != nil {
+			return err
+		}
+	}
+	for name, relation := range value.Relations {
+		ownsFields := relation.Fields != nil
+		referencesTable := relation.Table != ""
+		if name == "" || ownsFields == referencesTable || (!referencesTable && len(relation.PropertyNamespaces) > 0) {
+			return ErrInvalidRelations
+		}
+		relationFields += len(relation.Fields) + len(relation.PropertyNamespaces)
+		if relationFields > MaxRelationFields {
+			return ErrInvalidRelations
+		}
+		if ownsFields {
+			if err := validateFields(relation.Fields); err != nil {
+				return err
+			}
+			continue
+		}
+		table, ok := value.Tables[relation.Table]
+		if !ok {
+			return ErrInvalidRelations
+		}
+		for fieldName, namespace := range relation.PropertyNamespaces {
+			field, fieldExists := table.Fields[fieldName]
+			_, namespaceExists := value.Properties[namespace]
+			if fieldName == "" || !fieldExists || field.Relation != "" || namespace == "" || !namespaceExists {
+				return ErrInvalidRelations
+			}
+		}
+	}
+	return nil
+}
+
+func (r *Registry) Put(authorization serviceauth.Authorization, revision string, value *PreparedCatalog) error {
+	if !authorization.Valid() {
+		return ErrInvalidScope
+	}
+	if err := ValidateRevision(revision); err != nil {
+		return err
+	}
+	if value == nil || !value.valid {
+		return ErrInvalidCatalog
+	}
+	sizeBytes := value.EstimatedBytes()
 	if sizeBytes > r.maxBytes {
 		return ErrCatalogTooLarge
 	}
@@ -77,7 +163,7 @@ func (r *Registry) Put(authorization serviceauth.Authorization, revision string,
 	return nil
 }
 
-func (r *Registry) Get(authorization serviceauth.Authorization) (*Catalog, string, bool) {
+func (r *Registry) Get(authorization serviceauth.Authorization) (*PreparedCatalog, string, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	now := r.now()
@@ -108,10 +194,8 @@ func (r *Registry) Stats() RegistryStats {
 	r.removeExpired(r.now())
 	stats := RegistryStats{Catalogs: len(r.entries)}
 	for _, entry := range r.entries {
-		stats.Tables += len(entry.catalog.Tables)
-		for _, properties := range entry.catalog.Properties {
-			stats.Properties += len(properties)
-		}
+		stats.Tables += entry.catalog.TableCount()
+		stats.Properties += entry.catalog.PropertyCount()
 	}
 	return stats
 }
@@ -138,21 +222,4 @@ func (r *Registry) removeLeastRecentlyUsed() {
 	}
 	r.totalBytes -= r.entries[oldestAuthorization].sizeBytes
 	delete(r.entries, oldestAuthorization)
-}
-
-func estimatedSize(value *Catalog) int64 {
-	var size int64
-	for name, table := range value.Tables {
-		size += int64(len(name) + len(table.Name) + len(table.Type) + 64)
-		for fieldName, field := range table.Fields {
-			size += int64(len(fieldName) + len(field.Name) + len(field.Type) + 64)
-		}
-	}
-	for namespace, properties := range value.Properties {
-		size += int64(len(namespace) + 64)
-		for _, property := range properties {
-			size += int64(len(property.Name) + len(property.ValueType) + 32)
-		}
-	}
-	return size
 }

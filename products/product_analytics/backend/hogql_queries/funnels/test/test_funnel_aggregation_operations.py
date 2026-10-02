@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import cast
 from zoneinfo import ZoneInfo
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from posthog.schema import DateRange, EventsNode, FunnelsFilter, FunnelsQuery
@@ -53,7 +53,7 @@ class TestFunnelAggregationOperations(ClickhouseTestMixin, APIBaseTest):
             dateRange=DateRange(date_from="-14d"),
         )
 
-        with freeze_time("2024-07-31"):
+        with time_machine.travel("2024-07-31", tick=False):
             ctx = FunnelQueryContext(funnels_query, self.team)
             filters = parse_expr("1 = 1")
             event_filter = parse_expr("2 = 2")
@@ -106,7 +106,7 @@ class TestFunnelAggregationOperations(ClickhouseTestMixin, APIBaseTest):
             dateRange=DateRange(date_from="-14d"),
         )
 
-        with freeze_time("2024-07-31"):
+        with time_machine.travel("2024-07-31", tick=False):
             ctx = FunnelQueryContext(funnels_query, self.team)
             filters = parse_expr("1 = 1")
             event_filter = parse_expr("2 = 2")
@@ -133,7 +133,7 @@ class TestFunnelAggregationOperations(ClickhouseTestMixin, APIBaseTest):
             dateRange=DateRange(date_from="-14d"),
         )
 
-        with freeze_time("2024-07-31"):
+        with time_machine.travel("2024-07-31", tick=False):
             ctx = FunnelQueryContext(funnels_query, self.team)
             builder = FirstTimeForUserAggregationQuery(context=ctx)
             query = builder.to_query()
@@ -284,7 +284,7 @@ class TestFunnelAggregationOperations(ClickhouseTestMixin, APIBaseTest):
             dateRange=DateRange(date_from="-14d"),
         )
 
-        with freeze_time("2024-07-31"):
+        with time_machine.travel("2024-07-31", tick=False):
             ctx = FunnelQueryContext(funnels_query, self.team)
             builder = FirstTimeForUserAggregationQuery(context=ctx, dwh_config=_dwh_config())
             query = builder.to_query()

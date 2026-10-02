@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 from requests import Response
@@ -235,7 +235,7 @@ class TestGetRows:
         assert "start_date" not in snapshots[0]["params"]
         assert snapshots[0]["params"]["sort"] == "oldest"
 
-    @freeze_time("2026-01-31 00:00:00")
+    @time_machine.travel("2026-01-31 00:00:00", tick=False)
     @pytest.mark.parametrize("should_use_incremental_field", [True, False])
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_updated_feed_defaults_to_bounded_lookback_without_watermark(
