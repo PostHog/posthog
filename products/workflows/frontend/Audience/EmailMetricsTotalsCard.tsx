@@ -1,6 +1,6 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { LemonCard, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
@@ -16,7 +16,8 @@ const TOTAL_LABELS: Record<keyof EmailMetricsTotals, string> = {
 }
 
 export function EmailMetricsTotalsCard(): JSX.Element {
-    const { metricsTotals, metricsTotalsLoading, metricsTotalsFailed } = useValues(emailMetricsTotalsLogic)
+    const { metricsTotals, metricsTotalsLoading, metricsTotalsError } = useValues(emailMetricsTotalsLogic)
+    const { loadMetricsTotals } = useActions(emailMetricsTotalsLogic)
 
     return (
         <LemonCard hoverEffect={false} className="flex flex-col gap-3" data-attr="audience-engagement-metrics-totals">
@@ -26,8 +27,15 @@ export function EmailMetricsTotalsCard(): JSX.Element {
             </div>
             {metricsTotalsLoading ? (
                 <LemonSkeleton className="h-12" />
-            ) : metricsTotalsFailed || !metricsTotals ? (
-                <p className="m-0">Couldn't load workflow metrics. Refresh the page to try again.</p>
+            ) : metricsTotalsError || !metricsTotals ? (
+                <div className="flex flex-wrap items-center gap-2">
+                    <p className="m-0">
+                        Couldn't load workflow metrics{metricsTotalsError ? `: ${metricsTotalsError}` : '.'}
+                    </p>
+                    <LemonButton size="small" type="secondary" onClick={() => loadMetricsTotals()}>
+                        Try again
+                    </LemonButton>
+                </div>
             ) : (
                 <dl className="flex flex-wrap gap-x-8 gap-y-3 m-0">
                     {(Object.keys(TOTAL_LABELS) as (keyof EmailMetricsTotals)[]).map((key) => (

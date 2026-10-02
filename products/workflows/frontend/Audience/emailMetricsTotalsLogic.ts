@@ -35,7 +35,7 @@ function toEmailMetricsTotals(response: AppMetricsTotalsResponse): EmailMetricsT
 export interface emailMetricsTotalsLogicValues {
     timezone: string // teamLogic
     metricsTotals: EmailMetricsTotals | null
-    metricsTotalsFailed: boolean
+    metricsTotalsError: string | null
     metricsTotalsLoading: boolean
 }
 
@@ -89,11 +89,11 @@ export const emailMetricsTotalsLogic = kea<emailMetricsTotalsLogicType>([
         ],
     })),
     reducers({
-        metricsTotalsFailed: [
-            false,
+        metricsTotalsError: [
+            null as string | null,
             {
-                loadMetricsTotals: () => false,
-                loadMetricsTotalsFailure: () => true,
+                loadMetricsTotals: () => null,
+                loadMetricsTotalsFailure: (_, { error }) => error,
             },
         ],
     }),
