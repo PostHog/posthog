@@ -1,4 +1,4 @@
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import type { ReactNode } from 'react'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
@@ -6,6 +6,7 @@ import { IconTableChart } from 'lib/lemon-ui/icons'
 
 import { editorSizingLogic } from '../editorSizingLogic'
 import { biEditorLogic } from './biEditorLogic'
+import { BI_SHELF_PILL_DRAG_MIME_TYPE, parseBIShelfPillDragData } from './biEditorTypes'
 import { BIDataPane } from './components/BIDataPane'
 import { BIFieldPill } from './components/BIFieldPill'
 import { BIFiltersCard } from './components/BIFiltersCard'
@@ -20,11 +21,28 @@ import { BIToolbar } from './components/BIToolbar'
  */
 export function BIEditor({ tabId, children }: { tabId: string; children: ReactNode }): JSX.Element {
     const { config, showMeOpen } = useValues(biEditorLogic({ tabId }))
+    const { removeFieldFromShelf, setActiveDropShelf } = useActions(biEditorLogic({ tabId }))
     const { biSidePaneWidth, biEditorResizerProps } = useValues(editorSizingLogic)
 
     return (
         <BindLogic logic={biEditorLogic} props={{ tabId }}>
-            <div className="@container/bi-editor flex min-h-0 flex-1 flex-col overflow-hidden bg-primary">
+            <div
+                className="@container/bi-editor flex min-h-0 flex-1 flex-col overflow-hidden bg-primary"
+                onDragOver={(event) => {
+                    if (event.dataTransfer.types.includes(BI_SHELF_PILL_DRAG_MIME_TYPE)) {
+                        event.preventDefault()
+                    }
+                }}
+                onDrop={(event) => {
+                    const pill = parseBIShelfPillDragData(event.dataTransfer.getData(BI_SHELF_PILL_DRAG_MIME_TYPE))
+                    if (pill) {
+                        event.preventDefault()
+                        removeFieldFromShelf(pill.shelf, pill.index)
+                    }
+                    setActiveDropShelf(null)
+                }}
+                onDragEnd={() => setActiveDropShelf(null)}
+            >
                 <BIToolbar />
                 <div className="flex min-h-0 flex-1">
                     <div

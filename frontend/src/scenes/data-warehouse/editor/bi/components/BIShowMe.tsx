@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
 import { IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -14,10 +13,9 @@ import { getChartTypeOptions } from '../biEditorOptions'
 
 /** Chart picker that highlights the chart types that suit the fields on the shelves. */
 export function BIShowMe({ docked }: { docked: boolean }): JSX.Element {
-    const { chartFits, config } = useValues(biEditorLogic)
-    const { setChartType, setShowMeOpen } = useActions(biEditorLogic)
+    const { chartFits, config, hoveredChartType } = useValues(biEditorLogic)
+    const { setChartType, setShowMeOpen, setHoveredChartType } = useActions(biEditorLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const [hoveredChartType, setHoveredChartType] = useState<ChartDisplayType | null>(null)
 
     const options = getChartTypeOptions(featureFlags)
     const describedOption =

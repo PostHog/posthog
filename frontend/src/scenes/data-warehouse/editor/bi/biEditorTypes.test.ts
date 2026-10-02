@@ -9,11 +9,13 @@ import {
     createDefaultDateFilter,
     defaultAggregationForField,
     getBIDataSourceKey,
+    getBIChartFit,
     getBIDropTarget,
     getBIFieldId,
     getBISortOptions,
     getBIValueSortKey,
     isBIFieldCompatible,
+    isBIMeasureField,
     parseBIEditorState,
 } from './biEditorTypes'
 
@@ -403,6 +405,36 @@ describe('BI editor query generation', () => {
     })
 
     const userIdField: BIField = { ...revenueField, id: 'warehouse:events:user_id', name: 'user_id', type: 'integer' }
+
+    test.each([
+        ['userId', false],
+        ['accountId', false],
+        ['userID', false],
+        ['accountUuid', false],
+        ['accountUUID', false],
+        ['USER_ID', false],
+        ['UUID', false],
+        ['grid', true],
+        ['paid', true],
+    ])('classifies numeric field %s as a measure: %s', (name, isMeasure) => {
+        const field = { ...userIdField, name }
+        expect(isBIMeasureField(field)).toBe(isMeasure)
+        expect(getBIDropTarget(field, 'rows').shelf).toBe(isMeasure ? 'values' : 'rows')
+    })
+
+    test.each([0, 1, 2])('checks pivot fit with %i measures', (measureCount) => {
+        const pivotConfig: BIConfig = {
+            ...sortableConfig,
+            chartType: ChartDisplayType.TwoDimensionalHeatmap,
+            rows: [browserField],
+            columns: [countryField],
+            values: Array.from({ length: measureCount }, () => ({ field: revenueField, aggregation: 'sum' })),
+        }
+        expect(getBIChartFit(pivotConfig, ChartDisplayType.TwoDimensionalHeatmap).fits).toBe(measureCount <= 1)
+        expect(buildBIQuery(pivotConfig)?.node.chartSettings?.heatmap?.valueColumn).toBe(
+            measureCount === 0 ? 'count' : 'sum_revenue'
+        )
+    })
 
     test.each([
         ['a measure dropped on rows becomes a value', revenueField, 'rows', revenueField, 'values'],

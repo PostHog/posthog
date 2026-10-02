@@ -63,6 +63,7 @@ export function BIShelfDropTarget({
             }}
             onDrop={(event) => {
                 event.preventDefault()
+                event.stopPropagation()
                 clearActiveDropShelf(shelf)
                 const pill = parseBIShelfPillDragData(event.dataTransfer.getData(BI_SHELF_PILL_DRAG_MIME_TYPE))
                 if (pill) {

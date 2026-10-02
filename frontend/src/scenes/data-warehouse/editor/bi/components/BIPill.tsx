@@ -15,13 +15,11 @@ export interface BIPillProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
     shelf: BIShelf
     index: number
     incomplete?: boolean
-    /** Called when the pill is dropped outside every shelf, which removes it. */
-    onDropOutside: () => void
 }
 
 /** A draggable field on a shelf. Blue for dimensions, green for measures, like desktop BI tools. */
 export const BIPill = forwardRef<HTMLButtonElement, BIPillProps>(function BIPill(
-    { kind, label, detail, shelf, index, incomplete, onDropOutside, className, ...buttonProps },
+    { kind, label, detail, shelf, index, incomplete, className, ...buttonProps },
     ref
 ) {
     return (
@@ -33,11 +31,6 @@ export const BIPill = forwardRef<HTMLButtonElement, BIPillProps>(function BIPill
                 const dragData: BIShelfPillDragData = { shelf, index }
                 event.dataTransfer.effectAllowed = 'move'
                 event.dataTransfer.setData(BI_SHELF_PILL_DRAG_MIME_TYPE, JSON.stringify(dragData))
-            }}
-            onDragEnd={(event) => {
-                if (event.dataTransfer.dropEffect === 'none') {
-                    onDropOutside()
-                }
             }}
             className={cn(
                 'inline-flex h-6 max-w-72 shrink-0 cursor-grab items-center gap-1 rounded border px-2 text-xs font-semibold',

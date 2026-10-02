@@ -204,7 +204,7 @@ export function isBIMeasureField(field: BIField): boolean {
     return (
         isNumericBIField(field) &&
         defaultAggregationForField(field) !== 'count' &&
-        !IDENTIFIER_FIELD_NAME_REGEX.test(field.name)
+        !IDENTIFIER_FIELD_NAME_REGEX.test(field.name.replace(/([a-z0-9])([A-Z])/g, '$1_$2'))
     )
 }
 
@@ -315,8 +315,8 @@ export function getBIChartFit(config: BIConfig, chartType: ChartDisplayType): BI
             }
         case ChartDisplayType.TwoDimensionalHeatmap:
             return {
-                fits: rowCount >= 1 && columnCount >= 1,
-                requirement: '1 or more dimensions on rows and on columns',
+                fits: rowCount >= 1 && columnCount >= 1 && config.values.length <= 1,
+                requirement: '1 or more dimensions on rows and on columns, and up to 1 measure',
             }
         case ChartDisplayType.BoldNumber:
         case ChartDisplayType.Metric:

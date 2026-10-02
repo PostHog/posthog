@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
 import { LemonDropdown } from '@posthog/lemon-ui'
 
@@ -22,17 +21,15 @@ function filterSummary(filter: BIFilter): string | undefined {
 
 export function BIFilterPill({ index }: { index: number }): JSX.Element | null {
     const { config, activeExpressionEditorId } = useValues(biEditorLogic)
-    const { removeFieldFromShelf, setActiveExpressionEditorId } = useActions(biEditorLogic)
-    const [open, setOpen] = useState(false)
+    const { setActiveExpressionEditorId } = useActions(biEditorLogic)
     const filter = config.filters[index]
     if (!filter) {
         return null
     }
 
     const editorKey = getBIShelfEditorKey('filters', filter.field.id)
-    const visible = open || activeExpressionEditorId === editorKey
+    const visible = activeExpressionEditorId === editorKey
     const close = (): void => {
-        setOpen(false)
         if (activeExpressionEditorId === editorKey) {
             setActiveExpressionEditorId(null)
         }
@@ -43,7 +40,7 @@ export function BIFilterPill({ index }: { index: number }): JSX.Element | null {
     return (
         <LemonDropdown
             visible={visible}
-            onVisibilityChange={(nextVisible) => (nextVisible ? setOpen(true) : close())}
+            onVisibilityChange={(nextVisible) => (nextVisible ? setActiveExpressionEditorId(editorKey) : close())}
             closeOnClickInside={false}
             placement="right-start"
             overlay={<BIFilterEditor index={index} onDone={close} />}
@@ -55,7 +52,6 @@ export function BIFilterPill({ index }: { index: number }): JSX.Element | null {
                 shelf="filters"
                 index={index}
                 incomplete={!filter.field.expression.trim() && !filter.customExpression?.trim()}
-                onDropOutside={() => removeFieldFromShelf('filters', index)}
                 className="w-full justify-between"
                 aria-label={`${label} filter`}
                 data-attr="bi-editor-filters-pill"

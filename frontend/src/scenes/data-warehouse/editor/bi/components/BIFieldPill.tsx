@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
@@ -28,7 +27,7 @@ export function BIFieldPill({
     shelf: Exclude<BIShelf, 'filters'>
     index: number
 }): JSX.Element | null {
-    const { config, activeExpressionEditorId } = useValues(biEditorLogic)
+    const { config, activeExpressionEditorId, activeExpressionEditorTarget, sortOptions } = useValues(biEditorLogic)
     const {
         addFieldToShelf,
         moveFieldToShelf,
@@ -40,7 +39,6 @@ export function BIFieldPill({
         setValueAggregation,
         setValueCustomExpression,
     } = useActions(biEditorLogic)
-    const [editing, setEditing] = useState<ExpressionTarget | null>(null)
 
     const value = shelf === 'values' ? config.values[index] : null
     const field = value ? value.field : shelf === 'values' ? null : config[shelf][index]
@@ -49,9 +47,14 @@ export function BIFieldPill({
     }
 
     const isMeasure = shelf === 'values'
-    const autoOpen = activeExpressionEditorId === getBIShelfEditorKey(shelf, field.id)
-    const expressionTarget: ExpressionTarget | null = editing ?? (autoOpen ? 'field' : null)
-    const sortKey = isMeasure ? getBIValueSortKey(config, index) : `${shelf}:${field.id}`
+    const occurrence = isMeasure
+        ? config.values.slice(0, index).filter((previous) => previous.field.id === field.id).length
+        : 0
+    const editorKey = `${getBIShelfEditorKey(shelf, field.id)}${occurrence ? `:${occurrence + 1}` : ''}`
+    const expressionTarget = activeExpressionEditorId === editorKey ? activeExpressionEditorTarget : null
+    const setEditing = (target: ExpressionTarget): void => setActiveExpressionEditorId(editorKey, target)
+    const candidateSortKey = isMeasure ? getBIValueSortKey(config, index) : `${shelf}:${field.id}`
+    const sortKey = sortOptions.some((option) => option.key === candidateSortKey) ? candidateSortKey : null
     const otherDimensionShelf = shelf === 'rows' ? 'columns' : 'rows'
     const label = value ? getBIValuePillLabel(value) : getBIFieldPillLabel(field)
     const incomplete = value?.aggregation === 'custom' ? !value.customExpression?.trim() : !field.expression.trim()
@@ -139,8 +142,7 @@ export function BIFieldPill({
                     : setFieldExpression(shelf, index, nextExpression)
             }
             onClose={() => {
-                setEditing(null)
-                if (autoOpen) {
+                if (activeExpressionEditorId === editorKey) {
                     setActiveExpressionEditorId(null)
                 }
             }}
@@ -153,7 +155,6 @@ export function BIFieldPill({
                         shelf={shelf}
                         index={index}
                         incomplete={incomplete}
-                        onDropOutside={() => removeFieldFromShelf(shelf, index)}
                         aria-label={`${label} options`}
                         data-attr={`bi-editor-${shelf}-pill`}
                     />

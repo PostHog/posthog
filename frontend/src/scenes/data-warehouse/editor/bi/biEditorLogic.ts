@@ -4,6 +4,7 @@ import { subscriptions } from 'kea-subscriptions'
 import { uuid } from 'lib/utils/dom'
 import { TableFieldsStatus, databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DatabaseSchemaTable } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
@@ -227,6 +228,7 @@ export interface biEditorLogicValues {
     activeTab: QueryTab | null // sqlEditorLogic
     activeDropShelf: BIShelf | null
     activeExpressionEditorId: string | null
+    activeExpressionEditorTarget: 'aggregation' | 'field'
     autoUpdate: boolean
     availableDataSources: BIDataSource[]
     chartFits: Partial<Record<ChartDisplayType, BIChartFit>>
@@ -237,6 +239,7 @@ export interface biEditorLogicValues {
     editorView: BIEditorView
     filteredDataPaneFields: BIDataPaneFields
     generatedQuery: BIQueryBuildResult | null
+    hoveredChartType: ChartDisplayType | null
     selectableDataSources: BIDataSource[]
     showMeOpen: boolean
     sortOptions: BISortOption[]
@@ -246,6 +249,21 @@ export interface biEditorLogicValues {
 export interface biEditorLogicActions {
     hydrateTableFields: (tableNames: string[]) => {
         tableNames: string[]
+    } // databaseTableListLogic
+    loadDatabaseSuccess: (
+        database: Required<import('~/queries/schema/schema-general').DatabaseSchemaQueryResponse> | null,
+        payload?:
+            | {
+                  force?: boolean
+                  shallow?: boolean
+              }
+            | undefined
+    ) => {
+        database: Required<import('~/queries/schema/schema-general').DatabaseSchemaQueryResponse> | null
+        payload?: {
+            force?: boolean
+            shallow?: boolean
+        }
     } // databaseTableListLogic
     setSourceQuery: (sourceQuery: import('~/queries/schema/schema-general').DataVisualizationNode) => {
         sourceQuery: import('~/queries/schema/schema-general').DataVisualizationNode
@@ -302,11 +320,15 @@ export interface biEditorLogicActions {
     runAfterChange: () => {
         value: true
     }
-    setActiveDropShelf: (shelf: BIShelf) => {
-        shelf: BIShelf
+    setActiveDropShelf: (shelf: BIShelf | null) => {
+        shelf: BIShelf | null
     }
-    setActiveExpressionEditorId: (fieldId: string | null) => {
+    setActiveExpressionEditorId: (
+        fieldId: string | null,
+        target?: 'aggregation' | 'field'
+    ) => {
         fieldId: string | null
+        target: 'aggregation' | 'field'
     }
     setAutoUpdate: (autoUpdate: boolean) => {
         autoUpdate: boolean
@@ -362,6 +384,9 @@ export interface biEditorLogicActions {
         index: number
         value: string
     }
+    setHoveredChartType: (chartType: ChartDisplayType | null) => {
+        chartType: ChartDisplayType | null
+    }
     setLimit: (limit: BIQueryLimit) => {
         limit: 100 | 1000 | 10000 | 50000
     }
@@ -407,7 +432,11 @@ export interface biEditorLogicMeta {
         sortOptions: (config: BIConfig) => BISortOption[]
         chartFits: (config: BIConfig) => Partial<Record<ChartDisplayType, BIChartFit>>
         dataPaneFields: (config: BIConfig, allTables: DatabaseSchemaTable[]) => BIDataPaneFields
-        dataPaneFieldsLoading: (config: BIConfig, tableFieldsStatus: TableFieldsStatus) => boolean
+        dataPaneFieldsLoading: (
+            config: BIConfig,
+            tableFieldsStatus: TableFieldsStatus,
+            databaseLoading: boolean
+        ) => boolean
         filteredDataPaneFields: (dataPaneFields: BIDataPaneFields, dataPaneSearch: string) => BIDataPaneFields
     }
 }
@@ -440,7 +469,7 @@ export const biEditorLogic = kea<biEditorLogicType>([
             sqlEditorLogic({ tabId: logicProps.tabId }),
             ['setSourceQuery', 'syncUrlWithQuery', 'updateTab'],
             databaseTableListLogic,
-            ['hydrateTableFields'],
+            ['hydrateTableFields', 'loadDatabaseSuccess'],
         ],
     })),
     actions({
@@ -458,11 +487,15 @@ export const biEditorLogic = kea<biEditorLogicType>([
         swapRowsAndColumns: true,
         setAutoUpdate: (autoUpdate: boolean) => ({ autoUpdate }),
         setShowMeOpen: (showMeOpen: boolean) => ({ showMeOpen }),
+        setHoveredChartType: (chartType: ChartDisplayType | null) => ({ chartType }),
         setDataPaneSearch: (search: string) => ({ search }),
         runAfterChange: true,
         removeFieldFromShelf: (shelf: BIShelf, index: number) => ({ shelf, index }),
-        setActiveDropShelf: (shelf: BIShelf) => ({ shelf }),
-        setActiveExpressionEditorId: (fieldId: string | null) => ({ fieldId }),
+        setActiveDropShelf: (shelf: BIShelf | null) => ({ shelf }),
+        setActiveExpressionEditorId: (fieldId: string | null, target: 'field' | 'aggregation' = 'field') => ({
+            fieldId,
+            target,
+        }),
         setChartType: (chartType: ChartDisplayType) => ({ chartType }),
         setDataSource: (source: BIDataSource) => ({ source }),
         setValueAggregation: (index: number, aggregation: BIAggregation) => ({ index, aggregation }),
@@ -492,6 +525,18 @@ export const biEditorLogic = kea<biEditorLogicType>([
         ],
         autoUpdate: [true, { persist: true }, { setAutoUpdate: (_, { autoUpdate }) => autoUpdate }],
         showMeOpen: [true, { persist: true }, { setShowMeOpen: (_, { showMeOpen }) => showMeOpen }],
+        hoveredChartType: [
+            null as ChartDisplayType | null,
+            { setHoveredChartType: (_, { chartType }) => chartType, setShowMeOpen: () => null },
+        ],
+        activeExpressionEditorTarget: [
+            'field' as 'field' | 'aggregation',
+            {
+                setActiveExpressionEditorId: (_, { target }) => target,
+                addBlankFieldToShelf: () => 'field',
+                addFieldToShelf: () => 'field',
+            },
+        ],
         dataPaneSearch: [
             '',
             {
@@ -509,6 +554,9 @@ export const biEditorLogic = kea<biEditorLogicType>([
                 setActiveExpressionEditorId: (_, { fieldId }) => fieldId,
                 resetConfig: () => null,
                 restoreState: () => null,
+                removeFieldFromShelf: () => null,
+                moveFieldToShelf: () => null,
+                swapRowsAndColumns: () => null,
                 setDataSource: () => null,
                 setEditorView: () => null,
             },
@@ -636,9 +684,9 @@ export const biEditorLogic = kea<biEditorLogicType>([
                     : { dimensions: [], measures: [] },
         ],
         dataPaneFieldsLoading: [
-            (selectors) => [selectors.config, selectors.tableFieldsStatus],
-            (config: BIConfig, tableFieldsStatus: TableFieldsStatus): boolean =>
-                !!config.source && tableFieldsStatus[config.source.table] === 'loading',
+            (selectors) => [selectors.config, selectors.tableFieldsStatus, selectors.databaseLoading],
+            (config: BIConfig, tableFieldsStatus: TableFieldsStatus, databaseLoading: boolean): boolean =>
+                !!config.source && (databaseLoading || tableFieldsStatus[config.source.table] === 'loading'),
         ],
         filteredDataPaneFields: [
             (selectors) => [selectors.dataPaneFields, selectors.dataPaneSearch],
@@ -655,7 +703,12 @@ export const biEditorLogic = kea<biEditorLogicType>([
             },
         ],
     }),
-    listeners(({ actions, props: logicProps, values }) => ({
+    listeners(({ actions, props: logicProps, values, cache }) => ({
+        loadDatabaseSuccess: () => {
+            if (values.config.source && (values.config.source.connectionId ?? null) === values.databaseConnectionId) {
+                actions.hydrateTableFields([values.config.source.table])
+            }
+        },
         persistState: ({ editorView, config }) => {
             if (!values.activeTab) {
                 return
@@ -667,6 +720,7 @@ export const biEditorLogic = kea<biEditorLogicType>([
             actions.syncUrlWithQuery()
         },
         setEditorView: ({ editorView }) => {
+            cache.autoUpdateRevision = (cache.autoUpdateRevision ?? 0) + 1
             captureBIEditorModeSelected(editorView, values.config)
             actions.persistState(editorView, values.config)
             if (editorView === BIEditorView.BI) {
@@ -677,6 +731,7 @@ export const biEditorLogic = kea<biEditorLogicType>([
         moveFieldToShelf: () => actions.runAfterChange(),
         swapRowsAndColumns: () => actions.runAfterChange(),
         setAutoUpdate: ({ autoUpdate }) => {
+            cache.autoUpdateRevision = (cache.autoUpdateRevision ?? 0) + 1
             if (autoUpdate) {
                 actions.runAfterChange()
             }
@@ -684,11 +739,20 @@ export const biEditorLogic = kea<biEditorLogicType>([
         runAfterChange: async (_, breakpoint) => {
             actions.persistState(values.editorView, values.config)
             actions.syncGeneratedQuery()
-            if (!values.autoUpdate || !values.generatedQuery) {
+            if (!values.autoUpdate || values.editorView !== BIEditorView.BI || !values.generatedQuery) {
                 return
             }
+            const revision = cache.autoUpdateRevision
             // Debounced so typing a filter value or clicking through menus runs one query
             await breakpoint(400)
+            if (
+                !values.autoUpdate ||
+                values.editorView !== BIEditorView.BI ||
+                !values.generatedQuery ||
+                revision !== cache.autoUpdateRevision
+            ) {
+                return
+            }
             sqlEditorLogic({ tabId: logicProps.tabId }).actions.runQuery()
         },
         addBlankFieldToShelf: () => actions.runAfterChange(),
@@ -714,7 +778,11 @@ export const biEditorLogic = kea<biEditorLogicType>([
             })
         },
         resetConfig: () => {
+            cache.autoUpdateRevision = (cache.autoUpdateRevision ?? 0) + 1
             actions.persistState(values.editorView, values.config)
+            const dataLogic = dataNodeLogic.findMounted({ key: `data-warehouse-editor-data-node-${logicProps.tabId}` })
+            dataLogic?.actions.cancelQuery()
+            dataLogic?.actions.clearResponse()
             const editorLogic = sqlEditorLogic({ tabId: logicProps.tabId })
             const sourceQuery = editorLogic.values.sourceQuery
             editorLogic.actions.setQueryInput('')
@@ -755,7 +823,10 @@ export const biEditorLogic = kea<biEditorLogicType>([
     })),
     subscriptions(({ actions }) => ({
         config: (config: BIConfig, oldConfig: BIConfig | undefined) => {
-            if (config.source && config.source.table !== oldConfig?.source?.table) {
+            if (
+                config.source &&
+                (!oldConfig?.source || getBIDataSourceKey(config.source) !== getBIDataSourceKey(oldConfig.source))
+            ) {
                 actions.hydrateTableFields([config.source.table])
             }
         },
