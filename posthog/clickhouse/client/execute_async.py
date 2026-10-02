@@ -21,7 +21,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.direct_query_cancellation import build_direct_query_cancellation_token, request_direct_query_cancellation
-from posthog.errors import ExposedCHQueryError
+from posthog.errors import ExposedCHQueryError, InternalCHQueryError
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.renderers import SafeJSONRenderer
@@ -327,6 +327,10 @@ def execute_process_query(
                 codes = err.get_codes()
                 if isinstance(codes, str):
                     query_status.error_code = codes
+        elif isinstance(err, InternalCHQueryError) and err.code_name:
+            # The raw text can embed stored data values, so it stays internal. The error name is safe,
+            # and without it a caller cannot tell which part of the query to rewrite.
+            query_status.error_code = err.code_name
         logger.exception("Error processing query async", team_id=team_id, query_id=query_id, exc_info=True)
         if not is_user_safe_error:
             # User-safe errors (e.g. a malformed HogQL query) are already returned to the user as a 400,

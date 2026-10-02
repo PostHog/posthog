@@ -7,6 +7,7 @@ from unittest.mock import Mock, patch
 
 from django.test import override_settings
 
+from parameterized import parameterized
 from rest_framework.exceptions import APIException
 
 from posthog.schema import (
@@ -39,7 +40,7 @@ from posthog.hogql.constants import DEFAULT_POSTHOG_AI_RETURNED_ROWS
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
-from posthog.errors import ExposedCHQueryError
+from posthog.errors import CHQueryErrorInvalidJoinOnExpression, ExposedCHQueryError, InternalCHQueryError
 
 from ee.hogai.context.insight.query_executor import (
     AssistantQueryExecutor,
@@ -395,6 +396,57 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
                 await self.query_runner.arun_and_format_query(query)
 
         self.assertIn("Query failed with error", str(context.exception))
+
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    @patch("ee.hogai.context.insight.query_executor.get_query_status")
+    async def test_async_query_error_names_clickhouse_rejection_and_fix(
+        self, mock_get_query_status, mock_process_query
+    ):
+        mock_process_query.return_value = {"query_status": {"id": "test-query-id", "complete": False}}
+        mock_get_query_status.return_value = Mock(
+            model_dump=lambda mode: {
+                "id": "test-query-id",
+                "complete": True,
+                "error": True,
+                "error_message": None,
+                "error_code": "cannot_parse_text",
+            }
+        )
+
+        with patch("ee.hogai.context.insight.query_executor.asyncio.sleep"):
+            with self.assertRaises(MaxToolRetryableError) as context:
+                await self.query_runner.arun_and_format_query(AssistantHogQLQuery(query="SELECT 1"))
+
+        self.assertIn("CANNOT_PARSE_TEXT", str(context.exception))
+        self.assertIn("toFloat(x)", str(context.exception))
+
+    @parameterized.expand(
+        [
+            (
+                "names_the_rejection",
+                CHQueryErrorInvalidJoinOnExpression(
+                    "join keys for 'stored-secret'", code=403, code_name="invalid_join_on_expression"
+                ),
+                MaxToolRetryableError,
+                "INVALID_JOIN_ON_EXPRESSION",
+            ),
+            (
+                "keeps_server_faults_unknown",
+                InternalCHQueryError("replica lost 'stored-secret'", code=999, code_name="keeper_exception"),
+                Exception,
+                "There was an unknown error running this query",
+            ),
+        ]
+    )
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    async def test_internal_clickhouse_error(self, _name, error, expected_type, expected_text, mock_process_query):
+        mock_process_query.side_effect = error
+
+        with self.assertRaises(Exception) as context:
+            await self.query_runner.arun_and_format_query(AssistantHogQLQuery(query="SELECT 1"))
+
+        self.assertIs(type(context.exception), expected_type)
+        self.assertIn(expected_text, str(context.exception))
 
     @override_settings(TEST=False)
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
