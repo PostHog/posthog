@@ -20,7 +20,8 @@ class IneligibleSessionKind(StrEnum):
     TOO_LARGE = "too_large"
     # An experiment scanner's session whose person the exposure data does not attribute to a watched
     # variant: never exposed, exposed only outside the selected variants, or set aside as
-    # multiple-variant. Decided before any model call, so it costs no credits.
+    # multiple-variant. Also a session outside the experiment's run: ended before the person's first
+    # exposure, or after the experiment ended. Decided before any model call, so it costs no credits.
     NOT_EXPOSED = "not_exposed"
     # An experiment scanner whose experiment cannot answer for its exposed population right now
     # (deleted, a removed flag or variant, or no principal with access). The sweep disables the

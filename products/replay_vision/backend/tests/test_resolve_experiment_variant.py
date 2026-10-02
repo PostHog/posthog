@@ -128,12 +128,24 @@ class TestResolveExperimentVariant(ClickhouseTestMixin, BaseTest):
             _resolve(self._inputs(narrowed, control_session))
         assert outside_variants.value.kind == IneligibleSessionKind.NOT_EXPOSED
 
-    def test_a_session_that_predates_the_exposure_is_not_exposed(self) -> None:
-        # The bound the recordings list enforces: a manual observe on a session recorded before the
-        # person's first exposure must be refused, not attributed.
+    @parameterized.expand(
+        [
+            # Sessions run from BASE_TIME to five minutes later.
+            ("before_first_exposure", BASE_TIME + timedelta(hours=2), None),
+            # Ending an experiment leaves its flag on, so a manual observe can reach a later session.
+            ("after_the_experiment_ended", BASE_TIME, BASE_TIME + timedelta(minutes=2)),
+        ]
+    )
+    def test_a_session_outside_the_experiments_run_is_not_exposed(
+        self, name: str, exposure_at: datetime, end_date: datetime | None
+    ) -> None:
         experiment = _launched_experiment(self, "checkout-flag", ["control", "test"])
+        if end_date is not None:
+            experiment.end_date = end_date
+            experiment.save()
         scanner = self._scanner(experiment.pk)
-        session_id = self._session("late-exposed-user", "test", exposure_at=BASE_TIME + timedelta(hours=2))
+        # Distinct per case: ClickHouse rows outlive each test's transaction.
+        session_id = self._session(f"outside-run-{name}", "test", exposure_at=exposure_at)
         flush_persons_and_events()
 
         with pytest.raises(IneligibleSessionError) as excinfo:

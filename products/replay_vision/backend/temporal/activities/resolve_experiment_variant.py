@@ -47,6 +47,7 @@ def _resolve(inputs: ResolveExperimentVariantInputs) -> ResolveExperimentVariant
         COHORT_NOT_CALCULATED_MESSAGE,
         EXPOSURES_STILL_COMPUTING_MESSAGE,
         experiment_prompt_context,
+        experiment_status,
         resolve_exposure_linkage,
         session_attribution,
         validate_experiment_exposure_access,
@@ -122,6 +123,14 @@ def _resolve(inputs: ResolveExperimentVariantInputs) -> ResolveExperimentVariant
     if attribution.first_exposure_time is not None and metadata["end_time"] < attribution.first_exposure_time:
         raise IneligibleSessionError(
             "This session ended before the user's first exposure to the experiment",
+            kind=IneligibleSessionKind.NOT_EXPOSED,
+        )
+    # The other end of the same bound. Ending an experiment leaves its flag on, so a manual observe
+    # can reach a later session, and the sweep and backfills already stop at the end date.
+    status = experiment_status(team, experiment_id=experiment_id)
+    if status is not None and status.end_date is not None and metadata["end_time"] > status.end_date:
+        raise IneligibleSessionError(
+            "This session ended after the experiment ended",
             kind=IneligibleSessionKind.NOT_EXPOSED,
         )
 

@@ -12,7 +12,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
-from posthog.models import Organization, Team
+from posthog.models import Organization, Team, User
 from posthog.redis import get_client
 from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import (
     STUCK_SESSION_THRESHOLD,
@@ -207,8 +207,10 @@ class TestFindScannerCandidatesActivity:
             experiment.feature_flag.active = False
             experiment.feature_flag.save()
         elif state == "ended":
-            experiment.end_date = timezone.now()
+            # Ended before the scanner's watermark, so the run is already swept to its end.
+            experiment.end_date = timezone.now() - dt.timedelta(days=1)
         elif state == "archived":
+            # No end date: no known end to sweep up to, so it stops like a pause.
             experiment.archived = True
         else:
             experiment.deleted = True
@@ -228,6 +230,34 @@ class TestFindScannerCandidatesActivity:
             assert result.swept_through is not None and result.deep_swept_through is not None
             assert abs(result.swept_through - settled_now) < dt.timedelta(minutes=1)
             assert result.deep_swept_through == result.swept_through
+
+    @parameterized.expand([("fast_walk_behind_the_end", False), ("only_the_deep_pass_behind", True)])
+    def test_an_ended_experiment_is_swept_up_to_its_end_before_it_stops(self, _name: str, fast_at_end: bool) -> None:
+        # Jumping to now on the first tick after the end would drop the run's last sessions and the
+        # late arrivals the deep pass catches, which skews the per-variant readout.
+        end = timezone.now() - dt.timedelta(hours=1)
+        scanner = _make_scanner(
+            scanner_type=ScannerType.EXPERIMENT,
+            last_swept_at=end if fast_at_end else end - dt.timedelta(hours=2),
+            deep_swept_through=end - dt.timedelta(hours=2),
+        )
+        scanner.created_by = User.objects.create_and_join(scanner.team.organization, "sweeper@example.com", None)
+        experiment = create_experiment(scanner.team, "ended-flag", launched=True, variants=["control", "test"])
+        experiment.end_date = end
+        experiment.save()
+        scanner.scanner_config = {"prompt": "p", "experiment_id": experiment.id}
+        scanner.save()
+
+        with _patched_queries() as (fast_query, _deep_query):
+            fast_query.return_value.settle_cutoff = end
+            result = find_scanner_candidates_activity(
+                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+            )
+
+        assert fast_query.call_args.kwargs["until"] == end
+        assert fast_query.return_value.run_batch.called is not fast_at_end
+        # Held at the end rather than moved to now, so the deep pass can still finish behind it.
+        assert result.swept_through == end
 
     def test_a_legacy_column_targeted_scanner_is_never_disabled(self) -> None:
         # Scanners that target an experiment through the column predate the lifecycle gate;
