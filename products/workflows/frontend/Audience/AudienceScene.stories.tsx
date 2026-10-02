@@ -55,6 +55,17 @@ const topics: MessageCategoryApi[] = [
         updated_at: CREATED_AT,
         created_by: null,
     },
+    {
+        id: '0199c1aa-0000-7000-8000-000000000004',
+        key: 'monthly-product-announcements-for-engineering-and-design-teams',
+        name: 'Monthly product announcements for engineering and design teams',
+        description: 'Release notes for the people who build with us',
+        public_description: 'What changed for builders this month',
+        category_type: 'marketing',
+        created_at: CREATED_AT,
+        updated_at: CREATED_AT,
+        created_by: null,
+    },
 ]
 
 const unsubscribedFromAllMarketing: MessagePreferencesApi[] = ['jamie', 'alex', 'sam', 'robin'].map((name, index) => ({

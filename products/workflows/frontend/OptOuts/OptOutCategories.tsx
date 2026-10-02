@@ -36,9 +36,9 @@ function TopicSummary({ category }: { category: MessageCategory }): JSX.Element 
     const isMarketing = category.category_type === 'marketing'
     return (
         <div className="min-w-0">
-            <div className="flex items-center gap-2 min-w-0">
-                <span className="font-medium">{category.name}</span>
-                <code className="text-xs text-muted font-normal truncate">{category.key}</code>
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
+                <span className="font-medium min-w-0 break-words">{category.name}</span>
+                <code className="text-xs text-muted font-normal min-w-0 break-all">{category.key}</code>
                 <LemonTag type={isMarketing ? 'success' : 'completion'} size="small">
                     {isMarketing ? 'Marketing' : 'Transactional'}
                 </LemonTag>
