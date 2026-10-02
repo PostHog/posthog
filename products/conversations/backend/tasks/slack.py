@@ -814,7 +814,7 @@ def _slack_sender(*, client: Any, team: Team, payload: dict[str, Any], ticket_id
     author_icon_url: str | None = None
     if author_email:
         try:
-            author_icon_url = resolve_slack_avatar_by_email(client, author_email)
+            author_icon_url = resolve_slack_avatar_by_email(client, author_email, workspace=client.workspace_id)
         except Exception:
             logger.warning("slack_delivery_avatar_lookup_failed", ticket_id=ticket_id, exc_info=True)
     return SlackSender(
@@ -1172,7 +1172,7 @@ def post_reply_to_slack(
     # Resolve the replying user's Slack profile picture
     author_icon_url: str | None = None
     if author_email:
-        author_icon_url = resolve_slack_avatar_by_email(client, author_email)
+        author_icon_url = resolve_slack_avatar_by_email(client, author_email, workspace=client.workspace_id)
 
     icon_url = author_icon_url or bot_icon_url
     message_kwargs: dict = {
