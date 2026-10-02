@@ -4,7 +4,7 @@ from typing import Any
 from django.db import transaction
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
-from rest_framework import exceptions, serializers, viewsets
+from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -16,6 +16,9 @@ from posthog.models import UploadedMedia
 from posthog.models.integration import Integration
 from posthog.models.uploaded_media import MEDIA_PURPOSE_EMAIL
 
+from products.messaging.backend.api.message_templates import UnlayerDesignField
+from products.messaging.backend.models import MessageTemplate
+from products.messaging.backend.unlayer import UnlayerError, render_design_html
 from products.workflows.backend.models.email_brand import EmailBrand
 from products.workflows.backend.presentation.views.email_brand_detection import (
     EmailBrandDetectionSerializer,
@@ -29,6 +32,11 @@ from products.workflows.backend.services.email_brand_detection import (
     GitHubBusy,
     RepositoryUnreadable,
     detect_repository_brand,
+)
+from products.workflows.backend.services.email_brand_starter_template import (
+    STARTER_TEMPLATE_DESCRIPTION,
+    StarterTemplate,
+    build_starter_template,
 )
 
 BRAND_DETECTION_FEATURE_FLAG = "workflows-brand-detection"
@@ -162,10 +170,29 @@ class EmailBrandSerializer(serializers.ModelSerializer):
         return source
 
 
+class EmailBrandStarterDesignSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Suggested name for the starter template.")
+    subject = serializers.CharField(help_text="Suggested email subject line.")
+    design = UnlayerDesignField(
+        help_text="Email editor design built from the Email brand: logo header, heading, body, button and "
+        "unsubscribe footer."
+    )
+
+
+class EmailBrandStarterTemplateSerializer(serializers.Serializer):
+    template_id = serializers.UUIDField(help_text="Id of the email template created from the Email brand.")
+
+
+class DesignRenderingUnavailable(exceptions.APIException):
+    status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+    default_code = "design_rendering_unavailable"
+    default_detail = "This instance can't render email designs. Open the starter design in the email editor instead."
+
+
 class EmailBrandViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "hog_flow"
-    scope_object_read_actions = ["current"]
-    scope_object_write_actions = ["update_current", "detect"]
+    scope_object_read_actions = ["current", "starter_design"]
+    scope_object_write_actions = ["update_current", "detect", "create_starter_template"]
     # The brand styles every workflow in the project, so access to one workflow must not reach it.
     requires_resource_level_access = True
     queryset = EmailBrand.objects.unscoped()
@@ -184,10 +211,7 @@ class EmailBrandViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=False, methods=["GET"])
     def current(self, request: Request, **kwargs: Any) -> Response:
-        brand = self._project_brands().first()
-        if brand is None:
-            raise exceptions.NotFound("This project has no Email brand yet.")
-        return Response(self.get_serializer(brand).data)
+        return Response(self.get_serializer(self._saved_brand()).data)
 
     @extend_schema(
         summary="Create or update the project's Email brand",
@@ -246,6 +270,65 @@ class EmailBrandViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if integration is None:
             raise exceptions.ValidationError({"integration_id": "No GitHub integration with this id in this project."})
         return integration
+
+    @extend_schema(
+        summary="Build a starter email design from the Email brand",
+        description="Returns the design without saving anything, so the email editor can open it preloaded.",
+        responses={
+            200: EmailBrandStarterDesignSerializer,
+            404: OpenApiResponse(description="The project has no Email brand yet."),
+        },
+    )
+    @action(detail=False, methods=["GET"])
+    def starter_design(self, request: Request, **kwargs: Any) -> Response:
+        starter = build_starter_template(self._saved_brand())
+        return Response(EmailBrandStarterDesignSerializer(starter).data)
+
+    @extend_schema(
+        summary="Create a starter email template from the Email brand",
+        description="Creates an ordinary email template. Later Email brand changes do not change it. "
+        "Returns 422 with the code design_rendering_unavailable when this instance cannot render designs; "
+        "open the starter design in the email editor instead.",
+        request=None,
+        responses={
+            201: EmailBrandStarterTemplateSerializer,
+            404: OpenApiResponse(description="The project has no Email brand yet."),
+            422: OpenApiResponse(description="Design rendering is unavailable on this instance."),
+        },
+    )
+    @action(detail=False, methods=["POST"])
+    def create_starter_template(self, request: Request, **kwargs: Any) -> Response:
+        starter = build_starter_template(self._saved_brand())
+        template = self._create_template(starter, html=self._render(starter))
+        return Response(
+            EmailBrandStarterTemplateSerializer({"template_id": template.id}).data, status=status.HTTP_201_CREATED
+        )
+
+    def _render(self, starter: StarterTemplate) -> str:
+        try:
+            return render_design_html(starter.design)
+        except UnlayerError as error:
+            # The email editor exports the same design in the browser without a key, so the flow falls back to it.
+            raise DesignRenderingUnavailable() from error
+
+    def _create_template(self, starter: StarterTemplate, html: str) -> MessageTemplate:
+        return MessageTemplate.objects.create(
+            team_id=self.team.id,
+            created_by=self.request.user,
+            name=starter.name,
+            description=STARTER_TEMPLATE_DESCRIPTION,
+            type="email",
+            content={
+                "templating": "liquid",
+                "email": {"subject": starter.subject, "html": html, "design": starter.design},
+            },
+        )
+
+    def _saved_brand(self) -> EmailBrand:
+        brand = self._project_brands().first()
+        if brand is None:
+            raise exceptions.NotFound("This project has no Email brand yet.")
+        return brand
 
     def _project_brands(self):
         return EmailBrand.objects.for_team(self._project_team_id(), canonical=True)

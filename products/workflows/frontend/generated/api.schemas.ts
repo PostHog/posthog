@@ -7,6 +7,11 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface EmailBrandStarterTemplateApi {
+    /** Id of the email template created from the Email brand. */
+    template_id: string
+}
+
 export interface EmailBrandSourceApi {
     /**
      * Repository path of the file the value was read from.
@@ -262,6 +267,53 @@ export interface EmailBrandDetectionApi {
     candidates: EmailBrandCandidatesApi
     /** The files detection read, in reading order. */
     files_read: EmailBrandFileReadApi[]
+}
+
+/**
+ * Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}.
+ */
+export type EmailBrandStarterDesignApiDesignCounters = { [key: string]: unknown }
+
+export type EmailBrandStarterDesignApiDesignBodyRowsItem = { [key: string]: unknown }
+
+export type EmailBrandStarterDesignApiDesignBodyHeadersItem = { [key: string]: unknown }
+
+export type EmailBrandStarterDesignApiDesignBodyFootersItem = { [key: string]: unknown }
+
+/**
+ * Body-level settings: backgroundColor, contentWidth ('600px'), fontFamily, textColor.
+ */
+export type EmailBrandStarterDesignApiDesignBodyValues = { [key: string]: unknown }
+
+export type EmailBrandStarterDesignApiDesignBody = {
+    /** Any unique string. */
+    id?: string
+    /** Rows of {id, cells, columns[{id, contents[{id, type, values}], values}], values}. */
+    rows: EmailBrandStarterDesignApiDesignBodyRowsItem[]
+    headers?: EmailBrandStarterDesignApiDesignBodyHeadersItem[]
+    footers?: EmailBrandStarterDesignApiDesignBodyFootersItem[]
+    /** Body-level settings: backgroundColor, contentWidth ('600px'), fontFamily, textColor. */
+    values?: EmailBrandStarterDesignApiDesignBodyValues
+}
+
+/**
+ * Email editor design built from the Email brand: logo header, heading, body, button and unsubscribe footer.
+ */
+export type EmailBrandStarterDesignApiDesign = {
+    /** Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}. */
+    counters?: EmailBrandStarterDesignApiDesignCounters
+    /** Design schema version, e.g. 16. */
+    schemaVersion: number
+    body: EmailBrandStarterDesignApiDesignBody
+}
+
+export interface EmailBrandStarterDesignApi {
+    /** Suggested name for the starter template. */
+    name: string
+    /** Suggested email subject line. */
+    subject: string
+    /** Email editor design built from the Email brand: logo header, heading, body, button and unsubscribe footer. */
+    design: EmailBrandStarterDesignApiDesign
 }
 
 /**

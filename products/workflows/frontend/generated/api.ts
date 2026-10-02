@@ -16,6 +16,8 @@ import type {
     EmailBrandApi,
     EmailBrandDetectRequestApi,
     EmailBrandDetectionApi,
+    EmailBrandStarterDesignApi,
+    EmailBrandStarterTemplateApi,
     EmailSendingSuspensionStatusApi,
     HogFlowApi,
     HogFlowBatchJobApi,
@@ -105,6 +107,24 @@ export const internalHogFlowsProcessDueSchedulesCreate = async (options?: Reques
     })
 }
 
+export const getEmailBrandCreateStarterTemplateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/email_brand/create_starter_template/`
+}
+
+/**
+ * Creates an ordinary email template. Later Email brand changes do not change it. Returns 422 with the code design_rendering_unavailable when this instance cannot render designs; open the starter design in the email editor instead.
+ * @summary Create a starter email template from the Email brand
+ */
+export const emailBrandCreateStarterTemplateCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<EmailBrandStarterTemplateApi> => {
+    return apiMutator<EmailBrandStarterTemplateApi>(getEmailBrandCreateStarterTemplateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getEmailBrandCurrentRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/email_brand/current/`
 }
@@ -158,6 +178,24 @@ export const emailBrandDetectCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(emailBrandDetectRequestApi),
+    })
+}
+
+export const getEmailBrandStarterDesignRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/email_brand/starter_design/`
+}
+
+/**
+ * Returns the design without saving anything, so the email editor can open it preloaded.
+ * @summary Build a starter email design from the Email brand
+ */
+export const emailBrandStarterDesignRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<EmailBrandStarterDesignApi> => {
+    return apiMutator<EmailBrandStarterDesignApi>(getEmailBrandStarterDesignRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 

@@ -37436,6 +37436,58 @@ export namespace Schemas {
     }
 
     /**
+     * Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}.
+     */
+    export type EmailBrandStarterDesignDesignCounters = { [key: string]: unknown };
+
+    export type EmailBrandStarterDesignDesignBodyRowsItem = { [key: string]: unknown };
+
+    export type EmailBrandStarterDesignDesignBodyHeadersItem = { [key: string]: unknown };
+
+    export type EmailBrandStarterDesignDesignBodyFootersItem = { [key: string]: unknown };
+
+    /**
+     * Body-level settings: backgroundColor, contentWidth ('600px'), fontFamily, textColor.
+     */
+    export type EmailBrandStarterDesignDesignBodyValues = { [key: string]: unknown };
+
+    export type EmailBrandStarterDesignDesignBody = {
+      /** Any unique string. */
+      id?: string;
+      /** Rows of {id, cells, columns[{id, contents[{id, type, values}], values}], values}. */
+      rows: EmailBrandStarterDesignDesignBodyRowsItem[];
+      headers?: EmailBrandStarterDesignDesignBodyHeadersItem[];
+      footers?: EmailBrandStarterDesignDesignBodyFootersItem[];
+      /** Body-level settings: backgroundColor, contentWidth ('600px'), fontFamily, textColor. */
+      values?: EmailBrandStarterDesignDesignBodyValues;
+    };
+
+    /**
+     * Email editor design built from the Email brand: logo header, heading, body, button and unsubscribe footer.
+     */
+    export type EmailBrandStarterDesignDesign = {
+      /** Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}. */
+      counters?: EmailBrandStarterDesignDesignCounters;
+      /** Design schema version, e.g. 16. */
+      schemaVersion: number;
+      body: EmailBrandStarterDesignDesignBody;
+    };
+
+    export interface EmailBrandStarterDesign {
+      /** Suggested name for the starter template. */
+      name: string;
+      /** Suggested email subject line. */
+      subject: string;
+      /** Email editor design built from the Email brand: logo header, heading, body, button and unsubscribe footer. */
+      design: EmailBrandStarterDesignDesign;
+    }
+
+    export interface EmailBrandStarterTemplate {
+      /** Id of the email template created from the Email brand. */
+      template_id: string;
+    }
+
+    /**
      * How much workflow email this project may send, and how much of that it has used.
      */
     export interface EmailSendingAllowance {
