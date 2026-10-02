@@ -1,10 +1,12 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronRight, IconExternal } from '@posthog/icons'
+import { IconChevronRight, IconExternal, IconNotebook } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCollapse, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonMarkdownWithMermaid } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdownWithMermaid'
+import { urls } from 'scenes/urls'
 
 import { autoresearchPipelineLogic, trainingRunProgress } from '../autoresearchPipelineLogic'
 import { type AutoresearchRunApi, AutoresearchTrainingRunApi } from '../generated/api.schemas'
@@ -50,8 +52,11 @@ function RunReport({ runId }: { runId: string }): JSX.Element | null {
 }
 
 export function TrainingRunRow({ run }: { run: AutoresearchTrainingRunApi }): JSX.Element {
-    const { expandedRunId, artifactsByRun, artifactsByRunLoading } = useValues(autoresearchPipelineLogic)
-    const { toggleRunArtifacts, viewArtifact } = useActions(autoresearchPipelineLogic)
+    const { expandedRunId, artifactsByRun, artifactsByRunLoading, featureFlags } = useValues(autoresearchPipelineLogic)
+    const { toggleRunArtifacts, viewArtifact, reportNotebookOpened } = useActions(autoresearchPipelineLogic)
+    const reportNotebookShortId = featureFlags[FEATURE_FLAGS.AUTORESEARCH_REPORT_NOTEBOOK]
+        ? run.summary?.report_notebook_short_id
+        : undefined
     const isExpanded = expandedRunId === run.id
     const paths = artifactsByRun[run.id]
     const progress = trainingRunProgress(run)
@@ -108,7 +113,19 @@ export function TrainingRunRow({ run }: { run: AutoresearchTrainingRunApi }): JS
             {isExpanded && (
                 <div className="border-t p-3 space-y-3">
                     {run.status === 'failed' && run.error && <LemonBanner type="error">{run.error}</LemonBanner>}
-                    <RunReport runId={run.id} />
+                    {reportNotebookShortId ? (
+                        <Link
+                            to={urls.notebook(reportNotebookShortId)}
+                            onClick={() => reportNotebookOpened(run.id)}
+                            data-attr="autoresearch-report-notebook-link"
+                            className="inline-flex items-center gap-1 text-sm"
+                        >
+                            <IconNotebook />
+                            Open report notebook
+                        </Link>
+                    ) : (
+                        <RunReport runId={run.id} />
+                    )}
                     <div className="space-y-2">
                         <div className="text-xs font-semibold text-muted uppercase tracking-wide">Iterations</div>
                         <IterationTrail iterations={run.iterations} />
