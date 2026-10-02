@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { PlusIcon, TrashIcon } from 'lucide-react'
+import { TrashIcon } from 'lucide-react'
 import { useState } from 'react'
 
 import { Button } from './button'
@@ -227,54 +227,6 @@ export const Sizes = {
                 <TrashIcon />
                 With icon
             </Button>
-        </div>
-    ),
-} satisfies Story
-
-export const Elevated = {
-    parameters: {
-        pseudo: {
-            hover: '#elevated-hover',
-            active: '#elevated-active',
-            focusVisible: '#elevated-focus',
-        },
-    },
-    render: () => (
-        <div className="flex flex-col gap-4 items-start">
-            <div className="flex flex-wrap items-center gap-3">
-                <Button elevated variant="outline" size="lg">
-                    <PlusIcon /> New
-                </Button>
-                <Button elevated variant="primary" size="lg">
-                    <PlusIcon /> New
-                </Button>
-            </div>
-            <div className="flex flex-wrap items-center gap-3">
-                <Button elevated variant="outline" id="elevated-hover">
-                    Hover
-                </Button>
-                <Button elevated variant="outline" id="elevated-active">
-                    Active
-                </Button>
-                <Button elevated variant="outline" id="elevated-focus">
-                    Focus
-                </Button>
-                <Button elevated variant="outline" disabled>
-                    Disabled
-                </Button>
-                <Button elevated variant="primary" loading>
-                    Loading
-                </Button>
-            </div>
-            {/* The only allowed pair: one elevated primary plus one elevated outline. */}
-            <div className="flex items-center gap-2">
-                <Button elevated variant="outline" size="lg">
-                    Cancel
-                </Button>
-                <Button elevated variant="primary" size="lg">
-                    Create project
-                </Button>
-            </div>
         </div>
     ),
 } satisfies Story
