@@ -471,20 +471,30 @@ describe('taskTrackerSceneLogic', () => {
             }
         )
 
-        it('keeps a mode the person picked over the plan mode default', async () => {
+        it.each([
+            ['a picked mode', 'default' as const, 'default'],
+            ['a model change alone', null, 'plan'],
+        ])('sends the right mode after %s', async (_case, pickedMode, expectedMode) => {
             useTaskDefaultsMocks()
             featureFlagLogic.mount()
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TODAY_RAIL_NAV], {
                 [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
             })
             logic.mount()
-            logic.actions.setNewTaskData({ description: 'do the thing', permissionMode: 'default' })
+            logic.actions.setNewTaskData({
+                description: 'do the thing',
+                model: 'claude-opus-5-5',
+                permissionMode: 'auto',
+            })
+            if (pickedMode) {
+                logic.actions.pickPermissionMode(pickedMode)
+            }
             await expectLogic(agentPreferencesLogic).toFinishAllListeners()
             logic.actions.submitNewTask()
 
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(runBody?.initial_permission_mode).toBe('default')
+            expect(runBody?.initial_permission_mode).toBe(expectedMode)
         })
     })
 

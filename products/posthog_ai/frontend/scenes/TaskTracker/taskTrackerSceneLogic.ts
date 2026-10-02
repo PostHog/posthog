@@ -349,6 +349,9 @@ export interface taskTrackerSceneLogicActions {
     openExistingTask: (task: Task) => {
         task: Task
     }
+    pickPermissionMode: (permissionMode: PermissionMode) => {
+        permissionMode: PermissionMode
+    }
     resetNewTaskData: () => {
         value: true
     }
@@ -495,6 +498,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         setNewTaskData: (data: Partial<TaskCreateForm>) => ({ data }),
         resetNewTaskData: true,
         applyDefaultPermissionMode: true,
+        pickPermissionMode: (permissionMode: PermissionMode) => ({ permissionMode }),
         submitNewTask: true,
         submitNewTaskSuccess: true,
         submitNewTaskFailure: (error: string) => ({ error }),
@@ -529,6 +533,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                               : state.seedContextItems,
                 }),
                 resetNewTaskData: () => EMPTY_TASK_FORM,
+                pickPermissionMode: (state, { permissionMode }) => ({ ...state, permissionMode }),
                 applyDefaultPermissionMode: (state) => ({
                     ...state,
                     permissionMode: InitialPermissionModeEnumApi.Plan,
@@ -538,7 +543,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         permissionModePicked: [
             false,
             {
-                setNewTaskData: (state, { data }) => state || 'permissionMode' in data,
+                pickPermissionMode: () => true,
                 resetNewTaskData: () => false,
             },
         ],
