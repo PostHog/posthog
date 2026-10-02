@@ -59,11 +59,6 @@ database "posthog" {
       type        = "ngrambf_v1(3, 32768, 3, 0)"
       granularity = 1
     }
-    index "idx_time_bucket_minmax" {
-      expr        = "time_bucket"
-      type        = "minmax"
-      granularity = 1
-    }
     engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/noshard/posthog.metrics4_attributes"
       replica_name = "{replica}-{shard}"
