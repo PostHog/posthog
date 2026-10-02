@@ -4128,6 +4128,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 }
             }
 
+            if (values.queryInput === null) {
+                actions.setInsightLoading(
+                    !!(!draftIdFromUrl && !viewIdFromUrl && insightShortIdFromUrl && insightShortIdFromUrl !== 'new')
+                )
+            }
+
             if (props.monaco) {
                 await createQueryTab()
             } else {
