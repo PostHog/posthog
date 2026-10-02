@@ -44,6 +44,7 @@ const EMPTY_PAGE: RecipientPageApi = { results: [], next_cursor: null }
 export interface recipientsLogicValues {
     categories: MessageCategory[] // optOutCategoriesLogic
     accessDenied: boolean
+    categoriesLoadFailed: boolean // optOutCategoriesLogic
     categoriesLoading: boolean // optOutCategoriesLogic
     canPage: boolean
     currentPage: number | null
@@ -136,6 +137,7 @@ export interface recipientsLogicMeta {
             shownRequest: RecipientsRequest,
             lastRequest: RecipientsRequest,
             categoriesLoading: boolean,
+            categoriesLoadFailed: boolean,
             categories: MessageCategory[]
         ) => RecipientsView
         searchPending: (search: string, shownRequest: RecipientsRequest) => boolean
@@ -156,7 +158,9 @@ function currentTeamId(): string {
 
 export const recipientsLogic = kea<recipientsLogicType>([
     path(['products', 'workflows', 'frontend', 'Audience', 'recipientsLogic']),
-    connect(() => ({ values: [optOutCategoriesLogic, ['categories', 'categoriesLoading']] })),
+    connect(() => ({
+        values: [optOutCategoriesLogic, ['categories', 'categoriesLoading', 'categoriesLoadFailed']],
+    })),
     actions({
         setSearch: (search: string) => ({ search }),
         clearSearch: true,
@@ -258,6 +262,7 @@ export const recipientsLogic = kea<recipientsLogicType>([
                 s.shownRequest,
                 s.lastRequest,
                 s.categoriesLoading,
+                s.categoriesLoadFailed,
                 s.categories,
             ],
             (
@@ -267,6 +272,7 @@ export const recipientsLogic = kea<recipientsLogicType>([
                 shownRequest: RecipientsRequest,
                 lastRequest: RecipientsRequest,
                 categoriesLoading: boolean,
+                categoriesLoadFailed: boolean,
                 categories: MessageCategory[]
             ): RecipientsView => {
                 if (pageLoading && lastRequest.search !== shownRequest.search) {
@@ -286,7 +292,7 @@ export const recipientsLogic = kea<recipientsLogicType>([
                 if (shownRequest.search) {
                     return 'no-match'
                 }
-                return categories.length === 0 ? 'setup' : 'empty'
+                return categories.length === 0 && !categoriesLoadFailed ? 'setup' : 'empty'
             },
         ],
     }),

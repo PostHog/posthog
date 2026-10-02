@@ -1,17 +1,35 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonTabs, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { urls } from 'scenes/urls'
 
-import { AudienceSnippetVariant, audienceSetupLogic } from '../audienceSetupLogic'
+import { audienceSetupLogic } from '../audienceSetupLogic'
+import { PreferenceSnippetTabs } from '../PreferenceSnippetTabs'
 import { SetupStepCard } from '../SetupStepCard'
 
-export function SendPreferencesStep(): JSX.Element {
-    const { snippetVariant, nodeSnippet, agentPrompt } = useValues(audienceSetupLogic)
-    const { setSnippetVariant, trackSnippetCopied } = useActions(audienceSetupLogic)
+function TopicsLoadFailedBanner(): JSX.Element {
+    const { loadCategories } = useActions(audienceSetupLogic)
+    return (
+        <LemonBanner
+            type="error"
+            action={{ children: 'Try again', onClick: loadCategories, 'data-attr': 'audience-setup-retry-topics' }}
+        >
+            Couldn't load your topics, so the snippet can't list their keys. Try again in a moment.
+        </LemonBanner>
+    )
+}
 
+function SnippetBody(): JSX.Element {
+    const { categoriesLoading, categoriesLoadFailed } = useValues(audienceSetupLogic)
+
+    if (categoriesLoading) {
+        return <LemonSkeleton className="h-60" />
+    }
+    return categoriesLoadFailed ? <TopicsLoadFailedBanner /> : <PreferenceSnippetTabs />
+}
+
+export function SendPreferencesStep(): JSX.Element {
     return (
         <SetupStepCard
             title="Send preferences from your app"
@@ -23,40 +41,7 @@ export function SendPreferencesStep(): JSX.Element {
             }
             dataAttr="audience-setup-send-preferences"
         >
-            <LemonTabs<AudienceSnippetVariant>
-                size="small"
-                activeKey={snippetVariant}
-                onChange={setSnippetVariant}
-                tabs={[
-                    {
-                        key: 'snippet',
-                        label: 'posthog-node',
-                        content: (
-                            <CodeSnippet
-                                language={Language.JavaScript}
-                                thing="snippet"
-                                onCopy={() => trackSnippetCopied('snippet')}
-                            >
-                                {nodeSnippet}
-                            </CodeSnippet>
-                        ),
-                    },
-                    {
-                        key: 'agent_prompt',
-                        label: 'Prompt for your coding agent',
-                        content: (
-                            <CodeSnippet
-                                language={Language.Text}
-                                thing="prompt"
-                                wrap
-                                onCopy={() => trackSnippetCopied('agent_prompt')}
-                            >
-                                {agentPrompt}
-                            </CodeSnippet>
-                        ),
-                    },
-                ]}
-            />
+            <SnippetBody />
             <p className="text-secondary text-xs m-0">
                 Topic keys come from the <Link to={urls.audience('topics')}>Topics</Link> tab.
             </p>

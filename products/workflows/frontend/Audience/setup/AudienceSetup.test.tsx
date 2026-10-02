@@ -162,7 +162,7 @@ describe('Audience setup', () => {
         expect(sendPreferencesStep()).not.toHaveTextContent('setPreferences(email')
 
         useAudience({ topics: [topic('newsletter')], recipients: [RECIPIENT] })
-        fireEvent.click(screen.getByText('Try again'))
+        fireEvent.click(screen.getAllByTestId('audience-setup-retry-topics')[0])
 
         await waitFor(() => expect(sendPreferencesStep()).toHaveTextContent('newsletter: false'))
     })
