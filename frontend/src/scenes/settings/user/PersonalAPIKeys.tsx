@@ -219,24 +219,22 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
                                             className="mb-2"
                                             size="small"
                                         />
-                                        <div className="max-h-[50vh] overflow-y-auto">
-                                            {filteredScopeGroups.length === 0 ? (
-                                                <div className="text-muted text-sm py-2">
-                                                    No scopes match "{searchTerm}"
-                                                </div>
-                                            ) : (
-                                                filteredScopeGroups.map((group) => (
-                                                    <PersonalAPIKeyScopeGroup
-                                                        // A search opens every group, and clearing it closes them again.
-                                                        key={`${group.label}-${searchTerm !== ''}`}
-                                                        group={group}
-                                                        defaultOpen={searchTerm !== ''}
-                                                        onChangeRow={setScopeRadioValue}
-                                                        onChangeGroup={setScopeGroupAccess}
-                                                    />
-                                                ))
-                                            )}
-                                        </div>
+                                        {filteredScopeGroups.length === 0 ? (
+                                            <div className="text-muted text-sm py-2">
+                                                No scopes match "{searchTerm}"
+                                            </div>
+                                        ) : (
+                                            filteredScopeGroups.map((group) => (
+                                                <PersonalAPIKeyScopeGroup
+                                                    // A search opens every group, and clearing it closes them again.
+                                                    key={`${group.label}-${searchTerm !== ''}`}
+                                                    group={group}
+                                                    defaultOpen={searchTerm !== ''}
+                                                    onChangeRow={setScopeRadioValue}
+                                                    onChangeGroup={setScopeGroupAccess}
+                                                />
+                                            ))
+                                        )}
                                     </div>
                                 )}
                             </>
