@@ -1076,13 +1076,24 @@ def _shard_predicate(
     return _ShardPredicate(sql=sql, params=params, mat_cols=mat_cols + person_mat_cols)
 
 
+@frozen
+class _CleanedSelect:
+    """How the copy reads cleaned rows out of the source table."""
+
+    # The source columns in table order. The reingest inserts the staged files into exactly these.
+    columns: list[str]
+    # One SELECT expression per column, in the same order.
+    expressions: list[str]
+    params: dict
+
+
 def _cleaned_select_list(
     client: Client,
     deletion_request: DeletionRequestContext,
     target: PropertyRemovalTarget,
     mat_cols: list[tuple[str, bool]],
     marker_str: str,
-) -> tuple[list[str], list[str], dict]:
+) -> _CleanedSelect:
     """The column names and SELECT expressions that copy cleaned rows out of the source table.
 
     The columns are the ``SELECT *`` shape of the table, so MATERIALIZED columns are left out and the
@@ -1115,12 +1126,14 @@ def _cleaned_select_list(
     for name, is_nullable in mat_cols:
         replacements[name] = "NULL" if is_nullable else "''"
 
-    names = [name for name, _ in rows]
-    expressions = [
-        f"CAST({replacements[name]} AS {col_type}) AS `{name}`" if name in replacements else f"`{name}`"
-        for name, col_type in rows
-    ]
-    return names, expressions, params
+    return _CleanedSelect(
+        columns=[name for name, _ in rows],
+        expressions=[
+            f"CAST({replacements[name]} AS {col_type}) AS `{name}`" if name in replacements else f"`{name}`"
+            for name, col_type in rows
+        ],
+        params=params,
+    )
 
 
 def _sync_replica(client: Client, target: PropertyRemovalTarget, log: QueryLogger) -> None:
@@ -1218,9 +1231,7 @@ def copy_property_removal_shard(
 
         _sync_replica(client, target, log)
         predicate = _shard_predicate(client, deletion_request, target, marker_str, hogql_compiled, log)
-        names, expressions, select_params = _cleaned_select_list(
-            client, deletion_request, target, predicate.mat_cols, marker_str
-        )
+        cleaned = _cleaned_select_list(client, deletion_request, target, predicate.mat_cols, marker_str)
 
         count_sql = (
             f"SELECT toString(toYYYYMM(timestamp)) AS month, count() FROM {db}.{target.table} "
@@ -1235,12 +1246,12 @@ def copy_property_removal_shard(
             # from the presence check and the copy would match nothing.
             copy_sql = (
                 f"INSERT INTO FUNCTION s3({staging.data_args()}) PARTITION BY toYYYYMM(timestamp) "
-                f"SELECT {', '.join(expressions)} FROM (SELECT * FROM {db}.{target.table} WHERE {predicate.sql})"
+                f"SELECT {', '.join(cleaned.expressions)} FROM (SELECT * FROM {db}.{target.table} WHERE {predicate.sql})"
             )
             log("copy-to-s3", copy_sql)
             client.execute(
                 copy_sql,
-                {**predicate.params, **select_params},
+                {**predicate.params, **cleaned.params},
                 settings={**_LONG_QUERY_SETTINGS, "s3_truncate_on_insert": 1},
             )
 
@@ -1257,7 +1268,7 @@ def copy_property_removal_shard(
         if months and client.execute(residual_sql, _presence_params(deletion_request))[0][0]:
             raise dagster.Failure(description=f"[{target.mapping_key}] staged copy still carries target properties")
 
-        payload = {"rows": sum(months.values()), "months": months, "columns": names}
+        payload = {"rows": sum(months.values()), "months": months, "columns": cleaned.columns}
         staging.finish_step(client, _COPIED, payload)
         return payload
 
@@ -1393,11 +1404,16 @@ def reingest_property_removal_shard(
                 settings=_LONG_QUERY_SETTINGS,
             )[0][0]
             if leftovers:
+                # Every attempt renders the same command for a month, so a runner left to adopt existing
+                # mutations would reuse an earlier attempt's finished clear and skip the rows the last
+                # failed insert added. The server clock dates the cutoff, as it dates the mutations.
+                [[clear_since]] = client.execute("SELECT now()")
                 clear_runner = LightweightDeleteMutationRunner(
                     table=target.table,
                     predicate=partial_rows,
                     parameters=month_params,
                     settings={"lightweight_deletes_sync": 2, "mutations_sync": 2},
+                    reuse_since=clear_since,
                 )
                 log("clear-partial-reingest", clear_runner.get_statement(clear_runner.get_all_commands()))
                 clear_runner(client).wait(client)

@@ -2030,8 +2030,19 @@ def _fail_after_reingesting(month: str):
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("failure", ["delete", "reingest"])
-def test_full_job_property_removal_fresh_run_after_failure_restores_every_row(cluster: ClickhouseCluster, failure: str):
+@pytest.mark.parametrize(
+    "failure,failed_runs",
+    [
+        ("delete", 1),
+        ("reingest", 1),
+        # The second failed attempt clears the month with the same command as the first. The clear
+        # must run again, not adopt the first attempt's finished mutation.
+        ("reingest", 2),
+    ],
+)
+def test_full_job_property_removal_fresh_run_after_failure_restores_every_row(
+    cluster: ClickhouseCluster, failure: str, failed_runs: int
+):
     now = datetime.now(UTC)
     props = json.dumps({"secret": "value", "keep": "yes"})
     # Three months, so the reingest writes one staged file per month and a failure lands mid-way.
@@ -2043,23 +2054,24 @@ def test_full_job_property_removal_fresh_run_after_failure_restores_every_row(cl
     request = _property_removal_request(start_time=now - timedelta(days=100))
     run_config = {"ops": {"load_property_removal_request": {"config": {"request_id": str(request.pk)}}}}
 
-    inject = (
-        patch.object(LightweightDeleteMutationRunner, "__call__", side_effect=Exception("delete-originals failed"))
-        if failure == "delete"
-        else _fail_after_reingesting(months[1])
-    )
-    with inject:
-        failed = data_deletion_request_property_removal.execute_in_process(
-            run_config=run_config, resources={"cluster": cluster}, raise_on_error=False
+    for _ in range(failed_runs):
+        inject = (
+            patch.object(LightweightDeleteMutationRunner, "__call__", side_effect=Exception("delete-originals failed"))
+            if failure == "delete"
+            else _fail_after_reingesting(months[1])
         )
-    assert not failed.success
-    request.refresh_from_db()
-    assert request.status == RequestStatus.FAILED
+        with inject:
+            failed = data_deletion_request_property_removal.execute_in_process(
+                run_config=run_config, resources={"cluster": cluster}, raise_on_error=False
+            )
+        assert not failed.success
+        request.refresh_from_db()
+        assert request.status == RequestStatus.FAILED
+        DataDeletionRequest.objects.filter(pk=request.pk).update(status=RequestStatus.APPROVED)
     marker = request.property_removal_marker
     assert marker is not None
 
     # The admin Retry button starts a fresh run from the load op.
-    DataDeletionRequest.objects.filter(pk=request.pk).update(status=RequestStatus.APPROVED)
     rerun = data_deletion_request_property_removal.execute_in_process(
         run_config=run_config, resources={"cluster": cluster}
     )
