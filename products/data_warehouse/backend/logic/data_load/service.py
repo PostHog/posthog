@@ -26,6 +26,7 @@ from temporalio.client import (
 from temporalio.common import RetryPolicy
 
 from posthog.ph_client import feature_enabled_or_false
+from posthog.scheduling.jitter import deterministic_offset
 from posthog.temporal.common.client import async_connect, sync_connect
 from posthog.temporal.common.schedule import (
     a_create_schedule,
@@ -508,7 +509,7 @@ def get_cdc_extraction_schedule(
     )
 
     spec = ScheduleSpec(
-        intervals=[ScheduleIntervalSpec(every=min_interval)],
+        intervals=[ScheduleIntervalSpec(every=min_interval, offset=deterministic_offset(str(source.id), min_interval))],
     )
 
     return Schedule(
@@ -591,7 +592,7 @@ def sync_cdc_extraction_schedule(
         create_schedule(temporal, id=schedule_id, schedule=schedule, trigger_immediately=trigger_immediately)
     else:
         try:
-            update_schedule(temporal, id=schedule_id, schedule=schedule)
+            update_schedule(temporal, id=schedule_id, schedule=schedule, keep_paused=True)
         except temporalio.service.RPCError as e:
             if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
                 create_schedule(temporal, id=schedule_id, schedule=schedule, trigger_immediately=trigger_immediately)
@@ -685,25 +686,6 @@ async def is_cdc_extraction_schedule_paused(source_id: str) -> bool:
 
 
 @async_to_sync
-async def cdc_extraction_schedule_has_running_action(source_id: str) -> bool:
-    """Whether an extraction run started by the source's schedule is still executing.
-
-    Pausing a schedule stops future firings but not a workflow already running — anything that
-    must not race an in-flight extraction (the buffered-ingress rollback) has to wait on this
-    after pausing. A missing schedule has nothing running.
-    """
-    schedule_id = _get_cdc_extraction_schedule_id(source_id)
-    temporal = await async_connect()
-    try:
-        desc = await a_describe_schedule(temporal, schedule_id=schedule_id)
-    except temporalio.service.RPCError as e:
-        if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
-            return False
-        raise
-    return bool(desc.info.running_actions)
-
-
-@async_to_sync
 async def bulk_sync_cdc_extraction_schedules(
     source_intervals: list[tuple[ExternalDataSource, timedelta]],
 ) -> list[tuple[str, BaseException]]:
@@ -726,7 +708,7 @@ async def bulk_sync_cdc_extraction_schedules(
             schedule_id = _get_cdc_extraction_schedule_id(str(source.id))
             schedule = get_cdc_extraction_schedule(source, min_interval)
             try:
-                await a_update_schedule(temporal, id=schedule_id, schedule=schedule)
+                await a_update_schedule(temporal, id=schedule_id, schedule=schedule, keep_paused=True)
             except temporalio.service.RPCError as e:
                 if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
                     await a_create_schedule(temporal, id=schedule_id, schedule=schedule, trigger_immediately=True)
@@ -891,7 +873,10 @@ def ensure_cdc_slot_cleanup_schedule() -> None:
 
     schedule = Schedule(
         action=action,
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(hours=1))]),
+        spec=ScheduleSpec(
+            intervals=[ScheduleIntervalSpec(every=timedelta(hours=1), offset=timedelta(minutes=2))],
+            jitter=timedelta(minutes=10),
+        ),
         state=ScheduleState(note="Global CDC slot orphan cleanup and WAL lag monitor"),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )

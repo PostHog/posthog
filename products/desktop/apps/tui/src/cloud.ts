@@ -12,6 +12,7 @@ import type {
   AgentMcpApps,
 } from "@posthog/workspace-server/services/agent/ports";
 import { AuthProxyService } from "@posthog/workspace-server/services/auth-proxy/auth-proxy";
+import type { GatewayCredentialSource } from "@posthog/workspace-server/services/auth-proxy/ports";
 import { McpProxyService } from "@posthog/workspace-server/services/mcp-proxy/mcp-proxy";
 import { LocalPiRpcClientFactory } from "@posthog/workspace-server/services/pi-session/pi-rpc-client-factory";
 import type { TuiAuth } from "./auth";
@@ -97,6 +98,13 @@ const noMcpApps: AgentMcpApps = {
   cleanup: async () => {},
 };
 
+// The TUI mints no gateway tokens, so local pi sessions route through the legacy gateway.
+const legacyGateway: GatewayCredentialSource = {
+  getRoute: async () => ({ mode: "legacy", reason: "tui" }),
+  remint: async () => null,
+  fallBack: () => {},
+};
+
 export function createCloud(
   auth: TuiAuth,
   api: PostHogAPIClient,
@@ -179,6 +187,7 @@ export function createCloud(
       logger,
     ),
     logger,
+    legacyGateway,
   );
   const piClients = new LocalPiRpcClientFactory(
     agentAuth,
@@ -186,6 +195,7 @@ export function createCloud(
     mcp,
     noMcpApps,
     logger,
+    legacyGateway,
   );
   const localChats = new LocalChats();
   const sendPi: PiCommand = async (input) =>

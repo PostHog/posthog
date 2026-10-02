@@ -391,6 +391,9 @@ tools:
     task-channels-context-generation-update:
         operation: task_channels_context_generation_update
         enabled: false
+    task-channels-contributors-retrieve:
+        operation: task_channels_contributors_retrieve
+        enabled: false
     task-channels-destroy:
         operation: task_channels_destroy
         enabled: false
@@ -453,6 +456,9 @@ tools:
         enabled: false
     tasks-comments-retrieve:
         operation: tasks_comments_retrieve
+        enabled: false
+    tasks-config-agent-instructions-create:
+        operation: tasks_config_agent_instructions_create
         enabled: false
     tasks-config-create:
         operation: tasks_config_create
@@ -607,6 +613,9 @@ tools:
                 - latest_run.completed_at
                 - created_at
                 - updated_at
+    tasks-me-config-agent-instructions-create:
+        operation: tasks_me_config_agent_instructions_create
+        enabled: false
     tasks-me-config-create:
         operation: tasks_me_config_create
         enabled: true
@@ -668,6 +677,9 @@ tools:
     tasks-presence-destroy:
         operation: tasks_presence_destroy
         enabled: false
+    tasks-pull-request-titles-create:
+        operation: tasks_pull_request_titles_create
+        enabled: false
     tasks-repo-routing-rules-create:
         operation: tasks_repo_routing_rules_create
         enabled: false
@@ -713,6 +725,9 @@ tools:
                 - latest_run.log_url
                 - latest_run.state.sandbox_connect_token
                 - latest_run.state.sandbox_url
+    tasks-review-retrieve:
+        operation: tasks_review_retrieve
+        enabled: false
     tasks-run-create:
         operation: tasks_run_create
         enabled: true
@@ -730,7 +745,8 @@ tools:
             without an offset use UTC. Confirm the returned time; execution starts at or after that time. Omit model
             fields to use saved defaults, or the previous run's model on resume. Use `tasks-models-retrieve` before an
             explicit model choice. Use `pending_user_message` for follow-up work and `resume_from_run_id` to continue a
-            prior run. Poll `tasks-runs-list` or `tasks-runs-retrieve` for progress. Check `run_error` for a start
+            prior run. The created run is the top-level `run`; read `run.id` for run-scoped calls — the top-level `id`
+            is the task's. Poll `tasks-runs-list` or `tasks-runs-retrieve` for progress. Check `run_error` for a start
             failure. If the response is lost, check the runs before you retry. A repeated call can start another run.
         feature_flag: tasks-mcp-agent-run-start
         response:
@@ -741,6 +757,12 @@ tools:
                 - title
                 - description
                 - repository
+                - run.id
+                - run.stage
+                - run.status
+                - run.scheduled_at
+                - run.model
+                - run.reasoning_effort
                 - latest_run.id
                 - latest_run.stage
                 - latest_run.status

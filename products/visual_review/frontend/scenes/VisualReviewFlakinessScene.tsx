@@ -313,14 +313,23 @@ export function VisualReviewFlakinessScene(): JSX.Element {
                                                     initialReason={entry.quarantine?.reason}
                                                     initialExpiresAt={entry.quarantine?.expires_at}
                                                     sourceRunId={entry.quarantine?.source_run?.id ?? null}
-                                                    onQuarantine={(reason, identifiers, expiresAt, sourceRunId) => {
-                                                        identifiers.forEach((identifier) =>
+                                                    runType={entry.run_type}
+                                                    onQuarantine={(
+                                                        reason,
+                                                        identifiers,
+                                                        expiresAt,
+                                                        sourceRunId,
+                                                        notifyOwners
+                                                    ) => {
+                                                        identifiers.forEach((identifier, index) =>
                                                             quarantineIdentifier(
                                                                 identifier,
                                                                 entry.run_type,
                                                                 reason,
                                                                 expiresAt,
-                                                                sourceRunId
+                                                                sourceRunId,
+                                                                // One notice per story, not per theme variant.
+                                                                notifyOwners && index === 0
                                                             )
                                                         )
                                                     }}

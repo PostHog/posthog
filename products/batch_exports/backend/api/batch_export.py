@@ -53,11 +53,18 @@ from posthog.utils import relative_date_parse, str_to_bool
 
 from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
 from products.batch_exports.backend.api.destination_tests import get_destination_test
-from products.batch_exports.backend.api.utils import check_hogql_batch_exports_enabled
+from products.batch_exports.backend.api.utils import (
+    HOGQL_MODIFIERS_HELP_TEXT,
+    HogQLModifiersField,
+    check_hogql_batch_exports_enabled,
+)
+from products.batch_exports.backend.facade.contracts import InvalidBatchExportFilters
+from products.batch_exports.backend.filters import SUPPORTED_FILTER_TYPES_DISPLAY, validate_batch_export_filters
 from products.batch_exports.backend.hogql_source import (
     DATA_INTERVAL_START_PLACEHOLDER,
     UnsupportedHogQLQueryError,
     find_interval_placeholders,
+    load_hogql_modifiers,
     parse_hogql_select_for_batch_export,
     serialize_batch_export_query,
     validate_hogql_query_for_batch_export,
@@ -75,7 +82,6 @@ from products.batch_exports.backend.models.batch_export import (
 )
 from products.batch_exports.backend.service import (
     DESTINATION_WORKFLOWS,
-    SUPPORTED_FILTER_TYPES,
     BaseBatchExportInputs,
     BatchExportIdError,
     BatchExportSchema,
@@ -98,9 +104,6 @@ from products.batch_exports.backend.temporal.destinations.constants import (
 from products.batch_exports.backend.temporal.sql.events import EXPORTABLE_EVENTS_MODEL_FIELDS
 
 logger = structlog.get_logger(__name__)
-
-# Quoted, sorted rendering of the supported filter types for user-facing messages.
-_SUPPORTED_FILTER_TYPES_DISPLAY = ", ".join(repr(t) for t in sorted(SUPPORTED_FILTER_TYPES))
 
 
 def validate_date_input(date_input: Any, batch_export: BatchExport) -> dt.datetime:
@@ -865,12 +868,17 @@ class BatchExportRequestSerializer(serializers.Serializer):
         allow_null=True,
         help_text=HOGQL_QUERY_HELP_TEXT,
     )
+    hogql_modifiers = HogQLModifiersField(
+        required=False,
+        allow_null=True,
+        help_text=HOGQL_MODIFIERS_HELP_TEXT,
+    )
     filters = serializers.JSONField(
         required=False,
         allow_null=True,
         help_text=(
             "Optional list of property filters to restrict which events are exported. Each filter is a "
-            f"serialized HogQL property filter object with a 'type' of one of: {_SUPPORTED_FILTER_TYPES_DISPLAY} "
+            f"serialized HogQL property filter object with a 'type' of one of: {SUPPORTED_FILTER_TYPES_DISPLAY} "
             '(e.g. {"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]}).'
         ),
     )
@@ -1214,6 +1222,11 @@ class BatchExportSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text=HOGQL_QUERY_HELP_TEXT,
     )
+    hogql_modifiers = HogQLModifiersField(
+        required=False,
+        allow_null=True,
+        help_text=HOGQL_MODIFIERS_HELP_TEXT,
+    )
     timezone = serializers.ChoiceField(
         choices=TIMEZONES,
         required=False,
@@ -1252,6 +1265,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
             "end_at",
             "latest_runs",
             "hogql_query",
+            "hogql_modifiers",
             "schema",
             "filters",
             "timezone",
@@ -1328,6 +1342,11 @@ class BatchExportSerializer(serializers.ModelSerializer):
         if model == BatchExport.Model.HOGQL:
             self._validate_hogql(attrs)
             return
+
+        if attrs.get("hogql_modifiers") is not None:
+            raise serializers.ValidationError(
+                {"hogql_modifiers": "'hogql_modifiers' are only supported when 'model' is 'hogql'"}
+            )
 
         if (hogql_query := attrs.get("hogql_query")) is not None:
             # For events model, we need the resolved AST.
@@ -1410,26 +1429,10 @@ class BatchExportSerializer(serializers.ModelSerializer):
         return offset_hour
 
     def validate_filters(self, filters):
-        if filters is None:
-            return filters
-
-        if not isinstance(filters, list):
-            raise serializers.ValidationError("'filters' should be an array of filters")
-
-        for filter in filters:
-            if not isinstance(filter, dict):
-                raise serializers.ValidationError("Each filter must be an object")
-
-            if any(key in filter for key in ("data_interval_start", "data_interval_end")):
-                raise serializers.ValidationError(
-                    "'data_interval_start' and 'data_interval_end' are run attributes and not 'filters'."
-                    " Trigger a backfill if you wish to manually control which periods to batch export."
-                )
-
-            if filter.get("type") not in SUPPORTED_FILTER_TYPES:
-                raise serializers.ValidationError(
-                    f"Each filter must have a 'type' of one of: {_SUPPORTED_FILTER_TYPES_DISPLAY}"
-                )
+        try:
+            validate_batch_export_filters(filters)
+        except InvalidBatchExportFilters as e:
+            raise serializers.ValidationError(str(e))
         return filters
 
     # TODO: could this be moved inside BatchExportDestinationSerializer::validate?
@@ -1739,10 +1742,11 @@ class BatchExportSerializer(serializers.ModelSerializer):
         team_id = self.context["team_id"]
         model = validated_data.get("model") or BatchExport.Model.EVENTS
         hogql_query = validated_data.pop("hogql_query", None)
+        hogql_modifiers = validated_data.pop("hogql_modifiers", None)
 
         source = None
         if model == BatchExport.Model.HOGQL:
-            source = BatchExportSource(team_id=team_id, hogql_query=hogql_query)
+            source = BatchExportSource(team_id=team_id, hogql_query=hogql_query, hogql_modifiers=hogql_modifiers)
         elif hogql_query is not None:
             # TODO: Migrate batch exports using a HogQL query to HogQL model.
             validated_data["schema"] = self.serialize_hogql_query_to_batch_export_schema(hogql_query)
@@ -1804,7 +1808,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
     def _validate_hogql(self, attrs: dict[str, typing.Any]) -> None:
         """Validate the source of a batch export with the 'hogql' model.
 
-        On update, a query missing from the request keeps the one stored in the source.
+        On update, a query or modifiers missing from the request keep the ones stored in the source.
         """
         if attrs.get("filters"):
             raise serializers.ValidationError({"filters": "'filters' are not supported when 'model' is 'hogql'"})
@@ -1817,9 +1821,16 @@ class BatchExportSerializer(serializers.ModelSerializer):
         if not hogql_query:
             raise serializers.ValidationError({"hogql_query": "'hogql_query' is required when 'model' is 'hogql'"})
 
+        try:
+            modifiers = load_hogql_modifiers(
+                attrs.get("hogql_modifiers", source.hogql_modifiers if source is not None else None)
+            )
+        except UnsupportedHogQLQueryError as e:
+            raise serializers.ValidationError({"hogql_modifiers": str(e)}) from e
+
         user = self.context["request"].user
         try:
-            validate_hogql_query_for_batch_export(hogql_query, team, user=user)
+            validate_hogql_query_for_batch_export(hogql_query, team, user=user, modifiers=modifiers)
         except UnsupportedHogQLQueryError as e:
             raise serializers.ValidationError({"hogql_query": str(e)}) from e
 
@@ -1885,6 +1896,8 @@ class BatchExportSerializer(serializers.ModelSerializer):
         destination_data = validated_data.pop("destination", None)
         hogql_query_provided = "hogql_query" in validated_data
         hogql_query = validated_data.pop("hogql_query", None)
+        hogql_modifiers_provided = "hogql_modifiers" in validated_data
+        hogql_modifiers = validated_data.pop("hogql_modifiers", None)
 
         user = self.context["request"].user
         if not isinstance(user, User):
@@ -1905,9 +1918,12 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 batch_export.destination.integration = integration
 
             if batch_export.model == BatchExport.Model.HOGQL:
-                if hogql_query is not None:
+                if hogql_query is not None or hogql_modifiers_provided:
                     source = batch_export.source or BatchExportSource(team_id=batch_export.team_id)
-                    source.hogql_query = hogql_query
+                    if hogql_query is not None:
+                        source.hogql_query = hogql_query
+                    if hogql_modifiers_provided:
+                        source.hogql_modifiers = hogql_modifiers
                     source.save()
                     batch_export.source = source
             elif hogql_query is not None:

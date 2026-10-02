@@ -354,6 +354,7 @@ const inboxReportsList = (): ToolBase<
                 count_only: params.count_only,
                 has_implementation_pr: params.has_implementation_pr,
                 include_all_statuses: params.include_all_statuses,
+                include_source_metadata: params.include_source_metadata,
                 limit: params.limit,
                 offset: params.offset,
                 ordering: params.ordering,
@@ -370,6 +371,7 @@ const inboxReportsList = (): ToolBase<
                 task_id: params.task_id,
                 teammate_uuid: params.teammate_uuid,
                 unclaimed: params.unclaimed,
+                unread: params.unread,
                 use_priority_preference: params.use_priority_preference,
                 view: params.view,
             },
@@ -744,6 +746,9 @@ const scoutCheckRecordResult = (): ToolBase<
         if (params.outcome !== undefined) {
             body['outcome'] = params.outcome
         }
+        if (params.reason !== undefined) {
+            body['reason'] = params.reason
+        }
         if (params.explanation !== undefined) {
             body['explanation'] = params.explanation
         }
@@ -1058,7 +1063,9 @@ const scoutEditReport = (): ToolBase<ReturnType<typeof ScoutEditReportSchema>, S
 const ScoutEmitReportSchema = () => {
     const SignalsScoutEmitReportBody = orvalSchemas.SignalsScoutEmitReportBody()
     const SignalsScoutEmitReportParams = orvalSchemas.SignalsScoutEmitReportParams()
-    return SignalsScoutEmitReportParams.omit({ project_id: true }).extend(SignalsScoutEmitReportBody.shape)
+    return SignalsScoutEmitReportParams.omit({ project_id: true })
+        .extend(SignalsScoutEmitReportBody.shape)
+        .meta({ 'x-required-when-set': { priority: ['priority_explanation'] } })
 }
 
 const scoutEmitReport = (): ToolBase<ReturnType<typeof ScoutEmitReportSchema>, Schemas.EmitReportResponse> => ({
@@ -1105,6 +1112,9 @@ const scoutEmitReport = (): ToolBase<ReturnType<typeof ScoutEmitReportSchema>, S
         }
         if (params.suggested_prompts !== undefined) {
             body['suggested_prompts'] = params.suggested_prompts
+        }
+        if (params.links !== undefined) {
+            body['links'] = params.links
         }
         if (params.idempotency_key !== undefined) {
             body['idempotency_key'] = params.idempotency_key
@@ -1998,7 +2008,9 @@ const signalsScoutEditReport = (): ToolBase<
 const SignalsScoutEmitReportSchema = () => {
     const SignalsScoutEmitReportBody = orvalSchemas.SignalsScoutEmitReportBody()
     const SignalsScoutEmitReportParams = orvalSchemas.SignalsScoutEmitReportParams()
-    return SignalsScoutEmitReportParams.omit({ project_id: true }).extend(SignalsScoutEmitReportBody.shape)
+    return SignalsScoutEmitReportParams.omit({ project_id: true })
+        .extend(SignalsScoutEmitReportBody.shape)
+        .meta({ 'x-required-when-set': { priority: ['priority_explanation'] } })
 }
 
 const signalsScoutEmitReport = (): ToolBase<
@@ -2048,6 +2060,9 @@ const signalsScoutEmitReport = (): ToolBase<
         }
         if (params.suggested_prompts !== undefined) {
             body['suggested_prompts'] = params.suggested_prompts
+        }
+        if (params.links !== undefined) {
+            body['links'] = params.links
         }
         if (params.idempotency_key !== undefined) {
             body['idempotency_key'] = params.idempotency_key

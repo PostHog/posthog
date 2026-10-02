@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
+from zoneinfo import ZoneInfo
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
@@ -22,13 +23,18 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
 from products.error_tracking.backend.facade.query_utils import (
+    ISSUE_BREAKDOWN_TOP_VALUES,
     MAX_STACK_FRAMES,
+    BreakdownRange,
+    breakdown_query_date_range,
     build_issue_event_where,
     build_issue_filters,
     build_search_query,
     build_sparkline,
     dedupe_repeated_stacktraces,
+    map_issue_breakdown,
     normalize_stacktrace,
+    resolve_breakdown_range,
 )
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
 from products.error_tracking.backend.models import (
@@ -119,6 +125,99 @@ def test_dedupe_repeated_stacktraces_references_the_first_copy_of_the_stack() ->
     assert stacks[0][2] == {"same_as_event": "event-1", "same_as_exception": 0}
     assert stacks[1][0] == {"same_as_event": "event-1", "same_as_exception": 1}
     assert stacks[2][0]["frames"][0]["line"] == 44
+
+
+BREAKDOWN_NOW = datetime(2026, 4, 24, 12, 0, tzinfo=UTC)
+
+
+@parameterized.expand(
+    [
+        ("short_relative_range", {"date_from": "-7d"}, BREAKDOWN_NOW - timedelta(days=7), BREAKDOWN_NOW, False),
+        ("long_relative_range", {"date_from": "-90d"}, BREAKDOWN_NOW - timedelta(days=30), BREAKDOWN_NOW, True),
+        ("unbounded_range", {"date_from": "all"}, BREAKDOWN_NOW - timedelta(days=30), BREAKDOWN_NOW, True),
+        (
+            "long_explicit_range",
+            {"date_from": "2026-01-01T00:00:00Z", "date_to": "2026-03-01T00:00:00Z"},
+            datetime(2026, 1, 30, tzinfo=UTC),
+            datetime(2026, 3, 1, tzinfo=UTC),
+            True,
+        ),
+    ]
+)
+def test_resolve_breakdown_range_limits_the_range_to_30_days(
+    _name: str,
+    date_range: dict[str, object],
+    expected_from: datetime,
+    expected_to: datetime,
+    expected_limited: bool,
+) -> None:
+    assert resolve_breakdown_range(date_range, ZoneInfo("UTC"), BREAKDOWN_NOW) == BreakdownRange(
+        date_from=expected_from, date_to=expected_to, range_limited=expected_limited
+    )
+
+
+def test_map_issue_breakdown_drops_empty_values_and_dimensions() -> None:
+    long_path = "/" + "a" * 500
+    null_label = "$$_posthog_breakdown_null_$$"
+    results: dict[str, object] = {
+        "$pathname": {
+            "values": [{"value": long_path, "count": 3}, {"value": null_label, "count": 1}],
+            "total_count": 4,
+        },
+        "$current_url": {"values": [{"value": "https://example.test/a", "count": 3}], "total_count": 4},
+        "$browser": {"values": [{"value": "Chrome", "count": 4}], "total_count": 4},
+        "$os": {"values": [{"value": null_label, "count": 4}], "total_count": 4},
+        "$session_id": {
+            "values": [{"value": null_label, "count": 2}, {"value": "session-1", "count": 2}],
+            "total_count": 4,
+        },
+    }
+
+    breakdown = map_issue_breakdown(results)
+
+    assert breakdown["occurrences"] == 4
+    assert breakdown["sample_session_ids"] == ["session-1"]
+    top_values = cast(dict[str, Any], breakdown["top_values"])
+    # The URL is left out when the events have a path, and a dimension with only missing values is left out.
+    assert set(top_values) == {"path", "browser"}
+    assert top_values["browser"] == [{"value": "Chrome", "count": 4}]
+    assert len(top_values["path"]) == 1
+    assert top_values["path"][0]["count"] == 3
+    assert len(top_values["path"][0]["value"]) == 200
+
+
+def test_map_issue_breakdown_returns_urls_when_events_have_no_path() -> None:
+    results: dict[str, object] = {
+        "$pathname": {"values": [{"value": "", "count": 2}], "total_count": 2},
+        "$current_url": {"values": [{"value": "https://api.example.test/orders", "count": 2}], "total_count": 2},
+    }
+
+    top_values = cast(dict[str, Any], map_issue_breakdown(results)["top_values"])
+
+    assert top_values == {"url": [{"value": "https://api.example.test/orders", "count": 2}]}
+
+
+@parameterized.expand(
+    [
+        ("relative_range_keeps_the_request", {"date_from": "-7d"}, {"date_from": "-7d", "date_to": None}, False),
+        (
+            "long_range_is_limited",
+            {"date_from": "-90d"},
+            {"date_from": (BREAKDOWN_NOW - timedelta(days=30)).isoformat(), "date_to": None},
+            True,
+        ),
+        (
+            "relative_date_to_is_resolved",
+            {"date_from": "-7d", "date_to": "-1d"},
+            {"date_from": "-7d", "date_to": (BREAKDOWN_NOW - timedelta(days=1)).isoformat()},
+            False,
+        ),
+    ]
+)
+def test_breakdown_query_date_range(
+    _name: str, date_range: dict[str, object], expected: dict[str, object], expected_limited: bool
+) -> None:
+    assert breakdown_query_date_range(date_range, ZoneInfo("UTC"), BREAKDOWN_NOW) == (expected, expected_limited)
 
 
 class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
@@ -263,20 +362,22 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == 400
 
-    def test_rejects_large_volume_resolution(self) -> None:
+    @parameterized.expand([("too_large", 201), ("time_unit", "day")])
+    def test_rejects_invalid_volume_resolution_with_accepted_values(self, _name: str, value: object) -> None:
         list_response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/query/issues",
-            data={"volumeResolution": 201},
+            data={"volumeResolution": value},
             format="json",
         )
         detail_response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/query/issue",
-            data={"issueId": self.issue_id, "volumeResolution": 201},
+            data={"issueId": self.issue_id, "volumeResolution": value},
             format="json",
         )
 
-        assert list_response.status_code == 400
-        assert detail_response.status_code == 400
+        for response in (list_response, detail_response):
+            assert response.status_code == 400
+            assert "integer bucket count from 0 to 200" in response.content.decode()
 
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issues_list_filters_by_assignee(self) -> None:
@@ -685,6 +786,119 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == 400
         assert "Access to property '$referrer' is restricted" in str(response.json())
+
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
+    def test_issue_detail_omits_breakdown_by_default(self) -> None:
+        self.create_issue()
+        self.create_exception_event(properties={"$current_url": "https://example.test/checkout"})
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issue",
+            data={"issueId": self.issue_id},
+            format="json",
+        )
+
+        assert response.status_code == 200
+        assert "breakdown" not in response.json()
+
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
+    def test_issue_detail_breakdown_aggregates_matching_events(self) -> None:
+        self.create_issue()
+        for pathname, session_id, lib in [
+            ("/checkout", "session-id-1", "web"),
+            ("/checkout", "session-id-1", "web"),
+            ("/cart", "session-id-2", "web"),
+            ("/cart", "", "posthog-python"),
+            ("/cart", "", "posthog-python"),
+        ]:
+            self.create_exception_event(
+                properties={
+                    "$pathname": pathname,
+                    "$current_url": f"https://example.test{pathname}",
+                    "$session_id": session_id,
+                    "$browser": "Chrome",
+                    "$lib": lib,
+                }
+            )
+        self.create_exception_event(
+            issue_id="01936e7f-d7ff-7314-b2d4-7627981e34f1",
+            fingerprint="other-fingerprint",
+            properties={"$current_url": "https://example.test/other"},
+        )
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issue",
+            data={"issueId": self.issue_id, "includeBreakdown": True},
+            format="json",
+        )
+
+        assert response.status_code == 200
+        breakdown = response.json()["breakdown"]
+        assert breakdown["occurrences"] == 5
+        assert breakdown["range_limited"] is False
+        # Sessions with the most events first; events without a session are not a session.
+        assert breakdown["sample_session_ids"] == ["session-id-1", "session-id-2"]
+        top_values = breakdown["top_values"]
+        assert top_values["path"] == [{"value": "/cart", "count": 3}, {"value": "/checkout", "count": 2}]
+        assert top_values["browser"] == [{"value": "Chrome", "count": 5}]
+        assert top_values["library"] == [{"value": "web", "count": 3}, {"value": "posthog-python", "count": 2}]
+        # The URL repeats the path here, and no event has an OS or a screen name.
+        assert set(top_values) == {"path", "browser", "library"}
+
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
+    def test_issue_detail_breakdown_keeps_empty_values_out_of_top_values(self) -> None:
+        self.create_issue()
+        for index in range(ISSUE_BREAKDOWN_TOP_VALUES):
+            self.create_exception_event(properties={"$pathname": f"/page-{index}"})
+        # More events have an empty or no path than have any single real path, so a missing value would take a
+        # slot if the query ranked it and the response kept it.
+        for _ in range(ISSUE_BREAKDOWN_TOP_VALUES):
+            self.create_exception_event(properties={"$pathname": ""})
+            self.create_exception_event()
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issue",
+            data={"issueId": self.issue_id, "includeBreakdown": True},
+            format="json",
+        )
+
+        assert response.status_code == 200
+        paths = [item["value"] for item in response.json()["breakdown"]["top_values"]["path"]]
+        assert sorted(paths) == sorted(f"/page-{index}" for index in range(ISSUE_BREAKDOWN_TOP_VALUES))
+
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
+    def test_issue_detail_breakdown_masks_restricted_properties(self) -> None:
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        property_definition = PropertyDefinition.objects.create(
+            team=self.team, name="$pathname", type=PropertyDefinition.Type.EVENT
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=property_definition,
+            access_level=PropertyAccessLevel.NONE.value,
+            organization_member=self.organization_membership,
+        )
+        self.create_issue()
+        self.create_exception_event(properties={"$pathname": "/checkout", "$browser": "Chrome"})
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issue",
+            data={"issueId": self.issue_id, "includeBreakdown": True},
+            format="json",
+        )
+
+        assert response.status_code == 200
+        top_values = response.json()["breakdown"]["top_values"]
+        assert "path" not in top_values
+        assert "/checkout" not in str(response.json())
+        assert top_values["browser"] == [{"value": "Chrome", "count": 1}]
 
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issue_events_returns_plural_exception_arrays_and_truncates_summary_text(self) -> None:

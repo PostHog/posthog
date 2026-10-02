@@ -11,7 +11,10 @@ const AutoresearchCreateSchema = () => {
     return AutoresearchCreateBody
 }
 
-const autoresearchCreate = (): ToolBase<ReturnType<typeof AutoresearchCreateSchema>, Schemas.AutoresearchPipeline> => ({
+const autoresearchCreate = (): ToolBase<
+    ReturnType<typeof AutoresearchCreateSchema>,
+    WithPostHogUrl<Schemas.AutoresearchPipeline>
+> => ({
     name: 'autoresearch-create',
     schema: AutoresearchCreateSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof AutoresearchCreateSchema>>) => {
@@ -61,7 +64,7 @@ const autoresearchCreate = (): ToolBase<ReturnType<typeof AutoresearchCreateSche
             path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/`,
             body,
         })
-        return result
+        return await withPostHogUrl(context, result, `/autoresearch/${result.id}`)
     },
 })
 
@@ -104,7 +107,7 @@ const autoresearchList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/')
+        return await withPostHogUrl(context, filtered, '/autoresearch')
     },
 })
 
@@ -180,7 +183,7 @@ const autoresearchModelsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/')
+        return await withPostHogUrl(context, filtered, '/autoresearch')
     },
 })
 
@@ -244,7 +247,7 @@ const AutoresearchRetrieveSchema = () => {
 
 const autoresearchRetrieve = (): ToolBase<
     ReturnType<typeof AutoresearchRetrieveSchema>,
-    Schemas.AutoresearchPipeline
+    WithPostHogUrl<Schemas.AutoresearchPipeline>
 > => ({
     name: 'autoresearch-retrieve',
     schema: AutoresearchRetrieveSchema(),
@@ -255,7 +258,28 @@ const autoresearchRetrieve = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/${encodeURIComponent(String(params.id))}/`,
         })
         const filtered = omitResponseFields(result, ['created_by']) as typeof result
-        return filtered
+        return await withPostHogUrl(context, filtered, `/autoresearch/${filtered.id}`)
+    },
+})
+
+const AutoresearchScoreCreateSchema = () => {
+    const AutoresearchScoreCreateParams = orvalSchemas.AutoresearchScoreCreateParams()
+    return AutoresearchScoreCreateParams.omit({ project_id: true })
+}
+
+const autoresearchScoreCreate = (): ToolBase<
+    ReturnType<typeof AutoresearchScoreCreateSchema>,
+    Schemas.AutoresearchRun
+> => ({
+    name: 'autoresearch-score-create',
+    schema: AutoresearchScoreCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AutoresearchScoreCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AutoresearchRun>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/${encodeURIComponent(String(params.id))}/score/`,
+        })
+        return result
     },
 })
 
@@ -331,7 +355,7 @@ const autoresearchSuggestionsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/')
+        return await withPostHogUrl(context, filtered, '/autoresearch')
     },
 })
 
@@ -711,7 +735,7 @@ const autoresearchTrainingRunsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/')
+        return await withPostHogUrl(context, filtered, '/autoresearch')
     },
 })
 
@@ -764,6 +788,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'autoresearch-models-retrieve': autoresearchModelsRetrieve,
     'autoresearch-resolve-template-create': autoresearchResolveTemplateCreate,
     'autoresearch-retrieve': autoresearchRetrieve,
+    'autoresearch-score-create': autoresearchScoreCreate,
     'autoresearch-suggestions-create': autoresearchSuggestionsCreate,
     'autoresearch-suggestions-list': autoresearchSuggestionsList,
     'autoresearch-suggestions-respond': autoresearchSuggestionsRespond,

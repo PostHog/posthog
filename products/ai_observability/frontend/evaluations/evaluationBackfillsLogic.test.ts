@@ -1,6 +1,7 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
@@ -176,6 +177,31 @@ describe('evaluationBackfillsLogic', () => {
             conditions: seededConditions,
             rerun_existing: false,
         })
+    })
+
+    it('reports a view of the tab once when it mounts', async () => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+
+        await mountAndSettle()
+
+        expect(capture.mock.calls.filter(([event]) => event === 'llma evaluation backfills tab viewed')).toEqual([
+            ['llma evaluation backfills tab viewed', expect.objectContaining({ evaluation_id: EVALUATION_ID })],
+        ])
+    })
+
+    it('reports a click on Start with the count the user saw', async () => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        await mountAndSettle()
+        logic.actions.requestEstimateSuccess(estimate({ total_units: 7 }))
+
+        logic.actions.startClicked()
+
+        expect(capture.mock.calls.filter(([event]) => event === 'llma evaluation backfill start clicked')).toEqual([
+            [
+                'llma evaluation backfill start clicked',
+                { evaluation_id: EVALUATION_ID, units_to_evaluate: 7, rerun_existing: false },
+            ],
+        ])
     })
 
     it('debounces estimate requests and drops a stale response', async () => {

@@ -968,6 +968,18 @@ function buildResponseFilter(config: ToolConfig): {
 }
 
 /**
+ * When `required_when_set` is set, attach it as the `x-required-when-set` schema annotation.
+ * zod 4 copies `.meta()` keys into `toJSONSchema` output, so the advertised schema and the
+ * compact exec summary both carry it. Returns the expression unchanged otherwise.
+ */
+function withRequiredWhenSet(schemaExpr: string, config: ToolConfig): string {
+    if (!config.required_when_set || Object.keys(config.required_when_set).length === 0) {
+        return schemaExpr
+    }
+    return `(${schemaExpr}).meta({ 'x-required-when-set': ${JSON.stringify(config.required_when_set)} })`
+}
+
+/**
  * When `response.selectable` is set, emit a `.extend({ fields: ... })` clause adding an optional
  * `fields` request param constrained (via `z.enum`) to the `include` allowlist. Returns '' when the
  * tool doesn't opt in, so the schema expression is left untouched. Throws when `selectable` is set
@@ -1120,6 +1132,7 @@ function generateToolCode(
             composition.toolInputsImports.push(fn)
         }
     }
+    schemaExpr = withRequiredWhenSet(schemaExpr, config)
 
     // `param_overrides.<param>.aliases` — normalize alias keys to the canonical
     // param before validation. Outermost wrapper so the rename happens before any
@@ -1629,6 +1642,7 @@ function generateCustomSchemaToolCode(
             toolInputsImports.push(fn)
         }
     }
+    baseSchemaExpr = withRequiredWhenSet(baseSchemaExpr, config)
 
     const hasAgentNote = !!config.agent_note
     const needsWithAgentNote = hasAgentNote && !!responseType
@@ -2015,6 +2029,7 @@ function generateDefinitionsJson(
             const baseDescription = resolveDescription(toolConfig, yamlDir, opDescription)
             const baseTitle = toolConfig.title || resolved.operation.summary || name
             const baseSummary = toolConfig.title || opDescription.split('.')[0] || name
+            const toolCategory = toolConfig.category ?? category.category
             // Per-tool feature_flag wins; otherwise inherit the category-level
             // gate (lets one line gate a whole not-yet-GA product).
             const featureFlag = toolConfig.feature_flag ?? category.feature_flag
@@ -2037,7 +2052,7 @@ function generateDefinitionsJson(
                         `Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. ` +
                         `The user must reply with the literal word "confirm" before you call the matching -execute tool with the hash. ` +
                         `Original action: ${baseDescription}`,
-                    category: category.category,
+                    category: toolCategory,
                     feature: category.feature,
                     summary: `${baseSummary} (prepare)`,
                     title: `${baseTitle} (prepare)`,
@@ -2064,7 +2079,7 @@ function generateDefinitionsJson(
                         `Verifies the confirmation_hash from -prepare and the literal "confirm" string typed by the user, then performs the action. ` +
                         `ONLY call this after the user has explicitly typed "confirm" in chat. ` +
                         `Original action: ${baseDescription}`,
-                    category: category.category,
+                    category: toolCategory,
                     feature: category.feature,
                     summary: `${baseSummary} (execute)`,
                     title: `${baseTitle} (execute)`,
@@ -2088,7 +2103,7 @@ function generateDefinitionsJson(
             } else {
                 definitions[name] = {
                     description: baseDescription,
-                    category: category.category,
+                    category: toolCategory,
                     feature: category.feature,
                     summary: baseSummary,
                     title: baseTitle,

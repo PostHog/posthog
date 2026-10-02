@@ -20,7 +20,7 @@ and doing something useful with it. For creating or sizing scanners, use [[creat
   - `classifier` → one or more `tags` from the scanner's label set, plus `tags_freeform` when the scanner
     allows freeform tags, and the `reasoning`.
   - `scorer` → a numeric `score` on the scanner's `scale`, and the `reasoning`.
-  - `summarizer` → a `title` and free-text `summary`.
+  - `summarizer` → a `title`, a free-text `summary`, and `chapters`: the recording broken into ordered parts, each with `start_ms`, `end_ms`, a short `title` and a `thumbnail_ms`, all offsets into the recording (seek with `?t=<start_ms / 1000>`). A chapter with `kind: idle` is a stretch of a minute or more that the replay player marked inactive (no interaction recorded), taken from the render rather than the model.
 - **Only `succeeded` observations carry a finding.** Triage the rest by `status`/`error_reason` (see below).
 - **Observations are LLM judgments, not ground truth.** One observation is one model's read of one session —
   corroborate before you act on it.

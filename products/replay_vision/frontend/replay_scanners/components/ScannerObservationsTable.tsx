@@ -346,12 +346,14 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                             />
                             <FilterPill<ObservationStatusValue>
                                 label="Status"
+                                dataAttr="vision-observations-status-filter"
                                 options={STATUS_OPTIONS}
                                 value={observationStatusFilter}
                                 onChange={setObservationStatusFilter}
                             />
                             <FilterPill<ObservationTriggeredByValue>
                                 label="Triggered by"
+                                dataAttr="vision-observations-triggered-by-filter"
                                 options={TRIGGERED_BY_OPTIONS}
                                 value={observationTriggeredByFilter}
                                 onChange={setObservationTriggeredByFilter}
@@ -359,6 +361,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                             {scannerType === 'monitor' && (
                                 <FilterPill<ObservationVerdictValue>
                                     label="Verdict"
+                                    dataAttr="vision-observations-verdict-filter"
                                     options={VERDICT_OPTIONS}
                                     value={observationVerdictFilter}
                                     onChange={setObservationVerdictFilter}
@@ -378,6 +381,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                             {scannerType === 'classifier' && tagFilterOptions.length > 0 && (
                                 <FilterPill<string>
                                     label="Category"
+                                    dataAttr="vision-observations-category-filter"
                                     searchPlaceholder="Search categories"
                                     options={tagFilterOptions}
                                     value={observationTagFilter}

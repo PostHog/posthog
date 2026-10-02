@@ -2,7 +2,6 @@ import uuid
 import logging
 from typing import Any, cast, get_args
 
-from django.conf import settings
 from django.db.models import Max, Q, QuerySet
 from django.utils import timezone
 
@@ -20,7 +19,9 @@ from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.integration import GitHubIntegration
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.user import User
+from posthog.permissions import PostHogFeatureFlagPermission
 
+from products.review_hog.backend.api.settings import has_internal_features
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import (
     ReviewIssueCategory,
@@ -544,6 +545,8 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     # reachable with a personal API key or OAuth token, which is how MCP tools authenticate. Session
     # UI access is unchanged; this only adds token access, gated by review_hog:read / review_hog:write.
     scope_object = "review_hog"
+    permission_classes = [PostHogFeatureFlagPermission]
+    posthog_feature_flag = "review-hog"
     # Unscoped only to satisfy the router/introspection; every real query goes through `for_team`.
     queryset = ReviewReport.objects.unscoped()
     serializer_class = ReviewRecentReviewSerializer
@@ -704,7 +707,8 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             ),
             403: OpenApiResponse(
                 response=ReviewTriggerErrorSerializer,
-                description="The ReviewHog UI trigger is not enabled for this project.",
+                description="The review-hog feature flag is off for this project, or Flash was requested in a "
+                "project without internal features (see show_internal_features in the settings response).",
             ),
             409: OpenApiResponse(
                 response=ReviewTriggerErrorSerializer,
@@ -730,15 +734,15 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     @action(methods=["POST"], detail=False, required_scopes=["review_hog:write"])
     def trigger(self, request: Request, **kwargs) -> Response:
         team_id = resolve_effective_team_id(self.team_id)
-        # Dogfood gate: the UI trigger only runs on the designated ReviewHog team for now — reviews are
-        # expensive, so widening beyond it is a deliberate later decision, not a default.
-        if team_id not in settings.REVIEWHOG_TEAM_IDS:
-            return Response(
-                {"error": "PostHog Review can't start reviews from this project yet"},
-                status=status.HTTP_403_FORBIDDEN,
-            )
         serializer = ReviewTriggerRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        run_mode: str = serializer.validated_data["run_mode"]
+        # The scene hides Flash outside the internal project; this also stops API and MCP callers there.
+        if run_mode == RUN_MODE_FLASH and not has_internal_features(team_id):
+            return Response(
+                {"error": "Flash reviews aren't available in this project. Start a regular review instead."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         try:
             pr_info = PRParser().parse_github_pr_url(serializer.validated_data["pr_url"])
         except ValueError:
@@ -790,7 +794,6 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        run_mode: str = serializer.validated_data["run_mode"]
         # The busy-guard (CONTEXT.md): Temporal joins same-id starts on its own, but a review and
         # this PR's resolution run under different workflow ids, so the cross-stage check is
         # explicit — and the answer is a refusal, not a queue.

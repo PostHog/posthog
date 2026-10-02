@@ -1,6 +1,8 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { NEW_QUERY_STARTED_ERROR_MESSAGE } from 'lib/utils/kea-logic-builders'
 import { insightsApi } from 'scenes/insights/utils/api'
 
@@ -25,7 +27,7 @@ import {
 } from 'products/metrics/frontend/generated/api'
 
 import { metricNamePickerLogic } from './metricNamePickerLogic'
-import { metricsViewerLogic } from './metricsViewerLogic'
+import { metricsViewerLogic, resolveDate } from './metricsViewerLogic'
 
 jest.mock('products/metrics/frontend/generated/api', () => ({
     ...jest.requireActual('products/metrics/frontend/generated/api'),
@@ -264,6 +266,20 @@ describe('metricsViewerLogic', () => {
         logic.actions.fetchAnomaly({})
         await new Promise((resolve) => setTimeout(resolve, 310))
         expect(firstSignal?.aborted).toBe(true)
+    })
+
+    it('hides the anomaly badge silently when characterize fails', async () => {
+        jest.mocked(metricsCharacterizeCreate).mockRejectedValue({ status: 500, detail: 'boom' })
+        const toastSpy = jest.spyOn(lemonToast, 'error')
+        logic.actions.setMetricName('requests_total')
+
+        await expectLogic(logic, () => {
+            logic.actions.fetchAnomaly({})
+        }).toDispatchActions(['fetchAnomalySuccess'])
+
+        expect(logic.values.anomalyReport).toBeNull()
+        expect(toastSpy).not.toHaveBeenCalled()
+        toastSpy.mockRestore()
     })
 
     it('names a formula insight after the formula and its inputs', async () => {
@@ -718,5 +734,26 @@ describe('metricsViewerLogic', () => {
 
         expect(insightsApi.create).not.toHaveBeenCalled()
         expect(logic.values.pendingAddToDashboard).toBe(false)
+    })
+
+    it.each([
+        ['UTC', '2026-06-15T10:00:00.000Z'],
+        ['Europe/Zurich', '2026-06-15T08:00:00.000Z'],
+        ['America/New_York', '2026-06-15T14:00:00.000Z'],
+    ])('resolves a custom date in the project timezone %s', (timezone, expected) => {
+        expect(resolveDate('2026-06-15T10:00:00', timezone)).toBe(expected)
+    })
+
+    it.each([
+        ['UTC', '2026-06-08T00:00:00.000Z'],
+        ['Europe/Zurich', '2026-06-07T22:00:00.000Z'],
+        ['America/New_York', '2026-06-08T04:00:00.000Z'],
+    ])('resolves a relative date from midnight in the project timezone %s', (timezone, expected) => {
+        jest.useFakeTimers().setSystemTime(new Date('2026-06-15T10:00:00Z'))
+        try {
+            expect(resolveDate('-7d', timezone)).toBe(expected)
+        } finally {
+            jest.useRealTimers()
+        }
     })
 })

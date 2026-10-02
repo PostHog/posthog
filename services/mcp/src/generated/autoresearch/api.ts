@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 20 enabled ops
+ * PostHog API - MCP 21 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -605,6 +605,19 @@ export const AutoresearchRetrieveParams = () => zod.object({
 })
 
 /**
+ * Score the inference population using the champion model and emit autoresearch_prediction events for each scored user, and sets the pipeline's output_person_property on each scored person. In production this is triggered by the daily Temporal inference workflow.
+ * @summary Run inference (score users)
+ */
+export const AutoresearchScoreCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this autoresearch pipeline.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
  * Start an asynchronous training run for this pipeline. Creates a Task/TaskRun sandbox where the autoresearch agent iterates on features and models, and returns the run immediately with status 'running'. Poll the training run until it reaches a terminal status (completed or failed). A pipeline's first run has no champion until it completes and promotion runs; on a retrain the existing champion stays live and keeps scoring until a new one is promoted.
  * @summary Start a training run
  */
@@ -672,7 +685,7 @@ export const AutoresearchResolveTemplateCreateBody = () => zod.object({
 })
 
 /**
- * Validate a proposed pipeline's target event and population before creating it. Returns volume estimates, base rate, and any warnings. Creation does not enforce the result: 'population_too_large' and 'horizon_exceeds_lookback' mean a training run would fail, and the other 'error' codes mean the data is too thin for a reliable model. Call this before autoresearch-create.
+ * Validate a proposed pipeline's target event and population before creating it. Returns volume estimates, base rate, and any warnings. Creation does not enforce the result: 'horizon_exceeds_lookback' and an 'error' 'population_too_large' mean a run would fail, and the other 'error' codes mean the data is too thin for a reliable model. Call this before autoresearch-create.
  * @summary Validate a pipeline definition
  */
 export const AutoresearchValidateCreateParams = () => zod.object({
