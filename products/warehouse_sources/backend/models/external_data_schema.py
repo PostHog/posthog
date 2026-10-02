@@ -1747,6 +1747,70 @@ def get_schemas_for_direct_reconciliation(
     return DirectSchemaReconciliation(active_schemas=active, stale_schemas=stale)
 
 
+# A discovered schema can carry a stable identifier for its upstream resource under this key in its
+# `schema_metadata`. A source sets it when the resource keeps its identity through an upstream rename (a
+# Google Sheets worksheet keeps its sheet id when its title changes). Reconciliation then keeps the
+# stored schema, its table and its sync settings across the rename instead of disabling the schema and
+# offering the new name as a separate one.
+SCHEMA_RESOURCE_ID_METADATA_KEY = "source_resource_id"
+
+
+def _resource_id(metadata: object) -> str | None:
+    if isinstance(metadata, dict) and metadata.get(SCHEMA_RESOURCE_ID_METADATA_KEY) is not None:
+        return str(metadata[SCHEMA_RESOURCE_ID_METADATA_KEY])
+    return None
+
+
+def _renamed_schema_names(
+    old_schemas: list["ExternalDataSchema"],
+    new_schema_names: list[str],
+    schema_metadata_by_name: dict[str, dict],
+) -> dict[str, str]:
+    """Map each discovered name that is a renamed stored schema to that schema's stored name.
+
+    A stored name that discovery still reports keeps its own row, even when another discovered name
+    carries its resource id. That happens when a resource is renamed and a new one takes the old name,
+    and the name then wins, so the stored row follows the resource that has its name.
+    """
+    stored_names = {schema.name for schema in old_schemas}
+    discovered_names = set(new_schema_names)
+    stored_name_by_resource_id: dict[str, str] = {}
+    for schema in old_schemas:
+        resource_id = _resource_id(schema.schema_metadata)
+        if resource_id is not None:
+            stored_name_by_resource_id[resource_id] = schema.name
+
+    renames: dict[str, str] = {}
+    for new_name in new_schema_names:
+        if new_name in stored_names:
+            continue
+        resource_id = _resource_id(schema_metadata_by_name.get(new_name))
+        stored_name = stored_name_by_resource_id.get(resource_id) if resource_id is not None else None
+        if stored_name is not None and stored_name not in discovered_names:
+            renames[new_name] = stored_name
+    return renames
+
+
+def _store_discovered_resource_ids(
+    old_schemas: list["ExternalDataSchema"], schema_metadata_by_name: dict[str, dict]
+) -> None:
+    # Schemas stored before their source reported resource ids learn them here, the first time
+    # discovery still finds them under their stored name. Only the id key is written, because other
+    # metadata keys can mean something different on rows that predate them.
+    for schema in old_schemas:
+        discovered_id = _resource_id(schema_metadata_by_name.get(schema.name))
+        if discovered_id is None or _resource_id(schema.schema_metadata) == discovered_id:
+            continue
+        config = schema.sync_type_config or {}
+        metadata = config.get("schema_metadata")
+        metadata = metadata if isinstance(metadata, dict) else {}
+        schema.sync_type_config = {
+            **config,
+            "schema_metadata": {**metadata, SCHEMA_RESOURCE_ID_METADATA_KEY: discovered_id},
+        }
+        schema.save(update_fields=["sync_type_config", "updated_at"])
+
+
 def _update_labels(old_schemas: list["ExternalDataSchema"], new_schemas: dict[str, str | None]) -> None:
     for schema in old_schemas:
         new_label = new_schemas.get(schema.name)
@@ -1803,6 +1867,19 @@ def sync_old_schemas_with_new_schemas(
 ) -> SchemaSyncResult:
     old_schemas = get_all_schemas_for_source_id(source_id=source_id, team_id=team_id)
     old_schemas_names = [schema.name for schema in old_schemas]
+
+    if schema_metadata_by_name:
+        # Discovery reports a renamed resource under its new name. Name it as the stored schema from
+        # here on, so the matching below keeps that row and refreshes its label to the new name.
+        renames = _renamed_schema_names(old_schemas, list(new_schemas), schema_metadata_by_name)
+        if renames:
+            new_schemas = {renames.get(name, name): label for name, label in new_schemas.items()}
+            if descriptions:
+                descriptions = {renames.get(name, name): value for name, value in descriptions.items()}
+            schema_metadata_by_name = {
+                renames.get(name, name): metadata for name, metadata in schema_metadata_by_name.items()
+            }
+        _store_discovered_resource_ids(old_schemas, schema_metadata_by_name)
 
     if descriptions:
         for old_schema in old_schemas:

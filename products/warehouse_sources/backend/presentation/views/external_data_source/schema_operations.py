@@ -299,7 +299,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                 strict_name_match=namespaced_adapter is not None and namespaced_adapter.uses_strict_schema_name_match,
                 schema_metadata_by_name=namespaced_adapter.schema_metadata_by_name(schemas)
                 if namespaced_adapter is not None
-                else None,
+                else {name_substitutions.get(s.name, s.name): s.schema_metadata for s in schemas if s.schema_metadata},
             )
             # Mutable local: engine reconciliation below may extend the deleted set.
             schemas_deleted = sync_result.deleted
