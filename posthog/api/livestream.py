@@ -13,7 +13,7 @@ from rest_framework.views import APIView
 from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models import OrganizationMembership, Team, User
 from posthog.models.activity_logging.utils import ActivityCredentialMixin
-from posthog.permissions import ActiveOrganizationPermission
+from posthog.permissions import ActiveOrganizationPermission, VerifiedDomainEnforcementPermission
 from posthog.user_permissions import UserPermissions
 
 
@@ -52,10 +52,15 @@ class LivestreamOrganizationPermission(ActiveOrganizationPermission):
         return self._admits(cast(Team, request.auth).organization)
 
 
+class LivestreamVerifiedDomainPermission(VerifiedDomainEnforcementPermission):
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        return self._admits(request, cast(Team, request.auth).organization)
+
+
 @extend_schema(exclude=True)
 class LivestreamAuthorizationView(APIView):
     authentication_classes = [LivestreamAuthentication]
-    permission_classes = [IsAuthenticated, LivestreamOrganizationPermission]
+    permission_classes = [IsAuthenticated, LivestreamOrganizationPermission, LivestreamVerifiedDomainPermission]
 
     def get(self, request: Request) -> Response:
         level = UserPermissions(cast(User, request.user)).team(cast(Team, request.auth)).effective_membership_level

@@ -2,11 +2,13 @@ from datetime import timedelta
 
 from posthog.test.base import APIBaseTest
 
+from django.utils import timezone
+
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
 from posthog.jwt import PosthogJwtAudience, encode_jwt
-from posthog.models import OrganizationMembership
+from posthog.models import OrganizationDomain, OrganizationMembership
 
 from products.access_control.backend.models.access_control import AccessControl
 
@@ -33,6 +35,7 @@ class TestLivestreamAuthorization(APIBaseTest):
             ("inactive_organization", 403),
             ("organization_with_unknown_active_state", 403),
             ("organization_pending_deletion", 403),
+            ("unverified_email_domain", 403),
         ]
     )
     def test_rechecks_current_access(self, revoked: str, expected_status: int) -> None:
@@ -63,9 +66,15 @@ class TestLivestreamAuthorization(APIBaseTest):
         elif revoked == "organization_with_unknown_active_state":
             self.organization.is_active = None
             self.organization.save(update_fields=["is_active"])
-        else:
+        elif revoked == "organization_pending_deletion":
             self.organization.is_pending_deletion = True
             self.organization.save(update_fields=["is_pending_deletion"])
+        else:
+            OrganizationDomain.objects.create(
+                domain="example.com", organization=self.organization, verified_at=timezone.now()
+            )
+            self.organization.enforce_verified_domains = True
+            self.organization.save(update_fields=["enforce_verified_domains"])
 
         self.assertEqual(
             self.client.get("/api/livestream/authorize/", HTTP_AUTHORIZATION=authorization).status_code, expected_status
