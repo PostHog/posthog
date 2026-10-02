@@ -1241,6 +1241,52 @@ describe('sqlEditorLogic', () => {
             })
         })
 
+        it('opens the insight when Monaco loads after the URL handler stops waiting for it', async () => {
+            jest.useFakeTimers()
+            try {
+                logic = sqlEditorLogic({ tabId: TAB_ID })
+                logic.mount()
+
+                router.actions.push(urls.sqlEditor(), { open_insight: MOCK_INSIGHT_SHORT_ID })
+                await jest.advanceTimersByTimeAsync(11_000)
+                await expectLogic(logic).toNotHaveDispatchedActions(['editInsight'])
+            } finally {
+                jest.useRealTimers()
+            }
+
+            sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+
+            await expectLogic(logic)
+                .toDispatchActions(['editInsight', 'createTab', 'updateTab'])
+                .toMatchValues({
+                    editingInsight: partial({
+                        short_id: MOCK_INSIGHT_SHORT_ID,
+                    }),
+                })
+        })
+
+        it('does not open an older URL target over a newer one when Monaco loads between their timeouts', async () => {
+            jest.useFakeTimers()
+            try {
+                logic = sqlEditorLogic({ tabId: TAB_ID })
+                logic.mount()
+
+                router.actions.push(urls.sqlEditor(), { open_insight: MOCK_INSIGHT_SHORT_ID })
+                await jest.advanceTimersByTimeAsync(5_000)
+                router.actions.push(urls.sqlEditor(), { open_query: 'SELECT 2' })
+                await jest.advanceTimersByTimeAsync(6_000)
+
+                sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+                await jest.advanceTimersByTimeAsync(1_000)
+            } finally {
+                jest.useRealTimers()
+            }
+
+            await expectLogic(logic).toNotHaveDispatchedActions(['editInsight']).toMatchValues({
+                queryInput: 'SELECT 2',
+            })
+        })
+
         it('preserves editingInsight when reopening after starting from a new SQL tab', async () => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
