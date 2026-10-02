@@ -186,16 +186,19 @@ function toolOutput(content: unknown, rawOutput: unknown): string {
 const plural = (count: number, noun: string): string =>
   `${count} ${noun}${count === 1 ? "" : "s"}`;
 
-// What each tool's calls count as: a verb and the noun it counts.
-function phraseOf(title: string): [string, string] {
+// What each tool's calls count as, a verb and the noun it counts, and what a call in flight is doing.
+function phraseOf(title: string): [string, string, string] {
   const name = title.toLowerCase();
-  if (name === "bash") return ["ran", "shell command"];
-  if (name === "read") return ["read", "file"];
-  if (name === "edit" || name === "write") return ["edited", "file"];
+  if (name === "bash") return ["ran", "shell command", "Running"];
+  if (name === "read") return ["read", "file", "Reading"];
+  if (name === "edit" || name === "write") return ["edited", "file", "Editing"];
   if (name === "grep" || name === "find" || name === "ls")
-    return ["searched", "time"];
-  return [`called ${name.includes("posthog") ? "PostHog" : name}`, "time"];
+    return ["searched", "time", "Searching"];
+  const label = name.includes("posthog") ? "PostHog" : name;
+  return [`called ${label}`, "time", `Calling ${label}`];
 }
+
+export const activityOf = (title: string): string => phraseOf(title)[2];
 
 // How a run of tool calls reads collapsed, like "Ran 5 shell commands · read 2 files".
 export function toolSummary(tools: ToolLine[]): string {
