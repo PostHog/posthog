@@ -123,7 +123,7 @@ def _head_commit_query(runs_table: str) -> str:
 
 def build_query(
     *,
-    jobs_table: str,
+    jobs_table: workflow_jobs.JobsTable,
     runs_table: str,
     pull_requests_table: str | None = None,
     head_commit_runs_table: str | None = None,

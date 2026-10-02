@@ -40,6 +40,9 @@ export const HELPER_GATEWAY_MODEL = "claude-haiku-4-5";
 
 const FREE_TIER_GATEWAY_MODEL = "@cf/zai-org/glm-5.2";
 
+// The Messages API requires max_tokens; the Go gateway forwards the body as sent.
+const HELPER_DEFAULT_MAX_TOKENS = 4096;
+
 type GoRoute = Extract<GatewayRoute, { mode: "go" }>;
 
 export function desktopUsageUrl(apiHost: string, projectId: number): string {
@@ -255,11 +258,8 @@ export class LlmGatewayService {
       model,
       messages: messages.map((m) => ({ role: m.role, content: m.content })),
       stream: false,
+      max_tokens: maxTokens ?? HELPER_DEFAULT_MAX_TOKENS,
     };
-
-    if (maxTokens !== undefined) {
-      requestBody.max_tokens = maxTokens;
-    }
 
     if (system) {
       requestBody.system = system;

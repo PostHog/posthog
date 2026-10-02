@@ -192,3 +192,20 @@ REPLAY_VISION_BENCHMARK_PREFIX = os.getenv("REPLAY_VISION_BENCHMARK_PREFIX", "re
 # The labeling suite's benchmark export API (MLHog labeling/replay/EXPORT.md), and a read-scoped `lbl_` token for it.
 REPLAY_VISION_BENCHMARK_LABELING_URL = os.getenv("REPLAY_VISION_BENCHMARK_LABELING_URL", "")
 REPLAY_VISION_BENCHMARK_LABELING_TOKEN = os.getenv("REPLAY_VISION_BENCHMARK_LABELING_TOKEN", "")
+
+# Data deletion staging (posthog/dags/data_deletion_requests.py). Property removal copies each
+# shard's cleaned rows here before it deletes the originals, so between the delete and the reingest
+# these objects are the only copy of those rows. Only the ClickHouse cluster reads and writes them,
+# through `s3(...)`: the cleaned data files and the small per-step progress files alike. The Dagster
+# process never calls S3 for this flow. Nothing deletes the objects, so infra must expire them
+# through the bucket lifecycle policy.
+DATA_DELETION_STAGING_S3_BUCKET = os.getenv("DATA_DELETION_STAGING_S3_BUCKET") or OBJECT_STORAGE_BUCKET
+DATA_DELETION_STAGING_S3_PREFIX = os.getenv("DATA_DELETION_STAGING_S3_PREFIX", "data_deletion_staging")
+DATA_DELETION_STAGING_S3_REGION = os.getenv("DATA_DELETION_STAGING_S3_REGION") or OBJECT_STORAGE_REGION
+# Must be an endpoint the ClickHouse cluster can reach; see the IDENTITY_MATCHING_S3_ENDPOINT note above.
+if TEST or DEBUG:
+    DATA_DELETION_STAGING_S3_ENDPOINT: Optional[str] = (
+        os.getenv("DATA_DELETION_STAGING_S3_ENDPOINT", "http://objectstorage:19000") or None
+    )
+else:
+    DATA_DELETION_STAGING_S3_ENDPOINT = os.getenv("DATA_DELETION_STAGING_S3_ENDPOINT", "") or None

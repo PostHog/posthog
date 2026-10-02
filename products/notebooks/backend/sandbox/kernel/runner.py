@@ -58,6 +58,24 @@ def request_interrupt(run_id: str) -> bool:
     return True
 
 
+def complete_code(payload: dict[str, Any]) -> dict[str, Any]:
+    """Handle a /complete: completions from the live kernel's namespace."""
+    from . import executor  # noqa: PLC0415 — keeps jupyter_client off the server import path
+
+    return executor.get_executor().complete(str(payload.get("code") or ""), int(payload.get("cursor_pos") or 0))
+
+
+def inspect_code(payload: dict[str, Any]) -> dict[str, Any]:
+    """Handle an /inspect: the signature and docstring of the name under the cursor."""
+    from . import executor  # noqa: PLC0415 — keeps jupyter_client off the server import path
+
+    return executor.get_executor().inspect(
+        str(payload.get("code") or ""),
+        int(payload.get("cursor_pos") or 0),
+        int(payload.get("detail_level") or 0),
+    )
+
+
 def execute_run(payload: dict[str, Any]) -> None:
     """Entry point for a /run request, invoked on a background thread.
 

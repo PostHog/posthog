@@ -86,6 +86,7 @@ export function TodayListAppearanceDialog(): JSX.Element {
                                     to={urls.ai()}
                                     active={false}
                                     dataAttr="today-list-appearance-preview-row"
+                                    weight="regular"
                                     details={listItemDetails(
                                         {
                                             ...values,

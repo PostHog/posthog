@@ -1,4 +1,5 @@
 import { IngestionLane } from '~/ingestion/config'
+import { FlagEvaluationsMode } from '~/types'
 
 import { FlagEvaluationsEnvConfig, createFlagEvaluationsService } from './flag-evaluations-service'
 
@@ -14,6 +15,7 @@ describe('FlagEvaluationsService', () => {
         INGESTION_FLAG_EVALUATIONS_MODE: mode,
         INGESTION_FLAG_EVALUATIONS_TEAMS: teams,
         INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS: excludedTeams,
+        INGESTION_FLAG_EVALUATIONS_ONLY_DISABLED: false,
         INGESTION_OUTPUT_FLAG_EVALUATIONS_TOPIC: topic,
     })
 
@@ -51,5 +53,24 @@ describe('FlagEvaluationsService', () => {
 
             expect(service?.isEnabledForTeam(teamId)).toBe(expected)
         })
+    })
+
+    describe('stopsEventsWritesFor', () => {
+        it.each([
+            [false, true],
+            [true, false],
+        ])(
+            'INGESTION_FLAG_EVALUATIONS_ONLY_DISABLED=%s -> %s for a FLAG_EVALUATIONS_ONLY team',
+            (onlyDisabled, expected) => {
+                const service = createFlagEvaluationsService({
+                    ...envConfig('dual_write'),
+                    INGESTION_FLAG_EVALUATIONS_ONLY_DISABLED: onlyDisabled,
+                })
+
+                expect(
+                    service?.stopsEventsWritesFor({ flag_evaluations_mode: FlagEvaluationsMode.FlagEvaluationsOnly })
+                ).toBe(expected)
+            }
+        )
     })
 })

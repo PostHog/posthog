@@ -234,7 +234,8 @@ export interface editorSceneLogicMeta {
         updateInsightButtonEnabled: (
             sourceQuery: DataVisualizationNode,
             activeTab: QueryTab | null,
-            editingInsight: InsightModel<import('~/queries/schema/schema-general').Node<Record<string, any>>> | null
+            editingInsight: InsightModel<import('~/queries/schema/schema-general').Node<Record<string, any>>> | null,
+            queryInput: string | null
         ) => boolean
     }
 }
@@ -519,11 +520,12 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             },
         ],
         updateInsightButtonEnabled: [
-            (s) => [s.sourceQuery, s.activeTab, s.editingInsight],
+            (s) => [s.sourceQuery, s.activeTab, s.editingInsight, s.queryInput],
             (
                 sourceQuery: DataVisualizationNode,
                 activeTab: null | import('./sqlEditorLogic').QueryTab,
-                editingInsight: null | import('~/types').InsightModel
+                editingInsight: null | import('~/types').InsightModel,
+                queryInput: string | null
             ) => {
                 if (!editingInsight?.query) {
                     return false
@@ -531,7 +533,10 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
 
                 const updatedName = activeTab?.name !== editingInsight.name
                 const updatedDescription = (activeTab?.description ?? '') !== (editingInsight.description ?? '')
-                const sourceQueryWithoutUndefinedAndNullKeys = removeUndefinedAndNull(sourceQuery)
+                const sourceQueryWithoutUndefinedAndNullKeys = removeUndefinedAndNull({
+                    ...sourceQuery,
+                    source: { ...sourceQuery.source, query: queryInput ?? sourceQuery.source.query },
+                })
                 // Normalize so DataTableNode-based insights don't look "changed" immediately after load.
                 const editingInsightQuery = toDataVisualizationNode(editingInsight.query) ?? editingInsight.query
 
