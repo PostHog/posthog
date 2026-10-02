@@ -52,8 +52,9 @@ FEATURE_FLAG_LAST_CALLED_AT_SYNC_MAX_LOOKBACK_HOURS: int = max(
     get_from_env("FEATURE_FLAG_LAST_CALLED_AT_SYNC_MAX_LOOKBACK_HOURS", 6, type_cast=int),
 )
 # Use "flag_evaluations" only where every analytics ingestion lane forks every team's flag calls into that table.
-# A lane forks only when its deployment config sets the fork's mode and topic. Calls ingested on a lane without
-# them do not move last_called_at with this source.
+# A lane forks only when its deployment config sets INGESTION_FLAG_EVALUATIONS_MODE and
+# INGESTION_OUTPUT_FLAG_EVALUATIONS_TOPIC. Calls ingested on a lane without them do not move last_called_at with
+# this source.
 # The fork also skips a call dated past the table's TTL and leaves it only in events. An imported call that old
 # does not move last_called_at with this source, even when every lane forks.
 # Disabling the fork also stops last_called_at with this source, and the checkpoint keeps moving past the missed
