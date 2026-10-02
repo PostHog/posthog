@@ -95,12 +95,13 @@ def create_check(
 
     stored_config = _stored_config(report, kind, config)
 
-    now = timezone.now()
-
     with transaction.atomic():
         locked_report = SignalReport.objects.select_for_update().filter(id=report.id, team_id=report.team_id).first()
         if locked_report is None:
             raise CheckCreationError("The report this check belongs to is gone.")
+        # Read after the lock: a monitoring entry that held it set a later `monitoring_started_at`,
+        # and a measurement start before it would leave this check out of the period.
+        now = timezone.now()
         if soak_minutes is None:
             assert next_run_at is not None
             soak_minutes = soak_minutes_from_gap(next_run_at, now)

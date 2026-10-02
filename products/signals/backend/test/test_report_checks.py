@@ -2105,6 +2105,33 @@ class TestPendingChecks(APIBaseTest):
         check.refresh_from_db()
         assert check.measurement_start_at == anchor
 
+    def test_a_check_written_behind_monitoring_entry_measures_from_the_new_period(self) -> None:
+        lock = SignalReport.objects.select_for_update
+
+        def enter_monitoring_while_waiting(*args, **kwargs):
+            clock.shift(timedelta(seconds=1))
+            SignalReport.objects.filter(id=self.report.id).update(
+                status=SignalReport.Status.MONITORING, monitoring_started_at=timezone.now()
+            )
+            return lock(*args, **kwargs)
+
+        with (
+            time_machine.travel(timezone.now(), tick=False) as clock,
+            patch.object(SignalReport.objects, "select_for_update", side_effect=enter_monitoring_while_waiting),
+        ):
+            check = create_check(
+                report=self.report,
+                title="Verify the fix",
+                kind=SignalReportCheck.Kind.AGENT,
+                config={"instructions": "Verify the fix."},
+                attribution=ArtefactAttribution.system(),
+                soak_minutes=0,
+            )
+
+        self.report.refresh_from_db()
+        assert check.status == SignalReportCheck.Status.ACTIVE
+        assert check.measurement_start_at == self.report.monitoring_started_at
+
     def test_a_pending_check_is_never_due_while_its_report_is_unresolved(self) -> None:
         self._pending()
 
