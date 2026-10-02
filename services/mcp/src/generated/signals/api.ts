@@ -570,8 +570,6 @@ export const signalsReportChecksReplaceCreateBodyRationaleMax = 2000
 
 export const signalsReportChecksReplaceCreateBodyConfigOneUnitOneMax = 40
 
-export const signalsReportChecksReplaceCreateBodySoakHoursMax = 720
-
 export const SignalsReportChecksReplaceCreateBody = () => zod.object({
     title: zod.string().max(signalsReportChecksReplaceCreateBodyTitleMax).describe('Label for the new metric check.'),
     rationale: zod
@@ -648,14 +646,6 @@ export const SignalsReportChecksReplaceCreateBody = () => zod.object({
             "A deterministic check: measure one number, compare it, record the verdict.\n\nThe number comes either from a metric the report already shows (``metric_id``) or from a query\nthe author supplies. Both end up in the same runner, so a supplied query must satisfy the live\nmetric contract — the node allowlist, the bounded window, and the single-output-series rule.\n\nA caller names one source. When it names a metric, the create path copies that metric's query\ninto ``query`` before the row is stored, so the check keeps measuring what its author saw even if\nthe report's metric is later rewritten under the same id; ``metric_id`` stays as provenance.\n\nUnknown keys are refused rather than ignored, so a misspelled field name is reported instead of\nbeing dropped in silence and stored as it arrived."
         )
         .describe('Metric threshold configuration, including a bounded query and comparison.'),
-    soak_hours: zod
-        .number()
-        .min(1)
-        .max(signalsReportChecksReplaceCreateBodySoakHoursMax)
-        .optional()
-        .describe(
-            "Minimum hours after resolution before the replacement runs; metric checks also wait for a full query window. Defaults to the old check's soak."
-        ),
 })
 
 /**

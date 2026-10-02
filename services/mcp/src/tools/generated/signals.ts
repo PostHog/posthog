@@ -252,9 +252,6 @@ const inboxReportChecksReplace = (): ToolBase<
         if (params.config !== undefined) {
             body['config'] = params.config
         }
-        if (params.soak_hours !== undefined) {
-            body['soak_hours'] = params.soak_hours
-        }
         const result = await context.api.request<Schemas.SignalReportCheck>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.report_id))}/checks/${encodeURIComponent(String(params.id))}/replace/`,

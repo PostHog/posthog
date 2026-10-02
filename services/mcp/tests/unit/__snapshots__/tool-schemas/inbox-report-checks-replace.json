@@ -145,12 +145,6 @@
         "report_id": {
             "type": "string"
         },
-        "soak_hours": {
-            "description": "Minimum hours after resolution before the replacement runs; metric checks also wait for a full query window. Defaults to the old check's soak.",
-            "maximum": 720,
-            "minimum": 1,
-            "type": "number"
-        },
         "title": {
             "description": "Label for the new metric check.",
             "maxLength": 200,

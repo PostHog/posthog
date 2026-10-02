@@ -12,6 +12,8 @@ from django.utils import timezone
 from parameterized import parameterized
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import status
+from rest_framework.request import Request
+from rest_framework.test import APIRequestFactory, force_authenticate
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.constants import AvailableFeature
@@ -44,6 +46,7 @@ from products.signals.backend.report_check_authoring import (
     arm_pending_checks,
     create_check,
     create_checks_from_specs,
+    replace_metric_check,
 )
 from products.signals.backend.report_check_execution import (
     CHECK_ERROR_RETRY_AFTER,
@@ -81,6 +84,8 @@ from products.signals.backend.report_checks import (
     parse_check_config,
     validate_metric_check_for_write,
 )
+from products.signals.backend.report_merge import merge_reports
+from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
 from products.signals.backend.report_metric_refresh import MetricMeasurement
 from products.signals.backend.scout_harness.tools.checks import (
     InvalidCheckResultError,
@@ -1015,7 +1020,6 @@ class TestReportCheckAPI(APIBaseTest):
             {
                 "title": "Checkout errors stay below 5",
                 "config": {"query": _PAGEVIEWS, "comparison": {"operator": "lte", "value": 5}},
-                "soak_hours": 72,
             },
             format="json",
         )
@@ -1025,31 +1029,65 @@ class TestReportCheckAPI(APIBaseTest):
         assert check.status == SignalReportCheck.Status.CANCELLED
         assert replacement.status == SignalReportCheck.Status.ACTIVE
         assert replacement.approved_at is None
-        assert replacement.soak_minutes == 72 * 60
+        assert replacement.soak_minutes == check.soak_minutes
+
+    def test_replacement_keeps_a_check_moved_by_a_report_merge(self) -> None:
+        SignalReport.objects.filter(id=self.report.id).update(status=SignalReport.Status.READY)
+        self.report.refresh_from_db()
+        check = self._create()
+        survivor = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="Surviving fix")
+        merge_reports(
+            team=self.team,
+            survivor=survivor,
+            source_ids=[str(self.report.id)],
+            attribution=ArtefactAttribution.from_user(self.user.id),
+        )
+        original_state = SignalReportCheck.objects.for_team(self.team.id).filter(id=check.id).values().get()
+        log_count = SignalReportArtefact.objects.filter(report_id__in=[self.report.id, survivor.id]).count()
+        request = APIRequestFactory().post(self.url)
+        force_authenticate(request, user=self.user)
+
+        with self.assertRaisesRegex(CheckCreationError, "moved to another report"):
+            replace_metric_check(
+                check=check,
+                title="Revised goal",
+                rationale="",
+                config=_threshold_config(),
+                attribution=ArtefactAttribution.from_user(self.user.id),
+                access_policy=ReportMetricAccessPolicy(request=Request(request), team=self.team),
+            )
+
+        assert SignalReportCheck.objects.for_team(self.team.id).filter(id=check.id).values().get() == original_state
+        assert original_state["report_id"] == survivor.id
+        assert not SignalReportCheck.objects.for_team(self.team.id).filter(report=self.report).exists()
+        assert SignalReportArtefact.objects.filter(report_id__in=[self.report.id, survivor.id]).count() == log_count
 
     @parameterized.expand(
         [
-            ("minute_precision_soak", "-30d", None, MIN_CHECK_INTERVAL_MINUTES, 3, True),
-            ("zero_soak", "-7d", None, MIN_CHECK_INTERVAL_MINUTES, 3, True, 0),
-            ("longer_query_window", "-40d", None, 30 * 24 * 60, 3, False),
-            ("ten_weekly_runs", "-28d", None, 7 * 24 * 60, 10, False),
-            ("longer_soak", "-7d", 28 * 24, 35 * 24 * 60, 3, False),
-            ("last_run_at_expiry", "-7d", 30 * 24, 30 * 24 * 60, 3, False),
-            ("fits_near_horizon", "-7d", 29 * 24, 30 * 24 * 60, 3, True),
+            ("minute_precision_soak", "-30d", MIN_CHECK_INTERVAL_MINUTES, 3, True),
+            ("zero_soak", "-7d", MIN_CHECK_INTERVAL_MINUTES, 3, True, 0),
+            ("longer_query_window", "-40d", 30 * 24 * 60, 3, False),
+            ("ten_weekly_runs", "-28d", 7 * 24 * 60, 10, False),
+            ("long_existing_soak", "-7d", 35 * 24 * 60, 3, False, 28 * 24 * 60),
+            ("last_run_at_expiry", "-7d", 30 * 24 * 60, 3, False, 30 * 24 * 60),
+            ("fits_near_horizon", "-7d", 30 * 24 * 60, 3, True, 29 * 24 * 60),
+            ("pending_longer_query", "-40d", 30 * 24 * 60, 3, False, 1450, SignalReport.Status.READY),
         ]
     )
     def test_replacement_preserves_only_recurring_schedules_that_fit(
         self,
         _name: str,
         date_from: str,
-        soak_hours: int | None,
         interval: int,
         runs: int,
         fits: bool,
         stored_soak: int = 1450,
+        report_status: str = SignalReport.Status.RESOLVED,
     ) -> None:
         now = datetime(2026, 10, 2, 12, tzinfo=UTC)
         with time_machine.travel(now, tick=False):
+            SignalReport.objects.filter(id=self.report.id).update(status=report_status)
+            self.report.refresh_from_db()
             check = self._create(
                 config=_threshold_config(
                     query=trends_metric_query(series=[{"kind": "EventsNode", "event": "$pageview"}], date_from="-7d")
@@ -1061,6 +1099,7 @@ class TestReportCheckAPI(APIBaseTest):
                 soak_minutes=stored_soak, approved_at=now, approved_by=self.user
             )
             check.refresh_from_db()
+            original_status = check.status
             original_state = (check.next_run_at, check.expires_at, check.measurement_start_at, check.updated_at)
             log_count = SignalReportArtefact.objects.filter(report=self.report).count()
             config = _threshold_config(
@@ -1068,14 +1107,12 @@ class TestReportCheckAPI(APIBaseTest):
                 comparison={"operator": "lte", "value": 5},
             )
             payload: dict[str, object] = {"title": "Revised goal", "config": config}
-            if soak_hours is not None:
-                payload["soak_hours"] = soak_hours
             response = self.client.post(f"{self.url}{check.id}/replace/", payload, format="json")
         check.refresh_from_db()
         if not fits:
             assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
             assert "90-day horizon" in response.json()["error"]
-            assert check.status == SignalReportCheck.Status.ACTIVE
+            assert check.status == original_status
             assert check.approved_at == now
             assert check.approved_by_id == self.user.id
             assert (check.next_run_at, check.expires_at, check.measurement_start_at, check.updated_at) == original_state
@@ -1087,7 +1124,7 @@ class TestReportCheckAPI(APIBaseTest):
             assert response.status_code == status.HTTP_200_OK, response.json()
             replacement = SignalReportCheck.objects.for_team(self.team.id).get(id=response.json()["id"])
             assert check.status == SignalReportCheck.Status.CANCELLED
-            assert replacement.soak_minutes == (soak_hours * 60 if soak_hours is not None else stored_soak)
+            assert replacement.soak_minutes == stored_soak
             assert replacement.run_interval_minutes == interval
             assert replacement.runs_remaining == runs
             assert replacement.approved_at is None
@@ -1954,18 +1991,34 @@ class TestPendingChecks(APIBaseTest):
         assert agent.next_run_at == resolved_at + timedelta(days=1)
         assert agent.measurement_start_at is None
 
-    def test_query_window_longer_than_the_horizon_is_rejected_before_resolution(self) -> None:
+    @parameterized.expand(
+        [
+            ("long_query_window", "-365d", 60, None, 1),
+            ("long_recurring_schedule", "-40d", 60, 30 * 24 * 60, 3),
+            ("long_soak", "-7d", 28 * 24 * 60, 35 * 24 * 60, 3),
+        ]
+    )
+    def test_measurement_schedule_outside_the_horizon_is_rejected_before_resolution(
+        self, _name: str, date_from: str, soak_minutes: int, interval: int | None, runs: int
+    ) -> None:
+        log_count = SignalReportArtefact.objects.filter(report=self.report).count()
         with self.assertRaisesRegex(CheckCreationError, "90-day horizon"):
             create_check(
                 report=self.report,
-                title="Yearly metric",
+                title="Unreachable metric",
                 kind="metric_threshold",
                 config=_threshold_config(
-                    query=trends_metric_query(series=[{"kind": "EventsNode", "event": "$pageview"}], date_from="-365d")
+                    query=trends_metric_query(
+                        series=[{"kind": "EventsNode", "event": "$pageview"}], date_from=date_from
+                    )
                 ),
                 attribution=ArtefactAttribution.system(),
-                soak_minutes=60,
+                soak_minutes=soak_minutes,
+                run_interval_minutes=interval,
+                runs_remaining=runs,
             )
+        assert not SignalReportCheck.objects.for_team(self.team.id).filter(report=self.report).exists()
+        assert SignalReportArtefact.objects.filter(report=self.report).count() == log_count
 
     def test_invalid_legacy_config_does_not_prevent_other_checks_from_arming(self) -> None:
         invalid = self._pending()

@@ -94250,12 +94250,6 @@ export namespace Schemas {
       rationale?: string;
       /** Metric threshold configuration, including a bounded query and comparison. */
       config: MetricThresholdConfig;
-      /**
-         * Minimum hours after resolution before the replacement runs; metric checks also wait for a full query window. Defaults to the old check's soak.
-         * @minimum 1
-         * @maximum 720
-         */
-      soak_hours?: number;
     }
 
     export interface SignalReportClaim {

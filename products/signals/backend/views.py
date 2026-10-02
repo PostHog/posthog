@@ -4904,7 +4904,6 @@ class SignalReportCheckViewSet(
                 title=data["title"],
                 rationale=data.get("rationale", ""),
                 config=data["config"],
-                soak_hours=data.get("soak_hours"),
                 attribution=resolve_request_attribution(request, self.team.id),
                 access_policy=ReportMetricAccessPolicy(request=request, team=self.team),
             )

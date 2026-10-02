@@ -99,11 +99,23 @@ def create_check(
         locked_report = SignalReport.objects.select_for_update().filter(id=report.id, team_id=report.team_id).first()
         if locked_report is None:
             raise CheckCreationError("The report this check belongs to is gone.")
+        if soak_minutes is None:
+            assert next_run_at is not None
+            soak_minutes = soak_minutes_from_gap(next_run_at, now)
+        first_run_at = (
+            next_run_at
+            if next_run_at is not None and locked_report.status == SignalReport.Status.RESOLVED
+            else now + timedelta(minutes=soak_minutes)
+        )
         metric_ready_at = None
         if kind == SignalReportCheck.Kind.METRIC_THRESHOLD:
             metric_ready_at = metric_check_ready_at(stored_config["query"], locked_report.team, now)
-            if metric_ready_at >= now + MAX_CHECK_HORIZON:
-                raise CheckCreationError("The full measurement window must fit within the check's 90-day horizon.")
+            first_run_at = max(first_run_at, metric_ready_at)
+            last_run_at = first_run_at + timedelta(minutes=(run_interval_minutes or 0) * max(0, runs_remaining - 1))
+            if last_run_at >= now + MAX_CHECK_HORIZON:
+                raise CheckCreationError(
+                    "The remaining runs must fit within the check's 90-day horizon. Use a shorter query window."
+                )
         open_checks = SignalReportCheck.objects.for_team(locked_report.team_id).filter(
             report_id=locked_report.id, status__in=SignalReportCheck.OPEN_STATUSES
         )
@@ -111,13 +123,8 @@ def create_check(
             raise CheckCreationError(f"A report may carry at most {MAX_ACTIVE_CHECKS_PER_REPORT} active checks.")
         if locked_report.status == SignalReport.Status.RESOLVED:
             status = SignalReportCheck.Status.ACTIVE
-            if next_run_at is None:
-                assert soak_minutes is not None
-                next_run_at = now + timedelta(minutes=soak_minutes)
-            if soak_minutes is None:
-                soak_minutes = soak_minutes_from_gap(next_run_at, now)
+            next_run_at = first_run_at
             if metric_ready_at is not None:
-                next_run_at = max(next_run_at, metric_ready_at)
                 if expires_at is not None and expires_at <= next_run_at:
                     raise CheckCreationError("The expiry must allow a full post-resolution measurement window.")
             if expires_at is None:
@@ -129,9 +136,6 @@ def create_check(
                 )
         else:
             status = SignalReportCheck.Status.PENDING
-            if soak_minutes is None:
-                assert next_run_at is not None
-                soak_minutes = soak_minutes_from_gap(next_run_at, now)
             # Provisional, and rewritten at arm time. The horizon is real though: a report that
             # never resolves retires its pending checks rather than holding them forever.
             next_run_at = now + timedelta(minutes=soak_minutes)
@@ -298,7 +302,6 @@ def replace_metric_check(
     title: str,
     rationale: str,
     config: dict,
-    soak_hours: int | None,
     attribution: ArtefactAttribution,
     access_policy: ReportMetricAccessPolicy,
 ) -> SignalReportCheck:
@@ -308,28 +311,11 @@ def replace_metric_check(
     with transaction.atomic():
         report = SignalReport.objects.select_for_update().get(id=check.report_id, team_id=check.team_id)
         locked = SignalReportCheck.objects.for_team(check.team_id).select_for_update().get(id=check.id)
+        if locked.report_id != report.id:
+            raise CheckCreationError("This check moved to another report. Reload the report before replacing it.")
         stored_config = _stored_config(report, SignalReportCheck.Kind.METRIC_THRESHOLD, config)
         if not access_policy.may_read_query(stored_config):
             raise CheckQueryAccessError("The measurement query is not available to you.")
-        soak_minutes = (
-            soak_hours * 60
-            if soak_hours is not None
-            else locked.soak_minutes
-            if locked.soak_minutes is not None
-            else DEFAULT_CHECK_SOAK_HOURS * 60
-        )
-        now = timezone.now()
-        first_run_at = max(
-            now + timedelta(minutes=soak_minutes),
-            metric_check_ready_at(stored_config["query"], report.team, now),
-        )
-        last_run_at = first_run_at + timedelta(
-            minutes=(locked.run_interval_minutes or 0) * max(0, locked.runs_remaining - 1)
-        )
-        if last_run_at >= now + MAX_CHECK_HORIZON:
-            raise CheckCreationError(
-                "The remaining runs must fit within the check's 90-day horizon. Use a shorter query window or soak."
-            )
         if not cancel_check(locked, reason="replaced_by_request", attribution=attribution):
             raise CheckCreationError("This check has already finished. Review its result before adding another.")
         return create_check(
@@ -339,7 +325,7 @@ def replace_metric_check(
             kind=SignalReportCheck.Kind.METRIC_THRESHOLD,
             config=config,
             attribution=attribution,
-            soak_minutes=soak_minutes,
+            soak_minutes=locked.soak_minutes if locked.soak_minutes is not None else DEFAULT_CHECK_SOAK_HOURS * 60,
             run_interval_minutes=locked.run_interval_minutes,
             runs_remaining=locked.runs_remaining,
         )

@@ -37,10 +37,8 @@ from products.signals.backend.report_checks import (
     MAX_CHECK_INTERVAL_MINUTES,
     MAX_CHECK_RATIONALE_LENGTH,
     MAX_CHECK_RUNS,
-    MAX_CHECK_SOAK_HOURS,
     MAX_CHECK_TITLE_LENGTH,
     MIN_CHECK_INTERVAL_MINUTES,
-    MIN_CHECK_SOAK_HOURS,
     CheckConfigValidationError,
     MetricThresholdConfig,
     parse_check_config,
@@ -1992,12 +1990,6 @@ class SignalReportCheckReplacementSerializer(serializers.Serializer):
     )
     config = MetricThresholdCheckConfigField(
         help_text="Metric threshold configuration, including a bounded query and comparison."
-    )
-    soak_hours = serializers.IntegerField(
-        required=False,
-        min_value=MIN_CHECK_SOAK_HOURS,
-        max_value=MAX_CHECK_SOAK_HOURS,
-        help_text="Minimum hours after resolution before the replacement runs; metric checks also wait for a full query window. Defaults to the old check's soak.",
     )
 
     def validate_config(self, value: dict) -> dict:
