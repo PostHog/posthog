@@ -15,6 +15,7 @@ import { initKeaTests } from '~/test/init'
 import { ModelAccessEnumApi, TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { attachedContextLogic, runStreamLogic } from '../../api/logics'
+import { agentPreferencesLogic } from '../../logics/agentPreferencesLogic'
 import { codexBillingLogic } from '../../logics/codexBillingLogic'
 import { composerAttachmentsLogic } from '../../logics/composerAttachmentsLogic'
 import { composerOverrideLogic } from '../../logics/composerOverrideLogic'
@@ -432,6 +433,59 @@ describe('taskTrackerSceneLogic', () => {
         expect(createBody).toMatchObject({ description: 'do the thing' })
         expect(runBody).toMatchObject({ pending_user_message: 'do the thing' })
         expect(logic.values.newTaskData.description).toBe('')
+    })
+
+    describe('task defaults', () => {
+        const mockTaskDefaults = (): void => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/tasks/@me/agent_preferences/': {
+                        start_in_plan_mode: true,
+                        auto_publish_cloud_runs: true,
+                    },
+                },
+            })
+        }
+
+        it.each([
+            ['on', true, 'plan', true],
+            ['off', false, 'auto', undefined],
+        ])(
+            'applies the stored defaults to a new task with today-rail-nav %s',
+            async (_state, flagOn, expectedMode, expectedAutoPublish) => {
+                mockTaskDefaults()
+                featureFlagLogic.mount()
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TODAY_RAIL_NAV], {
+                    [FEATURE_FLAGS.TODAY_RAIL_NAV]: flagOn,
+                })
+                logic.mount()
+                await expectLogic(agentPreferencesLogic).toFinishAllListeners()
+                logic.actions.setNewTaskData({ description: 'do the thing' })
+                logic.actions.submitNewTask()
+
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(runBody?.initial_permission_mode).toBe(expectedMode)
+                expect(runBody?.auto_publish).toBe(expectedAutoPublish)
+                expect(createBody?.auto_publish).toBe(expectedAutoPublish)
+            }
+        )
+
+        it('keeps a mode the person picked over the plan mode default', async () => {
+            mockTaskDefaults()
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TODAY_RAIL_NAV], {
+                [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+            })
+            logic.mount()
+            logic.actions.setNewTaskData({ description: 'do the thing', permissionMode: 'default' })
+            await expectLogic(agentPreferencesLogic).toFinishAllListeners()
+            logic.actions.submitNewTask()
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(runBody?.initial_permission_mode).toBe('default')
+        })
     })
 
     // A warm sandbox is adopted inside `tasks/create`, which returns the activated Run as `latest_run`.
