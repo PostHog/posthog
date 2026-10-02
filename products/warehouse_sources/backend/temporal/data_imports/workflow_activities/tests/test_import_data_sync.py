@@ -1016,8 +1016,8 @@ async def test_future_stored_cursor_is_capped_and_saved() -> None:
         await import_data_activity_sync(_inputs_no_reset())
 
     _, source_inputs = source.source_for_pipeline.call_args.args
-    assert source_inputs.db_incremental_field_last_value == datetime(2026, 6, 15)
-    schema.update_incremental_field_value.assert_called_once_with(datetime(2026, 6, 15))
+    assert source_inputs.db_incremental_field_last_value == datetime(2026, 6, 14, 12, 0)
+    schema.update_incremental_field_value.assert_called_once_with(datetime(2026, 6, 14, 12, 0))
 
 
 @pytest.mark.asyncio

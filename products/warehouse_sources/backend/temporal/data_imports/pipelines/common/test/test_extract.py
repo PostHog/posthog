@@ -83,28 +83,38 @@ class TestShouldCheckShutdown:
 
 class TestUpdateIncrementalFieldValues:
     _CEILING = datetime(2026, 6, 15, 12, 0, tzinfo=UTC)
+    _EARLY_CEILING = datetime(2026, 6, 15, 6, 0, tzinfo=UTC)
 
     @parameterized.expand(
         [
-            ("future_aware", IncrementalFieldType.Timestamp, datetime(2027, 7, 30, tzinfo=UTC), _CEILING),
-            ("future_naive", IncrementalFieldType.Timestamp, datetime(2027, 7, 30), datetime(2026, 6, 15, 12, 0)),
+            ("future_aware", IncrementalFieldType.Timestamp, datetime(2027, 7, 30, tzinfo=UTC), _CEILING, _CEILING),
+            (
+                "future_naive_capped_behind_utc",
+                IncrementalFieldType.Timestamp,
+                datetime(2027, 7, 30),
+                _CEILING,
+                datetime(2026, 6, 15, 0, 0),
+            ),
             (
                 "within_tolerance",
                 IncrementalFieldType.Timestamp,
                 datetime(2026, 6, 16, 1, 0),
+                _CEILING,
                 datetime(2026, 6, 16, 1, 0),
             ),
             (
                 "past",
                 IncrementalFieldType.Timestamp,
                 datetime(2026, 1, 1, tzinfo=UTC),
+                _CEILING,
                 datetime(2026, 1, 1, tzinfo=UTC),
             ),
-            ("future_date", IncrementalFieldType.Date, date(2027, 7, 30), date(2026, 6, 15)),
-            ("integer", IncrementalFieldType.Integer, 10**12, 10**12),
+            ("future_date", IncrementalFieldType.Date, date(2027, 7, 30), _CEILING, date(2026, 6, 15)),
+            ("future_date_behind_utc", IncrementalFieldType.Date, date(2027, 7, 30), _EARLY_CEILING, date(2026, 6, 14)),
+            ("integer", IncrementalFieldType.Integer, 10**12, _CEILING, 10**12),
         ]
     )
-    def test_saves_batch_max_capped_at_ceiling(self, _name, field_type, batch_max, expected) -> None:
+    def test_saves_batch_max_capped_at_ceiling(self, _name, field_type, batch_max, ceiling, expected) -> None:
         schema = MagicMock()
         schema.should_use_incremental_field = True
         schema.incremental_field_type = field_type
@@ -123,7 +133,7 @@ class TestUpdateIncrementalFieldValues:
                 None,
                 None,
                 logger,
-                cursor_ceiling=self._CEILING,
+                cursor_ceiling=ceiling,
             )
 
         assert result.last_value == expected

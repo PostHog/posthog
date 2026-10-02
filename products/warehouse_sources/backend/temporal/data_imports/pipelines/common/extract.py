@@ -726,10 +726,13 @@ def cleanup_memory(pa_memory_pool: pa.MemoryPool, py_table: pa.Table | None = No
 
 # A naive cursor can hold the source database's local time, which runs up to 14 hours ahead of UTC.
 FUTURE_INCREMENTAL_VALUE_TOLERANCE = timedelta(days=1)
+# Local time also runs up to 12 hours behind UTC. A naive cap this far behind the UTC ceiling is never
+# ahead of the source's own clock, so it cannot skip rows that the source writes after the sync.
+NAIVE_INCREMENTAL_CAP_OFFSET = timedelta(hours=12)
 
 
 def cap_future_incremental_value(value: Any, ceiling: datetime) -> Any:
-    """Cap a date or datetime cursor that is far ahead of `ceiling` at `ceiling`.
+    """Cap a date or datetime cursor that is far ahead of `ceiling`.
 
     The source query asks only for rows after the cursor, so one future-dated row would stop
     every later sync. Other value types stay unchanged.
@@ -738,14 +741,14 @@ def cap_future_incremental_value(value: Any, ceiling: datetime) -> Any:
         aware = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
         if aware <= ceiling + FUTURE_INCREMENTAL_VALUE_TOLERANCE:
             return value
-        return (
-            ceiling.astimezone(value.tzinfo)
-            if value.tzinfo is not None
-            else ceiling.astimezone(UTC).replace(tzinfo=None)
-        )
+        if value.tzinfo is not None:
+            return ceiling.astimezone(value.tzinfo)
+        return (ceiling - NAIVE_INCREMENTAL_CAP_OFFSET).astimezone(UTC).replace(tzinfo=None)
     if isinstance(value, date):
         ceiling_date = ceiling.astimezone(UTC).date()
-        return ceiling_date if value > ceiling_date + FUTURE_INCREMENTAL_VALUE_TOLERANCE else value
+        if value <= ceiling_date + FUTURE_INCREMENTAL_VALUE_TOLERANCE:
+            return value
+        return (ceiling - NAIVE_INCREMENTAL_CAP_OFFSET).astimezone(UTC).date()
     return value
 
 
