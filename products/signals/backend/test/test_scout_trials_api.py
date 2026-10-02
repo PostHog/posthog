@@ -4,7 +4,7 @@ import json
 from datetime import timedelta
 from types import SimpleNamespace
 from typing import Literal, cast
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, PropertyMock, patch
@@ -30,6 +30,8 @@ from products.signals.backend.models import (
 from products.signals.backend.scout_harness.model_selection import ScoutModel
 from products.signals.backend.scout_harness.run_gates import check_fleet_gates
 from products.signals.backend.scout_harness.tools.scratchpad import ScratchpadEntry
+from products.signals.backend.scout_harness.trial_comparison import dispatch_trial_comparison
+from products.signals.backend.scout_harness.trial_evaluation import TrialEvaluationError
 from products.signals.backend.scout_harness.trial_launch import (
     ScoutTrialLaunchError,
     ScoutTrialsDisabled,
@@ -280,7 +282,7 @@ class TestScoutTrialLaunch(APIBaseTest):
             raise object_storage.ObjectStorageError("Object already exists")
         self.documents[key] = content
 
-    def _internal_scout_base(self) -> str:
+    def _internal_scout_base(self, *, real_fleet_gates: bool = False) -> str:
         if self.team.id != 2:
             self.team = Team.objects.create(id=2, organization=self.organization, name="Internal example")
             self.skill.team = self.team
@@ -294,6 +296,8 @@ class TestScoutTrialLaunch(APIBaseTest):
             for function in (
                 ("check_fleet_gates", "check_spend_gates") if module != "trial_views" else ("withheld_skills_for_team",)
             ):
+                if function == "check_fleet_gates" and real_fleet_gates:
+                    continue
                 gate_patch = patch(
                     f"products.signals.backend.scout_harness.{module}.{function}",
                     return_value=set() if function == "withheld_skills_for_team" else None,
@@ -815,11 +819,20 @@ class TestScoutTrialLaunch(APIBaseTest):
             assert self.client.post(f"{base}trial_evaluation/", invalid, format="json").status_code == 400
             dispatch.assert_not_called()
 
-    @parameterized.expand([2, 20])
+    @parameterized.expand([(2, 0), (2, 2), (2, 4), (20, 0)])
     def test_comparison_freezes_the_plan_before_dispatch_and_restores_without_browser_state(
-        self, variant_count: int
+        self, variant_count: int, started_count: int
     ) -> None:
-        base = self._internal_scout_base()
+        base = self._internal_scout_base(real_fleet_gates=True)
+        self.enterContext(
+            patch(
+                "products.signals.backend.scout_harness.team_limits.posthoganalytics.get_feature_flag_payload",
+                return_value={
+                    "guaranteed_team_ids": [self.team.id],
+                    "default_team_config": {"max_runs_per_day": variant_count * 2},
+                },
+            )
+        )
         variant_id = str(uuid4())
         comparison_id = str(uuid4())
         variants: list[dict[str, object]] = [
@@ -897,6 +910,9 @@ class TestScoutTrialLaunch(APIBaseTest):
         assert (
             len({json.loads(value)["context_id"] for key, value in self.documents.items() if "/launches/" in key}) == 1
         )
+        launch_ids = [launch_id for variant in variants for launch_id in cast(list[str], variant["launch_ids"])]
+        for launch_id in launch_ids[:started_count]:
+            _make_run(self.team, metadata={"scout_trial": {"version": 1, "launch_id": launch_id}})
         self.config.rubrics = {}
         self.config.save(update_fields=["rubrics"])
         with patch(f"{module}.start_trial_comparison", return_value="synthetic-workflow") as dispatch:
@@ -925,6 +941,73 @@ class TestScoutTrialLaunch(APIBaseTest):
             )
             assert self.client.post(f"{base}trial_comparison/", payload, format="json").status_code == 400
             assert dispatch.call_count == 2
+
+    @parameterized.expand([("over_budget", 2, 400), ("exact_fit", 3, 202)])
+    def test_comparison_checks_the_whole_batch_against_remaining_budget(
+        self, _name: str, daily_budget: int, expected_status: int
+    ) -> None:
+        base = self._internal_scout_base(real_fleet_gates=True)
+        _make_run(self.team)
+        self.config.rubrics = {
+            "revision": 1,
+            "criteria": [criterion.model_dump(mode="json") for criterion in default_criteria()],
+            "reference_context": _reference_context(
+                skill_id=str(self.skill.id), skill_name=self.skill.name, instructions=self.skill.body
+            ).model_dump(mode="json"),
+            "reference_generation_id": str(uuid4()),
+        }
+        self.config.save(update_fields=["rubrics"])
+        variant_id = str(uuid4())
+        payload = {
+            "comparison_id": str(uuid4()),
+            "baseline_variant_id": variant_id,
+            "variants": [
+                {
+                    "id": variant_id,
+                    "label": "Baseline",
+                    "launch_ids": [str(uuid4()), str(uuid4())],
+                    "model": "gpt-5.5",
+                    "reasoning_effort": "medium",
+                }
+            ],
+        }
+        with (
+            patch(
+                "products.signals.backend.scout_harness.team_limits.posthoganalytics.get_feature_flag_payload",
+                return_value={
+                    "guaranteed_team_ids": [self.team.id],
+                    "default_team_config": {"max_runs_per_day": daily_budget},
+                },
+            ),
+            patch(
+                "products.signals.backend.temporal.agentic.scout_trial_comparison.start_trial_comparison",
+                return_value="synthetic-workflow",
+            ) as dispatch,
+        ):
+            response = self.client.post(f"{base}trial_comparison/", payload, format="json")
+            assert response.status_code == expected_status, response.data
+            if expected_status == 400:
+                assert "daily scout run budget" in str(response.data)
+                dispatch.assert_not_called()
+                assert not self.documents
+            else:
+                dispatch.assert_called_once()
+                _make_run(self.team)
+                resumed = self.client.post(
+                    f"{base}trial_comparison_resume/", {"comparison_id": payload["comparison_id"]}, format="json"
+                )
+                assert resumed.status_code == 400, resumed.data
+                dispatch.assert_called_once()
+                with (
+                    patch("products.signals.backend.scout_harness.trial_comparison.sync_connect") as connect,
+                    patch(
+                        "products.signals.backend.temporal.agentic.scout_scheduler.start_trial_signals_scout_run"
+                    ) as start_run,
+                    self.assertRaisesMessage(TrialEvaluationError, "needs 2 scout runs"),
+                ):
+                    dispatch_trial_comparison(self.team.id, UUID(str(payload["comparison_id"])))
+                connect.assert_not_called()
+                start_run.assert_not_called()
 
     @parameterized.expand(["rubric", "model", "effort", "writes", "nonstaff", "invalid_id", "stale_version"])
     def test_comparison_rejects_unusable_setup_before_any_run_dispatch(self, invalid: str) -> None:

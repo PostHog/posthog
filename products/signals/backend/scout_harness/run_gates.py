@@ -65,7 +65,9 @@ class ScoutRunRejection:
     detail: str
 
 
-def check_fleet_gates(team_id: int, *, check_run_budget: bool = True) -> ScoutRunRejection | None:
+def check_fleet_gates(
+    team_id: int, *, check_run_budget: bool = True, requested_runs: int = 1
+) -> ScoutRunRejection | None:
     """The fleet-level controls the scheduled coordinator enforces, applied to an off-schedule run.
 
     Reads the `signals-scout` flag payload once, the same snapshot the coordinator plans off, for
@@ -84,18 +86,23 @@ def check_fleet_gates(team_id: int, *, check_run_budget: bool = True) -> ScoutRu
             detail="Signals scouts are not enabled for this project.",
         )
 
-    if not check_run_budget:
+    if not check_run_budget or requested_runs == 0:
         return None
 
     team_configs = _canonicalize_team_config_keys(_team_configs(payload))
     per_day = _resolve_max_runs_per_day(team_id, team_configs, _default_team_config(payload))
     if per_day is not None:
         runs_today = _runs_today_by_team({team_id}, timezone.now() - DAILY_BUDGET_WINDOW).get(team_id, 0)
-        if runs_today >= per_day:
+        if runs_today + requested_runs > per_day:
             return ScoutRunRejection(
                 kind=ScoutRunRejectionKind.THROTTLED,
                 reason="daily_run_budget",
-                detail="This project has reached its daily scout run budget. Try again later.",
+                detail=(
+                    "This project has reached its daily scout run budget. Try again later."
+                    if requested_runs == 1
+                    else f"This request needs {requested_runs} scout runs, but only {max(0, per_day - runs_today)} "
+                    "remain in the project's daily scout run budget. Try again later."
+                ),
             )
     return None
 

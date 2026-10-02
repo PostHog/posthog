@@ -45,3 +45,5 @@ Revoke or expire private tokens before rolling the gateway back to a version wit
 5. Reopen the saved trial or export its JSON report. Reading saved results makes no further model calls.
 
 The rubric stays fixed across scout edits, and saved results retain the rubric used for that trial. If a run is interrupted, reopen the existing trial before starting another paid attempt.
+
+Before dispatch, the full batch must fit the project's existing daily scout budget. Resuming counts only runs that have not already started. This is a capacity check, not a reservation: simultaneous submissions can still race, and the budget remains shared with ordinary scouts.

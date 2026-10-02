@@ -94,7 +94,9 @@ class ScoutTrialComparisonMixin:
         try:
             result = service.result(plan, inspect_workflow=False, starting=True)
             if result.status != "completed":
-                service.assert_can_start()
+                service.assert_can_start(
+                    launch_ids=[launch_id for variant in plan.request.variants for launch_id in variant.launch_ids]
+                )
                 start_trial_comparison(config.team_id, plan.comparison_id)
         except ScoutTrialLaunchError as error:
             raise exceptions.ValidationError({"detail": str(error)}) from error

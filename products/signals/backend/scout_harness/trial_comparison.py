@@ -14,7 +14,7 @@ from posthog.models import User
 from posthog.storage import object_storage
 from posthog.temporal.common.client import sync_connect
 
-from products.signals.backend.models import SignalScoutConfig
+from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.run_gates import check_fleet_gates, check_spend_gates
 from products.signals.backend.scout_harness.trial_comparison_types import (
     TrialComparisonEvaluation,
@@ -156,11 +156,20 @@ class ScoutTrialComparisons:
         service._assert_access(plan)
         return service
 
-    def assert_can_start(self, *, start_scouts: bool = True) -> None:
+    def assert_can_start(self, *, launch_ids: Sequence[UUID] = ()) -> None:
         assert_trial_environment_ready()
         assert_trial_work_enabled(self.config.team)
+        requested_ids = {str(launch_id) for launch_id in launch_ids}
+        if requested_ids:
+            # A resume must not charge runs that already started against the budget twice.
+            started_ids = (
+                SignalScoutRun.objects.for_team(self.config.team_id)
+                .filter(metadata__scout_trial__launch_id__in=requested_ids)
+                .values_list("metadata__scout_trial__launch_id", flat=True)
+            )
+            requested_ids.difference_update(started_ids)
         for rejection in (
-            check_fleet_gates(self.config.team_id, check_run_budget=start_scouts),
+            check_fleet_gates(self.config.team_id, requested_runs=len(requested_ids)),
             check_spend_gates(self.config.team, capture_analytics=False),
         ):
             if rejection is not None:
@@ -187,9 +196,11 @@ class ScoutTrialComparisons:
 
     @private_capture_context()
     def create(self, request: TrialComparisonRequest) -> TrialComparisonPlan:
-        self.assert_can_start()
         evaluation_request = comparison_evaluation_request(request)
         _validate_groups(evaluation_request)
+        self.assert_can_start(
+            launch_ids=[launch_id for variant in request.variants for launch_id in variant.launch_ids]
+        )
         labels = [variant.label.strip() for variant in request.variants]
         if any(not label for label in labels) or len(set(labels)) != len(labels):
             raise TrialEvaluationError("Give every variant a different, nonempty name.")
@@ -377,11 +388,12 @@ class _ScoutTrialRunner:
         self.client: Client | None = None
 
     def prepare(self) -> Sequence[UUID]:
-        self.service.assert_can_start()
         plan = self.service.read(self.comparison_id)
+        launch_ids = [launch_id for variant in plan.request.variants for launch_id in variant.launch_ids]
+        self.service.assert_can_start(launch_ids=launch_ids)
         save_comparison_progress(plan.team_id, self.comparison_id, TrialComparisonProgress(status="running"))
         self.client = sync_connect()
-        return [launch_id for variant in plan.request.variants for launch_id in variant.launch_ids]
+        return launch_ids
 
     def start(self, execution_id: UUID) -> None:
         from products.signals.backend.temporal.agentic.scout_scheduler import (  # noqa: PLC0415 -- avoid the workflow registry import cycle
@@ -432,7 +444,7 @@ def prepare_comparison_evaluation(team_id: int, comparison_id: UUID) -> bool:
         except TrialEvaluationNotReady:
             return False
     if read_trial_evaluation_report(snapshot) is None:
-        service.assert_can_start(start_scouts=False)
+        service.assert_can_start()
         start_trial_evaluation(team_id, comparison_id)
     save_comparison_progress(team_id, comparison_id, TrialComparisonProgress(status="judging"))
     return True
