@@ -10,6 +10,7 @@ import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { SetupTaskId } from 'lib/components/ProductSetup'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
@@ -854,6 +855,7 @@ function useOtherProductsWithTasks(
     selectedProduct: ProductKey,
     savedOnboardingTasks: Record<string, ActivationTaskStatus>
 ): ProductWithTasks[] {
+    const { featureFlags } = useValues(featureFlagLogic)
     return useMemo(() => {
         const currentCategory = productCategoryMap[selectedProduct]
 
@@ -861,7 +863,7 @@ function useOtherProductsWithTasks(
             if (productKey === selectedProduct) {
                 return false
             }
-            const tasks = getTasksForProduct(productKey)
+            const tasks = getTasksForProduct(productKey, 'all', featureFlags)
             const remainingTasks = tasks.filter((task) => {
                 const status = savedOnboardingTasks[task.id]
                 return status !== ActivationTaskStatus.COMPLETED && status !== ActivationTaskStatus.SKIPPED
@@ -869,7 +871,7 @@ function useOtherProductsWithTasks(
             return remainingTasks.length > 0
         }).map((productKey) => {
             const productConfig = getProductSetupConfig(productKey)
-            const tasks = getTasksForProduct(productKey)
+            const tasks = getTasksForProduct(productKey, 'all', featureFlags)
             const remainingCount = tasks.filter((task) => {
                 const status = savedOnboardingTasks[task.id]
                 return status !== ActivationTaskStatus.COMPLETED && status !== ActivationTaskStatus.SKIPPED
@@ -894,5 +896,5 @@ function useOtherProductsWithTasks(
             }
             return a.name.localeCompare(b.name)
         })
-    }, [selectedProduct, savedOnboardingTasks])
+    }, [selectedProduct, savedOnboardingTasks, featureFlags])
 }
