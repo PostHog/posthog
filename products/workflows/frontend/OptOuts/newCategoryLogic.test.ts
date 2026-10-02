@@ -1,3 +1,6 @@
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { initKeaTests } from '~/test/init'
 
 import { newCategoryLogic } from './newCategoryLogic'
@@ -15,13 +18,19 @@ const BILLING_RECEIPTS: MessageCategory = {
     created_by: null,
 }
 
+// A form field dispatches its name as a path array, the way kea-forms' Field does.
 function typeInto(logic: ReturnType<typeof newCategoryLogic.build>, field: 'name' | 'key', value: string): void {
-    logic.actions.setCategoryFormValue(field, value)
+    logic.actions.setCategoryFormValue([field], value)
+}
+
+function setAudienceFlag(enabled: boolean): void {
+    featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_AUDIENCE]: enabled })
 }
 
 describe('newCategoryLogic', () => {
     beforeEach(() => {
         initKeaTests()
+        setAudienceFlag(true)
     })
 
     it('slugifies the name into the key of a new topic', () => {
@@ -57,6 +66,28 @@ describe('newCategoryLogic', () => {
         typeInto(logic, 'name', 'Weekly digest')
 
         expect(logic.values.categoryForm.key).toBe('weekly-digest')
+    })
+
+    it('follows the name again once the hand-typed key is cleared', () => {
+        const logic = newCategoryLogic({})
+        logic.mount()
+        typeInto(logic, 'name', 'Product updates')
+        typeInto(logic, 'key', 'news')
+
+        typeInto(logic, 'key', '')
+        typeInto(logic, 'name', 'Weekly digest')
+
+        expect(logic.values.categoryForm.key).toBe('weekly-digest')
+    })
+
+    it('leaves the key alone while workflows-audience is off', () => {
+        setAudienceFlag(false)
+        const logic = newCategoryLogic({})
+        logic.mount()
+
+        typeInto(logic, 'name', 'Product updates')
+
+        expect(logic.values.categoryForm.key).toBe('')
     })
 
     it('never changes the key of an existing topic', () => {

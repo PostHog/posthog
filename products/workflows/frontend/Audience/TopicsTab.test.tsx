@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -13,6 +13,7 @@ import { initKeaTests } from '~/test/init'
 
 import type { MessageCategoryApi } from 'products/messaging/frontend/generated/api.schemas'
 
+import { NewCategoryButton } from '../OptOuts/NewCategoryButton'
 import { optOutCategoriesLogic } from '../OptOuts/optOutCategoriesLogic'
 import { OptOutScene } from '../OptOuts/OptOutScene'
 import { AudienceScene } from './AudienceScene'
@@ -30,7 +31,12 @@ const PRODUCT_UPDATES: MessageCategoryApi = {
 }
 
 function TopicsTabOnWorkflows(): JSX.Element {
-    return <OptOutScene />
+    return (
+        <>
+            <NewCategoryButton />
+            <OptOutScene />
+        </>
+    )
 }
 
 function TopicsTabOnAudience(): JSX.Element {
@@ -43,7 +49,7 @@ const TOPICS_TAB_BY_FLAG = [
         audience: false,
         TopicsTab: TopicsTabOnWorkflows,
         modalTitle: 'New message category',
-        shown: ['Message categories', 'Marketing opt-out list', 'Opt-out date', 'Import from Customer.io'],
+        shown: ['Message categories', 'Marketing opt-out list', 'Opt-out date', 'New category'],
         hidden: ['Topics', 'Unsubscribed from all marketing', 'Unsubscribed on', 'New topic'],
     },
     {
@@ -109,6 +115,19 @@ describe('the Topics tab', () => {
         expect(screen.getAllByText('New topic')).toHaveLength(1)
         expect(screen.queryByText('Import from Customer.io')).not.toBeInTheDocument()
         expect(screen.queryByText('Create topic')).not.toBeInTheDocument()
+    })
+
+    it('fills the key from the name typed into the new topic modal', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_AUDIENCE]: true })
+        render(<AudienceScene />)
+        await screen.findByText('Product updates')
+        act(() => optOutCategoriesLogic.actions.openNewCategoryModal())
+
+        fireEvent.change(await screen.findByPlaceholderText('e.g., Product updates'), {
+            target: { value: 'Release notes' },
+        })
+
+        expect(screen.getByPlaceholderText('e.g., product-updates')).toHaveValue('release-notes')
     })
 
     it('makes New topic the one primary action and tucks the rest into a More menu', async () => {
