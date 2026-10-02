@@ -1,4 +1,3 @@
-import dataclasses
 from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, time
 from email.utils import parsedate_to_datetime
@@ -37,7 +36,7 @@ class HarveyRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@frozen
 class HarveyResumeConfig:
     # audit_logs: last processed log ID - pagination resumes from it (`from` is exclusive)
     last_audit_log_id: str | None = None
