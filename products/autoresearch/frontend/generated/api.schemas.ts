@@ -674,6 +674,8 @@ export interface TrainingRunSummaryApi {
     recommended_next: string
     /** Agent's 1–2 sentence distillation of what this run learned. Empty if not provided. */
     distillation: string
+    /** Short id of the report notebook the agent built for this run. Empty if there is none. */
+    report_notebook_short_id?: string
 }
 
 /**
@@ -917,6 +919,8 @@ export interface CompleteTrainingRunApi {
      * @maxLength 2000
      */
     distillation?: string
+    /** Short id of the report notebook you built for this run. Stored in the run summary only if the notebook exists in this project; an unknown id is dropped and does not fail the completion. */
+    report_notebook_short_id?: string
 }
 
 export type RecordIterationApiRecipeSnapshotFeatureTransformsItem = { [key: string]: unknown }
