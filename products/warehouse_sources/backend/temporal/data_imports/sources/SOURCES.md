@@ -102,6 +102,7 @@ the row lists both.
 | aviationstack                    | HTTP                        | requests                                                        | ✅                          |
 | aviator                          | HTTP                        | requests                                                        | ✅                          |
 | awin                             | HTTP                        | requests                                                        | ✅                          |
+| aws_batch                        | HTTP                        | requests                                                        | ✅                          |
 | aws_budgets                      | HTTP                        | requests                                                        | ✅                          |
 | aws_cloudtrail                   | HTTP                        | requests                                                        | ✅                          |
 | aws_cost_anomaly_detection       | HTTP                        | requests                                                        | ✅                          |
@@ -916,7 +917,6 @@ doesn't conflict with concurrent PRs.
 - autodesk_construction_cloud
 - automox
 - aws_athena
-- aws_batch
 - aws_cloudformation
 - aws_compute_optimizer
 - aws_config

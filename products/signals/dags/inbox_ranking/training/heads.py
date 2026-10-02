@@ -8,6 +8,10 @@ must still be 0) and the snapshot `horizon_days` later (the label). The report's
 exception: it has no earlier scoring moment, so an outcome already visible there is a future
 positive for that moment rather than an outcome of an earlier one, and the label may already be 1.
 
+`action` counts intent from any surface: the inbox UI, external coding agents over MCP, the CLI,
+Slack and the desktop app. Self-driving's own `task` and `system` writes are excluded, because
+they are internal operational work and not a person acting on the report.
+
 Mirrors the workspace `heads.py` (random-dev-internal, `inbox-ranking/`). Seven heads are dense
 enough to read on the holdout. `thumbs_up` and `reviewer_fix` are the explicit human-feedback pair:
 they are rare, so they are carried for the pooled newborn grade and as scorer inputs rather than
@@ -39,8 +43,35 @@ def opened(frame: pd.DataFrame) -> pd.Series:
     return _count(frame, "open_count") > 0
 
 
+# Intent actions from the inbox UI (`Inbox report action` events).
+UI_ACTION_COLUMNS = (
+    "create_pr_click_count",
+    "implement_click_count",
+    "copy_prompt_count",
+    "discuss_count",
+    "open_pr_click_count",
+    "view_diff_count",
+    "reviewer_add_count",
+    "reviewer_remove_count",
+    "restore_count",
+)
+# Intent actions recorded server-side, so they also cover the surfaces that emit no UI event. The
+# artefact counts already exclude `task` and `system` writes (`HUMAN_ACTOR_KINDS`).
+SERVER_ACTION_COLUMNS = (
+    "claim_count",
+    "linked_pr_count",
+    "note_count",
+    "slack_discussion_count",
+    "reasoned_resolution_count",
+)
+ACTION_LABEL_COLUMNS = UI_ACTION_COLUMNS + SERVER_ACTION_COLUMNS
+
+
 def acted(frame: pd.DataFrame) -> pd.Series:
-    return (_count(frame, "create_pr_click_count") + _count(frame, "discuss_count")) > 0
+    any_action = pd.Series(False, index=frame.index)
+    for column in ACTION_LABEL_COLUMNS:
+        any_action |= _count(frame, column) > 0
+    return any_action
 
 
 def dismissed_as_wrong(frame: pd.DataFrame) -> pd.Series:
@@ -98,8 +129,18 @@ HEADS: tuple[Head, ...] = (
     # Which reports got opened by anyone? Cohort is every report: opens from a deeplink, the desktop
     # app or any other surface count, and those often have no list impression.
     Head(name="open", cohort=everyone, label=opened, horizon_days=3, min_holdout_positives=50),
-    # Of the reports users saw, which drew a create-PR click or a discuss?
-    Head(name="action", cohort=impressed, label=acted, horizon_days=7, min_holdout_positives=30),
+    # Which reports did someone act on, from any surface? The cohort is everyone, because a report
+    # worked from Slack, the desktop app or an agent was often never impressed in the cloud list.
+    # The label reads the status stream (a reasoned resolve), so it needs the provenance check.
+    Head(
+        name="action",
+        cohort=everyone,
+        label=acted,
+        horizon_days=7,
+        min_holdout_positives=30,
+        label_columns=ACTION_LABEL_COLUMNS,
+        status_labels=True,
+    ),
     # Of the reports users saw, which were dismissed as wrong / unclear / intentional - the
     # precision-failure negative. already_fixed and wontfix_irrelevant are deliberately not here.
     Head(
@@ -122,7 +163,7 @@ HEADS: tuple[Head, ...] = (
         min_holdout_positives=30,
         label_columns=("pr_merged_count",),
     ),
-    # Of the reports users saw, which drew a discuss? Overlaps the action head, which is fine - each
+    # Of the reports users saw, which drew a discuss? A subset of the action head, which is fine - each
     # head trains independently.
     Head(
         name="discuss",
