@@ -188,6 +188,7 @@ export const LoadingInsight: Story = {
     parameters: {
         pageUrl: `${urls.sqlEditor()}?open_insight=loading1`,
         testOptions: {
+            waitForLoadersToDisappear: false,
             waitForSelector: '[data-attr="hogql-query-editor"] ~ [role="status"]',
         },
         msw: {
