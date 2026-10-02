@@ -900,6 +900,25 @@ class TestUpdateReplayVisionScannerTool(BaseTest):
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
+    async def test_max_stamps_its_surface_on_the_lifecycle_events(self):
+        with patch(_REFRESH_ESTIMATE_PATH), patch("posthoganalytics.capture") as capture:
+            _, created = await self._tool(CreateReplayVisionScannerTool)._arun_impl(
+                name="from-max", prompt="Did checkout fail?"
+            )
+            await self._tool()._arun_impl(scanner_id=created["scanner_id"], enabled=True, prompt="Did it succeed?")
+
+        source_by_event = {
+            call.kwargs["event"]: call.kwargs["properties"].get("source") for call in capture.call_args_list
+        }
+        for event in (
+            "replay_vision_scanner_created",
+            "replay_vision_scanner_enabled",
+            "replay_vision_scanner_edited",
+        ):
+            assert source_by_event[event] == EventSource.POSTHOG_AI, event
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
     async def test_a_denied_experiment_refuses_config_edits_through_max(self):
         # Without an access control in the serializer context the experiment-scope write guard
         # treats the caller as unrestricted, so Max would bypass the refusal the API enforces.
