@@ -242,8 +242,15 @@ class TestQueriedAccessControlledResources(BaseTest):
         result = queried_access_controlled_resources(HogQLQuery(query="select * from my_warehouse_table"), self.team)
         assert result == {"external_data_source", "warehouse_table"}
 
-    @parameterized.expand([("raw_name", "stripe_customers"), ("prefixed_name", "stripe.myprefix.customers")])
-    def test_external_warehouse_table_matched_by_either_name(self, _name, queried_name):
+    @parameterized.expand(
+        [
+            ("raw_name", "stripe_customers", "stripe_customers"),
+            ("prefixed_name", "stripe_customers", "stripe.myprefix.customers"),
+            # Python lowercases "İ" to "i" plus a combining dot, which Postgres UPPER does not map back.
+            ("prefixed_non_ascii_name", "stripe_İnvoices", "`stripe.myprefix.i̇nvoices`"),
+        ]
+    )
+    def test_external_warehouse_table_matched_by_either_name(self, _name, table_name, queried_name):
         # External tables are queryable under BOTH their raw name and the prefixed
         # source_type.prefix.table key. A user denied the table could otherwise query the unmatched
         # form and be served an allowed user's cached rows.
@@ -255,7 +262,7 @@ class TestQueriedAccessControlledResources(BaseTest):
             source_type=ExternalDataSourceType.STRIPE,
             prefix="myprefix",
         )
-        table = self._create_warehouse_table("stripe_customers")
+        table = self._create_warehouse_table(table_name)
         table.external_data_source = source
         table.save()
 

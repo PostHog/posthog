@@ -1,4 +1,6 @@
 from dataclasses import field
+from functools import reduce
+from operator import or_
 from typing import TYPE_CHECKING, Optional
 
 from django.db.models import Q
@@ -98,12 +100,13 @@ class _WarehouseCatalog:
         if unknown_names:
             # This runs on every cache hit, so load only candidate tables, not the whole catalog. Both
             # queryable forms end with the table's name, so a suffix match finds every candidate.
-            suffix_filter = Q()
-            for name in unknown_names:
-                suffix_filter |= Q(name__iendswith=name.rsplit(".", 1)[-1])
+            # Non-ASCII names load everything: Python and Postgres case folding can disagree there.
+            suffixes = {name.rsplit(".", 1)[-1] for name in unknown_names}
+            tables = DataWarehouseTable.objects.filter(team_id=self.team_id)
+            if all(suffix.isascii() for suffix in suffixes):
+                tables = tables.filter(reduce(or_, (Q(name__iendswith=suffix) for suffix in suffixes)))
             for table in (
-                DataWarehouseTable.objects.filter(suffix_filter, team_id=self.team_id)
-                .exclude(deleted=True)
+                tables.exclude(deleted=True)
                 # clear the manager's created_by/schema eager-loads: select_related chains additively,
                 # so without this the .only() below raises FieldError (created_by deferred + traversed)
                 .select_related(None)
