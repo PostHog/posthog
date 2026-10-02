@@ -435,13 +435,13 @@ def server_action_rows(report_ids: list[str], snapshot_end: datetime.datetime) -
                 created_at__lt=snapshot_end,
             )
             .values("report_id", "type")
-            .annotate(row_count=Count("id"), first_at=Min("created_at"))
+            .annotate(row_count=Count("id"), earliest_at=Min("created_at"))
         )
         for row in artefacts.iterator(chunk_size=2000):
             count_column, first_column = _ACTION_ARTEFACT_COLUMNS[row["type"]]
             values = entry(row["report_id"])
             values[count_column] = row["row_count"]
-            values[first_column] = row["first_at"]
+            values[first_column] = row["earliest_at"]
         # One row per (report, user), so the count is the number of people who discussed it.
         discussions = (
             SignalReportAction.all_teams.filter(
@@ -450,12 +450,12 @@ def server_action_rows(report_ids: list[str], snapshot_end: datetime.datetime) -
                 first_at__lt=snapshot_end,
             )
             .values("report_id")
-            .annotate(row_count=Count("id"), first_at=Min("first_at"))
+            .annotate(row_count=Count("id"), earliest_at=Min("first_at"))
         )
         for row in discussions.iterator(chunk_size=2000):
             values = entry(row["report_id"])
             values["slack_discussion_count"] = row["row_count"]
-            values["first_slack_discussed_at"] = row["first_at"]
+            values["first_slack_discussed_at"] = row["earliest_at"]
     return [
         (report_id, *(values[column] for column in SERVER_ACTIONS_COLUMNS)) for report_id, values in entries.items()
     ]
