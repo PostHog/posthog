@@ -3720,6 +3720,8 @@ WORKFLOW_PROPOSAL_EVIDENCE_SCHEMA = {
         "string); `unit`, either `rate` or `count`, since 1.0 is either every message or one of them; "
         "`n`, the denominator that value was computed over; and `guardrails`, a list of "
         "{metric, value, n, unit} counter-metrics read over the same window, empty only if none apply. "
+        "PostHog then reads the step's own metrics at `base_version` when the suggestion is filed and stores "
+        "them under `measured`; the page shows that reading and flags a disagreement with yours. "
         "Also conventional: target_value, window, query, app_source_id. A rate with no denominator "
         "lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change "
         "that lifts one number by harming another, and a number under a key of your own reads to a "
@@ -4291,10 +4293,14 @@ def describe_version_changes(previous: dict, current: dict, proposed: Mapping) -
     return changes
 
 
-def target_metric_of(proposal: WorkflowProposal) -> str:
+def target_metric_in(evidence: Any) -> str:
     """The metric the suggestion aimed at. Anything the surfaces cannot read is measured on opens."""
-    named = (proposal.evidence or {}).get("metric") if isinstance(proposal.evidence, dict) else None
+    named = evidence.get("metric") if isinstance(evidence, dict) else None
     return named if named in TARGET_METRICS else TARGET_OPEN_METRIC
+
+
+def target_metric_of(proposal: WorkflowProposal) -> str:
+    return target_metric_in(proposal.evidence)
 
 
 def _outcome_from_totals(totals: Mapping[str, float], version: int, target: str = TARGET_OPEN_METRIC) -> dict:
@@ -6022,11 +6028,9 @@ class HogFlowViewSet(
             return Response(WorkflowProposalSerializer(retry_of).data, status=status.HTTP_200_OK)
 
         # A version the workflow has not reached names nothing, and the outcome read spans versions.
-        if params["base_version"] > (instance.version or 1):
+        if params["base_version"] > instance.version:
             raise exceptions.ValidationError(
-                {
-                    "base_version": f"This workflow is on version {instance.version or 1}, so there is nothing later to read."
-                }
+                {"base_version": f"This workflow is on version {instance.version}, so there is nothing later to read."}
             )
 
         # Reading the queue stays open while the flag is on; the workflow's opt-in only gates producing a new one.
@@ -6080,7 +6084,13 @@ class HogFlowViewSet(
                     {"step_id": "Name a step this workflow has, or one the suggestion adds."}
                 )
 
+        # The producer's numbers are its own claim; PostHog's reading of the same step and version sits beside them.
+        # `measured` is the server's word, so a producer's own copy of that key never survives a failed read.
         evidence = dict(params.get("evidence") or {})
+        evidence.pop("measured", None)
+        measured = self._measure_evidence(instance, params["base_version"], step_id, evidence)
+        if measured is not None:
+            evidence["measured"] = measured
 
         proposal = WorkflowProposal(
             hog_flow=instance,
@@ -6386,8 +6396,35 @@ class HogFlowViewSet(
             carrying.append(version)
         return carrying or [applied], None
 
+    def _measure_evidence(
+        self, hog_flow: HogFlow, base_version: int, step_id: Optional[str], evidence: dict
+    ) -> Optional[dict]:
+        """PostHog's own reading of the metrics a suggestion is about, taken when it is filed.
+
+        Same read as the outcome's "before" side, over the producer's window when it names a
+        relative one. A read that fails leaves the suggestion filed with the producer's numbers
+        only, which the page labels as unverified."""
+        window = evidence.get("window") if isinstance(evidence.get("window"), str) else None
+        if not window or not re.fullmatch(r"-\d+[dh]", window):
+            window = "-7d"
+        try:
+            after_date, _, _ = relative_date_parse_with_delta_mapping(window, self.team.timezone_info)
+            tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
+            reading = self._version_outcome(hog_flow, [base_version], after_date, step_id, target_metric_in(evidence))
+        except Exception:
+            logger.exception("workflow_proposal: could not measure evidence", extra={"hog_flow_id": str(hog_flow.id)})
+            return None
+        if reading is None:
+            return None
+        return {**reading, "window": window}
+
     def _version_outcome(
-        self, hog_flow: HogFlow, versions: Sequence[Optional[int]], after: Any, step_id: Optional[str] = None
+        self,
+        hog_flow: HogFlow,
+        versions: Sequence[Optional[int]],
+        after: Any,
+        step_id: Optional[str] = None,
+        target: str = TARGET_OPEN_METRIC,
     ) -> Optional[dict]:
         read = [version for version in versions if version is not None]
         if not read:
@@ -6412,7 +6449,7 @@ class HogFlowViewSet(
             ).totals
             for name, count in version_totals.items():
                 totals[name] = totals.get(name, 0) + count
-        return {**_outcome_from_totals(totals, read[0]), "versions": read}
+        return {**_outcome_from_totals(totals, read[0], target), "versions": read}
 
     @extend_schema(
         parameters=[

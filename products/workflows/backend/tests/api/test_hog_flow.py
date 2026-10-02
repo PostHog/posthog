@@ -5402,6 +5402,119 @@ class TestHogFlowVersionedMetrics(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "version" in str(response.json())
 
+    @parameterized.expand(
+        [
+            ("opens", "email_opened", "email open rate", 0.1),
+            ("clicks", "email_link_clicked", "click rate", 0.25),
+        ]
+    )
+    @patch("products.workflows.backend.presentation.views.hog_flow.posthoganalytics.feature_enabled", return_value=True)
+    def test_a_suggestion_carries_what_posthog_measured_next_to_what_it_claimed(
+        self, _name, named_metric, expected_label, expected_value, _mock_flag
+    ):
+        HogFlow.objects.filter(id=self.flow.id).update(
+            actions=[{"id": "email_1", "type": "function_email", "name": "Email", "config": {}}], status="active"
+        )
+        opted_in = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}/optimization", {"enabled": True}, format="json"
+        )
+        assert opted_in.status_code == 200, opted_in.json()
+        for name, count in (
+            ("email_sent", 100),
+            ("email_opened", 10),
+            ("email_link_clicked", 25),
+            ("email_bounced", 2),
+        ):
+            create_app_metric2(
+                team_id=self.team.id,
+                app_source="hog_flow_version",
+                app_source_id=f"{self.flow.id}/1",
+                instance_id="email_1",
+                metric_kind="email",
+                metric_name=name,
+                count=count,
+            )
+
+        producer_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="producer",
+            user=self.user,
+            secure_value=hash_key_value(producer_key),
+            scopes=["hog_flow:read", "hog_flow_proposal:write"],
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}/proposals/",
+            {
+                "title": "Shorten the subject",
+                "rationale": "Opens are low.",
+                "content": {"exit_condition": "exit_only_at_end"},
+                "step_id": "email_1",
+                "base_version": 1,
+                "evidence": {"metric": named_metric, "current_value": 0.5, "unit": "rate", "n": 9, "guardrails": []},
+            },
+            format="json",
+            headers={"authorization": f"Bearer {producer_key}"},
+        )
+
+        assert response.status_code == 201, response.json()
+        evidence = response.json()["evidence"]
+        assert evidence["current_value"] == 0.5
+        measured = evidence["measured"]
+        assert measured["version"] == 1
+        assert measured["target"] == {
+            "metric": expected_label,
+            "value": expected_value,
+            "n": 100,
+            "below_minimum_sample": False,
+        }
+        assert {g["metric"]: g["value"] for g in measured["guardrails"]}["bounce rate"] == 0.02
+
+    @patch("products.workflows.backend.presentation.views.hog_flow.posthoganalytics.feature_enabled", return_value=True)
+    @patch(
+        "products.workflows.backend.presentation.views.hog_flow.fetch_app_metric_totals",
+        side_effect=Exception("clickhouse is down"),
+    )
+    def test_a_producer_cannot_pass_off_its_own_numbers_as_posthogs(self, _mock_totals, _mock_flag):
+        HogFlow.objects.filter(id=self.flow.id).update(
+            actions=[{"id": "email_1", "type": "function_email", "name": "Email", "config": {}}], status="active"
+        )
+        self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}/optimization", {"enabled": True}, format="json"
+        )
+
+        # `hog_flow_proposal` is an internal scope object, so only a token carrying it can file.
+        producer_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="producer",
+            user=self.user,
+            secure_value=hash_key_value(producer_key),
+            scopes=["hog_flow:read", "hog_flow_proposal:write"],
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}/proposals/",
+            {
+                "title": "Shorten the subject",
+                "rationale": "Opens are low.",
+                "content": {"exit_condition": "exit_only_at_end"},
+                "step_id": "email_1",
+                "base_version": 1,
+                "evidence": {
+                    "metric": "email_opened",
+                    "current_value": 0.5,
+                    "unit": "rate",
+                    "n": 9,
+                    "guardrails": [],
+                    "measured": {"version": 1, "target": {"metric": "email open rate", "value": 0.9, "n": 5000}},
+                },
+            },
+            format="json",
+            headers={"authorization": f"Bearer {producer_key}"},
+        )
+
+        assert response.status_code == 201, response.json()
+        # The read failed, so the suggestion reads as unverified rather than carrying the producer's own copy.
+        assert "measured" not in response.json()["evidence"]
+
     @parameterized.expand([("metrics/totals",), ("metrics",)])
     def test_a_hog_function_still_reads_its_own_metrics(self, path: str):
         function = HogFunction.objects.create(team=self.team, name="fn", type="destination", hog="return event")
