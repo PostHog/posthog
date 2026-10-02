@@ -30,6 +30,35 @@ REBUILT_AFTER = (WORKFLOW_JOBS_SCHEMA, DEPOT_JOB_ATTEMPTS_SCHEMA)
 
 FIELDS: dict[str, FieldOrTable] = {**job_costs.BUILDER_FIELDS, **stored_view.IDENTITY_FIELDS}
 
+# The jobs builder's columns in its order, each with the stored column that holds it. The cost
+# builder renames two of them, because its own ``head_branch`` falls back to the run's.
+_JOBS_BUILDER_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("id", "id"),
+    ("run_id", "run_id"),
+    ("run_attempt", "run_attempt"),
+    ("name", "job_name"),
+    ("workflow_name", "workflow_name"),
+    ("head_sha", "head_sha"),
+    ("head_branch", "job_head_branch"),
+    ("status", "status"),
+    ("conclusion", "conclusion"),
+    ("labels", "labels"),
+    ("runner_name", "runner_name"),
+    ("created_at", "created_at"),
+    ("created_at_raw", "created_at_raw"),
+    ("started_at", "started_at"),
+    ("completed_at", "completed_at"),
+    ("duration_seconds", "duration_seconds"),
+    ("queue_seconds", "queue_seconds"),
+    ("provisioning_seconds", "provisioning_seconds"),
+    ("is_rerun_copy", "is_rerun_copy"),
+    ("ci_engine", "ci_engine"),
+    ("native_run_id", "native_run_id"),
+    ("native_workflow_run_id", "native_workflow_run_id"),
+    ("native_job_id", "native_job_id"),
+    ("native_attempt_id", "native_attempt_id"),
+)
+
 
 def build_source_query(source: JobSourceTables) -> str:
     """The view rows of one repository: the jobs created inside ``STORED_JOBS_WINDOW``."""
@@ -48,3 +77,18 @@ def build_source_query(source: JobSourceTables) -> str:
 def build_team_view(team: "Team") -> str | None:
     """The view body for a team, or None when no repository has both runs and jobs synced."""
     return stored_view.build_team_view(team, build_source_query)
+
+
+def build_jobs_read_query(rows: str) -> str:
+    """The stored ``rows`` in the shape the jobs builder returns, for a product read."""
+    columns = [
+        stored_view.stored_column(name, FIELDS[stored_as], stored_as=stored_as)
+        for name, stored_as in _JOBS_BUILDER_COLUMNS
+    ]
+    return f"SELECT {', '.join(columns)} FROM {rows}"
+
+
+def build_job_costs_read_query(rows: str) -> str:
+    """The stored ``rows`` in the shape the cost builder returns, for a product read."""
+    columns = [stored_view.stored_column(name, field) for name, field in job_costs.BUILDER_FIELDS.items()]
+    return f"SELECT {', '.join(columns)} FROM {rows}"

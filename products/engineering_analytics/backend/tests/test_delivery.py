@@ -71,6 +71,7 @@ from products.engineering_analytics.backend.tests._logic_helpers import (
     _ago_offset_with_duration,
     _dt,
     _job_row,
+    _StoredCiTablesMixin,
     _WarehouseMixin,
 )
 
@@ -1151,3 +1152,11 @@ class TestDeliveryEndpoints(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert message in response.json()["detail"]
+
+
+class TestDeliveryReadsStored(_StoredCiTablesMixin, TestDeliveryReadsOnWarehouse):
+    pass
+
+
+class TestDeliveryComparisonStored(_StoredCiTablesMixin, TestDeliveryComparisonOnWarehouse):
+    pass

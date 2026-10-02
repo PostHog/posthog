@@ -20,6 +20,7 @@ from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import Future
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from functools import partial
 from typing import TYPE_CHECKING
 
@@ -55,7 +56,10 @@ from products.engineering_analytics.backend.logic.sources import (
     resolve_trunk_merge_queue_table,
     resolve_trunk_quarantined_tests_source,
 )
+from products.engineering_analytics.backend.logic.stored_views import StoredTables, servable_tables
 from products.engineering_analytics.backend.logic.views import (
+    ci_jobs,
+    ci_runs,
     deployments,
     depot_ci,
     issue_events,
@@ -67,6 +71,12 @@ from products.engineering_analytics.backend.logic.views import (
     trunk_quarantined_tests,
     workflow_jobs,
     workflow_runs,
+)
+from products.engineering_analytics.backend.logic.views.stored_view import (
+    STORED_JOBS_WINDOW,
+    STORED_RUNS_WINDOW,
+    lowest_stored_date,
+    stored_rows,
 )
 
 if TYPE_CHECKING:
@@ -94,6 +104,47 @@ class DeploySources:
     deployments: str
     statuses: str
 
+
+@frozen
+class _FlooredCiSource:
+    """A CI source with a scan floor, which a query reads from the stored table or from the raw tables."""
+
+    token: str
+    floor_placeholder: str
+    view_name: str
+    window: timedelta
+    read_query: Callable[[str], str]
+    built_at: Callable[[StoredTables], datetime]
+
+
+_FLOORED_RUNS = _FlooredCiSource(
+    token="__FLOORED_CI_RUNS__",
+    floor_placeholder="run_started_floor",
+    view_name=ci_runs.VIEW_NAME,
+    window=STORED_RUNS_WINDOW,
+    read_query=ci_runs.build_read_query,
+    built_at=lambda stored: stored.runs_built_at,
+)
+_FLOORED_JOBS = _FlooredCiSource(
+    token="__FLOORED_CI_JOBS__",
+    floor_placeholder="job_created_floor",
+    view_name=ci_jobs.VIEW_NAME,
+    window=STORED_JOBS_WINDOW,
+    read_query=ci_jobs.build_jobs_read_query,
+    built_at=lambda stored: stored.jobs_built_at,
+)
+_FLOORED_JOB_COSTS = _FlooredCiSource(
+    token="__FLOORED_CI_JOB_COSTS__",
+    floor_placeholder="job_created_floor",
+    view_name=ci_jobs.VIEW_NAME,
+    window=STORED_JOBS_WINDOW,
+    read_query=ci_jobs.build_job_costs_read_query,
+    built_at=lambda stored: stored.jobs_built_at,
+)
+_FLOORED_SOURCES = (_FLOORED_RUNS, _FLOORED_JOBS, _FLOORED_JOB_COSTS)
+
+# Marks a read of the stored tables in the query log, next to the same read of the raw tables.
+STORED_QUERY_TYPE_SUFFIX = ".stored"
 
 _READY_BY_PR_JOIN = "LEFT JOIN ready_by_pr AS re ON re.pr_number = pr.number"
 _PUSH_RUN_PREDICATE = "pr_number > 0 AND NOT is_merge_queue"
@@ -196,6 +247,10 @@ class CuratedGitHubSource:
         self._database: Database | None = None
         # Guards the query budget, the catalog and the lazily resolved sources, which concurrent reads share.
         self._lock = threading.Lock()
+        self._stored_tables_cache: StoredTables | None = None
+        self._stored_tables_resolved = False
+        # Separate from ``_lock``: resolving the stored tables takes ``_lock`` for the catalog and Depot.
+        self._stored_tables_lock = threading.Lock()
 
     @property
     def team(self) -> Team:
@@ -242,7 +297,13 @@ class CuratedGitHubSource:
     def run_source(self, *, started_floor: bool = False) -> str:
         """Curated workflow-runs ``SELECT``, parenthesised for use as a subquery. ``started_floor``
         adds the raw-string scan floor — callers must register {run_started_floor} (see
-        run_started_floor_constant)."""
+        run_started_floor_constant).
+
+        A floored source is a stand-in until ``run`` executes the query: the floor is what tells
+        ``run`` whether the stored table holds every row the query can read."""
+        return _FLOORED_RUNS.token if started_floor else self._raw_run_source(started_floor=False)
+
+    def _raw_run_source(self, *, started_floor: bool) -> str:
         query = workflow_runs.build_query(
             self._runs_table(),
             pull_requests_table=self._tables.pull_requests,
@@ -255,12 +316,15 @@ class CuratedGitHubSource:
 
         ``created_floor`` adds the raw-string scan floor inside the builder — callers must register
         {job_created_floor} (see run_started_floor_constant). A windowed caller needs it: the builder's
-        ``is_rerun_copy`` duplicate scan reads no ``created_at_raw``, so only the floor bounds it."""
+        ``is_rerun_copy`` duplicate scan reads no ``created_at_raw``, so only the floor bounds it.
+        A floored source is a stand-in, like the floored ``run_source``."""
         if not self._tables.workflow_jobs:
             return None
-        return (
-            f"({workflow_jobs.build_query(self._jobs_table(self._tables.workflow_jobs), created_floor=created_floor)})"
-        )
+        return _FLOORED_JOBS.token if created_floor else self._raw_jobs_source(created_floor=False)
+
+    def _raw_jobs_source(self, *, created_floor: bool) -> str:
+        jobs_table = self._jobs_table(self._tables.workflow_jobs or "")
+        return f"({workflow_jobs.build_query(jobs_table, created_floor=created_floor)})"
 
     def _depot_job_attempts(self) -> depot_ci.DepotJobAttempts | None:
         """The repository's synced Depot CI job attempts, or None. Resolved lazily and cached like the
@@ -430,15 +494,90 @@ class CuratedGitHubSource:
         the run-windowed predicates every cost query uses). Every windowed caller wants it: the cost
         source's window predicates read the RUN's columns and so can never prune the jobs scan, and
         the ``is_rerun_copy`` duplicate scan would otherwise aggregate the full history on every call.
+        A floored source is a stand-in, like the floored ``run_source``.
         """
         if not self._tables.workflow_jobs:
             return None
+        return _FLOORED_JOB_COSTS.token if created_floor else self._raw_job_cost_source(created_floor=False)
+
+    def _raw_job_cost_source(self, *, created_floor: bool) -> str:
         query = job_costs.build_query(
-            jobs_table=self._jobs_table(self._tables.workflow_jobs),
+            jobs_table=self._jobs_table(self._tables.workflow_jobs or ""),
             runs_table=self._runs_table(),
             created_floor=created_floor,
         )
         return f"({query})"
+
+    def _with_raw_ci_sources(self, sql: str) -> str:
+        """``sql`` with every floored CI source read from the raw tables."""
+        raw_sources = (
+            (_FLOORED_RUNS, lambda: self._raw_run_source(started_floor=True)),
+            (_FLOORED_JOBS, lambda: self._raw_jobs_source(created_floor=True)),
+            (_FLOORED_JOB_COSTS, lambda: self._raw_job_cost_source(created_floor=True)),
+        )
+        for source, build in raw_sources:
+            if source.token in sql:
+                sql = sql.replace(source.token, build())
+        return sql
+
+    def _with_stored_ci_sources(self, sql: str, placeholders: dict[str, ast.Expr]) -> str | None:
+        """``sql`` with every floored CI source read from the stored tables, or None when the query
+        must read the raw tables.
+
+        A query takes all of its CI rows from one side. A query that also reads a raw CI table, through
+        a source with no floor, keeps every source raw, because the stored tables trail the raw ones.
+        A query whose floor is below the rows a stored table keeps reads the raw tables too.
+        """
+        sources = [source for source in _FLOORED_SOURCES if source.token in sql]
+        if not sources:
+            return None
+        stored = self._stored_tables()
+        if stored is None or any(table in sql for table in self._raw_ci_tables()):
+            return None
+        for source in sources:
+            floor = placeholders.get(source.floor_placeholder)
+            if not (isinstance(floor, ast.Constant) and isinstance(floor.value, str)):
+                return None
+            if floor.value < lowest_stored_date(source.built_at(stored), source.window):
+                return None
+            rows = stored_rows(source.view_name, source_id=self.source_id, repository=self.repository)
+            sql = sql.replace(source.token, f"({source.read_query(rows)})")
+        return sql
+
+    def _raw_ci_tables(self) -> list[str]:
+        """The raw tables that hold the repository's CI rows."""
+        depot = self._depot_job_attempts()
+        tables = [self._tables.workflow_runs, self._tables.workflow_jobs, depot.table if depot else None]
+        return [table for table in tables if table]
+
+    def _stored_tables(self) -> StoredTables | None:
+        """The stored CI tables when this handle may read them. Resolved on the first floored read and
+        kept, so every query of a request reads the same side."""
+        with self._stored_tables_lock:
+            if not self._stored_tables_resolved:
+                self._stored_tables_cache = self._resolve_stored_tables()
+                self._stored_tables_resolved = True
+            return self._stored_tables_cache
+
+    def _resolve_stored_tables(self) -> StoredTables | None:
+        # The views hold a repository only when both its runs and its jobs are synced.
+        if not self._tables.workflow_jobs:
+            return None
+        raw_tables = [*self._raw_ci_tables(), self._tables.pull_requests]
+        stored = servable_tables(
+            self._team, self._user, source_id=self.source_id, repository=self.repository, raw_tables=raw_tables
+        )
+        if stored is None or self._bypass_warehouse_access_control:
+            return stored
+        # The stored rows were built with no user. This reader takes them only when the raw read would
+        # give the same rows: the same Depot CI, and every raw table behind the stored rows allowed.
+        every_depot_table = resolve_depot_job_attempts_tables(self._team)
+        if self._depot_job_attempts() != every_depot_table.get(self.repository.casefold()):
+            return None
+        catalog = self._catalog()
+        if any(not catalog.has_table(table) or catalog.is_table_access_denied(table) for table in raw_tables):
+            return None
+        return stored
 
     def runs_cte(self) -> str:
         """CTE naming the curated workflow-runs source for ``ci_rollup``.
@@ -599,6 +738,7 @@ class CuratedGitHubSource:
         cached value is served only when this reader's catalog grants every table that query reads,
         the decision the query itself would get. A cache that fails to answer loads every key.
         """
+        sql = self._with_raw_ci_sources(sql)
         prefix = f"engineering_analytics:{self._team.pk}:{hashlib.sha256(sql.encode()).hexdigest()}"
         cache_keys = {key: f"{prefix}:{key}" for key in keys}
         cached: dict[str, V] = {}
@@ -649,12 +789,39 @@ class CuratedGitHubSource:
         ``workload`` routes the read to a non-default ClickHouse cluster (e.g. ``Workload.LOGS`` for the
         ``logs`` table). The warehouse-ACL reasoning above governs warehouse tables only and is a no-op
         for such reads — those tables carry no per-table ACL, so the ``team_id`` scope is their boundary.
+
+        A query with floored CI sources reads them from the stored tables when they hold every row it
+        can read (see ``_with_stored_ci_sources``), and from the raw tables otherwise.
         """
         with self._lock:
             if self._queries_remaining is not None:
                 if self._queries_remaining <= 0:
                     raise QueryWorkLimitExceededError
                 self._queries_remaining -= 1
+        stored_sql = self._with_stored_ci_sources(sql, placeholders or {})
+        if stored_sql is not None:
+            try:
+                return self._execute(
+                    stored_sql,
+                    query_type=f"{query_type}{STORED_QUERY_TYPE_SUFFIX}",
+                    placeholders=placeholders,
+                    workload=workload,
+                )
+            except Exception:
+                # The raw tables can answer every read, so a stored read that fails is run again on them.
+                logger.warning(
+                    "engineering_analytics_stored_read_failed",
+                    team_id=self._team.pk,
+                    query_type=query_type,
+                    exc_info=True,
+                )
+        return self._execute(
+            self._with_raw_ci_sources(sql), query_type=query_type, placeholders=placeholders, workload=workload
+        )
+
+    def _execute(
+        self, sql: str, *, query_type: str, placeholders: dict[str, ast.Expr] | None, workload: Workload
+    ) -> HogQLQueryResponse:
         uac = self._user_access_control
         user = self._user
         bypass_warehouse_access_control = self._bypass_warehouse_access_control

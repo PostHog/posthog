@@ -7,18 +7,24 @@ from types import SimpleNamespace
 from typing import Any
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import Mock, patch
 
 from django.core.cache import cache
 from django.utils import timezone
 
 import pandas as pd
 
+from posthog.hogql.database.models import BooleanDatabaseField
+
 from products.engineering_analytics.backend.logic.sources import DEPOT_JOB_ATTEMPTS_SCHEMA
+from products.engineering_analytics.backend.logic.stored_views import StoredTables
+from products.engineering_analytics.backend.logic.views import ci_jobs, ci_runs
 from products.engineering_analytics.backend.logic.views.source_schema import (
     DEPOT_JOB_ATTEMPTS_COLUMNS,
     PULL_REQUESTS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
 )
+from products.engineering_analytics.backend.logic.views.stored_view import stored_rows
 from products.engineering_analytics.backend.tests._github_fixtures import (
     GITHUB_SOURCE_PREFIX,
     _pr_row,
@@ -290,3 +296,38 @@ class _EndpointsWarehouseMixin(_WarehouseMixin):
                 ),
             ],
         )
+
+
+_CURATED = "products.engineering_analytics.backend.logic.queries._curated"
+
+
+class _StoredCiTablesMixin(_WarehouseMixin):
+    """Runs a warehouse test class with its floored CI sources read through the stored views, so every
+    assertion of the class also holds for a stored read.
+
+    Nothing is materialized. Each view is inlined with its columns coerced the way a materialized
+    table stores them: every column nullable, and a boolean as an integer.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        now = timezone.now()
+        # A stored read that fails runs again on the raw tables, which would hide the failure from the test.
+        logger = Mock()
+        logger.warning.side_effect = AssertionError("a stored read failed")
+        for patcher in (
+            patch(f"{_CURATED}.servable_tables", return_value=StoredTables(runs_built_at=now, jobs_built_at=now)),
+            patch(f"{_CURATED}.stored_rows", side_effect=self._inlined_stored_rows),
+            patch(f"{_CURATED}.logger", logger),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def _inlined_stored_rows(self, view_name: str, *, source_id: str, repository: str) -> str:
+        view = {ci_runs.VIEW_NAME: ci_runs, ci_jobs.VIEW_NAME: ci_jobs}[view_name]
+        columns = ", ".join(
+            f"toNullable({f'toInt16({name})' if isinstance(field, BooleanDatabaseField) else name}) AS {name}"
+            for name, field in view.FIELDS.items()
+        )
+        table = f"(SELECT {columns} FROM ({view.build_team_view(self.team)}))"
+        return stored_rows(table, source_id=source_id, repository=repository)

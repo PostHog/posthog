@@ -60,6 +60,9 @@ ENGINEERING_ANALYTICS_FEATURE_FLAG = "engineering-analytics"
 # Evaluated per organization, not per person: the view sync runs with no user, and a materialized view
 # spends the team's warehouse compute, so no team gets one without opting in.
 MATERIALIZED_VIEWS_FEATURE_FLAG = "engineering-analytics-friction"
+# Lets a read take the stored CI tables in place of the raw ones. Off sends every read to the raw
+# tables. It cannot create a table: the flag above decides whether the tables exist.
+STORED_READS_FEATURE_FLAG = "engineering-analytics-stored-reads"
 
 
 class CISignalsSyncStatus(StrEnum):

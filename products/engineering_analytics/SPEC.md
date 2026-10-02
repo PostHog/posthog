@@ -139,11 +139,19 @@ When the flag service gives no answer, the sync keeps the views the team already
 - A runs load rebuilds the runs view, a jobs load rebuilds the jobs view, and a Depot job-attempts load rebuilds both. Each view also joins the other raw tables, and takes those rows as of their last load. A load that lands while a rebuild runs waits for the rebuild that the next load starts.
 - A load starts a rebuild only while the product is in use: a person or an agent sent it an API request in the last hour. A rebuild costs the same whether or not anyone reads its table, so an idle product starts no rebuild. A system read, such as the signals sweep, sends no request and does not count. The first request after an idle hour starts a rebuild itself, because no load rebuilt the views in the meantime.
 - A view starts at most one rebuild in ten minutes, and a view that data_modeling suspended after repeated failures starts none. The managed-view schedule of data_modeling still rebuilds both views, in use or not.
-- They keep a rolling window, defined once in `logic/views/stored_view.py`: what a page range of 30 days needs, including the earlier CI a timeline reads and the previous period of a comparison. A rebuild reads only the rows inside the window, so its cost stays flat as the history grows.
+- They keep a rolling window, defined once in `logic/views/stored_view.py`: what a page range of 30 days needs, including the earlier CI a timeline reads and the previous period of a comparison. A rebuild reads only the rows inside the window, so its cost stays flat as the history grows. A longer range reads the raw tables.
 - `engineering_analytics_ci_runs` leaves out `stopped_reporting`. That column depends on the clock, and a stored row would keep the answer of its last rebuild. A reader derives it from `status` and `updated_at`.
 - `engineering_analytics_ci_jobs` holds every column of the cost builder: the columns of `engineering_analytics_job_costs`, the run's start time and branch, and the remaining columns of the jobs builder. One table then answers a read of job rows and a read of job costs. The public `engineering_analytics_job_costs` view does not read this table.
 - Each row carries its `source_id`, for the same reason as the friction view below, and its `repository` (`owner/name` in lower case). A job whose run row is missing has no repository columns of its own, so `repository` is how a read keeps it in the right repository.
 - A repository that two GitHub sources sync carries its Depot CI rows under each source. A read filters on one source, so they never count twice. Sum over the whole view only per `source_id`.
+- A product read takes the tables of these views only behind the `engineering-analytics-stored-reads` flag, and only when all of the following hold. Any other read takes the raw tables.
+  - Every CI source of the query carries a scan floor, and each floor is inside the rolling window. A range over 30 days therefore reads the raw tables.
+  - Both tables were built in the last 45 minutes.
+  - The views name the reader's source and repository, and the tables were built at least 30 minutes after the newest raw table of that repository first landed. A table built from an earlier view has no row for a newer source, and a read cannot tell that from a repository with no CI.
+  - The reader may read every raw table behind the stored rows, and resolves the same Depot CI. The tables are built with no user, so this keeps the per-table warehouse access of a raw read.
+- A stored read that fails runs again on the raw tables, so the tables can make a read faster and can never fail it. The failure is logged as `engineering_analytics_stored_read_failed`.
+- A stored read carries the query type of the raw read with the suffix `.stored`, so the query log separates the two.
+- A change to a builder reaches the tables on the next rebuild. Until then a stored read keeps the earlier behavior of the builder.
 
 #### `engineering_analytics_pr_friction`
 

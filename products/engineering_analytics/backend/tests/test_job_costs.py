@@ -23,7 +23,14 @@ from products.engineering_analytics.backend.logic.cost import (
     estimate_job_cost_usd,
 )
 from products.engineering_analytics.backend.logic.sources import JobSourceTables
-from products.engineering_analytics.backend.logic.views import ci_jobs, ci_runs, depot_ci, job_costs
+from products.engineering_analytics.backend.logic.views import (
+    ci_jobs,
+    ci_runs,
+    depot_ci,
+    job_costs,
+    workflow_jobs,
+    workflow_runs,
+)
 from products.engineering_analytics.backend.logic.views.source_schema import (
     WORKFLOW_JOBS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
@@ -249,6 +256,48 @@ class TestJobCostsViewParity(ClickhouseTestMixin, BaseTest):
         assert [tuple(row) for row in response.results] == [
             (run_id, source.source_id, source.repository, 1) for run_id in expected_run_ids
         ]
+
+    @parameterized.expand(
+        [
+            (
+                "runs",
+                ci_runs.build_source_query,
+                ci_runs.build_read_query,
+                lambda source: workflow_runs.build_query(source.runs_source, pull_requests_table=source.pull_requests),
+            ),
+            (
+                "jobs",
+                ci_jobs.build_source_query,
+                ci_jobs.build_jobs_read_query,
+                lambda source: workflow_jobs.build_query(source.jobs_source),
+            ),
+            (
+                "job_costs",
+                ci_jobs.build_source_query,
+                ci_jobs.build_job_costs_read_query,
+                lambda source: job_costs.build_query(jobs_table=source.jobs_source, runs_table=source.runs_source),
+            ),
+        ]
+    )
+    def test_stored_read_returns_the_columns_of_the_builder_it_stands_in_for(
+        self,
+        _name: str,
+        build_view: Callable[[JobSourceTables], str],
+        read_stored_rows: Callable[[str], str],
+        build_raw: Callable[[JobSourceTables], str],
+    ) -> None:
+        # A builder column that the stored read lacks makes every stored read of it fail. The read then
+        # runs on the raw tables, so the only symptom is a slow page.
+        source = self._source_with_runs_and_jobs([(9000, _ago(1), _ago(1))])
+
+        stored, raw = (
+            execute_hogql_query(
+                query=f"SELECT * FROM ({query})", team=self.team, query_type="engineering_analytics.test"
+            )
+            for query in (read_stored_rows(f"({build_view(source)})"), build_raw(source))
+        )
+
+        assert stored.columns == raw.columns
 
     def test_view_matches_python_cost_model(self) -> None:
         jobs_table = self._create_table(

@@ -10,11 +10,12 @@ from unittest import mock
 from parameterized import parameterized
 
 from posthog.hogql.database.database import Database
+from posthog.hogql.query import execute_hogql_query
 
 from products.engineering_analytics.backend.facade import api
 from products.engineering_analytics.backend.facade.contracts import CIEngine, DeliveryStage
 from products.engineering_analytics.backend.logic import build_workflow_health
-from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries._curated import STORED_QUERY_TYPE_SUFFIX, CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._workflow_filters import UNPAGED_SCAN_LIMIT
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_cost_per_merge_series, query_pr_cost
 from products.engineering_analytics.backend.logic.queries.workflow_flakiness import query_workflow_flakiness
@@ -36,6 +37,7 @@ from products.engineering_analytics.backend.tests._github_fixtures import (
     create_trunk_source,
 )
 from products.engineering_analytics.backend.tests._logic_helpers import (
+    _CURATED,
     _RUN_QUERY,
     _ago,
     _ago_offset_with_duration,
@@ -45,6 +47,7 @@ from products.engineering_analytics.backend.tests._logic_helpers import (
     _job_row,
     _resp,
     _seed_now,
+    _StoredCiTablesMixin,
 )
 
 
@@ -1455,3 +1458,16 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
 
         # A branch with no runs yields no rows.
         assert api.list_workflow_health(team=self.team, date_from="-30d", branch="nope") == []
+
+
+class TestWorkflowEndpointsStored(_StoredCiTablesMixin, TestWorkflowEndpointsWarehouse):
+    def test_a_floored_read_takes_the_stored_tables(self) -> None:
+        # Without this, a mixin that stopped engaging would leave every inherited test on the raw tables.
+        self._seed()
+        self._create_table("github_workflow_jobs", WORKFLOW_JOBS_COLUMNS, [_job_row(20010, 2001, "build", "failure")])
+
+        with mock.patch(f"{_CURATED}.execute_hogql_query", wraps=execute_hogql_query) as execute:
+            api.list_workflow_health(team=self.team, date_from="-30d")
+
+        query_types = [call.kwargs["query_type"] for call in execute.call_args_list]
+        assert query_types and all(query_type.endswith(STORED_QUERY_TYPE_SUFFIX) for query_type in query_types)

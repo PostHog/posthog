@@ -1,19 +1,21 @@
-"""What the stored CI views share: the window of rows they keep, and the source that each row names.
+"""What the stored CI views share: the window of rows they keep, the source that each row names, and
+how a read takes the rows back.
 
 A stored CI view is a materialized view whose rows are the output of a builder the product's reads
 use. A rebuild reads every row it stores, so its cost follows the days kept. The views keep what a
-page range of 30 days needs.
+page range of 30 days needs, and a longer range reads the raw tables.
 
 A view unions every repository of every GitHub source of the team, and a member can be denied some
-sources. So each row names the source and the repository it came from.
+sources. So each row names the source and the repository it came from, and a read takes the rows of
+the one pair it resolved.
 """
 
 from collections.abc import Callable, Iterable
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from posthog.hogql.database.models import FieldOrTable, StringDatabaseField
+from posthog.hogql.database.models import BooleanDatabaseField, DatabaseField, FieldOrTable, StringDatabaseField
 from posthog.hogql.escape_sql import escape_hogql_string
 
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
@@ -47,11 +49,19 @@ IDENTITY_FIELDS: dict[str, FieldOrTable] = {
 }
 
 
+def _source_literal(source_id: str) -> str:
+    return escape_hogql_string(str(UUID(source_id)))
+
+
+def _repository_literal(repository: str) -> str:
+    # GitHub names are case-insensitive, and a source can store them in either case.
+    return escape_hogql_string(repository.casefold())
+
+
 def identity_columns(source_id: str, repository: str) -> str:
     """The ``IDENTITY_FIELDS`` columns of a row, as SQL. ``repository`` is ``owner/name`` in lower
     case, or '' for a source that names no repository."""
-    source, repo = escape_hogql_string(str(UUID(source_id))), escape_hogql_string(repository.casefold())
-    return f"{source} AS source_id, {repo} AS repository"
+    return f"{_source_literal(source_id)} AS source_id, {_repository_literal(repository)} AS repository"
 
 
 def build_source_view(source: JobSourceTables, columns: Iterable[str], rows: str) -> str:
@@ -66,3 +76,34 @@ def build_team_view(team: "Team", build_source_query: Callable[[JobSourceTables]
     if not sources:
         return None
     return "\nUNION ALL\n".join(build_source_query(source) for source in sources)
+
+
+def lowest_stored_date(built_at: datetime, window: timedelta) -> str:
+    """The lowest date-only scan floor that a table built at ``built_at`` answers in full. The view's
+    own floor sits a day lower, which covers a rebuild that read the clock shortly before or after
+    ``built_at`` was recorded."""
+    return (built_at - window).strftime("%Y-%m-%d")
+
+
+def stored_rows(view_name: str, *, source_id: str, repository: str) -> str:
+    """The stored rows of one repository of one source, as a subquery."""
+    return (
+        f"(SELECT * FROM {view_name} WHERE source_id = {_source_literal(source_id)} "
+        f"AND repository = {_repository_literal(repository)})"
+    )
+
+
+def stored_column(name: str, field: FieldOrTable, *, stored_as: str | None = None) -> str:
+    """SQL that reads the stored column ``stored_as`` as ``name``, with the type the view declares.
+
+    A materialized table makes every column nullable and stores a boolean as an integer. A read must
+    get the builder's types back, or a predicate and an aggregate behave differently than on the raw
+    tables.
+    """
+    column = stored_as or name
+    if not isinstance(field, DatabaseField) or field.is_nullable():
+        return column if column == name else f"{column} AS {name}"
+    restored = f"assumeNotNull({column})"
+    if isinstance(field, BooleanDatabaseField):
+        restored = f"{restored} != 0"
+    return f"{restored} AS {name}"
