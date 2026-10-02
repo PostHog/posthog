@@ -145,7 +145,10 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
             const currentNodesById = new Map(currentNodes.map((node) => [node.id, node]))
             return decoratedNodes.map((node) => {
                 const currentNode = currentNodesById.get(node.id)
-                return currentNode?.measured ? { ...node, measured: currentNode.measured } : node
+                const measuredNode = currentNode?.measured ? { ...node, measured: currentNode.measured } : node
+                return currentNode?.dragging
+                    ? { ...measuredNode, position: currentNode.position, dragging: true }
+                    : measuredNode
             })
         })
     }, [decoratedNodes, setNodes])
@@ -216,7 +219,11 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
     }, [decoratedNodes, fitView, viewportInitialized, nodesMeasured, focusNodeIds, layout, props.loading])
 
     useEffect(() => {
-        if (!viewportInitialized || !nodesMeasured || !searchFocusRequest || !layout || props.loading) {
+        if (!searchFocusRequest) {
+            fittedSearchRequest.current = null
+            return
+        }
+        if (!viewportInitialized || !nodesMeasured || !layout || props.loading) {
             return
         }
         if (

@@ -337,6 +337,16 @@ export const SearchFocus: Story = {
         if (graph.querySelectorAll('.react-flow__node').length !== GRAPH_NODES.length) {
             throw new Error('Plain search must keep the rest of the graph visible')
         }
+
+        fireEvent.change(search, { target: { value: '' } })
+        await expectNodesCentered(canvasElement, 'Clearing search must fit the whole graph')
+        fireEvent.change(search, { target: { value: 'monthly' } })
+        await canvas.findByText('2 results')
+        fireEvent.keyDown(search, { key: 'ArrowDown' })
+        await canvas.findByText('monthly_recurring_revenue, result 2 of 2')
+        fireEvent.keyDown(search, { key: 'Enter' })
+        await expectNodeCentered(canvasElement, '6', 'Repeated search focus must center the requested node')
+
         const previousResult = canvas.getByLabelText('Previous result')
         previousResult.focus()
         fireEvent.click(previousResult)
