@@ -22,7 +22,7 @@ import {
     Popover,
 } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { ANY_VARIANT, variantOptions } from 'lib/components/IngestionControls/triggers/FlagTrigger/VariantSelector'
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
@@ -63,6 +63,8 @@ import {
     SurveySchedule,
     SurveyType,
 } from '~/types'
+
+import { featureFlagsRetrieve } from 'products/feature_flags/frontend/generated/api'
 
 import { SurveyBranchingFlowModal } from './branching-flow/SurveyBranchingFlowModal'
 import { SurveyPublicContentNotice } from './components/SurveyPublicContentNotice'
@@ -296,6 +298,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
         clearAiGeneratedTranslationField,
     } = useActions(surveyLogic)
     const { setPreferredEditor } = useActions(surveysLogic)
+    const mountedSurveyLogic = useMountedLogic(surveyLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const surveyTranslationsEnabled = !!featureFlags[FEATURE_FLAGS.SURVEYS_TRANSLATIONS]
     const hostedEditorEnabled = !!featureFlags[FEATURE_FLAGS.SURVEYS_HOSTED_EDITOR]
@@ -1460,13 +1463,25 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                       )
                                                                                       // Recent picks carry no filters, so fetch the full flag for the variant picker.
                                                                                       if (!flag.filters) {
-                                                                                          api.featureFlags
-                                                                                              .get(id)
+                                                                                          featureFlagsRetrieve(
+                                                                                              String(
+                                                                                                  ApiConfig.getCurrentProjectId()
+                                                                                              ),
+                                                                                              id
+                                                                                          )
                                                                                               .then((fullFlag) => {
-                                                                                                  setSurveyValue(
-                                                                                                      'linked_flag',
-                                                                                                      fullFlag
-                                                                                                  )
+                                                                                                  // Drop the response if the user picked another flag meanwhile.
+                                                                                                  if (
+                                                                                                      mountedSurveyLogic
+                                                                                                          .values.survey
+                                                                                                          .linked_flag_id ===
+                                                                                                      id
+                                                                                                  ) {
+                                                                                                      setSurveyValue(
+                                                                                                          'linked_flag',
+                                                                                                          fullFlag
+                                                                                                      )
+                                                                                                  }
                                                                                               })
                                                                                               .catch(() => {})
                                                                                       }
