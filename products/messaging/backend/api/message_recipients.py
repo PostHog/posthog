@@ -14,6 +14,7 @@ from posthog.models import User
 from products.messaging.backend.models.message_preferences import PreferenceStatus
 from products.messaging.backend.models.message_suppression import SuppressionSource
 from products.messaging.backend.services.recipients import (
+    LAST_SENT_WINDOW_DAYS,
     InvalidRecipientFilter,
     RecipientPage,
     RecipientQuery,
@@ -32,7 +33,7 @@ class RecipientListQuerySerializer(serializers.Serializer):
         help_text="Case-insensitive substring match on the email address.",
     )
     filter = serializers.ListField(
-        child=serializers.CharField(max_length=200),
+        child=serializers.CharField(max_length=200, help_text="One `facet:value` filter, or `-facet:value`."),
         required=False,
         default=list,
         help_text="Repeatable `facet:value` filter; prefix with `-` to negate. Values on one facet are OR, "
@@ -89,7 +90,8 @@ class RecipientSerializer(serializers.Serializer):
     )
     person_count = serializers.IntegerField(help_text="Number of persons whose `email` property is this address.")
     last_sent_at = serializers.DateTimeField(
-        allow_null=True, help_text="When an email was last sent to the address, within the last 30 days."
+        allow_null=True,
+        help_text=f"When an email was last sent to the address, within the last {LAST_SENT_WINDOW_DAYS} days.",
     )
     preferences_updated_at = serializers.DateTimeField(
         allow_null=True, help_text="When the address's preferences last changed, or null when none were recorded."
@@ -123,14 +125,12 @@ class MessageRecipientsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def list(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         self._require_hog_flow_viewer()
         params = request.validated_query_data
-        if "email" in params:
-            return self._single_recipient_page(request, params["email"])
         try:
+            filters = tuple(parse_recipient_filter(raw) for raw in params["filter"])
+            if "email" in params:
+                return self._single_recipient_page(request, params["email"])
             query = RecipientQuery(
-                limit=params["limit"],
-                search=params.get("search"),
-                filters=tuple(parse_recipient_filter(raw) for raw in params["filter"]),
-                cursor=params.get("cursor"),
+                limit=params["limit"], search=params.get("search"), filters=filters, cursor=params.get("cursor")
             )
             page = list_recipients(self.team, cast(User, request.user), query)
         except InvalidRecipientFilter as error:
