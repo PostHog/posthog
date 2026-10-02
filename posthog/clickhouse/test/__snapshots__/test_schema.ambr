@@ -5989,6 +5989,7 @@
       consecutive_failures UInt32,
       muted_notification LowCardinality(String),
       occurred_at DateTime64(6, 'UTC'),
+      source_kind LowCardinality(String),
       expires_at Date DEFAULT today() + toIntervalDay(90)
   )
   ENGINE = Distributed('aux', 'posthog_test', 'sharded_platform_alert_events', cityHash64(team_id))
@@ -8478,6 +8479,7 @@
       consecutive_failures UInt32,
       muted_notification LowCardinality(String),
       occurred_at DateTime64(6, 'UTC'),
+      source_kind LowCardinality(String),
       expires_at Date DEFAULT today() + toIntervalDay(90)
   )
   ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.platform_alert_events', '{replica}-{shard}')
@@ -14229,6 +14231,7 @@
       consecutive_failures UInt32,
       muted_notification LowCardinality(String),
       occurred_at DateTime64(6, 'UTC'),
+      source_kind LowCardinality(String),
       expires_at Date DEFAULT today() + toIntervalDay(90)
   )
   ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.platform_alert_events', '{replica}-{shard}')

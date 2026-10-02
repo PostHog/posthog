@@ -79,7 +79,7 @@ from posthog.temporal.warehouse_sources_queue_partition_management.schedule impo
 )
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
-from products.alerts.backend.facade.temporal import create_alerts_platform_tick_schedule
+from products.alerts_platform.backend.facade.temporal import create_alerts_platform_tick_schedule
 from products.autoresearch.backend.facade.temporal import create_autoresearch_daily_schedule
 from products.billing_alerts.backend.temporal.schedule import create_schedule_due_billing_alert_checks_schedule
 from products.business_knowledge.backend.temporal.schedule import (

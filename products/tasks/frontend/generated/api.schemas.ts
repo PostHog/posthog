@@ -1340,9 +1340,9 @@ export const SpaceSetupKindEnumApi = {
  * * `week` - Week
  * * `month` - Month
  */
-export type SpaceGoalPeriodEnumApi = (typeof SpaceGoalPeriodEnumApi)[keyof typeof SpaceGoalPeriodEnumApi]
+export type CalendarUnitEnumApi = (typeof CalendarUnitEnumApi)[keyof typeof CalendarUnitEnumApi]
 
-export const SpaceGoalPeriodEnumApi = {
+export const CalendarUnitEnumApi = {
     Day: 'day',
     Week: 'week',
     Month: 'month',
@@ -1373,7 +1373,7 @@ export interface SpaceGoalWriteApi {
      * * `day` - Day
      * * `week` - Week
      * * `month` - Month */
-    period?: SpaceGoalPeriodEnumApi
+    period?: CalendarUnitEnumApi
     /** Whether the target is a floor ('at_least') or a ceiling ('at_most').
      *
      * * `at_least` - At least

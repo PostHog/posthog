@@ -31,7 +31,7 @@ from products.alerts.backend.facade.destinations import (
     flush_alert_internal_events,
     produce_alert_internal_event,
 )
-from products.alerts.backend.facade.scheduling import is_utc_datetime_blocked, parse_blocked_windows_tuples
+from products.alerts_platform.backend.facade.scheduling import is_utc_datetime_blocked, parse_blocked_windows_tuples
 from products.replay_vision.backend.alert_state_machine import (
     AlertCheckOutcome,
     AlertState,
