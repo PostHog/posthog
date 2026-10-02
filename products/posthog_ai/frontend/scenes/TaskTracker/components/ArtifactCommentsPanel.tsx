@@ -21,12 +21,21 @@ import {
     TooltipTrigger,
 } from '@posthog/quill-primitives'
 
+import { supportsSelectionComments } from '../artifactComments'
 import { TaskArtifactCommentsLogicProps, taskArtifactCommentsLogic } from '../taskArtifactCommentsLogic'
 import { taskRunArtifactsLogic } from '../taskRunArtifactsLogic'
 import { ArtifactCommentComposer } from './ArtifactCommentComposer'
 import { ArtifactCommentThreadCard } from './ArtifactCommentThreadCard'
 
-const EMPTY_HINT = 'Comment on the whole file above.'
+function emptyHint(kind: TaskArtifactCommentsLogicProps['kind']): string {
+    if (kind === 'image') {
+        return 'Comment on the whole image above, or pin a comment to a spot on it.'
+    }
+    if (supportsSelectionComments(kind)) {
+        return 'Comment on the whole file above, or select text in the preview to comment on it.'
+    }
+    return 'Comment on the whole file above.'
+}
 
 function ThreadList({ logicProps }: { logicProps: TaskArtifactCommentsLogicProps }): JSX.Element {
     const { visibleThreads, threads, commentsLoadFailed, commentsLoading } = useValues(
@@ -76,7 +85,7 @@ function ThreadList({ logicProps }: { logicProps: TaskArtifactCommentsLogicProps
                         <IconComment />
                     </EmptyMedia>
                     <EmptyTitle>{threads.length > 0 ? 'No open comments' : 'No comments yet'}</EmptyTitle>
-                    <EmptyDescription>{EMPTY_HINT}</EmptyDescription>
+                    <EmptyDescription>{emptyHint(logicProps.kind)}</EmptyDescription>
                 </EmptyHeader>
             </Empty>
         )
