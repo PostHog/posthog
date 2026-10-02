@@ -1889,6 +1889,25 @@ class TestGitHubIntegrationModel(BaseTest):
         assert integration.repository_cache_updated_at > original_updated_at
 
     @patch("posthog.models.integration.github.GitHubIntegration.list_all_repositories")
+    def test_list_cached_repositories_tolerates_integration_deleted_during_sync(self, mock_list_all):
+        fetched_repositories = [{"id": 1, "name": "posthog", "full_name": "PostHog/posthog"}]
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+
+        def delete_then_return() -> list[dict]:
+            Integration.objects.filter(pk=integration.pk).delete()
+            return fetched_repositories
+
+        mock_list_all.side_effect = delete_then_return
+
+        repos, has_more = GitHubIntegration(integration).list_cached_repositories()
+
+        assert repos == fetched_repositories
+        assert has_more is False
+
+    @patch("posthog.models.integration.github.GitHubIntegration.list_all_repositories")
     def test_list_cached_repositories_populates_cache_on_miss(self, mock_list_all):
         fetched_repositories = [
             {"id": 1, "name": "posthog", "full_name": "PostHog/posthog"},
