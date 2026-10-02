@@ -417,6 +417,28 @@ class TestRunOnlineValidationForPipeline(TeamScopedTestMixin, BaseTest):
 
     @parameterized.expand(
         [
+            ("deadline_passed", timedelta(0), ["2026-09-01"], [date(2026, 9, 2)]),
+            ("deadline_ahead", timedelta(minutes=1), ["2026-09-01", "2026-09-02"], []),
+        ]
+    )
+    def test_a_claim_deadline_leaves_the_rest_of_the_backlog_pending(
+        self, _name, deadline_offset, validated, still_pending
+    ):
+        _inference_run(self.pipeline, self.champion, date(2026, 9, 2), rows_scored=4)
+        hogql = _fake_hogql(predictions=self._prediction_rows(4), labels=[["user-0"]])
+
+        with patch.object(online_validation, "run_hogql", hogql):
+            runs = run_online_validation_for_pipeline(
+                self.pipeline, claim_deadline=django_timezone.now() + deadline_offset
+            )
+
+        assert [(r.metrics["prediction_date"], r.status) for r in runs] == [
+            (d, AutoresearchRun.Status.COMPLETED) for d in validated
+        ]
+        assert [p.prediction_date for p in find_pending_validation_dates(self.pipeline)] == still_pending
+
+    @parameterized.expand(
+        [
             ("completed", AutoresearchRun.Status.COMPLETED),
             ("still_running", AutoresearchRun.Status.RUNNING),
         ]

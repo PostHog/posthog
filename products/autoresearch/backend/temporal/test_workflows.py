@@ -6,6 +6,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
+from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
@@ -21,6 +22,7 @@ from products.autoresearch.backend.models import (
 )
 from products.autoresearch.backend.query import BATCH_QUERY
 from products.autoresearch.backend.temporal.workflows import (
+    _VALIDATION_ATTEMPT_TIMEOUT,
     InferenceWorkflowResult,
     KickoffTrainingInput,
     KickoffTrainingResult,
@@ -243,6 +245,8 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
         else:
             env.run(activity_run_validation, RunValidationInput(pipeline_id=str(pipeline.id), team_id=self.team.id))
             assert mock_validation.call_args.kwargs["query_context"] == BATCH_QUERY
+            claim_deadline = mock_validation.call_args.kwargs["claim_deadline"]
+            assert django_timezone.now() < claim_deadline < django_timezone.now() + _VALIDATION_ATTEMPT_TIMEOUT
 
     @parameterized.expand([("scheduled", False), ("manual", True)])
     @patch("products.autoresearch.backend.temporal.workflows.run_inference_for_pipeline")

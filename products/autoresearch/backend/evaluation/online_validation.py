@@ -113,7 +113,11 @@ class _ModelValidation:
 
 
 def run_online_validation_for_pipeline(
-    pipeline: AutoresearchPipeline, *, user: User | None = None, query_context: QueryContext = INTERACTIVE_QUERY
+    pipeline: AutoresearchPipeline,
+    *,
+    user: User | None = None,
+    query_context: QueryContext = INTERACTIVE_QUERY,
+    claim_deadline: datetime | None = None,
 ) -> list[AutoresearchRun]:
     """
     Validate every matured prediction date that has no completed validation yet.
@@ -127,6 +131,11 @@ def run_online_validation_for_pipeline(
     ``user`` is who HogQL applies access control for; it defaults to the pipeline's creator.
     ``query_context`` is the ClickHouse budget of every query. The Temporal activity passes
     ``BATCH_QUERY``, and the API request path keeps the interactive limit.
+
+    After ``claim_deadline`` the pass claims no more dates, but it always claims at least one,
+    so a pass makes progress whatever the deadline. The dates it does not reach stay pending
+    for the next pass. The Temporal activity sets the deadline so that the last date it claims
+    still finishes inside the attempt timeout.
     """
     team = pipeline.team
     acting_user = _acting_user(team=team, pipeline=pipeline, user=user)
@@ -136,7 +145,14 @@ def run_online_validation_for_pipeline(
         return []
 
     results: list[AutoresearchRun] = []
-    for item in pending:
+    for index, item in enumerate(pending):
+        if results and claim_deadline is not None and django_timezone.now() >= claim_deadline:
+            logger.info(
+                "autoresearch_validation_dates_deferred",
+                pipeline_id=str(pipeline.pk),
+                dates_deferred=len(pending) - index,
+            )
+            break
         run = _claim_date(pipeline, item)
         if run is None:
             continue
