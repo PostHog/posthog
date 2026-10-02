@@ -15,6 +15,7 @@
 
 from django.db.models.fields.reverse_related import ForeignObjectRel
 from django.db.models.sql.query import Query
+from django.test import SimpleTestCase
 from django.urls import resolvers
 
 from _pytest.fixtures import FixtureManager
@@ -116,6 +117,15 @@ def test_fixture_parent_nodeids_cache_matches_unpatched_pytest(request):
         )
         # The second call is served from the memo and must still agree.
         assert list(manager._matchfactories(fixturedefs, node)) == fresh
+
+
+class TestSubtestFailureIsATestFailure(SimpleTestCase):
+    def test_subtest_failure_propagates_out_of_the_subtest_block(self):
+        # Assumption: pytest reports a subTest separately only through TestCaseFunction.addSubTest.
+        # If this fails, find the new hook, because a separately reported failure is not rerun.
+        with self.assertRaises(AssertionError):
+            with self.subTest():
+                self.fail()
 
 
 def test_drf_field_info_cache_matches_unpatched_drf():
