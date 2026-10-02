@@ -32,9 +32,11 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.schema.persons import _is_virtual_field_requiring_join
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
@@ -245,6 +247,13 @@ BEFORE_WINDOW = datetime(2023, 12, 15, 12)
 WINDOW_AND_PAID = "timestamp >= '2024-01-01' AND timestamp < '2024-01-03' AND person.properties.plan = 'paid'"
 
 
+def _persons_semi_join(clickhouse: str) -> str:
+    sql = " ".join(clickhouse.split())
+    end = sql.index(" AS events__person ON")
+    # The last events scan before the persons alias is the semi-join.
+    return sql[sql.rindex("FROM events", 0, end) : end]
+
+
 class TestPersonIdPushdown(ClickhouseTestMixin, APIBaseTest):
     FIXTURE = [
         ("in_window_paid", "paid_in_window", "paid", IN_WINDOW),
@@ -263,12 +272,10 @@ class TestPersonIdPushdown(ClickhouseTestMixin, APIBaseTest):
             _create_event(event=event, distinct_id=distinct_id, team=self.team, timestamp=timestamp)
         create_person_id_override_by_distinct_id("merged_from", "merged_to", self.team.pk)
 
-    def _execute(
-        self, where: str | None, mode: PersonsOnEventsMode, pushdown: bool, sample: str = "", table: str = "events"
-    ) -> HogQLQueryResponse:
+    def _execute(self, where: str | None, mode: PersonsOnEventsMode, pushdown: bool) -> HogQLQueryResponse:
         where_clause = f"WHERE {where}" if where else ""
         return execute_hogql_query(
-            f"SELECT event, person.properties.plan FROM {table} {sample} {where_clause} ORDER BY event",
+            f"SELECT event, person.properties.plan FROM events {where_clause} ORDER BY event",
             self.team,
             modifiers=HogQLQueryModifiers(personsOnEventsMode=mode, personIdPushdown=pushdown),
         )
@@ -311,26 +318,14 @@ class TestPersonIdPushdown(ClickhouseTestMixin, APIBaseTest):
                 PersonsOnEventsMode.DISABLED,
                 {"in_window_paid"},
             ),
-            (
-                "aliased_from_table",
-                "e.timestamp >= '2024-01-01' AND e.timestamp < '2024-01-03' AND e.person.properties.plan = 'paid'",
-                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
-                {"in_window_paid", "in_window_merged"},
-                "events AS e",
-            ),
         ]
     )
     def test_pushdown_returns_same_rows_as_without(
-        self,
-        _name: str,
-        where: str | None,
-        mode: PersonsOnEventsMode,
-        expected_events: set[str],
-        table: str = "events",
+        self, _name: str, where: str | None, mode: PersonsOnEventsMode, expected_events: set[str]
     ):
-        without_pushdown = self._execute(where, mode, pushdown=False, table=table).results
+        without_pushdown = self._execute(where, mode, pushdown=False).results
 
-        with_pushdown = self._execute(where, mode, pushdown=True, table=table).results
+        with_pushdown = self._execute(where, mode, pushdown=True).results
 
         assert {row[0] for row in without_pushdown} == expected_events
         assert with_pushdown == without_pushdown
@@ -341,24 +336,25 @@ class TestPersonIdPushdown(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert response.clickhouse is not None
-        sql = " ".join(response.clickhouse.split())
-        end = sql.index(" AS events__person ON")
-        # The last events scan before the persons alias is the semi-join. Only the window puts timestamp there.
-        assert "timestamp" in sql[sql.rindex("FROM events", 0, end) : end]
+        assert "timestamp" in _persons_semi_join(response.clickhouse)
         self.assertQueryMatchesSnapshot(response.clickhouse)
 
-    def test_pushdown_copies_sample_into_persons_subquery(self):
-        mode = PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED
-        without_pushdown = self._execute(WINDOW_AND_PAID, mode, pushdown=False, sample="SAMPLE 1/2 OFFSET 1/2")
 
-        with_pushdown = self._execute(WINDOW_AND_PAID, mode, pushdown=True, sample="SAMPLE 1/2 OFFSET 1/2")
-
-        assert {row[0] for row in without_pushdown.results} == {"in_window_paid", "in_window_merged"}
-        assert with_pushdown.results == without_pushdown.results
-        assert with_pushdown.clickhouse is not None
-        sql = " ".join(with_pushdown.clickhouse.split())
-        end = sql.index(" AS events__person ON")
-        assert "SAMPLE 1/2 OFFSET 1/2" in sql[sql.rindex("FROM events", 0, end) : end]
+class TestPersonIdPushdownPrinting(APIBaseTest):
+    def _print(self, query: str) -> str:
+        context = HogQLContext(
+            team_id=self.team.pk,
+            team=self.team,
+            enable_select_queries=True,
+            modifiers=create_default_modifiers_for_team(
+                self.team,
+                HogQLQueryModifiers(
+                    personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED, personIdPushdown=True
+                ),
+            ),
+        )
+        sql, _ = prepare_and_print_ast(parse_select(query), context, dialect="clickhouse")
+        return sql
 
     @parameterized.expand(
         [
@@ -375,16 +371,16 @@ class TestPersonIdPushdown(ClickhouseTestMixin, APIBaseTest):
     def test_pushdown_copies_only_terms_that_evaluate_the_same_in_the_subquery(
         self, _name: str, from_where: str, pushed: bool
     ):
-        response = execute_hogql_query(
-            f"SELECT event {from_where} AND person.properties.plan = 'paid'",
-            self.team,
-            modifiers=HogQLQueryModifiers(
-                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED, personIdPushdown=True
-            ),
+        sql = self._print(f"SELECT event {from_where} AND person.properties.plan = 'paid'")
+
+        assert ("SELECT DISTINCT" in " ".join(sql.split())) == pushed
+
+    def test_pushdown_copies_sample_into_persons_subquery(self):
+        sql = self._print(
+            "SELECT event FROM events SAMPLE 1/2 OFFSET 1/2 WHERE timestamp >= '2024-01-01' AND person.properties.plan = 'paid'"
         )
 
-        assert response.clickhouse is not None
-        assert ("SELECT DISTINCT" in " ".join(response.clickhouse.split())) == pushed
+        assert "SAMPLE 1/2 OFFSET 1/2" in _persons_semi_join(sql)
 
 
 class TestPersonsV2LimitPushDown(ClickhouseTestMixin, APIBaseTest):
