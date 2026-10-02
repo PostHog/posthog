@@ -431,14 +431,14 @@ describe('todayLogic', () => {
         expect(reportIdFromPath(pathname)).toBe(reportId)
     })
 
-    it('links every report from the briefing and keeps acronyms in titles', () => {
+    it('links every report from the briefing with clean titles and kept acronyms', () => {
         const briefing = briefingForReports([
             makeReport({
                 id: 'a',
                 title: 'Signup form rejects emails',
                 implementation_pr_url: 'https://example.com/1',
             }),
-            makeReport({ id: 'b', title: 'Pricing page drops off' }),
+            makeReport({ id: 'b', title: 'chore(pricing): Pricing page drops off' }),
             makeReport({ id: 'c', title: 'LLM costs doubled' }),
         ])
 

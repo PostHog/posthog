@@ -9,7 +9,7 @@ import type {
     TodayItemReasonEnumApi,
 } from 'products/today/frontend/generated/api.schemas'
 
-import { TodayReportSource, sourceStyle } from './todaySignalReports'
+import { TodayReportSource, reportTitle, sourceStyle } from './todaySignalReports'
 
 /** Where an item was opened from, sent with the `today item opened` event. */
 export type TodayItemOpenSurface = 'briefing' | 'chip' | 'sidebar'
@@ -66,7 +66,7 @@ export function briefingItemReportCard(item: BriefingItemApi): TodayReportCard {
     return {
         key: item.key,
         reportId: itemReportId(item),
-        title: item.title,
+        title: reportTitle(item),
         reason: itemReasonLabel(item),
         stateLabel: itemStateLabel(item),
         resolved: item.state === 'done',

@@ -32,7 +32,7 @@ function PersonalBriefingNavItems(): JSX.Element {
                 const row = (
                     <TodayNavItem
                         key={item.key}
-                        title={item.label}
+                        title={reportTitle(item)}
                         meta={itemStateLabel(item) ?? (item.signal || source.label)}
                         color={source.color}
                         icon={<TodayIcon icon={source.icon} />}

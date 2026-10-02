@@ -13,6 +13,7 @@ import { isExternalHref, itemHref, itemSource } from './todayBriefingItems'
 import { TodayChipStack } from './TodayChipStack'
 import { TodayIcon } from './TodayIcon'
 import { todayLogic } from './todayLogic'
+import { reportTitle } from './todaySignalReports'
 
 function PersonalBriefingSegment({ segment }: { segment: BriefingSegmentApi }): JSX.Element {
     const { briefingItems, reportPreviews, hoveredItemKey } = useValues(todayLogic)
@@ -59,7 +60,7 @@ function PersonalBriefingChips(): JSX.Element | null {
                 const source = itemSource(item)
                 return {
                     key: item.key,
-                    label: item.label,
+                    label: reportTitle(item),
                     color: source.color,
                     icon: <TodayIcon icon={source.icon} />,
                     active: hoveredItemKey === item.key,
