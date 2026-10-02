@@ -28,7 +28,7 @@ organization lookups in its process-local cache for five minutes.
 
 ## Transport modes
 
-`USAGE_INGESTION_MODE` selects one transport per process and defaults to `grpc`.
+`USAGE_INGESTION_MODE` selects `grpc`, `kafka`, or `both` and defaults to `grpc`.
 Kafka mode consumes protobuf-encoded `IngestBillingUsageRequest` messages from
 `USAGE_INGESTION_KAFKA_INPUT_TOPIC` (`usage_ingestion` by default). It commits
 an input offset only after the output Kafka cluster confirms every accepted

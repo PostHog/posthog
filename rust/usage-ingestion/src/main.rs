@@ -134,8 +134,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("usage-ingestion metrics server failed");
     });
 
-    match config.transport_mode {
-        TransportMode::Grpc => {
+    let grpc_service = service.clone();
+    let grpc = async {
+        if config.transport_mode != TransportMode::Kafka {
             tracing::info!(address = %config.grpc_address, "Starting usage-ingestion gRPC service");
             // This listener is limited to trusted in-cluster callers. Add authenticated caller identity
             // before exposing it beyond that boundary because records affect tenant billing.
@@ -149,11 +150,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             builder
                 .layer(GrpcMetricsLayer)
-                .add_service(UsageIngestionServer::new(GrpcUsageIngestion::new(service)))
+                .add_service(UsageIngestionServer::new(GrpcUsageIngestion::new(
+                    grpc_service,
+                )))
                 .serve(config.grpc_address.parse()?)
                 .await?;
         }
-        TransportMode::Kafka => {
+        Ok::<(), Box<dyn std::error::Error>>(())
+    };
+    let kafka = async {
+        if config.transport_mode != TransportMode::Grpc {
             tracing::info!(
                 topic = %config.kafka_input_topic,
                 group = %config.kafka_consumer_group,
@@ -167,6 +173,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .run()
             .await?;
         }
-    }
+        Ok::<(), Box<dyn std::error::Error>>(())
+    };
+    tokio::try_join!(grpc, kafka)?;
     Ok(())
 }
