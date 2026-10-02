@@ -9,7 +9,7 @@ from django.utils.dateparse import parse_datetime
 
 from products.workflows.backend.facade.contracts import WorkflowHasNoDraft, WorkflowStale, WorkflowWriteResult
 from products.workflows.backend.facade.enums import HogFlowScheduleStatus
-from products.workflows.backend.models.hog_flow.hog_flow import BILLABLE_ACTION_TYPES, HogFlow
+from products.workflows.backend.models.hog_flow.hog_flow import BILLABLE_ACTION_TYPES, ROW_SCOPED_TRIGGER_TYPES, HogFlow
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.models.workflow_proposal import WorkflowProposal
 from products.workflows.backend.services.action_redirects import compute_action_redirects
@@ -117,10 +117,10 @@ def _save_live(instance: HogFlow, validated_data: dict, **overrides: object) -> 
 
 
 def _derive_from_locked_graph(locked: HogFlow, validated_data: dict) -> dict:
-    # HogFlowSerializer.validate derives trigger and billable_action_types from the actions it read
-    # before the row lock. A write without actions keeps the locked row's actions, and a concurrent
-    # graph write can change those actions before the lock. Derive both fields again from the locked
-    # actions, so that the save does not pair the new graph with fields derived from the old graph.
+    # HogFlowSerializer.validate derives trigger, billable_action_types and exit_condition from the
+    # actions it read before the row lock. A write without actions keeps the locked row's actions, and a
+    # concurrent graph write can change those actions before the lock. Derive these fields again from the
+    # locked actions, so that the save does not pair the new graph with fields derived from the old graph.
     if "actions" in validated_data:
         return validated_data
     actions = locked.actions or []
@@ -128,6 +128,13 @@ def _derive_from_locked_graph(locked: HogFlow, validated_data: dict) -> dict:
     trigger_action = next((action for action in actions if action.get("type") == "trigger"), None)
     if "trigger" in derived and trigger_action is not None:
         derived["trigger"] = trigger_action.get("config")
+    if "exit_condition" in derived:
+        # validate forces exit_only_at_end when the trigger it read is row-scoped. Apply that rule to the
+        # locked trigger instead. When only the old trigger forced the value, keep the locked row's value.
+        if (derived.get("trigger") or {}).get("type") in ROW_SCOPED_TRIGGER_TYPES:
+            derived["exit_condition"] = HogFlow.ExitCondition.ONLY_AT_END
+        elif (validated_data.get("trigger") or {}).get("type") in ROW_SCOPED_TRIGGER_TYPES:
+            del derived["exit_condition"]
     if "billable_action_types" in derived:
         derived["billable_action_types"] = sorted(
             {action.get("type", "") for action in actions if action.get("type") in BILLABLE_ACTION_TYPES}

@@ -4355,6 +4355,68 @@ class TestHogFlowAPI(APIBaseTest):
         assert flow.trigger == concurrent_trigger
         assert flow.billable_action_types == []
 
+    @parameterized.expand(
+        [
+            (
+                "locked_trigger_becomes_row_scoped",
+                "event",
+                "data-warehouse-table",
+                "exit_only_at_end",
+                {"exit_condition": "exit_on_conversion"},
+                "exit_only_at_end",
+            ),
+            (
+                "locked_trigger_stops_being_row_scoped",
+                "data-warehouse-table",
+                "event",
+                "exit_on_conversion",
+                {"name": "Renamed"},
+                "exit_on_conversion",
+            ),
+        ]
+    )
+    def test_update_without_actions_derives_exit_condition_from_the_locked_trigger(
+        self, _name, initial_trigger_type, concurrent_trigger_type, concurrent_exit_condition, payload, expected
+    ):
+        trigger_configs = {
+            "event": {
+                "type": "event",
+                "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+            },
+            "data-warehouse-table": {
+                "type": "data-warehouse-table",
+                "table_name": "postgres.table_1",
+                "filters": {"properties": []},
+            },
+        }
+        trigger_action = {"id": "trigger_node", "name": "trigger_1", "type": "trigger"}
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            {
+                "name": "Locked trigger",
+                "actions": [{**trigger_action, "config": trigger_configs[initial_trigger_type]}],
+            },
+        )
+        assert response.status_code == 201, response.json()
+        flow_id = response.json()["id"]
+
+        def update_after_concurrent_trigger_change(**kwargs):
+            HogFlow.objects.filter(pk=flow_id).update(
+                actions=[{**trigger_action, "config": trigger_configs[concurrent_trigger_type]}],
+                trigger=trigger_configs[concurrent_trigger_type],
+                exit_condition=concurrent_exit_condition,
+            )
+            return update_workflow(**kwargs)
+
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.update_workflow",
+            side_effect=update_after_concurrent_trigger_change,
+        ):
+            update = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", payload)
+
+        assert update.status_code == 200, update.json()
+        assert HogFlow.objects.get(pk=flow_id).exit_condition == expected
+
     @override_settings(HOGFLOW_BATCH_TRIGGER_LIMIT=5000, HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS=set())
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
