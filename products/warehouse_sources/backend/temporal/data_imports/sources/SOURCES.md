@@ -1034,6 +1034,7 @@ doesn't conflict with concurrent PRs.
 - donorbox
 - doorloop
 - doppler
+- dragonboat
 - drata
 - drchrono
 - dremio
