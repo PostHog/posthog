@@ -1,12 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { Fragment } from 'react'
 
-import { IconWarning } from '@posthog/icons'
+import { IconChevronRight, IconWarning } from '@posthog/icons'
 import { LemonTag, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 
-import { CollapsibleChevron } from './CollapsibleChevron'
 import { llmPlaygroundPromptsLogic } from './llmPlaygroundPromptsLogic'
 import { llmPlaygroundVariablesLogic } from './llmPlaygroundVariablesLogic'
 import { getVariableValue } from './playgroundTemplating'
@@ -21,16 +20,22 @@ export function PlaygroundVariablesPanel(): JSX.Element {
 
     return (
         <div className="border rounded p-4 py-2 shrink-0">
-            <div
-                className={`flex items-center gap-2 cursor-pointer ${collapsed ? '' : 'mb-2'}`}
-                onClick={() => toggleCollapsed('variables')}
-                aria-expanded={!collapsed}
-                data-attr="llma-playground-toggle-variables"
-            >
-                <CollapsibleChevron collapsed={collapsed} ariaLabel="Toggle variables" />
-                <span className="text-sm font-semibold">
+            <div className={`flex items-center gap-2 ${collapsed ? '' : 'mb-2'}`}>
+                {/* A plain button rather than a LemonButton: LemonButton paints
+                    [aria-expanded='true'] with its active background, which reads as a
+                    stuck grey state on an expanded section header */}
+                <button
+                    type="button"
+                    onClick={() => toggleCollapsed('variables')}
+                    aria-expanded={!collapsed}
+                    data-attr="llma-playground-toggle-variables"
+                    className="flex items-center gap-2 cursor-pointer text-sm font-semibold"
+                >
+                    <IconChevronRight
+                        className={`h-3.5 w-3.5 transition-transform ${collapsed ? 'rotate-0' : 'rotate-90'}`}
+                    />
                     Variables{detectedVariables.length > 0 ? ` (${detectedVariables.length})` : ''}
-                </span>
+                </button>
                 {unfilledVariables.length > 0 && (
                     <LemonTag type="warning" size="small">
                         {unfilledVariables.length} unfilled

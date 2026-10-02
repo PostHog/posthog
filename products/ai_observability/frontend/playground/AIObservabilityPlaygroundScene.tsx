@@ -3,6 +3,7 @@ import posthog from 'posthog-js'
 import React from 'react'
 
 import {
+    IconChevronRight,
     IconGear,
     IconPencil,
     IconPlay,
@@ -48,7 +49,6 @@ import { JSONEditor } from '../components/JSONEditor'
 import { MetadataHeader } from '../ConversationDisplay/MetadataHeader'
 import { getModelPickerFooterLink, ModelPicker, parsePlaygroundProviderKeyId } from '../ModelPicker'
 import { modelPickerLogic } from '../modelPickerLogic'
-import { CollapsibleChevron } from './CollapsibleChevron'
 import { llmPlaygroundModelLogic } from './llmPlaygroundModelLogic'
 import {
     getLinkedSourceLabel,
@@ -90,6 +90,17 @@ const EXAMPLE_TOOL = [
         },
     },
 ]
+
+function CollapsibleChevron({ collapsed }: { collapsed: boolean }): JSX.Element {
+    return (
+        <LemonButton
+            size="xsmall"
+            noPadding
+            className="h-5 w-5 [&_svg]:h-3.5 [&_svg]:w-3.5"
+            icon={<IconChevronRight className={`transition-transform ${collapsed ? 'rotate-0' : 'rotate-90'}`} />}
+        />
+    )
+}
 
 export const scene: SceneExport = {
     component: AIObservabilityPlaygroundScene,
