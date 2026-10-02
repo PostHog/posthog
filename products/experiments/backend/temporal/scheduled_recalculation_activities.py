@@ -135,7 +135,7 @@ def _start_scheduled_recalculation_sync(experiment_id: int, hour: int) -> Schedu
         return ScheduledRecalculationStartResult(experiment_id=experiment_id, started=False, skip_reason=skip.reason)
 
     try:
-        payload = request_recalculation(experiment, None, ExperimentMetricsRecalculation.Trigger.STALE_REFRESH)
+        payload = request_recalculation(experiment, None, ExperimentMetricsRecalculation.Trigger.SCHEDULED)
     except Exception:
         logger.warning("scheduled_recalculation_request_failed", experiment_id=experiment_id, exc_info=True)
         return ScheduledRecalculationStartResult(experiment_id=experiment_id, started=False)
