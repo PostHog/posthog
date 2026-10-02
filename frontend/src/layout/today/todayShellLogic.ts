@@ -8,15 +8,14 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { libraryTypeForPath } from 'scenes/library/libraryUtils'
+import { toolHrefForPath } from 'scenes/tools/toolsUtils'
 import { urls } from 'scenes/urls'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 
-import { toolHrefForPath } from './todayToolsLogic'
-
 export type TodayRailPane = 'home' | 'spaces' | 'views' | 'library' | 'tools'
 
-export const TODAY_RAIL_WIDTH = 56
+export const TODAY_RAIL_WIDTH = 60
 export const TODAY_SIDEBAR_DEFAULT_WIDTH: number = 312
 export const TODAY_SIDEBAR_MIN_WIDTH = 240
 export const TODAY_SIDEBAR_MAX_WIDTH = 480
@@ -32,6 +31,14 @@ export function clampSidebarWidth(width: number | null): number {
 
 function isUnder(path: string, root: string): boolean {
     return path === root || path.startsWith(`${root}/`)
+}
+
+const RAIL_PANE_HOME: Record<TodayRailPane, () => string> = {
+    home: () => urls.projectHomepage(),
+    spaces: () => urls.ai(),
+    views: () => urls.viewsNew(),
+    library: () => urls.library(),
+    tools: () => urls.tools(),
 }
 
 /** The pane a route belongs to, or null for pages that keep whichever pane was open. */
@@ -54,7 +61,7 @@ export function railPaneForPath(pathname: string): TodayRailPane | null {
     if (isUnder(path, urls.library()) || libraryTypeForPath(path)) {
         return 'library'
     }
-    if (toolHrefForPath(path)) {
+    if (isUnder(path, urls.tools()) || toolHrefForPath(path)) {
         return 'tools'
     }
     return null
@@ -226,15 +233,7 @@ export const todayShellLogic = kea<todayShellLogicType>([
         pickPane: ({ pane }) => {
             // pinned: analytics event name and property. Renaming them breaks dashboards.
             posthog.capture('today rail pane picked', { pane })
-            if (pane === 'home' && values.routePane !== 'home') {
-                router.actions.push(urls.projectHomepage())
-            }
-            if (pane === 'views' && values.routePane !== 'views') {
-                router.actions.push(urls.views())
-            }
-            if (pane === 'library' && values.routePane !== 'library') {
-                router.actions.push(urls.library())
-            }
+            router.actions.push(RAIL_PANE_HOME[pane]())
             if (values.mobileLayout) {
                 actions.setMobileSidebarOpen(true)
             } else {

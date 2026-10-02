@@ -36,6 +36,7 @@ import {
 } from 'products/tasks/frontend/spaces/spacePresence'
 import { pullRequestStates, sessionIdsWithPullRequests } from 'products/tasks/frontend/spaces/taskPullRequests'
 
+import { matchesPaneQuery } from './todayPaneSearch'
 import { TodaySpacePreview, spacePreview } from './todayPreviewCards'
 import {
     DEFAULT_RECENT_FILTERS,
@@ -54,6 +55,7 @@ import {
     groupRecentItems,
     sortRecentItems,
 } from './todayRecentOrder'
+import { todayRecentsLogic } from './todayRecentsLogic'
 import {
     TodayWorkItem,
     buildRecentItems,
@@ -130,6 +132,7 @@ export interface todaySpacesLogicValues {
     conversationHistory: ConversationDetail[] // maxGlobalLogic
     conversationHistoryLoading: boolean // maxGlobalLogic
     currentTeamId: number | null // teamLogic
+    recentSessionIds: string[] // todayRecentsLogic
     user: UserType | null // userLogic
     allRecentItems: TodayWorkItem[]
     collapsedSections: TodayWorkSectionId[]
@@ -145,14 +148,15 @@ export interface todaySpacesLogicValues {
     recentItems: TodayWorkItem[]
     recentLoading: boolean
     recentQuery: string
-    recentSearchOpen: boolean
-    recentSearchVisible: boolean
     recentSort: TodayRecentSort
     recentSourceOptions: string[]
     recentTasks: TaskListItemApi[]
     recentTasksLoading: boolean
     recentTasksUnavailable: boolean
+    recentlyViewedSessions: TodayWorkItem[]
     sectionHeights: Partial<Record<TodayWorkSectionId, number>>
+    shownPinnedItems: TodayWorkItem[]
+    shownSpaces: ChannelDTOApi[]
     sortedSpaces: ChannelDTOApi[]
     spaceActivity: SpaceActivity
     spaceActivityLoading: boolean
@@ -316,9 +320,6 @@ export interface todaySpacesLogicActions {
     setRecentQuery: (query: string) => {
         query: string
     }
-    setRecentSearchOpen: (open: boolean) => {
-        open: boolean
-    }
     setRecentSort: (sort: TodayRecentSort) => {
         sort: TodayRecentSort
     }
@@ -353,7 +354,13 @@ export interface todaySpacesLogicMeta {
         ) => TodayWorkItem[]
         recentFilters: (storedRecentFilters: Partial<TodayRecentFilters>) => TodayRecentFilters
         recentSourceOptions: (allRecentItems: TodayWorkItem[], recentFilters: TodayRecentFilters) => string[]
-        recentSearchVisible: (recentSearchOpen: boolean, recentQuery: string) => boolean
+        shownPinnedItems: (pinnedItems: TodayWorkItem[], recentQuery: string) => TodayWorkItem[]
+        shownSpaces: (visibleSpaces: ChannelDTOApi[], recentQuery: string) => ChannelDTOApi[]
+        recentlyViewedSessions: (
+            recentSessionIds: string[],
+            allRecentItems: TodayWorkItem[],
+            recentQuery: string
+        ) => TodayWorkItem[]
         recentFiltersActive: (recentFilters: TodayRecentFilters) => boolean
         unreadSessionIds: (taskActivity: TaskActivityDTOApi[]) => Set<string>
         recentItems: (
@@ -401,6 +408,8 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
             ['user'],
             maxGlobalLogic,
             ['conversationHistory', 'conversationHistoryLoading'],
+            todayRecentsLogic,
+            ['recentSessionIds'],
         ],
         actions: [router, ['locationChanged']],
     })),
@@ -409,7 +418,6 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
         setSectionHeights: (heights: Partial<Record<TodayWorkSectionId, number>>) => ({ heights }),
         resetSectionPair: (upper: TodayWorkSectionId, lower: TodayWorkSectionId) => ({ upper, lower }),
         setRecentQuery: (query: string) => ({ query }),
-        setRecentSearchOpen: (open: boolean) => ({ open }),
         setRecentFilters: (filters: TodayRecentFilters) => ({ filters }),
         clearRecentFilters: true,
         clearRecentSearchAndFilters: true,
@@ -530,10 +538,6 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
             },
         ],
         recentQuery: ['', { setRecentQuery: (_, { query }) => query, clearRecentSearchAndFilters: () => '' }],
-        recentSearchOpen: [
-            false,
-            { setRecentSearchOpen: (_, { open }) => open, clearRecentSearchAndFilters: () => false },
-        ],
         storedRecentFilters: [
             DEFAULT_RECENT_FILTERS as Partial<TodayRecentFilters>,
             // pinned: localStorage key. A new key resets every person's saved Recent filters.
@@ -605,9 +609,24 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
             (allRecentItems: TodayWorkItem[], recentFilters: TodayRecentFilters): string[] =>
                 recentSourceOptions(allRecentItems, recentFilters.sources),
         ],
-        recentSearchVisible: [
-            (s) => [s.recentSearchOpen, s.recentQuery],
-            (recentSearchOpen: boolean, recentQuery: string): boolean => recentSearchOpen || recentQuery !== '',
+        // The pane's search filters every group, so these match on the same terms as the Recent list.
+        shownPinnedItems: [
+            (s) => [s.pinnedItems, s.recentQuery],
+            (pinnedItems: TodayWorkItem[], recentQuery: string): TodayWorkItem[] =>
+                pinnedItems.filter((item) => matchesPaneQuery(item.title || '', recentQuery)),
+        ],
+        shownSpaces: [
+            (s) => [s.visibleSpaces, s.recentQuery],
+            (visibleSpaces: ChannelDTOApi[], recentQuery: string): ChannelDTOApi[] =>
+                visibleSpaces.filter((space) => matchesPaneQuery(spaceLabel(space), recentQuery)),
+        ],
+        // A session outside the loaded Recent list has no title or status to show, so it waits until it loads.
+        recentlyViewedSessions: [
+            (s) => [s.recentSessionIds, s.allRecentItems, s.recentQuery],
+            (recentSessionIds: string[], allRecentItems: TodayWorkItem[], recentQuery: string): TodayWorkItem[] =>
+                recentSessionIds
+                    .flatMap((id) => allRecentItems.find((item) => item.kind === 'session' && item.id === id) ?? [])
+                    .filter((item) => matchesPaneQuery(item.title || '', recentQuery)),
         ],
         recentFiltersActive: [
             (s) => [s.recentFilters],
