@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconChevronDown, IconPencil, IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonModal } from '@posthog/lemon-ui'
+import { IconChevronDown } from '@posthog/icons'
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
@@ -19,6 +19,7 @@ import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -29,6 +30,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { dashboardsEmptyState } from 'products/dashboards/frontend/emptyState/dashboardsEmptyState'
 
 import { DashboardsTableContainer } from './DashboardsTable'
+import { NewDashboardMenu } from './NewDashboardMenu'
 
 export const scene: SceneExport = {
     component: Dashboards,
@@ -43,6 +45,7 @@ export function Dashboards(): JSX.Element {
     const { setCurrentTab } = useActions(dashboardsLogic)
     const { dashboards, currentTab, isFiltering } = useValues(dashboardsLogic)
     const { showNewDashboardModal } = useActions(newDashboardLogic)
+    const { user } = useValues(userLogic)
     const templatesModalOpen = String(searchParams.templates) === '1'
     const enabledTabs: LemonTab<DashboardsTab>[] = [
         {
@@ -59,7 +62,11 @@ export function Dashboards(): JSX.Element {
             <DeleteDashboardModal />
             <LemonModal
                 title="Manage templates"
-                description="Templates saved for this project and shared across your organization."
+                description={
+                    user?.is_staff
+                        ? "Templates saved for this project and shared across your organization, plus PostHog's official templates."
+                        : 'Templates saved for this project and shared across your organization.'
+                }
                 isOpen={templatesModalOpen}
                 onClose={() =>
                     router.actions.push(urls.dashboards(), {
@@ -106,42 +113,7 @@ export function Dashboards(): JSX.Element {
                                         'data-attr': 'new-dashboard-dropdown',
                                         dropdown: {
                                             placement: 'bottom-end',
-                                            overlay: (
-                                                <>
-                                                    <LemonButton
-                                                        icon={<IconPlusSmall />}
-                                                        onClick={showNewDashboardModal}
-                                                        data-attr="new-dashboard-menu-item"
-                                                        fullWidth
-                                                    >
-                                                        <div className="flex flex-col text-sm py-1">
-                                                            <strong>New dashboard</strong>
-                                                            <span className="text-xs font-sans font-normal">
-                                                                Start blank or from a template
-                                                            </span>
-                                                        </div>
-                                                    </LemonButton>
-                                                    <LemonDivider className="my-1" />
-                                                    <LemonButton
-                                                        icon={<IconPencil />}
-                                                        onClick={() =>
-                                                            router.actions.push(urls.dashboards(), {
-                                                                ...searchParams,
-                                                                templates: '1',
-                                                            })
-                                                        }
-                                                        data-attr="view-dashboard-templates"
-                                                        fullWidth
-                                                    >
-                                                        <div className="flex flex-col text-sm py-1">
-                                                            <strong>Manage templates</strong>
-                                                            <span className="text-xs font-sans font-normal">
-                                                                Edit, share or delete your templates
-                                                            </span>
-                                                        </div>
-                                                    </LemonButton>
-                                                </>
-                                            ),
+                                            overlay: <NewDashboardMenu />,
                                         },
                                     }}
                                 >

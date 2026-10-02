@@ -1,16 +1,22 @@
-import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+import { MOCK_DEFAULT_USER, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { userLogic } from 'scenes/userLogic'
 
 import { initKeaTests } from '~/test/init'
 import type { DashboardTemplateListParams, DashboardTemplateType } from '~/types'
 
 import { dashboardTemplatesLogic } from './dashboardTemplatesLogic'
+
+jest.mock('lib/utils/accessControlUtils', () => ({
+    ...jest.requireActual('lib/utils/accessControlUtils'),
+    userHasAccess: jest.fn(() => true),
+}))
 
 describe('dashboardTemplatesLogic', () => {
     let logic: ReturnType<typeof dashboardTemplatesLogic.build> | undefined
@@ -157,9 +163,94 @@ describe('dashboardTemplatesLogic', () => {
             .toMatchValues({ allTemplates: [organizationTemplate, teamTemplate] })
 
         const requestedScopes = listMock.mock.calls.map(([params]: [DashboardTemplateListParams]) => params.scope)
-        expect(requestedScopes).toEqual(expect.arrayContaining(['team', 'organization']))
-        expect(requestedScopes).not.toContain(undefined)
-        expect(requestedScopes).not.toContain('global')
+        expect(new Set(requestedScopes)).toEqual(new Set(['team', 'organization']))
+    })
+
+    it.each([
+        {
+            label: 'staff on an official template',
+            isStaff: true,
+            canEditDashboards: true,
+            template: { scope: 'global', team_id: null },
+            canManage: true,
+            managedInAnotherProject: false,
+        },
+        {
+            label: 'an editor on a team template',
+            isStaff: false,
+            canEditDashboards: true,
+            template: { scope: 'team', team_id: MOCK_TEAM_ID },
+            canManage: true,
+            managedInAnotherProject: false,
+        },
+        {
+            label: "an editor on this project's organization template",
+            isStaff: false,
+            canEditDashboards: true,
+            template: { scope: 'organization', team_id: MOCK_TEAM_ID },
+            canManage: true,
+            managedInAnotherProject: false,
+        },
+        {
+            label: "an editor on another project's organization template",
+            isStaff: false,
+            canEditDashboards: true,
+            template: { scope: 'organization', team_id: MOCK_TEAM_ID + 1 },
+            canManage: false,
+            managedInAnotherProject: true,
+        },
+        {
+            label: 'an editor on an organization template with no owning project',
+            isStaff: false,
+            canEditDashboards: true,
+            template: { scope: 'organization', team_id: null },
+            canManage: false,
+            managedInAnotherProject: true,
+        },
+        {
+            label: 'a viewer without editor access on a team template',
+            isStaff: false,
+            canEditDashboards: false,
+            template: { scope: 'team', team_id: MOCK_TEAM_ID },
+            canManage: false,
+            managedInAnotherProject: false,
+        },
+    ])(
+        'lets $label manage it: $canManage',
+        ({ isStaff, canEditDashboards, template, canManage, managedInAnotherProject }) => {
+            jest.mocked(userHasAccess).mockReturnValue(canEditDashboards)
+            userLogic.mount()
+            userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_staff: isStaff })
+            const mounted = dashboardTemplatesLogic({ scope: 'default', templatesTabList: true })
+            logic = mounted
+            mounted.mount()
+            const record = {
+                id: 'template-1',
+                template_name: 'Weekly KPIs',
+                tiles: [],
+                ...template,
+            } as DashboardTemplateType
+
+            expect(mounted.values.canManageTemplate(record)).toBe(canManage)
+            expect(mounted.values.isManagedInAnotherProject(record)).toBe(managedInAnotherProject)
+        }
+    )
+
+    it('clears the search and the visibility filter, removes the search from the URL, and reloads', async () => {
+        router.actions.push('/dashboard', { templates: '1', templateFilter: 'churn' })
+        const listMock = api.dashboardTemplates.list as jest.Mock
+        const mounted = dashboardTemplatesLogic({ scope: 'default', templatesTabList: true })
+        logic = mounted
+        mounted.mount()
+        mounted.actions.setTemplatesTabVisibility('project')
+        await expectLogic(mounted).toFinishAllListeners().toMatchValues({ hasActiveFilters: true })
+
+        await expectLogic(mounted, () => mounted.actions.clearFilters())
+            .toFinishAllListeners()
+            .toMatchValues({ templateFilter: '', templatesTabVisibility: 'all', hasActiveFilters: false })
+
+        expect(router.values.searchParams).not.toHaveProperty('templateFilter')
+        expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ scope: undefined, search: undefined }))
     })
 
     it('clears the template search when the dashboard list URL no longer includes a search (stale query no longer hides templates)', async () => {

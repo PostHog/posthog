@@ -162,7 +162,7 @@ export const dashboardTemplateModalLogic = kea<dashboardTemplateModalLogicType>(
                                 button: {
                                     label: 'View templates',
                                     dataAttr: 'dashboard-template-saved-view-templates',
-                                    action: () => router.actions.push(urls.dashboards(), { templates: '1' }),
+                                    action: () => router.actions.push(urls.dashboardTemplates()),
                                 },
                             })
                         } else {

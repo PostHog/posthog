@@ -24,8 +24,6 @@ export function runDashboardTemplateClickFlow(
         isLoading: boolean
         newDashboardModalVisible: boolean
         redirectAfterCreation: boolean
-        /** Reported as `creation_context` when the dashboard is created straight away (no variables to choose). */
-        creationContext?: string
         onItemClick?: (template: DashboardTemplateType) => void
     } & DashboardTemplateClickFlowActions
 ): void {
@@ -35,7 +33,7 @@ export function runDashboardTemplateClickFlow(
     ctx.setIsLoading(true)
     const variables = template.variables ?? []
     if (variables.length === 0) {
-        ctx.createDashboardFromTemplate(template, variables, ctx.redirectAfterCreation, ctx.creationContext)
+        ctx.createDashboardFromTemplate(template, variables, ctx.redirectAfterCreation)
     } else {
         if (!ctx.newDashboardModalVisible) {
             ctx.showVariableSelectModal(template)

@@ -3,12 +3,10 @@ import '@testing-library/jest-dom'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useActions, useValues } from 'kea'
 
-import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { getAppContext } from 'lib/utils/getAppContext'
-import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { DashboardTemplateScope, DashboardTemplateType, DashboardTemplateVariableType } from '~/types'
+import { DashboardTemplateScope, DashboardTemplateType } from '~/types'
 
 import { DashboardTemplatesTable } from './DashboardTemplatesTable'
 
@@ -46,23 +44,14 @@ jest.mock('lib/lemon-ui/LemonButton/More', () => ({
 }))
 
 // The table calls `dashboardTemplatesLogic({...})` at module load; return a stable sentinel so that import works.
-// `useValues` keys on `userLogic` and `newDashboardLogic` below; every other logic falls through to the table values.
+// `useValues` keys only on `userLogic` below; every other logic falls through to the table values.
+// Which templates a viewer can manage is decided by the logic's selectors and tested in dashboardTemplatesLogic.test.ts.
 jest.mock('scenes/dashboard/dashboards/templates/dashboardTemplatesLogic', () => ({
     dashboardTemplatesLogic: jest.fn(() => ({ __mock: 'templatesTableLogic' })),
 }))
 
-// A sentinel keeps the real logic and its large import graph out of the test.
-jest.mock('scenes/dashboard/newDashboardLogic', () => ({
-    newDashboardLogic: { __mock: 'newDashboardLogic' },
-}))
-
 jest.mock('lib/utils/getAppContext', () => ({
     getAppContext: jest.fn(() => ({})),
-}))
-
-jest.mock('lib/utils/accessControlUtils', () => ({
-    userHasAccess: jest.fn(() => true),
-    getAccessControlDisabledReason: jest.fn(() => null),
 }))
 
 const mockedUseValues = useValues as jest.Mock
@@ -70,15 +59,6 @@ const mockedUseActions = useActions as jest.Mock
 
 const CURRENT_TEAM_ID = 1
 const OTHER_TEAM = { id: 2, name: 'Marketing site' }
-
-const EVENT_VARIABLE: DashboardTemplateVariableType = {
-    id: 'SIGNUP_EVENT',
-    name: 'Signup event',
-    description: 'The event that marks a signup',
-    type: 'event',
-    default: {},
-    required: true,
-}
 
 function makeTemplate(
     scope: DashboardTemplateScope,
@@ -95,7 +75,6 @@ function makeTemplate(
         team_id: CURRENT_TEAM_ID,
         created_at: '2024-01-01T00:00:00Z',
         created_by: null,
-        variables: [],
         ...overrides,
     }
 }
@@ -103,27 +82,26 @@ function makeTemplate(
 function mountTable({
     isStaff,
     templates,
-    dashboardCreationLoading = false,
     searchText = null,
+    canManage = true,
+    managedInAnotherProject = false,
 }: {
     isStaff: boolean
     templates: DashboardTemplateType[]
-    dashboardCreationLoading?: boolean
     searchText?: string | null
+    canManage?: boolean
+    managedInAnotherProject?: boolean
 }): Record<string, jest.Mock> {
     // One shared action bag for every useActions() caller; the component reads disjoint keys from each.
     const actions: Record<string, jest.Mock> = {
         setTemplateFilter: jest.fn(),
         setTemplateNameOrdering: jest.fn(),
         setTemplatesTabVisibility: jest.fn(),
+        clearFilters: jest.fn(),
         deleteDashboardTemplate: jest.fn(),
         updateDashboardTemplate: jest.fn(),
         toggleTemplateOrganizationScope: jest.fn(),
         openEdit: jest.fn(),
-        setIsLoading: jest.fn(),
-        createDashboardFromTemplate: jest.fn(),
-        showVariableSelectModal: jest.fn(),
-        setActiveDashboardTemplate: jest.fn(),
     }
     mockedUseValues.mockImplementation((logic: unknown) => {
         if (logic === userLogic) {
@@ -135,17 +113,18 @@ function mountTable({
                 },
             }
         }
-        if (logic === newDashboardLogic) {
-            return { isLoading: dashboardCreationLoading, newDashboardModalVisible: false }
-        }
         return {
             allTemplates: templates,
             allTemplatesLoading: false,
             templateFilter: searchText ?? '',
             searchText,
+            hasActiveFilters: searchText !== null,
             templateNameOrdering: '',
             templatesTabVisibility: 'all',
             isStaffViewer: isStaff,
+            currentTeamId: CURRENT_TEAM_ID,
+            canManageTemplate: () => canManage,
+            isManagedInAnotherProject: () => managedInAnotherProject,
         }
     })
     mockedUseActions.mockReturnValue(actions)
@@ -163,7 +142,6 @@ describe('DashboardTemplatesTable', () => {
         cleanup()
         jest.clearAllMocks()
         ;(getAppContext as jest.Mock).mockReturnValue({})
-        ;(userHasAccess as jest.Mock).mockReturnValue(true)
     })
 
     // The organization-scope toggle originally shipped in the customer menu only, so staff couldn't share a
@@ -209,64 +187,26 @@ describe('DashboardTemplatesTable', () => {
         expect(actions.openEdit).toHaveBeenCalledWith(template)
     })
 
-    describe('New dashboard from template', () => {
-        it.each(VIEWERS)(
-            'creates the dashboard straight away for $label when there are no variables',
-            ({ isStaff }) => {
-                const template = makeTemplate('team')
-                const actions = mountTable({ isStaff, templates: [template] })
-
-                fireEvent.click(screen.getByText('New dashboard from template'))
-
-                expect(actions.createDashboardFromTemplate).toHaveBeenCalledWith(
-                    template,
-                    [],
-                    true,
-                    'dashboard_templates_manage'
-                )
-                expect(actions.showVariableSelectModal).not.toHaveBeenCalled()
-            }
-        )
-
-        it('asks for events first when the template has variables', () => {
-            const template = makeTemplate('team', { variables: [EVENT_VARIABLE] })
-            const actions = mountTable({ isStaff: false, templates: [template] })
-
-            fireEvent.click(screen.getByText('New dashboard from template'))
-
-            expect(actions.showVariableSelectModal).toHaveBeenCalledWith(template)
-            expect(actions.createDashboardFromTemplate).not.toHaveBeenCalled()
-        })
-
-        it('does nothing while another dashboard is being created', () => {
-            const actions = mountTable({
-                isStaff: false,
-                templates: [makeTemplate('team')],
-                dashboardCreationLoading: true,
-            })
-
-            fireEvent.click(screen.getByText('New dashboard from template'))
-
-            expect(actions.setIsLoading).not.toHaveBeenCalled()
-            expect(actions.createDashboardFromTemplate).not.toHaveBeenCalled()
-        })
-    })
-
     describe('templates the viewer cannot manage', () => {
-        it('shows an organization template from another project as read-only, naming the owning project', () => {
-            mountTable({ isStaff: false, templates: [makeTemplate('organization', { team_id: OTHER_TEAM.id })] })
+        it('names the owning project for an organization template managed in another project', () => {
+            mountTable({
+                isStaff: false,
+                templates: [makeTemplate('organization', { team_id: OTHER_TEAM.id })],
+                canManage: false,
+                managedInAnotherProject: true,
+            })
 
             expect(screen.getByLabelText('Managed in Marketing site')).toBeInTheDocument()
             expect(document.querySelector('[data-attr="dashboard-template-name-edit"]')).not.toBeInTheDocument()
-            expect(screen.queryByText('New dashboard from template')).not.toBeInTheDocument()
+            expect(screen.queryByText('Edit')).not.toBeInTheDocument()
         })
 
-        it('gives viewers without editor access a read-only list', () => {
-            ;(userHasAccess as jest.Mock).mockReturnValue(false)
-            mountTable({ isStaff: false, templates: [makeTemplate('team')] })
+        it('shows a read-only row with no lock when the viewer lacks editor access', () => {
+            mountTable({ isStaff: false, templates: [makeTemplate('team')], canManage: false })
 
             expect(document.querySelector('[data-attr="dashboard-template-name-edit"]')).not.toBeInTheDocument()
             expect(screen.queryByText('Edit')).not.toBeInTheDocument()
+            expect(screen.queryByLabelText(/^Managed in/)).not.toBeInTheDocument()
         })
     })
 
@@ -289,14 +229,13 @@ describe('DashboardTemplatesTable', () => {
             expect(screen.getByText('Browse PostHog templates')).toBeInTheDocument()
         })
 
-        it('clears the search and filter when a search matches nothing', () => {
+        it('offers to clear the filters when a search matches nothing', () => {
             const actions = mountTable({ isStaff: false, templates: [], searchText: 'churn' })
 
             expect(screen.getByText('No templates match "churn"')).toBeInTheDocument()
             fireEvent.click(screen.getByText('Clear filters'))
 
-            expect(actions.setTemplateFilter).toHaveBeenCalledWith('')
-            expect(actions.setTemplatesTabVisibility).toHaveBeenCalledWith('all')
+            expect(actions.clearFilters).toHaveBeenCalledTimes(1)
         })
     })
 })
