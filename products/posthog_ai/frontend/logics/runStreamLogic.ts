@@ -4011,8 +4011,14 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 if (!projectId || values.bootstrappedTaskId !== taskId) {
                     return
                 }
+                // The first read and a visibility refresh can overlap, and an older snapshot that lands
+                // last would bring back a card the newer one resolved.
+                const request = (cache.turnSuggestionLedgerRequest = (cache.turnSuggestionLedgerRequest ?? 0) + 1)
                 try {
                     const state = await turnSuggestionsStateRetrieve(String(projectId), { task_id: taskId })
+                    if (request !== cache.turnSuggestionLedgerRequest) {
+                        return
+                    }
                     if (values.bootstrappedTaskId === taskId) {
                         actions.setTurnSuggestionLedger({
                             taskId,
