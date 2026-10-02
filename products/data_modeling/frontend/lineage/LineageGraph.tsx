@@ -14,6 +14,7 @@ import {
     useReactFlow,
     type XYPosition,
 } from '@xyflow/react'
+import clsx from 'clsx'
 import { useValues } from 'kea'
 import { type KeyboardEvent, type MouseEvent, ReactNode, useEffect, useMemo, useRef } from 'react'
 
@@ -253,6 +254,7 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
 
     return (
         <ReactFlow
+            className={clsx('@container/lineage', props.className)}
             colorMode={isDarkModeOn ? 'dark' : 'light'}
             defaultNodes={decoratedNodes}
             edges={layout.edges}
@@ -296,7 +298,7 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
                     pannable
                     position={props.minimapPosition ?? 'bottom-left'}
                     nodeStrokeWidth={2}
-                    className="hidden lg:block border rounded shadow-sm"
+                    className="hidden border rounded shadow-sm @min-[48rem]/lineage:block"
                 />
             )}
             {props.panels && <Panel position={props.panelPosition ?? 'top-right'}>{props.panels}</Panel>}
