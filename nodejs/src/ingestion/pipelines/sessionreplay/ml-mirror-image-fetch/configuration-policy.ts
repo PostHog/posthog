@@ -20,6 +20,9 @@ const CONFIG_REFRESH_MS = 23 * 60 * 60 * 1000
 const CONFIG_RETRY_MS = 60 * 60 * 1000
 const CONFIG_STORAGE_MS = 30 * 24 * 60 * 60 * 1000
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
+const UTF8_BYTE_ORDER_MARK = [0xef, 0xbb, 0xbf]
+const JSON_WHITESPACE_BYTES = new Set([' ', '\t', '\n', '\r'].map((character) => character.charCodeAt(0)))
+const JSON_ARRAY_START_BYTE = '['.charCodeAt(0)
 
 export type ConfigurationFetchResult =
     | { outcome: 'available'; body: string; cache: HttpCacheMetadata }
@@ -176,6 +179,10 @@ export class HttpConfigurationFetcher {
             return complete({ kind: 'done', result: { outcome: 'unreachable', cache }, reason: 'unexpected_status' })
         }
         const body = await response.read(CONFIG_BODY_LIMIT)
+        // This check comes before the size and UTF-8 checks, so that an oversized or non-UTF-8 HTML page also means that the origin has no tdmrep.json (README 3.14).
+        if (file === 'tdmrep' && !canStartJsonArray(body.bytes)) {
+            return complete({ kind: 'done', result: { outcome: 'absent', cache }, reason: 'not_json_array' })
+        }
         if (body.overLimit && file === 'tdmrep') {
             return complete({ kind: 'done', result: { outcome: 'unreachable', cache }, reason: 'body_limit' })
         }
@@ -185,7 +192,7 @@ export class HttpConfigurationFetcher {
         } catch {
             return complete({ kind: 'done', result: { outcome: 'unreachable', cache }, reason: 'invalid_utf8' })
         }
-        if (file === 'tdmrep' && !isValidTdmrepDocument(text)) {
+        if (file === 'tdmrep' && !Array.isArray(parseTdmrepDocument(text))) {
             return complete({ kind: 'done', result: { outcome: 'unreachable', cache }, reason: 'invalid_document' })
         }
         return complete({ kind: 'done', result: { outcome: 'available', body: text, cache } })
@@ -549,23 +556,27 @@ function tdmrepRefuses(parsed: unknown, url: URL): boolean {
             continue
         }
         if (wildcardPatternMatchesPathname(rule.location, url.pathname)) {
-            return rule['tdm-reservation'] === 1
+            return isTdmReservation(rule['tdm-reservation'])
         }
     }
     return false
 }
 
-function isValidTdmrepDocument(body: string): boolean {
-    const parsed = parseTdmrepDocument(body)
-    return (
-        Array.isArray(parsed) &&
-        parsed.every(
-            (rule) =>
-                isObject(rule) &&
-                typeof rule.location === 'string' &&
-                (rule['tdm-reservation'] === 0 || rule['tdm-reservation'] === 1)
-        )
-    )
+function isTdmReservation(value: unknown): boolean {
+    // TDMRep reads "1" and true as protocol errors, which mean no reservation. README 3.13 reads them as a reservation, because a site that writes them intends to reserve.
+    return value === 1 || value === '1' || value === true
+}
+
+function canStartJsonArray(bytes: Uint8Array): boolean {
+    let index = hasUtf8ByteOrderMark(bytes) ? UTF8_BYTE_ORDER_MARK.length : 0
+    while (index < bytes.length && JSON_WHITESPACE_BYTES.has(bytes[index])) {
+        index++
+    }
+    return bytes[index] === JSON_ARRAY_START_BYTE
+}
+
+function hasUtf8ByteOrderMark(bytes: Uint8Array): boolean {
+    return UTF8_BYTE_ORDER_MARK.every((byte, index) => bytes[index] === byte)
 }
 
 async function parsedRobotsConfiguration(

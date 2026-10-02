@@ -316,6 +316,26 @@ describe('ConfigurationPolicyService', () => {
         })
     })
 
+    it.each([
+        ['1', true],
+        [true, true],
+        [0, false],
+    ])('reads a TDMRep reservation of %p as %p', async (reservation, tdmrepReservation) => {
+        const { policy } = service()
+        const cache = new Map([
+            [configurationCacheKey(ORIGIN, 'robots'), cached('robots', 'absent')],
+            [
+                configurationCacheKey(ORIGIN, 'tdmrep'),
+                cached('tdmrep', 'available', JSON.stringify([{ location: '/', 'tdm-reservation': reservation }])),
+            ],
+        ])
+
+        await expect(policy.check(`${ORIGIN}/image.png`, cache, NOW_MS)).resolves.toMatchObject({
+            allowed: true,
+            tdmrepReservation,
+        })
+    })
+
     it('keeps a previous usable file when its refresh is unreachable', async () => {
         const { policy } = service({ robots: { outcome: 'unreachable' } })
         const previous = { ...cached('robots', 'absent'), refreshAtMs: NOW_MS - 1 }
@@ -419,26 +439,71 @@ describe('HttpConfigurationFetcher', () => {
         await expect(httpFetcher().fetch(ORIGIN, 'robots')).resolves.toMatchObject({ outcome: 'unreachable' })
     })
 
-    it('treats an oversized or invalid TDMRep document as unreachable', async () => {
-        fetchStreamedMock
-            .mockResolvedValueOnce(response(200, [], { bytes: Buffer.from('[]'), overLimit: true }))
-            .mockResolvedValueOnce(response(200, [], { bytes: Buffer.from('{invalid'), overLimit: false }))
+    it.each([
+        {
+            description: 'a string reservation',
+            bytes: Buffer.from('[{"location": "/", "tdm-reservation": "1"}]'),
+            overLimit: false,
+            outcome: 'available',
+            reason: 'available',
+        },
+        {
+            description: 'a byte order mark and leading whitespace',
+            bytes: Buffer.from('\uFEFF\n  []'),
+            overLimit: false,
+            outcome: 'available',
+            reason: 'available',
+        },
+        {
+            description: 'a damaged array',
+            bytes: Buffer.from('[{"location": "/",'),
+            overLimit: false,
+            outcome: 'unreachable',
+            reason: 'invalid_document',
+        },
+        {
+            description: 'an oversized array',
+            bytes: Buffer.from('[]'),
+            overLimit: true,
+            outcome: 'unreachable',
+            reason: 'body_limit',
+        },
+        {
+            description: 'an HTML page',
+            bytes: Buffer.from('<!doctype html><title>Home</title>'),
+            overLimit: false,
+            outcome: 'absent',
+            reason: 'not_json_array',
+        },
+        {
+            description: 'a JSON object',
+            bytes: Buffer.from('{"error": "not found"}'),
+            overLimit: false,
+            outcome: 'absent',
+            reason: 'not_json_array',
+        },
+        {
+            description: 'an oversized HTML page',
+            bytes: Buffer.from('<!doctype html>'),
+            overLimit: true,
+            outcome: 'absent',
+            reason: 'not_json_array',
+        },
+        {
+            description: 'a Latin-1 HTML page',
+            bytes: Buffer.from('<p>caf\u00e9</p>', 'latin1'),
+            overLimit: false,
+            outcome: 'absent',
+            reason: 'not_json_array',
+        },
+    ])('maps a TDMRep body with $description to $outcome', async ({ bytes, overLimit, outcome, reason }) => {
+        fetchStreamedMock.mockResolvedValue(response(200, [], { bytes, overLimit }))
 
-        await expect(httpFetcher().fetch(ORIGIN, 'tdmrep')).resolves.toMatchObject({ outcome: 'unreachable' })
-        await expect(httpFetcher().fetch(ORIGIN, 'tdmrep')).resolves.toMatchObject({ outcome: 'unreachable' })
+        await expect(httpFetcher().fetch(ORIGIN, 'tdmrep')).resolves.toMatchObject({ outcome })
         const fetches = await register.getSingleMetric('ml_image_fetch_configuration_fetches_total')!.get()
-        expect(fetches.values).toEqual(
-            expect.arrayContaining([
-                expect.objectContaining({
-                    labels: { file: 'tdmrep', outcome: 'unreachable', reason: 'body_limit' },
-                    value: 1,
-                }),
-                expect.objectContaining({
-                    labels: { file: 'tdmrep', outcome: 'unreachable', reason: 'invalid_document' },
-                    value: 1,
-                }),
-            ])
-        )
+        expect(fetches.values).toEqual([
+            expect.objectContaining({ labels: { file: 'tdmrep', outcome, reason }, value: 1 }),
+        ])
     })
 
     it('treats repeated Location field lines as unreachable', async () => {
