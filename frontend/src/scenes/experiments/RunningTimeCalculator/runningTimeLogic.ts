@@ -82,6 +82,7 @@ export interface runningTimeLogicValues {
     currentExposures: number | null
     dailyExposureRate: number | null
     initialConfig: RunningTimeConfig
+    isCalculating: boolean
     isComplete: boolean
     isManualMode: boolean
     isSaving: boolean
@@ -249,6 +250,13 @@ export interface runningTimeLogicMeta {
             experiment: Experiment
         ) => number | null
         isComplete: (currentExposures: number | null, targetSampleSize: number | null) => boolean
+        isCalculating: (
+            isManualMode: boolean,
+            primaryMetricsResultsLoading: boolean,
+            automaticCalculationLoading: boolean,
+            automaticCalculationInput: RunningTimeCalculationInputApi | null,
+            automaticCalculation: RunningTimeCalculationResultApi | null
+        ) => boolean
         manualFormPreview: (
             manualPreviewInput: RunningTimeCalculationInputApi | null,
             manualPreview: ManualPreview
@@ -570,6 +578,29 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
             (s) => [s.currentExposures, s.targetSampleSize],
             (current: number | null, target: number | null): boolean =>
                 current !== null && target !== null && current >= target,
+        ],
+        // True while the estimate is still resolving: metric results loading, the automatic calculation
+        // POST in flight, or a calculation queued but not back yet. Lets the UI distinguish "still loading"
+        // from "settled but can't estimate" instead of flashing a pending state during the gap between the two.
+        isCalculating: [
+            (s) => [
+                s.isManualMode,
+                s.primaryMetricsResultsLoading,
+                s.automaticCalculationLoading,
+                s.automaticCalculationInput,
+                s.automaticCalculation,
+            ],
+            (
+                isManualMode: boolean,
+                primaryMetricsResultsLoading: boolean,
+                automaticCalculationLoading: boolean,
+                automaticCalculationInput: RunningTimeCalculationInputApi | null,
+                automaticCalculation: RunningTimeCalculationResultApi | null
+            ): boolean =>
+                !isManualMode &&
+                (primaryMetricsResultsLoading ||
+                    automaticCalculationLoading ||
+                    (automaticCalculationInput !== null && automaticCalculation === null)),
         ],
         manualFormPreview: [
             (s) => [s.manualPreviewInput, s.manualPreview],
