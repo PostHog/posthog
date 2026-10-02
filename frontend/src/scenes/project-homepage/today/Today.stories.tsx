@@ -449,23 +449,21 @@ const PERSONAL_BRIEFING: BriefingApi = {
 
 // Today keeps sample mode, the open pane, the sidebar width and the space feed view in local storage, which outlives
 // a story. Clearing it makes each story start clean, so only the sample stories show sample reports.
-function clearTodayStorage(Story: () => JSX.Element): JSX.Element {
+// A story's `spaceFeedView` parameter is written after the clear, so it starts with that saved space feed view, the
+// way a returning person sees it.
+function clearTodayStorage(
+    Story: () => JSX.Element,
+    { parameters }: { parameters: { spaceFeedView?: Record<string, unknown> } }
+): JSX.Element {
     for (const key of Object.keys(window.localStorage)) {
         if (/today|spaceFeedViewLogic/i.test(key)) {
             window.localStorage.removeItem(key)
         }
     }
-    return <Story />
-}
-
-/** Starts a story with a saved space feed view, the way a returning person sees it. */
-function withSpaceFeedView(saved: Record<string, unknown>): (Story: () => JSX.Element) => JSX.Element {
-    return function SpaceFeedViewDecorator(Story) {
-        for (const [reducer, value] of Object.entries(saved)) {
-            window.localStorage.setItem(`products.tasks.spaces.spaceFeedViewLogic.${reducer}`, JSON.stringify(value))
-        }
-        return <Story />
+    for (const [reducer, value] of Object.entries(parameters.spaceFeedView ?? {})) {
+        window.localStorage.setItem(`products.tasks.spaces.spaceFeedViewLogic.${reducer}`, JSON.stringify(value))
     }
+    return <Story />
 }
 
 const meta: Meta = {
@@ -499,6 +497,9 @@ const meta: Meta = {
                     200,
                     SPACES.find((space) => space.id === req.params.id) ?? SPACES[0],
                 ],
+                '/api/users/@me/integrations/codex/': { status: 'not_connected' },
+                '/api/code/invites/check-access/': { has_access: true, has_loops_access: false },
+                '/api/projects/:team_id/tasks/repositories/': { repositories: [] },
                 '/api/projects/:team_id/tasks/': ({ request }) => {
                     const params = new URL(request.url).searchParams
                     const results = params.get('pinned')
@@ -705,32 +706,28 @@ export const SpacesPaneWithRecentFilterMenu: Story = {
 }
 
 export const SpacePageListView: Story = {
-    decorators: [withSpaceFeedView({ view: 'list' })],
-    parameters: { pageUrl: urls.taskSpace('space-checkout') },
+    parameters: { pageUrl: urls.taskSpace('space-checkout'), spaceFeedView: { view: 'list' } },
 }
 
 export const SpacePagePullRequests: Story = {
-    decorators: [withSpaceFeedView({ types: ['pr'] })],
-    parameters: { pageUrl: urls.taskSpace('space-checkout') },
+    parameters: { pageUrl: urls.taskSpace('space-checkout'), spaceFeedView: { types: ['pr'] } },
 }
 
 export const SpacePageCanvases: Story = {
-    decorators: [withSpaceFeedView({ types: ['canvas'] })],
-    parameters: { pageUrl: urls.taskSpace('space-checkout') },
+    parameters: { pageUrl: urls.taskSpace('space-checkout'), spaceFeedView: { types: ['canvas'] } },
 }
 
 export const SpacePageCanvasesListView: Story = {
-    decorators: [withSpaceFeedView({ types: ['canvas'], view: 'list' })],
-    parameters: { pageUrl: urls.taskSpace('space-checkout') },
+    parameters: { pageUrl: urls.taskSpace('space-checkout'), spaceFeedView: { types: ['canvas'], view: 'list' } },
 }
 
 export const SpacePageFiltered: Story = {
-    decorators: [
-        withSpaceFeedView({
+    parameters: {
+        pageUrl: urls.taskSpace('space-checkout'),
+        spaceFeedView: {
             filters: { createdBy: 'anyone', sources: [], status: 'unread', pinned: 'any', environment: 'any' },
-        }),
-    ],
-    parameters: { pageUrl: urls.taskSpace('space-checkout') },
+        },
+    },
 }
 
 // Right-click at the target's corner, where a person would, so the menu opens beside it.
