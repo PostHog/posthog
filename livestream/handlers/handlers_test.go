@@ -3,10 +3,8 @@ package handlers
 import (
 	"context"
 	"encoding/json"
-	"io"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"testing/synctest"
@@ -298,7 +296,7 @@ func TestStreamEventsHandlerCancelsPeriodicAccessCheck(t *testing.T) {
 func accessResponse(status int) *http.Response {
 	return &http.Response{
 		StatusCode: status,
-		Body:       io.NopCloser(strings.NewReader("")),
+		Body:       http.NoBody,
 		Header:     make(http.Header),
 	}
 }
