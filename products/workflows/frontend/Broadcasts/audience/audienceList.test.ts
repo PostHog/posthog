@@ -10,6 +10,7 @@ describe('audienceList', () => {
         },
         { case: 'a header with no rows', text: 'email\n', expected: 'The file has a header row but no people in it.' },
         { case: 'an email column among others', text: 'Name,Email\nAda,ada@example.com\n', expected: null },
+        { case: 'a person-id column among others', text: 'person-id,name\nabc,Ada\n', expected: null },
         { case: 'one column of ids without a header', text: 'user-1\nuser-2\n', expected: null },
     ])('checks $case before uploading', ({ text, expected }) => {
         expect(csvListError(text)).toEqual(expected)

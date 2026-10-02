@@ -1,4 +1,4 @@
-const SUPPORTED_ID_HEADERS = ['email', 'e-mail', 'distinct_id', 'distinct-id', 'person_id', 'person .id']
+const SUPPORTED_ID_HEADERS = ['email', 'e-mail', 'distinct_id', 'distinct-id', 'person_id', 'person-id', 'person .id']
 
 /**
  * Why the cohort import would reject this CSV, checked before anything is created, because a rejected
