@@ -560,7 +560,7 @@ export interface infiniteListLogicMeta {
         ) => boolean
         excludedPropertiesWithHiddenEvents: (
             arg: import('lib/components/TaxonomicFilter/types').TaxonomicFilterGroupValueMap | undefined,
-            currentTeam: any,
+            currentTeam: TeamPublicType | TeamType | null,
             arg2: boolean | undefined
         ) => ExcludedProperties | undefined
         contextFilteredRecentItems: (
