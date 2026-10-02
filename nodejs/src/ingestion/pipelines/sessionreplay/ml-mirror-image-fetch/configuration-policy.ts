@@ -173,7 +173,7 @@ export class HttpConfigurationFetcher {
         }
         if (response.status >= 400 && response.status < 500) {
             response.discard()
-            return complete({ kind: 'done', result: { outcome: 'refused', cache } })
+            return complete({ kind: 'done', result: { outcome: 'refused', cache }, reason: `http_${response.status}` })
         }
         if (response.status !== 200) {
             response.discard()
