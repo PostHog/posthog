@@ -44,13 +44,11 @@ class RecipientListQuerySerializer(serializers.Serializer):
     )
     cursor = serializers.CharField(
         required=False,
-        max_length=512,
         trim_whitespace=False,
         help_text="`next_cursor` from the previous page. Omit for the first page.",
     )
     email = serializers.CharField(
         required=False,
-        max_length=512,
         trim_whitespace=False,
         help_text="Return only this address, matched case-insensitively. The other parameters still narrow the "
         "lookup. Responds 404 when no recipient matches.",
