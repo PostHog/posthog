@@ -1150,6 +1150,8 @@ def test_process_incremental_value_xid_returns_value_as_is() -> None:
         (1718377611.5, IncrementalFieldType.DateTime, 1718377611.5),
         (datetime(2024, 6, 14, 15, 33, 31), IncrementalFieldType.DateTime, datetime(2024, 6, 14, 15, 33, 31)),
         ("2024-06-14T15:33:31", IncrementalFieldType.DateTime, datetime(2024, 6, 14, 15, 33, 31)),
+        (date(2024, 6, 14), IncrementalFieldType.DateTime, datetime(2024, 6, 14)),
+        (date(2024, 6, 14), IncrementalFieldType.Timestamp, datetime(2024, 6, 14)),
         ("2024-06-14", IncrementalFieldType.Date, date(2024, 6, 14)),
         # JS `Date.prototype.toString()` cursors carry a parenthetical timezone name dateutil
         # can't parse on its own, even though the GMT offset earlier in the string is sufficient.
