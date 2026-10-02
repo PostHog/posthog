@@ -1,7 +1,7 @@
 import re
 from typing import Any, Optional
 
-from products.workflows.backend.presentation.views.action_redirects import compute_action_redirects
+from products.workflows.backend.services.action_redirects import compute_action_redirects
 
 # Publish-time impact summary: what applying a staged draft will do to people already in the flow.
 # Pure functions over the two graphs plus externally-fetched counts, so the matrix is unit-testable
