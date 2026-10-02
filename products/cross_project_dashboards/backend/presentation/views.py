@@ -6,7 +6,7 @@ from uuid import UUID
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import status, viewsets
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
@@ -24,6 +24,7 @@ from .serializers import (
     CrossProjectDashboardTileUpdateSerializer,
 )
 
+CHANGE_DENIED = "This dashboard has tiles from a project you cannot open, so you cannot change or delete it."
 DASHBOARD_ID = OpenApiParameter("id", OpenApiTypes.UUID, OpenApiParameter.PATH, description="Id of the dashboard.")
 PARENT_DASHBOARD_ID = OpenApiParameter(
     "dashboard_id", OpenApiTypes.UUID, OpenApiParameter.PATH, description="Id of the dashboard."
@@ -76,8 +77,9 @@ class _FacadePageMixin:
 class CrossProjectDashboardViewSet(TeamAndOrgViewSetMixin, _FacadePageMixin, viewsets.GenericViewSet):
     """Dashboards the organization owns, holding insights from one or more projects."""
 
-    # Any organization member may create, edit and delete these by design: a dashboard holds only
-    # references, and each reader's own project access decides what every tile shows.
+    # Any organization member may create one, and may edit or delete one whose tiles all come from
+    # projects they can open. A dashboard holds only references, and each reader's own project
+    # access decides what every tile shows.
     scope_object = "cross_project_dashboard"
     serializer_class = CrossProjectDashboardSerializer
     lookup_field = "id"
@@ -138,6 +140,8 @@ class CrossProjectDashboardViewSet(TeamAndOrgViewSetMixin, _FacadePageMixin, vie
             )
         except contracts.DashboardNotFoundError:
             raise NotFound()
+        except contracts.DashboardChangeDeniedError:
+            raise PermissionDenied(CHANGE_DENIED)
         return Response(CrossProjectDashboardSerializer(dashboard).data)
 
     @extend_schema(parameters=[DASHBOARD_ID], responses={204: None})
@@ -148,6 +152,8 @@ class CrossProjectDashboardViewSet(TeamAndOrgViewSetMixin, _FacadePageMixin, vie
             )
         except contracts.DashboardNotFoundError:
             raise NotFound()
+        except contracts.DashboardChangeDeniedError:
+            raise PermissionDenied(CHANGE_DENIED)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
