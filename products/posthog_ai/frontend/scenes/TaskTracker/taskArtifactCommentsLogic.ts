@@ -273,11 +273,11 @@ export const taskArtifactCommentsLogic = kea<taskArtifactCommentsLogicType>([
             (comments: CommentApi[] | null): ArtifactCommentThread[] | null =>
                 comments ? buildArtifactCommentThreads(comments) : null,
         ],
-        /** Newest thread first. Resolved threads show only when asked for. */
+        /** Oldest thread first, like PostHog Desktop, so pins list in number order. Resolved threads show only when asked for. */
         visibleThreads: [
             (s) => [s.threads, s.showResolved],
             (threads: ArtifactCommentThread[] | null, showResolved: boolean): ArtifactCommentThread[] | null =>
-                threads ? threads.filter((thread) => showResolved || !thread.resolved).reverse() : null,
+                threads ? threads.filter((thread) => showResolved || !thread.resolved) : null,
         ],
         openCount: [
             (s) => [s.threads],

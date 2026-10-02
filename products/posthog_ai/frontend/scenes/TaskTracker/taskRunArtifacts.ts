@@ -110,7 +110,7 @@ export function isTextPreview(kind: ArtifactPreviewKind): boolean {
 }
 
 /**
- * Files the agent wrote for the user, and the PostHog objects the run cites.
+ * Files the agent wrote for the user, versions of them a user saved, and the PostHog objects the run cites.
  * Attachments, plans, skill bundles and dismissed entries stay out.
  */
 export function visibleRunArtifacts(artifacts: readonly TaskRunArtifactResponseApi[]): TaskRunArtifactResponseApi[] {
@@ -121,10 +121,14 @@ export function visibleRunArtifacts(artifacts: readonly TaskRunArtifactResponseA
         if (postHogObjectRef(artifact)) {
             return true
         }
+        if (!artifact.storage_path) {
+            return false
+        }
+        // An edit saved here or in PostHog Desktop is an `output` upload by a user, with no source label.
+        const savedByUser = artifact.type === 'output' && artifact.uploaded_by === 'user'
         return (
-            !!artifact.storage_path &&
-            (artifact.type === 'output' || artifact.type === 'artifact') &&
-            artifact.source === 'agent_output'
+            savedByUser ||
+            ((artifact.type === 'output' || artifact.type === 'artifact') && artifact.source === 'agent_output')
         )
     })
 }
@@ -355,4 +359,57 @@ export function livingArtifactFiles(artifacts: readonly TaskRunLivingArtifactRes
             return { key: `living-${artifact.id}`, name: artifact.name, versions, latest: versions[0] }
         })
         .sort((a, b) => b.latest.uploaded_at.localeCompare(a.latest.uploaded_at))
+}
+
+/** The text files a user can edit, the same set PostHog Desktop edits. */
+export type EditableArtifactKind = 'markdown' | 'html' | 'plain-text'
+
+export const EDITOR_LANGUAGE: Record<EditableArtifactKind, string> = {
+    markdown: 'markdown',
+    html: 'html',
+    'plain-text': 'plaintext',
+}
+
+export function editableArtifactKind(artifact: RunArtifact): EditableArtifactKind | null {
+    // A living document and a cited object have no uploaded file to replace.
+    if (artifact.living || artifact.type === 'reference' || !artifact.storage_path || !artifact.id) {
+        return null
+    }
+    const contentType = (artifact.content_type ?? '').split(';')[0].trim().toLowerCase()
+    if (contentType === 'text/markdown') {
+        return 'markdown'
+    }
+    if (contentType === 'text/html') {
+        return 'html'
+    }
+    if (contentType === 'text/plain') {
+        return 'plain-text'
+    }
+    // A file with any other content type is not text the editor can round-trip safely.
+    if (contentType) {
+        return null
+    }
+    const ext = extension(artifact.name)
+    return ext === 'md' ? 'markdown' : ext === 'html' ? 'html' : ext === 'txt' ? 'plain-text' : null
+}
+
+/** Why a save must ask first: the agent wrote a newer version, or every version was dismissed. */
+export type ArtifactEditConflict = 'newer-version' | 'dismissed'
+
+/**
+ * Compares the newest shown version of a file with the version the edit started from.
+ * Pass freshly read runs, because a stale manifest can still show a version that is now dismissed.
+ */
+export function artifactEditConflict(
+    runs: readonly (RunWithArtifacts | null | undefined)[],
+    name: string,
+    baseArtifactId: string
+): ArtifactEditConflict | null {
+    const file = groupArtifactVersions(collectRunArtifacts(runs)).find(
+        (candidate) => candidate.latest.type !== 'reference' && candidate.name === name
+    )
+    if (!file) {
+        return 'dismissed'
+    }
+    return file.latest.id === baseArtifactId ? null : 'newer-version'
 }

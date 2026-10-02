@@ -1640,6 +1640,7 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `Donorbox` - Donorbox
  * * `Doorloop` - Doorloop
  * * `Dovetail` - Dovetail
+ * * `Dragonboat` - Dragonboat
  * * `Drchrono` - Drchrono
  * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
  * * `EcbDataPortal` - EcbDataPortal
@@ -2999,6 +3000,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Donorbox: 'Donorbox',
     Doorloop: 'Doorloop',
     Dovetail: 'Dovetail',
+    Dragonboat: 'Dragonboat',
     Drchrono: 'Drchrono',
     Dynamics365BusinessCentral: 'Dynamics365BusinessCentral',
     EcbDataPortal: 'EcbDataPortal',
@@ -4505,6 +4507,7 @@ export interface ExternalDataSourceCreateApi {
      * * `Donorbox` - Donorbox
      * * `Doorloop` - Doorloop
      * * `Dovetail` - Dovetail
+     * * `Dragonboat` - Dragonboat
      * * `Drchrono` - Drchrono
      * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
      * * `EcbDataPortal` - EcbDataPortal
@@ -6375,6 +6378,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Donorbox` - Donorbox
      * * `Doorloop` - Doorloop
      * * `Dovetail` - Dovetail
+     * * `Dragonboat` - Dragonboat
      * * `Drchrono` - Drchrono
      * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
      * * `EcbDataPortal` - EcbDataPortal
@@ -7814,6 +7818,7 @@ export interface DatabaseSchemaRequestApi {
      * * `Donorbox` - Donorbox
      * * `Doorloop` - Doorloop
      * * `Dovetail` - Dovetail
+     * * `Dragonboat` - Dragonboat
      * * `Drchrono` - Drchrono
      * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
      * * `EcbDataPortal` - EcbDataPortal
@@ -9177,6 +9182,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `Donorbox` - Donorbox
      * * `Doorloop` - Doorloop
      * * `Dovetail` - Dovetail
+     * * `Dragonboat` - Dragonboat
      * * `Drchrono` - Drchrono
      * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
      * * `EcbDataPortal` - EcbDataPortal
@@ -10594,6 +10600,7 @@ export interface SourcePreviewRequestApi {
      * * `Donorbox` - Donorbox
      * * `Doorloop` - Doorloop
      * * `Dovetail` - Dovetail
+     * * `Dragonboat` - Dragonboat
      * * `Drchrono` - Drchrono
      * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
      * * `EcbDataPortal` - EcbDataPortal
@@ -11992,6 +11999,7 @@ export interface SourceSetupApi {
      * * `Donorbox` - Donorbox
      * * `Doorloop` - Doorloop
      * * `Dovetail` - Dovetail
+     * * `Dragonboat` - Dragonboat
      * * `Drchrono` - Drchrono
      * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
      * * `EcbDataPortal` - EcbDataPortal
@@ -13397,6 +13405,7 @@ export interface SourceCredentialCreateApi {
      * * `Donorbox` - Donorbox
      * * `Doorloop` - Doorloop
      * * `Dovetail` - Dovetail
+     * * `Dragonboat` - Dragonboat
      * * `Drchrono` - Drchrono
      * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
      * * `EcbDataPortal` - EcbDataPortal

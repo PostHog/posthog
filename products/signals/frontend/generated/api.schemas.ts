@@ -583,6 +583,11 @@ export const SignalReportBillingExemptReasonEnumApi = {
  */
 export type ReportRankingApiScores = { [key: string]: number }
 
+/**
+ * Outcome head name to its probability divided by the head's training base rate, e.g. 2.7 means 2.7x as likely as the average report. A head without a saved base rate has no entry.
+ */
+export type ReportRankingApiLifts = { [key: string]: number }
+
 export interface ReportRankingApi {
     /** Key of the served model in the scoring pass, as `<model_name>@<model_version>`. */
     served_key: string
@@ -596,6 +601,8 @@ export interface ReportRankingApi {
     scored_at: string
     /** Outcome head name to its calibrated probability. Empty when the served model skipped the report. */
     scores: ReportRankingApiScores
+    /** Outcome head name to its probability divided by the head's training base rate, e.g. 2.7 means 2.7x as likely as the average report. A head without a saved base rate has no entry. */
+    lifts: ReportRankingApiLifts
     /** Heads whose holdout AUC the training run could read. Treat scores of other heads with caution. */
     readable_heads: string[]
 }
@@ -606,6 +613,8 @@ export interface SignalReportListApi {
     readonly title: string | null
     /** @nullable */
     readonly summary: string | null
+    /** The opening of `summary` as plain text on one line: the text before its first section heading, with chart links removed and other links reduced to their text. At most 450 characters. */
+    readonly summary_lead: string
     readonly status: SignalReportStatusEnumApi
     readonly total_weight: number
     readonly signal_count: number
@@ -823,6 +832,8 @@ export interface SignalReportApi {
     readonly title: string | null
     /** @nullable */
     readonly summary: string | null
+    /** The opening of `summary` as plain text on one line: the text before its first section heading, with chart links removed and other links reduced to their text. At most 450 characters. */
+    readonly summary_lead: string
     readonly status: SignalReportStatusEnumApi
     readonly total_weight: number
     readonly signal_count: number
@@ -2947,6 +2958,8 @@ export interface SignalReportCheckApi {
     readonly status: SignalReportCheckStatusEnumApi
     /** What the check measures and what the result must satisfy; the shape depends on `kind`. `query` and `baseline_value` are null when you cannot read the data they describe. */
     config: SignalReportCheckConfigApi
+    /** @nullable */
+    readonly approved_at: string | null
     /** When the coordinator next evaluates the check. Provisional while the check is `pending`: the report resolving is what sets it. */
     readonly next_run_at: string
     /**
@@ -2993,6 +3006,21 @@ export interface PaginatedSignalReportCheckListApi {
     /** @nullable */
     previous?: string | null
     results: SignalReportCheckApi[]
+}
+
+export interface SignalReportCheckReplacementApi {
+    /**
+     * Label for the new metric check.
+     * @maxLength 200
+     */
+    title: string
+    /**
+     * Why this check is better.
+     * @maxLength 2000
+     */
+    rationale?: string
+    /** Metric threshold configuration, including a bounded query and comparison. */
+    config: MetricThresholdConfigApi
 }
 
 export interface SignalReportBulkStateRequestApi {
