@@ -152,8 +152,14 @@ class ConversionPeopleQuery(MarketingAnalyticsTableQueryRunner):
             parse_expr("nullIf(toString({property}), '')", {"property": ast.Field(chain=["properties", name])})
             for name in (self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES)
         ]
+        # PersonsTable moves the `persons.id IN` join condition into its deduplication subquery.
+        # Without it, the equality join deduplicates every person in the team before it filters.
         people = parse_select(
-            "SELECT id, {name} FROM {conversions} AS converted INNER JOIN persons ON persons.id = converted.actor_id WHERE {conditions} ORDER BY id",
+            (
+                "SELECT id, {name} FROM {conversions} AS converted INNER JOIN persons"
+                " ON persons.id = converted.actor_id AND persons.id IN (SELECT actor_id FROM {conversions})"
+                " WHERE {conditions} ORDER BY id"
+            ),
             {
                 "name": ast.Call(name="coalesce", args=[*names, parse_expr("toString(id)")]),
                 "conversions": query,
