@@ -67,7 +67,7 @@ def _format_timestamp(value: Any) -> str | None:
     return None
 
 
-def _extract_data(body: Any, url: str) -> list[dict[str, Any]]:
+def _extract_data(body: Any, url: str) -> list[Any]:
     """Unwrap Helicone's `{"data": [...], "error": null}` result union.
 
     The prompts endpoint documents a bare array response, so lists pass through as-is.
