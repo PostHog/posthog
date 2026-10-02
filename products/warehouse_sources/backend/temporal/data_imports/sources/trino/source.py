@@ -62,7 +62,6 @@ class TrinoSource(SQLSource[TrinoSourceConfig], ValidateDatabaseHostMixin):
             iconPath="/static/services/trino.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/trino",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [
