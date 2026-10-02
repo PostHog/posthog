@@ -198,6 +198,7 @@ def test_expired_resume_token_clears_state_and_fails_attempt(session: MagicMock)
 
     assert json.loads(session.post.call_args.kwargs["data"]) == {"NextToken": "expired-token"}
     manager.clear_state.assert_called_once()
+    session.close.assert_called_once()
 
 
 def test_checkpoint_is_staged_before_yield_and_session_closes_on_interruption(session: MagicMock) -> None:
