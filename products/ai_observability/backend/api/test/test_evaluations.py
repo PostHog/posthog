@@ -170,6 +170,18 @@ class TestModelConfigurationSerializer(SimpleTestCase):
         else:
             self.assertIn("output_config", serializer.errors)
 
+    def test_openrouter_catalogue_outage_does_not_bypass_numeric_validation(self) -> None:
+        evaluation = Evaluation(
+            evaluation_type="llm_judge",
+            output_type="numeric",
+            output_config={"min": 0, "max": 10},
+            model_configuration=LLMModelConfiguration(provider="openrouter", model="typesafe/jev-1.13"),
+        )
+        serializer = EvaluationSerializer(instance=evaluation, data={"output_config": {"max": None}}, partial=True)
+        with patch("products.ai_observability.backend.llm.providers.openrouter._non_chat_models", return_value=None):
+            self.assertFalse(serializer.is_valid())
+        self.assertIn("Try again", str(serializer.errors["model_configuration"]))
+
     @parameterized.expand(
         [
             ("missing_key", "example-judge-v1", None, False),

@@ -56,6 +56,7 @@ They use OpenRouter's `/api/v1/systemone` endpoint with that key; no custom endp
 The OpenRouter catalogue's `decisions` output modality identifies these models, including aliases; chat models such as Jev Router keep using chat completions.
 Decision models are excluded from the playground and tagger model pickers.
 If the catalogue is unavailable during an OpenRouter evaluation, the run retries rather than guessing which API to call.
+Saving an OpenRouter evaluation also requires the catalogue so its output configuration can be validated.
 For other compatible services, add a connection under **System One** in provider key settings.
 Enter the public HTTPS base URL and model ID of a compatible service; neither has a default.
 TypeSafe's hosted endpoint is not supported by this integration.

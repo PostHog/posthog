@@ -569,7 +569,7 @@ def call_llm_judge(
     probability: float | None = None
     system_one_result = None
     try:
-        if is_system_one_model(provider, model, require_catalogue=True):
+        if is_system_one_model(provider, model):
             if output_type not in ("boolean", "categorical", "numeric"):
                 return build_skipped_evaluation_result(
                     output_type=output_type,

@@ -186,6 +186,7 @@ class TestOpenRouterNonChatModels:
                 {"id": "typesafe/jev-router", "architecture": {"output_modalities": ["text"]}},
                 {"id": "example/embedding", "architecture": {"output_modalities": ["embeddings"]}},
                 {"id": "no-architecture/model"},
+                {"id": "null-modalities/model", "architecture": {"output_modalities": None}},
             ]
         }
         with (

@@ -59,7 +59,7 @@ def _non_chat_models() -> dict[str, list[str]] | None:
         modalities = {
             model["id"]: model["architecture"]["output_modalities"]
             for model in models
-            if "text" not in (model.get("architecture") or {}).get("output_modalities", ["text"])
+            if "text" not in ((model.get("architecture") or {}).get("output_modalities") or ["text"])
         }
     except Exception:
         logger.warning("Could not fetch the OpenRouter model catalogue", exc_info=True)
