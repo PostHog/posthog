@@ -123,13 +123,14 @@ describe('accountRelationshipsLogic', () => {
     })
 
     it.each([
-        { status: 204, body: {}, toast: null },
+        { status: 204, body: {}, toast: null, reloads: true },
         {
             status: 409,
             body: { detail: "The history of a controlled relationship can't be deleted." },
             toast: "The history of a controlled relationship can't be deleted.",
+            reloads: false,
         },
-    ])('closes the confirmation after a $status delete response', async ({ status, body, toast }) => {
+    ])('closes the confirmation after a $status delete response', async ({ status, body, toast, reloads }) => {
         const relationship = buildRelationship()
         const toastError = jest.spyOn(lemonToast, 'error').mockImplementation(() => '' as never)
         const captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
@@ -141,6 +142,7 @@ describe('accountRelationshipsLogic', () => {
         await expectLogic(logic).toDispatchActions([
             'relationshipSaveStarted',
             'closeDeleteConfirmation',
+            ...(reloads ? ['loadRelationships'] : []),
             'relationshipSaveFinished',
         ])
 
