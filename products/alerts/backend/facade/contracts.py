@@ -240,20 +240,67 @@ class GroupTransition:
 
 
 @frozen
-class AlertDeliveryPreview:
-    """What delivery would send. The PoC records it instead of contacting a destination.
+class AnnouncedTransition:
+    """One group's transition as delivery reads it back, projected from a history row.
 
-    A delivery addresses its history rows by `configuration_id`, the transition's `grouping_key`
-    and `evaluation_key` together. The rows also carry an `alert_id`, which is the
-    `PlatformAlert` instance rather than the configuration, so nothing here is joined to it.
+    The sibling of `GroupTransition`, and deliberately not the same type. A `GroupTransition`
+    crosses Temporal on the delivery payload, so it stays small. This never does: delivery holds
+    an address, reads the row, and builds one of these in the process that sends the message. So
+    it carries what a message states, including the two snapshots the row already keeps.
+
+    Every field here is a column on `platform_alert_events`, which is what makes a message state
+    what its own check decided however long after the check it is rendered.
+    """
+
+    grouping_key: str
+    kind: AlertEventKind
+    # The firing this transition concerns, which on a resolve is the firing that just ended.
+    # None when no firing is involved, which is a failed or a turned-off check.
+    episode_started_at: datetime | None
+    value: float | None
+    labels: dict[str, str]
+    condition: dict[str, Any]
+    source_config: dict[str, Any]
+    error_message: str | None
+
+
+@frozen
+class EvaluationAnnouncement:
+    """What one evaluation left for a destination to say.
+
+    One transition is one message. A level between this and the transitions would be the place a
+    fan-in policy lived, and fan-in was deprioritized on 2026-09-28, so there is nothing for it
+    to hold. It arrives with fan-in rather than waiting here empty.
+    """
+
+    alert_name: str
+    # Evaluation-level, so it sits here rather than on a transition: a failed check fails the
+    # whole evaluation, and every group in one announcement saw the same count.
+    consecutive_failures: int
+    transitions: tuple[AnnouncedTransition, ...]
+
+
+@frozen
+class AlertDeliveryRequest:
+    """Where to find what one evaluation decided, rather than a copy of it.
+
+    A delivery addresses its history rows by `configuration_id` and `evaluation_key`, and reads
+    the facts back from there. So a retry announces what was recorded rather than what one
+    attempt happened to carry, and a batch's payload does not grow with what its alerts say.
+
+    The two destination fields are supplied by the source because only the source knows them.
+    `destination_alert_id` is the id its destinations are matched on, which is the legacy
+    configuration while the platform runs beside a source's own stack. `event_ids_by_kind` maps
+    each kind the source can announce onto the event id its destinations filter on. The platform
+    imports no source, so it cannot derive either.
     """
 
     source: SourceKind
+    team_id: int
     configuration_id: str
-    alert_name: str
     evaluation_key: str
-    destination_names: tuple[str, ...]
-    transitions: tuple[GroupTransition, ...]
+    destination_alert_id: str
+    event_ids_by_kind: dict[str, str]
 
 
 @frozen
@@ -265,7 +312,7 @@ class SourceBatchEvaluation:
     """
 
     outcomes: tuple[PlatformAlertOutcome, ...]
-    previews: tuple[AlertDeliveryPreview, ...]
+    deliveries: tuple[AlertDeliveryRequest, ...]
     # Pairs the payload bound left out. They keep their due time and a later tick re-evaluates
     # them, the way a truncated cohort already behaves.
     omitted: int = 0

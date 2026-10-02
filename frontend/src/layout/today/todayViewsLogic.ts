@@ -88,6 +88,9 @@ export interface todayViewsLogicActions {
         recentViews: ViewItemsPage | null
         payload?: void
     }
+    receiveRecentViews: (page: ViewItemsPage) => {
+        page: ViewItemsPage
+    }
     setOpenCanvasBuilding: (
         canvasId: string,
         building: boolean | null
@@ -161,13 +164,14 @@ export const todayViewsLogic = kea<todayViewsLogicType>([
         values: [teamLogic, ['currentTeamId'], userLogic, ['user'], todayRecentsLogic, ['recentViewEntries']],
     })),
     actions({
+        receiveRecentViews: (page: ViewItemsPage) => ({ page }),
         setRecentQuery: (query: string) => ({ query }),
         setRecentFilters: (filters: TodayViewsFilters) => ({ filters }),
         clearRecentSearchAndFilters: true,
         /** The open canvas reports whether its agent or a build is at work, which it knows exactly. Null when it closes. */
         setOpenCanvasBuilding: (canvasId: string, building: boolean | null) => ({ canvasId, building }),
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         recentViews: [
             null as ViewItemsPage | null,
             {
@@ -177,9 +181,15 @@ export const todayViewsLogic = kea<todayViewsLogicType>([
                     if (!values.currentTeamId) {
                         return values.recentViews
                     }
-                    const page = await fetchViewItems(String(values.currentTeamId), '')
+                    const teamId = values.currentTeamId
+                    const page = await fetchViewItems(String(teamId), '', (page) => {
+                        breakpoint()
+                        if (values.currentTeamId === teamId) {
+                            actions.receiveRecentViews(page)
+                        }
+                    })
                     breakpoint()
-                    return page
+                    return values.currentTeamId === teamId ? page : values.recentViews
                 },
             },
         ],
@@ -216,6 +226,9 @@ export const todayViewsLogic = kea<todayViewsLogicType>([
         ],
     })),
     reducers({
+        recentViews: {
+            receiveRecentViews: (_, { page }) => page,
+        },
         recentUnavailable: [false, { loadRecentViews: () => false, loadRecentViewsFailure: () => true }],
         recentQuery: ['', { setRecentQuery: (_, { query }) => query, clearRecentSearchAndFilters: () => '' }],
         recentFilters: [

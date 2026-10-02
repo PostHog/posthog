@@ -134,7 +134,17 @@ export function Navigation({
                 }
             >
                 {showMinimalNavigation && <MinimalNavigation />}
-                <main className={mode === 'zen' ? 'p-4' : undefined}>{children}</main>
+                <main
+                    className={
+                        mode === 'zen'
+                            ? 'p-4'
+                            : mode === 'embedded'
+                              ? '@container/main-content min-h-screen p-4'
+                              : undefined
+                    }
+                >
+                    {children}
+                </main>
             </div>
         )
     }

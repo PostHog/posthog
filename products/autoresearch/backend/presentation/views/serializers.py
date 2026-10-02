@@ -893,6 +893,12 @@ class TrainingRunSummarySerializer(serializers.Serializer):
     distillation = serializers.CharField(
         allow_blank=True, help_text="Agent's 1–2 sentence distillation of what this run learned. Empty if not provided."
     )
+    report_notebook_short_id = serializers.CharField(
+        required=False,
+        default="",
+        allow_blank=True,
+        help_text="Short id of the report notebook the agent built for this run. Empty if there is none.",
+    )
 
 
 @extend_schema_serializer(component_name="IterationTrail")
@@ -1422,6 +1428,15 @@ class CompleteTrainingRunSerializer(serializers.Serializer):
         help_text=(
             "A 1–2 sentence distillation of what this run learned — the winning signal, the key transform, the "
             "dead-ends. Stored in the run summary as the cheapest thing the next run reads. Max 2000 characters."
+        ),
+    )
+    report_notebook_short_id = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text=(
+            "Short id of the report notebook you built for this run. Stored in the run summary only if the "
+            "notebook exists in this project; an unknown id is dropped and does not fail the completion."
         ),
     )
 
