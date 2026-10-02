@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCopy, IconExternal, IconPause, IconPlay, IconTrash } from '@posthog/icons'
+import { IconCopy, IconExternal, IconPause, IconPlay, IconRefresh, IconTrash } from '@posthog/icons'
 import {
     AlertDialog,
     AlertDialogClose,
@@ -35,8 +35,8 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { SpaceSettingsSection } from '../SpaceSettingsSection'
 import { SpaceLoopConfiguration } from './SpaceLoopConfiguration'
+import { spaceLoopName } from './spaceLoopMapping'
 import { SpaceLoopRunRow } from './SpaceLoopRunRow'
-import { spaceLoopName } from './spaceLoops'
 import { SPACE_LOOP_RUNS_LIMIT } from './spaceLoopsApi'
 import { SpaceLoopSceneLogicProps, spaceLoopSceneLogic } from './spaceLoopSceneLogic'
 
@@ -63,7 +63,7 @@ export function SpaceLoopScene({ id, loopId }: SpaceLoopSceneLogicProps): JSX.El
         deleteOpen,
         spaceName,
     } = useValues(logic)
-    const { loadLoop, setEnabled, runNow, copyLink, deleteLoop, setDeleteOpen } = useActions(logic)
+    const { loadLoop, loadRuns, setEnabled, runNow, copyLink, deleteLoop, setDeleteOpen } = useActions(logic)
 
     if (!railNavEnabled || !loopsEnabled || loopMissing) {
         return <NotFound object="loop" />
@@ -93,17 +93,20 @@ export function SpaceLoopScene({ id, loopId }: SpaceLoopSceneLogicProps): JSX.El
                     actions={
                         loop ? (
                             <div className="flex flex-wrap items-center gap-1">
-                                <Button
-                                    size="sm"
-                                    variant="outline"
-                                    loading={savingEnabled}
-                                    onClick={() => setEnabled(!loop.enabled)}
-                                    data-attr="today-space-loop-toggle"
-                                >
-                                    {loop.enabled ? <IconPause /> : <IconPlay />}
-                                    {loop.enabled ? 'Pause' : 'Resume'}
-                                </Button>
-                                {loop.canRunNow && (
+                                {/* Resuming an archived workflow would make it active again instead of restoring it. */}
+                                {!loop.archived && (
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        loading={savingEnabled}
+                                        onClick={() => setEnabled(!loop.enabled)}
+                                        data-attr="today-space-loop-toggle"
+                                    >
+                                        {loop.enabled ? <IconPause /> : <IconPlay />}
+                                        <span>{loop.enabled ? 'Pause' : 'Resume'}</span>
+                                    </Button>
+                                )}
+                                {loop.canRunNow && loop.enabled && (
                                     <Button
                                         size="sm"
                                         variant="outline"
@@ -150,6 +153,11 @@ export function SpaceLoopScene({ id, loopId }: SpaceLoopSceneLogicProps): JSX.El
                 <div className="flex w-full max-w-200 flex-col gap-7 pb-8" data-quill>
                     {loop ? (
                         <>
+                            {loop.archived && (
+                                <Text size="sm" variant="muted">
+                                    This loop is archived in Workflows. Restore it there to run it again.
+                                </Text>
+                            )}
                             <SpaceLoopConfiguration loop={loop} />
                             <SpaceSettingsSection label="Instructions" description="What the agent does on each run.">
                                 <ItemGroup combined>
@@ -165,6 +173,18 @@ export function SpaceLoopScene({ id, loopId }: SpaceLoopSceneLogicProps): JSX.El
                             <SpaceSettingsSection
                                 label="Run history"
                                 description={`The ${SPACE_LOOP_RUNS_LIMIT} most recent runs. Each run is a session in this space.`}
+                                action={
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        loading={runsLoading}
+                                        onClick={() => loadRuns()}
+                                        data-attr="today-space-loop-runs-refresh"
+                                    >
+                                        <IconRefresh />
+                                        Refresh
+                                    </Button>
+                                }
                             >
                                 {runsLoading && !runs ? (
                                     <Skeleton className="h-16 w-full" />
@@ -173,7 +193,7 @@ export function SpaceLoopScene({ id, loopId }: SpaceLoopSceneLogicProps): JSX.El
                                         <EmptyHeader>
                                             <EmptyTitle>No runs yet</EmptyTitle>
                                             <EmptyDescription>
-                                                {loop.canRunNow
+                                                {loop.canRunNow && loop.enabled
                                                     ? 'Runs show here once this loop fires. Start one with Run now, or wait for its next trigger.'
                                                     : 'Runs show here once this loop fires.'}
                                             </EmptyDescription>

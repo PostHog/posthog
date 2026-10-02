@@ -4,7 +4,7 @@ import { Item, ItemActions, ItemContent, ItemGroup, ItemTitle } from '@posthog/q
 
 import { SpaceSettingsSection } from '../SpaceSettingsSection'
 import { TaskUserAvatar, taskUserName } from '../TaskUserAvatar'
-import { SpaceLoop } from './spaceLoops'
+import { SpaceLoop } from './spaceLoopMapping'
 
 function ConfigurationRow({ label, children }: { label: string; children: ReactNode }): JSX.Element {
     return (

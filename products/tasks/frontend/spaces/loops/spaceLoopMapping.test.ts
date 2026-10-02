@@ -1,13 +1,19 @@
 import type { HogFlowMinimalApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import type { LoopDTOApi } from '../../generated/api.schemas'
-import { spaceLoopFromHogFlow, spaceLoopFromLoop, spaceLoopsFromHogFlows, spaceLoopsFromLoops } from './spaceLoops'
+import {
+    spaceLoopFromHogFlow,
+    spaceLoopFromLoop,
+    spaceLoopsFromHogFlows,
+    spaceLoopsFromLoops,
+} from './spaceLoopMapping'
 
 function hogFlow(
     id: string,
     spaceInput: string | null,
     trigger: Record<string, unknown>,
-    extra = {}
+    extra = {},
+    taskInputs: Record<string, unknown> = {}
 ): HogFlowMinimalApi {
     return {
         id,
@@ -22,7 +28,7 @@ function hogFlow(
                 type: 'function',
                 config: {
                     template_id: 'template-posthog-create-task',
-                    inputs: spaceInput === null ? {} : { channel: { value: spaceInput } },
+                    inputs: spaceInput === null ? taskInputs : { channel: { value: spaceInput }, ...taskInputs },
                 },
             },
             { id: 'exit', type: 'exit', config: {} },
@@ -114,6 +120,22 @@ describe('spaceLoops', () => {
             'Weekdays at 9:00 AM PDT',
         ],
         [
+            'an every-other-day workflow schedule that ends',
+            spaceLoopFromHogFlow({
+                ...hogFlow('a', 'space-a', { type: 'schedule' }),
+                schedules: [{ rrule: 'FREQ=DAILY;INTERVAL=2;COUNT=5', starts_at: '2026-10-05T16:00:00Z' }],
+            } as unknown as HogFlowMinimalApi),
+            'Custom schedule · FREQ=DAILY;INTERVAL=2;COUNT=5',
+        ],
+        [
+            'a workflow schedule on two days of the month',
+            spaceLoopFromHogFlow({
+                ...hogFlow('a', 'space-a', { type: 'schedule' }),
+                schedules: [{ rrule: 'FREQ=MONTHLY;BYMONTHDAY=15,30', starts_at: '2026-10-15T16:00:00Z' }],
+            } as unknown as HogFlowMinimalApi),
+            'Custom schedule · FREQ=MONTHLY;BYMONTHDAY=15,30',
+        ],
+        [
             'a workflow schedule with no schedule row',
             spaceLoopFromHogFlow({ ...hogFlow('a', 'space-a', { type: 'schedule' }), schedules: [] }),
             'No schedule set',
@@ -150,5 +172,33 @@ describe('spaceLoops', () => {
         ],
     ])('describes %s', (_, spaceLoop, trigger) => {
         expect(spaceLoop.triggers).toEqual([trigger])
+    })
+
+    it.each([
+        ['an active schedule workflow', hogFlow('a', 'space-a', { type: 'schedule' }), 'Active', true, []],
+        ['a manual workflow', hogFlow('a', 'space-a', { type: 'manual' }), 'Active', false, []],
+        [
+            'an archived schedule workflow',
+            hogFlow('a', 'space-a', { type: 'schedule' }, { status: 'archived' }),
+            'Archived',
+            false,
+            [],
+        ],
+        [
+            'a Slack workflow with the thread reply left at its default',
+            hogFlow('a', 'space-a', slackTrigger),
+            'Active',
+            false,
+            ['Slack thread reply'],
+        ],
+        [
+            'a schedule workflow with the thread reply input on',
+            hogFlow('a', 'space-a', { type: 'schedule' }, {}, { reply_in_slack_thread: { value: true } }),
+            'Active',
+            true,
+            [],
+        ],
+    ])('maps %s', (_, flow, statusLabel, canRunNow, notifications) => {
+        expect(spaceLoopFromHogFlow(flow)).toMatchObject({ status: { label: statusLabel }, canRunNow, notifications })
     })
 })

@@ -33,7 +33,7 @@ export function SpaceLoopsFilterBar({ id }: { id: string }): JSX.Element {
                 data-attr="today-space-loops-hide-paused"
             >
                 {hidePaused && <IconCheck />}
-                Hide paused
+                <span>Hide paused</span>
             </Button>
         </div>
     )

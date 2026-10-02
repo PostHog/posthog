@@ -2,6 +2,7 @@ import posthog from 'posthog-js'
 
 import { toast } from '@posthog/quill'
 
+import { readableErrorMessage } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
@@ -31,10 +32,11 @@ import {
     spaceLoopRunFromTask,
     spaceLoopsFromHogFlows,
     spaceLoopsFromLoops,
-} from './spaceLoops'
+} from './spaceLoopMapping'
 
-// PostHog Desktop reads the same page size, so both apps show the same loops.
-const LOOPS_LIST_LIMIT = 100
+const LOOPS_PAGE_SIZE = 100
+// The list filters by space in the browser, so it reads every page. The cap stops a runaway loop.
+const LOOPS_MAX_PAGES = 20
 export const SPACE_LOOP_RUNS_LIMIT = 10
 
 /**
@@ -60,11 +62,27 @@ export async function listSpaceLoops(
     spaceId: string
 ): Promise<SpaceLoop[]> {
     if (workflowBacked) {
-        const page = await hogFlowsList(projectId, { origin_product: 'loops', limit: LOOPS_LIST_LIMIT })
-        return spaceLoopsFromHogFlows(page.results, spaceId)
+        const flows = await readAllPages((offset) =>
+            hogFlowsList(projectId, { origin_product: 'loops', limit: LOOPS_PAGE_SIZE, offset })
+        )
+        return spaceLoopsFromHogFlows(flows, spaceId)
     }
-    const page = await loopsList(projectId, { limit: LOOPS_LIST_LIMIT })
-    return spaceLoopsFromLoops(page.results, spaceId)
+    const loops = await readAllPages((offset) => loopsList(projectId, { limit: LOOPS_PAGE_SIZE, offset }))
+    return spaceLoopsFromLoops(loops, spaceId)
+}
+
+async function readAllPages<T>(
+    fetchPage: (offset: number) => Promise<{ results: T[]; next?: string | null }>
+): Promise<T[]> {
+    const results: T[] = []
+    for (let pageIndex = 0; pageIndex < LOOPS_MAX_PAGES; pageIndex++) {
+        const page = await fetchPage(results.length)
+        results.push(...page.results)
+        if (!page.next || !page.results.length) {
+            break
+        }
+    }
+    return results
 }
 
 export async function retrieveSpaceLoop(
@@ -119,20 +137,27 @@ export async function saveSpaceLoopEnabled(
         // pinned: analytics event name, renaming breaks dashboards
         posthog.capture('space loop enabled toggled', { enabled, surface })
         return true
-    } catch {
-        toast.error({ title: enabled ? 'Couldn’t resume this loop' : 'Couldn’t pause this loop' })
+    } catch (error) {
+        // Resuming a workflow loop checks its steps again, and the server names the step to fix.
+        toast.error({
+            title: enabled ? 'Couldn’t resume this loop' : 'Couldn’t pause this loop',
+            description: readableErrorMessage(error) ?? 'Try again.',
+        })
         return false
     }
 }
 
-/** Starts a run now. Returns why the loops API refused it, or null when a run started. */
+/**
+ * Starts a run now. Returns why the loops API refused it, or null when a run started. A workflow run sends
+ * `idempotencyKey`, so a retry with the same key after an unclear failure cannot start a second run.
+ */
 export async function runSpaceLoop(
     { projectId, workflowBacked }: SpaceLoopsBackend,
-    loopId: string
+    loopId: string,
+    idempotencyKey: string
 ): Promise<string | null> {
     if (workflowBacked) {
-        // One key per click: the server dedupes a retry of the same click, and a second click is a second run.
-        await hogFlowsRunCreate(projectId, loopId, {}, { headers: { 'Idempotency-Key': crypto.randomUUID() } })
+        await hogFlowsRunCreate(projectId, loopId, {}, { headers: { 'Idempotency-Key': idempotencyKey } })
         return null
     }
     const result = await loopsRunCreate(projectId, loopId)

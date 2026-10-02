@@ -5,7 +5,11 @@ import { ToggleGroup, ToggleGroupItem } from '@posthog/quill'
 import { SpaceSettingsSection } from '../SpaceSettingsSection'
 import { spaceLoopsLogic } from './spaceLoopsLogic'
 import { SpaceLoopTemplateCard } from './SpaceLoopTemplateCard'
-import { SPACE_LOOP_TEMPLATE_CATEGORIES, SPACE_LOOP_TEMPLATES, SpaceLoopTemplateCategory } from './spaceLoopTemplates'
+import {
+    SPACE_LOOP_TEMPLATE_CATEGORIES,
+    SPACE_LOOP_TEMPLATES,
+    SpaceLoopTemplateCategory,
+} from './spaceLoopTemplateCatalog'
 
 export function SpaceLoopTemplates({ id }: { id: string }): JSX.Element {
     const { templateCategory } = useValues(spaceLoopsLogic({ id }))

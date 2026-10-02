@@ -7,7 +7,7 @@ import { dayjs } from 'lib/dayjs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
-import { SpaceLoop, spaceLoopName } from './spaceLoops'
+import { SpaceLoop, spaceLoopName } from './spaceLoopMapping'
 import { spaceLoopsLogic } from './spaceLoopsLogic'
 
 function lastRunText(loop: SpaceLoop): string {

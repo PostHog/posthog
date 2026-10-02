@@ -1,7 +1,7 @@
 import { IconBolt, IconClock } from '@posthog/icons'
 import { Item, ItemContent, ItemDescription, ItemMedia, ItemTitle, Text, cn } from '@posthog/quill'
 
-import { SpaceLoopTemplate, SpaceLoopTemplateTone } from './spaceLoopTemplates'
+import { SpaceLoopTemplate, SpaceLoopTemplateTone } from './spaceLoopTemplateCatalog'
 
 const TONE_CLASSES: Record<SpaceLoopTemplateTone, string> = {
     info: 'text-info-foreground',

@@ -3,10 +3,6 @@ import { dayjs } from 'lib/dayjs'
 import { isObject, isString } from 'lib/utils/guards'
 
 import type { HogFlowMinimalApi, HogFlowScheduleApi } from 'products/workflows/frontend/generated/api.schemas'
-import {
-    buildSummary,
-    parseRRuleToState,
-} from 'products/workflows/frontend/Workflows/hogflows/steps/components/rrule-helpers'
 
 import type { LoopDTOApi, LoopRunDTOApi, LoopTriggerDTOApi, TaskListItemApi } from '../../generated/api.schemas'
 import { RUN_STATUSES, SpaceFeedStatus, spaceFeedStatus } from '../spaceFeedStatus'
@@ -18,6 +14,8 @@ export interface SpaceLoop {
     name: string
     description: string
     enabled: boolean
+    /** Archived in Workflows. Resuming it would make it active again, so it can only be read. */
+    archived: boolean
     status: SpaceFeedStatus
     /** The first trigger, short enough for a table cell. */
     trigger: string
@@ -31,7 +29,7 @@ export interface SpaceLoop {
     repositories: string[]
     createdBy: TaskAvatarUser | null
     notifications: string[]
-    /** A run can start now. A workflow runs on demand only when a schedule or a manual trigger starts it. */
+    /** The trigger accepts a run on demand. The workflow run endpoint accepts only schedule triggers. */
     canRunNow: boolean
 }
 
@@ -127,27 +125,44 @@ function describeCron(cron: string, timezone: string): string {
     return day ? `${WEEKDAYS[day]} at ${time}${zone}` : `${describeAnyCron(cron) ?? cron}${zone}`
 }
 
-/** The cadence of a workflow schedule, for the rrule presets the building-loops skill writes. */
+/**
+ * The cadence of a workflow schedule, for the rrule presets the building-loops skill writes. Any other rule, for
+ * example one edited in Workflows with an interval or an end date, shows as written, so the page never shows a
+ * cadence the schedule does not have.
+ */
 function describeRRule(schedule: HogFlowScheduleApi): string {
-    const parts = Object.fromEntries(schedule.rrule.split(';').map((part) => part.split('=') as [string, string]))
+    const {
+        FREQ,
+        INTERVAL = '1',
+        BYDAY,
+        COUNT,
+        ...rest
+    } = Object.fromEntries(schedule.rrule.split(';').map((part) => part.split('=') as [string, string]))
     const start = schedule.timezone ? dayjs(schedule.starts_at).tz(schedule.timezone) : dayjs(schedule.starts_at)
     const time = start.format(schedule.timezone ? 'h:mm A z' : 'h:mm A')
-    if (parts.COUNT === '1') {
+    const custom = `Custom schedule · ${schedule.rrule}`
+    if (INTERVAL !== '1' || Object.keys(rest).length) {
+        return custom
+    }
+    if (COUNT === '1' && FREQ === 'DAILY' && !BYDAY) {
         return `Once · ${start.format('LLL')}`
     }
-    if (parts.FREQ === 'HOURLY') {
+    if (COUNT) {
+        return custom
+    }
+    if (FREQ === 'HOURLY' && !BYDAY) {
         return 'Every hour'
     }
-    if (parts.FREQ === 'DAILY') {
+    if (FREQ === 'DAILY' && !BYDAY) {
         return `Every day at ${time}`
     }
-    if (parts.FREQ === 'WEEKLY' && parts.BYDAY === 'MO,TU,WE,TH,FR') {
+    if (FREQ === 'WEEKLY' && BYDAY === 'MO,TU,WE,TH,FR') {
         return `Weekdays at ${time}`
     }
-    if (parts.FREQ === 'WEEKLY' && WEEKDAYS[parts.BYDAY]) {
-        return `${WEEKDAYS[parts.BYDAY]} at ${time}`
+    if (FREQ === 'WEEKLY' && WEEKDAYS[BYDAY]) {
+        return `${WEEKDAYS[BYDAY]} at ${time}`
     }
-    return buildSummary(parseRRuleToState(schedule.rrule), schedule.starts_at, schedule.timezone)
+    return custom
 }
 
 function describeLoopTrigger(trigger: LoopTriggerDTOApi): string {
@@ -196,7 +211,12 @@ function propertyValue(filters: Record<string, unknown>, key: string): string {
 }
 
 /** What starts a loop workflow, and whether a person can start a run by hand. */
-function hogFlowTrigger(flow: SpaceLoopHogFlow): { summary: string; detail: string; canRunNow: boolean } {
+function hogFlowTrigger(flow: SpaceLoopHogFlow): {
+    summary: string
+    detail: string
+    canRunNow: boolean
+    slack?: boolean
+} {
     const config = hogFlowActions(flow).find(({ type }) => type === 'trigger')?.config
     if (!config) {
         return { summary: 'No trigger', detail: 'No trigger', canRunNow: false }
@@ -207,7 +227,7 @@ function hogFlowTrigger(flow: SpaceLoopHogFlow): { summary: string; detail: stri
         return { summary: detail, detail, canRunNow: true }
     }
     if (config.type === 'manual') {
-        return { summary: 'Manual', detail: 'Manual', canRunNow: true }
+        return { summary: 'Manual', detail: 'Manual', canRunNow: false }
     }
     const filters = isObject(config.filters) ? config.filters : {}
     const event = Array.isArray(filters.events) && isObject(filters.events[0]) ? readString(filters.events[0].id) : ''
@@ -221,7 +241,7 @@ function hogFlowTrigger(flow: SpaceLoopHogFlow): { summary: string; detail: stri
         }
     }
     if (config.type === 'internal-event' && event === SLACK_EVENT) {
-        return { summary: 'Slack message', detail: 'Slack message', canRunNow: false }
+        return { summary: 'Slack message', detail: 'Slack message', canRunNow: false, slack: true }
     }
     if (config.type === 'event') {
         return {
@@ -233,12 +253,12 @@ function hogFlowTrigger(flow: SpaceLoopHogFlow): { summary: string; detail: stri
     return { summary: 'Custom trigger', detail: 'Custom trigger', canRunNow: false }
 }
 
-function hogFlowNotifications(flow: SpaceLoopHogFlow): string[] {
-    const inputs = hogFlowTaskInputs(flow)
+function hogFlowNotifications(flow: SpaceLoopHogFlow, slackTriggered: boolean): string[] {
     const notifications = hogFlowActions(flow).flatMap(({ type, config }) =>
         type === 'function_email' ? ['Email'] : config.template_id === SLACK_TEMPLATE_ID ? ['Slack'] : []
     )
-    return inputValue(inputs, 'reply_in_slack_thread') === true
+    // The task step replies in the thread only for a Slack message trigger, and a missing input counts as on.
+    return slackTriggered && inputValue(hogFlowTaskInputs(flow), 'reply_in_slack_thread') !== false
         ? [...notifications, 'Slack thread reply']
         : notifications
 }
@@ -261,6 +281,7 @@ export function spaceLoopFromLoop(loop: LoopDTOApi): SpaceLoop {
         name: loop.name,
         description: loop.description.trim(),
         enabled: loop.enabled,
+        archived: false,
         status: loopStatus(loop.enabled, loop.disabled_reason, lastRunFailed),
         trigger: rest.length ? `${summary} +${rest.length} more` : summary,
         triggers,
@@ -284,13 +305,15 @@ export function spaceLoopFromHogFlow(flow: SpaceLoopHogFlow): SpaceLoop {
     const repository = readString(inputValue(inputs, 'repository'))
     const trigger = hogFlowTrigger(flow)
     const enabled = flow.status === 'active'
+    const archived = flow.status === 'archived'
     const lastRunFailed = flow.last_run?.status === 'failed'
     return {
         id: flow.id,
         name: flow.name ?? '',
         description: (flow.description ?? '').trim(),
         enabled,
-        status: loopStatus(enabled, null, lastRunFailed),
+        archived,
+        status: archived ? { label: 'Archived', variant: 'default' } : loopStatus(enabled, null, lastRunFailed),
         trigger: trigger.summary,
         triggers: [trigger.detail],
         lastRunAt: flow.last_run?.ran_at ?? null,
@@ -307,8 +330,8 @@ export function spaceLoopFromHogFlow(flow: SpaceLoopHogFlow): SpaceLoop {
                   uuid: flow.created_by.uuid,
               }
             : null,
-        notifications: hogFlowNotifications(flow),
-        canRunNow: trigger.canRunNow,
+        notifications: hogFlowNotifications(flow, !!trigger.slack),
+        canRunNow: trigger.canRunNow && !archived,
     }
 }
 

@@ -6,7 +6,7 @@ import { urls } from 'scenes/urls'
 
 import { shortTimeAgo } from '~/layout/today/todayWorkItems'
 
-import { SpaceLoopRun } from './spaceLoops'
+import { SpaceLoopRun } from './spaceLoopMapping'
 
 export function SpaceLoopRunRow({ run }: { run: SpaceLoopRun }): JSX.Element {
     return (
@@ -23,7 +23,7 @@ export function SpaceLoopRunRow({ run }: { run: SpaceLoopRun }): JSX.Element {
                 </ItemTitle>
                 <ItemDescription className={run.error ? 'text-destructive-foreground' : undefined}>
                     <span title={dayjs(run.startedAt).format('LLL')}>{shortTimeAgo(run.startedAt)}</span>
-                    {run.error ? ` · ${run.error}` : ''}
+                    {run.error && <span>{` · ${run.error}`}</span>}
                 </ItemDescription>
             </ItemContent>
             {run.status && (
