@@ -11172,10 +11172,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertLessEqual({"affected": 4, "total": 10}.items(), response_json.items())
 
     def test_user_blast_radius_with_boolean_group_property(self):
-        # The group estimate selects from `groups` directly, so the property-type resolver only
-        # learns the group type from context.globals. Without it the Boolean property keeps a
-        # string left side, the comparison compiles to equals(String, UInt8), and ClickHouse
-        # rejects the query.
+        # ClickHouse rejects this condition unless the query passes the group type. See
+        # _group_property_globals.
         create_group_type_mapping_without_created_at(
             team=self.team,
             project_id=self.team.project_id,

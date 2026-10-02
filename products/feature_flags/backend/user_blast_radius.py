@@ -104,18 +104,6 @@ _VALUE_PARSE_CH_ERROR_CODES = frozenset({6, 72})
 UNEVALUABLE_FILTERS_MESSAGE = "These filters can't be evaluated. Check the property values."
 
 
-def _caller_facing_ch_message(error: ExposedCHQueryError) -> str:
-    """
-    Pick the message a ClickHouse failure may show the caller.
-
-    The release condition editor and the workflow batch trigger print the 400 detail as it
-    arrives. Engine text names ClickHouse types and generated SQL, which tells nobody which
-    filter to correct, so only the user_safe copy that PostHog wrote in ErrorCodeMeta is echoed.
-    """
-    curated_copy = look_up_clickhouse_error_code_meta(error).user_safe
-    return curated_copy if isinstance(curated_copy, str) else UNEVALUABLE_FILTERS_MESSAGE
-
-
 def _group_property_globals(group_type_index: GroupTypeIndex) -> dict[str, int]:
     """
     Tell the property-type resolver which group type the `groups` table rows belong to.
@@ -124,7 +112,8 @@ def _group_property_globals(group_type_index: GroupTypeIndex) -> dict[str, int]:
     (`group_0`, `group_1`, ...). These queries select from `groups` directly, so the resolver
     reads context.globals["group_id"] instead. Without it no group PropertyDefinition is loaded,
     the left side of a comparison stays the raw JSON string, and a Boolean group property
-    compiles to equals(String, UInt8), which ClickHouse refuses.
+    compiles to equals(String, UInt8), which ClickHouse refuses. GroupsQueryRunner passes the
+    same global for the same reason.
     """
     return {"group_id": group_type_index}
 
@@ -135,13 +124,13 @@ def unevaluable_filters_as_validation_errors() -> Iterator[None]:
     # layers reject - behavioral or event filters in person scope, deleted cohort references,
     # malformed regexes, values that don't cast to the property's type - fail deterministically
     # on every request, so they're the caller's input, not a server fault: surface them as a 400
-    # instead of an opaque 500. HogQL writes its messages for a person to read, so those are
-    # echoed. ClickHouse writes its messages for the engine, so none of them reaches the caller:
-    # an exposed error says only what _caller_facing_ch_message allows, and a cannot-parse-value
-    # code raises UNEVALUABLE_FILTERS_MESSAGE. Only deliberately-exposed error types are
-    # converted across query build and execution - plus ObjectDoesNotExist from cohort lookups
-    # and PropertyValidationError from Property construction during query build, whose message
-    # already names the offending property.
+    # instead of an opaque 500. The release condition editor and the workflow batch trigger print
+    # the 400 detail as it arrives. HogQL writes its messages for a person to read, so those are
+    # echoed. ClickHouse writes its messages for the engine, so the caller sees only copy that
+    # PostHog wrote: an ErrorCodeMeta user_safe string, or the generic message. Only
+    # deliberately-exposed error types are converted across query build and execution - plus
+    # ObjectDoesNotExist from cohort lookups and PropertyValidationError from Property
+    # construction during query build, whose message already names the offending property.
     # Caller-shaped ValueError is converted separately in the parse phase
     # (replace_proxy_properties), so a bare ValueError from HogQL internals or team config
     # during build/execution still surfaces as a server fault, as does any other
@@ -156,7 +145,9 @@ def unevaluable_filters_as_validation_errors() -> Iterator[None]:
     ) as e:
         raise ValidationError({"filters": str(e) or UNEVALUABLE_FILTERS_MESSAGE}) from e
     except ExposedCHQueryError as e:
-        raise ValidationError({"filters": _caller_facing_ch_message(e)}) from e
+        curated_copy = look_up_clickhouse_error_code_meta(e).user_safe
+        message = curated_copy if isinstance(curated_copy, str) else UNEVALUABLE_FILTERS_MESSAGE
+        raise ValidationError({"filters": message}) from e
     except InternalCHQueryError as e:
         if e.code not in _VALUE_PARSE_CH_ERROR_CODES:
             raise
