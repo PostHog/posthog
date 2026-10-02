@@ -56,10 +56,10 @@ export interface announcementsLogicValues {
     memberChannelsLoading: boolean
     messageDraft: string
     selectedChannelIds: string[]
+    selectedChannelLabels: string[]
     sendAs: AnnouncementSendAsEnumApi
     senderDisabledReason: string | undefined
     senderName: string
-    selectedChannelLabels: string[]
     slackConnected: boolean
     submitDisabledReason: string | undefined
     submitting: boolean
