@@ -55,9 +55,10 @@ const hasFlagKey = ({ event }: EventToEmit<string>): boolean => {
 const FLAG_EVALUATIONS_TTL_DAYS = 90
 const DAY_MS = 24 * 60 * 60 * 1000
 
-// The table's `TTL toDate(timestamp) + INTERVAL 90 DAY` has already expired every row dated before this
-// instant. ClickHouse can drop those rows at any merge after the insert. For a FLAG_EVALUATIONS_ONLY team the
-// row is the only copy of the call, so the fork skips a call this old and leaves it in the events table.
+// The table's `TTL toDate(timestamp) + INTERVAL 90 DAY` expires a row dated D at the start of D + 90 days.
+// At any time today, every row dated before the UTC day FLAG_EVALUATIONS_TTL_DAYS - 1 days back has expired.
+// ClickHouse can drop those rows at any merge after the insert. For a FLAG_EVALUATIONS_ONLY team the row is
+// the only copy of the call, so the fork skips a call this old and leaves it in the events table.
 const retentionStartMs = (nowMs: number): number =>
     Math.floor(nowMs / DAY_MS) * DAY_MS - (FLAG_EVALUATIONS_TTL_DAYS - 1) * DAY_MS
 
@@ -111,17 +112,17 @@ export function createForkFlagEvaluationsStep<T extends ForkFlagEvaluationsStepI
             flagEvaluationsEventsTotal.labels('continued_invalid_flag_key').inc(invalidFlagKeys)
         }
         const retentionStart = retentionStartMs(Date.now())
-        const forkedEvents = mappableEvents.filter((toEmit) => !isPastRetention(toEmit, retentionStart))
-        const pastRetention = mappableEvents.length - forkedEvents.length
+        const eventsToFork = mappableEvents.filter((toEmit) => !isPastRetention(toEmit, retentionStart))
+        const pastRetention = mappableEvents.length - eventsToFork.length
         if (pastRetention > 0) {
             flagEvaluationsEventsTotal.labels('continued_past_retention').inc(pastRetention)
         }
-        if (forkedEvents.length === 0) {
+        if (eventsToFork.length === 0) {
             return Promise.resolve(ok(input))
         }
         const stopsEventsWrites = flagEvaluationsService.stopsEventsWritesFor(input.team)
         try {
-            const messages: IngestionOutputMessage[] = forkedEvents.map(({ event }) => {
+            const messages: IngestionOutputMessage[] = eventsToFork.map(({ event }) => {
                 if (event.properties['$set'] || event.properties['$set_once']) {
                     // Sizes the person-property loss a dedicated flag lane that
                     // bypasses person processing would cause.
@@ -168,7 +169,7 @@ export function createForkFlagEvaluationsStep<T extends ForkFlagEvaluationsStepI
                         // warning for an oversized event. No events row exists here, so this
                         // step sends that warning.
                         return Promise.all(
-                            forkedEvents.map(({ event }) =>
+                            eventsToFork.map(({ event }) =>
                                 emitIngestionWarning(
                                     outputs,
                                     event.team_id,
@@ -189,14 +190,14 @@ export function createForkFlagEvaluationsStep<T extends ForkFlagEvaluationsStepI
             // FlagEvaluationsForkProduceFailing alert fires on produce_failed.
             // Matching by object identity keeps the $experiment_exposure copy and any
             // call without a flag key or past the retention window in eventsToEmit.
-            const eventsToEmit = input.eventsToEmit.filter((toEmit) => !forkedEvents.includes(toEmit))
+            const eventsToEmit = input.eventsToEmit.filter((toEmit) => !eventsToFork.includes(toEmit))
             return Promise.resolve(ok({ ...input, eventsToEmit }, [settled]))
         } catch (error) {
             logger.warn('Failed to fork $feature_flag_called event to flag_evaluations, continuing', {
                 teamId: input.teamId,
                 error,
             })
-            flagEvaluationsEventsTotal.labels('continued_fork_error').inc(forkedEvents.length)
+            flagEvaluationsEventsTotal.labels('continued_fork_error').inc(eventsToFork.length)
             return Promise.resolve(ok(input))
         }
     }
