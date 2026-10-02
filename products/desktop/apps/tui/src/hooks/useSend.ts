@@ -41,6 +41,7 @@ export function useSend({
   modalFor,
   openModal,
   openModelSheet,
+  onChatStarted,
   runShell,
   notice: { flashNotice, showNotice },
   login,
@@ -70,6 +71,7 @@ export function useSend({
     choose: (index: number) => void,
   ) => void;
   openModelSheet: (paneId: string, task: Task | undefined) => void;
+  onChatStarted: (paneId: string, taskId: string) => void;
   runShell: (
     paneId: string,
     taskId: string | null,
@@ -207,6 +209,7 @@ export function useSend({
       chats.createLocal(text).then(
         (task) => {
           setFresh((tasks) => new Map(tasks).set(task.id, task));
+          onChatStarted(paneId, task.id);
           setLayout((state) =>
             assignTask(state, paneId, task.id, task.title || text.slice(0, 80)),
           );
@@ -229,6 +232,7 @@ export function useSend({
       (task) => {
         setFresh((tasks) => new Map(tasks).set(task.id, task));
         if (!current) {
+          onChatStarted(paneId, task.id);
           const title = task.title || text.slice(0, 80);
           setLayout((state) => assignTask(state, paneId, task.id, title));
         }

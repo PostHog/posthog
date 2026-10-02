@@ -9,6 +9,7 @@ import {
   modelSheet,
   type PiControl,
   type RunCommand,
+  STARTING_MODEL,
 } from "../models";
 import type { Sheet } from "../sheet";
 import { indicatorFor } from "../sidebar";
@@ -19,6 +20,8 @@ export interface Models {
   openModelSheet: (paneId: string, task: Task | undefined) => void;
   // Called when a pane's run goes live: shows its slash commands and applies a held pick.
   onRunLive: (paneId: string, taskId: string, runId: string) => void;
+  // Called when a new chat gets its task, so the model it starts on stays shown until its run is live.
+  onChatStarted: (paneId: string, taskId: string) => void;
   modelName: (paneId: string, taskId: string | null) => string | undefined;
 }
 
@@ -54,6 +57,7 @@ export function useModels({
   );
   // Keyed by task and run: every local chat's run id is "local".
   const appliedHolds = useRef(new Set<string>());
+  const modelsRead = useRef(new Set<string>());
 
   const openModelSheet = (paneId: string, task: Task | undefined): void => {
     const run = task?.latest_run;
@@ -106,7 +110,8 @@ export function useModels({
       return;
     }
     const held =
-      heldModels.get(paneId) ?? (task ? taskModels.get(task.id) : undefined);
+      heldModels.get(paneId) ??
+      (task ? taskModels.get(task.id) : STARTING_MODEL);
     openModal(
       paneId,
       modelSheet(
@@ -153,11 +158,28 @@ export function useModels({
   };
 
   // A pick made while the run was not live is applied as soon as its sandbox is.
+  // Without one, the run says which model it is on, which can differ from the one it was started with.
   const onRunLive = (paneId: string, taskId: string, runId: string): void => {
     showRunCommands(paneId, taskId, runId);
+    if (!control) return;
     const key = `${taskId}:${runId}`;
     const held = heldModels.get(paneId);
-    if (!held || !control || appliedHolds.current.has(key)) return;
+    if (!held) {
+      if (modelsRead.current.has(key)) return;
+      modelsRead.current.add(key);
+      control(taskId, runId)
+        .models()
+        .then(
+          ({ current }) => {
+            if (current)
+              setTaskModels((models) => new Map(models).set(taskId, current));
+          },
+          // No retry: the chat keeps the model it was started with, and /model reads it again.
+          () => {},
+        );
+      return;
+    }
+    if (appliedHolds.current.has(key)) return;
     appliedHolds.current.add(key);
     control(taskId, runId)
       .setModel(held)
@@ -175,11 +197,18 @@ export function useModels({
       );
   };
 
+  const onChatStarted = (paneId: string, taskId: string): void =>
+    setTaskModels((models) =>
+      new Map(models).set(taskId, heldModels.get(paneId) ?? STARTING_MODEL),
+    );
+
   return {
     openModelSheet,
     onRunLive,
+    onChatStarted,
+    // A chat with no task yet shows the model its run will start on.
     modelName: (paneId, taskId) =>
       heldModels.get(paneId)?.name ??
-      (taskId ? taskModels.get(taskId)?.name : undefined),
+      (taskId ? taskModels.get(taskId)?.name : STARTING_MODEL.name),
   };
 }

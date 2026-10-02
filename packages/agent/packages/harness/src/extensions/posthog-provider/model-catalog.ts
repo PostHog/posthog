@@ -19,6 +19,9 @@ import {
 
 export const DEFAULT_PI_MODEL_ID = "gpt-5.6-terra";
 
+// What a session starts on when the caller pins no model and its session file restores none.
+export { DEFAULT_MODEL as SESSION_START_MODEL_ID } from "./models";
+
 export type PiModelCatalogEntry = Omit<
   Pick<ModelInfo, "provider" | "id" | "contextWindow">,
   "provider"
