@@ -25,6 +25,9 @@ describe('dashboardTemplatesLogic', () => {
         initKeaTests()
         featureFlagLogic.mount()
         jest.spyOn(api.dashboardTemplates, 'list').mockResolvedValue({ results: [] })
+        // `restoreAllMocks` does not reset a `jest.mock` factory's `jest.fn`, so a return value set in one test would
+        // leak into the next.
+        jest.mocked(userHasAccess).mockReturnValue(true)
         logic = undefined
     })
 
@@ -118,7 +121,7 @@ describe('dashboardTemplatesLogic', () => {
     it.each([
         { filter: 'ch', expected: null },
         { filter: 'churn', expected: 'churn' },
-    ])('treats "$filter" as search text $expected', async ({ filter, expected }) => {
+    ])('searches for "$filter" only from three characters (search text: $expected)', async ({ filter, expected }) => {
         const mounted = dashboardTemplatesLogic({ scope: 'default', templatesTabList: true })
         logic = mounted
         mounted.mount()
@@ -216,7 +219,7 @@ describe('dashboardTemplatesLogic', () => {
             managedInAnotherProject: false,
         },
     ])(
-        'lets $label manage it: $canManage',
+        '$label: can manage $canManage, managed in another project $managedInAnotherProject',
         ({ isStaff, canEditDashboards, template, canManage, managedInAnotherProject }) => {
             jest.mocked(userHasAccess).mockReturnValue(canEditDashboards)
             userLogic.mount()
@@ -235,6 +238,22 @@ describe('dashboardTemplatesLogic', () => {
             expect(mounted.values.isManagedInAnotherProject(record)).toBe(managedInAnotherProject)
         }
     )
+
+    it('flags a failed load until a reload succeeds, so an error does not read as an empty list', async () => {
+        const listMock = (api.dashboardTemplates.list as jest.Mock).mockRejectedValueOnce(new Error('Network error'))
+        const mounted = dashboardTemplatesLogic({ scope: 'default', templatesTabList: true })
+        logic = mounted
+        mounted.mount()
+
+        await expectLogic(mounted, () => mounted.actions.getAllTemplates())
+            .toDispatchActions(['getAllTemplatesFailure'])
+            .toMatchValues({ allTemplatesLoadFailed: true })
+
+        listMock.mockResolvedValueOnce({ results: [] })
+        await expectLogic(mounted, () => mounted.actions.getAllTemplates())
+            .toDispatchActions(['getAllTemplatesSuccess'])
+            .toMatchValues({ allTemplatesLoadFailed: false })
+    })
 
     it('clears the search and the visibility filter, removes the search from the URL, and reloads', async () => {
         router.actions.push('/dashboard', { templates: '1', templateFilter: 'churn' })

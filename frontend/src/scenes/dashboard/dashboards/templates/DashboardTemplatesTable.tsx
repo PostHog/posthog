@@ -69,6 +69,7 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
     const {
         allTemplates,
         allTemplatesLoading,
+        allTemplatesLoadFailed,
         templateFilter,
         templateNameOrdering,
         templatesTabVisibility,
@@ -79,7 +80,7 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
         isManagedInAnotherProject,
         currentTeamId,
     } = useValues(templatesTableLogic)
-    const { setTemplateFilter, setTemplateNameOrdering, setTemplatesTabVisibility, clearFilters } =
+    const { setTemplateFilter, setTemplateNameOrdering, setTemplatesTabVisibility, clearFilters, getAllTemplates } =
         useActions(templatesTableLogic)
 
     const tableSorting: Sorting | null = useMemo(() => {
@@ -108,12 +109,8 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
     const { user } = useValues(userLogic)
     const organizationTeams = user?.organization?.teams ?? getAppContext()?.current_user?.organization?.teams ?? []
 
-    const eligibleDestinationTeamsCount = useMemo(() => {
-        if (currentTeamId == null) {
-            return 0
-        }
-        return organizationTeams.filter((t) => t.id !== currentTeamId).length
-    }, [organizationTeams, currentTeamId])
+    const eligibleDestinationTeamsCount =
+        currentTeamId == null ? 0 : organizationTeams.filter((t) => t.id !== currentTeamId).length
 
     const copyTemplateToProjectMenuSection = (
         templateId: string | undefined,
@@ -316,6 +313,7 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                         <Tooltip title={`Managed in ${owningProjectName}`}>
                             <span
                                 className="flex size-7 items-center justify-center text-secondary"
+                                role="img"
                                 aria-label={`Managed in ${owningProjectName}`}
                             >
                                 <IconLock className="size-4" />
@@ -412,6 +410,11 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
 
     return (
         <>
+            <p className="mt-0 mb-4 text-secondary">
+                {isStaffViewer
+                    ? "Templates saved for this project and shared across your organization, plus PostHog's official templates."
+                    : 'Templates saved for this project and shared across your organization.'}
+            </p>
             <div className="flex justify-between gap-2 flex-wrap mb-4">
                 <LemonInput
                     type="search"
@@ -494,7 +497,9 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                         isStaff={isStaffViewer}
                         searchText={searchText}
                         hasActiveFilters={hasActiveFilters}
+                        loadFailed={allTemplatesLoadFailed}
                         onClearFilters={clearFilters}
+                        onRetry={getAllTemplates}
                     />
                 }
                 nouns={['template', 'templates']}

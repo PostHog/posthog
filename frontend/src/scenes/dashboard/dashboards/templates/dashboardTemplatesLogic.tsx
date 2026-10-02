@@ -45,10 +45,10 @@ export type DashboardTemplatesTabVisibility = 'all' | 'official' | 'project' | '
 export type DashboardTemplateTableOrdering = '' | 'template_name' | '-template_name' | 'created_at' | '-created_at'
 
 /**
- * Mixed template lists (project + official): project-scoped rows first, then global/official.
- * Respects active table ordering when set; otherwise featured first, then A–Z by name (matches API defaults within each bucket).
+ * Official templates go last. Inside each group, the table ordering applies, or featured first and then A–Z by name,
+ * which matches the API default. The API cannot do this for the mixed unscoped list or the merged customer list.
  */
-function sortTemplatesTeamScopeBeforeOfficial(
+function sortTemplatesOfficialLast(
     templates: DashboardTemplateType[],
     ordering: DashboardTemplateTableOrdering
 ): DashboardTemplateType[] {
@@ -97,6 +97,7 @@ export interface dashboardTemplatesLogicValues {
     currentTeamId: number | null // teamLogic
     user: UserType | null // userLogic
     allTemplates: DashboardTemplateType[]
+    allTemplatesLoadFailed: boolean
     allTemplatesLoaded: boolean
     allTemplatesLoading: boolean
     canManageTemplate: (template: DashboardTemplateType) => boolean
@@ -208,6 +209,15 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
                 getAllTemplatesSuccess: () => true,
             },
         ],
+        // A failed request keeps the loader's last value, so a failed first load would look like an empty list.
+        allTemplatesLoadFailed: [
+            false,
+            {
+                getAllTemplates: () => false,
+                getAllTemplatesSuccess: () => false,
+                getAllTemplatesFailure: () => true,
+            },
+        ],
         templatesTabVisibility: [
             'all' as DashboardTemplatesTabVisibility,
             {
@@ -246,7 +256,8 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
                 isStaffViewer: boolean,
                 isManagedInAnotherProject: (template: DashboardTemplateType) => boolean
             ): ((template: DashboardTemplateType) => boolean) => {
-                // `dashboard_template` inherits `dashboard` in RBAC (#54694).
+                // `dashboard_template` inherits `dashboard` in RBAC (#54694). The access level comes from the bootstrap
+                // context, which changes only on a page load.
                 const canEditDashboards = userHasAccess(AccessControlResourceType.Dashboard, AccessControlLevel.Editor)
                 return (template) =>
                     isStaffViewer ||
@@ -302,14 +313,12 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
                         ])
                         // A search ranks each page on the server, but the rank is not returned, so team matches come first.
                         const results = [...teamPage.results, ...organizationPage.results]
-                        return useSearch
-                            ? results
-                            : sortTemplatesTeamScopeBeforeOfficial(results, values.templateNameOrdering)
+                        return useSearch ? results : sortTemplatesOfficialLast(results, values.templateNameOrdering)
                     }
 
                     const page = await api.dashboardTemplates.list(params)
                     if (!useSearch && listScope === undefined) {
-                        return sortTemplatesTeamScopeBeforeOfficial(page.results, values.templateNameOrdering)
+                        return sortTemplatesOfficialLast(page.results, values.templateNameOrdering)
                     }
                     return page.results
                 },

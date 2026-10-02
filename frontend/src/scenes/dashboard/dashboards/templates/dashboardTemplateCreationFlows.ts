@@ -1,8 +1,5 @@
-import { router } from 'kea-router'
-
 import { UNFILED_DASHBOARDS_FOLDER } from 'scenes/dashboard/dashboardConstants'
 import type { NewDashboardForm } from 'scenes/dashboard/newDashboardLogic'
-import { urls } from 'scenes/urls'
 
 import type { DashboardTemplateType, DashboardTemplateVariableType } from '~/types'
 
@@ -59,10 +56,4 @@ export function runBlankDashboardFlow(ctx: { isLoading: boolean } & BlankDashboa
         show: true,
         _create_in_folder: UNFILED_DASHBOARDS_FOLDER,
     })
-}
-
-/** Drops `templates` so the manage modal closes, and `templateFilter` so its search does not filter the gallery. */
-export function openNewDashboardGallery(): void {
-    const { templates: _templates, templateFilter: _templateFilter, ...searchParams } = router.values.searchParams
-    router.actions.push(urls.dashboards(), searchParams, { newDashboard: 'modal' })
 }

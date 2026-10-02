@@ -83,12 +83,14 @@ function mountTable({
     isStaff,
     templates,
     searchText = null,
+    loadFailed = false,
     canManage = true,
     managedInAnotherProject = false,
 }: {
     isStaff: boolean
     templates: DashboardTemplateType[]
     searchText?: string | null
+    loadFailed?: boolean
     canManage?: boolean
     managedInAnotherProject?: boolean
 }): Record<string, jest.Mock> {
@@ -98,6 +100,7 @@ function mountTable({
         setTemplateNameOrdering: jest.fn(),
         setTemplatesTabVisibility: jest.fn(),
         clearFilters: jest.fn(),
+        getAllTemplates: jest.fn(),
         deleteDashboardTemplate: jest.fn(),
         updateDashboardTemplate: jest.fn(),
         toggleTemplateOrganizationScope: jest.fn(),
@@ -116,6 +119,7 @@ function mountTable({
         return {
             allTemplates: templates,
             allTemplatesLoading: false,
+            allTemplatesLoadFailed: loadFailed,
             templateFilter: searchText ?? '',
             searchText,
             hasActiveFilters: searchText !== null,
@@ -211,14 +215,13 @@ describe('DashboardTemplatesTable', () => {
     })
 
     it.each([
-        { label: 'staff', isStaff: true, showsOfficialFilter: true },
-        { label: 'customers', isStaff: false, showsOfficialFilter: false },
-    ])('only offers the Official filter to staff ($label)', ({ isStaff, showsOfficialFilter }) => {
+        { label: 'staff', isStaff: true, showsOfficial: true },
+        { label: 'customers', isStaff: false, showsOfficial: false },
+    ])('only mentions and filters official templates for staff ($label)', ({ isStaff, showsOfficial }) => {
         mountTable({ isStaff, templates: [makeTemplate('team')] })
 
-        expect(document.querySelector('[data-attr="dashboard-templates-filter-official"]') !== null).toBe(
-            showsOfficialFilter
-        )
+        expect(screen.queryByText(/PostHog's official templates/) !== null).toBe(showsOfficial)
+        expect(document.querySelector('[data-attr="dashboard-templates-filter-official"]') !== null).toBe(showsOfficial)
     })
 
     describe('empty states', () => {
@@ -229,13 +232,30 @@ describe('DashboardTemplatesTable', () => {
             expect(screen.getByText('Browse PostHog templates')).toBeInTheDocument()
         })
 
-        it('offers to clear the filters when a search matches nothing', () => {
-            const actions = mountTable({ isStaff: false, templates: [], searchText: 'churn' })
+        it.each([
+            {
+                label: 'a search matches nothing',
+                searchText: 'churn',
+                loadFailed: false,
+                title: 'No templates match "churn"',
+                button: 'Clear filters',
+                action: 'clearFilters',
+            },
+            {
+                label: 'the templates failed to load',
+                searchText: null,
+                loadFailed: true,
+                title: "Couldn't load templates",
+                button: 'Try again',
+                action: 'getAllTemplates',
+            },
+        ])('offers a next step when $label', ({ searchText, loadFailed, title, button, action }) => {
+            const actions = mountTable({ isStaff: false, templates: [], searchText, loadFailed })
 
-            expect(screen.getByText('No templates match "churn"')).toBeInTheDocument()
-            fireEvent.click(screen.getByText('Clear filters'))
+            expect(screen.getByText(title)).toBeInTheDocument()
+            fireEvent.click(screen.getByText(button))
 
-            expect(actions.clearFilters).toHaveBeenCalledTimes(1)
+            expect(actions[action]).toHaveBeenCalledTimes(1)
         })
     })
 })

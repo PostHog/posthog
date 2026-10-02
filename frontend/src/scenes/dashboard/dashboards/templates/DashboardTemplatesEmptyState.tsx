@@ -1,56 +1,62 @@
-import { LemonButton } from '@posthog/lemon-ui'
+import { router } from 'kea-router'
 
-import { openNewDashboardGallery } from './dashboardTemplateCreationFlows'
+import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
+import { urls } from 'scenes/urls'
 
 export interface DashboardTemplatesEmptyStateProps {
     isStaff: boolean
     searchText: string | null
     hasActiveFilters: boolean
+    loadFailed: boolean
     onClearFilters: () => void
+    onRetry: () => void
+}
+
+/** Drops `templates` so the manage modal closes, and `templateFilter` so its search does not filter the gallery. */
+function openNewDashboardGallery(): void {
+    const { templates: _templates, templateFilter: _templateFilter, ...searchParams } = router.values.searchParams
+    router.actions.push(urls.dashboards(), searchParams, { newDashboard: 'modal' })
 }
 
 export function DashboardTemplatesEmptyState({
     isStaff,
     searchText,
     hasActiveFilters,
+    loadFailed,
     onClearFilters,
+    onRetry,
 }: DashboardTemplatesEmptyStateProps): JSX.Element {
+    if (loadFailed) {
+        return (
+            <EmptyMessage
+                title="Couldn't load templates"
+                description="The request failed. Try again, and contact support if it keeps happening."
+                buttonText="Try again"
+                buttonOnClick={onRetry}
+                buttonDataAttr="dashboard-templates-empty-retry"
+            />
+        )
+    }
     if (!hasActiveFilters) {
         return (
-            <div className="flex flex-col items-center gap-2 py-8 text-center">
-                <h3 className="m-0 text-base font-semibold">No templates yet</h3>
-                <p className="m-0 max-w-md text-secondary">
-                    When a dashboard is saved with <b>Save as dashboard template</b>, the template shows up here.
-                </p>
-                <LemonButton
-                    type="secondary"
-                    className="mt-2"
-                    onClick={openNewDashboardGallery}
-                    data-attr="dashboard-templates-empty-browse-official"
-                >
-                    Browse PostHog templates
-                </LemonButton>
-            </div>
+            <EmptyMessage
+                title="No templates yet"
+                description='Open a dashboard and choose "Save as dashboard template" to add one here.'
+                buttonText="Browse PostHog templates"
+                buttonOnClick={openNewDashboardGallery}
+                buttonDataAttr="dashboard-templates-empty-browse-official"
+            />
         )
     }
     return (
-        <div className="flex flex-col items-center gap-2 py-8 text-center">
-            <h3 className="m-0 text-base font-semibold">
-                {searchText ? `No templates match "${searchText}"` : 'No templates match this filter'}
-            </h3>
-            {isStaff ? null : (
-                <p className="m-0 text-secondary">
-                    PostHog's templates are under <b>New dashboard</b>.
-                </p>
-            )}
-            <LemonButton
-                type="secondary"
-                className="mt-2"
-                onClick={onClearFilters}
-                data-attr="dashboard-templates-empty-clear-filters"
-            >
-                Clear filters
-            </LemonButton>
-        </div>
+        <EmptyMessage
+            title={searchText ? `No templates match "${searchText}"` : 'No templates match this filter'}
+            description={
+                isStaff ? 'Clear the filters to see every template.' : "PostHog's templates are under New dashboard."
+            }
+            buttonText="Clear filters"
+            buttonOnClick={onClearFilters}
+            buttonDataAttr="dashboard-templates-empty-clear-filters"
+        />
     )
 }

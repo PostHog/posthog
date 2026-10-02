@@ -19,7 +19,6 @@ import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -45,7 +44,6 @@ export function Dashboards(): JSX.Element {
     const { setCurrentTab } = useActions(dashboardsLogic)
     const { dashboards, currentTab, isFiltering } = useValues(dashboardsLogic)
     const { showNewDashboardModal } = useActions(newDashboardLogic)
-    const { user } = useValues(userLogic)
     const templatesModalOpen = String(searchParams.templates) === '1'
     const enabledTabs: LemonTab<DashboardsTab>[] = [
         {
@@ -62,11 +60,6 @@ export function Dashboards(): JSX.Element {
             <DeleteDashboardModal />
             <LemonModal
                 title="Manage templates"
-                description={
-                    user?.is_staff
-                        ? "Templates saved for this project and shared across your organization, plus PostHog's official templates."
-                        : 'Templates saved for this project and shared across your organization.'
-                }
                 isOpen={templatesModalOpen}
                 onClose={() =>
                     router.actions.push(urls.dashboards(), {
