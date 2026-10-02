@@ -17,8 +17,7 @@ import logging
 from argparse import ArgumentParser
 
 from django.core.management.base import BaseCommand, CommandError
-from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import F, Func, JSONField, QuerySet, TextField, Value
 
 import structlog
 
@@ -28,6 +27,12 @@ logger = structlog.get_logger(__name__)
 
 DEFAULT_BATCH_SIZE = 1_000
 CODE_VARIABLES_KEY = "code_variables"
+
+
+class JSONBRemoveKey(Func):
+    template = "%(expressions)s"
+    arg_joiner = " - "
+    output_field = JSONField()
 
 
 class Command(BaseCommand):
@@ -80,20 +85,25 @@ class Command(BaseCommand):
             start_after_raw_id=start_after_raw_id,
         )
 
+        scanned_total = 0
         matched_total = 0
         updated_total = 0
         cursor = start_after_raw_id
-        while candidate_raw_ids := self._get_candidate_raw_ids(
-            team_id=team_id, after_raw_id=cursor, batch_size=batch_size
-        ):
-            cursor = candidate_raw_ids[-1]
-            matched_total += len(candidate_raw_ids)
+        while raw_ids := self._get_raw_ids(team_id=team_id, after_raw_id=cursor, batch_size=batch_size):
+            cursor = raw_ids[-1]
+            scanned_total += len(raw_ids)
+            frames = self._frames_with_code_variables(team_id=team_id, raw_ids=raw_ids)
             if live_run:
-                updated_total += self._drop_code_variables(team_id=team_id, raw_ids=candidate_raw_ids)
+                updated = self._drop_code_variables(frames)
+                matched_total += updated
+                updated_total += updated
+            else:
+                matched_total += frames.count()
 
             logger.info(
                 "stack_frame_code_variables_drop_progress",
                 team_id=team_id,
+                scanned=scanned_total,
                 matched=matched_total,
                 updated=updated_total,
                 last_raw_id=cursor,
@@ -102,30 +112,30 @@ class Command(BaseCommand):
         logger.info(
             "stack_frame_code_variables_drop_complete",
             team_id=team_id,
+            scanned=scanned_total,
             matched=matched_total,
             updated=updated_total,
             last_raw_id=cursor,
         )
 
-    def _get_candidate_raw_ids(self, *, team_id: int, after_raw_id: str | None, batch_size: int) -> list[str]:
-        # Page by raw_id, not id, so that the (team_id, raw_id, part) unique index orders the team's
-        # frames, and every part of a raw frame lands in the same batch.
-        candidates = ErrorTrackingStackFrame.objects.filter(team_id=team_id, contents__has_key=CODE_VARIABLES_KEY)
+    def _get_raw_ids(self, *, team_id: int, after_raw_id: str | None, batch_size: int) -> list[str]:
+        # Page over every raw_id of the team, so that each batch is a range scan on the
+        # (team_id, raw_id, part) unique index and every part of a raw frame lands in the same batch.
+        # Do not add the jsonb filter here: with it, the planner can rescan all remaining team rows for each batch.
+        raw_ids = ErrorTrackingStackFrame.objects.filter(team_id=team_id)
         if after_raw_id is not None:
-            candidates = candidates.filter(raw_id__gt=after_raw_id)
+            raw_ids = raw_ids.filter(raw_id__gt=after_raw_id)
 
-        return list(candidates.order_by("raw_id").values_list("raw_id", flat=True).distinct()[:batch_size])
+        return list(raw_ids.order_by("raw_id").values_list("raw_id", flat=True).distinct()[:batch_size])
 
-    def _drop_code_variables(self, *, team_id: int, raw_ids: list[str]) -> int:
-        with transaction.atomic():
-            frames: QuerySet[ErrorTrackingStackFrame] = ErrorTrackingStackFrame.objects.select_for_update().filter(
-                team_id=team_id, raw_id__in=raw_ids, contents__has_key=CODE_VARIABLES_KEY
-            )
-            frames_to_update: list[ErrorTrackingStackFrame] = []
-            for frame in frames.only("id", "contents"):
-                del frame.contents[CODE_VARIABLES_KEY]
-                frames_to_update.append(frame)
+    def _frames_with_code_variables(self, *, team_id: int, raw_ids: list[str]) -> QuerySet[ErrorTrackingStackFrame]:
+        return ErrorTrackingStackFrame.objects.filter(
+            team_id=team_id, raw_id__in=raw_ids, contents__has_key=CODE_VARIABLES_KEY
+        )
 
-            if frames_to_update:
-                ErrorTrackingStackFrame.objects.bulk_update(frames_to_update, ["contents"])
-            return len(frames_to_update)
+    def _drop_code_variables(self, frames: QuerySet[ErrorTrackingStackFrame]) -> int:
+        # Postgres removes the key in one UPDATE. The statement never carries frame contents, and it
+        # cannot write stale contents over a concurrent cymbal upsert of the same row.
+        return frames.update(
+            contents=JSONBRemoveKey(F("contents"), Value(CODE_VARIABLES_KEY, output_field=TextField()))
+        )
