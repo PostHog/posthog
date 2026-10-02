@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import Any
 
 from unittest.mock import MagicMock, patch
 
@@ -9,7 +10,7 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIRequestFactory
 
-from posthog.api.project import ProjectViewSet
+from posthog.api.project import ProjectBackwardCompatSerializer, ProjectViewSet
 from posthog.api.project_tags import MAX_TAGS_PER_FILTER
 from posthog.api.team import TeamCustomerAnalyticsConfigSerializer, TeamSerializer
 from posthog.api.test.test_team import EnvironmentToProjectRewriteClient, team_api_test_factory
@@ -22,6 +23,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project import Project
 from posthog.models.tag import Tag
 from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.persons import create_person, delete_person
 
@@ -940,6 +942,47 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.team.refresh_from_db()
         expected = managed if clear_settings else {**managed, "widget_color": "#123456"}
         self.assertEqual(self.team.conversations_settings, expected)
+
+    @parameterized.expand([(TeamSerializer,), (ProjectBackwardCompatSerializer,)])
+    def test_conversations_settings_clear_rereads_team_before_merging(self, serializer_class: type) -> None:
+        # A null PATCH must merge the managed keys it preserves out of a freshly locked
+        # Team row, not out of the instance the serializer was handed. Otherwise a
+        # dedicated integration update that commits between the request's snapshot and
+        # the save gets clobbered by the whole-blob write, restoring stale state.
+        self.team.conversations_settings = {"widget_color": "#123456"}
+        self.team.save()
+
+        def simulate_integration_update(*args: Any, **kwargs: Any) -> Any:
+            # Runs when the update path takes its locking re-read: commit the
+            # integration change now, so the merge must see it. The null clear
+            # keeps only managed keys, so the token and the integration state
+            # the integration update just wrote are the ones that must survive.
+            Team.objects.filter(pk=self.team.pk).update(
+                conversations_settings={
+                    "widget_color": "#123456",
+                    "widget_public_token": "integration-token",
+                    "teams_enabled": True,
+                }
+            )
+            return real_select_for_update(*args, **kwargs)
+
+        real_select_for_update = Team.objects.select_for_update
+        with patch.object(Team.objects, "select_for_update", simulate_integration_update):
+            if serializer_class is TeamSerializer:
+                TeamSerializer(context={"request": MagicMock(user=self.user)}).update(
+                    self.team, {"conversations_settings": None}
+                )
+            else:
+                request = APIRequestFactory().patch("/", {"conversations_settings": None}, format="json")
+                request.user = self.user
+                ProjectBackwardCompatSerializer(context={"request": request, "view": None}).update(
+                    self.project, {"conversations_settings": None}
+                )
+
+        self.team.refresh_from_db()
+        self.assertEqual(
+            self.team.conversations_settings, {"widget_public_token": "integration-token", "teams_enabled": True}
+        )
 
     def test_generate_conversations_public_token(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
