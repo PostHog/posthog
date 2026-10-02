@@ -9,7 +9,7 @@ from posthog.models.scoping import team_scope
 
 from products.canvas.backend.facade import access, search, testing
 from products.canvas.backend.facade.contracts import CanvasSearchRecord
-from products.tasks.backend.models import Channel, ChannelMembership
+from products.tasks.backend.models import Channel
 
 
 class TestCanvasFacade(TestCase):
@@ -98,7 +98,7 @@ class TestCanvasFacade(TestCase):
             team=self.team, name=f"private-{uuid4()}", channel_type=Channel.ChannelType.PRIVATE, created_by=owner
         )
         for member in members:
-            ChannelMembership.objects.create(team=self.team, channel=channel, user=member)
+            channel.memberships.create(team=self.team, user=member)
         return channel
 
     @parameterized.expand(
