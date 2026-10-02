@@ -5303,6 +5303,25 @@ describe('runStreamLogic', () => {
             expect(logic.values.turnSuggestion).toBeNull()
         })
 
+        it('ignores an older ledger read that lands after a newer one', async () => {
+            jest.mocked(turnSuggestionsStateRetrieve).mockResolvedValueOnce({ muted: false, resolved_turns: [] })
+            await expectLogic(logic, () => askAndOffer()).toDispatchActions(['setTurnSuggestionLedger'])
+            let finishOlderRead: (state: { muted: boolean; resolved_turns: number[] }) => void = () => {}
+            jest.mocked(turnSuggestionsStateRetrieve)
+                .mockReturnValueOnce(new Promise((resolve) => (finishOlderRead = resolve)))
+                .mockResolvedValueOnce({ muted: false, resolved_turns: [0] })
+
+            await expectLogic(logic, () => {
+                document.dispatchEvent(new Event('visibilitychange'))
+                document.dispatchEvent(new Event('visibilitychange'))
+            }).toDispatchActions(['setTurnSuggestionLedger'])
+            finishOlderRead({ muted: false, resolved_turns: [] })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(turnSuggestionsStateRetrieve).toHaveBeenCalledTimes(3)
+            expect(logic.values.turnSuggestion).toBeNull()
+        })
+
         it('keeps the offer hidden until the ledger loads, and retries a failed read', async () => {
             jest.useFakeTimers()
             try {
