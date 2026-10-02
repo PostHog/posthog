@@ -3,8 +3,6 @@
 Every write routes through ``FeatureFlagSerializer`` — the only path that honors
 ``@approval_gate``, validation, and activity logging. Consumers (currently experiments)
 call these functions instead of driving the serializer and its DRF context by hand.
-``deactivate_trashed_flag`` and ``reactivate_restored_flag`` bypass the serializer, because
-file-system trash and restore flip ``active`` without the gate or validation.
 ``clear_feature_enrollment`` falls back to a raw model write when the serializer rejects
 a flag's stored filters, because enrollment cleanup must never fail.
 The read helpers (``user_can_edit_flag``, ``user_can_create_flags``, ``flag_disable_requires_approval``,
@@ -41,7 +39,6 @@ from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.approvals.backend.policies import PolicyEngine
-from products.approvals.backend.scheduled_changes import flag_change_is_gated
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
 from products.feature_flags.backend.facade.config import detect_config_format
@@ -185,74 +182,6 @@ def set_flag_active(
     the flip is passed straight through — no synthetic PATCH request is needed.
     """
     return update_flag(flag, {"active": active}, team=team, user=user, request=request)
-
-
-def _set_trashed_flag_active(flag_id: int, *, team_id: int, active: bool) -> None:
-    """Flip ``active`` on a flag the file system trashes or restores. UNGATED on purpose.
-
-    A queryset update fires no signals. The file system then saves the flag inside
-    ``mute_selected_signals()``. That silences only the activity-log receiver, because the file
-    system writes its own trash and restore entries. The post_save receivers, such as flags cache
-    invalidation, still fire on that save. A serializer write here would log a second activity
-    entry and add the dependents check, filter validation and the approval gate. Trash never had
-    any of those.
-
-    The caller reads the row back, because the file system saves the whole instance after
-    this and would otherwise write the stale value over it.
-
-    Restore runs while the row still carries ``deleted``, which the default manager excludes,
-    so this reaches the row through ``objects_including_soft_deleted``.
-    """
-    FeatureFlag.objects_including_soft_deleted.filter(pk=flag_id, team_id=team_id).update(active=active)
-
-
-def _flip_trashed_flag(flag_id: int, *, team_id: int, user_id: int | None, active: bool) -> None:
-    """Flip ``active`` for trash or restore, declining the flip when a policy gates it.
-
-    A change request is no use here: the applier replays only the field change, so approving a
-    trash would disable the flag and leave it in the tree, and it loads the flag through a manager
-    that hides soft-deleted rows, so an approved restore could never apply. Detection answers the
-    question instead, and the caller never files a request.
-
-    Gating is read from the policies, not from ownership. An experiment-owned or tour-owned flag
-    is gated today, because both products flip ``active`` through the gate.
-    """
-    flag = (
-        FeatureFlag.objects_including_soft_deleted.select_related("team__organization")
-        .filter(pk=flag_id, team_id=team_id)
-        .first()
-    )
-    if flag is None:
-        return
-    if flag.active == active:
-        return
-
-    user = User.objects.filter(pk=user_id).first() if user_id is not None else None
-    if flag_change_is_gated(flag, {"operation": "update_status", "value": active}, user):
-        if active:
-            # Restore leaves the flag off. Turning it on is a gated change of its own, which the
-            # flags API can file and an approver can apply.
-            return
-        raise ValidationError(
-            "This feature flag is disabled through an approval policy. "
-            "Disable it from the feature flag page, then move it to trash."
-        )
-
-    _set_trashed_flag_active(flag_id, team_id=team_id, active=active)
-
-
-def deactivate_trashed_flag(flag_id: int, *, team_id: int, user_id: int | None = None) -> None:
-    """Disable a flag that the file system moves to trash. See ``_flip_trashed_flag``."""
-    _flip_trashed_flag(flag_id, team_id=team_id, user_id=user_id, active=False)
-
-
-def reactivate_restored_flag(flag_id: int, *, team_id: int, user_id: int | None = None) -> bool:
-    """Enable a flag that the file system restores from trash. See ``_flip_trashed_flag``.
-
-    Returns whether the flag came back on, so the caller logs the change it actually made.
-    """
-    _flip_trashed_flag(flag_id, team_id=team_id, user_id=user_id, active=True)
-    return FeatureFlag.objects_including_soft_deleted.filter(pk=flag_id, team_id=team_id, active=True).exists()
 
 
 def archive_flag(

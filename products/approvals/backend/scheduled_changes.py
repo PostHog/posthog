@@ -66,7 +66,7 @@ def _detect_gated_action(flag: "FeatureFlag", payload: dict[str, Any], user) -> 
     against the flag's current state, so no ``ChangeRequest`` is created and no notification is sent.
     Returns ``(matched_action, matched_policy, serializer, http_request, gate_args)`` when an enabled
     policy gates the change the payload would apply, else ``None`` (approvals disabled, malformed
-    payload, or no gated action matches). Shared by ``gate_flag_change`` (which then evaluates
+    payload, or no gated action matches). Shared by ``gate_scheduled_change`` (which then evaluates
     the gate to create/reuse a CR) and by the fire-time re-check that keeps creation-time and
     request-time gating in lockstep.
     """
@@ -126,46 +126,20 @@ def _detect_gated_action(flag: "FeatureFlag", payload: dict[str, Any], user) -> 
     return None
 
 
-def flag_change_is_gated(flag: "FeatureFlag", payload: dict[str, Any], user) -> bool:
-    """Whether an enabled policy gates this flag change, without creating a ChangeRequest.
-
-    For a caller that cannot hand the change to an approver. The file system is the case: a
-    change request for a trash or a restore can never be applied, because the applier replays
-    only the field change, and it loads the flag through a manager that hides soft-deleted rows.
-    Such a caller asks whether the change would be gated and declines to make it, instead of
-    filing a request nobody can act on.
-
-    Detection runs against every ``feature_flag.*`` action, whatever owns the flag. An
-    experiment-owned or tour-owned flag is gated today, because both products flip ``active``
-    through the gate, so reading ownership here would reopen the bypass for them.
-    """
-    return _detect_gated_action(flag, payload, user) is not None
-
-
-def gate_flag_change(
+def gate_scheduled_change(
     flag: "FeatureFlag",
     payload: dict[str, Any],
     user,
     current_change_request: Optional[ChangeRequest] = None,
 ) -> Optional[ChangeRequest]:
-    """Evaluate the approval gate for a flag change and create a pending CR if required.
-
-    Answers the approval question on its own, without running a serializer write. Callers that
-    apply the change themselves use this: a scheduled change, a copy between projects, and the
-    file system's trash and restore. It therefore skips the serializer's other checks, such as
-    the dependents check and filter validation, which those callers never ran.
-
-    ``payload`` is a scheduled-change payload (``{"operation": ..., "value": ...}``), whatever the
-    caller is. ``build_scheduled_change_serializer_data`` turns it into the serializer data the
-    change would apply, and returns ``None`` for a shape it does not recognise, which makes this
-    decline to gate rather than fail.
+    """Evaluate the approval gate for a scheduled change and create a pending CR if required.
 
     Returns the created ``ChangeRequest`` when an enabled policy gates the change the scheduled
     payload would apply, otherwise ``None`` (no policy, approvals disabled, or the change doesn't
     match any gated action). Reuses the request-time gate's action detection and CR creation so
     creation-time gating and request-time gating stay in lockstep.
 
-    ``current_change_request`` is the CR already bound to the row being (re)gated, if any.
+    ``current_change_request`` is the CR already bound to the schedule being (re)gated, if any.
     Re-gating an unchanged action after a payload edit legitimately rediscovers that same pending
     CR; passing it here lets us tell "reuse my own binding" apart from "bind to someone else's
     pending request" (see the duplicate handling below).
@@ -380,4 +354,4 @@ def regate_recurring_scheduled_change(
     scheduled-change task's error handling then records the failure and stops advancing the
     schedule rather than dispatching the occurrence ungated.
     """
-    return gate_flag_change(flag, scheduled_change.payload, scheduled_change.created_by)
+    return gate_scheduled_change(flag, scheduled_change.payload, scheduled_change.created_by)

@@ -32,7 +32,7 @@ from products.access_control.backend.facade.user_access_control import (
     access_level_satisfied_for_resource,
 )
 from products.approvals.backend.exceptions import ApprovalRequired, PolicyConflict
-from products.approvals.backend.scheduled_changes import gate_flag_change
+from products.approvals.backend.scheduled_changes import gate_scheduled_change
 from products.approvals.backend.transactions import gated_atomic
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.cohorts.backend.models.util import get_all_cohort_dependencies, sort_cohorts_topologically
@@ -1663,7 +1663,7 @@ class OrganizationFeatureFlagView(
             # bypassing the schedule (the same invariant create() documents and wraps).
             try:
                 with transaction.atomic():
-                    change_request = gate_flag_change(target_flag, updated_payload, user)
+                    change_request = gate_scheduled_change(target_flag, updated_payload, user)
                     ScheduledChange.objects.create(
                         record_id=str(target_flag.id),
                         model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,

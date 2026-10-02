@@ -24,7 +24,7 @@ from posthog.models.file_system.file_system_view_log import FileSystemViewLog
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 
 from products.actions.backend.models.action import Action
-from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
+from products.approvals.backend.models import ChangeRequest
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -774,7 +774,8 @@ class TestFileSystemDeletion(APIBaseTest):
         assert delete_response.status_code == status.HTTP_200_OK
         flag.refresh_from_db()
         assert flag.deleted is True
-        assert flag.active is False
+        # Trash leaves active alone: deleted already stops the flag serving.
+        assert flag.active is True
 
         undo_response = self.client.post(
             f"/api/environments/{self.team.id}/file_system/undo_delete/",
@@ -787,68 +788,6 @@ class TestFileSystemDeletion(APIBaseTest):
         assert flag.active is True
         assert flag.deleted is False  # type: ignore
         assert not ChangeRequest.objects.filter(team=self.team).exists()
-
-    def _create_policy(self, action_key: str) -> None:
-        ApprovalPolicy.objects.create(
-            organization=self.organization,
-            team=self.team,
-            action_key=action_key,
-            conditions={},
-            approver_config={"quorum": 1, "users": [self.user.id]},
-            created_by=self.user,
-        )
-
-    @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
-    def test_trashing_a_flag_under_a_disable_policy_is_refused(self, _mock_approvals_enabled) -> None:
-        flag = FeatureFlag.objects.create(team=self.team, key="gated-standalone", created_by=self.user)
-        self._create_policy("feature_flag.disable")
-        file_entry = FileSystem.objects.get(team=self.team, type="feature_flag", ref=str(flag.id))
-
-        response = self.client.delete(f"/api/environments/{self.team.id}/file_system/{file_entry.id}/")
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert "feature flag page" in str(response.json())
-        flag.refresh_from_db()
-        assert flag.active is True
-        assert flag.deleted is False
-        # A request nobody can apply is worse than none, so the file system files none.
-        assert not ChangeRequest.objects.filter(team=self.team).exists()
-
-    @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
-    def test_restoring_a_flag_under_an_enable_policy_leaves_it_disabled(self, _mock_approvals_enabled) -> None:
-        flag = FeatureFlag.objects.create(team=self.team, key="gated-restore", created_by=self.user)
-        file_entry = FileSystem.objects.get(team=self.team, type="feature_flag", ref=str(flag.id))
-        assert (
-            self.client.delete(f"/api/environments/{self.team.id}/file_system/{file_entry.id}/").status_code
-            == status.HTTP_200_OK
-        )
-        self._create_policy("feature_flag.enable")
-
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/file_system/undo_delete/",
-            {"items": [{"type": "feature_flag", "ref": str(flag.id)}]},
-        )
-
-        # The flag comes back, off: it is out of trash, so the flags API can gate turning it on.
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        flag.refresh_from_db()
-        assert flag.deleted is False
-        assert flag.active is False
-        assert not ChangeRequest.objects.filter(team=self.team).exists()
-
-    @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
-    def test_trashing_an_experiment_owned_flag_is_refused_too(self, _mock_approvals_enabled) -> None:
-        # Experiments flip active through the gate, so the file tree must not be a way around it.
-        flag = FeatureFlag.objects.create(team=self.team, key="experiment-owned", created_by=self.user)
-        Experiment.objects.create(team=self.team, name="Owning experiment", feature_flag=flag, created_by=self.user)
-        self._create_policy("feature_flag.disable")
-        file_entry = FileSystem.objects.get(team=self.team, type="feature_flag", ref=str(flag.id))
-
-        response = self.client.delete(f"/api/environments/{self.team.id}/file_system/{file_entry.id}/")
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        flag.refresh_from_db()
-        assert flag.active is True
 
     def test_undo_delete_restores_original_path(self) -> None:
         flag = FeatureFlag(team=self.team, key="undo-path-flag", created_by=self.user)
