@@ -4,7 +4,7 @@ import type { Meta, StoryObj } from '@storybook/react'
 
 import { IconCursorClick, IconKeyboard } from '@posthog/icons'
 
-import { PropertyIcons, PropertyIconsProps } from './SessionRecordingPreview'
+import { PropertyIcons, PropertyIconsProps } from './PropertyIcons'
 
 const meta: Meta<PropertyIconsProps> = {
     title: 'Replay/Components/PropertyIcons',
