@@ -1,6 +1,12 @@
-import { NodeKind } from '~/queries/schema/schema-general'
+import { expectLogic } from 'kea-test-utils'
 
-import { applyTemplate } from './newDashboardLogic'
+import api from 'lib/api'
+
+import { NodeKind } from '~/queries/schema/schema-general'
+import { initKeaTests } from '~/test/init'
+import type { DashboardTemplateType, DashboardType } from '~/types'
+
+import { applyTemplate, newDashboardLogic } from './newDashboardLogic'
 
 describe('template function in newDashboardLogic', () => {
     it('ignores unused variables', () => {
@@ -127,6 +133,48 @@ describe('template function in newDashboardLogic', () => {
                 id: '$pageview',
                 type: 'events',
             },
+        })
+    })
+
+    describe('createDashboardFromTemplate', () => {
+        const template: DashboardTemplateType = {
+            id: 'template-1',
+            template_name: 'Weekly KPIs',
+            tiles: [],
+            scope: 'team',
+        }
+        let logic: ReturnType<typeof newDashboardLogic.build>
+
+        beforeEach(() => {
+            initKeaTests()
+            logic = newDashboardLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+            jest.restoreAllMocks()
+        })
+
+        // Template clicks are ignored while `isLoading` is true. Hiding the modal resets it, so it must stay true
+        // after the modal hides, or a second click during the request creates a duplicate dashboard.
+        it('stays loading while the dashboard is created', async () => {
+            let resolveCreate: (dashboard: Partial<DashboardType>) => void = () => {}
+            jest.spyOn(api, 'create').mockImplementation(
+                () =>
+                    new Promise((resolve) => {
+                        resolveCreate = resolve
+                    })
+            )
+
+            logic.actions.createDashboardFromTemplate(template, [], false)
+
+            expect(logic.values.isLoading).toBe(true)
+
+            resolveCreate({ id: 1, name: 'Weekly KPIs', tiles: [] })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.isLoading).toBe(false)
         })
     })
 })

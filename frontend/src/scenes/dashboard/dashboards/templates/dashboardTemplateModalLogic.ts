@@ -1,9 +1,11 @@
 import { MakeLogicType, actions, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { urls } from 'scenes/urls'
 
 import { DashboardTemplateEditorType, DashboardTemplateType } from '~/types'
 
@@ -156,7 +158,13 @@ export const dashboardTemplateModalLogic = kea<dashboardTemplateModalLogicType>(
                                 tags,
                             }
                             await api.dashboardTemplates.create(data)
-                            lemonToast.success('Project template saved')
+                            lemonToast.success('Project template saved', {
+                                button: {
+                                    label: 'View templates',
+                                    dataAttr: 'dashboard-template-saved-view-templates',
+                                    action: () => router.actions.push(urls.dashboards(), { templates: '1' }),
+                                },
+                            })
                         } else {
                             const id = values.editingTemplate?.id
                             if (id === undefined) {

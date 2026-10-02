@@ -1,8 +1,11 @@
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { initKeaTests } from '~/test/init'
 import type { DashboardTemplateListParams, DashboardTemplateType } from '~/types'
@@ -105,6 +108,46 @@ describe('dashboardTemplatesLogic', () => {
             ).toBe(true)
         }
     )
+
+    // The default test user is staff, so the cases above cover the staff list, official templates included.
+    it("lists only this project's and the organization's templates for customers, without official ones", async () => {
+        userLogic.mount()
+        userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_staff: false })
+        const teamTemplate = {
+            id: 'team-b',
+            template_name: 'B team',
+            tiles: [],
+            scope: 'team',
+        } as DashboardTemplateType
+        const organizationTemplate = {
+            id: 'org-a',
+            template_name: 'A organization',
+            tiles: [],
+            scope: 'organization',
+        } as DashboardTemplateType
+        const listMock = (api.dashboardTemplates.list as jest.Mock).mockImplementation(
+            async (params: DashboardTemplateListParams) => ({
+                results:
+                    params.scope === 'team'
+                        ? [teamTemplate]
+                        : params.scope === 'organization'
+                          ? [organizationTemplate]
+                          : [],
+            })
+        )
+        const mounted = dashboardTemplatesLogic({ scope: 'default', templatesTabList: true })
+        logic = mounted
+        mounted.mount()
+
+        await expectLogic(mounted, () => mounted.actions.getAllTemplates())
+            .toFinishAllListeners()
+            .toMatchValues({ allTemplates: [organizationTemplate, teamTemplate] })
+
+        const requestedScopes = listMock.mock.calls.map(([params]: [DashboardTemplateListParams]) => params.scope)
+        expect(requestedScopes).toEqual(expect.arrayContaining(['team', 'organization']))
+        expect(requestedScopes).not.toContain(undefined)
+        expect(requestedScopes).not.toContain('global')
+    })
 
     it('clears the template search when the dashboard list URL no longer includes a search (stale query no longer hides templates)', async () => {
         router.actions.push('/dashboard', { templateFilter: 'needle' })

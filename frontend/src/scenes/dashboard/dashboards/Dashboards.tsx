@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconChevronDown } from '@posthog/icons'
-import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+import { IconChevronDown, IconPencil, IconPlusSmall } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonModal } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
@@ -58,7 +58,8 @@ export function Dashboards(): JSX.Element {
             <DuplicateDashboardModal />
             <DeleteDashboardModal />
             <LemonModal
-                title="Dashboard templates"
+                title="Manage templates"
+                description="Templates saved for this project and shared across your organization."
                 isOpen={templatesModalOpen}
                 onClose={() =>
                     router.actions.push(urls.dashboards(), {
@@ -101,11 +102,47 @@ export function Dashboards(): JSX.Element {
                                     type="primary"
                                     sideAction={{
                                         icon: <IconChevronDown />,
-                                        tooltip: 'View dashboard templates',
-                                        'aria-label': 'View dashboard templates',
-                                        'data-attr': 'view-dashboard-templates',
-                                        onClick: () =>
-                                            router.actions.push(urls.dashboards(), { ...searchParams, templates: '1' }),
+                                        'aria-label': 'More dashboard options',
+                                        'data-attr': 'new-dashboard-dropdown',
+                                        dropdown: {
+                                            placement: 'bottom-end',
+                                            overlay: (
+                                                <>
+                                                    <LemonButton
+                                                        icon={<IconPlusSmall />}
+                                                        onClick={showNewDashboardModal}
+                                                        data-attr="new-dashboard-menu-item"
+                                                        fullWidth
+                                                    >
+                                                        <div className="flex flex-col text-sm py-1">
+                                                            <strong>New dashboard</strong>
+                                                            <span className="text-xs font-sans font-normal">
+                                                                Start blank or from a template
+                                                            </span>
+                                                        </div>
+                                                    </LemonButton>
+                                                    <LemonDivider className="my-1" />
+                                                    <LemonButton
+                                                        icon={<IconPencil />}
+                                                        onClick={() =>
+                                                            router.actions.push(urls.dashboards(), {
+                                                                ...searchParams,
+                                                                templates: '1',
+                                                            })
+                                                        }
+                                                        data-attr="view-dashboard-templates"
+                                                        fullWidth
+                                                    >
+                                                        <div className="flex flex-col text-sm py-1">
+                                                            <strong>Manage templates</strong>
+                                                            <span className="text-xs font-sans font-normal">
+                                                                Edit, share or delete your templates
+                                                            </span>
+                                                        </div>
+                                                    </LemonButton>
+                                                </>
+                                            ),
+                                        },
                                     }}
                                 >
                                     New dashboard
