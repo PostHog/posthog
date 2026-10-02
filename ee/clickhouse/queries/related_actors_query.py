@@ -165,11 +165,15 @@ class RelatedActorsQuery:
                 "actor_filter": actor_filter,
             },
         )
-        if not self.is_aggregating_by_groups and self._modifiers.personsOnEventsMode in (
-            PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
-            PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+        if (
+            isinstance(query, ast.SelectQuery)
+            and not self.is_aggregating_by_groups
+            and self._modifiers.personsOnEventsMode
+            in (
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+            )
         ):
-            assert isinstance(query, ast.SelectQuery)
             # Detached IDs can own history without a current Personhog mapping. Include stored
             # ownership and all override candidates; the resolved person filter rejects stale versions.
             # Keep IN local so candidates and person resolution use the same shard's snapshot.
