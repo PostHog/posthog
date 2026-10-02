@@ -76,7 +76,36 @@ export function facetFilterKey(filter: FacetFilter): string {
 const TOKEN = /(^|\s)(-?)([\w-]+):(?:"((?:[^"\\]|\\.)*)"|([^\s"]+)(?=\s|$))/g
 const TOKEN_FOLLOWED_BY_SPACE = /(^|\s)(-?)([\w-]+):(?:"((?:[^"\\]|\\.)*)"|([^\s"]+)(?=\s))/g
 const DRAFT_TOKEN = /(^|\s)(-?)([\w-]+):(?:"((?:[^"\\]|\\.)*)"?|(\S*))$/
-const UNCLOSED_QUOTED_TOKEN = /(^|\s)-?[\w-]+:"(?:[^"\\]|\\.)*$/
+const QUOTED_TOKEN_START = /-?[\w-]+:"/y
+
+function isSpace(char: string): boolean {
+    return /\s/.test(char)
+}
+
+function openQuotedTokenStart(input: string): number {
+    let index = 0
+    while (index < input.length) {
+        if (isSpace(input[index])) {
+            index++
+            continue
+        }
+        QUOTED_TOKEN_START.lastIndex = index
+        if (QUOTED_TOKEN_START.test(input)) {
+            const tokenStart = index
+            index = QUOTED_TOKEN_START.lastIndex
+            while (index < input.length && input[index] !== '"') {
+                index += input[index] === '\\' ? 2 : 1
+            }
+            if (index >= input.length) {
+                return tokenStart
+            }
+        }
+        while (index < input.length && !isSpace(input[index])) {
+            index++
+        }
+    }
+    return input.length
+}
 
 function unescapeFacetValue(quoted: string): string {
     return quoted.replace(/\\(.)/g, '$1')
@@ -93,8 +122,7 @@ export function extractFacetFilters(
 ): { filters: FacetFilter[]; remaining: string } {
     const filters: FacetFilter[] = []
     const seen = new Set<string>()
-    const openQuote = input.match(UNCLOSED_QUOTED_TOKEN)
-    const quotedStart = openQuote?.index !== undefined ? openQuote.index + openQuote[1].length : input.length
+    const quotedStart = openQuotedTokenStart(input)
     const remaining = input
         .slice(0, quotedStart)
         .replace(

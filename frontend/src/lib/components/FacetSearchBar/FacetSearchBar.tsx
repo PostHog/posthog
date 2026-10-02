@@ -1,4 +1,3 @@
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
@@ -16,7 +15,7 @@ interface FacetSearchBarBaseProps {
     onChange: (value: FacetSearchValue) => void
     /** Shown while no pill is set. */
     placeholder: string
-    /** Keys the bar's state and marks the input for autocapture. */
+    /** Keys the bar's state and marks the input for autocapture. Two bars mounted at once need different values. */
     dataAttr: string
 }
 
@@ -72,16 +71,24 @@ export function FacetSearchBar<TRow>({
     } = useActions(logic)
 
     const inputRef = useRef<HTMLInputElement>(null)
+    const movedByKeyboard = useRef(false)
     const listboxId = `${dataAttr}-listbox`
     const optionId = (index: number): string => `${listboxId}-option-${index}`
     const expanded = open && (options.length > 0 || !!statusMessage)
     const activeOptionId = expanded && highlightedSuggestion ? optionId(highlightedIndex) : undefined
 
+    // Scrolling for the pointer would move the list under it and change the row it points at.
     useEffect(() => {
-        if (activeOptionId) {
+        if (activeOptionId && movedByKeyboard.current) {
             document.getElementById(activeOptionId)?.scrollIntoView?.({ block: 'nearest' })
         }
+        movedByKeyboard.current = false
     }, [activeOptionId])
+
+    const moveHighlightByKeyboard = (delta: number): void => {
+        movedByKeyboard.current = true
+        moveHighlight(delta)
+    }
 
     const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>): void => {
         // Keys during IME composition belong to the input method, not to the suggestions.
@@ -93,13 +100,13 @@ export function FacetSearchBar<TRow>({
         if (event.key === 'ArrowDown') {
             event.preventDefault()
             if (open) {
-                moveHighlight(1)
+                moveHighlightByKeyboard(1)
             } else {
                 setOpen(true)
             }
         } else if (event.key === 'ArrowUp') {
             event.preventDefault()
-            moveHighlight(-1)
+            moveHighlightByKeyboard(-1)
         } else if (event.key === 'Enter' && expanded) {
             event.preventDefault()
             applyHighlighted()
@@ -162,17 +169,17 @@ export function FacetSearchBar<TRow>({
                     ))}
                 </div>
             )}
-            <div role="status" aria-live="polite" className={clsx(statusMessage && 'px-2 py-1 text-secondary')}>
-                {statusMessage}
-            </div>
+            {statusMessage && <div className="px-2 py-1 text-secondary">{statusMessage}</div>}
             <div
-                data-attr="facet-search-bar-hints"
+                data-attr={`${dataAttr}-hints`}
                 className="flex flex-wrap gap-x-3 px-2 pt-1 mt-1 border-t text-xs text-secondary"
             >
                 {hints.map(({ keys, action }) => (
-                    <span key={keys.join('+')}>
-                        <KeyboardShortcut {...Object.fromEntries(keys.map((key) => [key, true]))} preserveOrder />{' '}
-                        {action}
+                    <span key={keys.join('+')} className="flex items-center gap-x-1">
+                        {keys.map((key) => (
+                            <KeyboardShortcut key={key} {...{ [key]: true }} />
+                        ))}
+                        <span>{action}</span>
                     </span>
                 ))}
             </div>
@@ -182,7 +189,14 @@ export function FacetSearchBar<TRow>({
     return (
         // The input's blur is the one close path: pressing outside moves the focus away.
         <Popover visible={expanded} overlay={overlay} placement="bottom-start">
-            <div className="w-full min-w-0">
+            {/* Pressing the bar around the text keeps the focus, and so the popover and its Tab target, in the input. */}
+            <div
+                className="w-full min-w-0"
+                onMouseDown={(event) => event.target !== inputRef.current && event.preventDefault()}
+            >
+                <div role="status" aria-live="polite" className="sr-only">
+                    {expanded ? statusMessage : null}
+                </div>
                 <LemonInput
                     type="text"
                     fullWidth

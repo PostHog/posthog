@@ -423,6 +423,13 @@ export const facetSearchBarLogic = kea<facetSearchBarLogicType>([
                 await breakpoint(VALUE_LOAD_DEBOUNCE_MS)
                 await Promise.all(values.pendingValueRequests.map(runValueRequest))
             },
+            forgetValues: ({ facetKeys }) => {
+                for (const loadKey of newestLoadByKey.keys()) {
+                    if (facetKeys.some((facetKey) => loadKey.startsWith(`${facetKey}:`))) {
+                        newestLoadByKey.delete(loadKey)
+                    }
+                }
+            },
             moveHighlight: ({ delta }) => {
                 const last = Math.max(0, values.options.length - 1)
                 actions.setHighlightedIndex(Math.max(0, Math.min(values.highlightedIndex + delta, last)))

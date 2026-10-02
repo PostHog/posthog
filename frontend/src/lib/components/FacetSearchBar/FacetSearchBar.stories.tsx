@@ -25,7 +25,7 @@ interface Ticket {
     labels: string[]
 }
 
-const capitalize = (value: string): string => value[0].toUpperCase() + value.slice(1)
+const capitalize = (value: string): string => value.charAt(0).toUpperCase() + value.slice(1)
 
 const TICKET_FACETS: ClientFacet<Ticket>[] = [
     {
@@ -107,8 +107,8 @@ interface ConsumerProps {
 }
 
 function Frame({ narrow, children }: { narrow?: boolean; children: React.ReactNode }): JSX.Element {
-    // 520px is the scene width with the side panel open on a 1280px window.
-    return <div className={clsx('flex flex-col gap-3 p-4 min-h-120', narrow && 'w-[520px]')}>{children}</div>
+    // 520px is the scene width with the side panel open on a 1280px window; p-8 matches the scene padding.
+    return <div className={clsx('flex flex-col gap-3 p-8 min-h-120', narrow && 'w-[520px]')}>{children}</div>
 }
 
 function ClientModeConsumer({ initial, narrow }: ConsumerProps): JSX.Element {

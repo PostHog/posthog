@@ -110,6 +110,13 @@ function message(id: string, label: string): FacetSuggestion[] {
 
 type IsChosen = (filter: FacetFilter) => boolean
 
+function countOrHidden(option: FacetValueOption, negated: boolean): Pick<FacetSuggestion, 'count' | 'detail'> {
+    if (!negated) {
+        return { count: option.count }
+    }
+    return { detail: option.count !== undefined ? `Hides ${option.count}` : undefined }
+}
+
 /** Rows match client facet values in any case, so two client pills that differ only by case are the same pill. */
 export function pillIdentity(data: SuggestionContext['data']): (filter: FacetFilter) => string {
     return (filter) => facetFilterKey(data ? { ...filter, value: filter.value.toLowerCase() } : filter)
@@ -150,8 +157,7 @@ function draftSuggestions(draft: FacetDraft, context: SuggestionContext, isChose
                 id: `value-${facetFilterKey(filterOf(option))}`,
                 kind: 'value',
                 label: `${draft.negated ? 'Not ' : ''}${optionLabel(facet, option)}`,
-                detail: draft.negated && option.count !== undefined ? `Hides ${option.count}` : undefined,
-                count: draft.negated ? undefined : option.count,
+                ...countOrHidden(option, draft.negated),
                 filter: filterOf(option),
                 rest: draft.rest,
             })
@@ -191,7 +197,7 @@ function crossFacetValueSuggestions(
                 id: `value-${facetFilterKey(filter)}`,
                 kind: 'value',
                 label: `${token.negated ? 'Not ' : ''}${facet.label}: ${optionLabel(facet, option)}`,
-                count: option.count,
+                ...countOrHidden(option, token.negated),
                 filter,
                 rest: token.rest,
             })
