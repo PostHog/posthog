@@ -38,7 +38,9 @@ class CrossProjectDashboardTileSerializer(serializers.Serializer):
     )
     filters_overrides = serializers.JSONField(default=dict, help_text=TILE_FILTERS_HELP)
 
-    def validate_layouts(self, value: Any) -> Any:
+    def validate_layouts(self, value: Any) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Layouts must be an object keyed by layout size.")
         return _within(value, MAX_TILE_JSON_BYTES)
 
     def validate_filters_overrides(self, value: Any) -> dict[str, Any]:
@@ -60,7 +62,9 @@ class CrossProjectDashboardTileUpdateSerializer(serializers.Serializer):
     )
     filters_overrides = serializers.JSONField(required=False, help_text=TILE_FILTERS_HELP)
 
-    def validate_layouts(self, value: Any) -> Any:
+    def validate_layouts(self, value: Any) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Layouts must be an object keyed by layout size.")
         return _within(value, MAX_TILE_JSON_BYTES)
 
     def validate_filters_overrides(self, value: Any) -> dict[str, Any]:

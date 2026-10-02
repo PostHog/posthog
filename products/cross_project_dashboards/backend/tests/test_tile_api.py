@@ -109,6 +109,13 @@ class TestCrossProjectDashboardTileAPI(APIBaseTest):
         live = list(self.dashboard.tiles.filter(deleted=False).values_list("insight_id", flat=True))
         assert live == [second.pk]
 
+    def test_rejects_layouts_that_are_not_an_object(self, _flag):
+        insight = self._insight()
+        response = self.client.post(
+            self._url(), {"project_id": self.team.pk, "insight_id": insight.pk, "layouts": []}, format="json"
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
     def test_rejects_a_tile_past_the_per_dashboard_ceiling(self, _flag):
         CrossProjectDashboardTile.objects.bulk_create(
             CrossProjectDashboardTile(
@@ -225,7 +232,7 @@ class TestCrossProjectDashboardTileAPI(APIBaseTest):
         assert [tile["id"] for tile in dashboard["tiles"]] == [str(visible.id)]
         assert (listed["results"][0]["tile_count"], listed["results"][0]["project_count"]) == (1, 1)
 
-    @parameterized.expand([("patch",), ("delete",)])
+    @parameterized.expand([("patch",), ("delete",), ("add_tile",)])
     def test_a_member_denied_a_tile_project_cannot_change_the_dashboard(self, method: str, _flag):
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
@@ -240,11 +247,16 @@ class TestCrossProjectDashboardTileAPI(APIBaseTest):
         )
         url = f"/api/organizations/{self.organization.id}/cross_project_dashboards/{self.dashboard.id}/"
 
-        response = getattr(self.client, method)(url, {"name": "Renamed"}, format="json")
+        if method == "add_tile":
+            body = {"project_id": self.team.pk, "insight_id": self._insight().pk}
+            response = self.client.post(self._url(), body, format="json")
+        else:
+            response = getattr(self.client, method)(url, {"name": "Renamed"}, format="json")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         self.dashboard.refresh_from_db()
         assert (self.dashboard.name, self.dashboard.deleted) == ("Company overview", False)
+        assert self.dashboard.tiles.filter(deleted=False).count() == 1
 
     def test_dashboard_patch_no_longer_writes_tiles(self, _flag):
         insight = self._insight()

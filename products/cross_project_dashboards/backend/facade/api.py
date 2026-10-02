@@ -64,7 +64,7 @@ def get_tile(
 def create_tile(
     *, organization_id: UUID | str, dashboard_id: UUID, user: User, tile: contracts.NewTile
 ) -> contracts.CrossProjectTile:
-    """Raises DashboardNotFoundError, or ValidationError when the user cannot view the insight."""
+    """Raises DashboardNotFoundError, DashboardChangeDeniedError, or ValidationError when the user cannot view the insight."""
     return dashboards.create_tile(organization_id=organization_id, dashboard_id=dashboard_id, user=user, tile=tile)
 
 
