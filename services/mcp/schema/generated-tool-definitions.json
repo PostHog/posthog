@@ -14123,12 +14123,57 @@
         },
         "feature_flag": "visual-review"
     },
+    "visual-review-runs-lift-on-merge-create": {
+        "description": "Ask to lift a quarantined snapshot's quarantine once this run's pull request merges, for a pull request that fixes the flaky story. Pass the run's UUID as `id` and the quarantined snapshot's `identifier` (the story ID). The identifier works for an `unchanged` snapshot, which a listing with `exclude_unchanged` leaves out, so no snapshot UUID is needed. Requesting a lift never approves a picture: a changed or new snapshot must first be approved by identifier with `visual-review-runs-approve-create`, or the call returns 400. The lift happens only after the pull request merges and a default-branch run that contains the merge renders the expected picture, with a baseline entry that holds the same picture. Until then the quarantine stays. A repeat call from the same pull request replaces the pending request.",
+        "category": "Visual review",
+        "feature": "visual_review",
+        "summary": "Lift a visual review quarantine when the pull request merges",
+        "title": "Lift a visual review quarantine when the pull request merges",
+        "required_scopes": ["visual_review:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "visual-review"
+    },
     "visual-review-runs-list": {
         "description": "Runs in the project; each is one CI capture for one commit. Filter by `review_state`, or by `pr_number`, `commit_sha` or `branch` to find the run that blocks a pull request. Returns status, review decision, commit, branch, PR and a change summary.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "List visual review runs",
         "title": "List visual review runs",
+        "required_scopes": ["visual_review:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "visual-review"
+    },
+    "visual-review-runs-quarantine-lifts-cancel-create": {
+        "description": "Withdraw a pending request to lift a quarantine when this run's pull request merges. The quarantine stays. Pass the run's UUID as `id` and the request's `id` from `visual-review-runs-quarantine-lifts-list` as `request_id`.",
+        "category": "Visual review",
+        "feature": "visual_review",
+        "summary": "Cancel a visual review lift on merge",
+        "title": "Cancel a visual review lift on merge",
+        "required_scopes": ["visual_review:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "visual-review"
+    },
+    "visual-review-runs-quarantine-lifts-list": {
+        "description": "Requests to lift a quarantine when this run's pull request merges, newest first. `state` is `pending` (waits for the merge and a default-branch run that renders `expected_hash` against a matching baseline), `applied`, `cancelled` or `superseded`. `detail` says what the latest check found. A lift never approves a picture. Empty for a run without a pull request.",
+        "category": "Visual review",
+        "feature": "visual_review",
+        "summary": "List visual review lifts on merge",
+        "title": "List visual review lifts on merge",
         "required_scopes": ["visual_review:read"],
         "annotations": {
             "destructiveHint": false,

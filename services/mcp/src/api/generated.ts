@@ -58723,6 +58723,14 @@ export namespace Schemas {
       Incompatible: 'incompatible',
     } as const;
 
+    export interface LiftOnMergeInput {
+      /**
+         * Identifier of a quarantined snapshot in this run, such as a Storybook story ID. The snapshot's picture is what a default-branch run must render for the quarantine to lift. An unchanged snapshot uses its baseline. A changed or new snapshot must be approved first, because requesting a lift never approves a picture.
+         * @maxLength 512
+         */
+      identifier: string;
+    }
+
     /**
      * Request body for `scout-lighthouse-audit`: one page, one device profile.
      */
@@ -70015,6 +70023,11 @@ export namespace Schemas {
      */
     export type ReportRankingScores = {[key: string]: number};
 
+    /**
+     * Outcome head name to its probability divided by the head's training base rate, e.g. 2.7 means 2.7x as likely as the average report. A head without a saved base rate has no entry.
+     */
+    export type ReportRankingLifts = {[key: string]: number};
+
     export interface ReportRanking {
       /** Key of the served model in the scoring pass, as `<model_name>@<model_version>`. */
       served_key: string;
@@ -70028,6 +70041,8 @@ export namespace Schemas {
       scored_at: string;
       /** Outcome head name to its calibrated probability. Empty when the served model skipped the report. */
       scores: ReportRankingScores;
+      /** Outcome head name to its probability divided by the head's training base rate, e.g. 2.7 means 2.7x as likely as the average report. A head without a saved base rate has no entry. */
+      lifts: ReportRankingLifts;
       /** Heads whose holdout AUC the training run could read. Treat scores of other heads with caution. */
       readable_heads: string[];
     }
@@ -86148,6 +86163,74 @@ export namespace Schemas {
       source_run_id?: string | null;
       /** Post the quarantine to the Slack channel of the team that owns the story, naming the user who quarantined it. Only Storybook snapshots have an owning team. Best effort: skipped when the story has no owning team or the project has no Slack integration. */
       notify_owners?: boolean;
+    }
+
+    /**
+     * * `pending` - pending
+     * * `applied` - applied
+     * * `cancelled` - cancelled
+     * * `superseded` - superseded
+     */
+    export type QuarantineLiftStateEnum = typeof QuarantineLiftStateEnum[keyof typeof QuarantineLiftStateEnum];
+
+
+    export const QuarantineLiftStateEnum = {
+      Pending: 'pending',
+      Applied: 'applied',
+      Cancelled: 'cancelled',
+      Superseded: 'superseded',
+    } as const;
+
+    export interface QuarantineLiftEntry {
+      /** UUID of the lift request. */
+      id: string;
+      /** UUID of the quarantine event this request lifts. A later quarantine of the same snapshot is a different event. */
+      quarantine_id: string;
+      /** Snapshot identifier under quarantine. */
+      identifier: string;
+      /** Run type of the quarantine, for example storybook. */
+      run_type: string;
+      /** Pull request whose merge the lift waits for. */
+      pr_number: number;
+      /** Content hash a default-branch run must render, against a baseline entry with the same hash, for the lift to apply. */
+      expected_hash: string;
+      /** `pending` waits for the merge and a matching default-branch run. `applied` lifted the quarantine. `cancelled` was withdrawn, or the pull request closed without merging into the run's branch. `superseded` means the quarantine ended some other way, or another request lifted it.
+       *
+       * * `pending` - pending
+       * * `applied` - applied
+       * * `cancelled` - cancelled
+       * * `superseded` - superseded */
+      state: QuarantineLiftStateEnum;
+      /** The latest verification outcome, in plain words. */
+      detail: string;
+      /** When the lift was requested. */
+      created_at: string;
+      /** When the request last changed. */
+      updated_at: string;
+      /**
+         * When the request left `pending`. Null while it waits.
+         * @nullable
+         */
+      resolved_at?: string | null;
+      /**
+         * Run the lift was requested from. Null after that run is deleted.
+         * @nullable
+         */
+      source_run_id?: string | null;
+      /** User who requested the lift, or on whose behalf an agent did. */
+      requested_by?: UserBasicInfo | null;
+      /**
+         * Merge commit of the pull request. Set when the lift applies.
+         * @nullable
+         */
+      merge_commit_sha?: string | null;
+      /**
+         * Commit of the default-branch run that proved the fix and lifted the quarantine. A branch that does not contain it still treats the snapshot as quarantined.
+         * @nullable
+         */
+      lifted_at_sha?: string | null;
+      /** Who requested the lift: `human` for a person in the UI, `agent` for an agent through MCP. */
+      source: string;
     }
 
     /**
@@ -103768,6 +103851,26 @@ export namespace Schemas {
     }
 
     /**
+     * The requesting user's per-project task defaults, shared by PostHog Desktop and the web app.
+     */
+    export interface TasksTaskDefaults {
+      /** When true, new tasks start in plan mode: the agent makes a plan and waits for approval. */
+      start_in_plan_mode: boolean;
+      /** When true, a cloud run that changes code always opens a draft pull request. */
+      auto_publish_cloud_runs: boolean;
+    }
+
+    /**
+     * A partial update of the requesting user's task defaults. Fields left out keep their stored value.
+     */
+    export interface TasksTaskDefaultsUpdate {
+      /** When true, new tasks start in plan mode: the agent makes a plan and waits for approval. */
+      start_in_plan_mode?: boolean;
+      /** When true, a cloud run that changes code always opens a draft pull request. */
+      auto_publish_cloud_runs?: boolean;
+    }
+
+    /**
      * Team-level tasks configuration.
      */
     export interface TasksTeamConfigResponse {
@@ -103787,6 +103890,8 @@ export namespace Schemas {
       resolved_ai_run_defaults: TasksResolvedAIRunDefaults;
       /** Your personal instructions, which PostHog cloud agents read in Tasks runs you start, after the project instructions. Anyone who continues a task you started can see them. Empty when unset. */
       agent_instructions: string;
+      /** Your per-project defaults for new tasks. Unset defaults are false. */
+      task_defaults: TasksTaskDefaults;
     }
 
     export interface TeachingCanvas {
@@ -122314,17 +122419,6 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type TasksMeConfigListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
     export type TasksConfigListParams = {
     /**
      * Number of results to return per page.
@@ -123389,6 +123483,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Whether to list only the snapshots whose identifier is currently quarantined. Defaults to false. When true, `include_quarantined` is ignored and quarantined snapshots are returned. Combine with `exclude_unchanged=false` to find a quarantined story that rendered `unchanged`, which is the snapshot to request a lift on merge for.
+     */
+    quarantined_only?: boolean;
     /**
      * Return only the snapshot with this id, read from the `id` field of a snapshot in the run. Use it to fetch one snapshot without listing the whole run.
      */
