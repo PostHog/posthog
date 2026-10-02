@@ -12,6 +12,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, Team
 from posthog.models.message_assets.sql import INSERT_MESSAGE_ASSET_SQL, TRUNCATE_MESSAGE_ASSETS_TABLE_SQL
 from posthog.models.person.sql import TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL, TRUNCATE_PERSON_TABLE_SQL
+from posthog.models.person.util import create_person_distinct_id
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
@@ -116,7 +117,10 @@ class TestMessageRecipients(ClickhouseTestMixin, NonAtomicAPIBaseTest):
     def test_folds_casings_of_one_address_into_one_row_where_unsubscribed_wins(self) -> None:
         newsletter = self._topic("newsletter")
         product_updates = self._topic("product-updates")
-        self._prefer("Jamie@Example.com", {"$all": "OPTED_IN", newsletter: "OPTED_OUT", product_updates: "OPTED_IN"})
+        with time_machine.travel(NOW - timedelta(days=1), tick=False):
+            self._prefer(
+                "Jamie@Example.com", {"$all": "OPTED_IN", newsletter: "OPTED_OUT", product_updates: "OPTED_IN"}
+            )
         self._prefer("jamie@example.com", {"$all": "OPTED_OUT", newsletter: "OPTED_IN", "$email_tracking": "OPTED_OUT"})
         self._suppress("jamie@example.com", source="COMPLAINT", reason="Marked as spam")
         person_uuid = self._person("JAMIE@example.com ", distinct_id="jamie-1", name="Jamie")
@@ -301,6 +305,38 @@ class TestMessageRecipients(ClickhouseTestMixin, NonAtomicAPIBaseTest):
 
         assert recipient["person_count"] == 4
         assert [person["uuid"] for person in recipient["persons"]] == sorted([*holders, str(two_ids.uuid)])[:3]
+
+    def test_previews_the_distinct_ids_of_every_person_on_a_page(self) -> None:
+        distinct_ids = [f"holder-{address}-{index}" for address in range(40) for index in range(3)]
+        for distinct_id in distinct_ids:
+            _create_person(
+                team=self.team, distinct_ids=[distinct_id], properties={"email": f"{distinct_id[:-2]}@example.com"}
+            )
+        flush_persons_and_events()
+
+        results = self._list()["results"]
+
+        assert sorted(person["distinct_id"] for row in results for person in row["persons"]) == sorted(distinct_ids)
+
+    @parameterized.expand(
+        [
+            ("moved_to_another_person", False),
+            ("deleted", True),
+        ]
+    )
+    def test_previews_only_a_distinct_id_the_person_still_holds(self, _name: str, is_deleted: bool) -> None:
+        holder = _create_person(
+            team=self.team, distinct_ids=["a-gone", "z-kept"], properties={"email": "holder@example.com"}
+        )
+        other = _create_person(team=self.team, distinct_ids=["other"], properties={})
+        flush_persons_and_events()
+        create_person_distinct_id(
+            self.team.id, "a-gone", str(holder.uuid if is_deleted else other.uuid), version=1, is_deleted=is_deleted
+        )
+
+        [recipient] = self._list()["results"]
+
+        assert [person["distinct_id"] for person in recipient["persons"]] == ["z-kept"]
 
     def test_ignores_a_preference_row_that_is_not_a_map(self) -> None:
         self._prefer("broken@example.com", ["OPTED_OUT"])  # type: ignore[arg-type]
