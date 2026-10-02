@@ -18,6 +18,7 @@ import {
     computeBulkPinDirection,
     computeRangeSelection,
     isEditableTarget,
+    isMenuEscape,
     orderedVisibleSessionIds,
     pruneToVisible,
     toggleSelection,
@@ -310,6 +311,7 @@ export const todaySessionSelectionLogic = kea<todaySessionSelectionLogicType>([
                 if (
                     event.key === 'Escape' &&
                     !isEditableTarget(event.target) &&
+                    !isMenuEscape(event) &&
                     !values.bulkArchiveConfirm.open &&
                     values.selection.ids.length
                 ) {

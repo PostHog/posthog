@@ -22,6 +22,7 @@ import { SpaceFeedSelectCheckbox } from './SpaceFeedSelectCheckbox'
 import { spaceFeedStatus } from './spaceFeedStatus'
 import { SpaceFeedStatusIcon } from './SpaceFeedStatusIcon'
 import { TaskUserAvatar, taskUserName } from './TaskUserAvatar'
+import { useSpaceFeedBulkSelection } from './useSpaceFeedBulkSelection'
 
 interface SpaceFeedListRowProps {
     spaceId: string
@@ -42,6 +43,7 @@ export function SpaceFeedListRow({ spaceId, task, pinned, unread }: SpaceFeedLis
     const status = spaceFeedStatus(task.latest_run, mainPullRequest && pullRequestStates[mainPullRequest.url])
     const author = task.created_by
     const source = getOriginProductMeta(item.originProduct ?? undefined)
+    const selection = useSpaceFeedBulkSelection(spaceId)
 
     if (renaming?.sessionId === task.id && renaming.surface === 'feed') {
         return (
@@ -56,7 +58,7 @@ export function SpaceFeedListRow({ spaceId, task, pinned, unread }: SpaceFeedLis
     }
     return (
         <>
-            <TodaySessionContextMenu target={menu} surface="feed">
+            <TodaySessionContextMenu target={menu} surface="feed" selection={selection}>
                 <div className="group/row relative flex h-8 w-full items-center gap-2 rounded-md px-2 transition-colors hover:bg-fill-selected">
                     <SpaceFeedSelectCheckbox
                         spaceId={spaceId}
