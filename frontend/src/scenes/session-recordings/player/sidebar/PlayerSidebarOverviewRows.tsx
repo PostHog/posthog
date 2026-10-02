@@ -97,7 +97,7 @@ export function PlayerSidebarOverviewRows({
                                 : 'inactive'
 
                         return (
-                            <div key={item.label} className="px-2 py-1">
+                            <div key={item.type === 'property' ? item.property : item.label} className="px-2 py-1">
                                 <OverviewGridItem
                                     description={item.valueTooltip}
                                     label={item.label}
