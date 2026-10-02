@@ -35,6 +35,10 @@ from products.workflows.backend.services.email_brand_detection import (
     RepositoryUnreadable,
     detect_repository_brand,
 )
+from products.workflows.backend.services.email_brand_repository_suggestion import (
+    RepositorySuggestionReason,
+    suggest_repositories,
+)
 from products.workflows.backend.services.email_brand_starter_template import StarterTemplate, build_starter_template
 
 logger = structlog.get_logger(__name__)
@@ -190,9 +194,44 @@ class DesignRenderingUnavailable(exceptions.APIException):
     default_detail = "The email design couldn't be rendered here. Open the starter design in the email editor instead."
 
 
+class RepositorySuggestionQuerySerializer(serializers.Serializer):
+    integration_id = serializers.IntegerField(
+        required=False,
+        help_text="Id of the GitHub integration whose repositories to rank. "
+        "Defaults to the oldest GitHub integration connected to this environment.",
+    )
+
+
+class RepositorySuggestionSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="GitHub repository numeric identifier.")
+    name = serializers.CharField(help_text="Repository short name (without the owner prefix).")
+    full_name = serializers.CharField(help_text="Fully-qualified repository name as 'owner/repo'.")
+    language = serializers.CharField(
+        allow_null=True, help_text="Primary programming language GitHub detected, or null when unknown."
+    )
+    pushed_at = serializers.CharField(
+        allow_null=True, help_text="ISO 8601 timestamp of the most recent push, or null when unknown."
+    )
+    reasons = serializers.ListField(
+        child=serializers.ChoiceField(choices=RepositorySuggestionReason.choices),
+        help_text="Why the repository ranks where it does: its name matches the project's app URLs, project name "
+        "or organization name; it had a push in the last 30 days; its primary language is a web language.",
+    )
+
+
+class RepositorySuggestionsSerializer(serializers.Serializer):
+    integration_id = serializers.IntegerField(
+        allow_null=True, help_text="Id of the GitHub integration the repositories belong to. Null without one."
+    )
+    repositories = RepositorySuggestionSerializer(
+        many=True,
+        help_text="Up to 5 non-archived repositories, likeliest first. Empty without a GitHub integration.",
+    )
+
+
 class EmailBrandViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "hog_flow"
-    scope_object_read_actions = ["current", "starter_design"]
+    scope_object_read_actions = ["current", "starter_design", "suggest_repository"]
     scope_object_write_actions = ["update_current", "detect", "create_starter_template"]
     # The brand styles every workflow in the project, so access to one workflow must not reach it.
     requires_resource_level_access = True
@@ -351,6 +390,19 @@ class EmailBrandViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if brand is None:
             raise exceptions.NotFound("This project has no Email brand yet.")
         return brand
+
+    @validated_request(
+        query_serializer=RepositorySuggestionQuerySerializer,
+        responses={200: OpenApiResponse(response=RepositorySuggestionsSerializer)},
+        summary="Suggest the likeliest GitHub repository for the Email brand",
+        description="Ranks the GitHub integration's cached repositories by how well their names match the project's "
+        "app URLs, project name and organization name, then by most recent push. Makes no GitHub call beyond "
+        "refreshing that cached list.",
+    )
+    @action(detail=False, methods=["GET"])
+    def suggest_repository(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        suggestions = suggest_repositories(self.team, request.validated_query_data.get("integration_id"))
+        return Response(RepositorySuggestionsSerializer(suggestions).data)
 
     def _project_brands(self):
         return EmailBrand.objects.for_team(self._project_team_id(), canonical=True)

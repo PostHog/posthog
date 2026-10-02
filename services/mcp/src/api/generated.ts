@@ -91173,6 +91173,51 @@ export namespace Schemas {
       repos: string[];
     }
 
+    /**
+     * * `name_match` - Name match
+     * * `recent_push` - Recent push
+     * * `web_language` - Web language
+     */
+    export type RepositorySuggestionReasonEnum = typeof RepositorySuggestionReasonEnum[keyof typeof RepositorySuggestionReasonEnum];
+
+
+    export const RepositorySuggestionReasonEnum = {
+      NameMatch: 'name_match',
+      RecentPush: 'recent_push',
+      WebLanguage: 'web_language',
+    } as const;
+
+    export interface RepositorySuggestion {
+      /** GitHub repository numeric identifier. */
+      id: number;
+      /** Repository short name (without the owner prefix). */
+      name: string;
+      /** Fully-qualified repository name as 'owner/repo'. */
+      full_name: string;
+      /**
+         * Primary programming language GitHub detected, or null when unknown.
+         * @nullable
+         */
+      language: string | null;
+      /**
+         * ISO 8601 timestamp of the most recent push, or null when unknown.
+         * @nullable
+         */
+      pushed_at: string | null;
+      /** Why the repository ranks where it does: its name matches the project's app URLs, project name or organization name; it had a push in the last 30 days; its primary language is a web language. */
+      reasons: RepositorySuggestionReasonEnum[];
+    }
+
+    export interface RepositorySuggestions {
+      /**
+         * Id of the GitHub integration the repositories belong to. Null without one.
+         * @nullable
+         */
+      integration_id: number | null;
+      /** Up to 5 non-archived repositories, likeliest first. Empty without a GitHub integration. */
+      repositories: RepositorySuggestion[];
+    }
+
     export interface RescoreRequest {
       /** Organization to re-score, from the $group_key of the wizard's $groupidentify event. */
       organization_id: string;
@@ -115261,6 +115306,13 @@ export namespace Schemas {
      * Optional substring to filter values by (case-sensitive contains match).
      */
     value?: string;
+    };
+
+    export type EmailBrandSuggestRepositoryRetrieveParams = {
+    /**
+     * Id of the GitHub integration whose repositories to rank. Defaults to the project's first connected GitHub integration.
+     */
+    integration_id?: number;
     };
 
     export type EmojiSearchSuggestRetrieveParams = {

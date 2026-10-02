@@ -319,6 +319,51 @@ export interface EmailBrandStarterDesignApi {
 }
 
 /**
+ * * `name_match` - Name match
+ * * `recent_push` - Recent push
+ * * `web_language` - Web language
+ */
+export type RepositorySuggestionReasonEnumApi =
+    (typeof RepositorySuggestionReasonEnumApi)[keyof typeof RepositorySuggestionReasonEnumApi]
+
+export const RepositorySuggestionReasonEnumApi = {
+    NameMatch: 'name_match',
+    RecentPush: 'recent_push',
+    WebLanguage: 'web_language',
+} as const
+
+export interface RepositorySuggestionApi {
+    /** GitHub repository numeric identifier. */
+    id: number
+    /** Repository short name (without the owner prefix). */
+    name: string
+    /** Fully-qualified repository name as 'owner/repo'. */
+    full_name: string
+    /**
+     * Primary programming language GitHub detected, or null when unknown.
+     * @nullable
+     */
+    language: string | null
+    /**
+     * ISO 8601 timestamp of the most recent push, or null when unknown.
+     * @nullable
+     */
+    pushed_at: string | null
+    /** Why the repository ranks where it does: its name matches the project's app URLs, project name or organization name; it had a push in the last 30 days; its primary language is a web language. */
+    reasons: RepositorySuggestionReasonEnumApi[]
+}
+
+export interface RepositorySuggestionsApi {
+    /**
+     * Id of the GitHub integration the repositories belong to. Null without one.
+     * @nullable
+     */
+    integration_id: number | null
+    /** Up to 5 non-archived repositories, likeliest first. Empty without a GitHub integration. */
+    repositories: RepositorySuggestionApi[]
+}
+
+/**
  * * `team` - Only team
  * * `organization` - Organization
  * * `global` - Global
@@ -2271,6 +2316,13 @@ export interface BlastRadiusApi {
     dedupe_key: DedupeKeyEnumApi | null
     /** Proof this audience was previewed: pass it to the batch dispatch (confirm_token) after echoing 'affected' to the user. Signs these exact filters; expires in 15 minutes. */
     confirm_token: string
+}
+
+export type EmailBrandSuggestRepositoryRetrieveParams = {
+    /**
+     * Id of the GitHub integration whose repositories to rank. Defaults to the oldest GitHub integration connected to this environment.
+     */
+    integration_id?: number
 }
 
 export type HogFlowTemplatesListParams = {

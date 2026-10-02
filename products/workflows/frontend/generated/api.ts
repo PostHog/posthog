@@ -18,6 +18,7 @@ import type {
     EmailBrandDetectionApi,
     EmailBrandStarterDesignApi,
     EmailBrandStarterTemplateApi,
+    EmailBrandSuggestRepositoryRetrieveParams,
     EmailSendingSuspensionStatusApi,
     HogFlowApi,
     HogFlowBatchJobApi,
@@ -66,6 +67,7 @@ import type {
     PatchedHogFlowScheduleApi,
     PatchedHogFlowTemplateApi,
     PatchedHogFlowUpdateApi,
+    RepositorySuggestionsApi,
     TeamEmailReputationResponseApi,
     WorkflowEmailPauseStatusApi,
     WorkflowProposalApi,
@@ -194,6 +196,40 @@ export const emailBrandStarterDesignRetrieve = async (
     options?: RequestInit
 ): Promise<EmailBrandStarterDesignApi> => {
     return apiMutator<EmailBrandStarterDesignApi>(getEmailBrandStarterDesignRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEmailBrandSuggestRepositoryRetrieveUrl = (
+    projectId: string,
+    params?: EmailBrandSuggestRepositoryRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/email_brand/suggest_repository/?${stringifiedParams}`
+        : `/api/projects/${projectId}/email_brand/suggest_repository/`
+}
+
+/**
+ * Ranks the GitHub integration's cached repositories by how well their names match the project's app URLs, project name and organization name, then by most recent push. Makes no GitHub call beyond refreshing that cached list.
+ * @summary Suggest the likeliest GitHub repository for the Email brand
+ */
+export const emailBrandSuggestRepositoryRetrieve = async (
+    projectId: string,
+    params?: EmailBrandSuggestRepositoryRetrieveParams,
+    options?: RequestInit
+): Promise<RepositorySuggestionsApi> => {
+    return apiMutator<RepositorySuggestionsApi>(getEmailBrandSuggestRepositoryRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
