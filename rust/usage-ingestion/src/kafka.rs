@@ -10,6 +10,7 @@ use rdkafka::consumer::{CommitMode, Consumer, ConsumerContext, StreamConsumer};
 use rdkafka::error::KafkaError;
 use rdkafka::message::{Header, OwnedHeaders, OwnedMessage};
 use rdkafka::producer::{FutureProducer, FutureRecord};
+use rdkafka::types::RDKafkaErrorCode;
 use rdkafka::util::Timeout;
 use rdkafka::{ClientConfig, ClientContext, Message as KafkaMessage, Offset, TopicPartitionList};
 use usage_ingestion_proto::usage_ingestion::v1::IngestBillingUsageRequest;
@@ -95,8 +96,20 @@ impl KafkaUsageIngestion {
 
             // A batch is all-or-nothing: failures leave every offset uncommitted. Successful
             // output may be replayed, which is safe because usage record IDs are idempotent.
-            self.consumer
-                .commit(&batch_offsets(&messages)?, CommitMode::Sync)?;
+            if let Err(error) = self
+                .consumer
+                .commit(&batch_offsets(&messages)?, CommitMode::Sync)
+            {
+                if !is_rebalance_commit_error(&error) {
+                    return Err(error.into());
+                }
+                // A rebalance mid-batch revokes partitions before their commit lands. The new
+                // owner replays them, which is safe under idempotency. Failing here would tear
+                // the consumer down, which triggers another rebalance, and so on in a storm.
+                tracing::warn!(error = %error, "skipped a batch commit interrupted by a rebalance");
+                metrics::counter!("usage_ingestion_kafka_commits_skipped_total").increment(1);
+                continue;
+            }
             metrics::counter!("usage_ingestion_kafka_commits_total").increment(1);
         }
     }
@@ -284,6 +297,17 @@ fn verify_topic(
     Ok(())
 }
 
+fn is_rebalance_commit_error(error: &KafkaError) -> bool {
+    matches!(
+        error.rdkafka_error_code(),
+        Some(
+            RDKafkaErrorCode::RebalanceInProgress
+                | RDKafkaErrorCode::IllegalGeneration
+                | RDKafkaErrorCode::UnknownMemberId
+        )
+    )
+}
+
 fn batch_offsets(messages: &[OwnedMessage]) -> Result<TopicPartitionList, KafkaError> {
     let mut offsets = BTreeMap::new();
     for message in messages {
@@ -363,6 +387,20 @@ mod tests {
             offsets.find_partition("usage", 1).unwrap().offset(),
             Offset::Offset(9)
         );
+    }
+
+    #[test]
+    fn only_rebalance_class_commit_errors_are_skipped() {
+        for code in [
+            RDKafkaErrorCode::RebalanceInProgress,
+            RDKafkaErrorCode::IllegalGeneration,
+            RDKafkaErrorCode::UnknownMemberId,
+        ] {
+            assert!(is_rebalance_commit_error(&KafkaError::ConsumerCommit(code)));
+        }
+        assert!(!is_rebalance_commit_error(&KafkaError::ConsumerCommit(
+            RDKafkaErrorCode::BrokerTransportFailure
+        )));
     }
 
     #[test]
