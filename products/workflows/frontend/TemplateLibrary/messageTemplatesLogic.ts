@@ -194,7 +194,9 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                     try {
                         const updatedTemplate = await api.messaging.updateTemplate(templateId, template)
                         lemonToast.success('Template updated successfully')
-                        return values.templates.map((t: MessageTemplate) => (t.id === templateId ? updatedTemplate : t))
+                        return values.templates.map((t: MessageTemplateListItem) =>
+                            t.id === templateId ? updatedTemplate : t
+                        )
                     } catch {
                         lemonToast.error('Failed to update template')
                         return values.templates

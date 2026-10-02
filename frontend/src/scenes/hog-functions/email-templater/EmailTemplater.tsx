@@ -548,7 +548,10 @@ function NativeEmailTemplaterForm({
     const compactHeader = logicProps.type === 'native_email_template' && mode === 'full'
     const preheaderVisible = visibleFields.some((field) => field.key === 'preheader')
     // Preheaders see almost no use, so don't advertise the field unless this team already uses it.
-    const offerPreheader = templates.some((template) => !!template.content?.email?.preheader)
+    const offerPreheader = templates.some((template) => {
+        const email = template.content?.email
+        return !!email && 'preheader' in email && !!email.preheader
+    })
 
     return (
         <>

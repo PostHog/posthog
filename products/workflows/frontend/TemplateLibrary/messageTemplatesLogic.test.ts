@@ -1,9 +1,10 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
-import type { MessageTemplateListApi } from 'products/messaging/frontend/generated/api.schemas'
 
 import { initKeaTests } from '~/test/init'
+
+import type { MessageTemplateListApi } from 'products/messaging/frontend/generated/api.schemas'
 
 import { messageTemplatesLogic } from './messageTemplatesLogic'
 import type { MessageTemplate } from './types'
@@ -20,11 +21,13 @@ describe('messageTemplatesLogic', () => {
             description: 'Welcome email',
             content: { templating: 'liquid', email: { subject: 'Hello', html: '<p>Hello</p>' } },
         } as MessageTemplateListApi
+        const listContent = listTemplate.content ?? {}
+        const listEmail = listContent.email ?? {}
         const fullTemplate = {
             ...listTemplate,
             content: {
-                ...listTemplate.content,
-                email: { ...listTemplate.content.email, design: { body: { rows: [] } } },
+                ...listContent,
+                email: { ...listEmail, design: { body: { rows: [] } } },
             },
         } as MessageTemplate
         jest.spyOn(api.messaging, 'getTemplates').mockResolvedValue({ results: [listTemplate], count: 1 } as Awaited<
