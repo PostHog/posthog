@@ -35,10 +35,10 @@ logger = structlog.get_logger(__name__)
 # and it is not this.
 LIVE_DELIVERY_FLAG: Final = "alert-platform-live-delivery"
 
-# A destination type with no entry here has no native transport. An alert that uses one is not
-# eligible for native delivery at all, which is checked before a team is made live rather than
-# branched on per destination: one alert delivering natively to Slack and through a HogFunction
-# to Discord would send two differently worded messages for one event.
+# A destination type with no entry here has no native transport, and delivery skips it. Make a
+# team live only when its alerts use no such type. Nothing checks this in code, and one alert
+# delivering natively to Slack and through a HogFunction to Discord would send two differently
+# worded messages for one event.
 _TRANSPORTS: Final[dict[DestinationType, type[DeliveryTransport]]] = {DestinationType.SLACK: SlackTransport}
 
 

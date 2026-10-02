@@ -14,6 +14,9 @@ _resolver: DestinationResolver | None = None
 
 def register(resolver: DestinationResolver) -> None:
     global _resolver
+    # One owner. A second registrant would silently take every alert's destinations.
+    if _resolver is not None and _resolver is not resolver:
+        raise RuntimeError("A different destination resolver is already registered.")
     _resolver = resolver
 
 
