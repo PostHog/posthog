@@ -143,7 +143,7 @@ export interface CheckExpiredContent extends CheckLifecycleContent {
 }
 
 export interface CheckCancelledContent extends CheckLifecycleContent {
-    reason?: 'stopped_by_person' | 'stopped_by_scout' | 'replaced_by_research'
+    reason?: 'stopped_by_person' | 'stopped_by_scout' | 'replaced_by_research' | 'replaced_by_request'
 }
 
 export interface TitleChangeContent {

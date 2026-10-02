@@ -16,7 +16,7 @@ import {
 } from '../../utils/reportMetrics'
 import { ReportObservationChart } from './ReportObservationChart'
 
-export function ReportExpectedImpactChart({
+export function ReportCheckMetricChart({
     reportId,
     metric,
     query,
@@ -39,7 +39,7 @@ export function ReportExpectedImpactChart({
     const points = reportMetricSeriesPoints(response)
     const aggregateQuery = asReportMetricAggregateQuery(metric.query)
     const aggregateProps: DataNodeLogicProps = {
-        key: `ImpactMeasurementTotal.${reportId}.${metric.metric_id}.${version}`,
+        key: `FollowUpCheckTotal.${reportId}.${metric.metric_id}.${version}`,
         query: aggregateQuery?.source ?? query,
         dataNodeCollectionId: `report-metrics-${reportId}`,
         autoLoad: goalGrain === 'whole_window' && aggregateQuery !== null,
@@ -58,7 +58,7 @@ export function ReportExpectedImpactChart({
         return <p className="text-tertiary m-0">Couldn't load the chart. Refresh the page to try again.</p>
     }
     if (!points) {
-        return <p className="text-tertiary m-0">No chart data for this window. The goal is still a proposal.</p>
+        return <p className="text-tertiary m-0">No chart data for this window.</p>
     }
 
     const goal = metric.goal_value

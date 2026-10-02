@@ -540,16 +540,18 @@ describe('inboxTaskKickoffLogic', () => {
     describe('buildDiscussReportPrompt', () => {
         const url = 'https://app.posthog.com/project/1/inbox/report-1'
 
-        it('keeps measurement edits separate from state changes on a resolved report', () => {
+        it('asks for an atomic replacement when a person suggests a better metric', () => {
             const prompt = buildDiscussReportPrompt(
                 makeReport({ status: SignalReportStatus.RESOLVED }),
                 url,
                 'Fewer failed checkouts',
-                'measurement_plan'
+                'check_metrics'
             )
             expect(prompt).toContain('Fewer failed checkouts')
-            expect(prompt).toContain('inbox-report-artefacts-create')
-            expect(prompt).toContain('Do not create a check, start monitoring, change the report state')
+            expect(prompt).toContain('inbox-report-checks-replace')
+            expect(prompt).toContain('each relevant open metric check')
+            expect(prompt).toContain('Keep unrelated checks unchanged')
+            expect(prompt).toContain('leave the existing checks running')
             expect(prompt).not.toContain('inbox-reports-set-state')
         })
 
