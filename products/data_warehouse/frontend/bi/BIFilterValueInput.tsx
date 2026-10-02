@@ -5,7 +5,11 @@ import { LemonButton, LemonInput, LemonInputSelect } from '@posthog/lemon-ui'
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { biEditorLogic } from 'scenes/data-warehouse/editor/bi/biEditorLogic'
-import { buildBIFilterOptionsQuery, isDateTimeBIField } from 'scenes/data-warehouse/editor/bi/biEditorTypes'
+import {
+    buildBIFilterOptionsQuery,
+    getBIFilterValidationError,
+    isDateTimeBIField,
+} from 'scenes/data-warehouse/editor/bi/biEditorTypes'
 
 import { biFilterValuesLogic } from './biFilterValuesLogic'
 
@@ -19,6 +23,7 @@ export function BIFilterValueInput({ index }: { index: number }): JSX.Element | 
     if (!filter || ['last_7_days', 'is_set', 'is_not_set', 'custom'].includes(filter.operator)) {
         return null
     }
+    const validationError = getBIFilterValidationError(filter)
     if (filter.operator === 'in' || filter.operator === 'not_in') {
         return (
             <div className="flex min-w-0 flex-col gap-1">
@@ -27,6 +32,7 @@ export function BIFilterValueInput({ index }: { index: number }): JSX.Element | 
                     value={filter.values ?? []}
                     options={(options ?? []).map((value) => ({ key: value, label: value || '(empty string)' }))}
                     loading={optionsLoading}
+                    status={validationError ? 'danger' : 'default'}
                     onFocus={() => {
                         if (options === null && !optionsLoading) {
                             loadOptions()
@@ -43,6 +49,11 @@ export function BIFilterValueInput({ index }: { index: number }): JSX.Element | 
                     data-attr="bi-filter-values"
                     fullWidth
                 />
+                {validationError && (
+                    <span role="alert" className="text-xs text-danger">
+                        {validationError}
+                    </span>
+                )}
                 {optionsError ? (
                     <div className="text-xs text-danger">
                         <span>Could not load suggestions. You can still enter values.</span>
@@ -102,11 +113,17 @@ export function BIFilterValueInput({ index }: { index: number }): JSX.Element | 
                                 placeholder={isRange ? (bound === 'from' ? 'No minimum' : 'No maximum') : 'Value'}
                                 aria-label={label}
                                 size="small"
+                                status={validationError ? 'danger' : 'default'}
                             />
                         )}
                     </div>
                 )
             })}
+            {validationError && (
+                <span role="alert" className="text-xs text-danger">
+                    {validationError}
+                </span>
+            )}
         </div>
     )
 }

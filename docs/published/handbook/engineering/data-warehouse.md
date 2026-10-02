@@ -36,6 +36,7 @@ for an open-ended range. Date-time fields include the time. Uncheck **Apply filt
 ignore a filter without losing its settings. Click the field pill to edit the field expression, date
 part, or custom SQL condition, or to remove the filter. Filter changes respect the worksheet's
 auto-update setting and are preserved with its saved configuration.
+Numeric filters preserve the precision of entered values. Invalid numbers show an error and prevent the worksheet from running until corrected or disabled.
 
 ## Apple Ads in Marketing analytics
 

@@ -18,6 +18,7 @@ import {
     getBISortOptions,
     getBIValueSortKey,
     getBIValuePillLabel,
+    getBIFilterValidationError,
     isBIFieldCompatible,
     isBIMeasureField,
     parseBIEditorState,
@@ -73,6 +74,24 @@ describe('BI editor query generation', () => {
             filter: { field: revenueField, operator: 'not_in', value: '', values: ['0', '12.5'] },
             expected: 'properties.revenue NOT IN (0, 12.5)',
         },
+        {
+            filter: {
+                field: revenueField,
+                operator: 'in',
+                value: '',
+                values: ['9007199254740993', '-0.1234567890123456789', '1e3', '010', '+002.5'],
+            },
+            expected: 'properties.revenue IN (9007199254740993, -0.1234567890123456789, 1e3, 10, +2.5)',
+        },
+        {
+            filter: {
+                field: revenueField,
+                operator: 'between',
+                value: '9007199254740993',
+                valueTo: '9007199254740995',
+            },
+            expected: '(properties.revenue >= 9007199254740993 AND properties.revenue <= 9007199254740995)',
+        },
         { filter: { field: eventField, operator: 'in', value: '', values: [] }, expected: null },
         {
             filter: { field: revenueField, operator: 'between', value: '0', valueTo: '20.5' },
@@ -109,6 +128,27 @@ describe('BI editor query generation', () => {
             expect(query).not.toContain('WHERE')
         }
     })
+
+    test.each(['abc', 'NaN', 'Infinity', '1e999', '0x10', '1 OR 1 = 1'])(
+        'blocks invalid numeric filters without emitting SQL for %s',
+        (value) => {
+            for (const filter of [
+                { field: revenueField, operator: 'in', value: '', values: ['1', value] },
+                { field: revenueField, operator: 'between', value: '0', valueTo: value },
+                { field: revenueField, operator: 'equals', value },
+            ] satisfies BIFilter[]) {
+                const config = {
+                    ...DEFAULT_BI_CONFIG,
+                    source: eventField.source,
+                    filters: [filter, { field: eventField, operator: 'in' as const, value: '' }],
+                }
+                expect(getBIFilterValidationError(filter)).toBeTruthy()
+                expect(buildBIQuery(config)).toBeNull()
+                expect(buildBIFilterOptionsQuery(config, 1)).toBeNull()
+                expect(buildBIQuery({ ...config, filters: [{ ...filter, enabled: false }] })).not.toBeNull()
+            }
+        }
+    )
 
     it('scopes value suggestions to other enabled filters and the selected connection', () => {
         const source = { table: 'orders', connectionId: 'example-connection' }

@@ -647,6 +647,28 @@ function aggregationExpression(value: BIValue): string | null {
     }
 }
 
+export function getBIFilterValidationError(filter: BIFilter): string | null {
+    if (
+        filter.enabled === false ||
+        !isNumericBIField(filter.field) ||
+        ['custom', 'contains', 'is_set', 'is_not_set', 'last_7_days'].includes(filter.operator)
+    ) {
+        return null
+    }
+    const values =
+        filter.operator === 'in' || filter.operator === 'not_in'
+            ? (filter.values ?? [])
+            : [filter.value, ...(filter.operator === 'between' ? [filter.valueTo ?? ''] : [])].filter(
+                  (value) => value.trim() !== ''
+              )
+    return values.some(
+        (value) =>
+            !/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(value.trim()) || !Number.isFinite(Number(value))
+    )
+        ? 'Enter a valid number for each filter value.'
+        : null
+}
+
 function filterExpression(filter: BIFilter): string | null {
     if (filter.enabled === false) {
         return null
@@ -666,10 +688,9 @@ function filterExpression(filter: BIFilter): string | null {
     if (filter.operator === 'last_7_days') {
         return `${field} >= now() - INTERVAL 7 DAY`
     }
+    // Strip leading zeroes so decimal input cannot become an octal HogQL literal.
     const literal = (value: string): string =>
-        isNumericBIField(filter.field) && value.trim() && Number.isFinite(Number(value))
-            ? String(Number(value))
-            : escapeHogQLString(value)
+        isNumericBIField(filter.field) ? value.trim().replace(/^([+-]?)0+(?=\d)/, '$1') : escapeHogQLString(value)
     if (filter.operator === 'in' || filter.operator === 'not_in') {
         const values = filter.values ?? []
         return values.length
@@ -687,10 +708,7 @@ function filterExpression(filter: BIFilter): string | null {
         return null
     }
 
-    const value =
-        isNumericBIField(filter.field) && Number.isFinite(Number(filter.value))
-            ? String(Number(filter.value))
-            : escapeHogQLString(filter.value)
+    const value = literal(filter.value)
 
     switch (filter.operator) {
         case 'equals':
@@ -708,7 +726,11 @@ function filterExpression(filter: BIFilter): string | null {
 
 export function buildBIFilterOptionsQuery(config: BIConfig, index: number): HogQLQuery | null {
     const filter = config.filters[index]
-    if (!config.source || !filter?.field.expression.trim()) {
+    if (
+        !config.source ||
+        !filter?.field.expression.trim() ||
+        config.filters.some((other, otherIndex) => otherIndex !== index && getBIFilterValidationError(other))
+    ) {
         return null
     }
     const expression = fieldExpression(filter.field)
@@ -915,7 +937,7 @@ function buildOrderByExpression(
 }
 
 export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
-    if (!config.source) {
+    if (!config.source || config.filters.some(getBIFilterValidationError)) {
         return null
     }
 
