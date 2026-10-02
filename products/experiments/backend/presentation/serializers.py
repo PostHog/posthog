@@ -467,8 +467,8 @@ class ExperimentSerializer(ExperimentBaseSerializer):
     resolved_exposure_event = serializers.SerializerMethodField(
         help_text=(
             "The event exposures are actually counted on when the experiment doesn't configure a "
-            "custom one — `$feature_flag_called`, or `$experiment_exposure` on PostHog Cloud when "
-            "the experiment started at or after the cutoff. Resolved server-side so "
+            "custom one — `$feature_flag_called`, or `$experiment_exposure` when the experiment "
+            "started at or after the cutoff. Resolved server-side so "
             "clients display the same event the results queries read. For a draft, this is what the "
             "experiment would resolve to if launched now."
         ),

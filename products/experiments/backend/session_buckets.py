@@ -418,7 +418,7 @@ def _cache_key(
             # multiple of the limit, so a larger one looks further than a cached smaller one did.
             limit,
             # Which event the default exposure resolved to. It follows start_date and the
-            # EXPERIMENT_EXPOSURE_EVENT_INGESTED setting, and the setting can change while an
+            # EXPERIMENT_EXPOSURE_EVENT_CUTOFF setting, and the setting can change while an
             # entry is warm.
             default_exposure_event,
             _restriction_signature(team, user),

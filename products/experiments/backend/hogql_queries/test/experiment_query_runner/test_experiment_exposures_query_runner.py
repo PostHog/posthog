@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 import time_machine
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
 
+from django.conf import settings
 from django.forms.models import model_to_dict
 from django.test import override_settings
 
@@ -17,10 +18,7 @@ from posthog.test.test_journeys import journeys_for
 from products.actions.backend.models.action import Action
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
-from products.experiments.backend.hogql_queries.exposure_query_logic import (
-    EXPERIMENT_EXPOSURE_EVENT,
-    EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
-)
+from products.experiments.backend.hogql_queries.exposure_query_logic import EXPERIMENT_EXPOSURE_EVENT
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.utils import (
     create_standard_group_test_events,
@@ -159,7 +157,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             ("query_window_starts_after_cutoff", -7, 14, 7, {"control": 2, "test": 1}),
         ]
     )
-    @time_machine.travel(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=30), tick=False)
+    @time_machine.travel(settings.EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=30), tick=False)
     def test_exposure_event_selected_relative_to_cutoff(
         self,
         _name,
@@ -168,7 +166,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         query_start_offset_days,
         expected_exposures,
     ):
-        cutoff = EXPERIMENT_EXPOSURE_EVENT_CUTOFF.replace(tzinfo=None)
+        cutoff = settings.EXPERIMENT_EXPOSURE_EVENT_CUTOFF.replace(tzinfo=None)
         start_date = cutoff + timedelta(days=start_offset_days)
         end_date = cutoff + timedelta(days=end_offset_days)
         query_start_date = cutoff + timedelta(days=query_start_offset_days)

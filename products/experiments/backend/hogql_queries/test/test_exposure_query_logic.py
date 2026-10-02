@@ -1,3 +1,5 @@
+from datetime import UTC, datetime, timedelta
+
 import pytest
 
 from django.test import override_settings
@@ -11,7 +13,6 @@ from posthog.models.team import Team
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT,
-    EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
     get_exposure_event_and_property,
     get_multiple_variant_handling_from_experiment,
     get_test_accounts_filter,
@@ -27,15 +28,15 @@ def _event_config(event):
 class TestResolveDefaultExposureEvent:
     @parameterized.expand(
         [
-            ("ingested", True, EXPERIMENT_EXPOSURE_EVENT),
-            ("not_ingested", False, DEFAULT_EXPOSURE_EVENT),
+            # (name, start date offset in days from an overridden cutoff, expected event)
+            ("after_default_cutoff_before_override", -1, DEFAULT_EXPOSURE_EVENT),
+            ("at_overridden_cutoff", 0, EXPERIMENT_EXPOSURE_EVENT),
         ]
     )
-    def test_post_cutoff_event_follows_whether_the_deployment_ingests_it(
-        self, _name: str, ingested: bool, expected: str
-    ) -> None:
-        with override_settings(EXPERIMENT_EXPOSURE_EVENT_INGESTED=ingested):
-            assert resolve_default_exposure_event(EXPERIMENT_EXPOSURE_EVENT_CUTOFF) == expected
+    def test_follows_the_configured_cutoff(self, _name: str, start_offset_days: int, expected: str) -> None:
+        cutoff = datetime(2026, 10, 15, tzinfo=UTC)
+        with override_settings(EXPERIMENT_EXPOSURE_EVENT_CUTOFF=cutoff):
+            assert resolve_default_exposure_event(cutoff + timedelta(days=start_offset_days)) == expected
 
 
 class TestGetExposureEventAndProperty:

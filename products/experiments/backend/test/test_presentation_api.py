@@ -8,6 +8,7 @@ import time_machine
 from posthog.test.base import ClickhouseTestMixin, FuzzyInt, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import ANY, MagicMock, patch
 
+from django.conf import settings
 from django.core.cache import cache
 from django.db import connection
 from django.db.models import F
@@ -43,7 +44,6 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
-from products.experiments.backend.hogql_queries.exposure_query_logic import EXPERIMENT_EXPOSURE_EVENT_CUTOFF
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.metric_resolution import find_metric_dict
 from products.experiments.backend.models.experiment import (
@@ -641,7 +641,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             feature_flag=FeatureFlag.objects.create(
                 team=self.team, key=f"resolved-exposure-{_name}", created_by=self.user
             ),
-            start_date=EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=start_offset_days),
+            start_date=settings.EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=start_offset_days),
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
@@ -667,7 +667,9 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             start_date=None,
         )
 
-        with time_machine.travel(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=now_offset_days), tick=False):
+        with time_machine.travel(
+            settings.EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=now_offset_days), tick=False
+        ):
             serialized = ExperimentSerializer(
                 experiment, context={"team_id": self.team.id, "get_team": lambda: self.team}
             ).data

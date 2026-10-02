@@ -1,9 +1,9 @@
 import os
+import datetime as dt
 from typing import Literal
 from uuid import UUID
 
-from posthog.run_mode import derive_run_mode
-from posthog.settings.base_variables import CLOUD_DEPLOYMENT, DEBUG, TEST
+from posthog.settings.base_variables import DEBUG, TEST
 from posthog.settings.utils import get_from_env, get_list, get_set
 from posthog.utils import str_to_bool
 
@@ -163,13 +163,19 @@ AI_RESEARCH_REPLAY_AWS_REGION = os.getenv("AI_RESEARCH_REPLAY_AWS_REGION", "us-e
 AI_RESEARCH_REPLAY_DYNAMODB_ENDPOINT = os.getenv("AI_RESEARCH_REPLAY_DYNAMODB_ENDPOINT", "")
 AI_RESEARCH_REPLAY_KMS_KEY_ARN = os.getenv("AI_RESEARCH_REPLAY_KMS_KEY_ARN", "")
 
-# Whether this deployment ingests $experiment_exposure, which experiments started after the cutoff
-# count exposures on. Ingestion makes the event only by copying $feature_flag_called for the teams in
-# the plugin server's EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS, which defaults to none outside local dev.
-# Self-hosted installs therefore default to false and keep counting $feature_flag_called. A
-# self-hosted install that sets EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS="*" can set this to true.
-EXPERIMENT_EXPOSURE_EVENT_INGESTED: bool = get_from_env(
-    "EXPERIMENT_EXPOSURE_EVENT_INGESTED",
-    not derive_run_mode(CLOUD_DEPLOYMENT, DEBUG).is_hobby or TEST,
-    type_cast=str_to_bool,
+
+def _to_utc_datetime(value: str) -> dt.datetime:
+    # An ISO 8601 value without an offset is read as UTC, because start dates are compared against
+    # it and a naive datetime cannot be compared with an aware one.
+    parsed = dt.datetime.fromisoformat(value)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=dt.UTC)
+
+
+# When this deployment's ingestion started copying $feature_flag_called into $experiment_exposure.
+# Experiments started at or after it count exposures on $experiment_exposure, and older experiments
+# keep $feature_flag_called, because their exposure window began before the copy existed. The
+# default is when PostHog Cloud started the copy. A self-hosted install that upgrades later sets it
+# to the upgrade time, for example EXPERIMENT_EXPOSURE_EVENT_CUTOFF=2026-10-15T00:00:00Z.
+EXPERIMENT_EXPOSURE_EVENT_CUTOFF: dt.datetime = get_from_env(
+    "EXPERIMENT_EXPOSURE_EVENT_CUTOFF", dt.datetime(2026, 9, 1, tzinfo=dt.UTC), type_cast=_to_utc_datetime
 )

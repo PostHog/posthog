@@ -3,6 +3,8 @@ from datetime import UTC, datetime
 
 from posthog.test.base import BaseTest
 
+from django.conf import settings
+
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
@@ -14,7 +16,6 @@ from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT,
-    EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
 )
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.replay_linkage import (
@@ -167,7 +168,7 @@ class TestResolveInSessionExposureSemantics(BaseTest):
         # The in-session narrowing reads the exposure event off this seam. If the seam kept the
         # legacy default, exposures arriving as $experiment_exposure would leave every post-cutoff
         # experiment's in-session list empty.
-        experiment = self._experiment(start_date=EXPERIMENT_EXPOSURE_EVENT_CUTOFF)
+        experiment = self._experiment(start_date=settings.EXPERIMENT_EXPOSURE_EVENT_CUTOFF)
         EventProperty.objects.get_or_create(
             team=self.team, project_id=self.team.project_id, event=EXPERIMENT_EXPOSURE_EVENT, property="$session_id"
         )

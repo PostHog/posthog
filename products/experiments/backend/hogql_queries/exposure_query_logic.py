@@ -33,32 +33,22 @@ DEFAULT_EXPOSURE_EVENT = "$feature_flag_called"
 # The dedicated exposure event that replaces $feature_flag_called as the default.
 EXPERIMENT_EXPOSURE_EVENT = "$experiment_exposure"
 
-# The start of $experiment_exposure ingestion on PostHog Cloud. Experiments started before this
-# timestamp ran (at least partly) without $experiment_exposure, so they must keep counting
-# exposures via $feature_flag_called even where the two overlap. Only experiments whose start_date
-# is at or after the cutoff can rely on $experiment_exposure covering their whole exposure window.
-EXPERIMENT_EXPOSURE_EVENT_CUTOFF = datetime(2026, 9, 1, tzinfo=UTC)
-
 
 def resolve_default_exposure_event(start_date: Optional[datetime]) -> str:
     """
     Returns the event to count exposures on when the experiment doesn't configure a custom one.
 
-    Experiments started at or after EXPERIMENT_EXPOSURE_EVENT_CUTOFF use $experiment_exposure.
-    Everything else stays on $feature_flag_called: older experiments predate the new event, and
-    because ingestion duplicates flag events into $experiment_exposure, counting exactly one of
-    the two is what avoids double counting.
-
-    A deployment that does not ingest $experiment_exposure (settings.EXPERIMENT_EXPOSURE_EVENT_INGESTED,
-    false on self-hosted installs by default) also stays on $feature_flag_called, because no SDK sends
-    the new event and counting it would find no exposures.
+    Experiments started at or after settings.EXPERIMENT_EXPOSURE_EVENT_CUTOFF use
+    $experiment_exposure. Everything else stays on $feature_flag_called: older experiments ran (at
+    least partly) before ingestion made the new event, and because ingestion duplicates flag events
+    into $experiment_exposure, counting exactly one of the two is what avoids double counting.
     """
-    if start_date is None or not settings.EXPERIMENT_EXPOSURE_EVENT_INGESTED:
+    if start_date is None:
         return DEFAULT_EXPOSURE_EVENT
     if start_date.tzinfo is None:
         # Query-supplied start dates can be naive ISO strings; the stored values are UTC.
         start_date = start_date.replace(tzinfo=UTC)
-    if start_date < EXPERIMENT_EXPOSURE_EVENT_CUTOFF:
+    if start_date < settings.EXPERIMENT_EXPOSURE_EVENT_CUTOFF:
         return DEFAULT_EXPOSURE_EVENT
     return EXPERIMENT_EXPOSURE_EVENT
 
