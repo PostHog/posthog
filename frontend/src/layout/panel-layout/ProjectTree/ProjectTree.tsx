@@ -3,15 +3,7 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { ReactNode, RefObject, useEffect, useRef, useState } from 'react'
 
-import {
-    IconCheckbox,
-    IconChevronRight,
-    IconEllipsis,
-    IconFolderPlus,
-    IconHome,
-    IconPlusSmall,
-    IconStar,
-} from '@posthog/icons'
+import { IconCheckbox, IconEllipsis, IconFolderPlus, IconHome, IconPlusSmall, IconStar } from '@posthog/icons'
 
 import { itemSelectModalLogic } from 'lib/components/FileSystem/ItemSelectModal/itemSelectModalLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
@@ -40,6 +32,7 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
 import { PanelLayoutPanel } from '../PanelLayoutPanel'
+import { getSidebarProduct } from './defaultTree'
 import { isHomeFolder, withHomeFolderEmptyState } from './homeFolderUtils'
 import { MenuItems } from './menus/MenuItems'
 import { projectTreeLogic } from './projectTreeLogic'
@@ -473,19 +466,13 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                 const showDropdownMenu =
                     root === 'products://' ||
                     root === 'custom-products://' ||
-                    (root === 'shortcuts://' && item.record?.href && item.record.href.split('/').length - 1 === 1)
+                    (root === 'shortcuts://' && !!getSidebarProduct(item.record?.href))
 
                 if (showDropdownMenu) {
                     if (item.name === 'Product analytics' || item.name === 'Dashboards') {
                         return (
                             <ButtonPrimitive iconOnly isSideActionRight className="z-2 -outline-offset-2">
                                 <IconPlusSmall className="text-tertiary" />
-                            </ButtonPrimitive>
-                        )
-                    } else if (item.name === 'Session replay') {
-                        return (
-                            <ButtonPrimitive iconOnly isSideActionRight className="z-2 -outline-offset-2">
-                                <IconChevronRight className="size-3 text-tertiary rotate-90" />
                             </ButtonPrimitive>
                         )
                     }

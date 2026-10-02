@@ -1,13 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronDown, IconGear, IconStar, IconStarFilled } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonMenu } from '@posthog/lemon-ui'
+import { IconGear, IconStar, IconStarFilled } from '@posthog/icons'
+import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 
-import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
@@ -22,7 +20,6 @@ import { sidebarProductMeta } from '../../sidebarProductMeta'
 import { NavProductIcon } from './NavProductIcon'
 import { navProductsTabLogic } from './navProductsTabLogic'
 import { NavProductTooltip } from './NavProductTooltip'
-import { NavSessionReplayMenu } from './NavSessionReplayMenu'
 import { productsItemName } from './productsCatalog'
 
 export function NavProductRow({ item, pinned = false }: { item: FileSystemImport; pinned?: boolean }): JSX.Element {
@@ -44,8 +41,6 @@ export function NavProductRow({ item, pinned = false }: { item: FileSystemImport
     const disabledReason = getProductAccessDisabledReason(item)
 
     const isHome = item.path === 'Home'
-    // Product analytics and Dashboards offer their menus only from the starred section, so here they get the star
-    const hasProductMenu = item.path === 'Session replay'
     const hasSideAction = isHome || !pinned
     const starAction = {
         label: shortcut ? 'Remove from starred' : 'Add to starred',
@@ -71,25 +66,6 @@ export function NavProductRow({ item, pinned = false }: { item: FileSystemImport
             })
         },
     }
-    const absoluteHref = urls.absolute(urls.currentProject(href))
-    const menuItems: LemonMenuItems = [
-        { label: () => <NavSessionReplayMenu /> },
-        {
-            items: [
-                {
-                    label: 'Open link in new browser tab',
-                    onClick: () => window.open(absoluteHref, '_blank'),
-                    'data-attr': 'nav-apps-menu-open-in-new-tab',
-                },
-                {
-                    label: 'Copy link address',
-                    onClick: () => void copyToClipboard(absoluteHref, 'link'),
-                    'data-attr': 'nav-apps-menu-copy-link',
-                },
-                starAction,
-            ],
-        },
-    ]
     // Appears at once like a tree row's side action, while keeping LemonButton's press animation.
     const sideActionClassName =
         'absolute right-0 opacity-0 group-hover/product-row:opacity-100 group-has-[:focus-visible]/product-row:opacity-100 [--lemon-button-transition:transform_200ms_ease]'
@@ -111,7 +87,7 @@ export function NavProductRow({ item, pinned = false }: { item: FileSystemImport
                         className: cn(
                             'flex-1 min-w-0 -outline-offset-2 motion-safe:transition-[padding] duration-50',
                             hasSideAction && 'group-hover/product-row:pr-7 group-has-[:focus-visible]/product-row:pr-7',
-                            !pinned && !hasProductMenu && shortcut && 'pr-7'
+                            !pinned && shortcut && 'pr-7'
                         ),
                     }}
                     data-attr="nav-apps-item"
@@ -136,19 +112,7 @@ export function NavProductRow({ item, pinned = false }: { item: FileSystemImport
                     onClick={() => setCustomizeSidebarOpen(true)}
                     data-attr="nav-customize-sidebar"
                 />
-            ) : pinned ? null : hasProductMenu ? (
-                <LemonMenu placement="right-start" items={menuItems}>
-                    <LemonButton
-                        size="xsmall"
-                        className={sideActionClassName}
-                        icon={<IconChevronDown />}
-                        tooltip={`Open ${label} menu`}
-                        aria-label={`Open ${label} menu`}
-                        disabledReason={disabledReason}
-                        data-attr="flat-nav-tool-menu-session-replay"
-                    />
-                </LemonMenu>
-            ) : (
+            ) : pinned ? null : (
                 <LemonButton
                     size="xsmall"
                     className={cn(sideActionClassName, shortcut && 'opacity-100')}
