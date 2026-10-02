@@ -1909,6 +1909,19 @@ def team_api_test_factory():
             assert settings["widget_greeting_text"] == "Hello!"
             assert settings["widget_color"] == "#ff0000"
 
+        @parameterized.expand([(["legacy", "list"],), ("legacy string",), (1,)])
+        def test_conversations_settings_merges_with_legacy_non_object_existing(self, legacy_value):
+            # Rows written before validation required an object/null can hold a stray
+            # array or scalar. A later object update must not 500 trying to merge it.
+            self.team.conversations_settings = legacy_value
+            self.team.save()
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"widget_color": "#ff0000"}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["conversations_settings"]["widget_color"] == "#ff0000"
+
         def test_conversations_settings_change_reports_event_per_setting(self):
             with patch("posthog.api.team.report_user_action") as mock_report:
                 response = self.client.patch(

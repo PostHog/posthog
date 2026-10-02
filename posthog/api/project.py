@@ -1306,9 +1306,11 @@ class ProjectBackwardCompatSerializer(
                 **validated_data["modifiers"],
             }
 
-        # Merge conversations_settings with existing values, unless explicitly clearing with null
+        # Merge conversations_settings with existing values, unless explicitly clearing with null.
+        # A pre-existing non-object value (from before validation required an object) can't be
+        # merged with `**`, so treat it as empty rather than raising.
         if "conversations_settings" in validated_data and validated_data["conversations_settings"] is not None:
-            existing_settings = team.conversations_settings or {}
+            existing_settings = team.conversations_settings if isinstance(team.conversations_settings, dict) else {}
             new_settings = validated_data["conversations_settings"]
             validated_data["conversations_settings"] = {**existing_settings, **new_settings}
 

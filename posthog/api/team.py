@@ -2337,9 +2337,13 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 **validated_data["session_replay_config"],
             }
 
-        # Merge conversations_settings with existing values, unless explicitly clearing with null
+        # Merge conversations_settings with existing values, unless explicitly clearing with null.
+        # A pre-existing non-object value (from before validation required an object) can't be
+        # merged with `**`, so treat it as empty rather than raising.
         if "conversations_settings" in validated_data and validated_data["conversations_settings"] is not None:
-            existing_settings = instance.conversations_settings or {}
+            existing_settings = (
+                instance.conversations_settings if isinstance(instance.conversations_settings, dict) else {}
+            )
             new_settings = validated_data["conversations_settings"]
             validated_data["conversations_settings"] = {**existing_settings, **new_settings}
 
@@ -3180,8 +3184,10 @@ def report_conversations_settings_changes(user: User, before_settings: dict | No
 
     Shared by the team and project serializers — both endpoints can PATCH the settings.
     """
-    old_settings = before_settings or {}
-    new_settings = team.conversations_settings or {}
+    # A pre-existing non-object value (from before validation required an object) can't be
+    # diffed with `.keys()`, so treat it as empty rather than raising.
+    old_settings = before_settings if isinstance(before_settings, dict) else {}
+    new_settings = team.conversations_settings if isinstance(team.conversations_settings, dict) else {}
     changed_keys = sorted(
         k for k in old_settings.keys() | new_settings.keys() if old_settings.get(k) != new_settings.get(k)
     )
