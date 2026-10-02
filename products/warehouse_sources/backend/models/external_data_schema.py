@@ -6,7 +6,7 @@ from collections.abc import Callable, Generator, Iterable
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from functools import partial
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
@@ -295,7 +295,14 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         null=True,
         blank=True,
         help_text="When the next scheduled full refresh is due. The first scheduled sync that starts at most an hour "
-        "before this time re-imports the table. Saving a new interval, or any full resync, moves it one interval ahead.",
+        "before this time re-imports the table. Saving a new interval or time, or any full resync, moves it one "
+        "interval ahead, onto full_refresh_time_of_day when that is set.",
+    )
+    full_refresh_time_of_day = models.TimeField(
+        null=True,
+        blank=True,
+        help_text="UTC time of day that scheduled full refreshes are due. Null means one interval after the last "
+        "full resync or save.",
     )
     initial_sync_complete = models.BooleanField(default=False)
     description = models.CharField(max_length=1000, null=True, blank=True)
@@ -1082,9 +1089,20 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         if self.full_refresh_interval_days is None:
             self.next_full_refresh_at = None
             return
-        self.next_full_refresh_at = timezone.now() + timedelta(days=self.full_refresh_interval_days)
+        interval = timedelta(days=self.full_refresh_interval_days)
+        now = timezone.now()
+        if self.full_refresh_time_of_day is None:
+            self.next_full_refresh_at = now + interval
+            return
+        # Count from the chosen time the wipe served, not from when it landed. A refresh can run up to the
+        # slack early or wait for a later sync, and counting from the wipe would move the time every cycle.
+        served = now + SCHEDULED_FULL_REFRESH_MAX_SLACK
+        anchor = datetime.combine(served.date(), self.full_refresh_time_of_day, tzinfo=UTC)
+        if anchor > served:
+            anchor -= timedelta(days=1)
+        self.next_full_refresh_at = anchor + interval
 
-    def scheduled_full_refresh_due(self) -> bool:
+    def scheduled_full_refresh_due(self, now: datetime | None = None) -> bool:
         if (
             self.full_refresh_interval_days is None
             or self.next_full_refresh_at is None
@@ -1096,7 +1114,7 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         slack = SCHEDULED_FULL_REFRESH_MAX_SLACK
         if self.sync_frequency_interval is not None:
             slack = min(slack, self.sync_frequency_interval / 2)
-        return timezone.now() >= self.next_full_refresh_at - slack
+        return (now or timezone.now()) >= self.next_full_refresh_at - slack
 
     def update_sync_type_config_for_reset_pipeline(self, *, clear_initial_sync_complete: bool = True) -> None:
         removes = [
@@ -1256,6 +1274,16 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
 # parse, even though the preceding GMT offset already fully specifies the instant.
 JS_DATE_TOSTRING_TZ_NAME_RE = re.compile(r"\([^()]*\)\s*\Z")
 
+# MySQL's zero-date convention for "no date set" ('0000-00-00', optionally with a
+# '00:00:00' time part). Some REST sources (e.g. ServiceM8's `edit_date`) emit this literal
+# string too, and dateutil raises ParserError on the year-0 value rather than treating it
+# as absent.
+ZERO_DATETIME_SENTINEL_RE = re.compile(r"\A0000-00-00(?:[ T]00:00:00(?:\.0+)?)?\Z")
+
+
+def _is_zero_datetime_sentinel(value: str) -> bool:
+    return bool(ZERO_DATETIME_SENTINEL_RE.match(value.strip()))
+
 
 def _parse_datetime_string(value: str) -> datetime:
     try:
@@ -1385,10 +1413,18 @@ def process_incremental_value(value: Any | None, field_type: IncrementalFieldTyp
         if isinstance(value, datetime):
             return value
 
+        # A date-only column (e.g. a MySQL DATE) can back a DateTime/Timestamp field when the column
+        # type changed after the incremental field was saved.
+        if isinstance(value, date):
+            return datetime.combine(value, time.min)
+
         # Some sources (e.g. Stripe `created`) expose datetime cursors as Unix-epoch numbers.
         # dateutil can't parse a non-string, so pass epochs through unchanged for the source query.
         if isinstance(value, int | float) and not isinstance(value, bool):
             return value
+
+        if isinstance(value, str) and _is_zero_datetime_sentinel(value):
+            return None
 
         return _coerce_incremental_datetime(value)
 
@@ -1401,6 +1437,9 @@ def process_incremental_value(value: Any | None, field_type: IncrementalFieldTyp
 
         if isinstance(value, int | float) and not isinstance(value, bool):
             return value
+
+        if isinstance(value, str) and _is_zero_datetime_sentinel(value):
+            return None
 
         parsed = _coerce_incremental_datetime(value)
         return parsed if isinstance(parsed, int) else parsed.date()

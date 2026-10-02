@@ -17,6 +17,7 @@ import psycopg
 import structlog
 
 from posthog.exceptions_capture import capture_exception
+from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources_queue.backend.core.batch_phase import (
     BatchPhaseProgress,
@@ -1464,6 +1465,17 @@ class BatchConsumer:
                     attempt=attempt,
                     error=str(err),
                 )
+            elif isinstance(err, NonReportableError):
+                # Classified as a known-transient or expected condition further down the stack
+                # (e.g. DeltaTableRef._capture_unless_transient) — that classification already
+                # decided this is noise, regardless of the adapter's own message-pattern checks.
+                logger.warning(
+                    self._event("batch_failed_non_retryable"),
+                    batch_id=batch.id,
+                    run_uuid=batch.run_uuid,
+                    attempt=attempt,
+                    error=str(err),
+                )
             else:
                 logger.exception(
                     self._event("batch_failed_non_retryable"),
@@ -1476,13 +1488,25 @@ class BatchConsumer:
             await self._fail_run(batch, reason=reason, conn=lock_conn)
         elif attempt >= self._config.max_attempts:
             reason = f"max retries exceeded: {err}"
-            logger.exception(
-                self._event("batch_failed_no_retries_left"),
-                batch_id=batch.id,
-                run_uuid=batch.run_uuid,
-                attempt=attempt,
-            )
-            capture_exception(err)
+            if isinstance(err, NonReportableError):
+                # A sustained blip (e.g. TransientObjectStoreError) stays out of error tracking
+                # even once this batch's own retry budget runs out — it's still an infra
+                # condition, not a pipeline defect, no matter how many attempts it survived.
+                logger.warning(
+                    self._event("batch_failed_no_retries_left"),
+                    batch_id=batch.id,
+                    run_uuid=batch.run_uuid,
+                    attempt=attempt,
+                    error=str(err),
+                )
+            else:
+                logger.exception(
+                    self._event("batch_failed_no_retries_left"),
+                    batch_id=batch.id,
+                    run_uuid=batch.run_uuid,
+                    attempt=attempt,
+                )
+                capture_exception(err)
             await self._verify_ownership(lock_conn, batch)
             await self._fail_run(batch, reason=reason, conn=lock_conn)
         else:

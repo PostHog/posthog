@@ -245,6 +245,9 @@ export interface SettingsStore {
   // instead of the hand-typed customInstructions above.
   syncCustomInstructionsFromFile: boolean;
   syncedCustomInstructions: SyncedCustomInstructions | null;
+  // Per project, the custom instructions text last uploaded to "My
+  // instructions" on the server. Keyed by project id.
+  customInstructionsOnServer: Record<string, string>;
   setAutoConvertLongText: (value: AutoConvertLongText) => void;
   setSendMessagesWith: (mode: SendMessagesWith) => void;
   setCustomInstructions: (instructions: string) => void;
@@ -253,6 +256,7 @@ export interface SettingsStore {
   setSyncedCustomInstructions: (
     synced: SyncedCustomInstructions | null,
   ) => void;
+  setCustomInstructionsOnServer: (projectId: number, content: string) => void;
 
   // Diff viewer
   diffOpenMode: DiffOpenMode;
@@ -528,6 +532,7 @@ export const useSettingsStore = create<SettingsStore>()(
       ste100Enabled: true,
       syncCustomInstructionsFromFile: false,
       syncedCustomInstructions: null,
+      customInstructionsOnServer: {},
       setAutoConvertLongText: (value) => set({ autoConvertLongText: value }),
       setSendMessagesWith: (mode) => set({ sendMessagesWith: mode }),
       setCustomInstructions: (instructions) =>
@@ -537,6 +542,13 @@ export const useSettingsStore = create<SettingsStore>()(
         set({ syncCustomInstructionsFromFile: enabled }),
       setSyncedCustomInstructions: (synced) =>
         set({ syncedCustomInstructions: synced }),
+      setCustomInstructionsOnServer: (projectId, content) =>
+        set((state) => ({
+          customInstructionsOnServer: {
+            ...state.customInstructionsOnServer,
+            [String(projectId)]: content,
+          },
+        })),
 
       // Diff viewer
       diffOpenMode: "auto",
@@ -738,6 +750,7 @@ export const useSettingsStore = create<SettingsStore>()(
         customInstructions: state.customInstructions,
         ste100Enabled: state.ste100Enabled,
         syncCustomInstructionsFromFile: state.syncCustomInstructionsFromFile,
+        customInstructionsOnServer: state.customInstructionsOnServer,
 
         // Diff viewer
         diffOpenMode: state.diffOpenMode,

@@ -101,7 +101,7 @@ class TestPaginationAndUrls:
     def test_regions_is_a_platform_wide_lookup(self, MockClientSession) -> None:
         # Regions are not org-scoped, so the org slug must not reach the request at all.
         session = MockClientSession.return_value
-        snaps = _wire(session, [_response({"nearest": "lhr", "regions": [{"code": "iad"}, {"code": "lhr"}]})])
+        snaps = _wire(session, [_response({"nearest": "lhr", "Regions": [{"code": "iad"}, {"code": "lhr"}]})])
 
         rows = _rows(fly_io_source("tok", "regions", "acme", team_id=1, job_id="j"))
 

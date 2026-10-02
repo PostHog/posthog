@@ -348,6 +348,7 @@ the row lists both.
 | google_sheets                    | HTTP (vendor SDK)           | gspread                                                         | ✅                          |
 | google_webfonts                  | HTTP                        | requests                                                        | ✅                          |
 | grafana                          | HTTP                        | requests                                                        | ✅                          |
+| grafana_irm                      | HTTP                        | requests                                                        | ✅                          |
 | granola                          | HTTP                        | requests                                                        | ✅                          |
 | gorgias                          | HTTP                        | requests                                                        | ✅                          |
 | greenhouse                       | HTTP                        | requests                                                        | ✅                          |
@@ -586,6 +587,7 @@ the row lists both.
 | polar                            | HTTP                        | requests                                                        | ✅                          |
 | plaid                            | HTTP                        | requests                                                        | ✅                          |
 | polymarket                       | HTTP                        | requests (rest_source.RESTClient)                               | ✅                          |
+| poplar                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | postgres                         | DB protocol                 | psycopg                                                         | ➖                          |
 | postmark                         | HTTP + Webhook              | requests + `rest_source.RESTClient` + `WebhookSourceManager`    | ✅ (pull) / ➖ (webhook)    |
 | postscript                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -676,6 +678,7 @@ the row lists both.
 | simplecast                       | HTTP                        | requests                                                        | ✅                          |
 | simplesat                        | HTTP                        | requests                                                        | ✅                          |
 | singlestore                      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| singular                         | HTTP                        | requests                                                        | ✅                          |
 | skio                             | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | skyvern                          | HTTP                        | requests                                                        | ✅                          |
 | slack                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -757,6 +760,7 @@ the row lists both.
 | twelve_labs                      | HTTP                        | requests                                                        | ✅                          |
 | twenty                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | twilio                           | HTTP                        | requests                                                        | ✅                          |
+| twitter_ads                      | HTTP                        | requests                                                        | ✅                          |
 | tyntec_sms                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | typeform                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | ubidots                          | HTTP                        | requests                                                        | ✅                          |
@@ -1306,7 +1310,6 @@ doesn't conflict with concurrent PRs.
 - podbean
 - podium
 - polygon
-- poplar
 - postnord
 - practicepanther
 - preset
@@ -1389,7 +1392,6 @@ doesn't conflict with concurrent PRs.
 - simplesat
 - simpro
 - sinch
-- singular
 - site24x7
 - skyvern
 - slash
@@ -1459,7 +1461,6 @@ doesn't conflict with concurrent PRs.
 - trustradius
 - twitch
 - twitter
-- twitter_ads
 - two_c2p
 - tyntec_sms
 - typesense

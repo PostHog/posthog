@@ -30,7 +30,7 @@ from posthog.temporal.common.search_attributes import POSTHOG_TEAM_ID_KEY
 from products.replay_vision.backend.api.scanners import scanner_lifecycle_properties
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType, config_experiment_scope
 from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import (
     PromptSuggestionStatus,
     ReplayScannerPromptSuggestion,
@@ -50,6 +50,7 @@ from products.replay_vision.backend.prompt_suggestions import (
     labels_fingerprint,
 )
 from products.replay_vision.backend.quota import compute_scanner_budget, quota_state
+from products.replay_vision.backend.scanner_access import can_read_targeted_experiment
 from products.replay_vision.backend.scanner_config import scanner_config_error
 from products.replay_vision.backend.scout_writes import refuse_scout_scanner_scan
 from products.replay_vision.backend.temporal.constants import (
@@ -278,6 +279,11 @@ class ReplayScannerPromptSuggestionViewSet(
         self.check_object_permissions(self.request, scanner)
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
             raise PermissionDenied("Reading prompt suggestions requires session_recording read access.")
+        # Suggestions and their evaluations quote an experiment scanner's observations (session ids,
+        # output text), so reading or acting on them needs experiment access too. Not-found, not 403,
+        # matching the observations endpoint.
+        if not can_read_targeted_experiment(self.user_access_control, self.team_id, scanner):
+            raise NotFound()
         self._scanner_for_url_cache = scanner
         return scanner
 
@@ -403,6 +409,13 @@ class ReplayScannerPromptSuggestionViewSet(
                 config = dict(suggestion.suggested_config)
             else:
                 config = {**(scanner.scanner_config or {}), "prompt": suggestion.suggested_prompt}
+            # The scanner serializer re-checks experiment access whenever the scope changes; this
+            # endpoint writes the config directly, so a scope change here would skip that check.
+            # Recommendations tune prompts, never the watched experiment, so refuse outright.
+            if scanner.scanner_type == ScannerType.EXPERIMENT and config_experiment_scope(config) != (
+                scanner.experiment_scope()
+            ):
+                raise ValidationError("This recommendation can't change the scanner's experiment.")
             # Same validation as the scanner edit endpoint: an oversized or malformed LLM rewrite
             # must not land in the config that every future observation snapshots.
             message = scanner_config_error(ScannerType(scanner.scanner_type), config)
@@ -494,6 +507,11 @@ class ReplayScannerPromptSuggestionViewSet(
         # A malformed edited config must be rejected before it charges credits on runs that can't succeed,
         # matching the validation apply runs before it writes the config.
         if edited_config is not None:
+            # Matching apply's scope rule: a test config must not retarget the watched experiment.
+            if scanner.scanner_type == ScannerType.EXPERIMENT and config_experiment_scope(edited_config) != (
+                scanner.experiment_scope()
+            ):
+                raise ValidationError("A test can't change the scanner's experiment.")
             message = scanner_config_error(ScannerType(scanner.scanner_type), edited_config)
             if message:
                 raise ValidationError(f"This config can't be tested: {message}")

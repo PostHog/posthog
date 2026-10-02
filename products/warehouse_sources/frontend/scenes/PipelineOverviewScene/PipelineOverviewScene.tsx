@@ -22,7 +22,7 @@ import { PipelineHealth } from './PipelineHealth'
 import type { PipelineStatsWindow } from './pipelineOverviewSceneLogic'
 import { pipelineOverviewSceneLogic } from './pipelineOverviewSceneLogic'
 import { PipelineStatTiles } from './PipelineStatTiles'
-import { RecentFailures } from './RecentFailures'
+import { RecentRuns } from './RecentRuns'
 import { RowsByDestination } from './RowsByDestination'
 
 export const scene: SceneExport = {
@@ -94,9 +94,14 @@ export function PipelineOverviewScene(): JSX.Element {
                 </>
             ) : null}
 
+            <SceneSection title="Rows synced by destination">
+                <RowsByDestination />
+            </SceneSection>
+
+            <SceneDivider />
             <SceneSection
                 title="Runs"
-                description="Runs that failed in this window. A table can be broken here with no recent run, if nothing retried it."
+                description="Every sync in this window, newest first. Runs in flight appear as they start."
                 actions={
                     <LemonSelect<PipelineStatsWindow>
                         size="small"
@@ -111,16 +116,7 @@ export function PipelineOverviewScene(): JSX.Element {
                     />
                 }
             >
-                <RecentFailures />
-            </SceneSection>
-
-            <SceneDivider />
-
-            <SceneSection
-                title="Rows synced by destination"
-                description="Rows written to each destination. A row that reaches two destinations counts against both, so the series stack."
-            >
-                <RowsByDestination />
+                <RecentRuns />
             </SceneSection>
 
             <SceneDivider />
