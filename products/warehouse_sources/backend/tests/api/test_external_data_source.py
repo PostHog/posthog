@@ -132,6 +132,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.set
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.utils import TikTokAdsAPIError
+from products.warehouse_sources.backend.temporal.data_imports.sources.trino.source import TrinoSource
 
 
 def _configure_source_mock_versioning(mock_get_source) -> None:
@@ -723,16 +724,71 @@ class TestExternalDataSource(APIBaseTest):
             "direct_trino_table": "events",
         }
 
-    def test_create_trino_rejects_warehouse_mode(self):
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.trino.source.TrinoSource.get_schemas",
+        return_value=[
+            SourceSchema(
+                name="analytics.events",
+                supports_incremental=True,
+                supports_append=True,
+                columns=[("id", "bigint", False), ("updated_at", "timestamp(3)", True)],
+                source_catalog="hive",
+                source_schema="analytics",
+                source_table_name="events",
+                detected_primary_keys=["id"],
+            )
+        ],
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.trino.source.TrinoSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_warehouse_trino_source_syncs_incrementally(self, _mock_validate, _mock_get_schemas):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
                 "source_type": "Trino",
                 "created_via": "web",
                 "access_method": "warehouse",
-                "payload": {},
+                "payload": {
+                    "host": "trino.example.com",
+                    "port": 443,
+                    "catalog": "hive",
+                    "schema": "",
+                    "auth_type": {"selection": "password", "user": "posthog", "password": "secret"},
+                    "use_ssl": True,
+                    "verify_ssl": True,
+                    "schemas": [
+                        {
+                            "name": "analytics.events",
+                            "should_sync": True,
+                            "sync_type": "incremental",
+                            "incremental_field": "updated_at",
+                            "incremental_field_type": "timestamp",
+                        }
+                    ],
+                },
             },
         )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        source = ExternalDataSource.objects.get(pk=response.json()["id"])
+        schema = ExternalDataSchema.objects.get(source=source, name="analytics.events")
+        assert source.access_method == ExternalDataSource.AccessMethod.WAREHOUSE
+        assert schema.sync_type == ExternalDataSchema.SyncType.INCREMENTAL
+        assert schema.incremental_field == "updated_at"
+
+    def test_create_rejects_warehouse_mode_for_a_direct_only_source(self):
+        with patch.object(TrinoSource, "supports_scheduled_sync", False):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/",
+                data={
+                    "source_type": "Trino",
+                    "created_via": "web",
+                    "access_method": "warehouse",
+                    "payload": {},
+                },
+            )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json() == {"message": "Trino is available only as a direct connection."}

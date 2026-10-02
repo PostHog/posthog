@@ -8341,7 +8341,7 @@
         }
     },
     "llma-score-definition-create": {
-        "description": "Create a new scorer (a.k.a. score definition) used by trace reviews. Pass `name`, `kind` (`categorical`, `numeric`, or `boolean`), and `config` matching the kind. `kind` is immutable after creation. Categorical scorers need an `options` array with unique keys and optional `selection_mode`/`min_selections`/`max_selections` (for `multiple`). Numeric scorers can set `min`, `max`, `step`. Boolean scorers can override `true_label`/`false_label`. Scorers always start active (not archived) and at version 1.",
+        "description": "Create a new scorer (a.k.a. score definition) used by trace reviews. Pass `name`, `kind` (`categorical`, `numeric`, or `boolean`), and `config` matching the kind. `kind` is immutable after creation. Categorical scorers need an `options` array with unique keys and optional `selection_mode`/`min_selections`/`max_selections` (for `multiple`). Numeric scorers can set `min`, `max`, `step`, and an optional `passing_rule` with `operator` (`gte`/`lte`) and a finite `threshold` within those bounds. Boolean scorers can override `true_label`/`false_label` and set `true_is_failure` (`false`: true passes; `true`: false passes). Omitted or null boolean polarity defaults to true passing in offline evaluations. Numeric scores without a passing rule remain neutral. Scorers always start active (not archived) and at version 1.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Create scorer",
@@ -8383,7 +8383,7 @@
         }
     },
     "llma-score-definition-new-version": {
-        "description": "Publish a new immutable `config` version for an existing scorer. Use this whenever the scoring rules change (add/remove categorical options, tweak numeric bounds, rename boolean labels). Existing trace reviews keep their snapshot of the previous version, so historical scores remain stable. The `config` shape must match the scorer's `kind`. Each call increments `current_version` by one. Pass `base_version` (the version number you observed before bumping) for optimistic concurrency — the request returns 409 if another writer already advanced the scorer.",
+        "description": "Publish a new immutable `config` version for an existing scorer. Use this whenever the scoring rules change (add/remove categorical options, tweak numeric bounds or passing rules, change boolean polarity or labels). Existing trace reviews keep their snapshot of the previous version, so historical scores remain stable. The `config` shape must match the scorer's `kind`. Each call increments `current_version` by one. Pass `base_version` (the version number you observed before bumping) for optimistic concurrency — the request returns 409 if another writer already advanced the scorer. Optional `name` and `description` updates are saved atomically with the version.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Bump scorer to a new version",
