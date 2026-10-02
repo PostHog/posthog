@@ -19,6 +19,7 @@ import {
     LemonSwitch,
     LemonTag,
     Link,
+    lemonToast,
     Popover,
 } from '@posthog/lemon-ui'
 
@@ -1483,7 +1484,11 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                                       )
                                                                                                   }
                                                                                               })
-                                                                                              .catch(() => {})
+                                                                                              .catch(() => {
+                                                                                                  lemonToast.error(
+                                                                                                      "Couldn't load this flag's variants. Select the flag again to retry."
+                                                                                                  )
+                                                                                              })
                                                                                       }
                                                                                       // Reset variant selection when flag changes
                                                                                       const {
