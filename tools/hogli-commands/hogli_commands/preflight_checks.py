@@ -8,15 +8,15 @@ import json
 import shutil
 import tempfile
 import subprocess
-from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+import yaml
 from hogli.manifest import REPO_ROOT
 
 from hogli_commands.change_detection import matches_globs
+from hogli_commands.size_lint import _rename_map
 
 Status = Literal["pass", "fail", "warning", "advisory", "skipped"]
 Outcome = tuple[Status, str]
@@ -24,20 +24,16 @@ Outcome = tuple[Status, str]
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class Scope:
-    """What a push carries: the matched files, the commit they are diffed from, and which copy to read."""
+    """What a push carries.
+
+    ``files`` are the changed paths that match the check's triggers and ``changed`` is the
+    whole diff. ``committed_only`` says to read the HEAD copy of a file instead of the working tree.
+    """
 
     files: list[str]
     changed: list[str]
     merge_base: str
     committed_only: bool
-
-
-@dataclass(frozen=True, kw_only=True, slots=True)
-class FunctionCheck:
-    key: str
-    label: str
-    triggers: list[str]
-    run: Callable[[Scope], Outcome]
 
 
 def _git(*args: str, timeout: float = 20.0) -> bytes | None:
@@ -55,36 +51,24 @@ def _head_copy(path: str, committed_only: bool) -> bytes | None:
     return target.read_bytes() if target.is_file() else None
 
 
-def _renamed_from(merge_base: str) -> dict[str, str]:
-    """New path to old path, for every file the branch's commits renamed."""
-    out = _git("diff", "--name-status", "-z", "-M", merge_base, "HEAD")
-    if out is None:
-        return {}
-    fields = out.decode(errors="replace").split("\0")
-    renames: dict[str, str] = {}
-    index = 0
-    while index < len(fields):
-        if fields[index].startswith(("R", "C")) and index + 2 < len(fields):
-            if fields[index].startswith("R"):
-                renames[fields[index + 2]] = fields[index + 1]
-            index += 3
-        else:
-            index += 2
-    return renames
+def _renamed_from(scope: Scope) -> dict[str, str]:
+    """New path to old path, for every file the branch renamed."""
+    return _rename_map(scope.merge_base, *(["HEAD"] if scope.committed_only else []))
 
 
 SNAPSHOT_MANIFEST = "frontend/snapshots.yml"
 # A story identifier comes from the story file's title and export names, and the Storybook
 # config decides which story files load. A removal that touches none of these deleted no story.
 STORY_SOURCES = ["*.stories.*", ".storybook/*", "common/storybook/*"]
-_SNAPSHOT_ENTRY = re.compile(r"^    ([^\s#:][^:\n]*):[ \t]*$", re.MULTILINE)
 
 
 def _snapshot_identifiers(manifest: bytes) -> set[str]:
-    return set(_SNAPSHOT_ENTRY.findall(manifest.decode(errors="replace")))
+    return set(yaml.load(manifest, Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader))["snapshots"])
 
 
 def check_snapshot_baselines(scope: Scope) -> Outcome:
+    if any(matches_globs(path, STORY_SOURCES) for path in scope.changed):
+        return "pass", "a story changed in this diff, so removed entries are expected"
     before = _git("show", f"{scope.merge_base}:{SNAPSHOT_MANIFEST}")
     after = _head_copy(SNAPSHOT_MANIFEST, scope.committed_only)
     if before is None or after is None:
@@ -93,14 +77,15 @@ def check_snapshot_baselines(scope: Scope) -> Outcome:
     removed = sorted(_snapshot_identifiers(before) - _snapshot_identifiers(after))
     if not removed:
         return "pass", "no baseline entries removed"
-    count = f"{len(removed)} baseline {'entry' if len(removed) == 1 else 'entries'} removed"
-    if any(matches_globs(path, STORY_SOURCES) for path in scope.changed):
-        return "pass", f"{count} alongside a story change"
+    # An advisory and not a failure, because a branch can remove the entries of a story that
+    # an earlier PR deleted, and nothing here can tell that apart from a bad conflict resolution.
     return (
-        "fail",
-        f"{count} but no story file changed (e.g. {removed[0]}). "
-        "The stories still render, so the merge queue fails every batch that carries this file. "
-        f"Restore the entries from `git show {scope.merge_base[:12]}:{SNAPSHOT_MANIFEST}`",
+        "advisory",
+        f"{len(removed)} baseline {'entry' if len(removed) == 1 else 'entries'} removed "
+        f"but no story file changed (e.g. {removed[0]}). "
+        "If the stories still render, the merge queue fails the batch that carries this file. "
+        f"Compare with `git diff {scope.merge_base[:12]} -- {SNAPSHOT_MANIFEST}` "
+        "and restore the entries you did not mean to remove",
     )
 
 
@@ -122,12 +107,12 @@ SEMGREP_SCOPE = [
         "tools",
     )
 ]
-# CI excludes this tree from its blocking pass over ERROR rules.
-SEMGREP_EXCLUDED = ["products/desktop/*"]
+# CI excludes this tree from its blocking pass over ERROR rules, and from no other pass.
+SEMGREP_ERROR_EXCLUDED = ["products/desktop/*"]
 _SEMGREP_IMAGE = re.compile(r"SEMGREP_IMAGE:\s*semgrep/semgrep:([0-9][0-9A-Za-z.\-]*)")
 _SEMGREP_TIMEOUT_SECONDS = 300
 
-# One finding: the rule, the file, and the source text it matched.
+# The rule, the file, and the source text the rule matched.
 Finding = tuple[str, str, str]
 
 
@@ -140,90 +125,95 @@ def _semgrep_version() -> str | None:
     return match.group(1) if match else None
 
 
-def _semgrep_findings(semgrep: list[str], root: Path) -> dict[Finding, list[int]] | None:
-    """Findings under *root*, each with the lines it starts on. None when the scan did not run.
+def _semgrep_findings(semgrep: list[str], contents: dict[str, bytes]) -> dict[Finding, list[int]] | None:
+    """Findings in *contents* (path to file content), each with the lines it starts on.
 
-    The target is the directory and not the files in it. Semgrep applies its default
-    ignore list (``tests/``, ``node_modules/``, minified files) to a directory it walks,
-    which is how CI scans, and skips that list for a file named on the command line.
+    None when the scan did not complete. The files are written to a temporary directory
+    and that directory is the scan target. Semgrep applies its default ignore list
+    (``tests/``, ``node_modules/``, minified files) to a directory it walks, which is how
+    CI scans, and skips that list for a file named on the command line.
     """
-    try:
-        result = subprocess.run(
-            [
-                *semgrep,
-                "--config",
-                str(REPO_ROOT / SEMGREP_RULES),
-                "--severity=WARNING",
-                "--severity=ERROR",
-                "--metrics=off",
-                "--quiet",
-                "--json",
-                ".",
-            ],
-            cwd=root,
-            env={**os.environ, "SEMGREP_ENABLE_VERSION_CHECK": "false"},
-            capture_output=True,
-            text=True,
-            timeout=_SEMGREP_TIMEOUT_SECONDS,
-        )
-        findings: dict[Finding, list[int]] = {}
-        sources: dict[str, list[str]] = {}
-        for item in json.loads(result.stdout)["results"]:
-            path = item["path"]
-            if path not in sources:
-                sources[path] = (root / path).read_text(errors="replace").splitlines()
-            start, end = item["start"]["line"], item["end"]["line"]
-            matched = "\n".join(line.strip() for line in sources[path][start - 1 : end])
-            # The id prefix encodes the rule file's path relative to the working directory.
-            # The last segment is the rule's own id.
-            rule = item["check_id"].rsplit(".", 1)[-1]
-            findings.setdefault((rule, path, matched), []).append(start)
-    except (OSError, subprocess.TimeoutExpired, ValueError, KeyError, TypeError):
-        # A missing uvx download, a crash and a timeout all end here, because none of them prints a report.
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        for path, content in contents.items():
+            target = root / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(content)
+        try:
+            result = subprocess.run(
+                [
+                    *semgrep,
+                    "--config",
+                    str(REPO_ROOT / SEMGREP_RULES),
+                    "--severity=WARNING",
+                    "--severity=ERROR",
+                    "--metrics=off",
+                    "--quiet",
+                    "--json",
+                    ".",
+                ],
+                cwd=root,
+                env={**os.environ, "SEMGREP_ENABLE_VERSION_CHECK": "false"},
+                capture_output=True,
+                text=True,
+                timeout=_SEMGREP_TIMEOUT_SECONDS,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+    # A missing uvx download, a rule that does not parse and a crash all exit non-zero.
+    # An incomplete scan must not read as a clean one.
+    if result.returncode != 0:
         return None
+    findings: dict[Finding, list[int]] = {}
+    for item in json.loads(result.stdout)["results"]:
+        path = item["path"]
+        if item["extra"]["severity"] == "ERROR" and matches_globs(path, SEMGREP_ERROR_EXCLUDED):
+            continue
+        start, end = item["start"]["line"], item["end"]["line"]
+        lines = contents[path].decode(errors="replace").splitlines()[start - 1 : end]
+        # The id prefix encodes the rule file's path relative to the working directory.
+        # The last segment is the rule's own id.
+        rule = item["check_id"].rsplit(".", 1)[-1]
+        findings.setdefault((rule, path, "\n".join(line.strip() for line in lines)), []).append(start)
     return findings
 
 
-def _write_tree(root: Path, contents: dict[str, bytes | None]) -> None:
-    for path, content in contents.items():
-        if content is None:
-            continue
-        target = root / path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(content)
-
-
 def check_semgrep_devex(scope: Scope) -> Outcome:
-    files = [f for f in scope.files if not matches_globs(f, SEMGREP_EXCLUDED)]
-    after_contents = {path: _head_copy(path, scope.committed_only) for path in files}
-    if not any(content is not None for content in after_contents.values()):
-        return "skipped", "no file to scan"
     if shutil.which("uvx") is None:
         return "skipped", "uvx not found"
     version = _semgrep_version()
     if version is None:
         return "skipped", f"no semgrep version pinned in {SEMGREP_WORKFLOW}"
     semgrep = ["uvx", f"semgrep@{version}"]
+    incomplete: Outcome = ("skipped", "semgrep did not complete (it needs network on its first run)")
+
+    # Semgrep cannot scan a binary, and a snapshot update can carry hundreds of them.
+    after_contents = {
+        path: content
+        for path in scope.files
+        if (content := _head_copy(path, scope.committed_only)) is not None and b"\0" not in content[:8000]
+    }
+    if not after_contents:
+        return "skipped", "no file to scan"
+    after = _semgrep_findings(semgrep, after_contents)
+    if after is None:
+        return incomplete
+    if not after:
+        return "pass", "no new findings"
 
     # CI blocks only on findings the branch introduced, and gets them from `--baseline-commit`.
     # That flag is not usable here: on a clean checkout semgrep runs `git reset --hard` to the
     # baseline and back, and otherwise it checks the whole repository out again. Scanning the
-    # merge-base copies of the changed files gives the same comparison without touching the checkout.
-    renames = _renamed_from(scope.merge_base)
+    # merge-base copies of the flagged files gives the same comparison without touching the checkout.
+    renames = _renamed_from(scope)
     before_contents = {
-        path: _git("show", f"{scope.merge_base}:{renames.get(path, path)}")
-        for path, content in after_contents.items()
-        if content is not None
+        path: content
+        for path in {path for _, path, _ in after}
+        if (content := _git("show", f"{scope.merge_base}:{renames.get(path, path)}")) is not None
     }
-    with tempfile.TemporaryDirectory() as tmp:
-        roots = [Path(tmp) / "before", Path(tmp) / "after"]
-        for root, contents in zip(roots, (before_contents, after_contents)):
-            root.mkdir()
-            _write_tree(root, contents)
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            before, after = pool.map(lambda root: _semgrep_findings(semgrep, root), roots)
-    if before is None or after is None:
-        return "skipped", "semgrep did not produce a report (it needs network on its first run)"
+    before = _semgrep_findings(semgrep, before_contents) if before_contents else {}
+    if before is None:
+        return incomplete
 
     introduced = [
         f"{rule} at {path}:{line}"
@@ -258,53 +248,31 @@ def check_merge_queue_lane(scope: Scope) -> Outcome:
     if shutil.which("node") is None:
         return "skipped", "node not found"
     # CI lists a rename as its old path and its new one, and the old path can widen the lane.
-    changed = sorted({*scope.changed, *_renamed_from(scope.merge_base).values()})
+    changed = sorted({*scope.changed, *_renamed_from(scope).values()})
     env = {**os.environ, "LANE_MERGE_BASE": scope.merge_base}
-    try:
-        targets = _node(LANE_TARGETS_SCRIPT, changed, env)
-        lane = _node(
-            LANE_SUMMARY_SCRIPT, changed, {**env, "IMPACTED_TARGETS": json.dumps({"impactedTargets": targets})}
-        )
-        if not isinstance(lane, dict):
-            return "skipped", "could not compute the merge queue lane"
-        if not lane.get("is_all"):
-            return "pass", f"claims {lane.get('target_count', 0)} merge queue lane target(s)"
-
-        # The summary names every file that some widening rule matched, which is not proof that
-        # those files caused it. Recomputing without them is.
-        suspects = set(lane.get("tripwire_files") or [])
-        rest = [path for path in changed if path not in suspects]
-        narrowed = _node(LANE_TARGETS_SCRIPT, rest, env) if suspects and rest else None
-    except (OSError, subprocess.TimeoutExpired, ValueError):
+    targets = _node(LANE_TARGETS_SCRIPT, changed, env)
+    lane = _node(LANE_SUMMARY_SCRIPT, changed, {**env, "IMPACTED_TARGETS": json.dumps({"impactedTargets": targets})})
+    if not isinstance(lane, dict) or not isinstance(targets, list):
         return "skipped", "could not compute the merge queue lane"
+    if not lane.get("is_all"):
+        return "pass", f"claims {len(targets)} merge queue lane target(s)"
 
-    if not isinstance(targets, list) or not isinstance(narrowed, list) or len(narrowed) >= len(targets):
-        return "pass", "claims every merge queue lane, and splitting the PR would not narrow it"
+    unsplittable: Outcome = ("pass", "claims every merge queue lane, and a split would not narrow it much")
+    # The summary names the files that some widening rule matched, which is not proof of cause.
+    # Recomputing the lane without the whole set shows what a split would gain. The summary cuts
+    # its file list off, and its per-domain counts say how many files the full list holds.
+    suspects = sorted(lane.get("tripwire_files") or [])
+    rest = [path for path in changed if path not in suspects]
+    if not suspects or not rest or len(suspects) != sum((lane.get("tripwire_domains") or {}).values()):
+        return unsplittable
+    narrowed = _node(LANE_TARGETS_SCRIPT, rest, env)
+    # A split that still claims most lanes leaves the queue as serial as before.
+    if not isinstance(narrowed, list) or len(narrowed) * 2 > len(targets):
+        return unsplittable
+    more = f" (+{len(suspects) - 3} more)" if len(suspects) > 3 else ""
     return (
         "warning",
-        f"claims every merge queue lane because of {', '.join(sorted(suspects)[:3])}. "
-        "The whole queue then merges in series behind this PR. "
-        f"In their own PR, the other changes claim {len(narrowed)} of {len(targets)} lane targets",
+        "claims every merge queue lane, so the whole queue merges in series behind this PR. "
+        f"Without these {len(suspects)} file(s) the other changes claim {len(narrowed)} of {len(targets)} "
+        f"lane targets: {', '.join(suspects[:3])}{more}",
     )
-
-
-FUNCTION_CHECKS: list[FunctionCheck] = [
-    FunctionCheck(
-        key="snapshot-baselines",
-        label="visual baselines dropped from snapshots.yml (fails every merge queue batch)",
-        triggers=[SNAPSHOT_MANIFEST],
-        run=check_snapshot_baselines,
-    ),
-    FunctionCheck(
-        key="semgrep-devex",
-        label="new semgrep findings (devex rules)",
-        triggers=SEMGREP_SCOPE,
-        run=check_semgrep_devex,
-    ),
-    FunctionCheck(
-        key="merge-queue-lane",
-        label="merge queue lane this diff claims",
-        triggers=["*"],
-        run=check_merge_queue_lane,
-    ),
-]

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
-from pathlib import Path
+from collections.abc import Callable
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -23,97 +23,90 @@ snapshots:
         hash: v1.aaa
     scenes-app-b--default--dark:
         hash: v1.bbb
+    ? scenes-app-c--default--dark
+    :   hash: v1.ccc
 """
 MANIFEST_WITHOUT_B = MANIFEST.replace("    scenes-app-b--default--dark:\n        hash: v1.bbb\n", "")
-MANIFEST_B_REHASHED = MANIFEST.replace("v1.bbb", "v1.ccc")
+MANIFEST_WITHOUT_C = MANIFEST.replace("    ? scenes-app-c--default--dark\n    :   hash: v1.ccc\n", "")
+MANIFEST_B_REHASHED = MANIFEST.replace("v1.bbb", "v1.ddd")
 
 
 def _scope(changed: list[str]) -> Scope:
     return Scope(files=changed, changed=changed, merge_base="abc123", committed_only=True)
 
 
-def _fake_git(blobs: dict[str, bytes], name_status: bytes = b""):
-    def run(*args: str, timeout: float = 20.0) -> bytes | None:
-        if args[0] == "diff":
-            return name_status
-        return blobs.get(args[1])
-
-    return run
+def _git_show(blobs: dict[str, bytes]) -> Callable[..., bytes | None]:
+    return lambda _show, ref, timeout=20.0: blobs.get(ref)
 
 
 class TestSnapshotBaselines:
     @pytest.mark.parametrize(
-        "after,changed,expected_status",
+        "after,changed,expected_status,removed",
         [
-            (MANIFEST_WITHOUT_B, ["frontend/snapshots.yml", "products/x/backend/api.py"], "fail"),
-            (MANIFEST_WITHOUT_B, ["frontend/snapshots.yml", "products/x/frontend/B.stories.tsx"], "pass"),
-            (MANIFEST_B_REHASHED, ["frontend/snapshots.yml"], "pass"),
+            (MANIFEST_WITHOUT_B, ["frontend/snapshots.yml", "products/x/backend/api.py"], "advisory", "scenes-app-b"),
+            (MANIFEST_WITHOUT_C, ["frontend/snapshots.yml"], "advisory", "scenes-app-c"),
+            (MANIFEST_WITHOUT_B, ["frontend/snapshots.yml", "products/x/frontend/B.stories.tsx"], "pass", None),
+            (MANIFEST_B_REHASHED, ["frontend/snapshots.yml"], "pass", None),
         ],
     )
-    def test_removal_blocks_only_without_a_story_change(
-        self, after: str, changed: list[str], expected_status: str
+    def test_removal_is_flagged_only_without_a_story_change(
+        self, after: str, changed: list[str], expected_status: str, removed: str | None
     ) -> None:
         blobs = {"abc123:frontend/snapshots.yml": MANIFEST.encode(), "HEAD:frontend/snapshots.yml": after.encode()}
-        with patch("hogli_commands.preflight_checks._git", side_effect=_fake_git(blobs)):
+        with patch("hogli_commands.preflight_checks._git", side_effect=_git_show(blobs)):
             status, detail = check_snapshot_baselines(_scope(changed))
 
         assert status == expected_status
-        if expected_status == "fail":
-            assert "scenes-app-b--default--dark" in detail
+        if removed:
+            assert removed in detail
 
 
-def _findings_from_tree(semgrep: list[str], root: Path) -> dict[Finding, list[int]]:
+def _every_line_is_a_finding(semgrep: list[str], contents: dict[str, bytes]) -> dict[Finding, list[int]]:
     found: dict[Finding, list[int]] = {}
-    for path in sorted(root.rglob("*.py")):
-        relative = path.relative_to(root).as_posix()
-        for number, line in enumerate(path.read_text().splitlines(), start=1):
+    for path, content in contents.items():
+        for number, line in enumerate(content.decode().splitlines(), start=1):
             if line:
-                found.setdefault(("prefer-frozen-dataclasses", relative, line), []).append(number)
+                found.setdefault(("prefer-frozen-dataclasses", path, line), []).append(number)
     return found
 
 
 class TestSemgrepDevex:
     @pytest.mark.parametrize(
-        "blobs,name_status,changed,expected_status,expected_fragment",
+        "blobs,renames,changed,expected_status,expected_fragment",
         [
             (
                 {"abc123:posthog/a.py": b"old", "HEAD:posthog/a.py": b"\nold"},
-                b"",
+                {},
                 ["posthog/a.py"],
                 "pass",
                 "no new findings",
             ),
             (
                 {"abc123:posthog/a.py": b"old", "HEAD:posthog/a.py": b"old\nnew"},
-                b"",
+                {},
                 ["posthog/a.py"],
                 "fail",
                 "posthog/a.py:2",
             ),
             (
                 {"abc123:posthog/a.py": b"old", "HEAD:posthog/a.py": b"old\nold"},
-                b"",
+                {},
                 ["posthog/a.py"],
                 "fail",
                 "posthog/a.py:2",
             ),
             (
                 {"abc123:posthog/a.py": b"old", "HEAD:posthog/moved/a.py": b"old"},
-                b"R100\0posthog/a.py\0posthog/moved/a.py\0",
+                {"posthog/moved/a.py": "posthog/a.py"},
                 ["posthog/moved/a.py"],
                 "pass",
                 "no new findings",
             ),
-            (
-                {"HEAD:products/desktop/a.py": b"new"},
-                b"",
-                ["products/desktop/a.py"],
-                "skipped",
-                "no file to scan",
-            ),
+            ({"HEAD:posthog/new.py": b"new"}, {}, ["posthog/new.py"], "fail", "posthog/new.py:1"),
+            ({"HEAD:frontend/a.png": b"\x89PNG\0\0"}, {}, ["frontend/a.png"], "skipped", "no file to scan"),
         ],
     )
-    @patch("hogli_commands.preflight_checks._semgrep_findings", side_effect=_findings_from_tree)
+    @patch("hogli_commands.preflight_checks._semgrep_findings", side_effect=_every_line_is_a_finding)
     @patch("hogli_commands.preflight_checks._semgrep_version", return_value="1.0.0")
     @patch("hogli_commands.preflight_checks.shutil.which", return_value="/usr/bin/uvx")
     def test_only_findings_the_branch_introduced_block(
@@ -122,12 +115,15 @@ class TestSemgrepDevex:
         mock_version: MagicMock,
         mock_findings: MagicMock,
         blobs: dict[str, bytes],
-        name_status: bytes,
+        renames: dict[str, str],
         changed: list[str],
         expected_status: str,
         expected_fragment: str,
     ) -> None:
-        with patch("hogli_commands.preflight_checks._git", side_effect=_fake_git(blobs, name_status)):
+        with (
+            patch("hogli_commands.preflight_checks._git", side_effect=_git_show(blobs)),
+            patch("hogli_commands.preflight_checks._renamed_from", return_value=renames),
+        ):
             status, detail = check_semgrep_devex(_scope(changed))
 
         assert status == expected_status
@@ -136,17 +132,17 @@ class TestSemgrepDevex:
     @patch("hogli_commands.preflight_checks._semgrep_findings", return_value=None)
     @patch("hogli_commands.preflight_checks._semgrep_version", return_value="1.0.0")
     @patch("hogli_commands.preflight_checks.shutil.which", return_value="/usr/bin/uvx")
-    def test_a_scan_with_no_report_skips_instead_of_blocking(
+    def test_an_incomplete_scan_skips_instead_of_blocking(
         self, mock_which: MagicMock, mock_version: MagicMock, mock_findings: MagicMock
     ) -> None:
-        blobs = {"abc123:posthog/a.py": b"old", "HEAD:posthog/a.py": b"old\nnew"}
-        with patch("hogli_commands.preflight_checks._git", side_effect=_fake_git(blobs)):
+        with patch("hogli_commands.preflight_checks._git", side_effect=_git_show({"HEAD:posthog/a.py": b"new"})):
             status, _ = check_semgrep_devex(_scope(["posthog/a.py"]))
 
         assert status == "skipped"
 
 
 WORKFLOW = ".github/workflows/ci-backend.yml"
+PRODUCT_FILE = "products/x/backend/api.py"
 EVERY_LANE = ["fe:core", "py:core", "rust:core"]
 
 
@@ -154,27 +150,28 @@ def _node_output(payload: object) -> subprocess.CompletedProcess[str]:
     return subprocess.CompletedProcess(args=[], returncode=0, stdout=json.dumps(payload), stderr="")
 
 
+def _widened(listed: int, total: int) -> dict[str, object]:
+    files = [WORKFLOW, *(f".github/workflows/{n}.yml" for n in range(listed - 1))]
+    return {"is_all": True, "tripwire_files": files, "tripwire_domains": {"universal": total}}
+
+
 class TestMergeQueueLane:
     @pytest.mark.parametrize(
         "changed,summary,narrowed,expected_status",
         [
-            (
-                [WORKFLOW, "products/x/backend/api.py"],
-                {"is_all": True, "tripwire_files": [WORKFLOW]},
-                ["py:core"],
-                "warning",
-            ),
-            ([WORKFLOW, "common/new/x.py"], {"is_all": True, "tripwire_files": [WORKFLOW]}, EVERY_LANE, "pass"),
-            ([WORKFLOW], {"is_all": True, "tripwire_files": [WORKFLOW]}, None, "pass"),
-            (["products/x/backend/api.py"], {"is_all": False, "target_count": 1, "tripwire_files": []}, None, "pass"),
+            ([WORKFLOW, PRODUCT_FILE], _widened(1, 1), ["py:core"], "warning"),
+            ([WORKFLOW, "common/new/x.py"], _widened(1, 1), EVERY_LANE, "pass"),
+            ([WORKFLOW], _widened(1, 1), None, "pass"),
+            ([WORKFLOW, PRODUCT_FILE], _widened(20, 25), ["py:core"], "pass"),
+            ([PRODUCT_FILE], {"is_all": False, "tripwire_files": []}, None, "pass"),
         ],
     )
-    @patch("hogli_commands.preflight_checks._git", return_value=b"")
+    @patch("hogli_commands.preflight_checks._renamed_from", return_value={})
     @patch("hogli_commands.preflight_checks.shutil.which", return_value="/usr/bin/node")
     def test_warns_only_when_splitting_the_pr_would_narrow_the_lane(
         self,
         mock_which: MagicMock,
-        mock_git: MagicMock,
+        mock_renames: MagicMock,
         changed: list[str],
         summary: dict[str, object],
         narrowed: list[str] | None,

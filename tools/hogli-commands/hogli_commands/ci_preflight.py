@@ -31,6 +31,7 @@ import time
 import shutil
 import socket
 import subprocess
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -50,9 +51,21 @@ from hogli_commands.complexity_lint import PYTHON_SCOPE, TEST_WARN_AT, TYPESCRIP
 from hogli_commands.depot_mirrors import mirror_violations
 from hogli_commands.devenv.generator import TRACKED_MPROCS_FILES
 from hogli_commands.lockfile_merge import LOCKFILE_GLOBS, missing_resolutions
-from hogli_commands.preflight_checks import FUNCTION_CHECKS, Scope, Status
+from hogli_commands.preflight_checks import (
+    SEMGREP_SCOPE,
+    SNAPSHOT_MANIFEST,
+    Outcome,
+    Scope,
+    Status,
+    check_merge_queue_lane,
+    check_semgrep_devex,
+    check_snapshot_baselines,
+)
 from hogli_commands.projections import all_outputs as projection_outputs
-from hogli_commands.size_lint import SCOPE as SIZE_SCOPE
+from hogli_commands.size_lint import (
+    SCOPE as SIZE_SCOPE,
+    _merge_base,
+)
 
 Requirement = Literal["node", "desktop-node", "agent-node", "stack", "clickhouse", "python-env"]
 
@@ -82,6 +95,8 @@ class DiffCheck:
     # for advisory checks whose findings print on stdout with exit 0. Warnings
     # never block and never count toward the advisory footer.
     soft: bool = False
+    # A check that reads the diff itself. It replaces `verify` and `fix`, and it has no auto-fix.
+    run: Callable[[Scope], Outcome] | None = None
     matched: list[str] = field(default_factory=list)
 
     @property
@@ -92,7 +107,7 @@ class DiffCheck:
         as a finding whatever shape it takes: a nudge (``advice``) and a
         guidance-only check (``verify is None``) are both unmeasured.
         """
-        return self.advice is None and self.verify is not None
+        return self.run is not None or (self.advice is None and self.verify is not None)
 
 
 # Ordered cheapest-first. Grounded in failure classes seen in `hogli ci:insights`:
@@ -327,6 +342,28 @@ DIFF_CHECKS: list[DiffCheck] = [
         verify=["hogli", "migrations:check"],
         requires=("stack", "clickhouse"),
     ),
+    DiffCheck(
+        key="snapshot-baselines",
+        label="visual baselines dropped from snapshots.yml (fails the merge queue batch)",
+        triggers=[SNAPSHOT_MANIFEST],
+        verify=None,
+        run=check_snapshot_baselines,
+    ),
+    DiffCheck(
+        key="semgrep-devex",
+        label="new semgrep findings (devex rules)",
+        triggers=SEMGREP_SCOPE,
+        verify=None,
+        run=check_semgrep_devex,
+    ),
+    DiffCheck(
+        key="merge-queue-lane",
+        label="merge queue lane this diff claims",
+        triggers=["*"],
+        verify=None,
+        run=check_merge_queue_lane,
+        soft=True,
+    ),
 ]
 
 
@@ -451,7 +488,19 @@ def _run_workspace_scoped(chk: DiffCheck, do_fix: bool) -> tuple[Status, str]:
     return overall, " · ".join(parts)
 
 
-def _run_diff_check(chk: DiffCheck, do_fix: bool, against: str | None, strict: bool) -> tuple[Status, str]:
+def _run_diff_check(
+    chk: DiffCheck, do_fix: bool, against: str | None, strict: bool, changed: Sequence[str] = ()
+) -> tuple[Status, str]:
+    if chk.run is not None:
+        base = _merge_base(against)
+        if base is None:
+            return "skipped", "no merge-base to compare against"
+        try:
+            return chk.run(Scope(files=chk.matched, changed=list(changed), merge_base=base, committed_only=strict))
+        except Exception as error:
+            # These checks parse the output of other tools. A shape they did not expect
+            # must not block the push with a traceback.
+            return "skipped", f"check could not run ({type(error).__name__}: {str(error)[:120]})"
     if chk.advice is not None:
         # Nudge-only: nothing to run, nothing to auto-fix — the advisory *is* the check.
         return "advisory", chk.advice
@@ -788,7 +837,8 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
     triggered: list[DiffCheck] = []
     for chk in DIFF_CHECKS:
         chk.matched = [f for f in files if matches_globs(f, chk.triggers)]
-        if chk.matched:
+        # A check that can only warn is not worth its run time in the pre-push hook.
+        if chk.matched and not (strict and chk.soft and chk.run is not None):
             triggered.append(chk)
     shadow_drift_triggered = any(matches_globs(path, SHADOW_DRIFT_TRIGGERS) for path in files)
 
@@ -821,7 +871,7 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
             click.echo(f"       {drift_detail}")
 
     for chk in triggered:
-        status, detail = _run_diff_check(chk, do_fix, against, strict)
+        status, detail = _run_diff_check(chk, do_fix, against, strict, files)
         failures += status == "fail"
         # Nudges say "consider this", not "this is drift" — counting them would cry wolf in
         # the footer on every matching push and cost the detected advisories their weight.
@@ -831,41 +881,9 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
             click.secho(f"   {_ICON[status]} [{chk.key}] {chk.label}", fg=_COLOR[status])
             click.echo(f"       {len(chk.matched)} file(s) · {detail}")
 
-    function_keys: list[str] = []
-    # The same refs, in the same order, that `changed_files` diffed against.
-    merge_base = next(
-        (
-            sha
-            for ref in ([against] if against else ["origin/master", "master"])
-            if (sha := _git("merge-base", "HEAD", ref))
-        ),
-        None,
-    )
-    for function_check in FUNCTION_CHECKS:
-        matched = [f for f in files if matches_globs(f, function_check.triggers)]
-        if not matched:
-            continue
-        function_keys.append(function_check.key)
-        if merge_base is None:
-            status, detail = "skipped", f"no merge-base with {base}"
-        else:
-            try:
-                status, detail = function_check.run(
-                    Scope(files=matched, changed=files, merge_base=merge_base, committed_only=strict)
-                )
-            except Exception as error:
-                # These checks parse the output of other tools. A shape they did not expect
-                # must not block the push with a traceback.
-                status, detail = "skipped", f"check could not run ({type(error).__name__})"
-        failures += status == "fail"
-        results.append({"check": function_check.key, "status": status, "files": len(matched), "detail": detail})
-        if not as_json:
-            click.secho(f"   {_ICON[status]} [{function_check.key}] {function_check.label}", fg=_COLOR[status])
-            click.echo(f"       {len(matched)} file(s) · {detail}")
-
     summary = {
         "changed_files": len(files),
-        "triggered": (["shadow-drift"] if shadow_drift_triggered else []) + [c.key for c in triggered] + function_keys,
+        "triggered": (["shadow-drift"] if shadow_drift_triggered else []) + [c.key for c in triggered],
         "failures": failures,
         "advisories": advisories,
         "mode": "fix" if do_fix else ("strict" if strict else "advisory"),
@@ -875,7 +893,7 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
     if as_json:
         click.echo(json.dumps(summary))
     else:
-        if not triggered and not shadow_drift_triggered and not function_keys:
+        if not triggered and not shadow_drift_triggered:
             click.secho("   ✓ Nothing in this diff maps to a known CI failure class.", fg="green")
         click.echo()
         click.echo(
