@@ -64,6 +64,7 @@ from products.signals.backend.scout_harness.tools.report import (
 )
 from products.signals.backend.scout_report import ScoutReportSignal
 from products.signals.backend.task_run_artefacts import record_implementation_task
+from products.signals.backend.tasks import autostart_scout_report
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeResponse
 from products.signals.backend.temporal.types import SignalData, render_signal_to_text
 from products.signals.backend.test.report_metric_test_fixtures import trends_metric_query
@@ -1499,15 +1500,30 @@ class TestScoutReportAPI(APIBaseTest):
         reviewers = self._latest_artefact(report_id, SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS)
         assert reviewers is not None and "octocat" in reviewers.content
 
-    def test_emit_report_fires_autostart_when_surfaced(self) -> None:
+    @parameterized.expand(
+        [
+            ("still_ready", SignalReport.Status.READY, 2),
+            ("dismissed", SignalReport.Status.SUPPRESSED, 1),
+            ("snoozed", SignalReport.Status.POTENTIAL, 1),
+            ("resolved", SignalReport.Status.RESOLVED, 1),
+            ("deleted", SignalReport.Status.DELETED, 1),
+        ]
+    )
+    def test_emit_report_fires_autostart_when_surfaced(
+        self, _name: str, later_status: SignalReport.Status, total_awaits: int
+    ) -> None:
         run = _make_run(self.team)
         payload = self._payload(repository="PostHog/PostHog", priority="P1", priority_explanation="big blast radius")
         with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()) as autostart:
             response = self.client.post(self._emit_url(str(run.id)), data=payload, format="json")
-        assert response.status_code == status.HTTP_200_OK
-        autostart.assert_awaited_once()
-        assert autostart.await_args is not None
-        assert autostart.await_args.kwargs["report_id"] == response.json()["report_id"]
+            assert response.status_code == status.HTTP_200_OK
+            autostart.assert_awaited_once()
+            assert autostart.await_args is not None
+            report_id = response.json()["report_id"]
+            assert autostart.await_args.kwargs["report_id"] == report_id
+            SignalReport.objects.filter(id=report_id).update(status=later_status)
+            autostart_scout_report(team_id=self.team.id, report_id=report_id)
+        assert autostart.await_count == total_awaits
 
     def test_emit_and_routing_edit_delay_autostart_so_a_later_reviewer_fix_reaches_the_pr(self) -> None:
         run = _make_run(self.team)

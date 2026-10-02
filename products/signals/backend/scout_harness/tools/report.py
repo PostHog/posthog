@@ -1003,13 +1003,23 @@ def _queue_report_autostart(*, team_id: int, report_id: str) -> None:
 async def _maybe_autostart_report(*, team_id: int, report_id: str) -> None:
     """Best-effort autostart hand-off after a report surfaced. Reconstructs the autostart inputs from
     the report's artefacts (the same shared entry point the reviewer-edit hook uses) and swallows
-    failures so a draft-PR hiccup never fails the emit. No-ops unless the report is immediately
+    failures so a draft-PR hiccup never fails the emit. No-ops unless the report is still in the inbox
+    (a person can dismiss, snooze, resolve or delete it during the autostart delay), is immediately
     actionable, has a repo + priority, and a suggested reviewer clears their autonomy threshold."""
     from products.signals.backend.auto_start import (
         maybe_autostart_from_report_artefacts,  # noqa: PLC0415 — break worker-boot import cycle
     )
 
     try:
+        report_status = (
+            await SignalReport.objects.filter(team_id=team_id, id=report_id).values_list("status", flat=True).afirst()
+        )
+        if report_status is None or not _surfaced(report_status):
+            logger.info(
+                "signals_scout: autostart skipped, report left the inbox",
+                extra={"report_id": report_id, "status": report_status},
+            )
+            return
         await maybe_autostart_from_report_artefacts(team_id=team_id, report_id=report_id)
     except Exception:
         logger.exception("signals_scout.emit_report: autostart failed", extra={"report_id": report_id})
