@@ -128,17 +128,22 @@ export default meta
 
 type Story = StoryObj<typeof AudienceScene>
 
-// 520px is the scene width left by a 1280px window with the nav sidebar and the side panel open.
-const NARROW_SCENE_WIDTH = 520
+type SceneWidth = 'full' | 'narrow'
 
-function audienceTabStory(tab: AudienceTab, containerWidth?: number): Story {
+const SCENE_WIDTH_CLASSES: Record<SceneWidth, string> = {
+    full: 'w-full',
+    // 520px is the scene width left by a 1280px window with the nav sidebar and the side panel open.
+    narrow: 'w-[520px]',
+}
+
+function audienceTabStory(tab: AudienceTab, sceneWidth: SceneWidth): Story {
     return {
         render: function Render() {
             useEffect(() => {
                 router.actions.push(urls.audience(tab))
             }, [])
             return (
-                <div style={{ width: containerWidth ?? '100%' }}>
+                <div className={SCENE_WIDTH_CLASSES[sceneWidth]}>
                     <AudienceScene />
                 </div>
             )
@@ -146,7 +151,7 @@ function audienceTabStory(tab: AudienceTab, containerWidth?: number): Story {
     }
 }
 
-export const Topics: Story = audienceTabStory('topics')
-export const TopicsNarrow: Story = audienceTabStory('topics', NARROW_SCENE_WIDTH)
-export const SuppressionList: Story = audienceTabStory('suppression')
-export const SuppressionListNarrow: Story = audienceTabStory('suppression', NARROW_SCENE_WIDTH)
+export const Topics: Story = audienceTabStory('topics', 'full')
+export const TopicsNarrow: Story = audienceTabStory('topics', 'narrow')
+export const SuppressionList: Story = audienceTabStory('suppression', 'full')
+export const SuppressionListNarrow: Story = audienceTabStory('suppression', 'narrow')
