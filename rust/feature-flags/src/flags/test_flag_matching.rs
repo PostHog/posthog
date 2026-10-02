@@ -1342,8 +1342,13 @@ mod tests {
         }
     }
 
+    #[rstest::rstest]
+    #[case::flags_endpoint(false)]
+    #[case::batch_endpoint(true)]
     #[tokio::test]
-    async fn test_flags_depending_on_a_failed_flag_fail_only_when_their_answer_needs_it() {
+    async fn test_flags_depending_on_a_failed_flag_fail_only_when_their_answer_needs_it(
+        #[case] ignore_variants: bool,
+    ) {
         let failing_db = setup_invalid_pg_client().await;
         let router = PostgresRouter::new(
             failing_db.clone(),
@@ -1359,7 +1364,8 @@ mod tests {
             Arc::new(CohortCacheManager::new(failing_db, None, None)),
             empty_group_type_cache(),
             None,
-        );
+        )
+        .with_ignore_variants_in_dependency_check(ignore_variants);
 
         let rollout_flag = mock!(FeatureFlag, id: 1, key: "rollout_flag".mock_into());
         let person_flag = mock!(FeatureFlag,
@@ -1502,6 +1508,36 @@ mod tests {
                 early_exit: Some(true)
             )
         );
+        let dependent_on_variant_flag = mock!(FeatureFlag,
+            id: 14,
+            key: "dependent_on_variant_flag".mock_into(),
+            filters: dep_filter(person_flag.id, FlagValue::String("test".to_string())).mock_into()
+        );
+        let dependent_with_hashed_variant_flag = mock!(FeatureFlag,
+            id: 15,
+            key: "dependent_with_hashed_variant_flag".mock_into(),
+            filters: mock!(FlagFilters,
+                groups: vec![
+                    mock!(FlagPropertyGroup,
+                        properties: Some(vec![dep_filter(person_flag.id, FlagValue::Boolean(true))])
+                    ),
+                    mock!(FlagPropertyGroup, variant: Some("control".to_string())),
+                ],
+                multivariate: Some(control_for_everyone())
+            )
+        );
+        let dependent_with_conflicting_filters_flag = mock!(FeatureFlag,
+            id: 16,
+            key: "dependent_with_conflicting_filters_flag".mock_into(),
+            filters: mock!(FlagFilters,
+                groups: vec![mock!(FlagPropertyGroup,
+                    properties: Some(vec![
+                        dep_filter(person_flag.id, FlagValue::Boolean(true)),
+                        dep_filter(person_flag.id, FlagValue::Boolean(false)),
+                    ])
+                )]
+            )
+        );
         let mut flags = flag_list_with_metadata(vec![
             rollout_flag,
             person_flag,
@@ -1516,6 +1552,9 @@ mod tests {
             dependent_with_same_pinned_variant_flag,
             dependent_stopping_early_flag,
             dependent_stopping_early_without_later_match_flag,
+            dependent_on_variant_flag,
+            dependent_with_hashed_variant_flag,
+            dependent_with_conflicting_filters_flag,
         ]);
         // Preloaded cohorts keep the cohort definitions lookup off the failing pool.
         flags.cohorts = Some(Arc::from(Vec::new()));
@@ -1525,8 +1564,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(result.errors_while_computing_flags);
-        for (key, value) in [
+        let mut settled = vec![
             ("rollout_flag", FlagValue::Boolean(true)),
             ("healthy_dependent_flag", FlagValue::Boolean(true)),
             ("dependent_with_catch_all_flag", FlagValue::Boolean(true)),
@@ -1540,21 +1578,44 @@ mod tests {
                 "dependent_stopping_early_without_later_match_flag",
                 FlagValue::Boolean(false),
             ),
-        ] {
+            (
+                "dependent_with_hashed_variant_flag",
+                FlagValue::String("control".to_string()),
+            ),
+            (
+                "dependent_with_conflicting_filters_flag",
+                FlagValue::Boolean(false),
+            ),
+        ];
+        let mut failed = vec![
+            "dependent_flag",
+            "transitive_dependent_flag",
+            "dependent_with_early_exit_flag",
+            "dependent_stopping_early_flag",
+            "dependent_on_variant_flag",
+        ];
+        if ignore_variants {
+            settled.push((
+                "dependent_with_pinned_variant_flag",
+                FlagValue::String("control".to_string()),
+            ));
+        } else {
+            failed.push("dependent_with_pinned_variant_flag");
+        }
+
+        assert!(result.errors_while_computing_flags);
+        for (key, value) in settled {
             assert!(!result.flags[key].failed, "{key}");
             assert_eq!(result.flags[key].to_value(), value, "{key}");
         }
+        let stopped_early = &result.flags["dependent_stopping_early_without_later_match_flag"];
+        assert_eq!(stopped_early.reason.code, "out_of_rollout_bound");
+        assert_eq!(stopped_early.reason.condition_index, Some(0));
         assert_eq!(
             result.flags["person_flag"].reason.code,
             "timeout:pool_timeout"
         );
-        for key in [
-            "dependent_flag",
-            "transitive_dependent_flag",
-            "dependent_with_pinned_variant_flag",
-            "dependent_with_early_exit_flag",
-            "dependent_stopping_early_flag",
-        ] {
+        for key in failed {
             let details = &result.flags[key];
             assert!(
                 details.failed,
