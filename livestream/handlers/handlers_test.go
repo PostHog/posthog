@@ -160,6 +160,35 @@ func createJWTToken(audience string, claims jwt.MapClaims) string {
 	return tokenString
 }
 
+func TestHandlersRejectRevokedAccess(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer server.Close()
+	viper.Set("jwt.authorization_url", server.URL)
+	t.Cleanup(func() { viper.Set("jwt.authorization_url", "") })
+	viper.Set("jwt.secret", "test-revoked-access-secret")
+	token := createJWTToken(auth.ExpectedScope, jwt.MapClaims{
+		"team_id": 1, "api_token": "test-project-token", "user_id": 1, "organization_id": "test-organization",
+	})
+	e := echo.New()
+	for name, handler := range map[string]echo.HandlerFunc{
+		"stats":         StatsHandler(nil, nil, nil),
+		"events":        StreamEventsHandler(e.Logger, make(chan events.Subscription, 1), make(chan events.Subscription, 1)),
+		"notifications": NotificationsHandler(nil),
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			request := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(ctx)
+			request.Header.Set("Authorization", "Bearer "+token)
+			var httpError *echo.HTTPError
+			require.ErrorAs(t, handler(e.NewContext(request, httptest.NewRecorder())), &httpError)
+			assert.Equal(t, http.StatusUnauthorized, httpError.Code)
+		})
+	}
+}
+
 func TestStatsHandler_ReadsFromRedis(t *testing.T) {
 	viper.Set("jwt.secret", "test-secret-for-stats")
 	apiToken := "phx_test_token"
