@@ -150,7 +150,7 @@ class TestModelConfigurationSerializer(SimpleTestCase):
         ):
             serializer.validate({"model_configuration": {"provider": "system_one", "model": "custom-model"}})
 
-    @parameterized.expand([("system_one", False), ("openai", True)])
+    @parameterized.expand([("system_one", False), ("openrouter", False), ("openai", True)])
     def test_clearing_numeric_bounds_depends_on_provider(self, provider: str, valid: bool) -> None:
         evaluation = Evaluation(
             evaluation_type="llm_judge",
@@ -160,7 +160,11 @@ class TestModelConfigurationSerializer(SimpleTestCase):
             model_configuration=LLMModelConfiguration(provider=provider, model="custom-model"),
         )
         serializer = EvaluationSerializer(instance=evaluation, data={"output_config": {"max": None}}, partial=True)
-        self.assertEqual(serializer.is_valid(), valid, serializer.errors)
+        with patch(
+            "products.ai_observability.backend.llm.providers.openrouter._non_chat_models",
+            return_value={"custom-model": ["decisions"]},
+        ):
+            self.assertEqual(serializer.is_valid(), valid, serializer.errors)
         if valid:
             self.assertEqual(serializer.validated_data["output_config"]["min"], 0)
         else:
@@ -874,11 +878,28 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data["attr"], "model_configuration")
 
-    @parameterized.expand([("decision_model", "typesafe/jev-1.13", 400), ("chat_model", "openai/gpt-4o", 201)])
-    def test_llm_judge_creation_rejects_openrouter_non_chat_model(self, _name, model, expected_status):
-        with patch(
-            "products.ai_observability.backend.llm.providers.openrouter._non_chat_model_ids",
-            return_value=frozenset({"typesafe/jev-1.13"}),
+    @parameterized.expand(
+        [
+            ("decision_model_enabled", "typesafe/jev-1.13", True, 201),
+            ("decision_model_disabled", "typesafe/jev-1.13", False, 400),
+            ("decision_model_alias", "~typesafe/jev-latest", True, 201),
+            ("chat_model", "openai/gpt-4o", False, 201),
+            ("other_non_chat_model", "example/embedding", True, 400),
+        ]
+    )
+    def test_llm_judge_creation_checks_openrouter_model_capabilities(self, _name, model, flag, expected_status):
+        with (
+            patch(
+                "products.ai_observability.backend.llm.providers.openrouter._non_chat_models",
+                return_value={
+                    "typesafe/jev-1.13": ["decisions"],
+                    "~typesafe/jev-latest": ["decisions"],
+                    "example/embedding": ["embeddings"],
+                },
+            ),
+            patch(
+                "products.ai_observability.backend.api.evaluations.system_one_evaluations_enabled", return_value=flag
+            ),
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/evaluations/",
@@ -2091,7 +2112,8 @@ class TestReEnableValidatesRootCauseResolved(APIBaseTest):
         self.assertTrue(eval_obj.enabled)
         self.assertIsNone(eval_obj.status_reason)
 
-    def test_rejects_re_enable_when_model_still_not_supported(self):
+    @parameterized.expand([(False, 400), (True, 200)])
+    def test_re_enable_openrouter_decision_model_depends_on_rollout(self, flag, expected_status):
         key = LLMProviderKey.objects.create(
             team=self.team,
             provider="openrouter",
@@ -2104,9 +2126,14 @@ class TestReEnableValidatesRootCauseResolved(APIBaseTest):
             status_reason="model_not_supported", model="typesafe/jev-1.13", provider_key=key, provider="openrouter"
         )
 
-        with patch(
-            "products.ai_observability.backend.llm.providers.openrouter._non_chat_model_ids",
-            return_value=frozenset({"typesafe/jev-1.13"}),
+        with (
+            patch(
+                "products.ai_observability.backend.llm.providers.openrouter._non_chat_models",
+                return_value={"typesafe/jev-1.13": ["decisions"]},
+            ),
+            patch(
+                "products.ai_observability.backend.api.evaluations.system_one_evaluations_enabled", return_value=flag
+            ),
         ):
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
@@ -2114,10 +2141,9 @@ class TestReEnableValidatesRootCauseResolved(APIBaseTest):
                 format="json",
             )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.data["attr"], "model_configuration")
+        self.assertEqual(response.status_code, expected_status, response.json())
         eval_obj.refresh_from_db()
-        self.assertFalse(eval_obj.enabled)
+        self.assertEqual(eval_obj.enabled, flag)
 
     def test_allows_re_enable_when_model_not_found_with_new_model(self):
         key = LLMProviderKey.objects.create(

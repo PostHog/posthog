@@ -17,6 +17,7 @@ from products.ai_observability.backend.llm.providers.openrouter import (
     OPENROUTER_HEADERS,
     OpenRouterAdapter,
     _non_chat_model_ids,
+    decision_model_ids,
 )
 
 
@@ -181,6 +182,9 @@ class TestOpenRouterNonChatModels:
                 {"id": "openai/gpt-4o", "architecture": {"output_modalities": ["text"]}},
                 {"id": "google/image-model", "architecture": {"output_modalities": ["image", "text"]}},
                 {"id": "typesafe/jev-1.13", "architecture": {"output_modalities": ["decisions"]}},
+                {"id": "~typesafe/jev-latest", "architecture": {"output_modalities": ["decisions"]}},
+                {"id": "typesafe/jev-router", "architecture": {"output_modalities": ["text"]}},
+                {"id": "example/embedding", "architecture": {"output_modalities": ["embeddings"]}},
                 {"id": "no-architecture/model"},
             ]
         }
@@ -189,7 +193,10 @@ class TestOpenRouterNonChatModels:
             patch("products.ai_observability.backend.llm.providers.openrouter.cache.set"),
             patch("products.ai_observability.backend.llm.providers.openrouter.httpx.get", return_value=mock_response),
         ):
-            assert _non_chat_model_ids() == frozenset({"typesafe/jev-1.13"})
+            assert _non_chat_model_ids() == frozenset(
+                {"typesafe/jev-1.13", "~typesafe/jev-latest", "example/embedding"}
+            )
+            assert decision_model_ids() == frozenset({"typesafe/jev-1.13", "~typesafe/jev-latest"})
 
     def test_catalogue_failure_is_cached_briefly(self) -> None:
         cache.delete(NON_CHAT_MODELS_CACHE_KEY)

@@ -46,7 +46,8 @@ from products.access_control.backend.presentation.access_control import (
 from ..evaluation_conditions import build_condition_filter
 from ..hog import compile_ai_observability_hog
 from ..llm import DEFAULT_MODEL_BY_PROVIDER
-from ..llm.providers.openrouter import is_non_chat_model
+from ..llm.providers.openrouter import OPENROUTER_BASE_URL, is_non_chat_model
+from ..llm.system_one import is_system_one_model, system_one_evaluations_enabled
 from ..models.evaluation_config import EvaluationConfig
 from ..models.evaluation_configs import (
     EVALUATION_TEST_LOOKBACK_DAYS,
@@ -571,7 +572,13 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             if isinstance(model_configuration, dict)
             else getattr(model_configuration, "provider", None)
         )
-        if model_provider == LLMProvider.SYSTEM_ONE and output_type not in ("boolean", "categorical", "numeric"):
+        model = (
+            model_configuration.get("model")
+            if isinstance(model_configuration, dict)
+            else getattr(model_configuration, "model", None)
+        )
+        uses_system_one = is_system_one_model(model_provider, model)
+        if uses_system_one and output_type not in ("boolean", "categorical", "numeric"):
             raise serializers.ValidationError(
                 {"model_configuration": "Select a model that supports this evaluation output type."}
             )
@@ -622,7 +629,7 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             except ValueError as e:
                 raise serializers.ValidationError({"config": str(e)})
 
-        if model_provider == LLMProvider.SYSTEM_ONE and output_type == "numeric":
+        if uses_system_one and output_type == "numeric":
             config = data.get("output_config", getattr(self.instance, "output_config", {}))
             if config.get("min") is None or config.get("max") is None or config["min"] >= config["max"]:
                 raise serializers.ValidationError(
@@ -668,11 +675,17 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         return data
 
     def _validate_chat_model(self, data: dict) -> None:
-        """The judge calls chat completions, so a model without text output fails on every run."""
+        """OpenRouter judges use either chat completions or System One decisions."""
         model_config = self._effective_model_configuration(data)
         if not model_config or model_config.get("provider") != LLMProvider.OPENROUTER:
             return
         model = model_config.get("model")
+        if is_system_one_model(LLMProvider.OPENROUTER, model):
+            if not system_one_evaluations_enabled(self.context["get_team"]().id, base_url=OPENROUTER_BASE_URL):
+                raise serializers.ValidationError(
+                    {"model_configuration": "System One evaluations are not available for this project."}
+                )
+            return
         if model and is_non_chat_model(model):
             raise serializers.ValidationError(
                 {

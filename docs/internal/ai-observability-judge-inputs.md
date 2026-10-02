@@ -51,7 +51,12 @@ PostHog's regional AI gateway endpoints additionally require an organization in 
 Connection validation and every evaluation check these gates; an absent flag or failed flag lookup blocks the call.
 Turning the flag off stops subsequent runs, including queued work, without disabling the saved evaluation.
 Keep the experimental flag limited to staff projects during rollout.
-Add a connection under **System One** in provider key settings.
+OpenRouter decision models, including Jev, appear under an existing OpenRouter key in the evaluation model picker when this flag is enabled.
+They use OpenRouter's `/api/v1/systemone` endpoint with that key; no custom endpoint or System One connection is needed.
+The OpenRouter catalogue's `decisions` output modality identifies these models, including aliases; chat models such as Jev Router keep using chat completions.
+Decision models are excluded from the playground and tagger model pickers.
+If the catalogue is unavailable during an OpenRouter evaluation, the run retries rather than guessing which API to call.
+For other compatible services, add a connection under **System One** in provider key settings.
 Enter the public HTTPS base URL and model ID of a compatible service; neither has a default.
 TypeSafe's hosted endpoint is not supported by this integration.
 The client appends `/systemone` to the base URL and sends the API key as a bearer token.
