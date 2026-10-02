@@ -82,7 +82,12 @@ export interface canvasCommentsLogicActions {
         source: CanvasThreadSource
     ) => {
         id: string
-        rect: CanvasRect | null
+        rect: {
+            bottom: number
+            left: number
+            right: number
+            top: number
+        } | null
         source: CanvasThreadSource
     }
     createComment: () => {
