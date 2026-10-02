@@ -30,9 +30,10 @@ class TestAgentPreferencesAPI(APIBaseTest):
         assert response.status_code == 200
         assert response.json() == DEFAULTS
 
-    def test_partial_updates_keep_the_other_stored_values(self):
+    @parameterized.expand([("json",), ("multipart",)])
+    def test_partial_updates_keep_the_other_stored_values(self, body_format: str):
         self.client.post(self._url(), {"auto_publish_cloud_runs": True}, format="json")
-        response = self.client.post(self._url(), {"start_in_plan_mode": True}, format="json")
+        response = self.client.post(self._url(), {"start_in_plan_mode": True}, format=body_format)
 
         assert response.status_code == 200
         assert response.json() == {"start_in_plan_mode": True, "auto_publish_cloud_runs": True}

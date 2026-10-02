@@ -250,7 +250,7 @@ class TasksUserAgentPreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
         description="Update your per-project task defaults. Fields you leave out keep their stored value.",
     )
     def create(self, request: Request, *args, **kwargs) -> Response:
-        serializer = TasksAgentPreferencesUpdateSerializer(data=request.data)
+        serializer = TasksAgentPreferencesUpdateSerializer(data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         preferences = agent_preferences.update_user_agent_preferences(
             self.team_id, _user_id(request), dict(serializer.validated_data)
