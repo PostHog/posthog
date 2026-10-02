@@ -88,9 +88,6 @@ export type TreeDataItem = {
      */
     onClick?: (open?: boolean) => void
 
-    /** Tags for the item */
-    tags?: string[]
-
     /** Order of object in tree */
     visualOrder?: number
 }

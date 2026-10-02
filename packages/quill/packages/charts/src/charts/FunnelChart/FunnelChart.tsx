@@ -278,7 +278,9 @@ export function FunnelChart<Meta = unknown>({
             >
                 {chart}
             </div>
-            {bands && bands.length > 0 && <StepFooterRow bands={bands} stepFooter={stepFooter} />}
+            {bands && bands.length > 0 && (
+                <StepFooterRow bands={bands.slice(0, steps.length)} stepFooter={stepFooter} />
+            )}
         </div>
     )
 }

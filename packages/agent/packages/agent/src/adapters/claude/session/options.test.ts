@@ -5,6 +5,7 @@ import type { HookInput, Options } from "@anthropic-ai/claude-agent-sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Logger } from "../../../utils/logger";
 import { SUBAGENT_REWRITES } from "../hooks";
+import { VALIDATION_LOCK_PREFIX } from "./memory-validation";
 import {
   buildSessionOptions,
   buildSystemPrompt,
@@ -252,6 +253,25 @@ describe("buildSessionOptions", () => {
         updatedInput?: { command?: string };
       };
     };
+
+    it("keeps the cloud validation lock when RTK rewriting is enabled", async () => {
+      const options = buildSessionOptions({ ...makeParams(), cloudMode: true });
+      const hooks = (options.hooks?.PreToolUse ?? []).flatMap(
+        (entry) => entry.hooks ?? [],
+      );
+      const outputs = (await Promise.all(
+        hooks.map((hook) =>
+          hook(bashInput("pnpm test"), "toolu_test", {
+            signal: new AbortController().signal,
+          }),
+        ),
+      )) as PreToolUseOutput[];
+      expect(
+        outputs.flatMap(
+          (output) => output.hookSpecificOutput?.updatedInput?.command ?? [],
+        ),
+      ).toEqual([`${VALIDATION_LOCK_PREFIX}pnpm test`]);
+    });
 
     it("registers the signed-commit guard before the rtk rewrite so the guard evaluates raw commands (cloud)", async () => {
       const options = buildSessionOptions({

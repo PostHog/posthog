@@ -606,6 +606,8 @@ export interface SignalReportListApi {
     readonly title: string | null
     /** @nullable */
     readonly summary: string | null
+    /** The opening of `summary` as plain text on one line: the text before its first section heading, with chart links removed and other links reduced to their text. At most 450 characters. */
+    readonly summary_lead: string
     readonly status: SignalReportStatusEnumApi
     readonly total_weight: number
     readonly signal_count: number
@@ -823,6 +825,8 @@ export interface SignalReportApi {
     readonly title: string | null
     /** @nullable */
     readonly summary: string | null
+    /** The opening of `summary` as plain text on one line: the text before its first section heading, with chart links removed and other links reduced to their text. At most 450 characters. */
+    readonly summary_lead: string
     readonly status: SignalReportStatusEnumApi
     readonly total_weight: number
     readonly signal_count: number
@@ -2805,6 +2809,40 @@ export interface CheckComparisonApi {
 }
 
 /**
+ * How to draw this measurement; copied from a referenced metric.
+ */
+export type MetricThresholdConfigApiMetricKind =
+    | (typeof MetricThresholdConfigApiMetricKind)[keyof typeof MetricThresholdConfigApiMetricKind]
+    | null
+
+export const MetricThresholdConfigApiMetricKind = {
+    AffectedUsers: 'affected_users',
+    AffectedSessions: 'affected_sessions',
+    Occurrences: 'occurrences',
+    ConversionRate: 'conversion_rate',
+    ErrorRate: 'error_rate',
+    Duration: 'duration',
+    Revenue: 'revenue',
+    Custom: 'custom',
+} as const
+
+/**
+ * How to format measured values; copied from a referenced metric.
+ */
+export type MetricThresholdConfigApiValueFormat =
+    | (typeof MetricThresholdConfigApiValueFormat)[keyof typeof MetricThresholdConfigApiValueFormat]
+    | null
+
+export const MetricThresholdConfigApiValueFormat = {
+    Number: 'number',
+    Count: 'count',
+    Percentage: 'percentage',
+    PercentageScaled: 'percentage_scaled',
+    Duration: 'duration',
+    Currency: 'currency',
+} as const
+
+/**
  * Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. `dateRange.date_from` must be a relative window such as `-13d`, and `date_to` must be empty, so the check measures the days before each run rather than the days before it was written. The query must produce exactly one output series: use one event or action series, or combine up to ten of them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric` turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`, which keeps compare mode off already.
  */
 export type MetricThresholdConfigApiQuery = { [key: string]: unknown } | null
@@ -2832,6 +2870,12 @@ export interface MetricThresholdConfigApi {
     comparison: CheckComparisonApi
     /** The value observed when the check was written, recorded on each result for context. */
     baseline_value?: number | null
+    /** How to draw this measurement; copied from a referenced metric. */
+    metric_kind?: MetricThresholdConfigApiMetricKind
+    /** How to format measured values; copied from a referenced metric. */
+    value_format?: MetricThresholdConfigApiValueFormat
+    /** Optional value suffix. */
+    unit?: string | null
 }
 
 /**
@@ -2910,7 +2954,7 @@ export interface SignalReportCheckApi {
     /** When the coordinator next evaluates the check. Provisional while the check is `pending`: the report resolving is what sets it. */
     readonly next_run_at: string
     /**
-     * How long after the report resolves a `pending` check waits before its first run. Null on a check that named its own `next_run_at`.
+     * Minimum wait after resolution, in minutes. Metric checks also wait for a full post-resolution query window. Null on legacy checks that did not record a soak.
      * @nullable
      */
     readonly soak_minutes: number | null
@@ -3026,6 +3070,13 @@ export interface SignalReportBulkStateResponseApi {
     failed_count: number
     /** Number of requested ids not visible to the caller. */
     not_found_count: number
+}
+
+export interface SignalReportsForYouResponseApi {
+    /** The open, actionable reports that matter most to the current user, best first: reports waiting for their input, reports they claimed, reports naming them as a reviewer, then P0 reports that nobody owns. The Today briefing ranks reports the same way. */
+    results: SignalReportListApi[]
+    /** How many open reports are for the current user: the reports in `results`, plus the other open, actionable reports that name them as a reviewer. */
+    count: number
 }
 
 /**
@@ -3833,6 +3884,11 @@ export interface PatchedSignalScoutConfigUpdateApi {
      * @maxItems 10
      */
     write_scopes?: string[]
+    /**
+     * Optional id of the canonical scout suggestion this request turns on. It records that the scout came from that suggestion. An id this project's batch does not hold is ignored.
+     * @maxLength 64
+     */
+    suggestion_id?: string
 }
 
 /**
@@ -6595,6 +6651,10 @@ export type SignalsReportsListParams = {
      */
     count_only?: boolean
     /**
+     * ISO 8601 datetime. Keeps reports created at or after this time.
+     */
+    created_after?: string
+    /**
      * Filter reports by whether an implementation pull request is attached. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with count_only=true to return only the filtered total.
      */
     has_implementation_pr?: boolean
@@ -6615,7 +6675,7 @@ export type SignalsReportsListParams = {
      */
     offset?: number
     /**
-     * Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id. Defaults to '-is_suggested_reviewer,status,-updated_at'.
+     * Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id, ranking_pr_merged, ranking_pr_created, ranking_action, ranking_open. Defaults to '-is_suggested_reviewer,status,-updated_at'. The ranking_* fields sort by the served ranking model's probability for that outcome head, with unscored reports last in either direction. They are staff only: other users get a 400.
      */
     ordering?: string
     /**
@@ -6775,6 +6835,15 @@ export type SignalsReportsAvailableReviewersRetrieve200 = {
         /** Member's email address. */
         email: string
     }
+}
+
+export type SignalsReportsForYouRetrieveParams = {
+    /**
+     * How many of the top reports to return, 1 to 20. Defaults to 5.
+     * @minimum 1
+     * @maximum 20
+     */
+    limit?: number
 }
 
 export type SignalsReportsPrCiStatusesParams = {

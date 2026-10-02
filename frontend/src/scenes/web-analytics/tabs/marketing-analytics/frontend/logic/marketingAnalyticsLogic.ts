@@ -1029,7 +1029,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                             return state
                         }
                         const dateFrom = params.dateFrom ?? state.dateFrom
-                        const dateTo = params.dateTo ?? state.dateTo
+                        const dateTo = params.dateTo !== undefined ? params.dateTo : state.dateTo
                         const interval = params.interval ?? state.interval
                         return { dateFrom, dateTo, interval }
                     },
@@ -1579,9 +1579,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             if (values.dateFilter.dateFrom) {
                 searchParams.set('date_from', values.dateFilter.dateFrom)
             }
-            if (values.dateFilter.dateTo) {
-                searchParams.set('date_to', values.dateFilter.dateTo)
-            }
+            searchParams.set('date_to', values.dateFilter.dateTo ?? '')
             if (values.dateFilter.interval) {
                 searchParams.set('interval', values.dateFilter.interval)
             }
@@ -1806,9 +1804,10 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         if (dateFrom) {
             params.dateFrom = dateFrom
         }
+        // Web analytics writes an open-ended range as an empty `date_to`, which must clear a saved end date.
         const dateTo = searchParams.get('date_to')
-        if (dateTo) {
-            params.dateTo = dateTo
+        if (dateTo !== null) {
+            params.dateTo = dateTo || null
         }
         const interval = searchParams.get('interval') as IntervalType | null
         if (interval) {

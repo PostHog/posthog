@@ -105,6 +105,7 @@ from posthog.models.integration import (
     resolve_aliased_oauth_kind,
 )
 from posthog.models.integration.github_audit import GitHubAudit
+from posthog.models.integration.twitter_ads import TwitterAdsIntegration
 from posthog.models.user_integration import UserIntegration
 from posthog.permissions import (
     AccessControlPermission,
@@ -1099,6 +1100,11 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                 raise ValidationError(str(e))
             return instance
 
+        elif validated_data["kind"] == "twitter-ads":
+            return TwitterAdsIntegration.integration_from_callback(
+                team_id, request.user, validated_data.get("config") or {}
+            )
+
         elif validated_data["kind"] in OauthIntegration.supported_kinds:
             # Stripe marketplace installs redirect to /integrations/stripe/callback without
             # a PostHog-minted CSRF state token — Stripe drives the OAuth flow itself.
@@ -1532,6 +1538,18 @@ class IntegrationViewSet(
         kind = request.GET.get("kind")
         next = request.GET.get("next", "")
         token = os.urandom(33).hex()
+
+        if kind == "twitter-ads":
+            response = redirect(TwitterAdsIntegration.authorize_url(self.team_id, cast(User, request.user).id, next))
+            response.set_cookie(
+                "ph_twitter_ads_team_id",
+                str(self.team_id),
+                max_age=600,
+                samesite="Lax",
+                secure=request.is_secure(),
+                httponly=False,
+            )
+            return response
 
         if kind in OauthIntegration.supported_kinds:
             region: str | None = None
@@ -2511,6 +2529,7 @@ class IntegrationViewSet(
                 host=resolved.host,
                 provider_endpoint=provider_endpoint,
                 redirect_uri=redirect_uri,
+                group_ids=resolved.group_ids,
             )
         except DomainConnectSigningKeyMissing as e:
             capture_exception(

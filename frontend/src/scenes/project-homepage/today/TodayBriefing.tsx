@@ -7,6 +7,8 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { urls } from 'scenes/urls'
 
+import { TodayPreviewTrigger } from '~/layout/today/TodayPreviewTrigger'
+
 import { TodayAskBox } from './TodayAskBox'
 import { TodayChipStack } from './TodayChipStack'
 import { TodayIcon } from './TodayIcon'
@@ -30,7 +32,7 @@ function TodayMetaLine(): JSX.Element {
 }
 
 function BriefingSegment({ segment }: { segment: TodayBriefingSegment }): JSX.Element {
-    const { hoveredReportId, reports } = useValues(todayLogic)
+    const { hoveredReportId, reports, teamReportPreviews } = useValues(todayLogic)
     const { reportOpened, setHoveredReportId } = useActions(todayLogic)
     const { reportId } = segment
     if (!reportId) {
@@ -52,7 +54,15 @@ function BriefingSegment({ segment }: { segment: TodayBriefingSegment }): JSX.El
             {segment.text}
         </Link>
     )
-    return segment.highlight ? <span className="TodayHome__highlight">{link}</span> : link
+    const preview = teamReportPreviews.briefing[reportId]
+    const linkWithCard = preview ? (
+        <TodayPreviewTrigger payload={preview} inline>
+            {link}
+        </TodayPreviewTrigger>
+    ) : (
+        link
+    )
+    return segment.highlight ? <span className="TodayHome__highlight">{linkWithCard}</span> : linkWithCard
 }
 
 function TodayBriefingReports(): JSX.Element {
@@ -87,7 +97,7 @@ function TodayBriefingReports(): JSX.Element {
                 {moreReportCount > 0 && (
                     <>
                         <Link to={urls.inbox()} data-attr="today-briefing-inbox">
-                            {`${moreReportCount} more ${moreReportCount === 1 ? 'report is' : 'reports are'} in the Inbox`}
+                            {`${moreReportCount} more for you in the Inbox`}
                         </Link>
                         <span>. </span>
                     </>
@@ -135,7 +145,7 @@ export function TodayBriefing(): JSX.Element {
                         <LemonButton
                             size="xsmall"
                             icon={<IconRefresh />}
-                            tooltip="Write a fresh briefing"
+                            tooltip="Refresh briefing"
                             onClick={() => refreshBriefing()}
                             data-attr="today-briefing-refresh"
                         />

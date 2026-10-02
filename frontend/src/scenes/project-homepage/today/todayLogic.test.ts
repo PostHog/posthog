@@ -6,7 +6,7 @@ import { initKeaTests } from '~/test/init'
 
 import { makeReport } from 'products/signals/frontend/inbox/__mocks__/inboxMocks'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
-import type { BriefingApi } from 'products/today/frontend/generated/api.schemas'
+import type { BriefingApi, BriefingItemReportApi } from 'products/today/frontend/generated/api.schemas'
 
 import { BRIEFING_POLL_MS, TOP_REPORT_COUNT, reportIdFromPath, todayLogic } from './todayLogic'
 import { isSampleReportId } from './todaySampleReports'
@@ -31,6 +31,7 @@ function makeBriefing(overrides: Partial<BriefingApi> = {}): BriefingApi {
                 reason: 'waiting_for_you',
                 state: 'open',
                 source_product: null,
+                report: null,
             },
         ],
         more_reports_count: 0,
@@ -56,7 +57,7 @@ describe('todayLogic', () => {
         briefingCalls = 0
         useMocks({
             get: {
-                '/api/projects/:team_id/signals/reports/': ({ request }) => {
+                '/api/projects/:team_id/signals/reports/for_you/': ({ request }) => {
                     listParams = new URL(request.url).searchParams
                     return listResponse
                 },
@@ -64,6 +65,12 @@ describe('todayLogic', () => {
                     briefingCalls += 1
                     return briefingResponses.length > 1 ? briefingResponses.shift()! : briefingResponses[0]
                 },
+            },
+            post: {
+                '/api/projects/:team_id/today/briefing/refresh/': () => [
+                    200,
+                    makeBriefing({ id: 'b-next', status: 'writing' }),
+                ],
             },
         })
         initKeaTests()
@@ -115,6 +122,27 @@ describe('todayLogic', () => {
         expect(briefingCalls).toBe(2)
     })
 
+    it('keeps waiting from the refresh click until the reloaded briefing says it is written', async () => {
+        const shown = makeBriefing()
+        briefingResponses = [
+            [200, shown],
+            [200, { ...shown, status: 'writing' }],
+        ]
+        const logic = todayLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadPersonalBriefingSuccess']).toMatchValues({
+            briefingWaiting: false,
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.refreshBriefing()
+        })
+            .toDispatchActions(['refreshBriefing', 'refreshBriefingSuccess'])
+            .toMatchValues({ briefingWaiting: true })
+            .toDispatchActions(['loadPersonalBriefing', 'loadPersonalBriefingSuccess'])
+            .toMatchValues({ briefingWaiting: true })
+    })
+
     it.each([
         ['crosses 8:00', new Date(2026, 8, 30, 7, 59, 45), null],
         ['sleeps from one afternoon to the next', new Date(2026, 8, 30, 14, 0, 0), new Date(2026, 9, 1, 14, 0, 0)],
@@ -138,19 +166,66 @@ describe('todayLogic', () => {
         expect(briefingCalls).toBe(2)
     })
 
-    it('asks for the top actionable reports by priority and counts the rest', async () => {
+    test.each([
+        ['nothing is off the list yet', ['open', 'open'], null],
+        ['a resolved and a dismissed item both count', ['done', 'dismissed', 'open'], { done: 2, total: 3 }],
+    ] as const)('counts briefing progress when %s', async (_name, states, expected) => {
+        const [item] = makeBriefing().items
+        briefingResponses = [
+            [200, makeBriefing({ items: states.map((state, index) => ({ ...item, key: `report:${index}`, state })) })],
+        ]
+        const logic = todayLogic()
+        logic.mount()
+
+        await expectLogic(logic)
+            .toDispatchActions(['loadPersonalBriefingSuccess'])
+            .toMatchValues({ briefingProgress: expected })
+    })
+
+    it('gives a hover card to the reports of both lists, and only to items with report details', async () => {
+        const [item] = makeBriefing().items
+        const report: BriefingItemReportApi = {
+            priority: 'P1',
+            summary: 'Signups fail for plus-addressed emails.',
+            pull_request_state: null,
+            pull_request_url: null,
+            signal_count: 3,
+            updated_at: '2026-09-30T08:00:00Z',
+            metrics: [],
+            charts: [],
+        }
+        listResponse = [200, { results: [makeReport({ id: 'team-a' })], count: 1 }]
+        briefingResponses = [
+            [
+                200,
+                makeBriefing({
+                    items: [
+                        { ...item, report },
+                        // A deleted report, and an item from an older briefing that is not a report.
+                        { ...item, key: 'report:deleted', state: 'dismissed' },
+                        { ...item, key: 'dashboard:12', group: 'dashboard', reason: 'dashboard_you_viewed' },
+                    ],
+                }),
+            ],
+        ]
+        const logic = todayLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadPersonalBriefingSuccess'])
+        expect(Object.keys(logic.values.reportPreviews.briefing)).toEqual(['report:a'])
+        expect(Object.keys(logic.values.reportPreviews.sidebar)).toEqual(['report:a'])
+        expect(Object.keys(logic.values.teamReportPreviews.briefing)).toEqual(['team-a'])
+        expect(Object.keys(logic.values.teamReportPreviews.sidebar)).toEqual(['team-a'])
+    })
+
+    it('asks for the top reports for the person and counts the rest', async () => {
         const reports = [makeReport({ id: 'a' }), makeReport({ id: 'b' })]
         listResponse = [200, { results: reports, count: 9 }]
         const logic = todayLogic()
         logic.mount()
 
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ reports, moreReportCount: 7 })
-        expect(Object.fromEntries(listParams!.entries())).toMatchObject({
-            status: 'ready,pending_input',
-            actionability: 'immediately_actionable,requires_human_input',
-            ordering: 'priority,-updated_at',
-            limit: String(TOP_REPORT_COUNT),
-        })
+        expect(Object.fromEntries(listParams!.entries())).toEqual({ limit: String(TOP_REPORT_COUNT) })
     })
 
     it('shows sample reports from ?sample=1 without asking the API, until ?sample=0', async () => {
