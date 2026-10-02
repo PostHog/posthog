@@ -2,6 +2,7 @@ import {
     MakeLogicType,
     actions,
     afterMount,
+    beforeUnmount,
     kea,
     key,
     listeners,
@@ -199,7 +200,7 @@ export const facetSearchBarLogic = kea<facetSearchBarLogicType>([
     }),
     reducers(({ props }) => ({
         input: [
-            (props.value?.text ?? '') as string,
+            props.value.text,
             {
                 setInput: (_, { input }) => input,
                 syncInput: (_, { input }) => input,
@@ -324,19 +325,30 @@ export const facetSearchBarLogic = kea<facetSearchBarLogicType>([
                 if (tabTarget && tabTarget !== highlighted) {
                     hints.push(`Tab or → to ${verbOf(tabTarget)}`)
                 }
-                return [...hints, '↑↓ to move', 'Esc to close']
+                if (highlighted) {
+                    hints.push('↑↓ to move')
+                }
+                return [...hints, 'Esc to close']
             },
         ],
     }),
-    listeners(({ actions, values, props }) => {
+    listeners(({ actions, values, props, cache }) => {
         const loadPendingValues = (): void => {
             if (values.pendingValueRequests.length) {
                 actions.loadValues()
             }
         }
-        const isCurrentLoader = ({ facet }: FacetValueRequest): boolean => {
+        const loadUnstartedValues = (): void => {
+            const unstarted = ({ facet, search }: FacetValueRequest): boolean =>
+                !values.valueLoads[valueLoadKey(facet.key, search)]
+            if (values.pendingValueRequests.some(unstarted)) {
+                actions.loadValues()
+            }
+        }
+        // A bar mounted later with the same key shares this logic's actions, so a finished load must check its own bar.
+        const isStillCurrent = ({ facet }: FacetValueRequest): boolean => {
             const current = findFacet(props.facets, facet.key)
-            return !!current && isLoadedFacet(current) && current.loadValues === facet.loadValues
+            return !cache.unmounted && !!current && isLoadedFacet(current) && current.loadValues === facet.loadValues
         }
         const runValueRequest = async (request: FacetValueRequest): Promise<void> => {
             const loadKey = valueLoadKey(request.facet.key, request.search)
@@ -344,10 +356,10 @@ export const facetSearchBarLogic = kea<facetSearchBarLogicType>([
             let state: FacetValuesState
             try {
                 state = { status: 'loaded', options: await request.facet.loadValues(request.search.trim()) }
-            } catch {
-                state = { status: 'error' }
+            } catch (error) {
+                state = { status: 'error', reason: error instanceof Error ? error.message : undefined }
             }
-            if (isCurrentLoader(request)) {
+            if (isStillCurrent(request)) {
                 actions.setValuesState(loadKey, state)
             }
         }
@@ -373,7 +385,8 @@ export const facetSearchBarLogic = kea<facetSearchBarLogicType>([
                     loadPendingValues()
                 }
             },
-            propsUpdated: loadPendingValues,
+            // A failed load runs again only when the person types or reopens the bar, not on each render of the consumer.
+            propsUpdated: loadUnstartedValues,
             loadValues: async (_, breakpoint) => {
                 await breakpoint(VALUE_LOAD_DEBOUNCE_MS)
                 await Promise.all(values.pendingValueRequests.map(runValueRequest))
@@ -423,17 +436,20 @@ export const facetSearchBarLogic = kea<facetSearchBarLogicType>([
             actions.loadValues()
         }
     }),
+    beforeUnmount(({ cache }) => {
+        cache.unmounted = true
+    }),
     propsChanged(({ actions, values, props }, oldProps) => {
         const replacedLoaders = facetsWithNewLoaders(oldProps.facets, props.facets)
         if (replacedLoaders.length) {
             actions.forgetValues(replacedLoaders)
         }
-        if (props.facets !== oldProps.facets || props.data !== oldProps.data || props.value !== oldProps.value) {
-            actions.propsUpdated()
-        }
         // The URL or a "Clear filters" button can change the text without this input.
         if (!sameText(props.value.text, textOf(values.input, values.draft))) {
             actions.syncInput(props.value.text)
+        }
+        if (props.facets !== oldProps.facets || props.data !== oldProps.data || props.value !== oldProps.value) {
+            actions.propsUpdated()
         }
     }),
 ])

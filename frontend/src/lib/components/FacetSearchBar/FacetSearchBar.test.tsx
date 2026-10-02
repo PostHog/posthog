@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 
@@ -196,6 +196,14 @@ describe('FacetSearchBar', () => {
             expect(suggestions()).toEqual(expected)
         })
 
+        it('stops offering a value once a pill holds it in any case', async () => {
+            const user = setup()
+            await user.click(input())
+            await user.keyboard('status:Draft status:')
+            expect(pills()).toEqual(['Status: Draft'])
+            expect(suggestions()).toEqual(['Active (1)', 'Archived (1)'])
+        })
+
         it('recounts open suggestions when the rows change', async () => {
             const { rerender } = render(<ClientConsumer url="" />)
             const user = userEvent.setup()
@@ -264,11 +272,21 @@ describe('FacetSearchBar', () => {
             expect(shown('rows')).toEqual('Renewal')
         })
 
-        it('Esc closes the popover, and a click on the input opens it again', async () => {
-            const user = setup()
+        it('Esc closes the popover before anything around the bar, and a click on the input opens it again', async () => {
+            const onParentEscape = jest.fn()
+            render(
+                <div onKeyDown={(event) => event.key === 'Escape' && onParentEscape()}>
+                    <ClientConsumer url="" />
+                </div>
+            )
+            const user = userEvent.setup()
             await user.click(input())
             await user.keyboard('{Escape}')
             expect(listbox()).toBeNull()
+            expect(onParentEscape).not.toHaveBeenCalled()
+
+            await user.keyboard('{Escape}')
+            expect(onParentEscape).toHaveBeenCalledTimes(1)
 
             await user.click(input())
             expect(listbox()).not.toBeNull()
@@ -330,6 +348,15 @@ describe('FacetSearchBar', () => {
             expect(shown('url')).toEqual(url)
         })
 
+        it.each([
+            ['a value with spaces', { facet: 'sends', value: 'Your trial ends', negated: false }],
+            ['a value with quotes and backslashes', { facet: 'sends', value: 'Say "hi" C:\\temp\\', negated: true }],
+            ['an empty value', { facet: 'sends', value: '', negated: false }],
+        ])('restores %s from the URL', (_, filter) => {
+            const search = { filters: [filter], text: 'renew' }
+            expect(parseFacetSearch(serializeFacetSearch(search), CLIENT_FACETS)).toEqual(search)
+        })
+
         it('turns a pasted query into pills, each once', async () => {
             const user = setup()
             await user.click(input())
@@ -350,20 +377,23 @@ describe('FacetSearchBar', () => {
         it('keeps focus in the input when the popover chrome is pressed', async () => {
             const user = setup()
             await user.click(input())
-            const hints = document.querySelector('[data-attr="facet-search-bar-hints"]')!
-            // fireEvent returns false when the handler prevented the default, which is what keeps the focus.
-            expect(fireEvent.mouseDown(hints)).toBe(false)
+            await user.click(document.querySelector('[data-attr="facet-search-bar-hints"]')!)
+            expect(input()).toHaveFocus()
+            expect(listbox()).not.toBeNull()
         })
 
-        it('shows the no-values message as text, not as an option', async () => {
+        it.each([
+            ['the typed value', 'status:zzz', 'No values match'],
+            ['the other filters', 'zzz status:', 'No values match your other filters'],
+        ])('shows the no-values message for %s as text, not as an option', async (_, typed, expected) => {
             const user = setup()
             await user.click(input())
-            await user.keyboard('status:zzz')
+            await user.keyboard(typed)
             expect(suggestions()).toEqual([])
             expect(listbox()).toBeNull()
-            expect(document.querySelector('[role="status"]')).toHaveTextContent('No values match your other filters')
+            expect(document.querySelector('[role="status"]')).toHaveTextContent(new RegExp(`^${expected}$`))
             expect(input()).not.toHaveAttribute('aria-activedescendant')
-            expect(shown('facet-search-bar-hints')).toEqual('↑↓ to moveEsc to close')
+            expect(shown('facet-search-bar-hints')).toEqual('Esc to close')
         })
 
         it('exposes the combobox and points it at the highlighted option', async () => {
@@ -395,6 +425,18 @@ describe('FacetSearchBar', () => {
             })
         })
 
+        it('keeps the popover closed until there is something to suggest', async () => {
+            render(<ServerConsumer facets={[{ ...PLAN, showOnFocus: false }]} />)
+            const user = userEvent.setup()
+            await user.click(input())
+            expect(input()).toHaveAttribute('aria-expanded', 'false')
+            expect(shown('facet-search-bar-hints')).toEqual('')
+
+            await user.keyboard('pl')
+            expect(input()).toHaveAttribute('aria-expanded', 'true')
+            expect(suggestions()).toEqual(['plan: · Billing plan', 'Search for "pl"'])
+        })
+
         it('loads values for what was typed after the colon, and labels the pill from them', async () => {
             const teams = deferred<FacetValueOption[]>()
             const loadValues = jest.fn((_search: string) => teams.promise)
@@ -424,7 +466,7 @@ describe('FacetSearchBar', () => {
         it('says when loading values failed, and loads again on the next keystroke', async () => {
             const loadValues = jest
                 .fn<Promise<FacetValueOption[]>, [string]>()
-                .mockRejectedValueOnce(new Error('offline'))
+                .mockRejectedValueOnce(new Error('You are offline.'))
                 .mockResolvedValue([{ value: 't-1', label: 'Growth' }])
             render(<ServerConsumer facets={[{ key: 'team', label: 'Team', description: 'Owner', loadValues }]} />)
             const user = userEvent.setup()
@@ -432,13 +474,38 @@ describe('FacetSearchBar', () => {
             await user.paste('team:')
             await waitFor(() =>
                 expect(document.querySelector('[role="status"]')).toHaveTextContent(
-                    "Couldn't load values. Type again to retry."
+                    "Couldn't load values: You are offline. Type again to retry."
                 )
             )
 
             await user.keyboard('g{Backspace}')
             await waitFor(() => expect(suggestions()).toEqual(['Growth']))
             expect(loadValues.mock.calls.filter(([search]) => search === '')).toHaveLength(2)
+        })
+
+        it('retries a failed load on the next keystroke, not on every render of the consumer', async () => {
+            const loadValues = jest.fn(async (): Promise<FacetValueOption[]> => {
+                throw new Error('Server error')
+            })
+            const facets: ServerFacet[] = [{ key: 'team', label: 'Team', description: 'Owner', loadValues }]
+            const bar = (): JSX.Element => (
+                <FacetSearchBar
+                    facets={facets}
+                    value={parseFacetSearch('team:t-2', facets)}
+                    onChange={() => {}}
+                    placeholder="Search"
+                    dataAttr="url-backed-search"
+                />
+            )
+            const { rerender } = render(bar())
+            await waitFor(() => expect(loadValues).toHaveBeenCalledTimes(1))
+
+            rerender(bar())
+            rerender(bar())
+            await act(async () => {
+                await new Promise((resolve) => setTimeout(resolve, 0))
+            })
+            expect(loadValues).toHaveBeenCalledTimes(1)
         })
 
         it('loads values for a search restored from the URL as soon as the bar opens', async () => {
@@ -476,6 +543,106 @@ describe('FacetSearchBar', () => {
             rerender(<ServerConsumer facets={teamFacet(async () => [{ value: 'new', label: 'New project team' }])} />)
             oldTeams.resolve([{ value: 'old', label: 'Old project team' }])
             await waitFor(() => expect(suggestions()).toEqual(['New project team']))
+        })
+
+        it('loads values again for a facet that comes back while its last load was in flight', async () => {
+            const oldTeams = deferred<FacetValueOption[]>()
+            const teamFacet = (loadValues: LoadFacetValues): ServerFacet[] => [
+                { key: 'team', label: 'Team', description: 'Owner', loadValues },
+            ]
+            const { rerender } = render(<ServerConsumer facets={teamFacet(() => oldTeams.promise)} />)
+            const user = userEvent.setup()
+            await user.click(input())
+            await user.paste('team:')
+            await waitFor(() => expect(document.querySelector('[role="status"]')).toHaveTextContent('Loading values…'))
+
+            rerender(<ServerConsumer facets={[PLAN]} />)
+            oldTeams.resolve([{ value: 'old', label: 'Old project team' }])
+            rerender(<ServerConsumer facets={teamFacet(async () => [{ value: 'new', label: 'New project team' }])} />)
+            await waitFor(() => expect(suggestions()).toEqual(['New project team']))
+        })
+
+        it('keeps a load from an unmounted bar out of the next bar with the same data attr', async () => {
+            const oldTeams = deferred<FacetValueOption[]>()
+            const teamFacet = (loadValues: LoadFacetValues): ServerFacet[] => [
+                { key: 'team', label: 'Team', description: 'Owner', loadValues },
+            ]
+            const { unmount } = render(<ServerConsumer facets={teamFacet(() => oldTeams.promise)} />)
+            const user = userEvent.setup()
+            await user.click(input())
+            await user.paste('team:')
+            await waitFor(() => expect(document.querySelector('[role="status"]')).toHaveTextContent('Loading values…'))
+            unmount()
+
+            render(<ServerConsumer facets={teamFacet(async () => [{ value: 'new', label: 'New project team' }])} />)
+            await user.click(input())
+            await user.paste('team:')
+            await waitFor(() => expect(suggestions()).toEqual(['New project team']))
+
+            await act(async () => {
+                oldTeams.resolve([{ value: 'old', label: 'Old project team' }])
+                await oldTeams.promise
+            })
+            expect(suggestions()).toEqual(['New project team'])
+        })
+
+        it('loads values for text the consumer sets while the bar is open', async () => {
+            const facets: ServerFacet[] = [
+                {
+                    key: 'team',
+                    label: 'Team',
+                    description: 'Owner',
+                    loadValues: async () => [{ value: 't-1', label: 'Growth' }],
+                },
+            ]
+            const bar = (text: string): JSX.Element => (
+                <FacetSearchBar
+                    facets={facets}
+                    value={{ filters: [], text }}
+                    onChange={() => {}}
+                    placeholder="Search"
+                    dataAttr="controlled-search"
+                />
+            )
+            const { rerender } = render(bar(''))
+            const user = userEvent.setup()
+            await user.click(input())
+
+            rerender(bar('gro'))
+            await waitFor(() => expect(suggestions()).toEqual(['Search for "gro"', 'Team: Growth']))
+        })
+
+        it('shows what the loader returns for the exact text typed', async () => {
+            const loadValues = async (search: string): Promise<FacetValueOption[]> =>
+                ({
+                    X: [{ value: 'id-1', label: 'Upper' }],
+                    x: [{ value: 'id-2', label: 'Lower' }],
+                })[search] ?? []
+            render(
+                <ServerConsumer facets={[{ key: 'code', label: 'Code', description: 'Case-sensitive', loadValues }]} />
+            )
+            const user = userEvent.setup()
+            await user.click(input())
+            await user.paste('code:X')
+            await waitFor(() => expect(suggestions()).toEqual(['Upper']))
+
+            await user.keyboard('{Backspace}x')
+            await waitFor(() => expect(suggestions()).toEqual(['Lower']))
+        })
+
+        it('keeps suggestions apart when a facet key and a value share a dash', async () => {
+            const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+            const facets: ServerFacet[] = [
+                { key: 'a', label: 'A', description: 'First', values: [{ value: 'b-c', label: 'Shared one' }] },
+                { key: 'a-b', label: 'A b', description: 'Second', values: [{ value: 'c', label: 'Shared two' }] },
+            ]
+            render(<ServerConsumer facets={facets} />)
+            const user = userEvent.setup()
+            await user.click(input())
+            await user.keyboard('shared')
+            expect(suggestions()).toEqual(['Search for "shared"', 'A: Shared one', 'A b: Shared two'])
+            expect(consoleError.mock.calls.flat().join(' ')).not.toContain('same key')
+            consoleError.mockRestore()
         })
 
         it('keeps values that differ only by case apart, through the URL too', async () => {

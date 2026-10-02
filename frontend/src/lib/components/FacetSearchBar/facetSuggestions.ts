@@ -23,7 +23,7 @@ export type AnyFacet = ClientFacet<any> | ServerFacet
 export type FacetValuesState =
     | { status: 'loaded'; options: FacetValueOption[] }
     | { status: 'loading' }
-    | { status: 'error' }
+    | { status: 'error'; reason?: string }
 
 export type FacetValueLoads = Record<string, FacetValuesState>
 
@@ -49,7 +49,7 @@ export interface FacetValueRequest {
 }
 
 export function valueLoadKey(facetKey: string, search: string): string {
-    return `${facetKey}:${search.trim().toLowerCase()}`
+    return `${facetKey}:${search.trim()}`
 }
 
 export function isLoadedFacet(facet: AnyFacet): facet is LoadedFacet {
@@ -89,6 +89,7 @@ export function optionLabel(facet: AnyFacet, option: FacetValueOption): string {
 
 function matchesPartial(facet: AnyFacet, option: FacetValueOption, partial: string): boolean {
     return (
+        isLoadedFacet(facet) ||
         !partial ||
         optionLabel(facet, option).toLowerCase().includes(partial) ||
         option.value.toLowerCase().includes(partial)
@@ -104,37 +105,57 @@ function message(id: string, label: string): FacetSuggestion[] {
     return [{ id, kind: 'message', label }]
 }
 
-function draftSuggestions(draft: FacetDraft, context: SuggestionContext, chosen: Set<string>): FacetSuggestion[] {
+type IsChosen = (filter: FacetFilter) => boolean
+
+/** Rows match client facet values in any case, so a pill holds its value in any case too. */
+function chosenFilters({ data, filters }: SuggestionContext): IsChosen {
+    const keyOf = (filter: FacetFilter): string =>
+        facetFilterKey(data ? { ...filter, value: filter.value.toLowerCase() } : filter)
+    const chosen = new Set(filters.map(keyOf))
+    return (filter) => chosen.has(keyOf(filter))
+}
+
+function loadFailedMessage(reason: string | undefined): string {
+    const because = reason?.trim().replace(/\.$/, '')
+    return `Couldn't load values${because ? `: ${because}` : ''}. Type again to retry.`
+}
+
+function draftSuggestions(draft: FacetDraft, context: SuggestionContext, isChosen: IsChosen): FacetSuggestion[] {
     const facet = findFacet(context.facets, draft.facetKey)!
     const state = createValueLister(context)(facet, draft.rest, draft.partial)
     if (state.status === 'loading') {
         return message('loading', 'Loading values…')
     }
     if (state.status === 'error') {
-        return message('error', "Couldn't load values. Type again to retry.")
+        return message('error', loadFailedMessage(state.reason))
     }
     const partial = draft.partial.toLowerCase()
+    const filterOf = (option: FacetValueOption): FacetFilter => ({
+        facet: facet.key,
+        value: option.value,
+        negated: draft.negated,
+    })
     const rows = state.options
-        .filter(
-            (option) => !chosen.has(facetFilterKey({ facet: facet.key, value: option.value, negated: draft.negated }))
-        )
+        .filter((option) => !isChosen(filterOf(option)))
         .filter((option) => matchesPartial(facet, option, partial))
         .slice(0, MAX_VALUE_SUGGESTIONS)
         .map(
             (option): FacetSuggestion => ({
-                id: `value-${facet.key}-${option.value}`,
+                id: `value-${facetFilterKey(filterOf(option))}`,
                 kind: 'value',
                 label: `${draft.negated ? 'Not ' : ''}${optionLabel(facet, option)}`,
                 detail: draft.negated && option.count !== undefined ? `Hides ${option.count}` : undefined,
                 count: draft.negated ? undefined : option.count,
-                filter: { facet: facet.key, value: option.value, negated: draft.negated },
+                filter: filterOf(option),
                 rest: draft.rest,
             })
         )
     if (rows.length) {
         return rows
     }
-    return message('none', context.data ? 'No values match your other filters' : 'No values match')
+    const otherFiltersHideEverything =
+        !!context.data && !state.options.length && (context.filters.length > 0 || !!draft.rest.trim())
+    return message('none', otherFiltersHideEverything ? 'No values match your other filters' : 'No values match')
 }
 
 function sortFacets(facets: AnyFacet[]): AnyFacet[] {
@@ -142,24 +163,24 @@ function sortFacets(facets: AnyFacet[]): AnyFacet[] {
 }
 
 function crossFacetValueSuggestions(
-    token: { rest: string; bare: string; negated: boolean },
+    token: { rest: string; search: string; bare: string; negated: boolean },
     context: SuggestionContext,
-    chosen: Set<string>
+    isChosen: IsChosen
 ): FacetSuggestion[] {
     const listValues = createValueLister(context)
     const matches: FacetSuggestion[] = []
     for (const facet of sortFacets(context.facets)) {
-        const state = listValues(facet, token.rest, token.bare)
+        const state = listValues(facet, token.rest, token.search)
         if (state.status !== 'loaded') {
             continue
         }
         for (const option of state.options) {
             const filter = { facet: facet.key, value: option.value, negated: token.negated }
-            if (!matchesPartial(facet, option, token.bare) || chosen.has(facetFilterKey(filter))) {
+            if (!matchesPartial(facet, option, token.bare) || isChosen(filter)) {
                 continue
             }
             matches.push({
-                id: `value-${facet.key}-${option.value}`,
+                id: `value-${facetFilterKey(filter)}`,
                 kind: 'value',
                 label: `${token.negated ? 'Not ' : ''}${facet.label}: ${optionLabel(facet, option)}`,
                 count: option.count,
@@ -176,9 +197,9 @@ export function buildSuggestions(
     draft: FacetDraft | null,
     context: SuggestionContext
 ): FacetSuggestion[] {
-    const chosen = new Set(context.filters.map(facetFilterKey))
+    const isChosen = chosenFilters(context)
     if (draft) {
-        return draftSuggestions(draft, context, chosen)
+        return draftSuggestions(draft, context, isChosen)
     }
 
     const ordered = sortFacets(context.facets)
@@ -196,7 +217,8 @@ export function buildSuggestions(
     }
 
     const negated = token.startsWith('-')
-    const bare = (negated ? token.slice(1) : token).toLowerCase()
+    const search = negated ? token.slice(1) : token
+    const bare = search.toLowerCase()
     const result: FacetSuggestion[] = []
     if (bare) {
         for (const facet of ordered) {
@@ -214,7 +236,7 @@ export function buildSuggestions(
     }
     result.push({ id: 'search', kind: 'search', label: `Search for "${input.trim()}"` })
     if (bare.length >= MIN_CROSS_FACET_TOKEN_LENGTH) {
-        result.push(...crossFacetValueSuggestions({ rest, bare, negated }, context, chosen))
+        result.push(...crossFacetValueSuggestions({ rest, search, bare, negated }, context, isChosen))
     }
     return result
 }
@@ -286,13 +308,13 @@ export function forgetValuesOf(valueLoads: FacetValueLoads, facetKeys: string[])
     )
 }
 
-/** Facets whose loader changed between two renders. Their loaded values belong to the old loader. */
+/** Facets whose loader is new since the last render. Values cached under their key belong to an earlier loader. */
 export function facetsWithNewLoaders(previous: AnyFacet[], next: AnyFacet[]): string[] {
     return next
         .filter(isLoadedFacet)
         .filter((facet) => {
             const before = findFacet(previous, facet.key)
-            return !!before && isLoadedFacet(before) && before.loadValues !== facet.loadValues
+            return !before || !isLoadedFacet(before) || before.loadValues !== facet.loadValues
         })
         .map((facet) => facet.key)
 }

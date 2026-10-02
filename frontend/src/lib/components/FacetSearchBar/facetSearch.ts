@@ -41,7 +41,7 @@ export interface ClientFacet<TRow> extends FacetDefinitionBase {
     getValues: (row: TRow) => string[]
 }
 
-/** Gets the values that match what the user typed after the colon. A rejected promise shows a retry message. */
+/** Gets the values for a search as typed, after `facet:` or as a bare word. The bar shows them unfiltered. */
 export type LoadFacetValues = (search: string) => Promise<FacetValueOption[]>
 
 /** Server mode: the facet lists its values up front, or loads them as the user types. */
@@ -97,7 +97,7 @@ export function extractFacetFilters(
         (token: string, lead: string, minus: string, key: string, quoted?: string, bare?: string) => {
             const facet = findFacet(facets, key)
             const value = quoted !== undefined ? unescapeFacetValue(quoted) : bare
-            if (!facet || !value) {
+            if (!facet || value === undefined) {
                 return token
             }
             const filter = { facet: facet.key, value, negated: minus === '-' }
@@ -138,7 +138,7 @@ export function parseFacetDraft(input: string, facets: FacetDefinitionBase[]): F
 }
 
 function serializeFacetValue(value: string): string {
-    return /[\s"]/.test(value) ? `"${value.replace(/[\\"]/g, (char) => `\\${char}`)}"` : value
+    return !value || /[\s"]/.test(value) ? `"${value.replace(/[\\"]/g, (char) => `\\${char}`)}"` : value
 }
 
 /** One string for a URL search param: `-status:draft owner:"Jo Doe" renewal`. `parseFacetSearch` reads it back. */

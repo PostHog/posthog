@@ -62,7 +62,8 @@ export function FacetSearchBar<TRow>({
     const message = suggestions.find((suggestion) => suggestion.kind === 'message')
     const listboxId = `${dataAttr}-listbox`
     const optionId = (index: number): string => `${listboxId}-option-${index}`
-    const activeOptionId = open && highlightedSuggestion ? optionId(highlightedIndex) : undefined
+    const expanded = open && suggestions.length > 0
+    const activeOptionId = expanded && highlightedSuggestion ? optionId(highlightedIndex) : undefined
 
     useEffect(() => {
         if (activeOptionId) {
@@ -99,7 +100,8 @@ export function FacetSearchBar<TRow>({
         ) {
             event.preventDefault()
             applyTabTarget()
-        } else if (event.key === 'Escape') {
+        } else if (event.key === 'Escape' && expanded) {
+            event.stopPropagation()
             setOpen(false)
         } else if (event.key === 'Backspace' && input === '' && value.filters.length > 0) {
             event.preventDefault()
@@ -107,7 +109,7 @@ export function FacetSearchBar<TRow>({
         }
     }
 
-    const overlay = open ? (
+    const overlay = expanded ? (
         // Pressing anywhere in the popover (scrollbar, title, hint row) keeps the focus, and so the popover, in the input.
         <div className="w-96 max-w-full" onMouseDown={(event) => event.preventDefault()}>
             <div className="px-2 py-1 text-xs font-semibold text-secondary">{title}</div>
@@ -120,6 +122,7 @@ export function FacetSearchBar<TRow>({
                         <LemonButton
                             key={suggestion.id}
                             id={optionId(index)}
+                            data-attr={`${dataAttr}-suggestion`}
                             role="option"
                             aria-selected={index === highlightedIndex}
                             active={index === highlightedIndex}
@@ -129,14 +132,20 @@ export function FacetSearchBar<TRow>({
                             onClick={() => applySuggestion(suggestion)}
                         >
                             <span className="flex items-center gap-2 w-full min-w-0">
-                                <span className={clsx('shrink-0', suggestion.kind === 'facet' && 'font-mono')}>
+                                <span
+                                    className={suggestion.kind === 'facet' ? 'shrink-0 font-mono' : 'truncate'}
+                                    title={suggestion.kind === 'facet' ? undefined : suggestion.label}
+                                >
                                     {suggestion.label}
                                 </span>
                                 {suggestion.detail && (
                                     <span className="text-secondary font-normal truncate">{suggestion.detail}</span>
                                 )}
                                 {suggestion.count !== undefined && (
-                                    <span className="ml-auto text-secondary font-normal tabular-nums" translate="no">
+                                    <span
+                                        className="ml-auto shrink-0 text-secondary font-normal tabular-nums"
+                                        translate="no"
+                                    >
                                         {suggestion.count}
                                     </span>
                                 )}
@@ -158,7 +167,7 @@ export function FacetSearchBar<TRow>({
 
     return (
         // The input's blur is the one close path: pressing outside moves the focus away.
-        <Popover visible={open} overlay={overlay} placement="bottom-start">
+        <Popover visible={expanded} overlay={overlay} placement="bottom-start">
             <div className="w-full min-w-0">
                 <LemonInput
                     type="text"
@@ -167,8 +176,8 @@ export function FacetSearchBar<TRow>({
                     role="combobox"
                     aria-label={placeholder}
                     aria-autocomplete="list"
-                    aria-expanded={open}
-                    aria-controls={open && !message ? listboxId : undefined}
+                    aria-expanded={expanded}
+                    aria-controls={expanded && !message ? listboxId : undefined}
                     aria-activedescendant={activeOptionId}
                     className="h-auto min-h-10 flex-wrap gap-y-1 py-1 [&_input]:min-w-40"
                     value={input}
@@ -189,6 +198,7 @@ export function FacetSearchBar<TRow>({
                                     return (
                                         <LemonSnack
                                             key={facetFilterKey(filter)}
+                                            data-attr={`${dataAttr}-filter`}
                                             title={label}
                                             closeLabel={`Remove filter ${label}`}
                                             onClose={() => {
