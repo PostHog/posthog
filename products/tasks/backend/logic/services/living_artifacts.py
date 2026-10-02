@@ -377,12 +377,24 @@ def open_task_artifact(artifact: TaskArtifact) -> str | None:
     return _adapter_for_existing_artifact(artifact).open(artifact)
 
 
-def read_living_artifact_version(artifact: TaskArtifact, version: int) -> LivingArtifactVersionContent | None:
-    """Return the content of one version, or None when the version is unknown or keeps no content.
+# The app streams a preview through a web worker, so a larger stored version only downloads.
+# Keep in step with LIVING_PREVIEW_MAX_BYTES in the TaskTracker frontend.
+LIVING_VERSION_PREVIEW_MAX_BYTES = 25 * 1024 * 1024
 
-    A Slack file version keeps its bytes in object storage. A canvas or message version keeps its
-    text in the version record. Storage read errors propagate to the caller.
-    """
+
+class LivingArtifactVersionTooLarge(Exception):
+    pass
+
+
+@dataclass(frozen=True)
+class _ResolvedVersion:
+    record: dict[str, Any]
+    content_type: str
+    # Set when the version keeps its bytes in object storage.
+    storage_path: str
+
+
+def _resolve_living_version(artifact: TaskArtifact, version: int) -> _ResolvedVersion | None:
     record = next(
         (
             candidate
@@ -398,21 +410,56 @@ def read_living_artifact_version(artifact: TaskArtifact, version: int) -> Living
     content_type = str(record.get("content_type") or location.get("content_type") or "") or _guess_content_type(
         artifact.name
     )
-
     storage_path = str(location.get("storage_path") or "")
-    if storage_path:
-        # Every living artifact object sits under its task's prefix. A path outside it is not this artifact's object.
-        if not storage_path.startswith(_task_artifact_s3_prefix(artifact)):
-            return None
-        payload = object_storage.read_bytes(storage_path, missing_ok=True)
+    # Every living artifact object sits under its task's prefix. A path outside it is not this artifact's object.
+    if storage_path and not storage_path.startswith(_task_artifact_s3_prefix(artifact)):
+        return None
+    return _ResolvedVersion(record=record, content_type=content_type, storage_path=storage_path)
+
+
+def _stored_version_size(resolved: _ResolvedVersion) -> int | None:
+    size = resolved.record.get("size")
+    if isinstance(size, int):
+        return size
+    head = object_storage.head_object(resolved.storage_path)
+    length = head.get("ContentLength") if head else None
+    return length if isinstance(length, int) else None
+
+
+def read_living_artifact_version(artifact: TaskArtifact, version: int) -> LivingArtifactVersionContent | None:
+    """Return the content of one version, or None when the version is unknown or keeps no content.
+
+    A Slack file version keeps its bytes in object storage. A canvas or message version keeps its
+    text in the version record. A stored version above the preview limit raises
+    LivingArtifactVersionTooLarge. Storage read errors propagate to the caller.
+    """
+    resolved = _resolve_living_version(artifact, version)
+    if resolved is None:
+        return None
+
+    if resolved.storage_path:
+        size = _stored_version_size(resolved)
+        if size is not None and size > LIVING_VERSION_PREVIEW_MAX_BYTES:
+            raise LivingArtifactVersionTooLarge()
+        payload = object_storage.read_bytes(resolved.storage_path, missing_ok=True)
         if payload is None:
             return None
-        return LivingArtifactVersionContent(name=artifact.name, content_type=content_type, content=payload)
+        return LivingArtifactVersionContent(name=artifact.name, content_type=resolved.content_type, content=payload)
 
-    text = record.get("content")
+    text = resolved.record.get("content")
     if isinstance(text, str):
-        return LivingArtifactVersionContent(name=artifact.name, content_type=content_type, content=text.encode("utf-8"))
+        return LivingArtifactVersionContent(
+            name=artifact.name, content_type=resolved.content_type, content=text.encode("utf-8")
+        )
     return None
+
+
+def living_artifact_version_storage_path(artifact: TaskArtifact, version: int) -> tuple[str, str] | None:
+    """The object storage path and content type of a stored version, or None when the version keeps no file."""
+    resolved = _resolve_living_version(artifact, version)
+    if resolved is None or not resolved.storage_path:
+        return None
+    return resolved.storage_path, resolved.content_type
 
 
 # The task part of TaskRun.get_artifact_s3_prefix. Keep the two formats the same.
