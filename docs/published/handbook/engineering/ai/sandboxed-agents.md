@@ -102,6 +102,12 @@ The agent inside the sandbox gets:
 - Access to the **PostHog MCP server** for querying data
 - **Code execution** capabilities within the sandbox
 
+For runs using the Python LLM gateway, the authenticated project's organization must have a billing trust score
+of at least 7 during its first 7 days, or at least 3 from day 7 until day 30. The gateway uses the highest product
+trust score and treats missing scores as 0. From day 30 there is no minimum. Internal-run tokens follow the same rule.
+A blocked inference request returns HTTP 403 with `account_trust_required`; an unavailable account lookup returns
+HTTP 503 with `account_trust_unavailable`. The gateway caches scores for up to 60 seconds after billing sync.
+
 ### Run system prompts
 
 The run's `state.systemPrompt` is server-owned. Set it through trusted server-side run creation

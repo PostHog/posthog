@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from typing import Annotated, Any
 
 import asyncpg
@@ -36,6 +37,7 @@ from llm_gateway.request_context import (
     get_request_id,
     set_throttle_context,
 )
+from llm_gateway.services.account_trust import AccountTrustResolver
 from llm_gateway.services.desktop_access_resolver import DesktopAccessResolver
 from llm_gateway.services.quota_resolver import QuotaResourceStatus, resolve_quota_status
 
@@ -280,9 +282,54 @@ def _format_retry_delay(seconds: int) -> str:
     return f"{hours} hour{'s' if hours != 1 else ''}"
 
 
-async def enforce_throttles(
+async def enforce_account_trust(
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(enforce_product_access)],
+) -> AuthenticatedUser:
+    resolver: AccountTrustResolver = request.app.state.account_trust_resolver
+    team_id = user.team_id
+    if user.auth_method == "personal_api_key" and user.is_staff:
+        raw_team_id = request.headers.get("x-posthog-property-team_id")
+        if raw_team_id is not None:
+            try:
+                team_id = int(raw_team_id)
+            except ValueError:
+                pass
+    try:
+        trust = await resolver.resolve(team_id) if team_id is not None else None
+    except Exception:
+        logger.exception("account_trust_resolution_failed", team_id=team_id)
+        trust = None
+
+    if trust is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": {
+                    "message": "We couldn't verify your organization's AI access. Try again.",
+                    "type": "service_unavailable",
+                    "code": "account_trust_unavailable",
+                }
+            },
+        )
+    if not trust.allows_requests(datetime.now(UTC)):
+        logger.warning("account_trust_denied", team_id=team_id, product=get_product_from_request(request))
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": {
+                    "message": "AI access is not available for your organization yet. Contact support for help.",
+                    "type": "permission_error",
+                    "code": "account_trust_required",
+                }
+            },
+        )
+    return user
+
+
+async def enforce_throttles(
+    request: Request,
+    user: Annotated[AuthenticatedUser, Depends(enforce_account_trust)],
     runner: Annotated[ThrottleRunner, Depends(get_throttle_runner)],
 ) -> AuthenticatedUser:
     ensure_costs_fresh()
