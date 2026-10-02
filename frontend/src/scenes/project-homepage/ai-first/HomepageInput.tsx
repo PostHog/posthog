@@ -200,7 +200,6 @@ export function HomepageAiInput(): JSX.Element {
     const { threadLogicKey, conversation } = useValues(maxLogic)
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
     const { acceptDataProcessing } = useAsyncActions(aiConsentLogic)
-    const [approving, setApproving] = useState(false)
 
     const fallbackConversationId = useMemo(() => uuid(), [])
     const threadProps: MaxThreadLogicProps = {
@@ -223,17 +222,7 @@ export function HomepageAiInput(): JSX.Element {
                     <LemonButton
                         type="primary"
                         size="small"
-                        loading={approving}
-                        onClick={() =>
-                            openAIConsentLegalDialog({
-                                onConfirm: () => {
-                                    setApproving(true)
-                                    void acceptDataProcessing()
-                                        .catch(console.error)
-                                        .finally(() => setApproving(false))
-                                },
-                            })
-                        }
+                        onClick={() => openAIConsentLegalDialog({ onConfirm: () => acceptDataProcessing() })}
                         sideIcon={<IconArrowRight />}
                     >
                         I allow AI analysis in this organization
