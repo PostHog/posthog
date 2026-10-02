@@ -228,6 +228,15 @@ async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSwe
             input_tokens += judgment.input_tokens
             estimated_cost += judgment.estimated_cost_usd
             with suppress(Exception):
+                # Sub-threshold scores are cached nowhere, so this event is the only record of the
+                # score distribution — it is the data JEV_WATCHABLE_MIN is calibrated from.
+                scores = sorted(judgment.probabilities.values())
+                top_scored = [
+                    {"id": oid, "p": round(probability, 3)}
+                    for oid, probability in sorted(
+                        judgment.probabilities.items(), key=lambda entry: entry[1], reverse=True
+                    )[:5]
+                ]
                 posthoganalytics.capture(
                     event="replay_vision_jev_watch_rank_judged",
                     distinct_id=f"team-{team_id}",
@@ -239,8 +248,13 @@ async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSwe
                         "mean_watchability": (
                             fmean(judgment.probabilities.values()) if judgment.probabilities else None
                         ),
+                        "watchable_count": sum(1 for probability in scores if probability >= JEV_WATCHABLE_MIN),
+                        "watchability_p90": scores[int(0.9 * (len(scores) - 1))] if scores else None,
+                        "watchability_max": scores[-1] if scores else None,
+                        "top_scored": top_scored,
                         "chunks": judgment.chunks,
                         "failed_chunks": judgment.failed_chunks,
+                        "chunk_error_types": judgment.chunk_error_types,
                         "jev_model": judgment.model,
                         "input_tokens": judgment.input_tokens,
                         "estimated_cost_usd": judgment.estimated_cost_usd,

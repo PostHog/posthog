@@ -72,7 +72,7 @@ export function TodaySpacesRow({
                 }
                 onBlur={ticker ? () => setKeyboardFocused(false) : undefined}
                 className={cn(
-                    'min-w-0 text-xs text-foreground',
+                    'min-w-0 text-foreground',
                     weight === 'medium' && 'font-medium',
                     // Desktop's two-line row: the second line outgrows the fixed row height, so padding stands in for it.
                     details.length > 0 && 'h-auto py-1',

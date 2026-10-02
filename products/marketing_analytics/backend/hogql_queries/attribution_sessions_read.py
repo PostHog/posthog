@@ -3,6 +3,7 @@
 Stored person IDs can outlive a merge, so identity always comes from events.
 """
 
+import os
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Optional
 
@@ -16,31 +17,20 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
 from posthog.hogql.visitor import TraversingVisitor
 
-from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.dataclasses import frozen
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.access_control.backend.facade.api import team_has_property_access_rules
-from products.analytics_platform.backend.lazy_computation.stale_policy import resolve_stale_while_revalidate_seconds
-from products.marketing_analytics.backend.hogql_queries.marketing_sessions_precompute import (
-    SESSION_READ_REACHBACK_DAYS,
-    ensure_marketing_sessions_precomputed,
-    precompute_window_start,
-)
 
 from .attribution_base import MAX_CONVERSIONS_PER_PERSON, MAX_TOUCHPOINTS_PER_PERSON, PERSON_CONVERSION_COUNT
 from .attribution_session_dimensions import session_dimensions
 from .constants import UNKNOWN_CHANNEL
-from .marketing_lazy_precompute import (
-    BACKGROUND_WARMING_TRIGGERS,
-    PRECOMPUTE_ONLY_MAX_STALE_SECONDS,
-    REVALIDATION_TRIGGER,
-    handle_stale_served,
-)
 from .session_breakdown_base import UNATTRIBUTED_SESSION_VALUES
 
 if TYPE_CHECKING:
     from posthog.schema import HogQLQueryModifiers
+
+    from posthog.models.team import Team
 
     from .attribution_base import AttributionQueryRunnerBase
 
@@ -48,6 +38,7 @@ logger = structlog.get_logger(__name__)
 
 _SESSIONS_CTE = "resolved_cached_sessions"
 _CONVERSIONS_CTE = "cached_session_conversions"
+MAX_DISPLAY_DAYS = int(os.getenv("MARKETING_SESSIONS_PRECOMPUTE_WINDOW_DAYS", "90"))
 
 BREAKDOWN_COLUMNS: dict[MarketingAnalyticsAttributionBreakdown, str] = {
     MarketingAnalyticsAttributionBreakdown.CHANNEL: "channel_type",
@@ -71,16 +62,16 @@ def _session_table_version(modifiers: "HogQLQueryModifiers") -> SessionTableVers
 
 
 def _session_modifiers_reason(runner: "AttributionQueryRunnerBase") -> Optional[str]:
-    writer_modifiers = create_default_modifiers_for_team(runner.team)
-    modifiers = runner.modifiers or writer_modifiers
-    if (modifiers.customChannelTypeRules or []) != (writer_modifiers.customChannelTypeRules or []):
+    default_modifiers = create_default_modifiers_for_team(runner.team)
+    modifiers = runner.modifiers or default_modifiers
+    if (modifiers.customChannelTypeRules or []) != (default_modifiers.customChannelTypeRules or []):
         return "custom_channel_rules_mismatch"
     if modifiers.convertToProjectTimezone is False:
         return "project_timezone_disabled"
     version = _session_table_version(modifiers)
-    if version == SessionTableVersion.V1 or version != _session_table_version(writer_modifiers):
+    if version == SessionTableVersion.V1 or version != _session_table_version(default_modifiers):
         return "session_table_version_mismatch"
-    if version == SessionTableVersion.V2 and modifiers.sessionsV2JoinMode != writer_modifiers.sessionsV2JoinMode:
+    if version == SessionTableVersion.V2 and modifiers.sessionsV2JoinMode != default_modifiers.sessionsV2JoinMode:
         return "session_join_mode_mismatch"
     return None
 
@@ -102,8 +93,16 @@ class _SessionConversionVisitor(TraversingVisitor):
         super().visit_call(node)
 
 
+def earliest_session_start(team: "Team", end: datetime) -> datetime:
+    # Relative display ranges start at local midnight; attribution lookback uses elapsed UTC seconds.
+    display_start = end.astimezone(team.timezone_info).replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(
+        days=MAX_DISPLAY_DAYS
+    )
+    return display_start.astimezone(UTC) - timedelta(days=team.marketing_analytics_config.attribution_window_days)
+
+
 def ineligible_reason(runner: "AttributionQueryRunnerBase", date_range: QueryDateRange) -> Optional[str]:
-    """Why this query cannot read from the precompute, or None if it can.
+    """Why this query cannot use shared live session resolution, or None if it can.
 
     A reason string rather than a bool, so the caller can label the fallback counter: these carry very
     different weight, and an unlabeled counter would blur permanent and transient apart.
@@ -111,12 +110,11 @@ def ineligible_reason(runner: "AttributionQueryRunnerBase", date_range: QueryDat
     if reason := _session_modifiers_reason(runner):
         return reason
 
-    if runner.config.live_session_resolution_enabled:
-        conversion = _SessionConversionVisitor()
-        conversion.visit(runner.conversion_condition)
-        if conversion.depends_on_sessions:
-            # The separate conversion scan has narrower session-ID bounds than the legacy combined scan.
-            return "session_filtered_conversion_goal"
+    conversion = _SessionConversionVisitor()
+    conversion.visit(runner.conversion_condition)
+    if conversion.depends_on_sessions:
+        # The separate conversion scan has narrower session-ID bounds than the legacy combined scan.
+        return "session_filtered_conversion_goal"
 
     if not is_integer_timezone(runner.team.timezone):
         # `period_bucket` is an hourly UTC bucket, so a half-hour-offset team's midnight lands
@@ -131,15 +129,14 @@ def ineligible_reason(runner: "AttributionQueryRunnerBase", date_range: QueryDat
         return "ambiguous_date_boundary"
 
     if team_has_property_access_rules(team_id=runner.team.id):
-        # The rows are userless and shared, so they cannot honor per-user property restrictions.
+        # Shared session dimensions cannot honor per-user property restrictions.
         return "property_access_controlled"
 
     if runner._test_account_conditions():
-        # Shared dimensions include test traffic; use the live path to apply the full filter semantics.
         return "test_account_filters"
 
     read = window(runner, date_range)
-    if read.start - timedelta(days=SESSION_READ_REACHBACK_DAYS) < precompute_window_start(runner.team, read.end):
+    if read.start < earliest_session_start(runner.team, read.end):
         return "window_over_max"
 
     return None
@@ -165,54 +162,18 @@ def window(runner: "AttributionQueryRunnerBase", date_range: QueryDateRange) -> 
     )
 
 
-def _ensure(runner: "AttributionQueryRunnerBase", date_range: QueryDateRange) -> Optional[list[str]]:
-    """The job set backing this query, or None to fall back. Resolved once and cached on the runner:
-    reach and credit both call this, and a pair served from different sources reports rates above
-    100%, which is the bug the shared window exists to prevent.
-    """
-    if runner._sessions_precompute_resolved:
-        return runner._sessions_precompute_jobs
-
-    runner._sessions_precompute_jobs = _resolve(runner, date_range)
-    runner._sessions_precompute_resolved = True
-    return runner._sessions_precompute_jobs
-
-
-def _resolve(runner: "AttributionQueryRunnerBase", date_range: QueryDateRange) -> Optional[list[str]]:
-    try:
-        # Inside the try: the gates read team configuration and access rules, so a failure there has
-        # to fall back like any other, not surface as a query error.
-        reason = ineligible_reason(runner, date_range)
-        if reason is not None:
-            logger.info("attribution_sessions_precompute_ineligible", team_id=runner.team.pk, reason=reason)
-            return None
-
-        if runner.config.live_session_resolution_enabled:
-            return []
-        read = window(runner, date_range)
-        # Materialize from a session's length before the window: the writer files a session under the
-        # chunk holding its start, so a session that opened earlier and ran into the window lives in
-        # the preceding chunk. Reading the window alone leaves that row unwritten, and bounding by
-        # event time cannot recover a row that was never built.
-        ensure_start = read.start - timedelta(days=SESSION_READ_REACHBACK_DAYS)
-        revalidating = get_query_tag_value("trigger") == REVALIDATION_TRIGGER
-        grace = resolve_stale_while_revalidate_seconds(PRECOMPUTE_ONLY_MAX_STALE_SECONDS, BACKGROUND_WARMING_TRIGGERS)
-        # Only the dedicated revalidation task may rebuild; cold user reads keep the live fallback.
-        result = ensure_marketing_sessions_precomputed(
-            runner.team,
-            ensure_start,
-            read.end,
-            run_inserts=revalidating,
-            stale_while_revalidate_seconds=grace,
-        )
-        if not result.job_ids or not result.ready:
-            return None
-    except Exception:
-        logger.exception("attribution_sessions_precompute_failed", team_id=runner.team.pk)
-        return None
-    if result.stale:
-        handle_stale_served(team=runner.team, query=runner.query)
-    return [str(j) for j in result.job_ids]
+def _eligible(runner: "AttributionQueryRunnerBase", date_range: QueryDateRange) -> bool:
+    # Reach and credit must share a source so their conversion-rate denominator stays consistent.
+    if runner._live_session_resolution_eligible is None:
+        try:
+            reason = ineligible_reason(runner, date_range)
+            runner._live_session_resolution_eligible = reason is None
+            if reason is not None:
+                logger.info("attribution_live_session_resolution_ineligible", team_id=runner.team.pk, reason=reason)
+        except Exception:
+            logger.exception("attribution_live_session_resolution_failed", team_id=runner.team.pk)
+            runner._live_session_resolution_eligible = False
+    return runner._live_session_resolution_eligible
 
 
 def _session_identities(start: datetime, end: datetime) -> ast.SelectQuery:
@@ -233,9 +194,7 @@ def _session_identities(start: datetime, end: datetime) -> ast.SelectQuery:
     return query
 
 
-def _read_sessions(
-    dimensions: ast.SelectQuery, start: datetime, end: datetime, *, live: bool = False
-) -> ast.SelectQuery:
+def _read_sessions(dimensions: ast.SelectQuery) -> ast.SelectQuery:
     query = parse_select(
         """
         WITH dimensions AS (SELECT * FROM {dimensions}), identities AS ({identities})
@@ -249,11 +208,7 @@ def _read_sessions(
         """,
         placeholders={
             "dimensions": dimensions,
-            "identities": (
-                parse_select("SELECT * FROM attribution_session_identities")
-                if live
-                else _session_identities(start, end)
-            ),
+            "identities": parse_select("SELECT * FROM attribution_session_identities"),
         },
     )
     assert isinstance(query, ast.SelectQuery)
@@ -261,7 +216,7 @@ def _read_sessions(
 
 
 def _scope(read: ReadWindow) -> list[ast.Expr]:
-    """Scope to the window by event time; cached dimensions already select the ready job set.
+    """Scope to the window by event time.
 
     The live path keeps a session whose events fall in the window and then reports its start as the
     touchpoint time, so a session that opened before the window still counts. Bounding by
@@ -343,11 +298,9 @@ def _breakdown_expr(runner: "AttributionQueryRunnerBase") -> ast.Expr:
 
 
 def build_reach(runner: "AttributionQueryRunnerBase", date_range: QueryDateRange) -> Optional[ast.SelectQuery]:
-    job_ids = _ensure(runner, date_range)
-    if job_ids is None:
+    if not _eligible(runner, date_range):
         return None
     read = window(runner, date_range)
-    # The shared CTE has one row per session and current person, including across overlapping jobs.
     per_session = ast.SelectQuery(
         select=[
             ast.Alias(alias="person_id", expr=_field("person_id")),
@@ -374,7 +327,7 @@ def build_reach(runner: "AttributionQueryRunnerBase", date_range: QueryDateRange
 
 def _conversions_per_person(runner: "AttributionQueryRunnerBase", date_range: QueryDateRange) -> ast.SelectQuery:
     """Conversions per converting person, straight off events. Conversions are events, not sessions,
-    so this side stays on `events`; what the precompute replaces is the touchpoint side."""
+    so this side stays on `events` while the touchpoint side resolves session dimensions."""
     conversions: ast.Expr = ast.Call(
         name="groupArray",
         args=[
@@ -396,8 +349,7 @@ def _conversions_per_person(runner: "AttributionQueryRunnerBase", date_range: Qu
         )
         conversion_count = ast.Constant(value=1)
     else:
-        # The same ceiling the live path applies. Without it the two downstream ARRAY JOINs multiply
-        # without bound, which is the shape this precompute exists to keep out of memory.
+        # The same ceiling the legacy path applies; otherwise the downstream ARRAY JOINs multiply without bound.
         conversions = ast.Call(
             name="arraySlice",
             args=[
@@ -431,10 +383,9 @@ def _conversions_per_person(runner: "AttributionQueryRunnerBase", date_range: Qu
 
 
 def session_ctes(runner: "AttributionQueryRunnerBase", date_range: QueryDateRange) -> dict[str, ast.CTE]:
-    if not (runner.config.sessions_precomputation_enabled or runner.config.live_session_resolution_enabled):
+    if not runner.config.live_session_resolution_enabled:
         return {}
-    job_ids = _ensure(runner, date_range)
-    if job_ids is None:
+    if not _eligible(runner, date_range):
         return {}
     read = window(runner, date_range)
     columns = {BREAKDOWN_COLUMNS[runner.breakdown]}
@@ -445,20 +396,17 @@ def session_ctes(runner: "AttributionQueryRunnerBase", date_range: QueryDateRang
     dimensions = session_dimensions(
         runner.modifiers or create_default_modifiers_for_team(runner.team),
         columns,
-        job_ids,
         read.start,
         read.end,
-        live=runner.config.live_session_resolution_enabled,
     )
-    sessions = _read_sessions(dimensions, read.start, read.end, live=runner.config.live_session_resolution_enabled)
+    sessions = _read_sessions(dimensions)
     ctes: dict[str, ast.CTE] = {}
-    if runner.config.live_session_resolution_enabled:
-        ctes["attribution_session_identities"] = ast.CTE(
-            name="attribution_session_identities",
-            expr=_session_identities(read.start, read.end),
-            cte_type="subquery",
-            materialized=True,
-        )
+    ctes["attribution_session_identities"] = ast.CTE(
+        name="attribution_session_identities",
+        expr=_session_identities(read.start, read.end),
+        cte_type="subquery",
+        materialized=True,
+    )
     # Reach and credit share the event scan; conversion bounds share the revenue aggregation.
     ctes[_SESSIONS_CTE] = ast.CTE(
         name=_SESSIONS_CTE,
@@ -477,8 +425,7 @@ def session_ctes(runner: "AttributionQueryRunnerBase", date_range: QueryDateRang
 
 def build_person_arrays(runner: "AttributionQueryRunnerBase", date_range: QueryDateRange) -> Optional[ast.SelectQuery]:
     """One row per converting person, with touchpoints from the shared session resolution."""
-    job_ids = _ensure(runner, date_range)
-    if job_ids is None:
+    if not _eligible(runner, date_range):
         return None
     read = window(runner, date_range)
 
@@ -493,19 +440,18 @@ def build_person_arrays(runner: "AttributionQueryRunnerBase", date_range: QueryD
     upper = "last_conversion" if runner.allows_multiple_conversions_per_visitor else "first_conversion"
 
     conditions = _scope(read)
-    if runner.config.live_session_resolution_enabled:
-        # Event and session replicas can lag independently; credit still requires a pageview in the person's window.
-        conditions.append(
-            ast.CompareOperation(
-                left=ast.Call(name="toUnixTimestamp", args=[_field("max_event_timestamp")]),
-                op=ast.CompareOperationOp.GtEq,
-                right=ast.ArithmeticOperation(
-                    left=ast.Field(chain=["conv", "first_conversion"]),
-                    op=ast.ArithmeticOperationOp.Sub,
-                    right=ast.Constant(value=runner.attribution_window_seconds),
-                ),
-            )
+    # Event and session replicas can lag independently; credit still requires a pageview in the person's window.
+    conditions.append(
+        ast.CompareOperation(
+            left=ast.Call(name="toUnixTimestamp", args=[_field("max_event_timestamp")]),
+            op=ast.CompareOperationOp.GtEq,
+            right=ast.ArithmeticOperation(
+                left=ast.Field(chain=["conv", "first_conversion"]),
+                op=ast.ArithmeticOperationOp.Sub,
+                right=ast.Constant(value=runner.attribution_window_seconds),
+            ),
         )
+    )
 
     # One conversion-bounds row per person preserves the CTE's unique session/person pairs.
     per_session = ast.SelectQuery(

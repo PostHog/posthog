@@ -1,5 +1,9 @@
 from dataclasses import field
+from functools import reduce
+from operator import or_
 from typing import TYPE_CHECKING, Optional
+
+from django.db.models import Q
 
 from pydantic import BaseModel
 
@@ -80,24 +84,26 @@ class _WarehouseCatalog:
     minutes here before it can read a single cached result."""
 
     team_id: int
-    table_names: Optional[set[str]] = None
+    table_names: set[str] = field(default_factory=set)
+    looked_up_table_names: set[str] = field(default_factory=set)
     view_queries: dict[str, object] = field(default_factory=dict)
     looked_up_names: set[str] = field(default_factory=set)
     walked_views: set[str] = field(default_factory=set)
 
-    def get_table_names(self) -> set[str]:
+    def has_table(self, names: set[str]) -> bool:
         # Deferred to break the query_runner -> this module -> hogql import cycle.
         from posthog.hogql.database.database import get_data_warehouse_table_name  # noqa: PLC0415
 
         from products.warehouse_sources.backend.facade.models import DataWarehouseTable  # noqa: PLC0415
 
-        if self.table_names is None:
-            # External tables are queryable under BOTH their raw name and the prefixed
-            # source_type.prefix.table key (see database.py schema build), so match either form —
-            # otherwise a denied user could read an allowed user's cached rows via the raw name.
-            self.table_names = set()
+        unknown_names = names - self.looked_up_table_names
+        if unknown_names:
+            # This runs on every cache hit, so load only candidate tables, not the whole catalog. Both
+            # queryable forms end with the table's name, so a suffix match finds every candidate.
+            # Python and Postgres case folding can disagree outside ASCII, so non-ASCII names always load.
+            suffix_filter = reduce(or_, (Q(name__iendswith=name.rsplit(".", 1)[-1]) for name in unknown_names))
             for table in (
-                DataWarehouseTable.objects.filter(team_id=self.team_id)
+                DataWarehouseTable.objects.filter(suffix_filter | Q(name__regex=r"[^ -~]"), team_id=self.team_id)
                 .exclude(deleted=True)
                 # clear the manager's created_by/schema eager-loads: select_related chains additively,
                 # so without this the .only() below raises FieldError (created_by deferred + traversed)
@@ -111,9 +117,13 @@ class _WarehouseCatalog:
                     "external_data_source__access_method",
                 )
             ):
+                # External tables are queryable under BOTH their raw name and the prefixed
+                # source_type.prefix.table key (see database.py schema build), so match either form —
+                # otherwise a denied user could read an allowed user's cached rows via the raw name.
                 self.table_names.add(table.name)
                 self.table_names.add(get_data_warehouse_table_name(table.external_data_source, table.name))
-        return self.table_names
+            self.looked_up_table_names |= unknown_names
+        return bool(names & self.table_names)
 
     def get_views(self, names: set[str]) -> list[tuple[str, object]]:
         from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery  # noqa: PLC0415
@@ -249,10 +259,10 @@ def queried_access_controlled_resources(
         # cache key by AnalyticsQueryRunner._get_object_access_restrictions.
         non_system_names = table_names - set(system_scopes)
         if non_system_names:
-            if non_system_names & catalog.get_table_names():
-                scopes.add("warehouse_table")
-
             views = catalog.get_views(non_system_names)
+            # Inside a view walk the parent view already added warehouse_table, so skip the table lookup.
+            if not views and _catalog is None and catalog.has_table(non_system_names):
+                scopes.add("warehouse_table")
             if views:
                 scopes.add("warehouse_view")
                 # A non-materialized view re-resolves to its underlying warehouse tables at execution.

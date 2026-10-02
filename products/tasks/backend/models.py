@@ -4237,6 +4237,7 @@ class TeamTasksConfig(models.Model):
     # Same shape as SlackSettings.ai_preferences; validated as a whole triple on write
     # (see logic/services/ai_run_defaults.py).
     ai_run_preferences = models.JSONField(null=True, blank=True)
+    agent_instructions = models.TextField(blank=True, default="", db_default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -4255,6 +4256,7 @@ class UserTasksConfig(TeamScopedRootMixin):
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     # Same shape and validation as TeamTasksConfig.ai_run_preferences.
     ai_run_preferences = models.JSONField(null=True, blank=True)
+    agent_instructions = models.TextField(blank=True, default="", db_default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

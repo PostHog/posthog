@@ -492,7 +492,7 @@ class TestSelectCoarsenTarget:
 
         current = bucket_sizes(current_format)
         expected = bucket_sizes(new_format)
-        simulated = repartition_module._simulate_datetime_coarsening(current, current_format, new_format)
+        simulated = repartition_module.simulate_datetime_coarsening(current, current_format, new_format)
 
         assert simulated == expected
 
@@ -517,7 +517,7 @@ class TestSelectCoarsenTarget:
             return sizes
 
         real = bucket_sizes("month")
-        simulated = repartition_module._simulate_datetime_coarsening(bucket_sizes("week"), "week", "month")
+        simulated = repartition_module.simulate_datetime_coarsening(bucket_sizes("week"), "week", "month")
         assert simulated is not None
 
         # Every month the rewrite produces is accounted for, and never under-stated.
