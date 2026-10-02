@@ -377,6 +377,26 @@ class TestWorkflowProposals(APIBaseTest):
         stored = WorkflowProposal.objects.for_team(self.team.id).get(id=response.json()["id"])
         assert "sk-live-not-a-real-key" not in json.dumps(stored.content)
 
+    def test_a_value_the_serializer_rewrites_is_stored_the_way_it_will_publish(self, _mock_flag):
+        flow_id = self._create_active_flow()
+        proposal = self._propose(
+            flow_id,
+            content={"actions": [{"id": "action_1", "output_variable": "result"}]},
+        )
+
+        stored = WorkflowProposal.objects.for_team(self.team.id).get(id=proposal["id"])
+        assert stored.content["actions"][0]["output_variable"] == {"key": "result"}
+
+        self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {})
+        self._publish(flow_id)
+
+        outcome = self.client.get(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/outcome"
+        ).json()
+        # The publish wrote the coerced shape, so the change has to read as still in its own version.
+        assert outcome["change_ended_at_version"] is None, outcome
+        assert [version["version"] for version in outcome["versions"] if version["applied"]] == [2], outcome
+
     def test_a_field_the_merge_replaces_is_compared_whole(self, _mock_flag):
         flow_id = self._create_active_flow()
         proposal = self._propose(
