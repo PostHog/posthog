@@ -9,7 +9,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { visionObservationsList, visionScannersInlineScanCreate, visionScannersObserveCreate } from '../generated/api'
 import type { ReplayScannerApi, ReplayObservationApi } from '../generated/api.schemas'
 import { isSummarizerScanner } from '../replay_scanners/types'
-import { ObservationSeekbarMark, isSummaryObservation, observationSeekbarMarks } from '../utils/observation'
+import { isSummaryObservation } from '../utils/observation'
+import { RecordingTimeline, TimelineRow, recordingTimeline, timelineRows } from '../utils/recordingTimeline'
 import { OBSERVE_POLL_GRACE_MS, scheduleObservationPoll, shouldPollObservations } from './observationPolling'
 import { requestObservationRetry } from './observationRetry'
 import {
@@ -46,7 +47,8 @@ export interface observationsDockLogicValues {
     retryingObservationIds: string[]
     scannerPickerOpen: boolean
     scannerSearch: string
-    seekbarMarks: ObservationSeekbarMark[]
+    timeline: RecordingTimeline
+    timelineRows: TimelineRow[]
     summarizePending: boolean
     summarizerScanners: ReplayScannerApi[]
     summarizing: boolean
@@ -134,7 +136,8 @@ export interface observationsDockLogicMeta {
         hasObservationsInFlight: (observations: ReplayObservationApi[]) => boolean
         summaryInFlight: (observations: ReplayObservationApi[]) => boolean
         summarizePending: (summarizing: boolean, summaryInFlight: boolean) => boolean
-        seekbarMarks: (observations: ReplayObservationApi[]) => ObservationSeekbarMark[]
+        timeline: (observations: ReplayObservationApi[]) => RecordingTimeline
+        timelineRows: (timeline: RecordingTimeline) => TimelineRow[]
         summarizerScanners: (scanners: ReplayScannerApi[]) => ReplayScannerApi[]
         defaultSummarizer: (
             scanners: ReplayScannerApi[],
@@ -312,10 +315,11 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
             (s) => [s.summarizing, s.summaryInFlight],
             (summarizing: boolean, summaryInFlight: boolean): boolean => summarizing || summaryInFlight,
         ],
-        seekbarMarks: [
+        timeline: [
             (s) => [s.observations],
-            (observations: ReplayObservationApi[]): ObservationSeekbarMark[] => observationSeekbarMarks(observations),
+            (observations: ReplayObservationApi[]): RecordingTimeline => recordingTimeline(observations),
         ],
+        timelineRows: [(s) => [s.timeline], (timeline: RecordingTimeline): TimelineRow[] => timelineRows(timeline)],
         summarizerScanners: [
             (s) => [s.scanners],
             (scanners: ReplayScannerApi[]): ReplayScannerApi[] => scanners.filter(isSummarizerScanner),

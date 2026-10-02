@@ -1,0 +1,222 @@
+import type { ReplayObservationApi } from '../generated/api.schemas'
+import {
+    VERDICT_LABEL,
+    isFlaggedObservation,
+    isSummaryObservation,
+    readModelOutput,
+    readScore,
+    readTags,
+    readVerdict,
+    scannerLabel,
+} from './observation'
+
+/** Shorter idle is a pause in the flow of a chapter, not something worth a row of its own. */
+export const MIN_INACTIVE_ROW_MS = 30_000
+
+export interface TimelineChapter {
+    /** Index into the summary's `model_output.chapters`, which is how the chapter's frame is fetched. */
+    position: number
+    startMs: number
+    endMs: number
+    title: string
+    hasFrame: boolean
+    /** Inactive time inside the chapter, from pauses the chapter spans. */
+    inactiveMs: number
+}
+
+export interface TimelineInactive {
+    startMs: number
+    endMs: number
+}
+
+export interface TimelineMarker {
+    observationId: string
+    timestampMs: number
+    scannerName: string
+    scannerType: string | null
+    /** The answer the run gave, for example "Yes", "Score 4" or a tag; null when it has none to show. */
+    result: string | null
+    flagged: boolean
+}
+
+/**
+ * What the timeline can show for this recording:
+ * `ready` has chapters, `pending` has a summary still running, `outdated` has a summary that predates chapters,
+ * and `none` has no summary at all.
+ */
+export type SummaryState = 'ready' | 'pending' | 'outdated' | 'none'
+
+export interface RecordingTimeline {
+    summary: ReplayObservationApi | null
+    summaryState: SummaryState
+    chapters: TimelineChapter[]
+    inactive: TimelineInactive[]
+    markers: TimelineMarker[]
+}
+
+export type TimelineRow =
+    | { kind: 'chapter'; chapter: TimelineChapter; markers: TimelineMarker[] }
+    | { kind: 'inactive'; startMs: number; endMs: number }
+    | { kind: 'marker'; marker: TimelineMarker }
+
+function readNumber(value: unknown): number | null {
+    return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function readChapters(summary: ReplayObservationApi): TimelineChapter[] {
+    const raw = readModelOutput(summary)?.chapters
+    if (!Array.isArray(raw)) {
+        return []
+    }
+    const framePositions = new Set(
+        (summary.media ?? []).filter((entry) => entry.kind === 'chapter').map((entry) => entry.position)
+    )
+    const chapters: TimelineChapter[] = []
+    raw.forEach((entry: unknown, position) => {
+        if (!entry || typeof entry !== 'object') {
+            return
+        }
+        const chapter = entry as Record<string, unknown>
+        const startMs = readNumber(chapter.start_ms)
+        const endMs = readNumber(chapter.end_ms)
+        // Summaries written before inactive periods existed list idle as chapters; the gaps carry it now.
+        if (chapter.kind === 'idle' || startMs === null || endMs === null || endMs <= startMs) {
+            return
+        }
+        chapters.push({
+            position,
+            startMs,
+            endMs,
+            title: typeof chapter.title === 'string' ? chapter.title : '',
+            hasFrame: framePositions.has(position),
+            inactiveMs: 0,
+        })
+    })
+    return chapters.sort((a, b) => a.startMs - b.startMs)
+}
+
+function readInactive(summary: ReplayObservationApi): TimelineInactive[] {
+    const raw = readModelOutput(summary)?.inactive_periods
+    if (!Array.isArray(raw)) {
+        return []
+    }
+    return raw
+        .map((entry: unknown) => {
+            const period = (entry ?? {}) as Record<string, unknown>
+            return { startMs: readNumber(period.start_ms), endMs: readNumber(period.end_ms) }
+        })
+        .filter((p): p is TimelineInactive => p.startMs !== null && p.endMs !== null && p.endMs > p.startMs)
+        .sort((a, b) => a.startMs - b.startMs)
+}
+
+function markerResult(observation: ReplayObservationApi): string | null {
+    const verdict = readVerdict(observation)
+    if (verdict) {
+        return VERDICT_LABEL[verdict]
+    }
+    const score = readScore(observation)
+    if (score !== null) {
+        return `Score ${score}`
+    }
+    const tags = readTags(observation)
+    return tags.length > 0 ? tags.join(', ') : null
+}
+
+function readMarker(observation: ReplayObservationApi): TimelineMarker | null {
+    const timestampMs = readNumber(readModelOutput(observation)?.key_moment_ms)
+    if (observation.status !== 'succeeded' || timestampMs === null) {
+        return null
+    }
+    return {
+        observationId: observation.id,
+        timestampMs,
+        scannerName: scannerLabel(observation),
+        scannerType: observation.scanner_snapshot?.scanner_type ?? null,
+        result: markerResult(observation),
+        flagged: isFlaggedObservation(observation),
+    }
+}
+
+function overlapMs(a: TimelineInactive, startMs: number, endMs: number): number {
+    return Math.max(0, Math.min(a.endMs, endMs) - Math.max(a.startMs, startMs))
+}
+
+/** The recording's timeline: the newest summary's chapters, with every other run's key moment as a marker. */
+export function recordingTimeline(observations: ReplayObservationApi[]): RecordingTimeline {
+    const summaries = observations
+        .filter(isSummaryObservation)
+        .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))
+    const summary = summaries.find((o) => o.status === 'succeeded') ?? null
+    const pending = summaries.some((o) => o.status === 'pending' || o.status === 'running')
+    const markers = observations
+        .filter((o) => !isSummaryObservation(o))
+        .map(readMarker)
+        .filter((m): m is TimelineMarker => m !== null)
+        .sort((a, b) => a.timestampMs - b.timestampMs)
+
+    const chapters = summary ? readChapters(summary) : []
+    const allInactive = summary ? readInactive(summary) : []
+    for (const chapter of chapters) {
+        chapter.inactiveMs = allInactive.reduce((sum, p) => sum + overlapMs(p, chapter.startMs, chapter.endMs), 0)
+    }
+    // A gap row is the inactive time no chapter covers, so a pause a chapter spans never shows twice.
+    const inactive = allInactive
+        .map((p) => ({
+            ...p,
+            uncoveredMs: p.endMs - p.startMs - chapters.reduce((s, c) => s + overlapMs(p, c.startMs, c.endMs), 0),
+        }))
+        .filter((p) => p.uncoveredMs >= MIN_INACTIVE_ROW_MS)
+        .map(({ startMs, endMs }) => ({ startMs, endMs }))
+
+    const summaryState: SummaryState =
+        chapters.length > 0 ? 'ready' : pending ? 'pending' : summary ? 'outdated' : 'none'
+    return { summary, summaryState, chapters, inactive, markers }
+}
+
+/** The rows the sidebar lists, in time order: chapters with the markers inside them, idle gaps, and loose markers. */
+export function timelineRows(timeline: RecordingTimeline): TimelineRow[] {
+    const rows: { atMs: number; row: TimelineRow }[] = []
+    const placed = new Set<TimelineMarker>()
+    for (const chapter of timeline.chapters) {
+        const inside = timeline.markers.filter((m) => m.timestampMs >= chapter.startMs && m.timestampMs < chapter.endMs)
+        inside.forEach((m) => placed.add(m))
+        rows.push({ atMs: chapter.startMs, row: { kind: 'chapter', chapter, markers: inside } })
+    }
+    for (const gap of timeline.inactive) {
+        rows.push({ atMs: gap.startMs, row: { kind: 'inactive', startMs: gap.startMs, endMs: gap.endMs } })
+    }
+    for (const marker of timeline.markers) {
+        if (!placed.has(marker)) {
+            rows.push({ atMs: marker.timestampMs, row: { kind: 'marker', marker } })
+        }
+    }
+    return rows.sort((a, b) => a.atMs - b.atMs).map(({ row }) => row)
+}
+
+function rowSpan(row: TimelineRow): { startMs: number; endMs: number } {
+    if (row.kind === 'chapter') {
+        return { startMs: row.chapter.startMs, endMs: row.chapter.endMs }
+    }
+    if (row.kind === 'inactive') {
+        return { startMs: row.startMs, endMs: row.endMs }
+    }
+    return { startMs: row.marker.timestampMs, endMs: row.marker.timestampMs }
+}
+
+/** The row the player is in: the last one that started at or before the player's position, or -1 before the first. */
+export function currentRowIndex(rows: TimelineRow[], playerTimeMs: number): number {
+    let current = -1
+    rows.forEach((row, index) => {
+        if (rowSpan(row).startMs <= playerTimeMs) {
+            current = index
+        }
+    })
+    return current
+}
+
+/** The next place worth jumping to after the player's position: a chapter start or a marker. */
+export function nextTimelineStopMs(timeline: RecordingTimeline, playerTimeMs: number): number | null {
+    const stops = [...timeline.chapters.map((c) => c.startMs), ...timeline.markers.map((m) => m.timestampMs)]
+    const later = stops.filter((ms) => ms > playerTimeMs)
+    return later.length > 0 ? Math.min(...later) : null
+}
