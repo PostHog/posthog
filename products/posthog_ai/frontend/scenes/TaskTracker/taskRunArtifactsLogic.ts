@@ -308,7 +308,6 @@ export function artifactDownloadUrl(projectId: number | null, taskId: string, ar
     return getTasksRunsArtifactsDownloadRetrieveUrl(String(projectId), taskId, artifact.runId, artifact.id)
 }
 
-
 /** The standalone page puts the task in the path, an embedded runner in `?task=`. */
 function urlIsForTask(pathname: string, searchParams: Record<string, any>, taskId: string): boolean {
     return searchParams.task === taskId || pathname.split('/').includes(taskId)
