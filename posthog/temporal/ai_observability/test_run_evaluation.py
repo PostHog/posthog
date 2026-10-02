@@ -310,11 +310,9 @@ def test_openrouter_catalogue_outage_only_affects_projects_with_decisions_enable
         patch(
             "products.ai_observability.backend.llm.providers.openrouter._non_chat_models", return_value=None
         ) as catalogue,
-        patch(
-            "posthog.temporal.ai_observability.evaluation_llm_judge.system_one_evaluations_enabled", return_value=flag
-        ),
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.decision_evaluations_enabled", return_value=flag),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client.complete") as complete,
-        patch("posthog.temporal.ai_observability.evaluation_llm_judge.SystemOneClient.evaluate") as decide,
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.DecisionClient.evaluate") as decide,
     ):
         spec.return_value.resolve.return_value = MagicMock(
             provider="openrouter", model="openai/gpt-4o", provider_key=key, is_byok=True
@@ -362,7 +360,7 @@ def test_openrouter_catalogue_outage_only_affects_projects_with_decisions_enable
         (
             "openrouter",
             {"api_key": "example-openrouter-token"},
-            "https://openrouter.ai/api/v1",
+            "https://openrouter.ai/api/alpha",
             "typesafe/jev-1.13",
             {"input_tokens": 120, "output_tokens": 10},
         ),
@@ -408,8 +406,8 @@ def test_system_one_judge_emits_boolean_probability_without_reasoning(
         ),
         patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
-        patch("products.ai_observability.backend.llm.system_one.Team.objects.only") as teams,
-        patch("products.ai_observability.backend.llm.system_one.get_feature_flag_or_none", return_value=True),
+        patch("products.ai_observability.backend.llm.decisions.Team.objects.only") as teams,
+        patch("products.ai_observability.backend.llm.decisions.get_feature_flag_or_none", return_value=True),
         patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response) as request,
     ):
         teams.return_value.get.return_value = Team(id=1, organization_id=uuid.uuid4(), uuid=uuid.uuid4())
@@ -421,7 +419,8 @@ def test_system_one_judge_emits_boolean_probability_without_reasoning(
             allows_na=allows_na,
         )
 
-    assert str(request.call_args.args[0].url) == f"{base_url}/systemone"
+    endpoint = "decisions" if provider == "openrouter" else "systemone"
+    assert str(request.call_args.args[0].url) == f"{base_url}/{endpoint}"
     assert request.call_args.args[0].headers.get("Authorization") == (
         f"Bearer {connection_config['api_key']}" if connection_config["api_key"] else None
     )
@@ -486,20 +485,18 @@ def test_system_one_categorical_results_use_category_keys_without_boolean_probab
     with (
         patch(
             "products.ai_observability.backend.llm.providers.openrouter._non_chat_models",
-            return_value={"custom-model": ["decisions"]},
+            return_value={"typesafe/jev-1.13": ["decisions"]},
         ),
         patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
-        patch(
-            "posthog.temporal.ai_observability.evaluation_llm_judge.system_one_evaluations_enabled", return_value=True
-        ),
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.decision_evaluations_enabled", return_value=True),
         patch("httpx.AsyncHTTPTransport.handle_async_request") as request,
     ):
         spec.return_value.resolve.return_value = MagicMock(
-            provider=provider, model="custom-model", provider_key=key, is_byok=True
+            provider=provider, model="typesafe/jev-1.13", provider_key=key, is_byok=True
         )
         request.return_value = httpx.Response(
-            200, stream=httpx.ByteStream(json.dumps({"model": "custom-model", "answers": answers}).encode())
+            200, stream=httpx.ByteStream(json.dumps({"model": "typesafe/jev-1.13", "answers": answers}).encode())
         )
         result = call_llm_judge(evaluation=evaluation, system_prompt="", user_prompt="Hello!", allows_na=allows_na)
 
@@ -540,7 +537,7 @@ def test_system_one_categorical_results_use_category_keys_without_boolean_probab
     ],
 )
 @pytest.mark.parametrize("provider", ["system_one", "openrouter"])
-def test_system_one_numeric_scores_use_configured_bounds(
+def test_decision_numeric_scores_use_configured_bounds(
     provider: str,
     minimum: float,
     maximum: float,
@@ -568,22 +565,20 @@ def test_system_one_numeric_scores_use_configured_bounds(
     with (
         patch(
             "products.ai_observability.backend.llm.providers.openrouter._non_chat_models",
-            return_value={"custom-model": ["decisions"]},
+            return_value={"typesafe/jev-1.13": ["decisions"]},
         ),
         patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
-        patch(
-            "posthog.temporal.ai_observability.evaluation_llm_judge.system_one_evaluations_enabled", return_value=True
-        ),
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.decision_evaluations_enabled", return_value=True),
         patch(
             "httpx.AsyncHTTPTransport.handle_async_request",
             return_value=httpx.Response(
-                200, stream=httpx.ByteStream(json.dumps({"model": "custom-model", "answers": answers}).encode())
+                200, stream=httpx.ByteStream(json.dumps({"model": "typesafe/jev-1.13", "answers": answers}).encode())
             ),
         ) as request,
     ):
         spec.return_value.resolve.return_value = MagicMock(
-            provider=provider, model="custom-model", provider_key=key, is_byok=True
+            provider=provider, model="typesafe/jev-1.13", provider_key=key, is_byok=True
         )
         result = call_llm_judge(evaluation=evaluation, system_prompt="", user_prompt="Hello!", allows_na=allows_na)
 
@@ -620,9 +615,7 @@ def test_system_one_numeric_requires_a_score_range(output_config: dict[str, floa
     with (
         patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
-        patch(
-            "posthog.temporal.ai_observability.evaluation_llm_judge.system_one_evaluations_enabled", return_value=True
-        ),
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.decision_evaluations_enabled", return_value=True),
         patch("httpx.AsyncHTTPTransport.handle_async_request") as request,
     ):
         spec.return_value.resolve.return_value = MagicMock(
@@ -658,8 +651,8 @@ def test_system_one_restricted_connection_does_not_send_evaluation_data(
     with (
         override_settings(POSTHOG_INTERNAL_ORG_IDS=[]),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
-        patch("products.ai_observability.backend.llm.system_one.Team.objects.only") as teams,
-        patch("products.ai_observability.backend.llm.system_one.get_feature_flag_or_none", return_value=flag),
+        patch("products.ai_observability.backend.llm.decisions.Team.objects.only") as teams,
+        patch("products.ai_observability.backend.llm.decisions.get_feature_flag_or_none", return_value=flag),
         patch("httpx.AsyncHTTPTransport.handle_async_request") as request,
     ):
         teams.return_value.get.return_value = Team(id=1, organization_id=uuid.uuid4(), uuid=uuid.uuid4())
@@ -710,17 +703,15 @@ def test_provider_rejections_distinguish_blocked_endpoints_from_bad_inputs(
     with (
         patch(
             "products.ai_observability.backend.llm.providers.openrouter._non_chat_models",
-            return_value={"example-judge-v1": ["decisions"]},
+            return_value={"typesafe/jev-1.13": ["decisions"]},
         ),
         patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
-        patch(
-            "posthog.temporal.ai_observability.evaluation_llm_judge.system_one_evaluations_enabled", return_value=True
-        ),
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.decision_evaluations_enabled", return_value=True),
         patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response),
     ):
         spec.return_value.resolve.return_value = MagicMock(
-            provider=provider, model="example-judge-v1", provider_key=key, is_byok=True
+            provider=provider, model="typesafe/jev-1.13", provider_key=key, is_byok=True
         )
         result = call_llm_judge(
             evaluation={"id": "test-evaluation", "team_id": 1, "evaluation_config": {"prompt": "Polite?"}},
@@ -840,9 +831,7 @@ def test_custom_provider_rate_limit_retries_without_disabling_the_evaluation(
     with (
         patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
-        patch(
-            "posthog.temporal.ai_observability.evaluation_llm_judge.system_one_evaluations_enabled", return_value=True
-        ),
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.decision_evaluations_enabled", return_value=True),
         patch(
             "httpx.AsyncHTTPTransport.handle_async_request",
             side_effect=[

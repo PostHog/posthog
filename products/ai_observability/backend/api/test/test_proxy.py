@@ -337,7 +337,7 @@ class TestPlaygroundModelEnforcement(APIBaseTest):
             patch(
                 "products.ai_observability.backend.api.proxy.Client.list_models", return_value=["typesafe/jev-router"]
             ),
-            patch("products.ai_observability.backend.api.proxy.system_one_evaluations_enabled", return_value=flag),
+            patch("products.ai_observability.backend.api.proxy.decision_evaluations_enabled", return_value=flag),
             patch(
                 "products.ai_observability.backend.api.proxy.decision_model_ids",
                 return_value=frozenset({"typesafe/jev-1.13"}),
@@ -347,8 +347,8 @@ class TestPlaygroundModelEnforcement(APIBaseTest):
 
         assert response.status_code == 200
         models = {model["id"]: model for model in response.json()}
-        assert models["typesafe/jev-router"]["supports_system_one"] is False
+        assert models["typesafe/jev-router"]["supports_decisions"] is False
         assert ("typesafe/jev-1.13" in models) is flag
         if flag:
             assert models["typesafe/jev-1.13"]["provider"] == "OpenRouter"
-            assert models["typesafe/jev-1.13"]["supports_system_one"] is True
+            assert models["typesafe/jev-1.13"]["supports_decisions"] is True

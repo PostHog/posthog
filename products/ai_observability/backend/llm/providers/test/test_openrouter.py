@@ -184,6 +184,8 @@ class TestOpenRouterNonChatModels:
                 {"id": "typesafe/jev-1.13", "architecture": {"output_modalities": ["decisions"]}},
                 {"id": "~typesafe/jev-latest", "architecture": {"output_modalities": ["decisions"]}},
                 {"id": "typesafe/jev-router", "architecture": {"output_modalities": ["text"]}},
+                {"id": "respan/span-01", "architecture": {"output_modalities": ["decisions"]}},
+                {"id": "example/new-decision-model", "architecture": {"output_modalities": ["decisions"]}},
                 {"id": "example/embedding", "architecture": {"output_modalities": ["embeddings"]}},
                 {"id": "no-architecture/model"},
                 {"id": "null-modalities/model", "architecture": {"output_modalities": None}},
@@ -195,7 +197,13 @@ class TestOpenRouterNonChatModels:
             patch("products.ai_observability.backend.llm.providers.openrouter.httpx.get", return_value=mock_response),
         ):
             assert _non_chat_model_ids() == frozenset(
-                {"typesafe/jev-1.13", "~typesafe/jev-latest", "example/embedding"}
+                {
+                    "typesafe/jev-1.13",
+                    "~typesafe/jev-latest",
+                    "example/embedding",
+                    "respan/span-01",
+                    "example/new-decision-model",
+                }
             )
             assert decision_model_ids() == frozenset({"typesafe/jev-1.13", "~typesafe/jev-latest"})
 
