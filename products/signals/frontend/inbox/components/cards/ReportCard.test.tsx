@@ -385,6 +385,7 @@ describe('ReportCard', () => {
                 manifest_version: 'manifest',
                 scored_at: '2026-09-30T12:00:00Z',
                 scores: { pr_merged: 0.41, action: 0.062 },
+                lifts: {},
                 readable_heads: ['action', 'pr_merged'],
             },
         })

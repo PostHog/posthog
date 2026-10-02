@@ -14,7 +14,7 @@ from posthog.ph_client import ScopedCapture, ph_scoped_capture
 
 from products.signals.backend.artefact_schemas import RankingModelResult, RankingScore
 from products.signals.backend.models import SignalActorKind, SignalReport, SignalReportArtefact
-from products.signals.backend.ranking.model_contract import classification_thresholds, readable_head_names
+from products.signals.backend.ranking.model_contract import classification_thresholds, head_lifts, readable_head_names
 
 REPORT_SCORED_EVENT = "inbox_ranking_report_scored"
 DISTINCT_ID = "inbox_ranking_scoring"
@@ -76,7 +76,7 @@ def persist_scores(
 
 
 def classification_properties(result: RankingModelResult) -> dict[str, object]:
-    """The served threshold and the flag it gives, per head, read from the result's copied metadata.
+    """The served threshold, the flag it gives and the lift over it, per head, read from the result's copied metadata.
 
     A serving copy is immutable per model key, so its metadata holds the threshold that scored the
     report. A head without a saved threshold gets neither property: a model trained before
@@ -92,4 +92,5 @@ def classification_properties(result: RankingModelResult) -> dict[str, object]:
             for head, probability in result.scores.items()
             if head in thresholds
         },
+        **{f"lift_{head}": lift for head, lift in head_lifts(result.scores, result.metadata).items()},
     }
