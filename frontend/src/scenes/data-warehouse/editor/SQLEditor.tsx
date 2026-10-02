@@ -52,6 +52,7 @@ import { OutputPane } from './OutputPane'
 import { outputPaneLogic } from './outputPaneLogic'
 import { QueryHistoryModal } from './QueryHistoryModal'
 import { QueryWindow } from './QueryWindow'
+import { getSaveAsDisabledReason } from './saveAsDisabledReason'
 import { sqlEditorLogic } from './sqlEditorLogic'
 import { SQLEditorMode, isEmbeddedSQLEditorMode } from './sqlEditorModes'
 
@@ -84,6 +85,8 @@ interface SQLEditorProps {
     cancelQueryLoading?: boolean
     /** Drop the toolbar's run button, for hosts that offer the run affordance themselves. */
     hideRunButton?: boolean
+    /** Embedded mode only: show a save-as-insight button, for hosts whose queries are worth keeping. */
+    showSaveAsInsight?: boolean
     onShareTab?: () => void
     queryPaneDefaultHeight?: number
     /** Floor for a dragged query pane. Notebook cells pass a smaller one than the scene. */
@@ -108,6 +111,7 @@ export function SQLEditor({
     onCancelQuery,
     cancelQueryLoading,
     hideRunButton,
+    showSaveAsInsight,
     onShareTab,
     queryPaneDefaultHeight,
     queryPaneMinHeight,
@@ -315,6 +319,7 @@ export function SQLEditor({
                                                             onCancelQuery={onCancelQuery}
                                                             cancelQueryLoading={cancelQueryLoading}
                                                             hideRunButton={hideRunButton}
+                                                            showSaveAsInsight={showSaveAsInsight}
                                                             onShareTab={onShareTab}
                                                             autoFocusQueryPane={autoFocusQueryPane}
                                                         />
@@ -582,25 +587,11 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         saveAsInsight()
     }
 
-    const saveAsDisabledReason = useMemo(() => {
-        if (insightLoading) {
-            return 'Loading insight...'
-        }
-
-        if (!isSourceQueryLastRun) {
-            return 'Run latest query changes before saving'
-        }
-
-        if (responseLoading) {
-            return 'Running query...'
-        }
-
-        if (responseError || !response) {
-            return 'Run query successfully before saving'
-        }
-
-        return undefined
-    }, [insightLoading, isSourceQueryLastRun, responseLoading, responseError, response])
+    const saveAsDisabledReason = useMemo(
+        () =>
+            getSaveAsDisabledReason({ insightLoading, isSourceQueryLastRun, responseLoading, responseError, response }),
+        [insightLoading, isSourceQueryLastRun, responseLoading, responseError, response]
+    )
 
     const [editingViewDisabledReason, EditingViewButtonIcon] = useMemo(() => {
         if (updatingDataWarehouseSavedQuery) {
