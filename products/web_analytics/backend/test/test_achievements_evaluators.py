@@ -1,6 +1,8 @@
+from collections.abc import Callable
 from datetime import date, datetime, timedelta
 
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from unittest.mock import Mock, patch
 
 from django.utils import timezone
 
@@ -9,10 +11,13 @@ from parameterized import parameterized
 from posthog.models import Element, Team, User
 
 from products.actions.backend.models.action import Action
+from products.data_tools.backend.facade.models import DataWarehouseJoin
+from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 from products.web_analytics.backend.achievements.definitions import STREAK_ARM_DAILY, STREAK_ARM_WEEKLY
 from products.web_analytics.backend.achievements.evaluators import (
     EvalContext,
     PriorProgress,
+    TrackEvaluation,
     evaluate_conversions,
     evaluate_cumulative_pageviews,
     evaluate_data_events,
@@ -73,6 +78,29 @@ class TestAchievementEvaluators(BaseTest):
 
 
 EMPTY_PRIOR = PriorProgress(value=0, last_computed_at=None, checkpoint={})
+
+WAREHOUSE_ACCESS_CONTROL_FLAG = "posthog.hogql.database.database._evaluate_warehouse_access_control_flag"
+
+
+def _filter_through_warehouse_join(team: Team) -> dict[str, str]:
+    credential = DataWarehouseCredential.objects.create(access_key="k", access_secret="s", team=team)
+    DataWarehouseTable.objects.create(
+        name="denied_warehouse_table",
+        format=DataWarehouseTable.TableFormat.Parquet,
+        team=team,
+        credential=credential,
+        url_pattern="s3://bucket/denied/*",
+        columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "valid": True}},
+    )
+    DataWarehouseJoin.objects.create(
+        team=team,
+        source_table_name="persons",
+        source_table_key="properties.email",
+        joining_table_name="denied_warehouse_table",
+        joining_table_key="id",
+        field_name="denied_join",
+    )
+    return {"type": "data_warehouse_person_property", "key": "denied_join.id", "value": "internal", "operator": "exact"}
 
 
 class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
@@ -146,6 +174,29 @@ class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
     def test_conversions_falls_back_to_goal_count_without_conversions(self) -> None:
         self._pay_action("$autocapture")
         self.assertEqual(evaluate_conversions(self._ctx(), EMPTY_PRIOR).value, 1)
+
+    @parameterized.expand(
+        [
+            ("pageviews", evaluate_cumulative_pageviews, [(7,)], 7),
+            ("conversions", evaluate_conversions, [(date.today(), 4)], 4),
+        ]
+    )
+    @patch(WAREHOUSE_ACCESS_CONTROL_FLAG, new=Mock(return_value=True))
+    def test_team_tracks_read_a_test_account_filter_through_a_warehouse_join(
+        self,
+        _name: str,
+        evaluate: Callable[[EvalContext, PriorProgress], TrackEvaluation],
+        rows: list[tuple[object, ...]],
+        expected: int,
+    ) -> None:
+        self.team.test_account_filters = [_filter_through_warehouse_join(self.team)]
+        self.team.save()
+        self._pay_action("$autocapture")
+
+        with patch("posthog.hogql.query.sync_execute", return_value=(rows, [])):
+            evaluation = evaluate(self._ctx(), EMPTY_PRIOR)
+
+        self.assertEqual(evaluation.value, expected)
 
     @parameterized.expand(
         [

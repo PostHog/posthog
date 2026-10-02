@@ -3,7 +3,7 @@ from datetime import timedelta
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase
 from django.utils import timezone
@@ -19,16 +19,21 @@ from posthog.schema import (
     WebStatsTableQueryResponse,
 )
 
+from posthog.hogql.errors import TableAccessDeniedError
+
 from posthog.models import Team
 from posthog.models.utils import uuid7
 
 from products.actions.backend.models.action import Action
+from products.data_tools.backend.facade.models import DataWarehouseJoin
+from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 from products.web_analytics.backend.hogql_queries.web_goals import NoActionsError
 from products.web_analytics.backend.weekly_digest import (
     _default_overview,
     _format_duration,
     auto_select_project_for_user,
     build_team_digest,
+    build_team_digests,
     get_goals_for_team,
     get_overview_for_team,
     get_top_pages,
@@ -36,6 +41,30 @@ from products.web_analytics.backend.weekly_digest import (
 )
 
 QUERY_TIMESTAMP = "2025-01-29"
+
+WAREHOUSE_ACCESS_CONTROL_FLAG = "posthog.hogql.database.database._evaluate_warehouse_access_control_flag"
+
+
+def _filter_through_warehouse_join(team: Team) -> dict[str, str]:
+    credential = DataWarehouseCredential.objects.create(access_key="k", access_secret="s", team=team)
+    DataWarehouseTable.objects.create(
+        name="denied_warehouse_table",
+        format=DataWarehouseTable.TableFormat.Parquet,
+        team=team,
+        credential=credential,
+        url_pattern="s3://bucket/denied/*",
+        columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "valid": True}},
+    )
+    DataWarehouseJoin.objects.create(
+        team=team,
+        source_table_name="persons",
+        source_table_key="properties.email",
+        joining_table_name="denied_warehouse_table",
+        joining_table_key="id",
+        field_name="denied_join",
+    )
+    return {"type": "data_warehouse_person_property", "key": "denied_join.id", "value": "internal", "operator": "exact"}
+
 
 DIGEST_QUERY_CASES = [
     (get_overview_for_team, "WebOverviewQueryRunner", WebOverviewQueryResponse, _default_overview()),
@@ -412,6 +441,23 @@ class TestGetGoalsForTeam(ClickhouseTestMixin, APIBaseTest):
         goal = next(g for g in result if g["name"] == "Signed Up")
         assert goal["conversions"] >= 1
 
+    @patch(WAREHOUSE_ACCESS_CONTROL_FLAG, new=Mock(return_value=True))
+    def test_userless_job_reads_an_action_filter_through_a_warehouse_join(self):
+        Action.objects.create(
+            team=self.team,
+            name="Signed Up",
+            steps_json=[{"event": "signed_up", "properties": [_filter_through_warehouse_join(self.team)]}],
+            last_calculated_at=timezone.now(),
+        )
+        goal_row = (5, 0, "Signed Up", (3, 0), (2, 0))
+
+        with patch("posthog.hogql.query.sync_execute", return_value=([goal_row], [])):
+            with self.assertRaises(TableAccessDeniedError):
+                get_goals_for_team(self.team)
+            result = get_goals_for_team(self.team, bypass_warehouse_access_control=True)
+
+        assert [(goal["name"], goal["conversions"]) for goal in result] == [("Signed Up", 3)]
+
 
 class TestBuildTeamDigest(ClickhouseTestMixin, APIBaseTest):
     def test_returns_all_expected_keys(self):
@@ -446,3 +492,16 @@ class TestBuildTeamDigest(ClickhouseTestMixin, APIBaseTest):
         assert result["top_pages"] == []
         assert result["top_sources"] == []
         assert result["goals"] == []
+
+    @patch(WAREHOUSE_ACCESS_CONTROL_FLAG, new=Mock(return_value=True))
+    def test_scheduled_digest_reads_a_test_account_filter_through_a_warehouse_join(self):
+        self.team.test_account_filters = [_filter_through_warehouse_join(self.team)]
+        self.team.save()
+
+        with patch("posthog.hogql.query.sync_execute", return_value=([], [])):
+            with self.assertRaises(TableAccessDeniedError):
+                build_team_digest(self.team)
+            build = build_team_digests([self.team])
+
+        assert list(build.digests) == [self.team.id]
+        assert build.failed_teams == []
