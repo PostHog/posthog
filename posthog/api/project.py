@@ -1224,6 +1224,9 @@ class ProjectBackwardCompatSerializer(
         # stale request snapshot; the token handler can add the key later, so capture the
         # client's intent now.
         patch_conversations_settings = "conversations_settings" in validated_data
+        # Captured before the locked block pops the keys, so the refresh/re-cache step
+        # below still knows this request touched the team row.
+        conversations_lock_applied = patch_conversations_settings or "conversations_enabled" in validated_data
 
         team = instance.passthrough_team
         team_before_update = team.__dict__.copy()
@@ -1316,8 +1319,10 @@ class ProjectBackwardCompatSerializer(
         # The merge reads and the save must share one locked view of the team row: a dedicated
         # integration update (Slack/Teams OAuth, support token rotation) commits whole-blob
         # conversations_settings writes too, and a merge built on the pre-request snapshot would
-        # silently restore the state that update had just replaced.
-        if patch_conversations_settings:
+        # silently restore the state that update had just replaced. Keyed on the columns this
+        # request writes, not on which key the client sent: the token handler below can inject
+        # conversations_settings into a payload that only sent conversations_enabled.
+        if conversations_lock_applied:
             with transaction.atomic():
                 locked_team = (
                     # nosemgrep: hot-parent-row-select-for-update -- the merge mutates this Team row itself
@@ -1325,20 +1330,26 @@ class ProjectBackwardCompatSerializer(
                     .only("conversations_settings", "conversations_enabled")
                     .get(pk=team.pk)
                 )
-                validated_data["conversations_settings"] = merge_conversations_settings(
-                    validated_data["conversations_settings"], locked_team.conversations_settings
-                )
+                if patch_conversations_settings:
+                    validated_data["conversations_settings"] = merge_conversations_settings(
+                        validated_data["conversations_settings"], locked_team.conversations_settings
+                    )
 
                 validated_data = handle_conversations_token_on_update(
                     validated_data, locked_team.conversations_enabled, locked_team.conversations_settings
                 )
-                team.conversations_settings = validated_data.get("conversations_settings", team.conversations_settings)
-                team.conversations_enabled = validated_data.get("conversations_enabled", team.conversations_enabled)
-                team.save(update_fields=["conversations_settings", "conversations_enabled"])
-        else:
-            validated_data = handle_conversations_token_on_update(
-                validated_data, team.conversations_enabled, team.conversations_settings
-            )
+                team.conversations_settings = validated_data.get(
+                    "conversations_settings", locked_team.conversations_settings
+                )
+                if "conversations_enabled" in validated_data:
+                    team.conversations_enabled = validated_data["conversations_enabled"]
+                    team.save(update_fields=["conversations_settings", "conversations_enabled"])
+                else:
+                    team.save(update_fields=["conversations_settings"])
+                # Drop the keys this block persisted so the passthrough loop below cannot
+                # write them again from the stale request snapshot after the lock is released.
+                validated_data.pop("conversations_settings", None)
+                validated_data.pop("conversations_enabled", None)
 
         # Persist only the fields this request changes. A full-row save() writes back every
         # column from this request's snapshot of the team, so two concurrent PATCHes clobber
@@ -1348,10 +1359,6 @@ class ProjectBackwardCompatSerializer(
         updated_team_fields = []
         updated_project_fields = []
         for attr, value in validated_data.items():
-            if patch_conversations_settings and attr in ("conversations_settings", "conversations_enabled"):
-                # Already persisted under lock above; skip so the generic loop does not
-                # write the blob back from a stale snapshot.
-                continue
             if attr not in self.Meta.team_passthrough_fields:
                 # This attr is a Project field
                 setattr(instance, attr, value)
@@ -1375,7 +1382,7 @@ class ProjectBackwardCompatSerializer(
         # Snapshot before the cache refresh below so the audit diff only reflects this
         # request's writes, not fields a concurrent request changed.
         team_after_update = team.__dict__.copy()
-        if updated_team_fields or patch_conversations_settings:
+        if updated_team_fields or conversations_lock_applied:
             # The in-memory team may hold stale values for fields a concurrent request
             # changed, and the post-save receiver has already cached that snapshot. Reload
             # and re-cache so the team cache reflects the merged row.

@@ -2240,6 +2240,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         # stale request snapshot; the token handler can add the key later, so capture the
         # client's intent now.
         patch_conversations_settings = "conversations_settings" in validated_data
+        # Captured before the locked block pops the keys, so the refresh/re-cache step
+        # below still knows this request touched the team row.
+        conversations_lock_applied = patch_conversations_settings or "conversations_enabled" in validated_data
 
         # Should be validated already, but let's be extra sure
         if config_data := validated_data.pop("revenue_analytics_config", None):
@@ -2325,8 +2328,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         # The merge reads and the save must share one locked view of the team row: a dedicated
         # integration update (Slack/Teams OAuth, support token rotation) commits whole-blob
         # conversations_settings writes too, and a merge built on the pre-request snapshot would
-        # silently restore the state that update had just replaced.
-        if patch_conversations_settings:
+        # silently restore the state that update had just replaced. Keyed on the columns this
+        # request writes, not on which key the client sent: the token handler below can inject
+        # conversations_settings into a payload that only sent conversations_enabled.
+        if conversations_lock_applied:
             with transaction.atomic():
                 locked_team = (
                     # nosemgrep: hot-parent-row-select-for-update -- the merge mutates this Team row itself
@@ -2334,24 +2339,26 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                     .only("conversations_settings", "conversations_enabled")
                     .get(pk=instance.pk)
                 )
-                validated_data["conversations_settings"] = merge_conversations_settings(
-                    validated_data["conversations_settings"], locked_team.conversations_settings
-                )
+                if patch_conversations_settings:
+                    validated_data["conversations_settings"] = merge_conversations_settings(
+                        validated_data["conversations_settings"], locked_team.conversations_settings
+                    )
 
                 validated_data = handle_conversations_token_on_update(
                     validated_data, locked_team.conversations_enabled, locked_team.conversations_settings
                 )
                 instance.conversations_settings = validated_data.get(
-                    "conversations_settings", instance.conversations_settings
+                    "conversations_settings", locked_team.conversations_settings
                 )
-                instance.conversations_enabled = validated_data.get(
-                    "conversations_enabled", instance.conversations_enabled
-                )
-                instance.save(update_fields=["conversations_settings", "conversations_enabled"])
-        else:
-            validated_data = handle_conversations_token_on_update(
-                validated_data, instance.conversations_enabled, instance.conversations_settings
-            )
+                if "conversations_enabled" in validated_data:
+                    instance.conversations_enabled = validated_data["conversations_enabled"]
+                    instance.save(update_fields=["conversations_settings", "conversations_enabled"])
+                else:
+                    instance.save(update_fields=["conversations_settings"])
+                # Drop the keys this block persisted so the generic save below cannot write
+                # them again from the stale request snapshot after the lock is released.
+                validated_data.pop("conversations_settings", None)
+                validated_data.pop("conversations_enabled", None)
 
         # Merge modifiers with existing values so that updating one modifier doesn't wipe out others
         if "modifiers" in validated_data and validated_data["modifiers"] is not None:
@@ -2366,10 +2373,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         # erased `has_completed_onboarding_for` and reverted `completed_snippet_onboarding`,
         # bouncing freshly onboarded users back into onboarding.
         for attr, value in validated_data.items():
-            if patch_conversations_settings and attr in ("conversations_settings", "conversations_enabled"):
-                # Already persisted under lock above; skip so the generic loop does not
-                # write the blob back from a stale snapshot.
-                continue
             setattr(instance, attr, value)
         if validated_data:
             # auto_now fields only refresh when included in update_fields
@@ -2377,7 +2380,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         # Snapshot before the cache refresh below so the audit diff only reflects this
         # request's writes, not fields a concurrent request changed.
         after_update = instance.__dict__.copy()
-        if validated_data:
+        if validated_data or conversations_lock_applied:
             # The in-memory instance may hold stale values for fields a concurrent request
             # changed, and the post-save receiver has already cached that snapshot. Reload
             # and re-cache so the team cache reflects the merged row.
