@@ -21,7 +21,7 @@
 use crate::api::CaptureError;
 use crate::config::EnvelopeCompression;
 use crate::ordering::OrderingGuarantee;
-use crate::outputs::PublishEvents;
+use crate::outputs::{PreparedEvent, PublishEvents, PublishPrepared};
 use crate::pipeline::{self, Address};
 use crate::producers::ProducerHandle;
 use crate::serialization::Serializer;
@@ -30,6 +30,9 @@ use crate::sinks::registry::{Destination, OutputTable};
 use crate::sinks::sink::{fold_results, Outcome, PreparedPayload, Sink, SinkResult};
 use crate::v0_request::{DataType, ProcessedEvent};
 use async_trait::async_trait;
+use bytes::Bytes;
+use common_types::CapturedEventHeaders;
+use futures::future::join_all;
 use metrics::{counter, gauge, histogram};
 use std::sync::Arc;
 use std::time::Instant;
@@ -354,23 +357,45 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
     /// order, so this MUST be called in the original event order within a
     /// batch.
     fn enqueue_record(&self, payload: PreparedPayload) -> Result<P::AckFuture, CaptureError> {
-        let (topic, producer) = self.outputs.resolve(&payload.destination);
+        self.send(
+            &payload.destination,
+            payload.partition_key,
+            payload.ordering,
+            payload.payload.into(),
+            payload.headers,
+        )
+    }
+
+    /// The one place an addressed payload becomes Kafka-shaped, for both
+    /// routes: `destination` resolves to a topic and the producer carrying
+    /// it, and `ordering` decides whether the record is keyed. Emits the
+    /// per-topic bytes counter and returns the ack future for the caller to
+    /// await.
+    fn send(
+        &self,
+        destination: &Destination,
+        partition_key: String,
+        ordering: OrderingGuarantee,
+        payload: Bytes,
+        headers: CapturedEventHeaders,
+    ) -> Result<P::AckFuture, CaptureError> {
+        let (topic, producer) = self.outputs.resolve(destination);
 
         counter!("capture_kafka_produce_bytes_total", "topic" => Arc::clone(&topic))
-            .increment(payload.payload.len() as u64);
+            .increment(payload.len() as u64);
 
         // No key reaches rdkafka as round-robin; `Some("")` would murmur2-hash
         // every record onto one deterministic hot partition.
-        let key = match payload.ordering {
+        let key = match ordering {
             OrderingGuarantee::None => None,
-            _ => Some(payload.partition_key),
+            _ => Some(partition_key),
         };
 
         producer.send(ProduceRecord {
             topic,
             key,
-            payload: payload.payload.into(),
-            headers: payload.headers,
+            payload,
+            headers,
         })
     }
 
@@ -574,6 +599,52 @@ impl<P: KafkaProducer + 'static> PublishEvents for KafkaSinkBase<P> {
 
         let payloads = self.prepare_batch(events).await?;
         fold_results(Sink::publish(self, payloads).await)
+    }
+}
+
+#[async_trait]
+impl<P: KafkaProducer + 'static> PublishPrepared for KafkaSinkBase<P> {
+    /// Serial enqueue in input order, as on the event route, so same-key
+    /// events keep their order. Unlike the event route, a failure stays with
+    /// its event: an enqueue or ack failure fails that event alone and the
+    /// rest of the batch is still produced.
+    #[instrument(skip_all)]
+    async fn publish_prepared(&self, events: Vec<PreparedEvent>) -> Vec<SinkResult> {
+        let enqueue_start = Instant::now();
+        let enqueued: Vec<_> = events
+            .into_iter()
+            .map(|event| {
+                let uuid = event.uuid;
+                let ack = match Destination::for_address(event.address) {
+                    Some(destination) => self.send(
+                        &destination,
+                        event.partition_key,
+                        event.ordering,
+                        event.payload,
+                        event.headers,
+                    ),
+                    None => {
+                        error!("no output backs the event's address, dropping it");
+                        Err(CaptureError::NonRetryableSinkError)
+                    }
+                };
+                (uuid, ack)
+            })
+            .collect();
+        histogram!("capture_kafka_batch_enqueue_duration_seconds")
+            .record(enqueue_start.elapsed().as_secs_f64());
+
+        join_all(enqueued.into_iter().map(|(uuid, ack)| async move {
+            match ack {
+                Ok(ack) => match ack.await {
+                    Ok(()) => SinkResult::published(uuid),
+                    Err(err) => SinkResult::failed(uuid, err),
+                },
+                Err(err) => SinkResult::failed(uuid, err),
+            }
+        }))
+        .instrument(info_span!("ack_wait_many"))
+        .await
     }
 }
 
@@ -3193,6 +3264,259 @@ mod tests {
             let v: serde_json::Value =
                 serde_json::from_slice(&records[0].payload).expect("payload must be plain json");
             assert!(v.get("distinct_id").is_some());
+        }
+    }
+    mod prepared_route {
+        use super::*;
+        use crate::ordering::OrderingGuarantee;
+        use crate::outputs::{PreparedEvent, PublishPrepared};
+        use crate::pipeline::{Address, Lane, Pipeline};
+        use crate::sinks::kafka::KafkaSinkBase;
+        use crate::sinks::producer::MockKafkaProducer;
+        use crate::sinks::sink::{Outcome, SinkResult};
+        use common_types::CapturedEventHeaders;
+        use rstest::rstest;
+        use std::sync::Arc;
+        use uuid::Uuid;
+
+        fn prepared(address: Address, ordering: OrderingGuarantee) -> PreparedEvent {
+            let uuid = Uuid::now_v7();
+            PreparedEvent {
+                uuid,
+                address,
+                partition_key: "token:distinct_id".to_string(),
+                ordering,
+                payload: bytes::Bytes::from(format!(r#"{{"uuid":"{uuid}"}}"#)),
+                headers: CapturedEventHeaders {
+                    token: Some("token".to_string()),
+                    distinct_id: Some("distinct_id".to_string()),
+                    session_id: None,
+                    timestamp: None,
+                    event: Some("event".to_string()),
+                    uuid: Some(uuid.to_string()),
+                    now: None,
+                    force_disable_person_processing: None,
+                    historical_migration: None,
+                    skip_heatmap_processing: None,
+                    dlq_reason: None,
+                    dlq_step: None,
+                    dlq_timestamp: None,
+                    content_encoding: None,
+                },
+            }
+        }
+
+        fn analytics_main() -> PreparedEvent {
+            prepared(
+                Address::Lane {
+                    pipeline: Pipeline::Analytics,
+                    lane: Lane::Main,
+                },
+                OrderingGuarantee::PerDistinctId,
+            )
+        }
+
+        fn outcomes(results: &[SinkResult]) -> Vec<Option<String>> {
+            results
+                .iter()
+                .map(|result| match &result.outcome {
+                    Outcome::Published => None,
+                    Outcome::Failed(err) => Some(format!("{err:?}")),
+                })
+                .collect()
+        }
+
+        struct EventInput {
+            address: Address,
+            ordering: OrderingGuarantee,
+        }
+
+        struct ExpectedRecord<'a> {
+            topic: &'a str,
+            keyed: bool,
+        }
+
+        #[rstest]
+        #[case::analytics_main(
+            EventInput { address: Address::Lane { pipeline: Pipeline::Analytics, lane: Lane::Main }, ordering: OrderingGuarantee::PerDistinctId },
+            ExpectedRecord { topic: "events_plugin_ingestion", keyed: true },
+        )]
+        #[case::analytics_overflow_spread(
+            EventInput { address: Address::Lane { pipeline: Pipeline::Analytics, lane: Lane::Overflow }, ordering: OrderingGuarantee::None },
+            ExpectedRecord { topic: "events_plugin_ingestion_overflow", keyed: false },
+        )]
+        #[case::analytics_historical(
+            EventInput { address: Address::Lane { pipeline: Pipeline::Analytics, lane: Lane::Historical }, ordering: OrderingGuarantee::PerDistinctId },
+            ExpectedRecord { topic: "events_plugin_ingestion_historical", keyed: true },
+        )]
+        #[case::ai_main(
+            EventInput { address: Address::Lane { pipeline: Pipeline::Ai, lane: Lane::Main }, ordering: OrderingGuarantee::PerDistinctId },
+            ExpectedRecord { topic: "ai_events", keyed: true },
+        )]
+        #[case::ai_overflow(
+            EventInput { address: Address::Lane { pipeline: Pipeline::Ai, lane: Lane::Overflow }, ordering: OrderingGuarantee::None },
+            ExpectedRecord { topic: "ai_events_overflow", keyed: false },
+        )]
+        #[case::heatmaps(
+            EventInput { address: Address::Lane { pipeline: Pipeline::Heatmaps, lane: Lane::Main }, ordering: OrderingGuarantee::PerDistinctId },
+            ExpectedRecord { topic: "heatmaps", keyed: true },
+        )]
+        #[case::warnings(
+            EventInput { address: Address::Lane { pipeline: Pipeline::Warnings, lane: Lane::Main }, ordering: OrderingGuarantee::PerDistinctId },
+            ExpectedRecord { topic: "client_ingestion_warning", keyed: true },
+        )]
+        #[case::error_tracking(
+            EventInput { address: Address::Lane { pipeline: Pipeline::ErrorTracking, lane: Lane::Main }, ordering: OrderingGuarantee::PerDistinctId },
+            ExpectedRecord { topic: "error_tracking_events", keyed: true },
+        )]
+        #[case::replay_overflow(
+            EventInput { address: Address::Lane { pipeline: Pipeline::Replay, lane: Lane::Overflow }, ordering: OrderingGuarantee::PerSession },
+            ExpectedRecord { topic: "replay_overflow", keyed: true },
+        )]
+        #[case::dlq(
+            EventInput { address: Address::Dlq, ordering: OrderingGuarantee::PerDistinctId },
+            ExpectedRecord { topic: "events_plugin_ingestion_dlq", keyed: true },
+        )]
+        #[case::custom(
+            EventInput { address: Address::Custom("admin_topic".to_string()), ordering: OrderingGuarantee::PerDistinctId },
+            ExpectedRecord { topic: "admin_topic", keyed: true },
+        )]
+        #[tokio::test]
+        async fn prepared_event_lands_on_its_address_topic(
+            #[case] input: EventInput,
+            #[case] expected: ExpectedRecord<'_>,
+        ) {
+            let producer = MockKafkaProducer::new();
+            let sink = KafkaSinkBase::with_producer(producer.clone(), test_outputs());
+            let event = prepared(input.address, input.ordering);
+            let (payload, headers) = (event.payload.clone(), event.headers.clone());
+
+            let results = sink.publish_prepared(vec![event]).await;
+
+            assert_eq!(outcomes(&results), vec![None]);
+            let records = producer.get_records();
+            assert_eq!(records.len(), 1);
+            assert_eq!(&*records[0].topic, expected.topic);
+            assert_eq!(
+                records[0].key.as_deref(),
+                expected.keyed.then_some("token:distinct_id")
+            );
+            assert_eq!(
+                records[0].payload, payload,
+                "the payload passes through unchanged"
+            );
+            assert_eq!(
+                format!("{:?}", records[0].headers),
+                format!("{headers:?}"),
+                "the headers pass through unchanged"
+            );
+        }
+
+        #[tokio::test]
+        async fn prepared_events_keep_input_order() {
+            let producer = MockKafkaProducer::new();
+            let sink = KafkaSinkBase::with_producer(producer.clone(), test_outputs());
+            let events: Vec<PreparedEvent> = (0..10).map(|_| analytics_main()).collect();
+            let payloads: Vec<_> = events.iter().map(|event| event.payload.clone()).collect();
+            let uuids: Vec<_> = events.iter().map(|event| event.uuid).collect();
+
+            let results = sink.publish_prepared(events).await;
+
+            let result_uuids: Vec<_> = results.iter().map(|result| result.uuid).collect();
+            assert_eq!(result_uuids, uuids);
+            let record_payloads: Vec<_> = producer
+                .get_records()
+                .into_iter()
+                .map(|record| record.payload)
+                .collect();
+            assert_eq!(record_payloads, payloads);
+        }
+
+        #[tokio::test]
+        async fn prepared_enqueue_failure_fails_only_that_event() {
+            let producer = MockKafkaProducer::new_failing_at(1);
+            let sink = KafkaSinkBase::with_producer(producer.clone(), test_outputs());
+
+            let results = sink
+                .publish_prepared(vec![analytics_main(), analytics_main(), analytics_main()])
+                .await;
+
+            assert_eq!(
+                outcomes(&results),
+                vec![None, Some("RetryableSinkError".to_string()), None]
+            );
+            assert_eq!(producer.get_records().len(), 2);
+        }
+
+        #[tokio::test]
+        async fn prepared_ack_failure_fails_only_that_event() {
+            let producer = MockKafkaProducer::new_failing_ack_at(1);
+            let sink = KafkaSinkBase::with_producer(producer.clone(), test_outputs());
+
+            let results = sink
+                .publish_prepared(vec![analytics_main(), analytics_main(), analytics_main()])
+                .await;
+
+            assert_eq!(
+                outcomes(&results),
+                vec![None, Some("RetryableSinkError".to_string()), None]
+            );
+            assert_eq!(producer.get_records().len(), 3);
+        }
+
+        #[tokio::test]
+        async fn prepared_event_on_an_unbacked_lane_fails_without_producing() {
+            let producer = MockKafkaProducer::new();
+            let sink = KafkaSinkBase::with_producer(producer.clone(), test_outputs());
+            let unbacked = prepared(
+                Address::Lane {
+                    pipeline: Pipeline::Heatmaps,
+                    lane: Lane::Overflow,
+                },
+                OrderingGuarantee::PerDistinctId,
+            );
+
+            let results = sink
+                .publish_prepared(vec![unbacked, analytics_main()])
+                .await;
+
+            assert_eq!(
+                outcomes(&results),
+                vec![Some("NonRetryableSinkError".to_string()), None]
+            );
+            assert_eq!(producer.get_records().len(), 1);
+        }
+
+        #[tokio::test]
+        async fn prepared_event_publishes_through_its_targets_producer() {
+            let ingestion = Arc::new(MockKafkaProducer::new());
+            let ai = Arc::new(MockKafkaProducer::new());
+            let mut outputs = test_outputs().map_producers(|_| Arc::clone(&ingestion));
+            outputs.ai_main.producer = Arc::clone(&ai);
+            let sink = KafkaSinkBase {
+                outputs: Arc::new(outputs),
+                replay_envelope_compression: EnvelopeCompression::None,
+            };
+            let ai_event = prepared(
+                Address::Lane {
+                    pipeline: Pipeline::Ai,
+                    lane: Lane::Main,
+                },
+                OrderingGuarantee::PerDistinctId,
+            );
+
+            sink.publish_prepared(vec![analytics_main(), ai_event])
+                .await;
+
+            let topics = |producer: &MockKafkaProducer| -> Vec<String> {
+                producer
+                    .get_records()
+                    .iter()
+                    .map(|record| record.topic.to_string())
+                    .collect()
+            };
+            assert_eq!(topics(&ingestion), vec!["events_plugin_ingestion"]);
+            assert_eq!(topics(&ai), vec!["ai_events"]);
         }
     }
 }

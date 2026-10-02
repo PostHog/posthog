@@ -8,9 +8,10 @@ use axum_test_helper::TestClient;
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
 use capture::global_rate_limiter::GlobalRateLimiter;
-use capture::outputs::{OutputRegistry, PublishEvents};
+use capture::outputs::{OutputRegistry, PreparedEvent, PublishEvents, PublishPrepared};
 use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::router;
+use capture::sinks::sink::SinkResult;
 use capture::time::TimeSource;
 use capture::v0_request::{OverflowReason, ProcessedEvent};
 use chrono::{DateTime, TimeZone, Utc};
@@ -50,6 +51,13 @@ impl PublishEvents for TestSink {
     }
 }
 
+#[async_trait]
+impl PublishPrepared for TestSink {
+    async fn publish_prepared(&self, _events: Vec<PreparedEvent>) -> Vec<SinkResult> {
+        unreachable!("v0 endpoints publish events")
+    }
+}
+
 // Capturing sink for Kafka tests - stores events in memory
 #[derive(Clone)]
 struct CapturingSink {
@@ -73,6 +81,13 @@ impl PublishEvents for CapturingSink {
     async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         self.events.lock().await.extend(events);
         Ok(())
+    }
+}
+
+#[async_trait]
+impl PublishPrepared for CapturingSink {
+    async fn publish_prepared(&self, _events: Vec<PreparedEvent>) -> Vec<SinkResult> {
+        unreachable!("v0 endpoints publish events")
     }
 }
 

@@ -17,7 +17,8 @@ use tracing::instrument;
 use tracing::log::{debug, error, info};
 
 use crate::api::CaptureError;
-use crate::outputs::PublishEvents;
+use crate::outputs::{PreparedEvent, PublishEvents, PublishPrepared};
+use crate::sinks::sink::SinkResult;
 
 const FLUSH_INTERVAL: Duration = Duration::from_secs(1);
 const HEALTH_INTERVAL: Duration = Duration::from_secs(10);
@@ -56,10 +57,15 @@ impl EventBuffer {
 
     fn add_event(&mut self, event: ProcessedEvent) -> Result<(), CaptureError> {
         let json = serde_json::to_string(&event.event)?;
-        self.event_bytes.extend_from_slice(json.as_bytes());
+        self.add_line(json.as_bytes());
+        Ok(())
+    }
+
+    /// One JSON body per line. Serialized JSON holds no raw newline.
+    fn add_line(&mut self, body: &[u8]) {
+        self.event_bytes.extend_from_slice(body);
         self.event_bytes.push(b'\n');
         self.event_count += 1;
-        Ok(())
     }
 
     fn should_flush(&self) -> bool {
@@ -289,6 +295,32 @@ impl PublishEvents for S3Sink {
     }
 }
 
+#[async_trait]
+impl PublishPrepared for S3Sink {
+    /// The prepared payload is the event's JSON body, written as one line.
+    /// Every event in the batch shares its buffer flush's result.
+    #[instrument(skip_all)]
+    async fn publish_prepared(&self, events: Vec<PreparedEvent>) -> Vec<SinkResult> {
+        let mut buffer = self.inner.buffer.lock().await;
+        for event in &events {
+            buffer.add_line(&event.payload);
+        }
+        let mut rx = buffer.tx.subscribe();
+        drop(buffer);
+        let flushed = rx
+            .recv()
+            .await
+            .unwrap_or(Err(CaptureError::NonRetryableSinkError));
+        events
+            .iter()
+            .map(|event| match &flushed {
+                Ok(()) => SinkResult::published(event.uuid),
+                Err(err) => SinkResult::failed(event.uuid, err.clone()),
+            })
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -357,6 +389,20 @@ mod tests {
                 distinct_id_truncated_from: None,
             },
         }
+    }
+
+    #[test]
+    fn prepared_and_event_routes_write_the_same_line() {
+        let event = create_test_event();
+        let body = serde_json::to_vec(&event.event).unwrap();
+
+        let mut from_event = EventBuffer::new();
+        from_event.add_event(event).unwrap();
+        let mut from_prepared = EventBuffer::new();
+        from_prepared.add_line(&body);
+
+        assert_eq!(from_prepared.event_bytes, from_event.event_bytes);
+        assert_eq!(from_prepared.event_count, 1);
     }
 
     #[tokio::test]

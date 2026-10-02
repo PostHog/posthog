@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use crate::config::OutputsConfig;
-use crate::pipeline::{Lane, Pipeline};
+use crate::pipeline::{Address, Lane, Pipeline};
 use crate::producers::ProducerName;
 
 /// Which configured output a routing decision selects, named by pipeline and
@@ -72,6 +72,16 @@ impl Destination {
             (Pipeline::Replay, Lane::Main) => Some(Destination::SessionReplayMain),
             (Pipeline::Replay, Lane::Overflow) => Some(Destination::SessionReplayOverflow),
             (Pipeline::Replay, Lane::Historical) => None,
+        }
+    }
+
+    /// The output an address publishes to. `None` for a lane pair no output
+    /// backs; see [`Self::for_lane`].
+    pub(crate) fn for_address(address: Address) -> Option<Destination> {
+        match address {
+            Address::Lane { pipeline, lane } => Self::for_lane(pipeline, lane),
+            Address::Dlq => Some(Destination::Dlq),
+            Address::Custom(topic) => Some(Destination::Custom(topic)),
         }
     }
 
