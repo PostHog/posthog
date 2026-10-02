@@ -18,6 +18,7 @@ from typing import Any, Optional
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ActivityError
 
 from posthog.dataclasses import frozen
 from posthog.temporal.common.base import PostHogWorkflow
@@ -379,31 +380,44 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
 
     async def _rotate_stream(self, input: SlackAgentDesignRelayInput) -> bool:
         assert self._stream is not None
-        stream = await workflow.execute_activity(
-            rotate_slack_agent_design_stream,
-            RotateSlackAgentDesignStreamInput(
-                slack_thread_context=input.slack_thread_context,
-                sealed_ts=self._stream.ts,
-                task_updates=self._plan_snapshot(),
-                plan_title=self._plan_title,
-                run_id=input.run_id,
-                message_id=input.message_id,
-            ),
-            start_to_close_timeout=_ACTIVITY_TIMEOUT,
-            # One attempt, because a retry after a start that succeeded would open a second stream.
-            retry_policy=RetryPolicy(maximum_attempts=1),
-        )
+        try:
+            stream = await workflow.execute_activity(
+                rotate_slack_agent_design_stream,
+                RotateSlackAgentDesignStreamInput(
+                    slack_thread_context=input.slack_thread_context,
+                    sealed_ts=self._stream.ts,
+                    task_updates=self._plan_snapshot(),
+                    plan_title=self._plan_title,
+                    run_id=input.run_id,
+                    message_id=input.message_id,
+                ),
+                # The activity makes several Slack calls in a row, so it gets the stop activity's budget.
+                start_to_close_timeout=timedelta(minutes=2),
+                # One attempt, because a retry after a start that succeeded would open a second stream.
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        except ActivityError as e:
+            # A failure here must not end the relay, because then the turn's answer never reaches Slack.
+            workflow.logger.warning(
+                "slack_app_agent_design_relay_rotate_failed",
+                extra={"workflow_id": workflow.info().workflow_id, "error": str(e)},
+            )
+            return False
         if stream is None:
             return False
         self._stream = stream
         return True
 
     def _plan_snapshot(self) -> list[TaskUpdateChunk]:
-        """Every line the plan shows now, so a new stream can show the same plan."""
+        """Every line the plan shows now, so a new stream can show the same plan.
+
+        The snapshot takes the unsent descriptions of each line, because Slack appends details and
+        a later flush would show them a second time."""
         lines = list(self._setup_lines.values())
         for key in self._line_ids:
             status = "in_progress" if key == self._current_key else "complete"
-            details = self._last_description.get(key)
+            unsent = self._unsent_details.pop(key, None)
+            details = "\n".join(unsent) if unsent else self._last_description.get(key)
             if details:
                 self._keys_with_details.add(key)
             lines.append(replace(self._line_chunk(key, status), details=details))

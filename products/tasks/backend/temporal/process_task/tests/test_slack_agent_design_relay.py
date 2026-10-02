@@ -6,6 +6,7 @@ import pytest
 
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -36,10 +37,11 @@ CHECKING = [("agent_text_delta", "Checking."), ("agent_status_update", {"phase":
 
 
 class _SlackCalls:
-    def __init__(self, stream_closed: bool = False, rotation_fails: bool = False) -> None:
+    def __init__(self, stream_closed: bool = False, rotation_failure: str | None = None) -> None:
         # Slack has sealed the streams that the start activity opens, so each append to them reports it.
         self.stream_closed = stream_closed
-        self.rotation_fails = rotation_fails
+        # "no_stream" when no new stream opens, "error" when the activity fails.
+        self.rotation_failure = rotation_failure
         self.starts: list[StartSlackAgentDesignStreamInput] = []
         self.appends: list[AppendSlackAgentDesignStepsInput] = []
         self.rotations: list[RotateSlackAgentDesignStreamInput] = []
@@ -59,7 +61,9 @@ class _SlackCalls:
         @activity.defn(name="rotate_slack_agent_design_stream")
         async def rotate(input: RotateSlackAgentDesignStreamInput) -> SlackAgentDesignStream | None:
             self.rotations.append(input)
-            if self.rotation_fails:
+            if self.rotation_failure == "error":
+                raise ApplicationError("Slack timed out", non_retryable=True)
+            if self.rotation_failure == "no_stream":
                 return None
             return SlackAgentDesignStream(ts="3.0", has_plan=True, actor_slack_user_id="U9")
 
@@ -99,9 +103,9 @@ async def _run_relay(
     cancel: bool = False,
     stream_closed: bool = False,
     turn_trace_id: str | None = TRACE_ID,
-    rotation_fails: bool = False,
+    rotation_failure: str | None = None,
 ) -> _SlackCalls:
-    calls = _SlackCalls(stream_closed=stream_closed, rotation_fails=rotation_fails)
+    calls = _SlackCalls(stream_closed=stream_closed, rotation_failure=rotation_failure)
     async with await WorkflowEnvironment.start_time_skipping() as env:
         task_queue = f"test-{uuid.uuid4()}"
         async with Worker(
@@ -323,15 +327,16 @@ class TestSlackAgentDesignRelay:
         assert calls.appends[-1].ts == "3.0"
         assert [(s.ts, s.final_markdown) for s in calls.stops] == [("3.0", "Signups grew.")]
 
+    @pytest.mark.parametrize("rotation_failure", ["no_stream", "error"])
     @pytest.mark.timeout(60, func_only=True)
     async def test_a_sealed_stream_with_no_new_stream_gets_no_more_appends_and_the_answer_gets_a_new_message(
-        self,
+        self, rotation_failure: str
     ) -> None:
         calls = await _run_relay(
             [(WAIT, 130), ("agent_text_delta", "Signups grew.")],
             setup_title="Setting up sandbox",
             stream_closed=True,
-            rotation_fails=True,
+            rotation_failure=rotation_failure,
         )
 
         assert len(calls.appends) == 1
