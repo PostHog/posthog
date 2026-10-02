@@ -2958,6 +2958,8 @@ export interface SignalReportCheckApi {
     readonly status: SignalReportCheckStatusEnumApi
     /** What the check measures and what the result must satisfy; the shape depends on `kind`. `query` and `baseline_value` are null when you cannot read the data they describe. */
     config: SignalReportCheckConfigApi
+    /** @nullable */
+    readonly approved_at: string | null
     /** When the coordinator next evaluates the check. Provisional while the check is `pending`: the report resolving is what sets it. */
     readonly next_run_at: string
     /**
@@ -3004,6 +3006,21 @@ export interface PaginatedSignalReportCheckListApi {
     /** @nullable */
     previous?: string | null
     results: SignalReportCheckApi[]
+}
+
+export interface SignalReportCheckReplacementApi {
+    /**
+     * Label for the new metric check.
+     * @maxLength 200
+     */
+    title: string
+    /**
+     * Why this check is better.
+     * @maxLength 2000
+     */
+    rationale?: string
+    /** Metric threshold configuration, including a bounded query and comparison. */
+    config: MetricThresholdConfigApi
 }
 
 export interface SignalReportBulkStateRequestApi {
@@ -5360,35 +5377,6 @@ export interface ReportMetricWriteApi {
      * @nullable
      */
     caption?: string | null
-    /**
-     * Proposed threshold after release. Informational only; does not schedule a check.
-     * @nullable
-     */
-    goal_value?: number | null
-    /** Whether success means at most or at least goal_value.
-     *
-     * * `at_most` - at_most
-     * * `at_least` - at_least */
-    goal_direction?: GoalDirectionEnumApi | null
-    /** Whether the goal compares with the whole query window or each chart bucket.
-     *
-     * * `whole_window` - whole_window
-     * * `per_interval` - per_interval */
-    goal_grain?: GoalGrainEnumApi
-    /**
-     * Suggested days after release before assessing impact, not a monitoring schedule.
-     * @minimum 1
-     * @maximum 30
-     * @nullable
-     */
-    decision_window_days?: number | null
-    /**
-     * Optional number of qualifying observations before assessing impact.
-     * @minimum 1
-     * @maximum 1000
-     * @nullable
-     */
-    minimum_data_points?: number | null
     /** Legacy optional comparison. New report metrics must omit it. */
     comparison?: ReportMetricComparisonApi | null
 }
