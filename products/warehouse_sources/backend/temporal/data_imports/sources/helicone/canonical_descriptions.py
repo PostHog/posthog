@@ -95,7 +95,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         ),
         "docs_url": "https://docs.helicone.ai/rest/property/post-v1propertyquery",
         "columns": {
-            "property": "Custom property key. Per-request values are in the requests table's properties column.",
+            "property": "Custom property key. Per-request values are in the requests table's request_properties column.",
         },
     },
     "eval_scores": {

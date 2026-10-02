@@ -3957,7 +3957,7 @@ Diffed against: <https://docs.helicone.ai/llms.txt>
 
 - ~~`POST /v1/evals/query`~~ — not table material: it returns one aggregate row per score name (avg/min/max/count plus hourly series over the requested window) and ignores `limit`/`offset`; the per-request scores it rolls up are already on `requests.scores`
 - [x] `GET /v1/evals/scores` — lookup of the eval score names that eval results reference (high). Added as `eval_scores`. It returns score names only, not definitions.
-- [x] `POST /v1/property/query` — catalog of the custom property keys attached to requests (high). Added as `properties`. It returns the org's non-hidden keys; per-request values are already on `requests.properties`.
+- [x] `POST /v1/property/query` — catalog of the custom property keys attached to requests (high). Added as `properties`. It returns the org's non-hidden keys; per-request values are already on `requests.request_properties`.
 - [ ] `POST /v1/user/metrics/query` — per-user aggregated cost/token/request metrics, complements the raw users table we sync (medium)
 - [ ] `POST /v1/session/metrics/query` — per-session cost and latency rollups for the sessions we already sync (medium)
 - [ ] `GET /v1/public/model-registry/models` — lookup table resolving model ids on requests to provider, context window and pricing (medium)
