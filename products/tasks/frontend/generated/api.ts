@@ -51,7 +51,6 @@ import type {
     PaginatedTaskRunDetailDTOListApi,
     PaginatedTaskSummaryDTOListApi,
     PaginatedTaskThreadMessageDTOListApi,
-    PaginatedTasksAgentPreferencesListApi,
     PatchedChannelInstructionsWriteApi,
     PatchedChannelUpdateApi,
     PatchedLoopWriteApi,
@@ -160,7 +159,6 @@ import type {
     TasksCommentsRetrieveParams,
     TasksConfigListParams,
     TasksListParams,
-    TasksMeAgentPreferencesListParams,
     TasksMeConfigListParams,
     TasksRepositoryReadinessRetrieveParams,
     TasksReviewRetrieveParams,
@@ -2815,20 +2813,8 @@ export const tasksThreadMessagesSendToAgentCreate = async (
     })
 }
 
-export const getTasksMeAgentPreferencesListUrl = (projectId: string, params?: TasksMeAgentPreferencesListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/tasks/@me/agent_preferences/?${stringifiedParams}`
-        : `/api/projects/${projectId}/tasks/@me/agent_preferences/`
+export const getTasksMeAgentPreferencesListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tasks/@me/agent_preferences/`
 }
 
 /**
@@ -2836,10 +2822,9 @@ export const getTasksMeAgentPreferencesListUrl = (projectId: string, params?: Ta
  */
 export const tasksMeAgentPreferencesList = async (
     projectId: string,
-    params?: TasksMeAgentPreferencesListParams,
     options?: RequestInit
-): Promise<PaginatedTasksAgentPreferencesListApi> => {
-    return apiMutator<PaginatedTasksAgentPreferencesListApi>(getTasksMeAgentPreferencesListUrl(projectId, params), {
+): Promise<TasksAgentPreferencesApi> => {
+    return apiMutator<TasksAgentPreferencesApi>(getTasksMeAgentPreferencesListUrl(projectId), {
         ...options,
         method: 'GET',
     })

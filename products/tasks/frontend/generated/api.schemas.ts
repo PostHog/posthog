@@ -4833,15 +4833,6 @@ export interface TasksAgentPreferencesApi {
     auto_publish_cloud_runs: boolean
 }
 
-export interface PaginatedTasksAgentPreferencesListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: TasksAgentPreferencesApi[]
-}
-
 /**
  * A partial update of the requesting user's agent preferences. Fields left out keep their stored value.
  */
@@ -6182,17 +6173,6 @@ export type TasksRunsStreamTokenRetrieveParams = {
 }
 
 export type TasksThreadMessagesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type TasksMeAgentPreferencesListParams = {
     /**
      * Number of results to return per page.
      */

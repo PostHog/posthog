@@ -3,6 +3,7 @@ from typing import cast
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 
+from drf_spectacular.openapi import AutoSchema
 from drf_spectacular.utils import extend_schema
 from rest_framework import viewsets
 from rest_framework.authentication import BaseAuthentication
@@ -213,7 +214,13 @@ class TasksUserConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         return Response(TasksAgentInstructionsSerializer({"agent_instructions": instructions}).data)
 
+class _SingletonSchema(AutoSchema):
+    def _is_list_view(self, serializer=None) -> bool:
+        return False
+
+
 class TasksUserAgentPreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    schema = _SingletonSchema()
     scope_object = "task"
     authentication_classes = _AUTH_CLASSES
     permission_classes = [IsAuthenticated, APIScopePermission]
