@@ -12,13 +12,18 @@ class Migration(migrations.Migration):
     The rows and the tables do not move, so `database_operations` stays empty here and in the
     `alerts` migration that drops these models from that app's state. `db_table` on each model
     keeps the name the `alerts` app gave it.
+
+    This depends on `alerts.0008` rather than on `alerts.0011_platformalertthread`, which creates
+    the thread table. Nothing here touches the database, so the order does not matter for the
+    table, and a dependency on 0011 would make every rollback of `alerts` below it unapply this
+    app's later migrations, including a concurrent index that cannot run in a transaction.
     """
 
     initial = True
 
     dependencies = [
         ("posthog", "1390_rename_desktop_canvas_comment_scope"),
-        ("alerts", "0011_platformalertthread"),
+        ("alerts", "0008_platformalert_firing_started_at_and_uuid7_pk"),
     ]
 
     database_operations: list = []
