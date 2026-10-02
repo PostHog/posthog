@@ -1145,6 +1145,13 @@ class ReportRankingSerializer(serializers.Serializer):
         child=serializers.FloatField(),
         help_text="Outcome head name to its calibrated probability. Empty when the served model skipped the report.",
     )
+    lifts = serializers.DictField(
+        child=serializers.FloatField(),
+        help_text=(
+            "Outcome head name to its probability divided by the head's training base rate, e.g. 2.7 means "
+            "2.7x as likely as the average report. A head without a saved base rate has no entry."
+        ),
+    )
     readable_heads = serializers.ListField(
         child=serializers.CharField(),
         help_text="Heads whose holdout AUC the training run could read. Treat scores of other heads with caution.",
@@ -1440,6 +1447,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             return None
 
         from products.signals.backend.ranking.model_contract import (  # noqa: PLC0415 — keeps numpy and pandas off the API import path
+            head_lifts,
             readable_head_names,
         )
 
@@ -1461,6 +1469,8 @@ class SignalReportSerializer(serializers.ModelSerializer):
             if not all(isinstance(head, str) and head for head in heads):
                 raise ValueError("readable head names must be non-empty strings")
             readable_heads = sorted(heads)
+            # A score written before lifts were stored carries the metadata to compute them.
+            lifts = served.lifts or head_lifts(served.scores, served.metadata)
         except (ValueError, KeyError, TypeError, AttributeError):
             logger.warning("signals.ranking_score.invalid_content", report_id=str(obj.id), artefact_id=str(art.id))
             return None
@@ -1471,6 +1481,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "manifest_version": score.manifest_version,
             "scored_at": score.scored_at,
             "scores": served.scores,
+            "lifts": lifts,
             "readable_heads": readable_heads,
         }
 
