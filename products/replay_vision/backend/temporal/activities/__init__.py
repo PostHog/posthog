@@ -68,6 +68,9 @@ from products.replay_vision.backend.temporal.activities.refresh_prompt_suggestio
 from products.replay_vision.backend.temporal.activities.refresh_scanner_estimate import (
     refresh_scanner_estimate_activity,
 )
+from products.replay_vision.backend.temporal.activities.resolve_experiment_variant import (
+    resolve_experiment_variant_activity,
+)
 from products.replay_vision.backend.temporal.activities.upload_video_to_gemini import upload_video_to_gemini_activity
 
 __all__ = [
@@ -112,6 +115,7 @@ __all__ = [
     "reap_orphaned_observations_activity",
     "record_evaluation_result_activity",
     "refresh_prompt_suggestion_activity",
+    "resolve_experiment_variant_activity",
     "refresh_scanner_estimate_activity",
     "select_evaluation_sessions_activity",
     "upload_video_to_gemini_activity",
