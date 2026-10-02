@@ -370,7 +370,17 @@ const MAX_MEDIA_PREVIEW_BYTES = 200 * 1024 * 1024
  * A URL that an `img`, a `video` or an `a` can use directly. The download-by-id URL redirects to a fresh
  * presigned link. A stored living version streams from the app origin. Other living versions have no URL.
  */
-export function artifactDownloadUrl(projectId: number | null, taskId: string, artifact: RunArtifact): string | null {
+/**
+ * The URL of an artifact's file. With `forDownload`, a stored living version redirects to object storage, so a
+ * large file does not pass through the app. A preview keeps the app URL, because the media-src policy allows
+ * video only from the app origin.
+ */
+export function artifactDownloadUrl(
+    projectId: number | null,
+    taskId: string,
+    artifact: RunArtifact,
+    { forDownload = false }: { forDownload?: boolean } = {}
+): string | null {
     if (projectId === null || !artifact.id) {
         return null
     }
@@ -381,7 +391,8 @@ export function artifactDownloadUrl(projectId: number | null, taskId: string, ar
                   taskId,
                   artifact.runId,
                   artifact.living.artifactId,
-                  artifact.living.version
+                  artifact.living.version,
+                  forDownload ? { download: true } : undefined
               )
             : null
     }
