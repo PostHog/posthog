@@ -9,38 +9,40 @@ import { shortTimeAgo } from '~/layout/today/todayWorkItems'
 import type { CanvasApi } from 'products/canvas/frontend/generated/api.schemas'
 
 import { SpaceCanvasActions } from './SpaceCanvasActions'
-import { spaceCanvasAuthor, spaceCanvasTemplateIcon } from './spaceCanvasDisplay'
+import { spaceCanvasAuthor } from './spaceCanvasDisplay'
 import { SpaceCanvasMenu } from './SpaceCanvasMenu'
+import { SpaceCanvasPreview } from './SpaceCanvasPreview'
 import { TaskUserAvatar, taskUserName } from './TaskUserAvatar'
 
 export function SpaceCanvasCard({ spaceId, canvas }: { spaceId: string; canvas: CanvasApi }): JSX.Element {
     const author = spaceCanvasAuthor(canvas)
     const authorName = taskUserName(author)
-    const TemplateIcon = spaceCanvasTemplateIcon(canvas.template_id)
     return (
         <ContextMenu>
             <ContextMenuTrigger render={<div className="min-w-0" />}>
                 <Card
                     size="sm"
-                    className="group relative gap-1 rounded-xl px-4 py-3 transition-colors hover:bg-fill-hover"
+                    className="group relative gap-0 rounded-xl py-0 transition-colors hover:bg-fill-hover has-focus-visible:ring-2 has-focus-visible:ring-ring"
                 >
-                    <div className="flex min-w-0 items-center gap-2">
-                        <TemplateIcon className="size-3.5 shrink-0 text-muted-foreground" />
-                        <LinkPrimitive
-                            to={urls.canvasDetail(canvas.id)}
-                            className="min-w-0 flex-1 truncate text-sm font-medium text-foreground after:absolute after:inset-0"
-                            data-attr="today-space-canvases-card"
-                        >
-                            {canvas.name || 'Untitled canvas'}
-                        </LinkPrimitive>
-                        <SpaceCanvasMenu spaceId={spaceId} canvas={canvas} />
-                        <span aria-hidden className="relative flex shrink-0">
-                            <TaskUserAvatar user={author} />
-                        </span>
+                    <SpaceCanvasPreview spaceId={spaceId} canvas={canvas} />
+                    <div className="flex min-w-0 flex-col gap-1 px-4 py-3">
+                        <div className="flex min-w-0 items-center gap-2">
+                            <LinkPrimitive
+                                to={urls.canvasDetail(canvas.id)}
+                                className="min-w-0 flex-1 truncate text-sm font-medium text-foreground after:absolute after:inset-0"
+                                data-attr="today-space-canvases-card"
+                            >
+                                {canvas.name || 'Untitled canvas'}
+                            </LinkPrimitive>
+                            <SpaceCanvasMenu spaceId={spaceId} canvas={canvas} />
+                            <span aria-hidden className="relative flex shrink-0">
+                                <TaskUserAvatar user={author} />
+                            </span>
+                        </div>
+                        <Text size="xs" variant="muted" className="truncate">
+                            {`Updated ${shortTimeAgo(canvas.updated_at)} · ${authorName}`}
+                        </Text>
                     </div>
-                    <Text size="xs" variant="muted" className="truncate">
-                        {`Updated ${shortTimeAgo(canvas.updated_at)} · ${authorName}`}
-                    </Text>
                 </Card>
             </ContextMenuTrigger>
             <ContextMenuContent className="w-48">
