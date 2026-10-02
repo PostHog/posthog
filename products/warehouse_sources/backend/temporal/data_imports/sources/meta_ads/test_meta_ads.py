@@ -32,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     META_ADS_MAX_HISTORY_DAYS,
     META_AUTH_ERROR_MESSAGE,
     META_INVALID_CURSOR_ERROR_MESSAGE,
+    META_MALFORMED_CREATIVE_SPEC_ERROR_MESSAGE,
     META_RATE_LIMIT_ERROR_MESSAGE,
     META_TRANSIENT_ERROR_MAX_ATTEMPTS,
     PAGE_LIMIT_FALLBACK_SIZES,
@@ -359,6 +360,115 @@ class TestSimplePaginationLimitFallback:
                 list(_iter_simple_pagination(self.INITIAL_URL, self.PARAMS, None, manager))
 
         assert mock_get.return_value.get.call_count == 1
+
+
+class TestSimplePaginationMalformedCreativeSpec:
+    INITIAL_URL = "https://graph.facebook.com/v20/act_123/adcreatives"
+    PARAMS: dict[str, Any] = {"fields": "id,object_story_spec,name", "limit": 500, "access_token": "tok"}
+    SPEC_BODY: dict[str, Any] = {
+        "error": {
+            "code": 100,
+            "error_subcode": 1443048,
+            "is_transient": False,
+            "message": "Invalid parameter",
+        }
+    }
+
+    def test_initial_page_retries_without_spec_field(self) -> None:
+        manager = _build_manager()
+        responses = [
+            _mock_response(400, self.SPEC_BODY),
+            _mock_response(200, {"data": [{"id": "1"}], "paging": {}}),
+        ]
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            batches = list(_iter_simple_pagination(self.INITIAL_URL, self.PARAMS, None, manager))
+
+        assert batches == [[{"id": "1"}]]
+        calls = mock_get.return_value.get.call_args_list
+        assert calls[0].kwargs["params"]["fields"] == "id,object_story_spec,name"
+        assert calls[1].kwargs["params"]["fields"] == "id,name"
+
+    def test_next_page_asks_for_spec_field_again(self) -> None:
+        manager = _build_manager()
+        responses = [
+            _mock_response(400, self.SPEC_BODY),
+            _mock_response(
+                200,
+                {
+                    "data": [{"id": "1"}],
+                    "paging": {"next": "https://graph.facebook.com/v20/next?fields=id%2Cname&after=p1"},
+                },
+            ),
+            _mock_response(200, {"data": [{"id": "2"}], "paging": {}}),
+        ]
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            batches = list(_iter_simple_pagination(self.INITIAL_URL, self.PARAMS, None, manager))
+
+        assert batches == [[{"id": "1"}], [{"id": "2"}]]
+        full_fields_cursor = "https://graph.facebook.com/v20/next?after=p1&fields=id%2Cobject_story_spec%2Cname"
+        assert mock_get.return_value.get.call_args_list[2].args[0] == full_fields_cursor
+        manager.save_state.assert_called_once_with(MetaAdsResumeConfig(next_url=full_fields_cursor))
+
+    def test_cursor_page_retries_without_spec_field(self) -> None:
+        manager = _build_manager()
+        responses = [
+            _mock_response(
+                200,
+                {
+                    "data": [{"id": "1"}],
+                    "paging": {
+                        "next": "https://graph.facebook.com/v20/next?fields=id%2Cobject_story_spec%2Cname&after=p1"
+                    },
+                },
+            ),
+            _mock_response(400, self.SPEC_BODY),
+            _mock_response(200, {"data": [{"id": "2"}], "paging": {}}),
+        ]
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            batches = list(_iter_simple_pagination(self.INITIAL_URL, self.PARAMS, None, manager))
+
+        assert batches == [[{"id": "1"}], [{"id": "2"}]]
+        assert (
+            mock_get.return_value.get.call_args_list[2].args[0]
+            == "https://graph.facebook.com/v20/next?after=p1&fields=id%2Cname"
+        )
+
+    @pytest.mark.parametrize(
+        "params,expected_calls",
+        [
+            # Meta still rejects the page without the field.
+            ({"fields": "id,object_story_spec,name", "limit": 500, "access_token": "tok"}, 2),
+            # The request never asked for the field, so there is nothing to drop.
+            ({"fields": "id,name", "limit": 500, "access_token": "tok"}, 1),
+        ],
+    )
+    def test_unrecoverable_error_raises_non_retryable_message(self, params: dict, expected_calls: int) -> None:
+        manager = _build_manager()
+        responses = [_mock_response(400, self.SPEC_BODY) for _ in range(expected_calls)]
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            with pytest.raises(Exception) as exc_info:
+                list(_iter_simple_pagination(self.INITIAL_URL, params, None, manager))
+
+        assert mock_get.return_value.get.call_count == expected_calls
+        assert META_MALFORMED_CREATIVE_SPEC_ERROR_MESSAGE in str(exc_info.value)
+        non_retryable = MetaAdsSource().get_non_retryable_errors()
+        assert any(key in str(exc_info.value) for key in non_retryable)
 
 
 class TestSimplePaginationMalformedJson:

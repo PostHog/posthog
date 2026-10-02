@@ -44,6 +44,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     META_ADS_API_VERSION_V26,
     META_AUTH_ERROR_MESSAGE,
     META_INVALID_CURSOR_ERROR_MESSAGE,
+    META_MALFORMED_CREATIVE_SPEC_ERROR_MESSAGE,
     META_RATE_LIMIT_ERROR_MESSAGE,
     SHRINK_EXHAUSTED_ERROR_MESSAGE,
     MetaAdsAuthError,
@@ -181,6 +182,14 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
             # with a fresh cursor) can recover. `meta_ads._raise_meta_api_error` raises this
             # message for that code.
             META_INVALID_CURSOR_ERROR_MESSAGE: META_INVALID_CURSOR_ERROR_MESSAGE,
+            # Graph API subcode 1443048: Meta cannot render one ad creative. The sync already
+            # requests the page again without `object_story_spec`. If Meta still rejects it, only
+            # a fix to the creative in Meta helps.
+            META_MALFORMED_CREATIVE_SPEC_ERROR_MESSAGE: (
+                "Meta could not return an ad creative because its setup is incomplete, for example "
+                "a missing Facebook Page. Fix or delete that creative in Meta Ads Manager, then run "
+                "the sync again."
+            ),
         }
 
     def get_retryable_errors(self) -> set[str]:

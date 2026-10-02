@@ -284,6 +284,22 @@ def _override_limit(url: str, limit: int) -> str:
     return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(pairs), parts.fragment))
 
 
+def _override_fields(url: str, fields: str) -> str:
+    """Return ``url`` with its ``fields`` query parameter overridden."""
+    parts = urlsplit(url)
+    pairs = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True) if k != "fields"]
+    pairs.append(("fields", fields))
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(pairs), parts.fragment))
+
+
+def _without_field(fields: str, field: str) -> str | None:
+    """Return the comma-separated ``fields`` without ``field``, or None if ``field`` is not in it."""
+    names = fields.split(",")
+    if field not in names:
+        return None
+    return ",".join(name for name in names if name != field)
+
+
 def _next_smaller_limit(current: int) -> int | None:
     """Return the next smaller value in ``PAGE_LIMIT_FALLBACK_SIZES``.
 
@@ -464,7 +480,18 @@ META_RATE_LIMIT_ERROR_MESSAGE = (
     "Meta is rate limiting requests for this connection. Please wait a few minutes and try again."
 )
 
+# Meta error subcode 1443048 comes with code 100 and `is_transient: false`. Meta cannot render the
+# `object_story_spec` of one ad creative, for example because the creative has no Page ID, and it
+# fails the whole page. The same request always fails, so `_iter_simple_pagination` requests the page
+# again without that field.
+META_MALFORMED_CREATIVE_SPEC_ERROR_SUBCODE = 1443048
+META_MALFORMED_CREATIVE_SPEC_FIELD = "object_story_spec"
+
 META_INVALID_CURSOR_ERROR_MESSAGE = "Meta's pagination cursor for this sync became invalid. Please run the sync again."
+
+META_MALFORMED_CREATIVE_SPEC_ERROR_MESSAGE = (
+    "Meta could not return an ad creative because its setup is incomplete, for example a missing Facebook Page."
+)
 
 # Matched by `MetaAdsSource.get_non_retryable_errors`, so it has to stay in sync
 # with the key there.
@@ -544,6 +571,11 @@ def _is_invalid_cursor_error(response: Response) -> bool:
     return _meta_error_code(response) == META_INVALID_CURSOR_ERROR_CODE
 
 
+def _is_malformed_creative_spec_error(response: Response) -> bool:
+    """Return True for Meta's "object_story_spec ill formed" error, see `META_MALFORMED_CREATIVE_SPEC_ERROR_SUBCODE`."""
+    return _meta_error_subcode(response) == META_MALFORMED_CREATIVE_SPEC_ERROR_SUBCODE
+
+
 def _raise_meta_api_error(response: Response) -> typing.NoReturn:
     """Raise a descriptive exception for a non-200 Meta API response.
 
@@ -567,6 +599,10 @@ def _raise_meta_api_error(response: Response) -> typing.NoReturn:
     if _is_invalid_cursor_error(response):
         raise Exception(
             f"{META_INVALID_CURSOR_ERROR_MESSAGE} (Meta API response: {response.status_code} - {response.text})"
+        )
+    if _is_malformed_creative_spec_error(response):
+        raise Exception(
+            f"{META_MALFORMED_CREATIVE_SPEC_ERROR_MESSAGE} (Meta API response: {response.status_code} - {response.text})"
         )
     if _is_transient_error(response) and not _should_shrink_request(response):
         raise Exception(f"Meta API request failed (retryable): {response.status_code} - {response.text}")
@@ -677,9 +713,15 @@ def _iter_simple_pagination(
     fails on those accounts. Retrying the same URL at a smaller limit never
     re-emits already-yielded rows — the initial request has yielded nothing
     yet, and a cursor points at the start of the next (not-yet-yielded) page.
+
+    A page that fails on a malformed ``object_story_spec`` is requested again
+    without that field, so the other columns of that page still sync. The next
+    page asks for the full field list again.
     """
     access_token = params["access_token"]
     current_limit = PAGE_LIMIT_FALLBACK_SIZES[0]
+    fields_without_spec = _without_field(params.get("fields", ""), META_MALFORMED_CREATIVE_SPEC_FIELD)
+    omit_spec = False
 
     # None while on the initial request; set to the active ``paging.next``
     # cursor once we start following pages. Used to retry-at-smaller-limit.
@@ -691,16 +733,16 @@ def _iter_simple_pagination(
         # Only rewrite the request once the limit has actually been shrunk, so
         # healthy syncs keep their original request shape (saved cursor URLs and
         # the caller's params already encode the default limit).
+        limit_shrunk = current_limit != PAGE_LIMIT_FALLBACK_SIZES[0]
         if cursor_url is not None:
-            url = (
-                _override_limit(cursor_url, current_limit)
-                if current_limit != PAGE_LIMIT_FALLBACK_SIZES[0]
-                else cursor_url
-            )
+            url = _override_limit(cursor_url, current_limit) if limit_shrunk else cursor_url
+            if omit_spec and fields_without_spec is not None:
+                url = _override_fields(url, fields_without_spec)
             return _fetch_paging_url(url, access_token)
-        if current_limit != PAGE_LIMIT_FALLBACK_SIZES[0]:
-            return _get_initial_request(initial_url, {**params, "limit": current_limit})
-        return _get_initial_request(initial_url, params)
+        request_params = {**params, "limit": current_limit} if limit_shrunk else params
+        if omit_spec and fields_without_spec is not None:
+            request_params = {**request_params, "fields": fields_without_spec}
+        return _get_initial_request(initial_url, request_params)
 
     response = _issue()
     malformed_json_attempts = 0
@@ -717,6 +759,10 @@ def _iter_simple_pagination(
                     response = _issue()
                     continue
                 _raise_shrink_exhausted_error(response)
+            if _is_malformed_creative_spec_error(response) and fields_without_spec is not None and not omit_spec:
+                omit_spec = True
+                response = _issue()
+                continue
             _raise_meta_api_error(response)
 
         try:
@@ -746,6 +792,11 @@ def _iter_simple_pagination(
         # Strip access_token from the URL before using it so we don't end up with a
         # duplicated `access_token` query param (requests merges `params=...` into the URL).
         cursor_url = _strip_access_token(next_url)
+        # Meta copies the request's fields into `paging.next`, so a page fetched without
+        # `object_story_spec` hands back a cursor without it too.
+        if omit_spec:
+            cursor_url = _override_fields(cursor_url, params["fields"])
+            omit_spec = False
         resumable_source_manager.save_state(MetaAdsResumeConfig(next_url=cursor_url))
         response = _issue()
 
