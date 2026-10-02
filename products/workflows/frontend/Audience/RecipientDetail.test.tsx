@@ -2,7 +2,7 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
@@ -171,6 +171,31 @@ describe('recipient detail', () => {
         expect(await within(timeline).findByText('Clicked a link')).toBeInTheDocument()
         expect(capturedEvents('audience engagement events enabled')).toEqual([
             ['audience engagement events enabled', { surface: 'recipient' }],
+        ])
+    })
+
+    it('opens the preferences page this recipient sees and tracks the preview from the recipient page', async () => {
+        const linkRequests: unknown[] = []
+        useRecipientLookup([200, { results: [SUPPRESSED_JAMIE], next_cursor: null }])
+        useMocks({
+            post: {
+                '/api/projects/:team_id/messaging_preferences/generate_link/': async ({ request }) => {
+                    linkRequests.push(await request.json())
+                    return [200, { preferences_url: 'https://app.example.com/messaging-preferences/token/' }]
+                },
+            },
+        })
+        const openWindow = jest.spyOn(window, 'open').mockImplementation(() => null)
+        openRecipient()
+
+        fireEvent.click(await screen.findByTestId('audience-recipient-preferences-page'))
+
+        await waitFor(() =>
+            expect(openWindow).toHaveBeenCalledWith('https://app.example.com/messaging-preferences/token/', '_blank')
+        )
+        expect(linkRequests).toEqual([{ recipient: 'jamie@example.com' }])
+        expect(capturedEvents('messaging preferences page previewed')).toEqual([
+            ['messaging preferences page previewed', { surface: 'recipient' }],
         ])
     })
 })
