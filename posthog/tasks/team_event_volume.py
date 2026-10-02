@@ -17,6 +17,7 @@ from posthog.models.event.new_events_schema import events_read_table, use_new_ev
 from posthog.models.team import Team
 from posthog.models.team.team_event_volume import TeamEventVolume
 from posthog.scoping_audit import skip_team_scope_audit
+from posthog.storage.gateway_credential_cache import set_team_event_volume_last_success
 
 logger = structlog.get_logger(__name__)
 
@@ -98,6 +99,7 @@ def update_team_event_volumes() -> None:
         .filter(computed_at__lt=computed_at)
         .update(events_last_year=0, computed_at=computed_at)
     )
+    set_team_event_volume_last_success(computed_at)
     logger.info(
         "team_event_volumes_updated",
         teams=len(volumes),
