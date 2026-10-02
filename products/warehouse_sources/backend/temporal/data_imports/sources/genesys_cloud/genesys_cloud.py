@@ -1,10 +1,11 @@
-import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
 import requests
 import structlog
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
@@ -43,7 +44,7 @@ class InvalidGenesysCloudRegionError(ValueError):
     pass
 
 
-@dataclasses.dataclass(frozen=True)
+@frozen
 class GenesysCloudResumeConfig:
     # Analytics endpoints: start of the next window to read (ISO 8601).
     window_start: Optional[str] = None
