@@ -298,7 +298,7 @@ CONSTANCE_CONFIG = {
     ),
     "SIGNUP_BLOCK_RULES": (
         get_from_env("SIGNUP_BLOCK_RULES", "[]"),
-        'Sign-up block rules (posthog/helpers/signup_block_rules.py). JSON list of {"id": "...", "pattern": "..."}. A sign-up is rejected with a 403 when a Python regex pattern fully matches "<lowercased email>|<organization name>". Example: \'[{"id": "example", "pattern": "[^@|]+@example\\\\.com\\\\|Blocked Org"}]\'. A rule with bad JSON or a bad regex is skipped. "[]" blocks nobody. Changes apply within about 60 seconds.',
+        'Sign-up block rules (posthog/helpers/signup_block_rules.py). JSON list of {"id": "...", "pattern": "..."}. A sign-up is rejected with a 403 when a Python regex pattern fully matches "<lowercased email>|<organization name>". Example: \'[{"id": "example", "pattern": "[^@|]+@example\\\\.com\\\\|Blocked Org"}]\'. A rule with bad JSON or a bad regex is skipped. "[]" blocks nobody.',
         str,
     ),
     "GROWTH_ICP_REENRICH_DAILY_CAP": (
