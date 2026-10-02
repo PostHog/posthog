@@ -12,11 +12,14 @@ from rest_framework.views import APIView
 
 from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models import OrganizationMembership, Team, User
+from posthog.models.activity_logging.utils import ActivityCredentialMixin
 from posthog.permissions import ActiveOrganizationPermission
 from posthog.user_permissions import UserPermissions
 
 
-class LivestreamAuthentication(BaseAuthentication):
+class LivestreamAuthentication(ActivityCredentialMixin, BaseAuthentication):
+    activity_credential_type = "internal_jwt"
+
     def authenticate_header(self, request: Request) -> str:
         return "Bearer"
 
@@ -40,6 +43,7 @@ class LivestreamAuthentication(BaseAuthentication):
             )
         except (jwt.PyJWTError, KeyError, TypeError, ValueError, User.DoesNotExist, Team.DoesNotExist):
             raise AuthenticationFailed("Invalid live stream token.")
+        self.record_activity_actor(user)
         return user, team
 
 
