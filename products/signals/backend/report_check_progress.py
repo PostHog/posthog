@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import time
+from contextlib import suppress
 from copy import deepcopy
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal
@@ -11,6 +12,7 @@ from django.db.models import TextChoices
 from django.utils import timezone
 
 import structlog
+from pydantic import TypeAdapter, ValidationError
 
 from posthog.dataclasses import frozen
 from posthog.utils import relative_date_parse
@@ -70,6 +72,10 @@ class CheckProgress:
     sample_size: float | None = None
     query: dict[str, Any] | None = None
     points: list[ProgressPoint] | None = None
+
+
+# The default cache unpickles what it reads, so entries hold JSON and never Python objects.
+CACHED_PROGRESS = TypeAdapter(CheckProgress)
 
 
 def _aggregation_degree(series: dict[str, Any]) -> int | None:
@@ -267,8 +273,9 @@ def measure_progress(
     end_key = report.monitoring_ended_at.isoformat() if report.monitoring_ended_at else "ongoing"
     cache_key = f"report-check-progress:{team.id}:{check_id}:{check.updated_at.isoformat()}:{start.isoformat()}:{end_key}:{report.status}"
     cached = cache.get(cache_key)
-    if isinstance(cached, CheckProgress):
-        return cached
+    if isinstance(cached, str):
+        with suppress(ValidationError):
+            return CACHED_PROGRESS.validate_json(cached)
     target_type = progress_target_type(config)
     if target_type is None:
         return CheckProgress(
@@ -350,7 +357,11 @@ def measure_progress(
         query=query,
         points=points,
     )
-    cache.set(cache_key, progress, timeout=int(REPORT_METRIC_SNAPSHOT_FRESH_FOR.total_seconds()))
+    cache.set(
+        cache_key,
+        CACHED_PROGRESS.dump_json(progress).decode(),
+        timeout=int(REPORT_METRIC_SNAPSHOT_FRESH_FOR.total_seconds()),
+    )
     return progress
 
 
