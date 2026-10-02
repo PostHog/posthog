@@ -292,7 +292,7 @@ describe('surveyTriggerLogic', () => {
             logic.mount()
             logic.unmount()
             resolveSurvey(makeSurvey({ id: 'configured-survey' }))
-            await new Promise((resolve) => setTimeout(resolve, 0))
+            await expectLogic(logic).toFinishAllListeners()
 
             expect(consoleError).not.toHaveBeenCalled()
             consoleError.mockRestore()
