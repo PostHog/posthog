@@ -49,6 +49,7 @@ export interface EmailBrandEditedApi {
 }
 
 export interface EmailBrandApi {
+    /** Unique id of the Email brand. */
     readonly id: string
     /**
      * Brand name. Shown in the email header when there is no logo.
@@ -56,7 +57,7 @@ export interface EmailBrandApi {
      */
     name?: string
     /**
-     * Id of an image in this project's media library to show in the email header. Null shows the name instead.
+     * Id of an image in this project's email media library to show in the email header. Null shows the name instead.
      * @nullable
      */
     logo?: string | null
@@ -97,7 +98,9 @@ export interface EmailBrandApi {
     sources?: EmailBrandApiSources
     /** Per value, whether it differs from the value detection found. A value without a source is never edited. */
     readonly edited: EmailBrandEditedApi
+    /** When the Email brand was first saved. */
     readonly created_at: string
+    /** When the Email brand last changed. */
     readonly updated_at: string
 }
 
@@ -107,6 +110,7 @@ export interface EmailBrandApi {
 export type PatchedEmailBrandApiSources = { [key: string]: EmailBrandSourceApi }
 
 export interface PatchedEmailBrandApi {
+    /** Unique id of the Email brand. */
     readonly id?: string
     /**
      * Brand name. Shown in the email header when there is no logo.
@@ -114,7 +118,7 @@ export interface PatchedEmailBrandApi {
      */
     name?: string
     /**
-     * Id of an image in this project's media library to show in the email header. Null shows the name instead.
+     * Id of an image in this project's email media library to show in the email header. Null shows the name instead.
      * @nullable
      */
     logo?: string | null
@@ -155,7 +159,9 @@ export interface PatchedEmailBrandApi {
     sources?: PatchedEmailBrandApiSources
     /** Per value, whether it differs from the value detection found. A value without a source is never edited. */
     readonly edited?: EmailBrandEditedApi
+    /** When the Email brand was first saved. */
     readonly created_at?: string
+    /** When the Email brand last changed. */
     readonly updated_at?: string
 }
 

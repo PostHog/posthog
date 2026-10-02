@@ -12,6 +12,7 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.models import UploadedMedia
+from posthog.models.uploaded_media import MEDIA_PURPOSE_EMAIL
 
 from products.workflows.backend.models.email_brand import EmailBrand
 from products.workflows.backend.presentation.views.feature_gates import require_team_feature_flag
@@ -58,10 +59,11 @@ class EmailBrandEditedSerializer(serializers.Serializer):
 
 class EmailBrandSerializer(serializers.ModelSerializer):
     logo = TeamScopedPrimaryKeyRelatedField(
-        queryset=UploadedMedia.objects.filter(pending=False),
+        queryset=UploadedMedia.objects.filter(purpose=MEDIA_PURPOSE_EMAIL, pending=False),
         required=False,
         allow_null=True,
-        help_text="Id of an image in this project's media library to show in the email header. Null shows the name instead.",
+        help_text="Id of an image in this project's email media library to show in the email header. "
+        "Null shows the name instead.",
     )
     logo_url = serializers.SerializerMethodField(help_text="Public URL of the logo image, or null without a logo.")
     primary_color = HexColorField(required=False, help_text="Main brand color as #rrggbb, used for buttons.")
@@ -100,6 +102,9 @@ class EmailBrandSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "logo_url", "edited", "created_at", "updated_at"]
         extra_kwargs = {
+            "id": {"help_text": "Unique id of the Email brand."},
+            "created_at": {"help_text": "When the Email brand was first saved."},
+            "updated_at": {"help_text": "When the Email brand last changed."},
             "name": {"help_text": "Brand name. Shown in the email header when there is no logo."},
             "font_family": {"help_text": "Font family name, for example Inter."},
             "font_stack": {
@@ -124,19 +129,26 @@ class EmailBrandSerializer(serializers.ModelSerializer):
         unknown = sorted(set(sources) - set(EmailBrand.SOURCED_FIELDS))
         if unknown:
             raise serializers.ValidationError(f"Unknown fields: {', '.join(unknown)}.")
-        return sources
+        return {field: self._normalized_source(field, source) for field, source in sources.items()}
+
+    def _normalized_source(self, field: str, source: dict) -> dict:
+        if field in EmailBrand.COLOR_FIELDS:
+            return {**source, "detected_value": source["detected_value"].lower()}
+        return source
 
 
 class EmailBrandViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "hog_flow"
     scope_object_read_actions = ["current"]
     scope_object_write_actions = ["update_current"]
+    # The brand styles every workflow in the project, so access to one workflow must not reach it.
+    requires_resource_level_access = True
     queryset = EmailBrand.objects.unscoped()
     serializer_class = EmailBrandSerializer
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)
-        require_team_feature_flag(BRAND_DETECTION_FEATURE_FLAG, self.team)
+        require_team_feature_flag(BRAND_DETECTION_FEATURE_FLAG, self.team.parent_team or self.team)
 
     @extend_schema(
         summary="Get the project's Email brand",
@@ -162,8 +174,12 @@ class EmailBrandViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @current.mapping.patch
     def update_current(self, request: Request, **kwargs: Any) -> Response:
         with transaction.atomic():
-            brand, _ = self._project_brands().get_or_create(
-                team_id=self._project_team_id(), defaults={"created_by": request.user}
+            # Lock the row because save() writes every column: two PATCHes of different fields would otherwise
+            # each restore the other's stale value.
+            brand, _ = (
+                self._project_brands()
+                .select_for_update()
+                .get_or_create(team_id=self._project_team_id(), defaults={"created_by": request.user})
             )
             serializer = self.get_serializer(brand, data=request.data, partial=True)
             serializer.is_valid(raise_exception=True)

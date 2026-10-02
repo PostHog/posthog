@@ -25,6 +25,7 @@ class EmailBrand(TeamScopedRootMixin, UUIDModel):
         "background_color",
         "font_family",
     )
+    COLOR_FIELDS = ("primary_color", "accent_color", "text_color", "background_color")
 
     # db_constraint=False on team/created_by: a real FK constraint to a hot table
     # (posthog_team, posthog_user) takes a parent-table lock on creation; enforcement stays app-level.

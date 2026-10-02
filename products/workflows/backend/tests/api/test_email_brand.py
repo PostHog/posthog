@@ -40,13 +40,15 @@ class TestEmailBrandAPI(APIBaseTest):
 
     def test_environments_of_one_project_share_a_single_brand(self, _flag):
         environment = Team.objects.create(organization=self.organization, parent_team=self.team, name="Staging")
+        logo = UploadedMedia.objects.create(team=environment, purpose="email", file_name="logo.png")
 
-        assert self._patch({"name": "Acme"}, team=environment).status_code == status.HTTP_200_OK
+        named = self._patch({"name": "Acme", "logo": str(logo.id)}, team=environment)
+        assert named.status_code == status.HTTP_200_OK, named.json()
         assert self._patch({"primary_color": "#123456"}, team=self.team).status_code == status.HTTP_200_OK
 
         for team in (self.team, environment):
             brand = self.client.get(self._url(team)).json()
-            assert (brand["name"], brand["primary_color"]) == ("Acme", "#123456")
+            assert (brand["name"], brand["logo"], brand["primary_color"]) == ("Acme", str(logo.id), "#123456")
 
     def test_another_project_neither_sees_nor_changes_the_brand(self, _flag):
         other_project = Team.objects.create(organization=self.organization, name="Other project")
@@ -72,16 +74,21 @@ class TestEmailBrandAPI(APIBaseTest):
         assert response.json()["attr"] == attr
         assert self.client.get(self._url()).status_code == status.HTTP_404_NOT_FOUND
 
-    def test_logo_must_belong_to_the_project(self, _flag):
+    def test_logo_must_be_a_vetted_email_image_of_the_project(self, _flag):
         other_team = Team.objects.create(organization=Organization.objects.create(name="Other org"))
         foreign_logo = UploadedMedia.objects.create(team=other_team, purpose="email", file_name="logo.png")
+        unvetted_logo = UploadedMedia.objects.create(
+            team=self.team, purpose="email", file_name="logo.png", pending=True
+        )
+        private_upload = UploadedMedia.objects.create(team=self.team, purpose="desktop_feedback", file_name="shot.png")
         own_logo = UploadedMedia.objects.create(team=self.team, purpose="email", file_name="logo.png")
 
-        rejected = self._patch({"logo": str(foreign_logo.id)})
-        accepted = self._patch({"logo": str(own_logo.id)})
+        for rejected_logo in (foreign_logo, unvetted_logo, private_upload):
+            rejected = self._patch({"logo": str(rejected_logo.id)})
+            assert rejected.status_code == status.HTTP_400_BAD_REQUEST, rejected.json()
+            assert rejected.json()["attr"] == "logo"
 
-        assert rejected.status_code == status.HTTP_400_BAD_REQUEST, rejected.json()
-        assert rejected.json()["attr"] == "logo"
+        accepted = self._patch({"logo": str(own_logo.id)})
         assert accepted.status_code == status.HTTP_200_OK, accepted.json()
         assert accepted.json()["logo"] == str(own_logo.id)
         assert accepted.json()["logo_url"].endswith(f"/uploaded_media/{own_logo.id}")
@@ -94,7 +101,7 @@ class TestEmailBrandAPI(APIBaseTest):
                 "accent_color": "#ff8800",
                 "sources": {
                     "primary_color": {"path": "app/globals.css", "line": 12, "detected_value": "#112233"},
-                    "accent_color": {"path": "tailwind.config.ts", "line": 4, "detected_value": "#ff8800"},
+                    "accent_color": {"path": "tailwind.config.ts", "line": 4, "detected_value": "#FF8800"},
                 },
             }
         )

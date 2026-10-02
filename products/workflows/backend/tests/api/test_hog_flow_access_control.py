@@ -226,19 +226,23 @@ class TestHogFlowAccessControl(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(HogFlow.objects.filter(id=archived_denied.id).exists())
         self.assertTrue(HogFlow.objects.filter(id=archived_viewer.id).exists())
 
-    def test_user_blast_radius_requires_resource_level_access(self):
-        # user_blast_radius is detail=False, so AccessControlPermission falls back to "access to any one
-        # workflow". A viewer grant on a single workflow must not unlock the project-wide audience count:
-        # the action requires resource-level workflow access.
+    @parameterized.expand(
+        [
+            ("user_blast_radius", "post", "hog_flows/user_blast_radius", {"filters": {"properties": []}}, "viewer"),
+            ("email_brand_read", "get", "email_brand/current/", None, "viewer"),
+            ("email_brand_write", "patch", "email_brand/current/", {"name": "Acme"}, "editor"),
+        ]
+    )
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_project_wide_actions_require_resource_level_access(self, _label, method, path, body, grant, _flag):
+        # These routes are detail=False, so AccessControlPermission falls back to "access to any one
+        # workflow". A grant on a single workflow must not unlock the project-wide audience count or the
+        # Email brand every workflow is styled with: both require resource-level workflow access.
         self._create_project_default(access_level="none")
-        self._create_access_control(self.no_access_user, resource_id=str(self.hog_flow.id), access_level="viewer")
+        self._create_access_control(self.no_access_user, resource_id=str(self.hog_flow.id), access_level=grant)
         self.client.force_login(self.no_access_user)
 
-        response = self.client.post(
-            f"{self._list_url()}/user_blast_radius",
-            data={"filters": {"properties": []}},
-            format="json",
-        )
+        response = getattr(self.client, method)(f"/api/projects/{self.team.pk}/{path}", data=body, format="json")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, getattr(response, "data", response.content))
 
     def test_org_admin_bypasses_object_level_denial(self):

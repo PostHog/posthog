@@ -37,7 +37,7 @@ export const EmailBrandCurrentPartialUpdateBody = /* @__PURE__ */ zod.object({
         .uuid()
         .nullish()
         .describe(
-            "Id of an image in this project's media library to show in the email header. Null shows the name instead."
+            "Id of an image in this project's email media library to show in the email header. Null shows the name instead."
         ),
     primary_color: zod.string().optional().describe('Main brand color as #rrggbb, used for buttons.'),
     accent_color: zod.string().optional().describe('Secondary brand color as #rrggbb, used for highlights.'),
