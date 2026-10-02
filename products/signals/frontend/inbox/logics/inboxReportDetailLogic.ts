@@ -186,18 +186,15 @@ export function openableRunInFlight(reportTasks: ReportTaskEntry[] | null): bool
  * The newest implementation task that exists but has no run yet, or `null` when none is waiting.
  *
  * Such a task holds the implementation slot, but no work has started, so the reader must not see it
- * as a run in progress. Returns `null` when another implementation task has a run or a PR, because
- * that task is the one to send the reader to.
+ * as a run in progress. Returns `null` when any implementation task has a run, because that task is
+ * the one to send the reader to.
  */
 export function notStartedImplementationTask(reportTasks: ReportTaskEntry[] | null): ReportTaskEntry | null {
     const implementations = (reportTasks ?? []).filter((entry) => entry.purpose === 'implementation')
     if (implementations.some((entry) => entry.task.latest_run)) {
         return null
     }
-    return (
-        [...implementations].sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())[0] ??
-        null
-    )
+    return implementations.sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())[0] ?? null
 }
 
 // While the report is still being worked, poll linked tasks every 5s. Mirrors desktop.
