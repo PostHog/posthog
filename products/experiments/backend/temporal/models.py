@@ -219,13 +219,6 @@ class ExperimentPrecomputeEnrollmentCensusInputs:
 SCHEDULED_RECALCULATION_WORKFLOW_NAME = "experiment-scheduled-recalculation-workflow"
 
 
-@dataclasses.dataclass(frozen=False)
-class ScheduledRecalculationWorkflowInputs:
-    """Input to the scheduled recalculation coordinator."""
-
-    hour: int  # 0-23, which hour's teams to process
-
-
 @frozen
 class ScheduledRecalculationStartResult:
     """Outcome of one experiment's start attempt, for the coordinator's summary counts."""
