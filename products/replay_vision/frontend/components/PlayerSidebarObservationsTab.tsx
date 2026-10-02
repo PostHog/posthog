@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconChevronDown, IconChevronRight, IconCollapse, IconExpand, IconEye } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonInput, LemonSwitch, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSwitch, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown/LemonDropdown'
@@ -14,13 +14,7 @@ import type { ReplayObservationApi, ReplayScannerApi } from '../generated/api.sc
 import { observationsDockLogic } from '../logics/observationsDockLogic'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { SCANNER_TYPE_TAG_TYPE, scannerTypeLabel } from '../replay_scanners/types'
-import {
-    isFlaggedObservation,
-    isSummaryObservation,
-    readModelOutput,
-    readReasoning,
-    scannerLabel,
-} from '../utils/observation'
+import { isSummaryObservation, readModelOutput, readReasoning, scannerLabel } from '../utils/observation'
 import { quotaUx } from '../utils/quotaProjection'
 import { currentRowIndex, nextTimelineStopMs, timelineRows as buildTimelineRows } from '../utils/recordingTimeline'
 import { ScanBlock, recordingScanBlock } from '../utils/scanEligibility'
@@ -167,16 +161,9 @@ function ObservationRuns({
         return null
     }
     const focused = observations.find((o) => o.id === focusedObservationId) ?? defaultFocus(observations)
-    const flaggedCount = observations.filter(isFlaggedObservation).length
     return (
         <>
-            <SectionHeader label="Observations" count={observations.length}>
-                {flaggedCount > 0 && (
-                    <Tooltip title={`${flaggedCount} flagged`}>
-                        <LemonBadge.Number count={flaggedCount} size="small" status="primary" />
-                    </Tooltip>
-                )}
-            </SectionHeader>
+            <SectionHeader label="Observations" />
             <div>
                 {observations.map((observation) => {
                     const scannerType = observation.scanner_snapshot?.scanner_type
@@ -222,17 +209,7 @@ function ObservationRuns({
     )
 }
 
-function SectionHeader({
-    label,
-    count,
-    className,
-    children,
-}: {
-    label: string
-    count: number
-    className?: string
-    children?: ReactNode
-}): JSX.Element {
+function SectionHeader({ label, className }: { label: string; className?: string }): JSX.Element {
     return (
         <div
             className={cn(
@@ -241,8 +218,6 @@ function SectionHeader({
             )}
         >
             {label}
-            <LemonBadge.Number count={count} maxDigits={2} size="small" status="muted" showZero />
-            {children}
         </div>
     )
 }
@@ -463,7 +438,7 @@ function ObservationsTabContent({ sessionId }: { sessionId: string }): JSX.Eleme
                         )}
                     </div>
                     <div className="flex-1 min-h-0 overflow-y-auto" ref={timelineRef}>
-                        <SectionHeader label="Breakdown" count={timeline.chapters.length} />
+                        <SectionHeader label="Breakdown" />
                         <RecordingTimeline
                             timeline={timeline}
                             rows={timelineRows}
