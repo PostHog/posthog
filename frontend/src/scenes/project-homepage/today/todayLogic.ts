@@ -111,7 +111,6 @@ export interface todayLogicValues {
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     user: UserType | null // userLogic
     briefing: TodayBriefingSegment[][]
-    reportPreviews: Record<TodayReportPreview['surface'], Record<string, TodayReportPreview>>
     briefingItems: BriefingItemApi[]
     briefingPolls: number
     briefingProgress: TodayBriefingProgress | null
@@ -130,6 +129,7 @@ export interface todayLogicValues {
     refreshedBriefing: BriefingApi | null
     refreshedBriefingLoading: boolean
     reportId: string | null
+    reportPreviews: Record<TodayReportPreview['surface'], Record<string, TodayReportPreview>>
     reportSummary: string
     reports: SignalReport[]
     reportsFailed: boolean
@@ -172,13 +172,6 @@ export interface todayLogicActions {
     ) => {
         item: BriefingItemApi
         surface: TodayItemOpenSurface
-    }
-    reportPreviewed: (
-        cardKey: string,
-        surface: TodayReportPreview['surface']
-    ) => {
-        cardKey: string
-        surface: TodayReportPreview['surface']
     }
     loadPersonalBriefing: () => any
     loadPersonalBriefingFailure: (
@@ -249,6 +242,13 @@ export interface todayLogicActions {
         report: SignalReport
         source: TodayReportOpenSource
     }
+    reportPreviewed: (
+        cardKey: string,
+        surface: TodayReportPreview['surface']
+    ) => {
+        cardKey: string
+        surface: 'briefing' | 'sidebar'
+    }
     setHoveredItemKey: (itemKey: string | null) => {
         itemKey: string | null
     }
@@ -279,13 +279,13 @@ export interface todayLogicMeta {
         showPersonalBriefing: (personalBriefing: BriefingApi | null, useSampleData: boolean) => boolean
         inboxMore: (personalBriefing: BriefingApi | null) => TodayInboxMore | null
         briefingItems: (personalBriefing: BriefingApi | null, showPersonalBriefing: boolean) => BriefingItemApi[]
-        briefingProgress: (briefingItems: BriefingItemApi[]) => TodayBriefingProgress | null
         reportPreviews: (
             briefingItems: BriefingItemApi[]
         ) => Record<TodayReportPreview['surface'], Record<string, TodayReportPreview>>
         teamReportPreviews: (
             reports: SignalReport[]
         ) => Record<TodayReportPreview['surface'], Record<string, TodayReportPreview>>
+        briefingProgress: (briefingItems: BriefingItemApi[]) => TodayBriefingProgress | null
         briefingWaiting: (
             personalBriefing: BriefingApi | null,
             gaveUpWaitingFor: string | null,

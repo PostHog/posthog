@@ -1,5 +1,5 @@
 import { useActions } from 'kea'
-import { useEffect } from 'react'
+import { Suspense, useEffect } from 'react'
 
 import { IconPullRequest } from '@posthog/icons'
 import {
@@ -10,18 +10,20 @@ import {
     ItemDescription,
     ItemSeparator,
     ItemTitle,
+    Skeleton,
     Text,
     cn,
 } from '@posthog/quill'
 
 import { dayjs } from 'lib/dayjs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { pluralize } from 'lib/utils/strings'
 
 import type { TodayReportPreview } from '~/layout/today/todayPreviewCards'
 
 import { selectReportCardImpactMetric } from 'products/signals/frontend/inbox/components/cards/ReportCardImpactMetric'
-import { reportChartGraphQuery } from 'products/signals/frontend/inbox/components/detail/ReportChart'
+import { reportChartGraphQuery } from 'products/signals/frontend/inbox/utils/reportChartQuery'
 import {
     asReportMetricAggregateQuery,
     asReportMetricSeriesQuery,
@@ -30,8 +32,15 @@ import {
 import { pullRequestStateMeta } from 'products/tasks/frontend/spaces/TaskPullRequestChip'
 
 import { todayLogic } from './todayLogic'
-import { TodayReportHoverCardChart } from './TodayReportHoverCardChart'
-import { TodayReportHoverCardMetric } from './TodayReportHoverCardMetric'
+
+// The charts load on the first hover: the card sits in the app shell, and the query and chart code
+// they need must stay out of the bundle every page loads.
+const TodayReportHoverCardMetric = lazyWithRetry(() =>
+    import('./TodayReportHoverCardMetric').then((m) => ({ default: m.TodayReportHoverCardMetric }))
+)
+const TodayReportHoverCardChart = lazyWithRetry(() =>
+    import('./TodayReportHoverCardChart').then((m) => ({ default: m.TodayReportHoverCardChart }))
+)
 
 // The card lists a few more metrics by their saved value. A chart for each would run two live queries per metric on every hover.
 const LISTED_METRIC_COUNT = 2
@@ -136,21 +145,24 @@ export function TodayReportHoverCard({ preview }: { preview: TodayReportPreview 
                     <ItemSeparator className="my-0" />
                     <Item size="xs">
                         <ItemContent className="min-w-0 gap-1.5">
-                            {metric && aggregateQuery && seriesQuery && (
-                                <TodayReportHoverCardMetric
-                                    cardKey={card.key}
-                                    metric={metric}
-                                    aggregateQuery={aggregateQuery.source}
-                                    seriesQuery={seriesQuery.source}
-                                />
-                            )}
-                            {bodyChart?.query && (
-                                <TodayReportHoverCardChart
-                                    cardKey={card.key}
-                                    chart={bodyChart.chart}
-                                    query={bodyChart.query}
-                                />
-                            )}
+                            {/* The metric and report charts are `h-36`, so the card keeps its size while they load. */}
+                            <Suspense fallback={hasChart ? <Skeleton className="h-36 w-full" /> : null}>
+                                {metric && aggregateQuery && seriesQuery && (
+                                    <TodayReportHoverCardMetric
+                                        cardKey={card.key}
+                                        metric={metric}
+                                        aggregateQuery={aggregateQuery.source}
+                                        seriesQuery={seriesQuery.source}
+                                    />
+                                )}
+                                {bodyChart?.query && (
+                                    <TodayReportHoverCardChart
+                                        cardKey={card.key}
+                                        chart={bodyChart.chart}
+                                        query={bodyChart.query}
+                                    />
+                                )}
+                            </Suspense>
                             {listedMetrics.map(({ metric: listed, value }) => (
                                 <div
                                     key={listed.metric_id}
