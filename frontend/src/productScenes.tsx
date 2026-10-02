@@ -25,6 +25,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     AIObservabilityEvaluations: () => import('../../products/ai_observability/frontend/evaluations/EvaluationsScene'),
     AIObservabilityScorers: () =>
         import('../../products/ai_observability/frontend/scoreDefinitions/AIObservabilityScorersScene'),
+    AIObservabilityScorer: () =>
+        import('../../products/ai_observability/frontend/scoreDefinitions/AIObservabilityScorerScene'),
     AIObservabilityOfflineExperiments: () =>
         import('../../products/ai_observability/frontend/offline-evaluations/OfflineExperimentsScene'),
     AIObservabilityOfflineExperiment: () =>
@@ -56,6 +58,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/business_knowledge/frontend/scenes/settings/BusinessKnowledgeSettingsScene'),
     BusinessKnowledgeSource: () =>
         import('../../products/business_knowledge/frontend/scenes/source/KnowledgeSourceScene'),
+    CanvasNew: () => import('../../products/canvas/frontend/newCanvas/CanvasNewScene'),
+    CanvasDetail: () => import('../../products/canvas/frontend/scene/CanvasScene'),
     Transformations: () => import('../../frontend/src/scenes/data-pipelines/TransformationsScene'),
     EventFiltering: () => import('../../frontend/src/scenes/data-pipelines/event-filtering/EventFilterScene'),
     CohortsStaffTools: () => import('../../products/cohorts/frontend/staff/CohortsStaffToolsScene'),

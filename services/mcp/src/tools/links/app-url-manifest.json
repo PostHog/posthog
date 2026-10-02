@@ -144,6 +144,11 @@
         "params": [],
         "scope": "project"
     },
+    "aiObservabilityScorer": {
+        "template": "/ai-evals/evaluations/scorers/{scorerId}",
+        "params": ["scorerId"],
+        "scope": "project"
+    },
     "aiObservabilityScorers": {
         "template": "/ai-evals/evaluations/scorers",
         "params": [],
@@ -316,6 +321,16 @@
     },
     "canvas": {
         "template": "/canvas",
+        "params": [],
+        "scope": "project"
+    },
+    "canvasDetail": {
+        "template": "/canvases/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "canvasNew": {
+        "template": "/canvases/new",
         "params": [],
         "scope": "project"
     },
@@ -1674,6 +1689,11 @@
         "params": ["id"],
         "scope": "project"
     },
+    "taskSpaceCanvases": {
+        "template": "/spaces/{id}/canvases",
+        "params": ["id"],
+        "scope": "project"
+    },
     "taskSpaceSettings": {
         "template": "/spaces/{id}/settings",
         "params": ["id"],
@@ -1771,6 +1791,11 @@
     },
     "verifyEmail": {
         "template": "/verify_email",
+        "params": [],
+        "scope": "project"
+    },
+    "views": {
+        "template": "/views",
         "params": [],
         "scope": "project"
     },

@@ -129,6 +129,23 @@ class ActorType(StrEnum):
     AUTO = "auto"
 
 
+class QuarantineLiftState(LabeledStrEnum):
+    """Where a request to lift a quarantine once its pull request merges stands.
+
+    The OpenAPI component name (QuarantineLiftStateEnum) derives from this class, so the
+    `state` field does not collide with other products' enums. Each label repeats its value,
+    because the API documents these choices as plain values.
+    """
+
+    # Waits for the merge and for a default-branch run that renders the expected picture
+    PENDING = "pending", "pending"
+    APPLIED = "applied", "applied"
+    # Withdrawn by a reviewer, or the pull request closed without merging into the run's branch
+    CANCELLED = "cancelled", "cancelled"
+    # The quarantine ended some other way, or another request lifted it
+    SUPERSEDED = "superseded", "superseded"
+
+
 class ToleratedReason(StrEnum):
     """Why a hash was tolerated."""
 

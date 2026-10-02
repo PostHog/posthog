@@ -369,7 +369,10 @@ tools:
             verifiably never drafted. Null means "not observed" (the issue-events window is bounded), never zero. CI
             counts come from the latest run per workflow on the head SHA and can lag until the workflow_run webhook
             settles a late completion. Cost and billable minutes can lag new CI by up to 5 minutes. Bots and drafts are
-            present; exclude them (author.is_bot, is_draft) for throughput questions.
+            present; exclude them (author.is_bot, is_draft) for throughput questions. To list every PR merged in a
+            window, pass state=merged: open PRs then do not count against the page, and rows come newest merged_at first
+            with number as the tie-breaker. Pages hold up to 1000 rows; while truncated is true, call again with offset
+            increased by limit, and keep date_to fixed across pages so new merges do not move rows between pages.
         param_overrides:
             date_from:
                 description: >

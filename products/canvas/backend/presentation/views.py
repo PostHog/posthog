@@ -43,6 +43,7 @@ from products.canvas.backend.facade.api import (
     call_connector_tool,
     canvas_connectors_enabled,
     connector_listings,
+    create_canvas_sandbox_document_url,
     default_layout,
     native_connector_listings,
     seed_home_canvas,
@@ -811,6 +812,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
             "has_active_build": newest_active is not None,
             "source": source,
             "layout": layout,
+            "sandbox_document_url": create_canvas_sandbox_document_url(),
         }
         if layout is not None:
             instance["component_lifecycles"] = _component_lifecycles(self.team_id, self.get_queryset(), layout)
@@ -1158,7 +1160,8 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         responses={200: CanvasDraftSerializer(many=True)},
         request=None,
     )
-    @action(methods=["GET"], detail=True)
+    # The response is a bare list capped at VERSIONS_WINDOW, so the schema must not describe a page.
+    @action(methods=["GET"], detail=True, pagination_class=None)
     def drafts(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """The canvas's staged draft versions, newest first, each with its latest build status.
 

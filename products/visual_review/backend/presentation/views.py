@@ -38,6 +38,7 @@ from ..facade.contracts import (
     CreateRepoInput,
     CreateRunInput,
     FinalizeRunRequestInput,
+    LiftOnMergeInput,
     QuarantineInput,
     UpdateRepoInput,
     UpdateRepoRequestInput,
@@ -55,9 +56,11 @@ from .serializers import (
     FinalizeResultSerializer,
     FinalizeRunInputSerializer,
     FlakinessOverviewSerializer,
+    LiftOnMergeInputSerializer,
     MarkToleratedInputSerializer,
     QuarantinedIdentifierEntrySerializer,
     QuarantineInputSerializer,
+    QuarantineLiftEntrySerializer,
     RecomputeResultSerializer,
     RepoSerializer,
     ReviewStateCountsSerializer,
@@ -544,8 +547,18 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "recompute",
         "mark_tolerated",
         "finalize",
+        "lift_on_merge",
+        "cancel_quarantine_lift",
     ]
-    scope_object_read_actions = ["list", "retrieve", "snapshots", "counts", "snapshot_history", "tolerated_hashes"]
+    scope_object_read_actions = [
+        "list",
+        "retrieve",
+        "snapshots",
+        "counts",
+        "snapshot_history",
+        "tolerated_hashes",
+        "quarantine_lifts",
+    ]
     serializer_class = RunSerializer
 
     @extend_schema(
@@ -633,6 +646,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 include_quarantined=query["include_quarantined"],
                 exclude_unchanged=query["exclude_unchanged"],
                 snapshot_id=query.get("snapshot_id"),
+                quarantined_only=query["quarantined_only"],
                 limit=paginator.get_limit(request),
                 offset=paginator.get_offset(request),
             )
@@ -863,3 +877,74 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 {"detail": "Run must be completed and not yet approved"}, status=status.HTTP_400_BAD_REQUEST
             )
         return Response(RecomputeResultSerializer(instance=result).data)
+
+    @validated_request(
+        request_serializer=LiftOnMergeInputSerializer,
+        responses={201: OpenApiResponse(response=QuarantineLiftEntrySerializer)},
+        description=(
+            "Lift a quarantined snapshot's quarantine once this run's pull request merges. The lift applies "
+            "only after a default-branch run that contains the merge renders the expected picture, and the "
+            "baseline entry holds that same picture. Requesting a lift never approves a picture: approve a "
+            "changed or new snapshot by identifier first. Requesting again from the same pull request "
+            "replaces the pending request."
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="lift_on_merge")
+    def lift_on_merge(self, request: TypedRequest[LiftOnMergeInput], pk: str, **kwargs) -> Response:
+        try:
+            entry = api.request_quarantine_lift_on_merge(
+                run_id=_parse_uuid(pk),
+                input=request.validated_data,
+                user_id=cast(int, request.user.id),
+                team_id=self.team_id,
+                source=_actor(request),
+            )
+        except api.RunNotFoundError:
+            return Response({"detail": "Snapshot or run not found"}, status=status.HTTP_404_NOT_FOUND)
+        except api.StaleRunError as e:
+            return Response({"detail": str(e), "code": "stale_run"}, status=status.HTTP_409_CONFLICT)
+        except ValueError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(QuarantineLiftEntrySerializer(instance=entry).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        parameters=[OpenApiParameter("id", OpenApiTypes.UUID, OpenApiParameter.PATH)],
+        responses={200: QuarantineLiftEntrySerializer(many=True)},
+        description=(
+            "Every request to lift a quarantine when this run's pull request merges, newest first, in any "
+            "state. Empty for a run without a pull request."
+        ),
+    )
+    @action(detail=True, methods=["get"], url_path="quarantine_lifts", pagination_class=None)
+    def quarantine_lifts(self, request: Request, pk: str, **kwargs) -> Response:
+        try:
+            entries = api.list_quarantine_lifts_for_run(_parse_uuid(pk), team_id=self.team_id)
+        except api.RunNotFoundError:
+            return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
+        return Response(QuarantineLiftEntrySerializer(instance=entries, many=True).data)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("id", OpenApiTypes.UUID, OpenApiParameter.PATH),
+            OpenApiParameter(
+                "request_id",
+                OpenApiTypes.UUID,
+                OpenApiParameter.PATH,
+                description="UUID of a pending lift request for this run's pull request.",
+            ),
+        ],
+        request=None,
+        responses={204: None},
+        description="Withdraw a pending request to lift a quarantine when this run's pull request merges.",
+    )
+    @action(detail=True, methods=["post"], url_path=r"quarantine_lifts/(?P<request_id>[^/]+)/cancel")
+    def cancel_quarantine_lift(self, request: Request, pk: str, request_id: str, **kwargs) -> Response:
+        try:
+            api.cancel_quarantine_lift(
+                run_id=_parse_uuid(pk),
+                request_id=_parse_uuid(request_id, field="request_id"),
+                team_id=self.team_id,
+            )
+        except (api.RunNotFoundError, api.QuarantineLiftRequestNotFoundError):
+            return Response({"detail": "Pending lift request not found"}, status=status.HTTP_404_NOT_FOUND)
+        return Response(status=status.HTTP_204_NO_CONTENT)

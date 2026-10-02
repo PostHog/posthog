@@ -88,9 +88,10 @@ export async function reportRunOutcome(
     const changes = s.changed + s.new + s.removed
 
     // A failed run counts nothing as unresolved, so the counts below would pass it.
+    // --tolerate-drift exempts only observe runs (master pushes), never a gating review run.
     if (run.status === 'failed') {
         log(`[run:${runId}] Run failed: ${run.error_message ?? 'no error recorded'} — review at: ${reviewUrl}`)
-        return tolerateDrift ? 0 : 1
+        return tolerateDrift && purpose === 'observe' ? 0 : 1
     }
 
     if (purpose === 'observe') {

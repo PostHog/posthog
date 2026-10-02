@@ -111,7 +111,6 @@ export function FlatNavProducts(): JSX.Element {
                                             )
                                         }
                                         isCollapsed={false}
-                                        tag={item.tag}
                                         data-attr={`flat-nav-tool-${slugify(item.path)}`}
                                         onClick={() => reportNavItemClicked(item.path, 'tools')}
                                         sideAction={PRODUCT_MENUS[item.path]}

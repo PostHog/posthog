@@ -95,8 +95,9 @@ class Head:
 
 
 HEADS: tuple[Head, ...] = (
-    # Of the reports users saw, which got opened by anyone? Opens land within hours of impression.
-    Head(name="open", cohort=impressed, label=opened, horizon_days=3, min_holdout_positives=50),
+    # Which reports got opened by anyone? Cohort is every report: opens from a deeplink, the desktop
+    # app or any other surface count, and those often have no list impression.
+    Head(name="open", cohort=everyone, label=opened, horizon_days=3, min_holdout_positives=50),
     # Of the reports users saw, which drew a create-PR click or a discuss?
     Head(name="action", cohort=impressed, label=acted, horizon_days=7, min_holdout_positives=30),
     # Of the reports users saw, which were dismissed as wrong / unclear / intentional - the

@@ -173,9 +173,9 @@ XMP is an opt-out for that image when it has one of these values:
 
 **3.12** TDMRep does not specify a maximum size for tdmrep.json. The lane refuses a tdmrep.json file larger than 500KiB. It treats this result as unreachable.
 
-**3.13** The lane parses and applies tdmrep.json according to the [TDMRep Community Group Final Report](https://www.w3.org/community/reports/tdmrep/CG-FINAL-tdmrep-20240510/). A matching reservation of `1` refuses the URL.
+**3.13** The lane parses and applies tdmrep.json according to the [TDMRep Community Group Final Report](https://www.w3.org/community/reports/tdmrep/CG-FINAL-tdmrep-20240510/). The first rule whose `location` matches the URL path applies. A reservation of `1`, `"1"`, or `true` in that rule refuses the URL. [TDMRep section 5.1](https://www.w3.org/community/reports/tdmrep/CG-FINAL-tdmrep-20240510/#sec-tdm-reservation) reads `"1"` and `true` as protocol errors, which mean no reservation. The lane reads them as a reservation, because a site that writes them intends to reserve. Any other value is no reservation.
 
-**3.14** A 404 or a 410 while fetching robots.txt or tdmrep.json means the origin does not have that file
+**3.14** A 404 or a 410 while fetching robots.txt or tdmrep.json means the origin does not have that file. A 200 for tdmrep.json also means the origin does not have that file when the body cannot start a JSON array. This is the case when the first byte after an optional UTF-8 byte order mark and JSON whitespace is not `[`. Examples are an HTML page, an empty body, and a JSON object. [TDMRep section 6.1](https://www.w3.org/community/reports/tdmrep/CG-FINAL-tdmrep-20240510/#sec-tdm-file) says that a server that does not return a machine-readable representation does not implement the protocol. The lane makes this check before requirements 3.12 and 3.23, so an oversized or non-UTF-8 HTML page also means that the file is absent. If the 500KiB prefix contains only a byte order mark and whitespace, requirement 3.12 applies, because the `[` can come after the prefix. If the cache holds an available tdmrep.json for the origin, the lane keeps that file as requirement 3.19 describes, and does not record an absence. A server can return an HTML error page with a 200 for a short time, and this rule keeps a cached reservation during that time. A body that starts with `[` but is not a valid JSON array makes tdmrep.json unreachable, because it can be a damaged reservation.
 
 **3.15** No robots.txt or tdmrep.json means that no restrictions on fetching are applied by that file (there might be signals from other sources)
 
@@ -548,7 +548,7 @@ Recognised image resizes on `cdn.shopify.com` and single-label `*.myshopify.com`
 **14.3** The lane never sends a credential. That covers an `Authorization` header, a proxy credential,
 the userinfo of a URL, cookies, and known credential query parameters
 
-**14.4** The lane never sends a `Referer`
+**14.4** Every request sends `Referer: https://us.posthog.com/`, including requests for `robots.txt` and the other policy files. The lane never sends the URL of the page that showed the image
 
 **14.5** The lane refuses a response where `Content-Length` is over the byte limit
 
