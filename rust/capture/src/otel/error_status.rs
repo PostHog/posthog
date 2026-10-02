@@ -1,4 +1,5 @@
 use metrics::counter;
+use opentelemetry_proto::tonic::common::v1::{any_value, KeyValue};
 use opentelemetry_proto::tonic::trace::v1::{span, status::StatusCode, Span};
 use serde_json::{Map, Value};
 
@@ -161,30 +162,34 @@ fn latest_exception_event(span: &Span) -> Option<&span::Event> {
     })
 }
 
-fn error_message_from_attrs(attrs: &Map<String, Value>) -> Option<String> {
-    ERROR_MESSAGE_KEYS
+fn non_empty_string_attr<'a>(attrs: &'a [KeyValue], key: &str) -> Option<&'a str> {
+    attrs
         .iter()
-        .find_map(|(type_key, message_key)| {
-            let error_type = attrs
-                .get(*type_key)
-                .and_then(Value::as_str)
-                .filter(|value| !value.is_empty());
-            let message = attrs
-                .get(*message_key)
-                .and_then(Value::as_str)
-                .filter(|value| !value.is_empty());
-
-            match (error_type, message) {
-                (Some(error_type), Some(message)) => Some(format!("{error_type}: {message}")),
-                (None, Some(message)) => Some(message.to_string()),
-                (Some(error_type), None) => Some(error_type.to_string()),
-                (None, None) => None,
-            }
+        .rev()
+        .filter(|kv| kv.key == key)
+        .find_map(|kv| match kv.value.as_ref()?.value.as_ref()? {
+            any_value::Value::StringValue(value) if !value.is_empty() => Some(value.as_str()),
+            _ => None,
         })
 }
 
-fn error_message_from_exception(event: &span::Event) -> Option<String> {
-    error_message_from_attrs(&attributes_to_map(&event.attributes))
+fn error_message_from_attrs(attrs: &[KeyValue]) -> Option<String> {
+    ERROR_MESSAGE_KEYS
+        .iter()
+        .find_map(|(type_key, message_key)| {
+            let message = non_empty_string_attr(attrs, message_key)?;
+            Some(match non_empty_string_attr(attrs, type_key) {
+                Some(error_type) => format!("{error_type}: {message}"),
+                None => message.to_string(),
+            })
+        })
+}
+
+fn error_type_from_attrs(attrs: &[KeyValue]) -> Option<String> {
+    ERROR_MESSAGE_KEYS
+        .iter()
+        .find_map(|(type_key, _)| non_empty_string_attr(attrs, type_key))
+        .map(str::to_string)
 }
 
 pub fn apply_error_status_properties(span: &Span, properties: &mut Map<String, Value>) {
@@ -200,9 +205,15 @@ pub fn apply_error_status_properties(span: &Span, properties: &mut Map<String, V
 
     if !properties.contains_key("$ai_error") {
         let error = latest_exception_event(span)
-            .and_then(error_message_from_exception)
-            .or_else(|| error_message_from_attrs(&attributes_to_map(&span.attributes)))
+            .map(|event| event.attributes.as_slice())
+            .and_then(|attrs| {
+                error_message_from_attrs(attrs).or_else(|| error_type_from_attrs(attrs))
+            })
+            .or_else(|| error_message_from_attrs(&span.attributes))
             .or_else(|| (!status.message.is_empty()).then(|| status.message.clone()))
+            // A span attribute that holds only the error type is a class name such as
+            // `RateLimitError`. The status message describes the failure, so it goes first.
+            .or_else(|| error_type_from_attrs(&span.attributes))
             .unwrap_or_else(|| {
                 counter!("capture_ai_otel_error_message_missing").increment(1);
                 MISSING_ERROR_MESSAGE.to_string()
@@ -230,7 +241,7 @@ pub fn apply_error_status_properties(span: &Span, properties: &mut Map<String, V
 #[cfg(test)]
 mod tests {
     use super::*;
-    use opentelemetry_proto::tonic::common::v1::{any_value, AnyValue, KeyValue};
+    use opentelemetry_proto::tonic::common::v1::AnyValue;
     use opentelemetry_proto::tonic::trace::v1::Status;
 
     fn make_kv(key: &str, value: any_value::Value) -> KeyValue {
@@ -304,7 +315,7 @@ mod tests {
 
     #[test]
     fn test_error_status_reads_error_details_from_span_attributes() {
-        let cases: Vec<(Vec<KeyValue>, &str, &str)> = vec![
+        let cases: [(Vec<KeyValue>, &str, &str); 6] = [
             (
                 vec![
                     make_kv(
@@ -334,6 +345,22 @@ mod tests {
                 )],
                 "Error",
                 "context window exceeded",
+            ),
+            (
+                vec![make_kv(
+                    "error.type",
+                    any_value::Value::StringValue("RateLimitError".to_string()),
+                )],
+                "Error code: 429 - rate limit reached",
+                "Error code: 429 - rate limit reached",
+            ),
+            (
+                vec![make_kv(
+                    "error.type",
+                    any_value::Value::StringValue("RateLimitError".to_string()),
+                )],
+                "",
+                "RateLimitError",
             ),
             (vec![], "", MISSING_ERROR_MESSAGE),
         ];
