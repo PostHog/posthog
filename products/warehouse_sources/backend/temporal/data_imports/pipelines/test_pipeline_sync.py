@@ -853,7 +853,6 @@ class TestSetInitialSyncComplete(BaseTest):
             sync_type="cdc",
             config={"cdc_mode": "snapshot", "cdc_snapshot_lane": "buffer"},
             initial_sync_complete=False,
-            job_inputs={"cdc_ingest_mode": "buffered"},
         )
 
         with patch(
@@ -883,7 +882,6 @@ class TestSnapshotHandoverHoldsTheRowLock(NonAtomicBaseTest):
             connection_id=str(uuid.uuid4()),
             status="Completed",
             source_type="Postgres",
-            job_inputs={"cdc_ingest_mode": "buffered"},
         )
         schema = ExternalDataSchema.objects.create(
             team_id=self.team.pk,

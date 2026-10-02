@@ -6,6 +6,7 @@ import { dayjs } from 'lib/dayjs'
 import type { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 
 import type { ReportTaskPurpose } from './components/detail/artefactTypes'
+import type { ReportDiscussionIntent } from './inboxTaskKickoffLogic'
 import {
     InboxReportSectionKey,
     SignalReport,
@@ -145,8 +146,13 @@ export type InboxQuestionSource = 'suggested' | 'edited_suggestion' | 'typed'
 export function discussQuestionProperties(params: {
     source: InboxQuestionSource
     suggestionCount: number
+    intent?: ReportDiscussionIntent
 }): Record<string, unknown> {
-    return { question_source: params.source, suggestion_count: params.suggestionCount }
+    return {
+        question_source: params.source,
+        suggestion_count: params.suggestionCount,
+        ...(params.intent ? { question_intent: params.intent } : {}),
+    }
 }
 
 /**

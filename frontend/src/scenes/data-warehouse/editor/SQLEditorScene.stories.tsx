@@ -1,5 +1,6 @@
 import { Decorator, Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
+import { delay } from 'msw'
 import { useEffect, useRef } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -182,6 +183,27 @@ export default meta
 
 type Story = StoryObj<{}>
 export const TopToolsPerServer: Story = {}
+
+export const LoadingInsight: Story = {
+    parameters: {
+        pageUrl: `${urls.sqlEditor()}?open_insight=loading1`,
+        testOptions: {
+            waitForLoadersToDisappear: false,
+            waitForSelector: '[data-attr="hogql-query-editor"] ~ [role="status"]',
+        },
+        msw: {
+            mocks: {
+                get: {
+                    '/api/environments/:team_id/insights/': async () => {
+                        await delay('infinite')
+                        return [200, { results: [] }]
+                    },
+                    '/api/projects/:team_id/warehouse_expressions/': { results: [] },
+                },
+            },
+        },
+    },
+}
 
 // Selecting the managed warehouse puts its long name in the sidebar's connection selector, where it
 // has to ellipsize on one line rather than wrap or overflow into the Run button's toolbar.
