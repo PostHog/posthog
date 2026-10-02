@@ -106,6 +106,11 @@ POSTHOG_AI_OAUTH_APP_CLIENT_IDS = frozenset(
     }
 )
 
+# The WebMCP proxy mints its tokens server-side against this CIMD application, so a request
+# bearing one is attributable to WebMCP for the same reason as above. The CIMD document lives in
+# the posthog.com repo, so one client_id serves every region.
+WEBMCP_APP_CLIENT_ID = "https://posthog.com/.well-known/oauth/webmcp/client-metadata.json"
+
 McpScopePreset = Literal[
     "read_only",
     "full",
