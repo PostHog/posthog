@@ -1518,11 +1518,13 @@ export const productUrls = {
         sourceId,
         template,
         intent,
+        format,
     }: {
         type?: 'boolean' | 'multivariate' | 'remote_config'
         sourceId?: number | string | null
         template?: 'simple' | 'targeted' | 'multivariate' | 'targeted-multivariate'
         intent?: 'local-eval' | 'first-page-load'
+        format?: 'rules_v2'
     }): string => {
         const params = new URLSearchParams()
         if (type) {
@@ -1536,6 +1538,9 @@ export const productUrls = {
         }
         if (intent) {
             params.set('intent', intent)
+        }
+        if (format) {
+            params.set('format', format)
         }
         return `/feature_flags/new?${params.toString()}`
     },
