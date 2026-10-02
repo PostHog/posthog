@@ -187,9 +187,11 @@ export interface errorTrackingIssueSceneLogicActions {
     loadLinkedReports: () => any // linkedReportsLogic
     createExternalReference: (
         integrationId: IntegrationType['id'],
-        config: Record<string, string>
+        config: Record<string, string>,
+        includeStacktrace: boolean
     ) => {
         config: Record<string, string>
+        includeStacktrace: boolean
         integrationId: number
     }
     createExternalReferenceFailure: (
@@ -213,6 +215,7 @@ export interface errorTrackingIssueSceneLogicActions {
         } | null,
         payload?: {
             config: Record<string, string>
+            includeStacktrace: boolean
             integrationId: number
         }
     ) => {
@@ -229,6 +232,7 @@ export interface errorTrackingIssueSceneLogicActions {
         } | null
         payload?: {
             config: Record<string, string>
+            includeStacktrace: boolean
             integrationId: number
         }
     }
@@ -698,9 +702,14 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         selectEvent: (event: ErrorEventType | null) => ({
             event,
         }),
-        createExternalReference: (integrationId: IntegrationType['id'], config: Record<string, string>) => ({
+        createExternalReference: (
+            integrationId: IntegrationType['id'],
+            config: Record<string, string>,
+            includeStacktrace: boolean
+        ) => ({
             integrationId,
             config,
+            includeStacktrace,
         }),
         linkExternalReference: (
             integrationId: IntegrationType['id'],
@@ -768,12 +777,13 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         issue: {
             setIssue: ({ issue }) => issue,
             loadIssue: async () => await api.errorTracking.getIssue(props.id, props.fingerprint),
-            createExternalReference: async ({ integrationId, config }) => {
+            createExternalReference: async ({ integrationId, config, includeStacktrace }) => {
                 if (values.issue) {
                     const response = await api.errorTracking.createExternalReference(props.id, integrationId, config)
                     posthog.capture('error_tracking_issue_pushed', {
                         issue_id: props.id,
                         destination: response.integration.kind,
+                        stacktrace_included: includeStacktrace,
                     })
                     const externalIssues = values.issue.external_issues ?? []
                     return { ...values.issue, external_issues: [...externalIssues, response] }
