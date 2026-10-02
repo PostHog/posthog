@@ -9,6 +9,7 @@ from what the case seeded, the same way it follows from a real DNS zone.
 
 from __future__ import annotations
 
+import uuid
 import hashlib
 import threading
 from collections.abc import Iterable, Iterator
@@ -36,6 +37,7 @@ from products.workflows.backend.providers.ses import SESProvider
 __all__ = [
     "DOMAIN_CONNECT_ROOT_DOMAIN",
     "DOMAIN_CONNECT_SYNC_UX",
+    "MX_PRIORITY",
     "SES_SPF_VALUE",
     "SIMULATED_EMAIL_DOMAINS",
     "DnsRecord",
@@ -124,9 +126,8 @@ class SimulatedEmailDomains:
     """The DNS zones and SES tenant ownership every simulated call reads.
 
     Seeders write it and the live server's request threads read it, so access is locked.
-    Zones are keyed by record name, which is safe across `--trials` because a case seeds
-    the same records on every trial. Tenant ownership is keyed by team for that reason:
-    a trial must not see the sender another trial of the same case created.
+    Tenant ownership is keyed by team, so a case only owns the identities its own team
+    created, the way SES tenants scope them.
     """
 
     def __init__(self) -> None:
@@ -134,6 +135,7 @@ class SimulatedEmailDomains:
         self._records: dict[tuple[str, str], set[str]] = {}
         self._other_organization_domains: set[str] = set()
         self._team_domains: set[tuple[int, str]] = set()
+        self._mail_from_domains: dict[str, str] = {}
 
     def covers(self, name: str) -> bool:
         normalized = _normalize(name)
@@ -168,6 +170,14 @@ class SimulatedEmailDomains:
                 tenants.add(_tenant_name(team_id))
             return tenants
 
+    def set_mail_from_domain(self, domain: str, mail_from_domain: str) -> None:
+        with self._lock:
+            self._mail_from_domains[_normalize(domain)] = mail_from_domain
+
+    def mail_from_domain(self, domain: str) -> str | None:
+        with self._lock:
+            return self._mail_from_domains.get(_normalize(domain))
+
     def is_published(self, record: DnsRecord) -> bool:
         return record.value in self.answers(record.name, record.record_type)
 
@@ -183,7 +193,6 @@ def _domain_from_identity_arn(arn: str) -> str | None:
 class _SimulatedSes:
     def __init__(self, domains: SimulatedEmailDomains) -> None:
         self._domains = domains
-        self._mail_from_domains: dict[str, str] = {}
 
     def verify_domain_identity(self, *, Domain: str) -> dict[str, Any]:
         return {"VerificationToken": verification_token(Domain)}
@@ -192,7 +201,7 @@ class _SimulatedSes:
         return {"DkimTokens": dkim_tokens(Domain)}
 
     def set_identity_mail_from_domain(self, *, Identity: str, MailFromDomain: str, **_: Any) -> dict[str, Any]:
-        self._mail_from_domains[Identity] = MailFromDomain
+        self._domains.set_mail_from_domain(Identity, MailFromDomain)
         return {}
 
     def delete_identity(self, *, Identity: str) -> dict[str, Any]:
@@ -217,7 +226,7 @@ class _SimulatedSes:
             "MailFromDomainAttributes": {
                 domain: {"MailFromDomainStatus": self._status([_mail_from_mx_record(mail_from_domain)])}
                 for domain in Identities
-                if (mail_from_domain := self._mail_from_domains.get(domain))
+                if (mail_from_domain := self._domains.mail_from_domain(domain))
             }
         }
 
@@ -331,9 +340,11 @@ def simulated_email_domains(domains: SimulatedEmailDomains = SIMULATED_EMAIL_DOM
         stack.enter_context(
             patch.object(domain_connect, "get_signing_key", lambda: original_signing_key() or eval_signing_key)
         )
-        # Discovery caches each domain for an hour in the shared cache, so a lookup from an
-        # earlier run outside this simulation would otherwise answer for these domains.
-        stack.enter_context(patch.object(domain_connect, "cache", LocMemCache("email-domain-evals", {})))
+        # Discovery caches each domain for an hour, and LocMemCache instances with the same
+        # name share one store, so each simulation gets a store no earlier lookup has filled.
+        stack.enter_context(
+            patch.object(domain_connect, "cache", LocMemCache(f"email-domain-evals-{uuid.uuid4()}", {}))
+        )
         yield
 
 

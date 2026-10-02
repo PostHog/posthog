@@ -14,6 +14,7 @@ EXPECTED = {"merged_spf_record": {"includes": ["include:_spf.google.com", "inclu
         ("| TXT | @ | `v=spf1 include:_spf.google.com include:amazonses.com ~all` |", 1.0),
         ("Keep `v=spf1 include:_spf.google.com ~all` and add `v=spf1 include:amazonses.com ~all`", 0.0),
         ("Add `v=spf1 include:amazonses.com ~all` at the root.", 0.0),
+        ("Use `v=spf1 include:_spf.google.com ~all include:amazonses.com`", 0.0),
     ],
 )
 def test_merged_spf_record_needs_one_record_with_every_include(message: str, score: float) -> None:

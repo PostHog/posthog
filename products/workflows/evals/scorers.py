@@ -11,6 +11,7 @@ and returns ``score=None`` when its key is absent, so one scorer list spans the 
 from __future__ import annotations
 
 import re
+import html
 import asyncio
 from typing import Any
 
@@ -32,8 +33,8 @@ __all__ = [
     "BoundedVerifyPolling",
     "FinalMessageJudge",
     "FinalMessageMentions",
-    "FinalMessageOmits",
     "MergedSpfRecord",
+    "RecordsHandoffJudge",
     "SendersInProject",
     "SharedApplyUrl",
     "VERIFY_TOOL",
@@ -43,7 +44,9 @@ __all__ = [
 APPLY_URL_TOOL = "integrations-domain-connect-apply-url-create"
 VERIFY_TOOL = "integrations-email-verify-create"
 APPLY_URL_PATH = f"{DOMAIN_CONNECT_SYNC_UX}/v2/domainTemplates/providers/posthog.com/"
+APPLY_URL = re.compile(re.escape(APPLY_URL_PATH) + r"[^\s\"'\\)>\]]+")
 SPF_RECORD = re.compile(r"v=spf1[^\n`\"'|]*", re.IGNORECASE)
+SPF_ALL_MECHANISM = re.compile(r"^[~?+-]?all$", re.IGNORECASE)
 
 
 def _spec(expected: dict | None, scorer_name: str) -> dict | None:
@@ -81,8 +84,8 @@ class SendersInProject(AsyncOnlyScorerMixin, Scorer):
     """Binary: does the project hold exactly the expected senders, configured as expected?
 
     Reads the database, so a sender created through any path counts, and so does a wrong
-    address or a duplicate the agent left behind. Per sender, ``mail_from_subdomain``
-    pins the label and ``mail_from_subdomain_not`` rules one out.
+    address or a duplicate the agent left behind. Per sender, each rule pins a config value,
+    such as ``verified`` or ``mail_from_subdomain``, and a ``<key>_not`` rule rules one out.
     """
 
     def _name(self) -> str:
@@ -97,7 +100,7 @@ class SendersInProject(AsyncOnlyScorerMixin, Scorer):
             return Score(name=self._name(), score=0.0, metadata={"reason": "No team id in the seed"})
 
         senders = await asyncio.to_thread(read_senders, team_id)
-        wanted: dict[str, dict[str, str]] = spec.get("senders", {})
+        wanted: dict[str, dict[str, Any]] = spec.get("senders", {})
         problems = [
             *(f"missing {address}" for address in wanted.keys() - senders.keys()),
             *(f"unexpected {address}" for address in senders.keys() - wanted.keys()),
@@ -105,20 +108,21 @@ class SendersInProject(AsyncOnlyScorerMixin, Scorer):
                 problem
                 for address, rules in wanted.items()
                 if address in senders
-                for problem in self._label_problems(address, senders[address], rules)
+                for problem in self._config_problems(address, senders[address], rules)
             ),
         ]
         if problems:
             return Score(name=self._name(), score=0.0, metadata={"problems": problems})
         return Score(name=self._name(), score=1.0, metadata={"senders": sorted(senders)})
 
-    def _label_problems(self, address: str, config: dict[str, Any], rules: dict[str, str]) -> list[str]:
-        label = config.get("mail_from_subdomain")
+    def _config_problems(self, address: str, config: dict[str, Any], rules: dict[str, Any]) -> list[str]:
         problems = []
-        if "mail_from_subdomain" in rules and label != rules["mail_from_subdomain"]:
-            problems.append(f"{address} uses MAIL FROM label {label!r}, expected {rules['mail_from_subdomain']!r}")
-        if "mail_from_subdomain_not" in rules and label == rules["mail_from_subdomain_not"]:
-            problems.append(f"{address} kept the MAIL FROM label {label!r}")
+        for rule, value in rules.items():
+            key = rule.removesuffix("_not")
+            if rule != key and config.get(key) == value:
+                problems.append(f"{address} has {key}={value!r}, which this case rules out")
+            elif rule == key and config.get(key) != value:
+                problems.append(f"{address} has {key}={config.get(key)!r}, expected {value!r}")
         return problems
 
 
@@ -158,26 +162,12 @@ class FinalMessageMentions(Scorer):
         return Score(name=self._name(), score=0.0 if missing else 1.0, metadata={"missing": missing})
 
 
-class FinalMessageOmits(Scorer):
-    """Binary: does the final message leave out every value in ``expected.values``?"""
-
-    def _name(self) -> str:
-        return "final_message_omits"
-
-    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs: Any) -> Score:
-        spec = _spec(expected, self._name())
-        if spec is None:
-            return _skip(self._name(), "Not applicable to this case")
-        message = _final_message(output).lower()
-        present = [value for value in spec.get("values", []) if value.lower() in message]
-        return Score(name=self._name(), score=0.0 if present else 1.0, metadata={"present": present})
-
-
 class MergedSpfRecord(Scorer):
     """Binary: does one SPF record in the final message carry every include in ``expected.includes``?
 
     A domain can publish only one SPF record, so handing over a second one breaks the mail
-    the existing include authorizes.
+    the existing include authorizes. Receivers stop reading at the ``all`` mechanism, so an
+    include after it authorizes nothing. Which host the record goes on is the judge's call.
     """
 
     def _name(self) -> str:
@@ -187,17 +177,25 @@ class MergedSpfRecord(Scorer):
         spec = _spec(expected, self._name())
         if spec is None:
             return _skip(self._name(), "Not applicable to this case")
-        includes = [include.lower() for include in spec.get("includes", [])]
+        includes = {include.lower() for include in spec.get("includes", [])}
         records = SPF_RECORD.findall(_final_message(output))
-        merged = [record for record in records if all(include in record.lower() for include in includes)]
+        merged = [record for record in records if includes <= self._effective_mechanisms(record)]
         return Score(name=self._name(), score=1.0 if merged else 0.0, metadata={"spf_records": records})
+
+    def _effective_mechanisms(self, record: str) -> set[str]:
+        mechanisms: set[str] = set()
+        for term in record.lower().split()[1:]:
+            if SPF_ALL_MECHANISM.match(term):
+                break
+            mechanisms.add(term)
+        return mechanisms
 
 
 class SharedApplyUrl(Scorer):
-    """Binary: did the agent get a Domain Connect URL and put it in the final message?
+    """Binary: does the final message carry the complete URL a successful apply-url call returned?
 
     Only the person can approve the change at their DNS host, so a URL that stays in a
-    tool result helps nobody.
+    tool result helps nobody, and a shortened one fails its signature check.
     """
 
     def _name(self) -> str:
@@ -209,9 +207,11 @@ class SharedApplyUrl(Scorer):
         parser = _parser(output)
         if parser is None:
             return _skip(self._name(), "No raw log")
-        if not _successful(parser, APPLY_URL_TOOL):
-            return Score(name=self._name(), score=0.0, metadata={"reason": f"No successful {APPLY_URL_TOOL} call"})
-        shared = APPLY_URL_PATH in _final_message(output)
+        returned = {url for call in _successful(parser, APPLY_URL_TOOL) for url in APPLY_URL.findall(call.output)}
+        if not returned:
+            return Score(name=self._name(), score=0.0, metadata={"reason": f"No URL from a {APPLY_URL_TOOL} call"})
+        message = html.unescape(_final_message(output))
+        shared = any(url in message for url in returned)
         return Score(name=self._name(), score=1.0 if shared else 0.0, metadata={"url_in_message": shared})
 
 
@@ -242,12 +242,15 @@ class FinalMessageJudge(JudgedScorer):
     def __init__(self, *, name: str, question: str, **kwargs: Any) -> None:
         super().__init__(
             name=name,
-            prompt_template=f"{question}\n\n<message>{{{{output.last_message}}}}</message>\n\nAnswer `yes` or `no`.",
+            prompt_template=self._prompt_template(question),
             choice_scores=BINARY_CHOICE_SCORES,
             model=JUDGE_MODEL,
             max_completion_tokens=256,
             **kwargs,
         )
+
+    def _prompt_template(self, question: str) -> str:
+        return f"{question}\n\n<message>{{{{output.last_message}}}}</message>\n\nAnswer `yes` or `no`."
 
     def _prepare(self, output: dict | None, expected: dict | None) -> dict[str, Any] | Score:
         if _spec(expected, self._name()) is None:
@@ -255,3 +258,23 @@ class FinalMessageJudge(JudgedScorer):
         if not _final_message(output):
             return Score(name=self._name(), score=0.0, metadata={"reason": "No final message"})
         return {"output": {"last_message": _final_message(output)}}
+
+
+class RecordsHandoffJudge(FinalMessageJudge):
+    """Judge whether the final message hands over ``expected.records`` the way ``question`` asks.
+
+    The reference list lets the judge check every record, while the exact long values stay
+    with ``FinalMessageMentions``, which cannot miss a changed character.
+    """
+
+    def _prompt_template(self, question: str) -> str:
+        return (
+            f"{question}\n\n<records>{{{{expected.records}}}}</records>\n\n"
+            "<message>{{output.last_message}}</message>\n\nAnswer `yes` or `no`."
+        )
+
+    def _prepare(self, output: dict | None, expected: dict | None) -> dict[str, Any] | Score:
+        prepared = super()._prepare(output, expected)
+        if isinstance(prepared, Score):
+            return prepared
+        return {**prepared, "expected": {"records": (_spec(expected, self._name()) or {})["records"]}}

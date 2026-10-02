@@ -4,6 +4,10 @@ Each case sends from its own subdomain of a reserved example domain, so the reco
 case publishes never answer for another. The addresses are module constants because the
 prompt, the seeder and the scorers all have to mean the same sender.
 
+PostHog refuses a sending domain that another organization already uses, and every case
+runs in a new organization in a database that outlives the run. So each address carries
+a label that is new for every run, and a domain from an earlier run never blocks this one.
+
 Seeders that change a policy verify it took effect before returning. A policy that did
 not apply would turn its case into a hollow pass, while raising marks the case an infra
 error, which the harness keeps out of score averages.
@@ -11,6 +15,7 @@ error, which the harness keeps out of score averages.
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Callable
 from typing import Any
 
@@ -53,20 +58,22 @@ __all__ = [
     "seed_verified_sender",
 ]
 
-DOMAIN_CONNECT_SENDER = "hello@mail.connect.example.net"
-MANUAL_SENDER = "hello@mail.manual.example.com"
-VERIFIED_SENDER = "hello@mail.ready.example.com"
-SHARED_DOMAIN_SENDER = "ops@mail.shared.example.com"
+RUN_LABEL = uuid.uuid4().hex[:8]
+
+DOMAIN_CONNECT_SENDER = f"hello@mail.connect-{RUN_LABEL}.example.net"
+MANUAL_SENDER = f"hello@mail.manual-{RUN_LABEL}.example.com"
+VERIFIED_SENDER = f"hello@mail.ready-{RUN_LABEL}.example.com"
+SHARED_DOMAIN_SENDER = f"ops@mail.shared-{RUN_LABEL}.example.com"
 SHARED_DOMAIN_MAIL_FROM_SUBDOMAIN = "bounce"
-SECOND_SENDER = "newsletter@mail.shared.example.com"
+SECOND_SENDER = f"newsletter@mail.shared-{RUN_LABEL}.example.com"
 FREE_MAILBOX_SENDER = "hedgebox.team@gmail.com"
-CLAIMED_DOMAIN_SENDER = "hello@mail.claimed.example.org"
-EXISTING_DMARC_SENDER = "hello@mail.dmarc.example.org"
+CLAIMED_DOMAIN_SENDER = f"hello@mail.claimed-{RUN_LABEL}.example.org"
+EXISTING_DMARC_SENDER = f"hello@mail.dmarc-{RUN_LABEL}.example.org"
 EXISTING_DMARC_VALUE = "v=DMARC1; p=quarantine; rua=mailto:dmarc@example.org"
-EXISTING_SPF_SENDER = "hello@mail.spf.example.org"
+EXISTING_SPF_SENDER = f"hello@mail.spf-{RUN_LABEL}.example.org"
 EXISTING_SPF_INCLUDE = "include:_spf.google.com"
-MEMBER_SENDER = "hello@mail.member.example.com"
-MAIL_FROM_TAKEN_SENDER = "hello@mail.helpdesk.example.com"
+MEMBER_SENDER = f"hello@mail.member-{RUN_LABEL}.example.com"
+MAIL_FROM_TAKEN_SENDER = f"hello@mail.helpdesk-{RUN_LABEL}.example.com"
 
 
 def domain_of(address: str) -> str:

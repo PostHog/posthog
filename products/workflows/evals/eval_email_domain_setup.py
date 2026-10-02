@@ -14,13 +14,15 @@ existing setup intact and the errors an agent has to relay instead of working ar
 * ``free_mailbox_domain``, ``domain_claimed_by_another_org`` and ``member_cannot_verify``
   must end with the person knowing what to do next.
 
+Each case runs once per run. PostHog refuses a sending domain that another organization
+uses, and every trial runs in its own organization, so a second trial of a case could
+not create its sender.
+
 To run:
     flox activate -- bash -c "hogli evals eval_email_domain_setup"
 """
 
 from __future__ import annotations
-
-from django.conf import settings
 
 from products.posthog_ai.eval_harness.base import SandboxedPrivateEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
@@ -30,8 +32,8 @@ from products.workflows.evals.scorers import (
     BoundedVerifyPolling,
     FinalMessageJudge,
     FinalMessageMentions,
-    FinalMessageOmits,
     MergedSpfRecord,
+    RecordsHandoffJudge,
     SendersInProject,
     SharedApplyUrl,
 )
@@ -39,6 +41,7 @@ from products.workflows.evals.seeders import (
     CLAIMED_DOMAIN_SENDER,
     DOMAIN_CONNECT_SENDER,
     EXISTING_DMARC_SENDER,
+    EXISTING_DMARC_VALUE,
     EXISTING_SPF_INCLUDE,
     EXISTING_SPF_SENDER,
     FREE_MAILBOX_SENDER,
@@ -58,7 +61,16 @@ from products.workflows.evals.seeders import (
     seed_shared_domain_sender,
     seed_verified_sender,
 )
-from products.workflows.evals.simulated_email_domains import dkim_tokens, simulated_email_domains, verification_token
+from products.workflows.evals.simulated_email_domains import (
+    MX_PRIORITY,
+    SES_SPF_VALUE,
+    DnsRecord,
+    dkim_tokens,
+    mail_from_mx_host,
+    ses_records,
+    simulated_email_domains,
+    verification_token,
+)
 
 GENERIC_CREATE_TOOL = "integrations-create"
 EMAIL_CREATE_TOOL = "integrations-email-create"
@@ -94,6 +106,24 @@ CLAIMED_DOMAIN_EXPLAINED = (
     "use elsewhere, and point them to support or to a different domain? A message that says the sender "
     "was set up is a no, and so is one that only reports an unexplained error."
 )
+HANDED_OVER_RECORDS = (
+    "A user asked an assistant for the DNS records to add so a domain can send email. Does the "
+    "message below give the user every record listed in <records>, each with its type, its host name "
+    "(fully qualified, relative to the user's DNS zone, or `@` for the domain itself), its exact value, "
+    "and the priority of the MX record? Layout and wording do not matter. A missing record, a wrong "
+    "type, a host name that points somewhere else, or a changed or shortened value is a no."
+)
+HANDED_OVER_RECORDS_KEEPING_DMARC = (
+    f"{HANDED_OVER_RECORDS} The domain already publishes a DMARC record, `{EXISTING_DMARC_VALUE}`, "
+    "which must stay as it is, so it is not in the list. A message that tells the user to add a second "
+    "`_dmarc` record, or to replace the existing policy, is a no. Saying the existing record stays is fine."
+)
+HANDED_OVER_RECORDS_MERGING_SPF = (
+    f"{HANDED_OVER_RECORDS} The sending domain already has the SPF record `v=spf1 {EXISTING_SPF_INCLUDE} ~all`, "
+    "and a host can publish only one SPF record. The list shows the single merged record that must "
+    "replace it at the sending domain. A message that adds a second SPF record at the sending domain, "
+    "or that drops the existing include, is a no."
+)
 ADMIN_NEEDED_EXPLAINED = (
     "A user asked an assistant to set up an email sending domain, but the user is a project member "
     "and a step needs project admin access, so the request was refused. Does the message below tell "
@@ -102,12 +132,29 @@ ADMIN_NEEDED_EXPLAINED = (
 )
 
 
-def _manual_record_values(domain: str) -> list[str]:
+def _exact_values(domain: str) -> list[str]:
+    return [verification_token(domain), *dkim_tokens(domain), mail_from_mx_host()]
+
+
+def _records_reference(records: list[DnsRecord]) -> str:
+    return "\n".join(
+        f"{record.record_type} {record.name} {record.value}"
+        + (f" (priority {MX_PRIORITY})" if record.record_type == "MX" else "")
+        for record in records
+    )
+
+
+def _without_dmarc(domain: str) -> list[DnsRecord]:
+    return [record for record in ses_records(domain) if not record.name.startswith("_dmarc.")]
+
+
+def _with_merged_root_spf(domain: str) -> list[DnsRecord]:
+    merged = SES_SPF_VALUE.replace("v=spf1", f"v=spf1 {EXISTING_SPF_INCLUDE}")
     return [
-        verification_token(domain),
-        *dkim_tokens(domain),
-        f"feedback-smtp.{settings.SES_REGION}.amazonses.com",
-        "include:amazonses.com",
+        DnsRecord(name=record.name, record_type="TXT", value=merged)
+        if record.name == domain and record.value == SES_SPF_VALUE
+        else record
+        for record in ses_records(domain)
     ]
 
 
@@ -118,7 +165,7 @@ def _cases() -> list[SandboxedEvalCase]:
             prompt=f"Set up {DOMAIN_CONNECT_SENDER} as our Workflows email sender, with Hedgebox as the display name.",
             setup=seed_domain_connect_support,
             expected={
-                "senders_in_project": {"senders": {DOMAIN_CONNECT_SENDER: {}}},
+                "senders_in_project": {"senders": {DOMAIN_CONNECT_SENDER: {"name": "Hedgebox"}}},
                 "shared_apply_url": {},
                 "avoided_tool": NO_GENERIC_CREATE,
                 "bounded_verify_polling": {"max_calls": 3},
@@ -133,8 +180,9 @@ def _cases() -> list[SandboxedEvalCase]:
             ),
             setup=seed_new_sender(MANUAL_SENDER),
             expected={
-                "senders_in_project": {"senders": {MANUAL_SENDER: {}}},
-                "final_message_mentions": {"values": _manual_record_values(domain_of(MANUAL_SENDER))},
+                "senders_in_project": {"senders": {MANUAL_SENDER: {"name": "Hedgebox"}}},
+                "final_message_mentions": {"values": _exact_values(domain_of(MANUAL_SENDER))},
+                "handed_over_records": {"records": _records_reference(ses_records(domain_of(MANUAL_SENDER)))},
                 "avoided_tool": NO_GENERIC_CREATE,
                 "bounded_verify_polling": {"max_calls": 3},
                 "waits_for_manual_records": {},
@@ -145,7 +193,7 @@ def _cases() -> list[SandboxedEvalCase]:
             prompt=f"Can you set up {VERIFIED_SENDER} so our workflows can send email from it?",
             setup=seed_verified_sender,
             expected={
-                "senders_in_project": {"senders": {VERIFIED_SENDER: {}}},
+                "senders_in_project": {"senders": {VERIFIED_SENDER: {"verified": True}}},
                 "avoided_tool": {"tools": [GENERIC_CREATE_TOOL, EMAIL_CREATE_TOOL]},
                 "bounded_verify_polling": {"max_calls": 3},
                 "ready_without_dns_work": {},
@@ -158,8 +206,15 @@ def _cases() -> list[SandboxedEvalCase]:
             expected={
                 "senders_in_project": {
                     "senders": {
-                        SHARED_DOMAIN_SENDER: {"mail_from_subdomain": SHARED_DOMAIN_MAIL_FROM_SUBDOMAIN},
-                        SECOND_SENDER: {"mail_from_subdomain": SHARED_DOMAIN_MAIL_FROM_SUBDOMAIN},
+                        SHARED_DOMAIN_SENDER: {
+                            "mail_from_subdomain": SHARED_DOMAIN_MAIL_FROM_SUBDOMAIN,
+                            "verified": True,
+                        },
+                        SECOND_SENDER: {
+                            "mail_from_subdomain": SHARED_DOMAIN_MAIL_FROM_SUBDOMAIN,
+                            "name": "Hedgebox News",
+                            "verified": True,
+                        },
                     }
                 },
                 "avoided_tool": NO_GENERIC_CREATE,
@@ -175,8 +230,11 @@ def _cases() -> list[SandboxedEvalCase]:
             ),
             setup=seed_existing_dmarc,
             expected={
-                "senders_in_project": {"senders": {EXISTING_DMARC_SENDER: {}}},
-                "final_message_omits": {"values": ["p=none"]},
+                "senders_in_project": {"senders": {EXISTING_DMARC_SENDER: {"name": "Hedgebox"}}},
+                "final_message_mentions": {"values": _exact_values(domain_of(EXISTING_DMARC_SENDER))},
+                "handed_over_records_keeping_dmarc": {
+                    "records": _records_reference(_without_dmarc(domain_of(EXISTING_DMARC_SENDER)))
+                },
                 "avoided_tool": NO_GENERIC_CREATE,
                 "bounded_verify_polling": {"max_calls": 3},
             },
@@ -190,8 +248,12 @@ def _cases() -> list[SandboxedEvalCase]:
             ),
             setup=seed_new_sender(EXISTING_SPF_SENDER),
             expected={
-                "senders_in_project": {"senders": {EXISTING_SPF_SENDER: {}}},
+                "senders_in_project": {"senders": {EXISTING_SPF_SENDER: {"name": "Hedgebox"}}},
                 "merged_spf_record": {"includes": [EXISTING_SPF_INCLUDE, "include:amazonses.com"]},
+                "final_message_mentions": {"values": _exact_values(domain_of(EXISTING_SPF_SENDER))},
+                "handed_over_records_merging_spf": {
+                    "records": _records_reference(_with_merged_root_spf(domain_of(EXISTING_SPF_SENDER)))
+                },
                 "avoided_tool": NO_GENERIC_CREATE,
                 "bounded_verify_polling": {"max_calls": 3},
             },
@@ -244,6 +306,8 @@ def _cases() -> list[SandboxedEvalCase]:
 
 
 async def eval_email_domain_setup(ctx: EvalContext) -> None:
+    if ctx.trials > 1:
+        raise ValueError("eval_email_domain_setup runs one trial per case, because trials of a case share its domain")
     with simulated_email_domains():
         await SandboxedPrivateEval(
             experiment_name="sandboxed-email-domain-setup-cli",
@@ -252,7 +316,6 @@ async def eval_email_domain_setup(ctx: EvalContext) -> None:
                 SendersInProject(),
                 AvoidedTool(),
                 FinalMessageMentions(),
-                FinalMessageOmits(),
                 MergedSpfRecord(),
                 SharedApplyUrl(),
                 BoundedVerifyPolling(),
@@ -262,6 +325,11 @@ async def eval_email_domain_setup(ctx: EvalContext) -> None:
                 FinalMessageJudge(name="free_mailbox_explained", question=FREE_MAILBOX_EXPLAINED),
                 FinalMessageJudge(name="claimed_domain_explained", question=CLAIMED_DOMAIN_EXPLAINED),
                 FinalMessageJudge(name="admin_needed_explained", question=ADMIN_NEEDED_EXPLAINED),
+                RecordsHandoffJudge(name="handed_over_records", question=HANDED_OVER_RECORDS),
+                RecordsHandoffJudge(
+                    name="handed_over_records_keeping_dmarc", question=HANDED_OVER_RECORDS_KEEPING_DMARC
+                ),
+                RecordsHandoffJudge(name="handed_over_records_merging_spf", question=HANDED_OVER_RECORDS_MERGING_SPF),
             ],
             ctx=ctx,
         )
