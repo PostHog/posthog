@@ -17,6 +17,7 @@ from posthog.temporal.common.utils import asyncify, close_db_connections
 
 from products.context_layer.backend.facade import api as context_layer_facade
 from products.tasks.backend.constants import (
+    AGENT_NOTIFY_USER_FEATURE_FLAG,
     AGENT_OTEL_TELEMETRY_STATE_KEY,
     AGENT_PEER_MESSAGING_FEATURE_FLAG,
     AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
@@ -168,6 +169,9 @@ class TaskProcessingContext:
     # Whether agent peer messaging tools should surface in this run (flag + Pi runtime).
     # Exposure only: the peers endpoints re-check authorization server-side on every call.
     peer_messaging_enabled: bool = False
+    # Whether the notify_user tool should surface in this run. Exposure only: the endpoint
+    # re-checks the flag server-side on every call.
+    notify_user_enabled: bool = False
     # Which sandbox provider this run provisions on ("modal" or "hogland"). Captured at
     # workflow start and persisted into TaskRun.state at provision time, so activities
     # and out-of-band consumers route deterministically for the run's whole life.
@@ -429,21 +433,21 @@ def _is_agent_proxy_keep_stream_open_enabled(
     return enabled
 
 
-def _is_peer_messaging_enabled(
+def _is_agent_tool_flag_enabled(
+    flag: str,
     *,
     distinct_id: str,
     organization_id: str,
     run_id: str,
 ) -> bool:
-    """Whether the agent peer-messaging tools should surface in the sandbox.
+    """Whether an org-flagged agent tool should surface in the sandbox.
 
-    Fail-closed exposure gate only — the peers list/message endpoints enforce the
-    flag and runtime again server-side, so a stale env var in a resumed sandbox
-    can never authorize anything."""
+    Fail-closed exposure gate only — the tool's endpoints enforce the flag again
+    server-side, so a stale env var in a resumed sandbox can never authorize anything."""
     try:
         enabled = bool(
             posthoganalytics.feature_enabled(
-                AGENT_PEER_MESSAGING_FEATURE_FLAG,
+                flag,
                 distinct_id=distinct_id,
                 groups={"organization": organization_id},
                 group_properties={"organization": {"id": organization_id}},
@@ -452,10 +456,10 @@ def _is_peer_messaging_enabled(
             )
         )
     except Exception as e:
-        log_with_activity_context("peer_messaging_flag_check_failed", run_id=run_id, error=str(e))
+        log_with_activity_context("agent_tool_flag_check_failed", run_id=run_id, flag=flag, error=str(e))
         return False
     if enabled:
-        log_with_activity_context("peer_messaging_flag_checked", run_id=run_id, peer_messaging_enabled=True)
+        log_with_activity_context("agent_tool_flag_checked", run_id=run_id, flag=flag, enabled=True)
     return enabled
 
 
@@ -1731,7 +1735,14 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         # v1 scopes peer messaging to Pi runs; the flag check is skipped elsewhere
         # so ACP runs never even evaluate it.
         peer_messaging_enabled=task.runtime == Task.Runtime.PI
-        and _is_peer_messaging_enabled(
+        and _is_agent_tool_flag_enabled(
+            AGENT_PEER_MESSAGING_FEATURE_FLAG,
+            distinct_id=distinct_id,
+            organization_id=organization_id,
+            run_id=run_id,
+        ),
+        notify_user_enabled=_is_agent_tool_flag_enabled(
+            AGENT_NOTIFY_USER_FEATURE_FLAG,
             distinct_id=distinct_id,
             organization_id=organization_id,
             run_id=run_id,

@@ -53,6 +53,12 @@ export interface LocalToolGateMeta {
    * endpoints re-check authorization server-side on every call.
    */
   peerMessaging?: boolean;
+  /**
+   * The notify_user tool is enabled for this run (backend flag, surfaced as
+   * POSTHOG_AGENT_NOTIFY_USER at agent-server launch). Exposure only — the
+   * endpoint re-checks the flag and the task owner on every call.
+   */
+  notifyUser?: boolean;
   taskOriginProduct?: string;
   /**
    * Workflow-action opt-in (run state `end_run_when_done`): exposes the `finish`

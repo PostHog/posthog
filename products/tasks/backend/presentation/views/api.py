@@ -84,7 +84,12 @@ from products.tasks.backend.facade.client_provenance import (
     is_sandbox_origin_request,
 )
 from products.tasks.backend.facade.compute_quota import ComputeBillingLimitExceeded
-from products.tasks.backend.facade.contracts import TaskAnalysisError, TaskRunLogAppendUnserialized
+from products.tasks.backend.facade.contracts import (
+    TaskAnalysisError,
+    TaskRunLogAppendUnserialized,
+    UserNotificationChannel,
+    UserNotificationReason,
+)
 from products.tasks.backend.facade.metrics import (
     StreamConnectionOutcome,
     StreamTokenRoute,
@@ -187,6 +192,8 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunLivingArtifactOpenResponseSerializer,
     TaskRunLivingArtifactResponseSerializer,
     TaskRunLivingArtifactsResponseSerializer,
+    TaskRunNotifyUserRequestSerializer,
+    TaskRunNotifyUserResponseSerializer,
     TaskRunPeerMessageRequestSerializer,
     TaskRunPeerMessageResponseSerializer,
     TaskRunPeersResponseSerializer,
@@ -2819,21 +2826,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return response
         return self._preview_unavailable_page(redirect.outcome, task_id)
 
-    def _peer_messaging_gate(self, task_id: str) -> Response | None:
-        """Server-side authorization for the peers endpoints. Tool gating in the
-        harness is UX, never authorization — everything is re-checked here.
-
-        - A sandbox-app OAuth token must be bound to exactly this task: the token's
-          user may well control other tasks too (same creator), so without this a
-          compromised sandbox for task A could send as task B's runs.
-        - The requester must be the task's creator: peer visibility and message
-          attribution derive entirely from the creating user, so broader task
-          access (e.g. the Slack same-team carve-out) must not let a teammate
-          enumerate or send as another user's runs.
-        - Both feature flags and the Pi runtime are enforced per request, mirroring
-          how every Pi write path re-checks ``pi_cloud_runtime_enabled`` — a stale
-          tool in a resumed sandbox can't outlive a rollback of either flag.
-        """
+    def _require_sandbox_token_bound_to(self, task_id: str) -> None:
+        """A sandbox-app token's user may control other tasks too (same creator), so without this a
+        compromised sandbox for task A could act as task B's runs."""
         authenticator = self.request.successful_authenticator
         if isinstance(authenticator, OAuthAccessTokenAuthentication):
             access_token = authenticator.access_token
@@ -2844,6 +2839,21 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 and access_token.sandbox_task_id != UUID(task_id)
             ):
                 raise NotFound("Task not found")
+
+    def _peer_messaging_gate(self, task_id: str) -> Response | None:
+        """Server-side authorization for the peers endpoints. Tool gating in the
+        harness is UX, never authorization — everything is re-checked here.
+
+        - A sandbox-app OAuth token must be bound to exactly this task.
+        - The requester must be the task's creator: peer visibility and message
+          attribution derive entirely from the creating user, so broader task
+          access (e.g. the Slack same-team carve-out) must not let a teammate
+          enumerate or send as another user's runs.
+        - Both feature flags and the Pi runtime are enforced per request, mirroring
+          how every Pi write path re-checks ``pi_cloud_runtime_enabled`` — a stale
+          tool in a resumed sandbox can't outlive a rollback of either flag.
+        """
+        self._require_sandbox_token_bound_to(task_id)
         user = cast(User, self.request.user)
         if not tasks_facade.task_created_by_user(task_id, self.team_id, user.id):
             return Response(
@@ -3039,6 +3049,67 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if result is None:
             raise NotFound()
         return Response(TaskRunPeerMessageResponseSerializer(result).data)
+
+    def _notify_user_gate(self, task_id: str) -> Response | None:
+        """Server-side authorization for notify_user. Tool gating in the harness is UX only.
+
+        A sandbox-app token must be bound to exactly this task, and the requester must be the task's
+        creator: the notification goes to the creator, so a teammate with control of the run must not
+        use it to message them.
+        """
+        self._require_sandbox_token_bound_to(task_id)
+        user = cast(User, self.request.user)
+        if not tasks_facade.task_created_by_user(task_id, self.team_id, user.id):
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "Only the task creator's runs can notify them"}).data,
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if not tasks_facade.agent_notify_user_enabled(self.team, user):
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "Agent notifications are not enabled for this team"}).data,
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return None
+
+    @validated_request(
+        request_serializer=TaskRunNotifyUserRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TaskRunNotifyUserResponseSerializer,
+                description="Synchronous send result (sent / throttled / not_sent)",
+            ),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid notification payload"),
+            403: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="Notifications are disabled, or the requester is not the task creator",
+            ),
+            404: OpenApiResponse(description="Run not found"),
+        },
+        summary="Notify the task owner",
+        description=(
+            "Send a message from this run's agent to the task owner, for example a progress update they "
+            "asked for or a question that blocks the work. The recipient is always the task creator. On "
+            "Slack the message is a DM, and a reply in its thread continues the task when "
+            "`replies_continue_task` is true."
+        ),
+        strict_request_validation=True,
+    )
+    @action(detail=True, methods=["post"], url_path="notify_user", required_scopes=["task:write"])
+    def notify_user(self, request, pk=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        if (gate_response := self._notify_user_gate(task_id)) is not None:
+            return gate_response
+        result = tasks_facade.notify_task_run_owner(
+            pk,
+            task_id,
+            self.team_id,
+            channel=UserNotificationChannel(request.validated_data["channel"]),
+            reason=UserNotificationReason(request.validated_data["reason"]),
+            message=request.validated_data["message"],
+        )
+        if result is None:
+            raise NotFound()
+        return Response(TaskRunNotifyUserResponseSerializer(result).data)
 
     @extend_schema(
         extensions={"x-product": "logs"},

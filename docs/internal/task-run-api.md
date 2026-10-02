@@ -90,6 +90,26 @@ Workflow summaries are visible only to the task owner or its authorized sandbox 
 Shared workflow stream events always set `task_summary` to `null`.
 Other task streams include the effective summary.
 
+## Owner notifications
+
+`POST /api/projects/{team_id}/tasks/{task_id}/runs/{run_id}/notify_user/` sends a message from the run's agent to the task owner.
+Send `channel` (only `slack`), `reason` (`update`, `needs_input` or `done`) and a `message` of up to 2,000 characters.
+The recipient is always the task creator, and only the creator's own runs can call the endpoint.
+The `tasks-agent-notify-user` feature flag gates the endpoint and the tool.
+A task-bound sandbox token can notify only for its own task.
+The response `result` is `sent`, `throttled` or `not_sent`, with a `detail` for the agent.
+A run can send one notification every 30 seconds. A notification that is not sent does not start that wait.
+
+On Slack, PostHog finds the owner through their linked Slack account, or else by their email in the project's Slack workspace.
+The first notification of a task opens a DM thread and binds it to the run, as a Slack-started task's thread is bound.
+A reply in that thread reaches the agent as a user message, or resumes the task when the run has ended.
+The agent's answers then post into the thread.
+Later notifications of the same task reply in that thread and mention the owner.
+A run that a Slack channel thread drives keeps that thread. Its notifications are plain DMs, and `replies_continue_task` is false.
+
+Cloud agent runs send notifications through the `notify_user` local tool, called as `mcp__posthog-code-tools__notify_user`.
+The tool shows only when the flag is on for the run, through `POSTHOG_AGENT_NOTIFY_USER` in the sandbox.
+
 ## MCP tools
 
 - `tasks-create` creates an idle task. It does not accept run-start inputs.

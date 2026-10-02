@@ -74,6 +74,15 @@ export interface TaskRunPeer {
   updated_at: string | null;
 }
 
+export type NotifyUserChannel = "slack";
+export type NotifyUserReason = "update" | "needs_input" | "done";
+
+export interface NotifyUserResult {
+  result: "sent" | "throttled" | "not_sent";
+  detail: string;
+  replies_continue_task: boolean;
+}
+
 export interface PeerMessageSendResult {
   result: string;
   detail: string;
@@ -206,6 +215,23 @@ export class TaskToolsApiClient {
       `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/peers/`,
     );
     return response.peers ?? [];
+  }
+
+  async notifyTaskOwner(
+    taskId: string,
+    runId: string,
+    payload: {
+      channel: NotifyUserChannel;
+      reason: NotifyUserReason;
+      message: string;
+    },
+    signal?: AbortSignal,
+  ): Promise<NotifyUserResult> {
+    const teamId = this.http.getTeamId();
+    return this.http.request<NotifyUserResult>(
+      `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/notify_user/`,
+      { method: "POST", body: JSON.stringify(payload), signal },
+    );
   }
 
   async sendTaskRunPeerMessage(

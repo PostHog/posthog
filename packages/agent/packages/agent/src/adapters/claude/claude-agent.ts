@@ -3167,6 +3167,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           spokenNarration,
           background: meta?.mode === "background",
           peerMessaging: process.env.POSTHOG_AGENT_PEER_MESSAGING === "1",
+          notifyUser: process.env.POSTHOG_AGENT_NOTIFY_USER === "1",
           taskOriginProduct,
           endRunWhenDone,
         },

@@ -66,6 +66,7 @@ from products.posthog_ai.backend.task_ownership import (
     soft_delete_conversations_for_task,
 )
 from products.tasks.backend.constants import (
+    AGENT_NOTIFY_USER_FEATURE_FLAG,
     AGENT_OTEL_TELEMETRY_STATE_KEY,
     AGENT_PEER_MESSAGING_FEATURE_FLAG,
     ANALYSIS_TARGET_IMAGE_ID_STATE_KEY,
@@ -311,6 +312,7 @@ __all__ = [
     "list_sandbox_custom_images",
     "list_sandbox_environments",
     "sandbox_custom_images_enabled",
+    "agent_notify_user_enabled",
     "agent_peer_messaging_enabled",
     "list_task_run_living_artifacts",
     "list_task_run_peers",
@@ -318,6 +320,7 @@ __all__ = [
     "list_task_runs",
     "list_tasks",
     "list_workflow_last_runs",
+    "notify_task_run_owner",
     "pi_cloud_runtime_enabled",
     "prepare_task_run_artifact_uploads",
     "prepare_task_staged_artifacts",
@@ -5075,6 +5078,48 @@ def signal_task_run_user_message(
         except Exception:
             logger.warning("Failed to record pending follow-up message for task run %s", run.id, exc_info=True)
     return True
+
+
+# --- Agent notifications to the task owner (docs: logic/services/task_run_user_notification.py) ---
+
+
+def agent_notify_user_enabled(team: Team, user: User) -> bool:
+    distinct_id = user.distinct_id or f"user_{user.id}"
+    organization_id = str(team.organization_id)
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                AGENT_NOTIFY_USER_FEATURE_FLAG,
+                distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.exception("agent notify user flag check failed; treating as disabled")
+        return False
+
+
+def notify_task_run_owner(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    channel: contracts.UserNotificationChannel,
+    reason: contracts.UserNotificationReason,
+    message: str,
+) -> contracts.UserNotificationResultDTO | None:
+    """Send the agent's message to the task owner. ``None`` when the run is not found."""
+    from products.tasks.backend.logic.services.task_run_user_notification import (  # noqa: PLC0415 — keep Slack deps off the api import path
+        notify_task_owner,
+    )
+
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+    return notify_task_owner(task_run=run, channel=channel, reason=reason, message=message)
 
 
 # --- Agent peer messaging (docs: logic/services/peer_messages.py) ---

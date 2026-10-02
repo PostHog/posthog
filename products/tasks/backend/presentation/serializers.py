@@ -53,6 +53,9 @@ from products.tasks.backend.facade.contracts import (
     TaskSummaryDTO,
     TaskThreadMessageDTO,
     TaskUserBasicInfo,
+    UserNotificationChannel,
+    UserNotificationOutcome,
+    UserNotificationReason,
     WizardCloudRunDTO,
 )
 from products.tasks.backend.facade.enums import CHANNEL_WRITE_TYPE_CHOICES
@@ -2179,6 +2182,46 @@ class TaskRunPeerMessageResponseSerializer(serializers.Serializer):
         allow_null=True,
         required=False,
         help_text="Id of the recorded peer message, when one was created for this send.",
+    )
+
+
+TASK_RUN_NOTIFY_USER_MESSAGE_MAX_CHARS = 2000
+
+
+class TaskRunNotifyUserRequestSerializer(serializers.Serializer):
+    channel = serializers.ChoiceField(
+        choices=UserNotificationChannel.choices,
+        default=UserNotificationChannel.SLACK,
+        help_text="Where to send the notification. Only 'slack' (a DM to the task owner) is available now.",
+    )
+    reason = serializers.ChoiceField(
+        choices=UserNotificationReason.choices,
+        default=UserNotificationReason.UPDATE,
+        help_text=(
+            "Why the agent sends it: 'update' (progress the user asked for), 'needs_input' (the agent is "
+            "blocked until the user answers), or 'done' (the work is finished). Sets the message heading."
+        ),
+    )
+    message = serializers.CharField(
+        max_length=TASK_RUN_NOTIFY_USER_MESSAGE_MAX_CHARS,
+        help_text=(
+            f"Plain-text message for the task owner (max {TASK_RUN_NOTIFY_USER_MESSAGE_MAX_CHARS} chars). "
+            "PostHog adds the task title and a link."
+        ),
+    )
+
+
+class TaskRunNotifyUserResponseSerializer(serializers.Serializer):
+    result = serializers.ChoiceField(
+        choices=UserNotificationOutcome.choices,
+        help_text=(
+            "'sent' (the channel accepted the message), 'throttled' (sent too soon after the last one), "
+            "or 'not_sent' (no way to reach the owner on this channel)."
+        ),
+    )
+    detail = serializers.CharField(help_text="Explanation of the result, written for the agent.")
+    replies_continue_task = serializers.BooleanField(
+        help_text="Whether a reply to the notification reaches this task as a new user message."
     )
 
 

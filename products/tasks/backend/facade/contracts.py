@@ -990,6 +990,32 @@ class PeerMessageSendResultDTO:
     message_id: str | None = None
 
 
+class UserNotificationChannel(LabeledStrEnum):
+    SLACK = "slack", "Slack"
+
+
+class UserNotificationReason(LabeledStrEnum):
+    UPDATE = "update", "Progress update"
+    NEEDS_INPUT = "needs_input", "Needs input"
+    DONE = "done", "Done"
+
+
+class UserNotificationOutcome(LabeledStrEnum):
+    SENT = "sent", "Sent"
+    THROTTLED = "throttled", "Throttled"
+    NOT_SENT = "not_sent", "Not sent"
+
+
+@dataclass(frozen=True)
+class UserNotificationResultDTO:
+    """Synchronous result of an agent's request to notify the task owner. ``detail`` is
+    written for the agent, so it can tell the user what happened."""
+
+    result: UserNotificationOutcome
+    detail: str
+    replies_continue_task: bool = False
+
+
 @dataclass(frozen=True)
 class TaskRunGaugeRow:
     """One metric value keyed by (status, environment, origin_product)."""

@@ -93,11 +93,11 @@ class TestCommentSlackDm(CommentActivityTestCase):
         with (
             patch("products.tasks.backend.logic.services.comment_slack_dm._MAX_MENTION_LOOKUPS_PER_SLACK_WORKSPACE", 2),
             patch(
-                "products.tasks.backend.logic.services.comment_slack_dm.lookup_slack_user_id_by_email",
+                "products.tasks.backend.logic.services.slack_dm_recipient.lookup_slack_user_id_by_email",
                 side_effect=["U-one", "U-two"],
             ) as lookup,
             patch(
-                "products.tasks.backend.logic.services.comment_slack_dm.resolve_slack_user",
+                "products.tasks.backend.logic.services.slack_dm_recipient.resolve_slack_user",
                 return_value={"team_id": SLACK_WORKSPACE_ID},
             ),
         ):
@@ -111,11 +111,11 @@ class TestCommentSlackDm(CommentActivityTestCase):
 
         with (
             patch(
-                "products.tasks.backend.logic.services.comment_slack_dm.lookup_slack_user_id_by_email",
+                "products.tasks.backend.logic.services.slack_dm_recipient.lookup_slack_user_id_by_email",
                 return_value="U-member",
             ) as lookup,
             patch(
-                "products.tasks.backend.logic.services.comment_slack_dm.resolve_slack_user",
+                "products.tasks.backend.logic.services.slack_dm_recipient.resolve_slack_user",
                 return_value={"team_id": SLACK_WORKSPACE_ID},
             ),
         ):
@@ -280,11 +280,11 @@ class TestCommentSlackDm(CommentActivityTestCase):
 
         with (
             patch(
-                "products.tasks.backend.logic.services.comment_slack_dm.lookup_slack_user_id_by_email",
+                "products.tasks.backend.logic.services.slack_dm_recipient.lookup_slack_user_id_by_email",
                 return_value="U-by-email",
             ),
             patch(
-                "products.tasks.backend.logic.services.comment_slack_dm.resolve_slack_user",
+                "products.tasks.backend.logic.services.slack_dm_recipient.resolve_slack_user",
                 return_value={"name": "Ann", "team_id": profile_team_id},
             ),
         ):
@@ -312,11 +312,11 @@ class TestCommentSlackDm(CommentActivityTestCase):
 
         with (
             patch(
-                "products.tasks.backend.logic.services.comment_slack_dm.lookup_slack_user_id_by_email",
+                "products.tasks.backend.logic.services.slack_dm_recipient.lookup_slack_user_id_by_email",
                 side_effect=lookup_by_email,
             ),
             patch(
-                "products.tasks.backend.logic.services.comment_slack_dm.resolve_slack_user",
+                "products.tasks.backend.logic.services.slack_dm_recipient.resolve_slack_user",
                 side_effect=lambda _client, _user_id, *, workspace: {"team_id": workspace},
             ),
         ):
@@ -328,7 +328,7 @@ class TestCommentSlackDm(CommentActivityTestCase):
 
     def test_the_linked_account_wins_over_an_email_match(self):
         with patch(
-            "products.tasks.backend.logic.services.comment_slack_dm.lookup_slack_user_id_by_email",
+            "products.tasks.backend.logic.services.slack_dm_recipient.lookup_slack_user_id_by_email",
             return_value="U-by-email",
         ) as lookup:
             self._record_activity(self._comment(), [self.author.id])

@@ -28,14 +28,16 @@ from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import NOTIFICATION_DEFAULTS, User
-from posthog.models.user_integration import UserIntegration
 from posthog.slack.formatting import escape_slack_mrkdwn
-from posthog.slack.identity import resolve_slack_user
 from posthog.user_permissions import UserPermissions
 
 from products.canvas.backend.models import Canvas
 from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
-from products.slack_app.backend.services.slack_user_info import lookup_slack_user_id_by_email
+from products.tasks.backend.logic.services.slack_dm_recipient import (
+    linked_integration_for_recipient,
+    linked_slack_user_id,
+    slack_user_id_by_email,
+)
 from products.tasks.backend.models import Task, TaskCommentActivity
 
 logger = structlog.get_logger(__name__)
@@ -152,7 +154,7 @@ def send_comment_slack_dms(
             _skip(comment_id, "recipient_lost_access", user_id=user_id)
             continue
         try:
-            integration = _linked_integration_for_recipient(
+            integration = linked_integration_for_recipient(
                 user_id=user_id, integration_by_workspace=integration_by_workspace
             )
             slack_user_id: str | None = None
@@ -161,7 +163,7 @@ def send_comment_slack_dms(
                     _skip(comment_id, "slack_app_oauth_disabled", user_id=user_id)
                     continue
                 slack = slack_for(integration)
-                slack_user_id = _linked_slack_user_id(user_id=user_id, integration=integration)
+                slack_user_id = linked_slack_user_id(user_id=user_id, integration=integration)
             else:
                 email_destination_integration: Integration | None = None
                 email_destination_slack: SlackIntegration | None = None
@@ -170,7 +172,7 @@ def send_comment_slack_dms(
                     if not settings.DEBUG and not is_slack_app_oauth_enabled(candidate):
                         continue
                     candidate_slack = slack_for(candidate)
-                    candidate_user_id = _slack_user_id_by_email(
+                    candidate_user_id = slack_user_id_by_email(
                         email=recipient.email or "", integration=candidate, slack=candidate_slack
                     )
                     if not candidate_user_id:
@@ -268,57 +270,6 @@ def _recipients_wanting_dms(*, team_id: int, comment: Comment, recipients: Mappi
     return wanted
 
 
-def _linked_slack_user_id(*, user_id: int, integration: Integration) -> str | None:
-    link = (
-        UserIntegration.objects.filter(
-            user_id=user_id,
-            kind=UserIntegration.IntegrationKind.SLACK,
-            config__slack_team_id=integration.integration_id,
-        )
-        .order_by("-created_at")
-        .first()
-    )
-    return link.integration_id if link else None
-
-
-def _linked_integration_for_recipient(
-    *, user_id: int, integration_by_workspace: Mapping[str | None, Integration]
-) -> Integration | None:
-    linked_workspaces = (
-        UserIntegration.objects.filter(user_id=user_id, kind=UserIntegration.IntegrationKind.SLACK)
-        .order_by("-created_at")
-        .values_list("config__slack_team_id", flat=True)
-    )
-    for linked_workspace in linked_workspaces:
-        if isinstance(linked_workspace, str) and (integration := integration_by_workspace.get(linked_workspace)):
-            return integration
-    return None
-
-
-def _slack_user_id_by_email(*, email: str, integration: Integration, slack: SlackIntegration) -> str | None:
-    """Match a PostHog email against the workspace's own Slack directory.
-
-    This is what makes the feature work without every person linking an account first. It asks the
-    customer's own directory a question about our own user's email, which is the opposite direction
-    from the inbound path (where a Slack-supplied email would decide who a PostHog user is, and so
-    can't be trusted).
-    """
-    workspace = integration.integration_id or ""
-    if not email or not workspace:
-        return None
-    slack_user_id = lookup_slack_user_id_by_email(slack, integration, email)
-    if not slack_user_id:
-        return None
-    profile = resolve_slack_user(slack.client, slack_user_id, workspace=workspace)
-    # `users.lookupByEmail` also returns external Slack Connect members, whose profile emails are
-    # controlled by their own workspace's admin. Without this check an outsider could claim a
-    # teammate's address and receive their comment text.
-    if profile.get("team_id") != workspace:
-        logger.warning("comment_slack_dm_email_match_outside_workspace", integration_id=integration.id)
-        return None
-    return slack_user_id
-
-
 def _mention_resolver(
     *,
     organization_id: str | UUID,
@@ -348,7 +299,7 @@ def _mention_resolver(
         ).exists():
             cache[key] = None
             return None
-        cache[key] = _slack_user_id_by_email(email=normalized_email, integration=integration, slack=slack)
+        cache[key] = slack_user_id_by_email(email=normalized_email, integration=integration, slack=slack)
         return cache[key]
 
     return resolve

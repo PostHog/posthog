@@ -898,6 +898,9 @@ tools:
     tasks-runs-living-artifacts-version-content:
         operation: tasks_runs_living_artifacts_version_content
         enabled: false
+    tasks-runs-notify-user-create:
+        operation: tasks_runs_notify_user_create
+        enabled: false
     tasks-runs-partial-update:
         operation: tasks_runs_partial_update
         enabled: false
