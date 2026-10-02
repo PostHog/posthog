@@ -77,7 +77,7 @@ export function TodayRail(): JSX.Element {
                 <div className="flex flex-1 items-center">
                     <Logomark className="h-auto w-6" />
                 </div>
-                <Separator className="w-6" />
+                <Separator className="w-9" />
             </div>
             {RAIL_ITEMS.map(({ pane, label, icon }) => (
                 <TodayRailTile
