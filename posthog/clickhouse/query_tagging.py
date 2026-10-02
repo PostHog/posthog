@@ -556,6 +556,9 @@ class QueryTags(BaseModel):
     # Structural hash of the HogQL AST with literals stripped (posthog/hogql/cost/fingerprint.py), so
     # query_log can group actual cost by plan shape and join it to the estimate recorded below.
     plan_fingerprint: Optional[str] = None
+    # Hash of the tables, day-rounded events time range and event names a HogQL query reads
+    # (posthog/hogql/cost/read_signature.py), so query_log can show which queries repeat a read.
+    read_signature: Optional[str] = None
     # Set by the HogQL cost planner before execution and compared against read_rows / read_bytes in
     # query_log to calibrate it. None until the estimator runs.
     estimated_rows: Optional[int] = None
