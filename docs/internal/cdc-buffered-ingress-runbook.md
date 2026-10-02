@@ -58,6 +58,8 @@ A reset from slot-invalidation recovery marks the key `awaiting_slot` until the 
 Recovery clears the flag once the slot is back, and so does any read that succeeds, so a failure right after the recreation cannot leave the table waiting for good.
 A resync, a table-mode switch, re-enabling a table's sync, and Repair CDC use the same key: when a sync of the table can still hand over, they pause its schedule and leave the reset to capture, which also starts the new snapshot.
 They then start a capture run right away, and recreate the capture schedule if it is gone, so the reset does not wait for the next tick. A source that is marked broken, or whose capture is paused after a non-retryable error, is left alone: Repair CDC or resuming capture restarts it.
+A table edit or a sync frequency change rewrites the capture schedule too, and it keeps the pause, so it does not restart capture on such a source either.
+Once slot-invalidation recovery has recreated the slot, it removes the markers of the lost slot (`auto_dropped_critical_lag`, `slot_missing`, `publication_missing`), so its tables stop reading as halted. A failed recreation keeps them.
 Each write that stages a reset gives the key a new `generation`, so capture drops only the reset it finished, even when a request stages the same reset again while that snapshot starts.
 The admin resync refuses instead, because it starts its own non-billable run, so it asks the operator to retry once the sync stops.
 Turning a table's sync off, or adding it back to capture, drops its marker, because capture skipped the table in between and its buffer has a gap.
@@ -67,11 +69,14 @@ A table whose data was deleted is still streaming but not seeded; its next sync 
 **Buffer files are deleted at the start of the next run**, before they are read, so the run that
 proves a file consumed is never the run that deletes it. A file goes when it is strictly below the
 floor — the lowest position any of the schema's tables holds — or when it sits exactly at the floor
-and predates a listing by a run that went on to complete every table it writes. The floor alone is
+and a run that went on to complete every table it writes already read it. The floor alone is
 not enough at its own boundary: capture flushes a transaction bigger than its budget across several
 files that all carry that transaction's commit position, so a file at the floor may be the unread
 tail of one. A completed listing is what proves otherwise. For a `both` run, both jobs have to have
 completed, or a file could be deleted while the history table still owed it.
+Each listing records the name and ETag of the files at its highest position, and a file that still
+carries a recorded ETag holds exactly what that run read, so the next run deletes it. A file the
+listing did not record goes once its mtime predates the listing by a clock-skew margin.
 
 **A lane resumes from its own table.** A failed run can leave one table holding rows the other does
 not, so each reads back the highest commit position it holds. The merge lane drops only what is
@@ -305,6 +310,7 @@ twice, so a `both` source's synced-row count roughly halved when it moved to the
 
 **The merge lane re-bills the rows at its position until the file holding them is deleted.** It
 keeps every row at its position deliberately, since dropping one would lose a later event for the
-same key at that same commit, and a kept row is a staged row. That is one transaction's rows, for
-the tick or two until the completed-listing proof clears the file. The history lane matches those
-rows by content and bills none of them.
+same key at that same commit, and a kept row is a staged row. That happens only when the file
+changed after the last completed listing recorded it, or that listing never saw it; otherwise the
+next run deletes the file before reading it. The history lane matches those rows by content and
+bills none of them.

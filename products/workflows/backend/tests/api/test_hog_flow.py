@@ -3576,7 +3576,7 @@ class TestHogFlowAPI(APIBaseTest):
         assert data["confirm_token"]
         assert mock_count.call_count == 2
 
-    def _make_cohort(self, *, behavioral=False, static=False, nested_cohort_id=None) -> Cohort:
+    def _make_cohort(self, *, behavioral=False, static=False, nested_cohort_id=None, name="c") -> Cohort:
         if behavioral:
             properties = {
                 "type": "OR",
@@ -3617,7 +3617,7 @@ class TestHogFlowAPI(APIBaseTest):
             filters = {}
         else:
             filters = {"properties": properties}
-        return Cohort.objects.create(team=self.team, name="c", filters=filters, is_static=static)
+        return Cohort.objects.create(team=self.team, name=name, filters=filters, is_static=static)
 
     def _post_batch_with_cohort(self, cohort_id: int, *, status: str = "active", trigger_type: str = "batch", **extra):
         trigger_action = {
@@ -3632,9 +3632,9 @@ class TestHogFlowAPI(APIBaseTest):
         hog_flow = {"name": "Test Batch Flow", "status": status, "actions": [trigger_action]}
         return self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow, **extra)
 
-    @parameterized.expand(["batch", "schedule"])
-    def test_hog_flow_audience_rejects_behavioral_cohort(self, trigger_type: str):
-        cohort = self._make_cohort(behavioral=True)
+    @parameterized.expand([("batch", "c"), ("schedule", "c"), ("batch", None)])
+    def test_hog_flow_audience_rejects_behavioral_cohort(self, trigger_type: str, name: str | None):
+        cohort = self._make_cohort(behavioral=True, name=name)
         response = self._post_batch_with_cohort(cohort.pk, trigger_type=trigger_type)
         assert response.status_code == 400, response.json()
         assert "behavior" in response.json()["detail"].lower()
@@ -4325,6 +4325,8 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.json()["hog_flow"] == flow_id
         assert response.json()["variables"] == batch_job_data["variables"]
         assert response.json()["status"] == "queued"
+        assert response.json()["created_by"]["id"] == self.user.id
+        assert response.json()["filters"] == HogFlow.objects.get(pk=flow_id).trigger["filters"]
         mock_create_invocation.assert_called_once()
         # The per-team audience cap must ride on the invocation so the consumer enforces the team's limit.
         assert mock_create_invocation.call_args.kwargs["max_audience_size"] == 5000

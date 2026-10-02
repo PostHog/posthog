@@ -65,6 +65,18 @@ Regex matching uses RE2 syntax, so backreferences and lookaround are unsupported
 SQL LIKE and ILIKE patterns sent to ClickHouse are not subject to these VM limits.
 For non-nullable materialized columns, patterns above 16,384 characters skip the optional sentinel-based rewrite and use the normal property read.
 
+## ClickHouse query errors
+
+`posthog/errors.py` maps ClickHouse error codes to exceptions. Query APIs expose `ExposedCHQueryError` messages and hide `InternalCHQueryError` messages.
+For additional user-correctable errors, set `ErrorCodeMeta.user_safe` to a fixed explanation with a next step.
+Parsing, array, regular expression, scalar subquery, JOIN, and LIMIT errors use these explanations where raw details cannot be exposed safely.
+Unrecognized error codes stay internal.
+
+Do not assume an error code makes its raw message safe. ClickHouse can append expressions and query context after the initial exception.
+Those messages can contain storage credentials, signed URLs, settings, or source data values, including values that a shared insight does not otherwise reveal.
+Check both the throw sites and the exception enrichment paths before allowing raw text.
+Keep importable exception classes when adding a fixed explanation, and test the wrapped message as well as its string representation.
+
 ## AST nodes
 
 If you want more control, you can build the AST nodes directly. The same query above can be written as:

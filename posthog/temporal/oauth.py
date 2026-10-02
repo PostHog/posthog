@@ -4,14 +4,13 @@ from typing import Any, Literal, TypedDict, cast
 from uuid import UUID
 
 from django.conf import settings
-from django.utils import timezone
 
 import structlog
 
 from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL, wizard_identity_blocked
-from posthog.models import OAuthAccessToken, OAuthApplication
+from posthog.models import OAuthApplication
+from posthog.models.oauth import mint_oauth_access_token
 from posthog.models.team.team import Team
-from posthog.models.utils import generate_random_oauth_access_token
 from posthog.scopes import (
     API_SCOPE_OBJECTS,
     INTERNAL_API_SCOPE_OBJECTS,
@@ -105,6 +104,11 @@ POSTHOG_AI_OAUTH_APP_CLIENT_IDS = frozenset(
         POSTHOG_AI_APP_CLIENT_ID_DEV,
     }
 )
+
+# The WebMCP proxy mints its tokens server-side against this CIMD application, so a request
+# bearing one is attributable to WebMCP for the same reason as above. The CIMD document lives in
+# the posthog.com repo, so one client_id serves every region.
+WEBMCP_APP_CLIENT_ID = "https://posthog.com/.well-known/oauth/webmcp/client-metadata.json"
 
 McpScopePreset = Literal[
     "read_only",
@@ -239,6 +243,12 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 #                          others meet. One scope object covers the whole surface, so the two
 #                          exclusions live in `products/replay_vision/backend/scout_writes.py`
 #                          instead: a scout cannot delete, and must cap what it creates or enables.
+#   customer_task:write    Every Customer analytics task in the scout's project: create, update
+#                          (status, due date, assignee, linked account) and archive. There is no
+#                          delete: archive is recoverable through restore, and every change is
+#                          written to the task's activity history. An update can reassign a task
+#                          to any member of the project, so the scout's body has to say whose
+#                          tasks it tends.
 #   hog_flow_proposal:write
 #                          Queue a suggested change on a workflow whose owner opted in, for a
 #                          person to approve or reject. Deliberately not `hog_flow:write`, which
@@ -266,6 +276,7 @@ SCOUT_GRANTABLE_WRITE_SCOPES: frozenset[str] = frozenset(
         "insight:write",
         "annotation:write",
         "alert:write",
+        "customer_task:write",
         "llm_skill:write",
         "warehouse_view:write",
         "warehouse_table:write",
@@ -570,22 +581,18 @@ def get_sandbox_oauth_app(application: SandboxOAuthApplication = "array") -> OAu
     return get_array_app()
 
 
-def _mint_oauth_access_token(
+def _mint_run_access_token(
     user, team_id: int, *, app: OAuthApplication, scopes: list[str], sandbox_task_id: UUID | None = None
 ) -> str:
-    token_value = generate_random_oauth_access_token(None)
-
-    OAuthAccessToken.objects.create(
-        user=user,
+    access_token = mint_oauth_access_token(
         application=app,
-        token=token_value,
-        expires=timezone.now() + timedelta(seconds=TOKEN_EXPIRATION_SECONDS),
+        user=user,
         scope=" ".join(dict.fromkeys(scopes)),
+        lifetime=timedelta(seconds=TOKEN_EXPIRATION_SECONDS),
         scoped_teams=[team_id],
         sandbox_task_id=sandbox_task_id,
     )
-
-    return token_value
+    return access_token.token
 
 
 def create_oauth_access_token_for_user(
@@ -618,7 +625,7 @@ def create_oauth_access_token_for_user(
     if include_slack_run_scope:
         resolved.append(SLACK_RUN_SCOPE)
     app = get_sandbox_oauth_app(application)
-    return _mint_oauth_access_token(user, team_id, app=app, scopes=list(resolved), sandbox_task_id=sandbox_task_id)
+    return _mint_run_access_token(user, team_id, app=app, scopes=list(resolved), sandbox_task_id=sandbox_task_id)
 
 
 def get_wizard_app() -> OAuthApplication:
@@ -679,4 +686,4 @@ def create_wizard_oauth_access_token_for_user(user, team_id: int) -> str:
     if ceiling is None or len(ceiling) == 0:
         raise RuntimeError("Wizard app has no scope ceiling. Must be configured in the database.")
 
-    return _mint_oauth_access_token(user, team_id, app=app, scopes=sorted(ceiling))
+    return _mint_run_access_token(user, team_id, app=app, scopes=sorted(ceiling))

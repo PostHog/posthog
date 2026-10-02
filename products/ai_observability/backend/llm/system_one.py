@@ -4,8 +4,6 @@ from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from urllib.parse import urlsplit
 
-from django.conf import settings
-
 import httpx
 
 from posthog.llm.system_one import (
@@ -45,17 +43,11 @@ def system_one_evaluations_enabled(team_id: int, *, base_url: str) -> bool:
     if not host or host == "typesafe.ai" or host.endswith(".typesafe.ai"):
         return False
     team = Team.objects.only("uuid", "organization_id").get(id=team_id)
-    # Customer connections use their own provider account or deployment, never PostHog's gateway.
-    if (
-        host in {"ai-gateway.us.posthog.com", "ai-gateway.eu.posthog.com"}
-        and str(team.organization_id) not in settings.POSTHOG_INTERNAL_ORG_IDS
-    ):
-        return False
     return (
         get_feature_flag_or_none(
             "llm-analytics-system-one-evaluations",
             str(team.uuid),
-            groups={"organization": str(team.organization_id), "project": str(team.id)},
+            groups={"organization": str(team.organization_id), "project": str(team.uuid)},
             send_feature_flag_events=False,
         )
         is True

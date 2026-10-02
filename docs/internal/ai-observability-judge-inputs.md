@@ -43,10 +43,11 @@ Implementation: [trace judge](../../posthog/temporal/ai_observability/run_trace_
 
 System One-compatible models are available under the existing LLM judge option.
 The `llm-analytics-system-one-evaluations` project-group feature flag controls access in the browser and background workers.
+Both use the project's UUID as its group key; the numeric project ID is a group property.
 Deploy the ingestion and evaluation worker changes before enabling the flag.
 Projects configure a System One-compatible deployment and its authentication.
 Evaluation connections never fall back to an instance credential or gateway configuration.
-PostHog's regional AI gateway endpoints additionally require an organization in `POSTHOG_INTERNAL_ORG_IDS`; customer projects cannot use those endpoints.
+The configured endpoint authorizes the supplied credential, including connections to PostHog's regional AI gateway endpoints.
 Connection validation and every evaluation check these gates; an absent flag or failed flag lookup blocks the call.
 Turning the flag off stops subsequent runs, including queued work, without disabling the saved evaluation.
 Keep the experimental flag limited to staff projects during rollout.
@@ -75,8 +76,15 @@ Multiple selection uses one Noul question per option and includes each category 
 The endpoint must support the configured number of options and questions; model limits can be lower than the evaluation's configuration limit.
 Results use the existing categorical event property and passing rules.
 An empty selection is an applicable result; N/A remains a separate outcome.
-`$ai_evaluation_probability` remains the probability of true for boolean evaluations and is not emitted for categorical results.
-Numeric evaluations retain their existing arbitrary ranges and completion-based judges.
+Numeric evaluations use a native Score question and require finite minimum and maximum bounds, with the minimum below the maximum.
+The evaluation prompt defines the scoring criteria, including what low and high scores mean.
+The judge generates ten evenly spaced reference scores across the configured range and sends them as ordered rubric levels.
+The endpoint's fractional index (0–9) is mapped linearly back to that range and stored in `$ai_evaluation_numeric_result`.
+Rubric descriptions preserve each reference score's full float precision; the stored numeric result is not rounded.
+For example, an index of 6.75 on a 0–10 range produces 7.5. Step remains a prompt hint and does not round the result.
+These are estimated ratings, not exact counts; unbounded numeric outputs still require a completion-based judge.
+Numeric results use the existing passing rules and N/A handling. No new output configuration fields are required.
+`$ai_evaluation_probability` remains the probability of true for boolean evaluations and is not emitted for categorical or numeric results.
 API compatibility does not guarantee equivalent judgments or calibration across models.
 Compare results on representative inputs when changing models.
 
@@ -115,6 +123,10 @@ The playground keeps the provider's explanation so users can correct the setting
 
 Boolean online evaluations write their raw verdict to `$ai_evaluation_result`.
 Numeric evaluations write their score to `$ai_evaluation_numeric_result`, with optional `$ai_evaluation_numeric_result_min` and `$ai_evaluation_numeric_result_max` bounds.
+Result badges and mean scores display up to two decimal places, with two significant digits for values below one to keep small nonzero scores visible. Badges in the runs table expose the exact score on hover; storage, sorting, and passing rules use the original value.
+If rounding would change whether the displayed score meets the passing rule, the badge shows the exact score instead.
+For online LLM judges, including System One, `step` is a suggested score increment in the prompt; results are not rounded or restricted to its multiples.
+Hog evaluations use the numeric value returned by the code and do not apply `step`.
 `$ai_evaluation_result_type` identifies the output type; events without it are legacy boolean results.
 Categorical evaluations write a list of category keys to `$ai_evaluation_categorical_result`, including for single selection.
 Sentiment evaluations keep their `$ai_sentiment_*` properties.

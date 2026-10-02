@@ -1,6 +1,11 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "compact": {
+            "default": true,
+            "description": "When true, return only id, name, and full_name for each repository. Use it to list large rosters in fewer, smaller pages.",
+            "type": "boolean"
+        },
         "id": {
             "description": "A unique integer value identifying this integration.",
             "type": "number"

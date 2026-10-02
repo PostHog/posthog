@@ -50,7 +50,12 @@ export function Navigation({
     const { scenePanelIsPresent, scenePanelOpenManual, sceneTakeoverActive } = useValues(sceneLayoutLogic)
     const { sidePanelOpen } = useValues(sidePanelStateLogic)
     const { sidePanelWidth } = useValues(panelLayoutLogic)
-    const { leftNavWidth: todayLeftNavWidth, todayRailEnabled: todayRail } = useValues(todayShellLogic)
+    const {
+        leftNavWidth: todayLeftNavWidth,
+        todayRailEnabled: todayRail,
+        sidebarVisible: todaySidebarVisible,
+    } = useValues(todayShellLogic)
+    const todayDrawerOpen = todayRail && mobileLayout && todaySidebarVisible
 
     // SceneMenuBar (when enabled) replaces ProjectNotice's role of conveying project-level
     // context above scene content, so we hide the notice for users on the new menu bar.
@@ -129,7 +134,17 @@ export function Navigation({
                 }
             >
                 {showMinimalNavigation && <MinimalNavigation />}
-                <main className={mode === 'zen' ? 'p-4' : undefined}>{children}</main>
+                <main
+                    className={
+                        mode === 'zen'
+                            ? 'p-4'
+                            : mode === 'embedded'
+                              ? '@container/main-content min-h-screen p-4'
+                              : undefined
+                    }
+                >
+                    {children}
+                </main>
             </div>
         )
     }
@@ -146,7 +161,7 @@ export function Navigation({
             </a>
             <div
                 className={cn('app-layout bg-surface-tertiary', {
-                    'app-layout--mobile': mobileLayout,
+                    'app-layout--mobile': mobileLayout && !todayRail,
                     TodayAppLayout: todayRail,
                 })}
                 style={
@@ -180,11 +195,15 @@ export function Navigation({
 
                     <div
                         className={cn(
-                            '@container/main-content-container main-content-container flex overflow-hidden lg:rounded border-t lg:border border-primary relative lg:mr-1 lg:mb-1 lg:mt-1',
-                            {
-                                'rounded-r-none': sidePanelOpen,
-                            }
+                            '@container/main-content-container main-content-container flex overflow-hidden border-primary relative',
+                            todayRail
+                                ? 'border-l'
+                                : [
+                                      'lg:rounded border-t lg:border lg:mr-1 lg:mb-1 lg:mt-1',
+                                      sidePanelOpen && 'rounded-r-none',
+                                  ]
                         )}
+                        {...(todayDrawerOpen ? { inert: '' } : {})}
                     >
                         <main
                             ref={mainRef}

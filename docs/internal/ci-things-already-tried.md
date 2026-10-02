@@ -522,6 +522,21 @@ The agent that opens the PR already knows this person. Thus the instruction move
 
 _Also asked as:_ auto-assign bot PRs, find the human behind an agent PR, nudge for ownership
 
+## CI failure triage
+
+### Use a small classifier model to route a failed CI job to the next investigation
+
+**Verdict: rejected** · Oct 2026 · measured, not built
+
+Jev 1.13 (TypeSafe) read a log excerpt of a failed job and picked the next investigation from five routes.
+A list of regular expressions over the same excerpt did at least as well.
+On 24 held-out jobs the rules routed 20 and got 18 right. The model routed 18 and got 14 right. The labels came from agents, and the gap is inside the noise.
+
+The failed step name and the lines above the last `##[error]` carry most of the signal, and a rule reads both.
+Intermittent test failures were wrong for both. The rerun result separates them, and the log does not.
+
+_Also asked as:_ classify CI failures with an LLM, AI triage for red CI, Jev, TypeSafe, System One model, flaky or real failure from the log, route CI failures automatically
+
 ## Dev environment
 
 ### Share the dev environment and the Docker containers across worktrees

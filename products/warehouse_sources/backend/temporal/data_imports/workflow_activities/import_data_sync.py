@@ -117,9 +117,6 @@ class ImportDataActivityInputs:
     fast_return_eligible: bool = False
     # Kept apart from `reset_pipeline`, which every retry would read again and wipe the table again.
     scheduled_full_refresh: bool = False
-    # Fixed for the job lifetime so a flag change between activity attempts cannot mix a stale
-    # keyset checkpoint with a server-cursor retry that reset the destination table.
-    keyset_full_load_enabled: bool = False
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -131,18 +128,20 @@ class ImportDataActivityInputs:
             "reset_pipeline": self.reset_pipeline,
             "fast_return_eligible": self.fast_return_eligible,
             "scheduled_full_refresh": self.scheduled_full_refresh,
-            "keyset_full_load_enabled": self.keyset_full_load_enabled,
         }
 
 
-def _resolve_reset_pipeline(inputs: ImportDataActivityInputs, schema: ExternalDataSchema) -> bool:
+def _resolve_reset_pipeline(
+    inputs: ImportDataActivityInputs, schema: ExternalDataSchema, *, job_created_at: dt.datetime
+) -> bool:
     if inputs.reset_pipeline is not None:
         return inputs.reset_pipeline
     if schema.sync_type_config.get("reset_pipeline", False) is True:
         return True
-    # Each attempt loads the schema again, and the first wipe moves the due time a full interval ahead, so a
-    # retry after the wipe carries on with the re-import instead of wiping it again.
-    return inputs.scheduled_full_refresh and schema.scheduled_full_refresh_due()
+    # Each attempt loads the schema again. Checked at the job's creation, it stays due until the wipe moves the due
+    # time past that point, so a retry after the wipe carries on instead of wiping again. The current time is not
+    # safe: with a 1-day interval and a set time, a wipe more than an hour early leaves that day's slot due.
+    return inputs.scheduled_full_refresh and schema.scheduled_full_refresh_due(now=job_created_at)
 
 
 @database_sync_to_async_pool
@@ -447,7 +446,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
         except ExternalDataSchema.DoesNotExist as e:
             await _handle_import_error(job_inputs, logger, e)
 
-        reset_pipeline = _resolve_reset_pipeline(inputs, schema)
+        reset_pipeline = _resolve_reset_pipeline(inputs, schema, job_created_at=model.created_at)
 
         await logger.adebug(f"schema.sync_type_config = {schema.sync_type_config}")
         await logger.adebug(f"reset_pipeline = {reset_pipeline}")
@@ -536,6 +535,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
 
             source_inputs = SourceInputs(
                 schema_name=schema.name,
+                sync_type=ExternalDataSchema.SyncType(schema.sync_type) if schema.sync_type is not None else None,
                 schema_id=str(schema.id),
                 source_id=str(inputs.source_id),
                 team_id=inputs.team_id,
@@ -566,7 +566,6 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 api_version=new_source.resolve_api_version(schema.api_version or model.pipeline.api_version),
                 fanout_warehouse_reuse=fanout_warehouse_reuse,
                 byte_bounded_extraction=byte_bounded_extraction,
-                keyset_full_load=inputs.keyset_full_load_enabled,
                 activity_attempt=activity.info().attempt if activity.in_activity() else 1,
                 source_cursor=source_cursor_manager,
             )
