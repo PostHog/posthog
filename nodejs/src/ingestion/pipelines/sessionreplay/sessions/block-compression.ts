@@ -9,7 +9,7 @@ export type BlockCompression = { codec: 'brotli'; level: number; encoder?: Brotl
 export const DEFAULT_BLOCK_COMPRESSION: BlockCompression = { codec: 'snappy' }
 
 /** Both codecs pack on the libuv threadpool, not on the event loop. */
-export function compressBlock(data: Buffer, compression: BlockCompression): Promise<Buffer> {
+export async function compressBlock(data: Buffer, compression: BlockCompression): Promise<Buffer> {
     switch (compression.codec) {
         case 'snappy':
             return snappy.compress(data)
