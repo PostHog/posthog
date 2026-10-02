@@ -313,11 +313,11 @@ class KernelExecutor:
             if os.path.exists(envelope_path):
                 os.remove(envelope_path)
 
-            data_plane_url = payload.get("data_plane_url")
+            heartbeat_url = payload.get("heartbeat_url")
             data_plane_token = payload.get("data_plane_token")
             heartbeat = (
-                (lambda: data_plane.send_heartbeat(data_plane_url, data_plane_token))
-                if data_plane_url and data_plane_token
+                (lambda: data_plane.send_heartbeat(heartbeat_url, data_plane_token))
+                if heartbeat_url and data_plane_token
                 else None
             )
             # Only while the cell is actually executing may an interrupt SIGINT the kernel.

@@ -1891,6 +1891,8 @@ class TestSQLV2Activities(APIBaseTest):
         claims = verify_data_plane_token(payload["data_plane_token"])
         self.assertEqual((claims.notebook_short_id, claims.team_id), (self.notebook.short_id, self.team.id))
         self.assertIn("/internal/notebooks/data_plane/query/", payload["data_plane_url"])
+        # Without it the kernel sends no heartbeat, and the watchdog fails any cell that runs past its budget.
+        self.assertIn("/api/notebooks/sandbox/heartbeat/", payload["heartbeat_url"])
         self.assertEqual(self._reload(run).status, NotebookNodeRun.Status.RUNNING)
 
     def test_mark_failed_activity(self):
@@ -2060,9 +2062,7 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
         if endpoint == "query":
             self.assertEqual(self._post({"query": "select 1"}, token=token).status_code, 202)
         else:
-            response = self.client.post(
-                "/internal/notebooks/data_plane/heartbeat/", HTTP_AUTHORIZATION=f"Bearer {token}"
-            )
+            response = self.client.post("/api/notebooks/sandbox/heartbeat/", HTTP_AUTHORIZATION=f"Bearer {token}")
             self.assertEqual(response.status_code, 204)
 
         from products.notebooks.backend.sql_v2_runs import expire_stale_kernel_run
@@ -2114,7 +2114,7 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
         self.assertEqual(run.status, expected_status)
 
     def test_heartbeat_rejects_a_bad_token(self):
-        response = self.client.post("/internal/notebooks/data_plane/heartbeat/", HTTP_AUTHORIZATION="Bearer nope")
+        response = self.client.post("/api/notebooks/sandbox/heartbeat/", HTTP_AUTHORIZATION="Bearer nope")
         self.assertEqual(response.status_code, 401)
 
     def test_a_fetch_without_a_run_claim_touches_no_run(self):

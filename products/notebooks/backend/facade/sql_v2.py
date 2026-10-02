@@ -15,8 +15,8 @@ never handles them.
 from ..sql_v2_callback import notebook_sql_v2_callback as notebook_sql_v2_callback
 from ..sql_v2_data_plane import (
     notebook_sql_v2_data_plane as notebook_sql_v2_data_plane,
-    notebook_sql_v2_data_plane_heartbeat as notebook_sql_v2_data_plane_heartbeat,
     notebook_sql_v2_data_plane_status as notebook_sql_v2_data_plane_status,
+    record_sandbox_heartbeat as record_sandbox_heartbeat,
 )
 from ..sql_v2_dispatch import (
     NodeRunDispatchFailed as NodeRunDispatchFailed,

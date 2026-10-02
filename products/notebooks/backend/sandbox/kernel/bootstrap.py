@@ -179,7 +179,7 @@ class KernelSession:
         # `%matplotlib inline` would switch to a backend that closes each figure when the cell
         # ends, before the session collects it. Every figure already renders inline here, so the
         # magic keeps the headless backend instead.
-        self.shell.register_magic_function(_keep_headless_backend, magic_kind="line", magic_name="matplotlib")
+        self.shell.magics_manager.register_function(_keep_headless_backend, magic_kind="line", magic_name="matplotlib")
 
     def run_node(self, payload: dict[str, Any]) -> dict[str, Any]:
         result = self._execute_node(payload)
@@ -417,8 +417,11 @@ class KernelSession:
             return ""
         if DisplayHook.semicolon_at_end_of_expression(code):
             return ""
+        formatter = self.shell.display_formatter
+        if formatter is None:
+            return repr(value)
         try:
-            data, _ = self.shell.display_formatter.format(value, include={"text/plain"})
+            data, _ = formatter.format(value, include={"text/plain"})
             text = str(data.get("text/plain", ""))
         except Exception:  # noqa: BLE001 — a broken __repr__ must not fail a run that already succeeded
             text = f"<{type(value).__name__} object>"

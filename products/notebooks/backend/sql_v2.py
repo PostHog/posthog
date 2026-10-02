@@ -202,6 +202,10 @@ def build_data_plane_url() -> str:
     return f"{_backend_base_url()}/internal/notebooks/data_plane/query/"
 
 
+def build_heartbeat_url() -> str:
+    return f"{_backend_base_url()}/api/notebooks/sandbox/heartbeat/"
+
+
 def mint_data_plane_token(notebook_short_id: str, team_id: int, user_id: int | None, run_id: str | None = None) -> str:
     """Sign a data-plane token for the sandbox.
 
@@ -438,6 +442,8 @@ def dispatch_sql_v2_run(
         "callback_token": mint_callback_token(str(run.id), notebook.team_id),
         "data_plane_url": build_data_plane_url(),
         "data_plane_token": mint_data_plane_token(notebook.short_id, notebook.team_id, user_id, str(run.id)),
+        # Authenticated with the data-plane token above.
+        "heartbeat_url": build_heartbeat_url(),
         "page_limit": DISPLAY_PAGE_LIMIT,
         "cache_limit": RESULT_CACHE_ROWS,
     }
