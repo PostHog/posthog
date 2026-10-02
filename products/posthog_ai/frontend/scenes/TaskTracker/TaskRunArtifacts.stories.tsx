@@ -846,3 +846,8 @@ export const MarkdownComments: Story = {
     parameters: { msw: { mocks: commentMocks() } },
     render: () => <StoryPage fileName={REPORT_FILE_NAME} commentsOpen />,
 }
+
+export const ImageCommentPins: Story = {
+    parameters: { msw: { mocks: commentMocks() } },
+    render: () => <StoryPage fileName="trial-starts-by-step.svg" commentsOpen />,
+}
