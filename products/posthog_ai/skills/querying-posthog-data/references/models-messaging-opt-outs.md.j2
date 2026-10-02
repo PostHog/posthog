@@ -1,5 +1,7 @@
 # Messaging opt-outs and suppressions
 
+All three tables need the connected user's project-wide Workflows access. Access to a single workflow is not enough, and the query fails with "You don't have access to table".
+
 ## Message recipient preferences (`system.message_recipient_preferences`)
 
 Messaging preferences per recipient, one row per recipient. The `preferences` map records opt-outs and opt-ins per message category.
