@@ -4817,16 +4817,9 @@ export interface TaskThreadMessageWriteApi {
 }
 
 /**
- * The requesting user's per-project agent preferences, shared by PostHog Desktop and the web app.
+ * The requesting user's per-project task defaults, shared by PostHog Desktop and the web app.
  */
 export interface TasksAgentPreferencesApi {
-    /**
-     * Instructions the user's agents follow in every task the user starts. Empty when unset.
-     * @maxLength 10000
-     */
-    custom_instructions: string
-    /** When true, agents write in ASD-STE100 Simplified Technical English. */
-    simplified_technical_english: boolean
     /** When true, new tasks start in plan mode: the agent makes a plan and waits for approval. */
     start_in_plan_mode: boolean
     /** When true, a cloud run that changes code always opens a draft pull request. */
@@ -4837,13 +4830,6 @@ export interface TasksAgentPreferencesApi {
  * A partial update of the requesting user's agent preferences. Fields left out keep their stored value.
  */
 export interface TasksAgentPreferencesUpdateApi {
-    /**
-     * Instructions the user's agents follow in every task the user starts. Empty when unset.
-     * @maxLength 10000
-     */
-    custom_instructions?: string
-    /** When true, agents write in ASD-STE100 Simplified Technical English. */
-    simplified_technical_english?: boolean
     /** When true, new tasks start in plan mode: the agent makes a plan and waits for approval. */
     start_in_plan_mode?: boolean
     /** When true, a cloud run that changes code always opens a draft pull request. */

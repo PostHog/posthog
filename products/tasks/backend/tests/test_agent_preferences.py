@@ -1,14 +1,20 @@
+import uuid
+from datetime import timedelta
+
 from posthog.test.base import APIBaseTest
 
+from django.utils import timezone as django_timezone
+
 from parameterized import parameterized
+from rest_framework.test import APIClient
 
 from posthog.models import User
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
-from products.tasks.backend.models import UserTasksConfig
+from products.tasks.backend.models import Task, UserTasksConfig
 
 DEFAULTS = {
-    "custom_instructions": "",
-    "simplified_technical_english": False,
     "start_in_plan_mode": False,
     "auto_publish_cloud_runs": False,
 }
@@ -25,40 +31,38 @@ class TestAgentPreferencesAPI(APIBaseTest):
         assert response.json() == DEFAULTS
 
     def test_partial_updates_keep_the_other_stored_values(self):
-        self.client.post(self._url(), {"custom_instructions": "Keep pull requests small."}, format="json")
+        self.client.post(self._url(), {"auto_publish_cloud_runs": True}, format="json")
         response = self.client.post(self._url(), {"start_in_plan_mode": True}, format="json")
 
         assert response.status_code == 200
-        assert response.json() == {
-            **DEFAULTS,
-            "custom_instructions": "Keep pull requests small.",
-            "start_in_plan_mode": True,
-        }
+        assert response.json() == {"start_in_plan_mode": True, "auto_publish_cloud_runs": True}
         assert self.client.get(self._url()).json() == response.json()
 
-    def test_update_keeps_the_stored_model_preference(self):
+    def test_update_keeps_the_stored_model_preference_and_instructions(self):
         UserTasksConfig.objects.for_team(self.team.id).create(
-            team=self.team, user=self.user, ai_run_preferences={"runtime_adapter": "claude", "model": "m"}
+            team=self.team,
+            user=self.user,
+            ai_run_preferences={"runtime_adapter": "claude", "model": "m"},
+            agent_instructions="Use pnpm.",
         )
 
-        self.client.post(self._url(), {"simplified_technical_english": True}, format="json")
+        self.client.post(self._url(), {"start_in_plan_mode": True}, format="json")
 
         config = UserTasksConfig.objects.for_team(self.team.id).get(user=self.user)
         assert config.ai_run_preferences == {"runtime_adapter": "claude", "model": "m"}
-        assert config.agent_preferences is not None
-        assert config.agent_preferences["simplified_technical_english"] is True
+        assert config.agent_instructions == "Use pnpm."
+        assert config.agent_preferences == {"start_in_plan_mode": True, "auto_publish_cloud_runs": False}
 
     def test_another_users_preferences_do_not_leak(self):
         other = User.objects.create_and_join(self.organization, "other@example.com", "password")
         UserTasksConfig.objects.for_team(self.team.id).create(
-            team=self.team, user=other, agent_preferences={"custom_instructions": "Theirs only."}
+            team=self.team, user=other, agent_preferences={"start_in_plan_mode": True}
         )
 
         assert self.client.get(self._url()).json() == DEFAULTS
 
     @parameterized.expand(
         [
-            ("instructions_over_the_limit", {"custom_instructions": "x" * 10_001}),
             ("a_flag_that_is_not_a_boolean", {"start_in_plan_mode": "sometimes"}),
         ]
     )
@@ -66,4 +70,40 @@ class TestAgentPreferencesAPI(APIBaseTest):
         response = self.client.post(self._url(), payload, format="json")
 
         assert response.status_code == 400
+        assert self.client.get(self._url()).json() == DEFAULTS
+
+    def test_a_task_agent_token_cannot_change_preferences(self):
+        task = Task.objects.create(
+            team=self.team,
+            title="t",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            created_by=self.user,
+        )
+        application = OAuthApplication.objects.create(
+            name="Task agent",
+            client_id=ARRAY_APP_CLIENT_ID_DEV,
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            algorithm="RS256",
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            user=self.user,
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token=f"pha_task_agent_{uuid.uuid4().hex}",
+            expires=django_timezone.now() + timedelta(hours=1),
+            scope="task:read task:write",
+            scoped_teams=[self.team.id],
+            sandbox_task_id=task.id,
+        )
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.token}")
+
+        response = client.post(self._url(), {"auto_publish_cloud_runs": True}, format="json")
+
+        assert response.status_code == 403, response.content
+        assert client.get(self._url()).status_code == 200
         assert self.client.get(self._url()).json() == DEFAULTS

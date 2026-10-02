@@ -214,22 +214,30 @@ class TasksUserConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         return Response(TasksAgentInstructionsSerializer({"agent_instructions": instructions}).data)
 
+
 class _SingletonSchema(AutoSchema):
     def _is_list_view(self, serializer=None) -> bool:
         return False
+
+
+class DenySandboxAgentPreferenceWrites(BasePermission):
+    message = "Task agents cannot modify agent preferences."
+
+    def has_permission(self, request: Request, view) -> bool:
+        return request.method in SAFE_METHODS or not is_sandbox_oauth_request(request)
 
 
 class TasksUserAgentPreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     schema = _SingletonSchema()
     scope_object = "task"
     authentication_classes = _AUTH_CLASSES
-    permission_classes = [IsAuthenticated, APIScopePermission]
+    permission_classes = [IsAuthenticated, APIScopePermission, DenySandboxAgentPreferenceWrites]
     serializer_class = TasksAgentPreferencesSerializer
 
     @extend_schema(
         operation_id="tasks_me_agent_preferences_list",
         responses={200: TasksAgentPreferencesSerializer},
-        description="Retrieve your per-project agent preferences. Unset preferences return their defaults.",
+        description="Retrieve your per-project task defaults. Unset defaults return false.",
     )
     def list(self, request: Request, *args, **kwargs) -> Response:
         preferences = agent_preferences.get_user_agent_preferences(self.team_id, _user_id(request))
@@ -239,7 +247,7 @@ class TasksUserAgentPreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
         operation_id="tasks_me_agent_preferences_create",
         request=TasksAgentPreferencesUpdateSerializer,
         responses={200: TasksAgentPreferencesSerializer},
-        description="Update your per-project agent preferences. Fields you leave out keep their stored value.",
+        description="Update your per-project task defaults. Fields you leave out keep their stored value.",
     )
     def create(self, request: Request, *args, **kwargs) -> Response:
         serializer = TasksAgentPreferencesUpdateSerializer(data=request.data)

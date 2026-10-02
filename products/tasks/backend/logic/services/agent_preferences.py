@@ -6,6 +6,7 @@ from posthog.models.scoping.manager import resolve_effective_team_id
 
 from products.tasks.backend.models import UserTasksConfig
 
+
 class AgentPreferences(TypedDict):
     start_in_plan_mode: bool
     auto_publish_cloud_runs: bool

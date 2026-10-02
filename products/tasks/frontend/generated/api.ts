@@ -149,12 +149,9 @@ import type {
     TaskUserBasicInfoApi,
     TaskWriteApi,
     TasksAIRunPreferencesApi,
-<<<<<<< HEAD
     TasksAgentInstructionsApi,
-=======
     TasksAgentPreferencesApi,
     TasksAgentPreferencesUpdateApi,
->>>>>>> ca2c7d62 (feat(tasks): store per-user agent preferences on the server)
     TasksCommentsListParams,
     TasksCommentsRetrieveParams,
     TasksConfigListParams,
@@ -2818,7 +2815,7 @@ export const getTasksMeAgentPreferencesListUrl = (projectId: string) => {
 }
 
 /**
- * Retrieve your per-project agent preferences. Unset preferences return their defaults.
+ * Retrieve your per-project task defaults. Unset defaults return false.
  */
 export const tasksMeAgentPreferencesList = async (
     projectId: string,
@@ -2835,7 +2832,7 @@ export const getTasksMeAgentPreferencesCreateUrl = (projectId: string) => {
 }
 
 /**
- * Update your per-project agent preferences. Fields you leave out keep their stored value.
+ * Update your per-project task defaults. Fields you leave out keep their stored value.
  */
 export const tasksMeAgentPreferencesCreate = async (
     projectId: string,

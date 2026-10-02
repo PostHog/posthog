@@ -3689,21 +3689,10 @@ export const TasksThreadMessagesSendToAgentCreateBody = /* @__PURE__ */ zod
     .describe("Response shape for one message in a task's thread.")
 
 /**
- * Update your per-project agent preferences. Fields you leave out keep their stored value.
+ * Update your per-project task defaults. Fields you leave out keep their stored value.
  */
-export const tasksMeAgentPreferencesCreateBodyCustomInstructionsMax = 10000
-
 export const TasksMeAgentPreferencesCreateBody = /* @__PURE__ */ zod
     .object({
-        custom_instructions: zod
-            .string()
-            .max(tasksMeAgentPreferencesCreateBodyCustomInstructionsMax)
-            .optional()
-            .describe("Instructions the user's agents follow in every task the user starts. Empty when unset."),
-        simplified_technical_english: zod
-            .boolean()
-            .optional()
-            .describe('When true, agents write in ASD-STE100 Simplified Technical English.'),
         start_in_plan_mode: zod
             .boolean()
             .optional()
