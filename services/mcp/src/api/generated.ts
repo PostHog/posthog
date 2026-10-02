@@ -17758,6 +17758,11 @@ export namespace Schemas {
     } as const;
 
     export interface BooleanScoreDefinitionConfig {
+      /**
+         * Whether true means failure. False, omitted, or null means true passes in offline evaluations.
+         * @nullable
+         */
+      true_is_failure?: boolean | null;
       /** Optional label for a true value. */
       true_label?: string;
       /** Optional label for a false value. */
@@ -21265,6 +21270,14 @@ export namespace Schemas {
       Multiple: 'multiple',
     } as const;
 
+    export interface CategoricalScorePassingRule {
+      /**
+         * Passing category keys. Every returned category must be included. An empty list makes all accepted offline results fail.
+         * @items.maxLength 128
+         */
+      categories: string[];
+    }
+
     export interface CategoricalScoreDefinitionConfig {
       /** Ordered categorical options available to the scorer. */
       options: CategoricalScoreOption[];
@@ -21285,6 +21298,8 @@ export namespace Schemas {
          * @nullable
          */
       max_selections?: number | null;
+      /** Optional passing categories. Omit or set null for neutral scores. Each scorer version keeps its own rule. */
+      passing_rule?: CategoricalScorePassingRule | null;
     }
 
     export interface CdcEnableResponse {
@@ -64191,6 +64206,28 @@ export namespace Schemas {
       change: WoWChange | null;
     }
 
+    /**
+     * * `gte` - At or above
+     * * `lte` - At or below
+     */
+    export type NumericScorePassingRuleSerializerOperatorEnum = typeof NumericScorePassingRuleSerializerOperatorEnum[keyof typeof NumericScorePassingRuleSerializerOperatorEnum];
+
+
+    export const NumericScorePassingRuleSerializerOperatorEnum = {
+      Gte: 'gte',
+      Lte: 'lte',
+    } as const;
+
+    export interface NumericScorePassingRule {
+      /** Pass at or above (gte), or at or below (lte), the threshold.
+       *
+       * * `gte` - At or above
+       * * `lte` - At or below */
+      operator: NumericScorePassingRuleSerializerOperatorEnum;
+      /** Finite passing threshold within any configured score bounds. */
+      threshold: number;
+    }
+
     export interface NumericScoreDefinitionConfig {
       /**
          * Optional inclusive minimum score.
@@ -64207,6 +64244,8 @@ export namespace Schemas {
          * @nullable
          */
       step?: number | null;
+      /** Optional passing rule. Omit or set null for neutral scores. Each scorer version keeps its own rule. */
+      passing_rule?: NumericScorePassingRule | null;
     }
 
     export interface OAuthRedirectResponse {
@@ -65021,6 +65060,21 @@ export namespace Schemas {
          * @nullable
          */
       true_rate: number | null;
+      /**
+         * Successful results passing the pinned rule. Boolean scores default to true passing; null for unconfigured numeric or categorical scorers.
+         * @nullable
+         */
+      pass_count: number | null;
+      /**
+         * Successful results failing the pinned rule; null for unconfigured numeric or categorical scorers.
+         * @nullable
+         */
+      fail_count: number | null;
+      /**
+         * Passing fraction among successful results; null without successful results or an applicable rule. Boolean scores default to true passing. Excludes errors, skipped, not-applicable, and missing results.
+         * @nullable
+         */
+      pass_rate: number | null;
       /** Pinned categorical distribution; multiselect rates may sum above one. */
       categories: OfflineCategorySummary[];
     }
@@ -92991,6 +93045,16 @@ export namespace Schemas {
     }
 
     export interface ScoreDefinitionNewVersion {
+      /**
+         * Updated scorer name, saved with this version.
+         * @maxLength 255
+         */
+      name?: string;
+      /**
+         * Updated scorer description, saved with this version.
+         * @nullable
+         */
+      description?: string | null;
       /** Next immutable scorer configuration. */
       config: ScoreDefinitionConfig;
       /**
@@ -103919,6 +103983,26 @@ export namespace Schemas {
     }
 
     /**
+     * The requesting user's per-project task defaults, shared by PostHog Desktop and the web app.
+     */
+    export interface TasksTaskDefaults {
+      /** When true, new tasks start in plan mode: the agent makes a plan and waits for approval. */
+      start_in_plan_mode: boolean;
+      /** When true, a cloud run that changes code always opens a draft pull request. */
+      auto_publish_cloud_runs: boolean;
+    }
+
+    /**
+     * A partial update of the requesting user's task defaults. Fields left out keep their stored value.
+     */
+    export interface TasksTaskDefaultsUpdate {
+      /** When true, new tasks start in plan mode: the agent makes a plan and waits for approval. */
+      start_in_plan_mode?: boolean;
+      /** When true, a cloud run that changes code always opens a draft pull request. */
+      auto_publish_cloud_runs?: boolean;
+    }
+
+    /**
      * Team-level tasks configuration.
      */
     export interface TasksTeamConfigResponse {
@@ -103938,6 +104022,8 @@ export namespace Schemas {
       resolved_ai_run_defaults: TasksResolvedAIRunDefaults;
       /** Your personal instructions, which PostHog cloud agents read in Tasks runs you start, after the project instructions. Anyone who continues a task you started can see them. Empty when unset. */
       agent_instructions: string;
+      /** Your per-project defaults for new tasks. Unset defaults are false. */
+      task_defaults: TasksTaskDefaults;
     }
 
     export interface TeachingCanvas {
@@ -122555,17 +122641,6 @@ export namespace Schemas {
     };
 
     export type TasksThreadMessagesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type TasksMeConfigListParams = {
     /**
      * Number of results to return per page.
      */
