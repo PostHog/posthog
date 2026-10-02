@@ -5,6 +5,7 @@ import { OriginPolicyReason, ResponseOptOutReason, responseOptOutReason } from '
 import { HttpCacheMetadata } from './crawl-history'
 import { ImageFetchRequestMetrics } from './metrics'
 import { canonicalizeUrl } from './politeness-key'
+import { REQUEST_IDENTITY_HEADERS } from './request-identity'
 import { WebBotAuthRequestSigner } from './web-bot-auth'
 
 /**
@@ -107,11 +108,8 @@ export interface ImageFetcher {
     fetch(url: string, options: ImageFetchOptions): Promise<ImageFetchResult>
 }
 
-const USER_AGENT = 'PostHogImageFetcherBot/1.0 (+https://posthog.com/docs/ai-research/image-fetcher-bot)'
-
 const REQUEST_HEADERS: Record<string, string> = {
-    'user-agent': USER_AGENT,
-    referer: 'https://us.posthog.com/',
+    ...REQUEST_IDENTITY_HEADERS,
     accept: 'image/*',
     'accept-encoding': 'gzip, deflate, br, zstd',
 }
