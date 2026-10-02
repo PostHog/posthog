@@ -956,6 +956,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         # from the instance the serializer was handed. Otherwise a dedicated integration
         # update that commits between the request's snapshot and the save gets clobbered
         # by the whole-blob write, restoring stale state.
+        self.team.conversations_enabled = False
         self.team.conversations_settings = {"widget_color": "#123456"}
         self.team.save()
 
@@ -964,16 +965,26 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             # integration change now, so the merge must see it. The null clear
             # keeps only managed keys, so the token and the integration state
             # the integration update just wrote are the ones that must survive.
+            # Another admin enables conversations in the same window.
             Team.objects.filter(pk=self.team.pk).update(
+                conversations_enabled=True,
                 conversations_settings={
                     "widget_color": "#123456",
                     "widget_public_token": "integration-token",
                     "teams_enabled": True,
-                }
+                },
             )
             return real_select_for_update(*args, **kwargs)
 
+        def simulate_late_integration_update(team: Team, *args: Any, **kwargs: Any) -> None:
+            # Runs after this request's locked write commits. The late write must not
+            # be reported as this user's setting change.
+            latest = Team.objects.only("conversations_settings").get(pk=team.pk).conversations_settings
+            Team.objects.filter(pk=team.pk).update(conversations_settings={**latest, "late_key": True})
+            real_refresh_from_db(team, *args, **kwargs)
+
         real_select_for_update = Team.objects.select_for_update
+        real_refresh_from_db = Team.refresh_from_db
         if mode == "null":
             payload: dict[str, Any] = {"conversations_settings": None}
         else:
@@ -983,7 +994,10 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             CaptureQueriesContext(connection) as queries,
             patch("posthog.api.team.report_user_action") as mock_report,
         ):
-            with patch.object(Team.objects, "select_for_update", simulate_integration_update):
+            with (
+                patch.object(Team.objects, "select_for_update", simulate_integration_update),
+                patch.object(Team, "refresh_from_db", simulate_late_integration_update),
+            ):
                 if serializer_class is TeamSerializer:
                     TeamSerializer(context={"request": MagicMock(user=self.user)}).update(self.team, payload)
                 else:
@@ -1004,18 +1018,31 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             }
         else:
             expected = {"widget_public_token": "integration-token", "teams_enabled": True}
-        self.assertEqual(self.team.conversations_settings, expected)
+        self.assertEqual(self.team.conversations_settings, {**expected, "late_key": True})
+        self.assertTrue(self.team.conversations_enabled)
 
         # The blob must be written exactly once by this request, inside the lock. The
         # first captured UPDATE is the simulated integration write; a second one after
         # the lock is released would clobber an integration writer queued on it.
-        settings_saves = [q for q in queries.captured_queries if q["sql"].startswith('UPDATE "posthog_team"')]
+        settings_saves = [
+            q
+            for q in queries.captured_queries
+            if q["sql"].startswith('UPDATE "posthog_team"') and "late_key" not in q["sql"]
+        ]
         self.assertEqual(len(settings_saves), 2, [q["sql"][:120] for q in settings_saves])
         self.assertIn("integration-token", settings_saves[0]["sql"])
 
-        # The integration's own keys must not be reported as this user's setting changes.
+        # Neither concurrent writer's keys may be reported as this user's setting changes.
         reported = [c.args[2]["setting"] for c in mock_report.call_args_list if c.args[1] == "support setting changed"]
         self.assertEqual(reported, [] if mode == "enabled" else ["widget_color"])
+
+        # The other admin's toggle must not be logged as this user's change.
+        logged_fields = [
+            change["field"]
+            for log in ActivityLog.objects.filter(team_id=self.team.pk, scope="Team")
+            for change in (log.detail or {}).get("changes") or []
+        ]
+        self.assertNotIn("conversations_enabled", logged_fields)
 
     def test_generate_conversations_public_token(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN

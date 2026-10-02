@@ -1399,6 +1399,7 @@ class ProjectBackwardCompatSerializer(
         report_conversations_settings_changes(
             cast(User, self.context["request"].user),
             team_before_update.get("conversations_settings"),
+            team_after_update.get("conversations_settings"),
             team,
         )
 
