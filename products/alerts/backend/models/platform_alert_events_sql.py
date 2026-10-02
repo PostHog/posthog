@@ -1,0 +1,1 @@
+SHARDED_PLATFORM_ALERT_EVENTS_TABLE = "sharded_platform_alert_events"
