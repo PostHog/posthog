@@ -104,6 +104,7 @@ FROM (
 )
 WHERE is_deleted = 0 AND person_id IN {person_ids}
 GROUP BY person_id
+LIMIT {person_count}
 """
 
 _PERSONS_WITHOUT_EMAIL_QUERY = (
@@ -317,7 +318,10 @@ def _first_distinct_id_by_person(team: "Team", user: "User", person_ids: list[st
         _FIRST_DISTINCT_ID_QUERY,
         team=team,
         user=user,
-        placeholders={"person_ids": ast.Constant(value=person_ids)},
+        placeholders={
+            "person_ids": ast.Constant(value=person_ids),
+            "person_count": ast.Constant(value=len(person_ids)),
+        },
         query_type="MessagingRecipientsDistinctIdsQuery",
     )
     return dict(response.results or [])
