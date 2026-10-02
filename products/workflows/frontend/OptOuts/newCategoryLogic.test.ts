@@ -42,6 +42,27 @@ describe('newCategoryLogic', () => {
         expect(logic.values.categoryForm.key).toBe('product-updates')
     })
 
+    it('cuts the key slugified from a long name to the 64 characters a key can hold', () => {
+        const logic = newCategoryLogic({})
+        logic.mount()
+
+        typeInto(logic, 'name', 'Monthly product announcements for engineering and design teams worldwide')
+
+        expect(logic.values.categoryForm.key).toBe('monthly-product-announcements-for-engineering-and-design-teams-w')
+    })
+
+    it.each([
+        { key: 'a'.repeat(64), error: undefined },
+        { key: 'a'.repeat(65), error: 'Keys can be at most 64 characters' },
+    ])('accepts a key of up to 64 characters ($key.length characters)', ({ key, error }) => {
+        const logic = newCategoryLogic({})
+        logic.mount()
+
+        typeInto(logic, 'key', key)
+
+        expect(logic.values.categoryFormValidationErrors.key).toBe(error)
+    })
+
     it.each([
         { handTyped: ['news'], kept: 'news' },
         { handTyped: ['news', 'product-updates'], kept: 'product-updates' },
