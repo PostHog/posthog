@@ -112,6 +112,17 @@ describe('recordingTimeline', () => {
             expected: ['boundary start', 'chapter', 'boundary end 90000'],
         },
         {
+            name: 'an idle stretch that starts inside a chapter begins where the chapter ends',
+            observations: [
+                summary({
+                    chapters: [chapter(0, 20_000, 'A'), chapter(90_000, 100_000, 'B')],
+                    inactive_periods: [{ start_ms: 10_000, end_ms: 90_000 }],
+                }),
+            ],
+            durationMs: 100_000,
+            expected: ['boundary start', 'chapter', 'inactive 20000', 'chapter', 'boundary end'],
+        },
+        {
             name: 'an unknown length leaves out the end',
             observations: [summary({ chapters: [chapter(0, 10_000, 'A')] })],
             durationMs: null,
@@ -121,11 +132,13 @@ describe('recordingTimeline', () => {
         const rows = timelineRows(recordingTimeline(observations), durationMs)
         expect(
             rows.map((row) =>
-                row.kind !== 'boundary'
-                    ? row.kind
-                    : row.edge === 'end' && row.atMs !== durationMs
-                      ? `boundary end ${row.atMs}`
-                      : `boundary ${row.edge}`
+                row.kind === 'inactive'
+                    ? `inactive ${row.startMs}`
+                    : row.kind !== 'boundary'
+                      ? row.kind
+                      : row.edge === 'end' && row.atMs !== durationMs
+                        ? `boundary end ${row.atMs}`
+                        : `boundary ${row.edge}`
             )
         ).toEqual(expected)
     })

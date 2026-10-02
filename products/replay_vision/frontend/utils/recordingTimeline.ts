@@ -155,6 +155,19 @@ function overlapMs(a: TimelineInactive, startMs: number, endMs: number): number 
     return Math.max(0, Math.min(a.endMs, endMs) - Math.max(a.startMs, startMs))
 }
 
+function uncoveredParts(period: TimelineInactive, chapters: TimelineChapter[]): TimelineInactive[] {
+    let parts = [period]
+    for (const c of chapters) {
+        parts = parts.flatMap((p) =>
+            [
+                { startMs: p.startMs, endMs: Math.min(p.endMs, c.startMs) },
+                { startMs: Math.max(p.startMs, c.endMs), endMs: p.endMs },
+            ].filter((part) => part.endMs > part.startMs)
+        )
+    }
+    return parts
+}
+
 /** The recording's timeline: the newest summary's chapters, with every other run's key moment as a marker. */
 export function recordingTimeline(observations: ReplayObservationApi[]): RecordingTimeline {
     const summaries = observations
@@ -175,12 +188,8 @@ export function recordingTimeline(observations: ReplayObservationApi[]): Recordi
     }
     // A gap row is the inactive time no chapter covers, so a pause a chapter spans never shows twice.
     const inactive = allInactive
-        .map((p) => ({
-            ...p,
-            uncoveredMs: p.endMs - p.startMs - chapters.reduce((s, c) => s + overlapMs(p, c.startMs, c.endMs), 0),
-        }))
-        .filter((p) => p.uncoveredMs >= MIN_INACTIVE_ROW_MS)
-        .map(({ startMs, endMs }) => ({ startMs, endMs }))
+        .flatMap((p) => uncoveredParts(p, chapters))
+        .filter((p) => p.endMs - p.startMs >= MIN_INACTIVE_ROW_MS)
 
     const summaryState: SummaryState =
         chapters.length > 0 ? 'ready' : pending ? 'pending' : summary ? 'outdated' : 'none'
