@@ -539,7 +539,6 @@ class TestMultiRepoGitHubResolution(BaseTest):
             repository="posthog/posthog.com",
         )
         assert set(resolve_job_source_tables(self.team)) == {without_prs, with_depot, other_repo}
-        # A read of a stored view filters on one source, so each source of the repository carries Depot.
         assert set(resolve_stored_view_sources(self.team)) == {
             replace(without_prs, depot_job_attempts=depot_attempts),
             with_depot,

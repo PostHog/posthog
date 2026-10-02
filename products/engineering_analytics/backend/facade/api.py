@@ -103,10 +103,8 @@ def mark_in_use(*, team_id: int) -> None:
     if not logic.mark_in_use(team_id):
         return
     try:
-        # A rebuild start talks to Temporal, so it runs outside the request.
         rebuild_stored_views.delay(team_id=team_id)
     except Exception:
-        # The next data load starts the rebuild.
         logger.warning("engineering_analytics_rebuild_dispatch_failed", team_id=team_id, exc_info=True)
 
 

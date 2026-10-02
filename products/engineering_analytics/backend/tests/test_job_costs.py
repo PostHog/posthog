@@ -2,7 +2,7 @@ import json
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 from uuid import uuid4
 
 import pytest
@@ -145,6 +145,12 @@ def _cost_query(jobs_table: str, runs_table: str) -> str:
     )
 
 
+class _JobOfRun(NamedTuple):
+    run_id: int
+    created: str
+    run_started: str
+
+
 class TestJobCostsViewParity(ClickhouseTestMixin, BaseTest):
     # The drift guard for the single-source-of-truth contract: the view is rendered from the same
     # constants as logic.cost, so any change to one side that isn't matched on the other shows up
@@ -168,23 +174,22 @@ class TestJobCostsViewParity(ClickhouseTestMixin, BaseTest):
         self.addCleanup(cleanup)
         return table.name
 
-    def _source_with_runs_and_jobs(self, jobs: list[tuple[int, str, str]]) -> JobSourceTables:
-        # Each job is (run id, when the job was created, when its run started).
+    def _source_with_runs_and_jobs(self, jobs: list[_JobOfRun]) -> JobSourceTables:
         jobs_table = self._create_table(
             "github_workflow_jobs",
             WORKFLOW_JOBS_COLUMNS,
             [
-                _job_row(index, ["depot-ubuntu-22.04-16"], created, created, "completed", run_id=run_id)
-                for index, (run_id, created, _run_started) in enumerate(jobs)
+                _job_row(index, ["depot-ubuntu-22.04-16"], job.created, job.created, "completed", run_id=job.run_id)
+                for index, job in enumerate(jobs)
             ],
         )
         runs_table = self._create_table(
             "github_workflow_runs",
             WORKFLOW_RUNS_COLUMNS,
             [
-                _run_row(run_id, run_attempt=1, pr_number=1)
-                | {"created_at": run_started, "run_started_at": run_started, "updated_at": run_started}
-                for run_id, _created, run_started in jobs
+                _run_row(job.run_id, run_attempt=1, pr_number=1)
+                | {"created_at": job.run_started, "run_started_at": job.run_started, "updated_at": job.run_started}
+                for job in jobs
             ],
         )
         return JobSourceTables(
@@ -204,9 +209,10 @@ class TestJobCostsViewParity(ClickhouseTestMixin, BaseTest):
     def test_exposed_view_columns_match_the_field_contract(
         self, _name: str, build: Callable[[JobSourceTables], str], fields: dict[str, FieldOrTable]
     ) -> None:
-        # A view body projects its columns through nested SELECTs. A column that is added to FIELDS
-        # and missed in one layer yields a query that still runs and drops the column from the view.
-        source = self._source_with_runs_and_jobs([(9000, _ago(1), _ago(1))])
+        # The view body projects its column list through four nested SELECTs. Appending to FIELDS but
+        # missing a layer yields a query that still runs and silently drops the column from the
+        # exposed view, so assert the two agree — the same guard ci_job_history has.
+        source = self._source_with_runs_and_jobs([_JobOfRun(9000, created=_ago(1), run_started=_ago(1))])
 
         response = execute_hogql_query(
             query=f"SELECT * FROM ({build(source)})", team=self.team, query_type="engineering_analytics.test"
@@ -217,7 +223,6 @@ class TestJobCostsViewParity(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
         [
             ("ci_jobs", ci_jobs.build_source_query, "run_id", [9000, 9002]),
-            # The run of 9002 started before the runs view's window.
             ("ci_runs", ci_runs.build_source_query, "id", [9000]),
         ]
     )
@@ -226,11 +231,9 @@ class TestJobCostsViewParity(ClickhouseTestMixin, BaseTest):
     ) -> None:
         source = self._source_with_runs_and_jobs(
             [
-                (9000, _ago(1), _ago(1)),
-                (9001, _ago(200), _ago(200)),
-                # A job inside the jobs window whose run waited a month for an approval. The jobs view
-                # must still read that run, or the job loses its pull request.
-                (9002, _ago(60), _ago(90)),
+                _JobOfRun(9000, created=_ago(1), run_started=_ago(1)),
+                _JobOfRun(9001, created=_ago(200), run_started=_ago(200)),
+                _JobOfRun(9002, created=_ago(60), run_started=_ago(90)),
             ]
         )
 

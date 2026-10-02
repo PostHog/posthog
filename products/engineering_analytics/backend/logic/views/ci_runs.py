@@ -33,11 +33,8 @@ if TYPE_CHECKING:
 
 VIEW_NAME = "engineering_analytics_ci_runs"
 
-# The tables whose load makes the view out of date. The view also reads the pull requests and the
-# jobs, and takes those rows as of their last load.
 REBUILT_AFTER = (WORKFLOW_RUNS_SCHEMA, DEPOT_JOB_ATTEMPTS_SCHEMA)
 
-# The columns of the runs builder that the view stores, in the builder's order.
 _BUILDER_FIELDS: dict[str, FieldOrTable] = {
     "id": IntegerDatabaseField(name="id"),
     "workflow_name": StringDatabaseField(name="workflow_name", nullable=True),
@@ -50,7 +47,6 @@ _BUILDER_FIELDS: dict[str, FieldOrTable] = {
     "created_at": DateTimeDatabaseField(name="created_at", nullable=True),
     "run_attempt": IntegerDatabaseField(name="run_attempt", nullable=True),
     "is_merge_queue": BooleanDatabaseField(name="is_merge_queue"),
-    # 0 when the run has no pull request (a default-branch push, a fork run).
     "pr_number": IntegerDatabaseField(name="pr_number"),
     "commit_pr_number": IntegerDatabaseField(name="commit_pr_number", nullable=True),
     "duration_seconds": IntegerDatabaseField(name="duration_seconds", nullable=True),
@@ -61,7 +57,6 @@ _BUILDER_FIELDS: dict[str, FieldOrTable] = {
     "native_workflow_run_id": StringDatabaseField(name="native_workflow_run_id", nullable=True),
 }
 
-# Column order is the saved-query schema and the UNION ALL order across sources: append, never reorder.
 FIELDS: dict[str, FieldOrTable] = {**_BUILDER_FIELDS, **stored_view.IDENTITY_FIELDS}
 
 

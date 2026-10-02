@@ -26,11 +26,8 @@ if TYPE_CHECKING:
 
 VIEW_NAME = "engineering_analytics_ci_jobs"
 
-# The tables whose load makes the view out of date. The view also reads the runs, and takes those
-# rows as of their last load.
 REBUILT_AFTER = (WORKFLOW_JOBS_SCHEMA, DEPOT_JOB_ATTEMPTS_SCHEMA)
 
-# Column order is the saved-query schema and the UNION ALL order across sources: append, never reorder.
 FIELDS: dict[str, FieldOrTable] = {**job_costs.BUILDER_FIELDS, **stored_view.IDENTITY_FIELDS}
 
 

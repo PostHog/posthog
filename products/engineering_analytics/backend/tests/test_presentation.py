@@ -264,7 +264,6 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         assert body[1]["synced"] is False
 
     def test_only_the_first_request_after_an_idle_period_asks_for_a_rebuild(self) -> None:
-        # A request that stops marking the product in use stops every rebuild, with no error.
         with (
             mock.patch(f"{_VIEWS}.list_github_sources", return_value=[]),
             mock.patch(f"{_VIEWS}.rebuild_stored_views") as rebuild,

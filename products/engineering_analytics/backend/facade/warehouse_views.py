@@ -52,6 +52,6 @@ def _materialized_views_enabled(team: Team) -> bool:
     enabled = team_flag(MATERIALIZED_VIEWS_FEATURE_FLAG, team)
     if enabled is None:
         # No answer (the flag service failed, or the flag does not exist). The sync deletes every view it
-        # does not expect, so keep the views the team has rather than drop a materialized table on an outage.
+        # does not expect, so keep the view the team has rather than drop a materialized table on an outage.
         return managed_views(team.id, [module.VIEW_NAME for module in _MATERIALIZED_VIEWS]).exists()
     return enabled

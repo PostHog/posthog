@@ -27,7 +27,6 @@ _STORED_VIEWS = "products.engineering_analytics.backend.logic.stored_views"
 class TestSyncEngineeringAnalyticsViews(BaseTest):
     def setUp(self) -> None:
         super().setUp()
-        # The in-use mark and the rebuild throttle live in the cache, which outlives a test.
         cache.clear()
         self.addCleanup(cache.clear)
 
@@ -125,7 +124,6 @@ class TestSyncEngineeringAnalyticsViews(BaseTest):
         for name, is_materialized in (
             (ci_runs.VIEW_NAME, True),
             (ci_jobs.VIEW_NAME, True),
-            # The friction replay is too heavy to run on every load, and a query-time view has no table.
             (pr_friction.VIEW_NAME, True),
             (job_costs.VIEW_NAME, False),
         ):
@@ -141,11 +139,8 @@ class TestSyncEngineeringAnalyticsViews(BaseTest):
         [
             ("rebuild_starts", True, None, False, 1, 1),
             ("rebuild_cannot_start", True, RuntimeError("temporal is down"), False, 1, 1),
-            # Nobody used the product lately, so a rebuild would spend compute on a table nobody reads.
             ("product_idle", False, None, False, 1, 0),
-            # A start keeps the suspension but still runs, so each load would run the failing rebuild again.
             ("view_suspended", True, None, True, 1, 0),
-            # Several repositories and tables load within one cycle, and each load calls the hook.
             ("second_load_soon_after", True, None, False, 2, 1),
         ]
     )
@@ -177,10 +172,8 @@ class TestSyncEngineeringAnalyticsViews(BaseTest):
         for _ in range(loads):
             sync_engineering_analytics_views(schema, source)
 
-        # A jobs load leaves the runs view as it was.
         rebuilt = [call.args[0].name for call in mock_materialize.call_args_list]
         assert rebuilt == [ci_jobs.VIEW_NAME] * expected_rebuilds
-        # A load is not a person asking for a retry, so it must not lift the suspension of a failing view.
         assert all(call.kwargs == {"resume": False} for call in mock_materialize.call_args_list)
         assert mock_capture.call_count == (1 if error else 0)
 

@@ -124,26 +124,18 @@ FIELDS: dict[str, FieldOrTable] = {
 }
 
 
-# The pass-through columns: the builder returns them, and the public view leaves them out. Each entry
-# is the expression the innermost join layer reads and the column it becomes. Every outer layer
-# re-projects the bare column names, so a new pass-through is added in exactly one place.
 _PASSTHROUGH: tuple[tuple[str, DatabaseField], ...] = (
-    # The run's start time and the *run's* head branch (distinct from the job's ``head_branch``). The
-    # product's endpoint cost queries window and branch-filter on them. The public view omits them:
-    # ``run_head_branch`` would duplicate ``head_branch`` for the exposed grain, and the view already
-    # carries ``created_at`` for time filtering. NULL for a job whose run row is missing.
+    # The public view omits the run's start time and branch: ``run_head_branch`` would duplicate
+    # ``head_branch`` for the exposed grain, and the view already carries ``created_at`` for time filtering.
     ("r.run_started_at", DateTimeDatabaseField(name="run_started_at", nullable=True)),
     ("r.head_branch", StringDatabaseField(name="run_head_branch", nullable=True)),
-    # The jobs builder's columns that cost does not need, so one row also answers a read of job rows.
     ("j.id", IntegerDatabaseField(name="id")),
     ("j.head_sha", StringDatabaseField(name="head_sha")),
     ("j.labels", StringDatabaseField(name="labels")),
     ("j.provisioning_seconds", IntegerDatabaseField(name="provisioning_seconds", nullable=True)),
-    # The job's own branch. ``head_branch`` falls back to the run's.
     ("j.head_branch", StringDatabaseField(name="job_head_branch")),
 )
 
-# Every column ``build_query`` returns, in its order: the public contract, then the pass-through columns.
 BUILDER_FIELDS: dict[str, FieldOrTable] = {**FIELDS, **{field.name: field for _, field in _PASSTHROUGH}}
 
 _PASSTHROUGH_DEFS = "".join(f",\n                    {expr} AS {field.name}" for expr, field in _PASSTHROUGH)

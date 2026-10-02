@@ -35,24 +35,21 @@ _FLOOR_MARGIN = timedelta(days=3)
 # before its range, and a comparison reads the previous period of the same length.
 STORED_RUNS_WINDOW = _LONGEST_STORED_RANGE + max(_LONGEST_STORED_RANGE, CI_LOOKBACK) + _FLOOR_MARGIN
 
-# A read that windows the run floors the jobs lower than the runs, by the same slack.
 STORED_JOBS_WINDOW = STORED_RUNS_WINDOW + JOB_FLOOR_SLACK_ON_RUN_STARTED
 
 # The runs a stored job can belong to. GitHub ends a workflow run after 35 days, so a run started at
 # most that long before any of its jobs was created.
 STORED_JOB_RUNS_WINDOW = STORED_JOBS_WINDOW + timedelta(days=35)
 
-# Column order is the saved-query schema: these two come last in every stored CI view.
 IDENTITY_FIELDS: dict[str, FieldOrTable] = {
     "source_id": StringDatabaseField(name="source_id"),
-    # ``owner/name`` in lower case, or '' for a source that names no repository.
     "repository": StringDatabaseField(name="repository"),
 }
 
 
 def identity_columns(source_id: str, repository: str) -> str:
-    """The ``IDENTITY_FIELDS`` columns of a row, as SQL."""
-    # GitHub names are case-insensitive, and a source can store them in either case.
+    """The ``IDENTITY_FIELDS`` columns of a row, as SQL. ``repository`` is ``owner/name`` in lower
+    case, or '' for a source that names no repository."""
     source, repo = escape_hogql_string(str(UUID(source_id))), escape_hogql_string(repository.casefold())
     return f"{source} AS source_id, {repo} AS repository"
 

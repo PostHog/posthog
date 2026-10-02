@@ -217,7 +217,6 @@ class JobSourceTables:
     issue_events: str | None = None
     reviews: str | None = None
     source_id: str = ""
-    # Lowercased ``owner/name``, or '' for a source that names no repository.
     repository: str = ""
     depot_job_attempts: depot_ci.DepotJobAttempts | None = None
 

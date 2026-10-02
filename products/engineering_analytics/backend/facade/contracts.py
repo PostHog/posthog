@@ -57,9 +57,8 @@ class GitHubSourceNotConnectedError(Exception):
 
 # The product's rollout flag: gates the API surface (PostHogFeatureFlagPermission) and the CI-signals sweep.
 ENGINEERING_ANALYTICS_FEATURE_FLAG = "engineering-analytics"
-# Gates every materialized view of the product. Evaluated per organization, not per person: the view
-# sync runs with no user, and a materialized view spends the team's warehouse compute, so no team gets
-# one without opting in. The key names only the friction view. Renaming it needs a new flag.
+# Evaluated per organization, not per person: the view sync runs with no user, and a materialized view
+# spends the team's warehouse compute, so no team gets one without opting in.
 MATERIALIZED_VIEWS_FEATURE_FLAG = "engineering-analytics-friction"
 
 

@@ -23,14 +23,9 @@ from products.warehouse_sources.backend.facade.types import DataWarehouseManaged
 
 logger = structlog.get_logger(__name__)
 
-# The friction view is materialized too, but it keeps the managed-view schedule, because its replay is
-# too heavy to run after every load.
 STORED_VIEWS = (ci_runs, ci_jobs)
 
-# Long enough to span the gaps inside one working session, so the tables stay recent between page views.
 _IN_USE_SECONDS = 60 * 60
-
-# A view starts at most one rebuild in this time, however many loads and repositories feed it.
 _MIN_REBUILD_GAP_SECONDS = 10 * 60
 
 
@@ -58,7 +53,6 @@ def mark_in_use(team_id: int) -> bool:
     idle, because it must not fail the request."""
     key = _in_use_key(team_id)
     try:
-        # The key is there for all but the first request of a session, so most requests cost one call.
         if cache.touch(key, timeout=_IN_USE_SECONDS):
             return False
         return cache.add(key, True, timeout=_IN_USE_SECONDS)
