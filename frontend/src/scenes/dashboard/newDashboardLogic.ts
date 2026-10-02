@@ -394,9 +394,6 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
             redirectAfterCreation = true,
             creationContext = null,
         }) => {
-            // Hide first: hiding resets `isLoading`, which would otherwise let a second click start a duplicate
-            // dashboard while this one is still being created.
-            actions.hideNewDashboardModal()
             actions.setIsLoading(true)
             const tiles = makeTilesUsingVariables(
                 isMetricTemplate(template) ? WEBSITE_METRICS_METRIC_CARD_TILES : template.tiles,
@@ -408,6 +405,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
             }
 
             try {
+                actions.hideNewDashboardModal()
                 // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. dashboardsCreateFromTemplateJsonCreate() from 'products/dashboards/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 const result: DashboardType = await api.create(
                     `api/projects/${teamLogic.values.currentTeamId}/dashboards/create_from_template_json`,
