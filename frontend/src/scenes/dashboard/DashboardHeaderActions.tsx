@@ -239,13 +239,28 @@ export function DashboardEditSaveCancelButtons({
 }
 
 export function EditModeActions(): JSX.Element {
-    const { canEditDashboard, layoutEditMode, tiles, dashboardCustomizeMenuOpen } = useValues(dashboardLogic)
+    const {
+        canEditDashboard,
+        layoutEditMode,
+        tiles,
+        dashboardCustomizeMenuOpen,
+        showTextTileModal,
+        showImageTileModal,
+        showButtonTileModal,
+        addWidgetModalOpen,
+    } = useValues(dashboardLogic)
     const { setDashboardCustomizeMenuOpen } = useActions(dashboardLogic)
 
     return (
         <>
             <DashboardSubscribeButton />
-            {layoutEditMode && <DashboardEditSaveCancelButtons />}
+            {layoutEditMode && (
+                <DashboardEditSaveCancelButtons
+                    withShortcuts={
+                        !(showTextTileModal || showImageTileModal || showButtonTileModal || addWidgetModalOpen)
+                    }
+                />
+            )}
             {canEditDashboard && !layoutEditMode && tiles.length > 0 && <DashboardCustomizeButton />}
             {layoutEditMode && tiles.length > 0 && (
                 <LemonMenu
