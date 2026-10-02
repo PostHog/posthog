@@ -175,12 +175,9 @@ class OrganizationScopedActivityLogs:
         return self.queryset.count()
 
     def __getitem__(self, key: slice) -> Any:
-        ordering = self.queryset.query.order_by
-        if not ordering or key.stop is None:
-            return self.queryset[key]
         team_rows = self.queryset.filter(team_id=self.team_id)[: key.stop]
         org_rows = self.queryset.filter(team_id__isnull=True, organization_id=self.organization_id)[: key.stop]
-        return team_rows.union(org_rows, all=True).order_by(*ordering)[key]
+        return team_rows.union(org_rows, all=True).order_by(*self.queryset.query.order_by)[key]
 
 
 class ActivityLogSerializer(serializers.ModelSerializer):
