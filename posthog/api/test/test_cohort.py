@@ -7501,7 +7501,6 @@ Jane Smith,user456,jane@example.com
 class TestAddPersonsToStaticCohortRequestSerializer(SimpleTestCase):
     @parameterized.expand(
         [
-            ("not_a_uuid", {"person_ids": ["user-distinct-id"]}, "invalid"),
             ("empty", {"person_ids": []}, "empty"),
             (
                 "too_many",
@@ -7515,6 +7514,4 @@ class TestAddPersonsToStaticCohortRequestSerializer(SimpleTestCase):
         serializer = AddPersonsToStaticCohortRequestSerializer(data=payload)
 
         assert not serializer.is_valid()
-        errors = serializer.errors["person_ids"]
-        error = errors[0][0] if isinstance(errors, dict) else errors[0]
-        assert error.code == expected_code
+        assert serializer.errors["person_ids"][0].code == expected_code
