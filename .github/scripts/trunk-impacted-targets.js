@@ -159,6 +159,7 @@ const CARGO_LOCK = 'cargo-lock'
 // these lanes already. The rust and proto rules also use it to name those lanes
 // without dragging in the frontend.
 const NODE = 'node'
+const FRONTEND_SUITE = 'frontend-suite'
 const JS_LOCKFILE = 'js-lockfile'
 
 // Suites that run the backend and the frontend together: E2E, Hog, and the
@@ -249,11 +250,11 @@ const TRIPWIRE_RULES = [
     // language's suite can be held to that language's lanes. Everything else
     // under .github/ stays universal: the list grows by decision, and a
     // workflow nobody has placed here keeps the old radius.
-    ['.github/workflows/ci-frontend.yml', JAVASCRIPT],
-    ['.github/workflows/ci-storybook.yml', JAVASCRIPT],
-    ['.github/workflows/ci-storybook-update-test-timing.yml', JAVASCRIPT],
-    ['.github/workflows/ci-nodejs.yml', JAVASCRIPT],
-    ['.github/workflows/ci-nodejs-container.yml', JAVASCRIPT],
+    ['.github/workflows/ci-frontend.yml', FRONTEND_SUITE],
+    ['.github/workflows/ci-storybook.yml', FRONTEND_SUITE],
+    ['.github/workflows/ci-storybook-update-test-timing.yml', FRONTEND_SUITE],
+    ['.github/workflows/ci-nodejs.yml', NODE],
+    ['.github/workflows/ci-nodejs-container.yml', NODE],
     ['.github/workflows/ci-mcp.yml', JAVASCRIPT],
     ['.github/workflows/ci-backend.yml', PYTHON],
     ['.github/workflows/ci-backend-update-test-timing.yml', PYTHON],
@@ -266,6 +267,7 @@ const TRIPWIRE_RULES = [
     // smoke.
     ['.github/workflows/ci-python.yml', PYTHON],
     ['.github/workflows/ci-clickhouse-multinode-migrations.yml', PYTHON],
+    ['.github/workflows/ci-clickhouse-util-udfs.yml', PYTHON],
     // Blocks Django or sqlx migrations landing beside nodejs/ or other rust/
     // changes, so all three families interact with an edit to the gate.
     ['.github/workflows/ci-migrations-service-separation-check.yml', [PYTHON, NODE, RUST]],
@@ -1680,6 +1682,19 @@ function addCargoLockLanes(targets, context) {
     return true
 }
 
+function addFrontendSuiteLanes(targets, context) {
+    const lanes = new Set()
+    if (!addJavaScriptLanes(lanes, context)) {
+        return false
+    }
+    for (const lane of lanes) {
+        if (!lane.startsWith('node:')) {
+            targets.add(lane)
+        }
+    }
+    return true
+}
+
 function addNodeLanes(targets) {
     for (const lane of NODE_LANES) {
         targets.add(lane)
@@ -1849,6 +1864,7 @@ function addProtoLanes(targets, context, file) {
 const DOMAIN_LANES = new Map([
     [PYTHON, addPythonLanes],
     [JAVASCRIPT, addJavaScriptLanes],
+    [FRONTEND_SUITE, addFrontendSuiteLanes],
     [JS_LOCKFILE, addJsLockfileLanes],
     [RUST, addRustLanes],
     [CARGO_LOCK, addCargoLockLanes],
@@ -2008,7 +2024,7 @@ function computeTargets(changedFiles, context) {
             targets.add(lane)
         }
 
-        if (top === 'posthog' || (top === 'ee' && segments[1] !== 'frontend')) {
+        if (top === 'posthog' || top === 'clickhouse-udfs' || (top === 'ee' && segments[1] !== 'frontend')) {
             allPyProducts()
             continue
         }

@@ -242,10 +242,6 @@ def with_internal_db_retries(fn: Callable[P, T]) -> Callable[P, T]:
 # 10 mins buffer to avoid deleting files Clickhouse may be reading
 S3_DELETE_TIME_BUFFER = 600
 
-# Per-schema rollout flag for the fixed a/b query folder pair below. Off (or unevaluable) means the
-# timestamped-folder path, so a bad rollout is undone by turning the flag off.
-DOUBLE_BUFFERED_QUERY_FOLDERS_FLAG = "data-warehouse-double-buffered-query-folders"
-
 # A zombie compaction+vacuum pass (a heartbeat-timed-out activity attempt still running) can keep
 # deleting source files for as long as its own rewrite takes - documented up to ~45s for a
 # fragmented table in core/delta/maintenance.py, before vacuum even starts - which can outlive a
