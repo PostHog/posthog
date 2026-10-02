@@ -142,7 +142,7 @@ export const EngineeringAnalyticsPrLifecycleQueryParams = () => zod.object({
 })
 
 /**
- * Open pull requests plus any merged or closed since date_from (default -30d), newest first, each with its head-SHA CI rollup. The list is capped; when more match, `truncated` is true and the ci_cards counts can exceed it. open_to_merge_seconds is coarse: it fuses draft and ready-for-review time; CI counts can lag until late completions settle. Cost and billable minutes can lag new CI by up to 5 minutes.
+ * Open pull requests plus any merged or closed since date_from (default -30d), newest first, each with its head-SHA CI rollup. Pass state to list one state only. The list is paged by limit and offset; when more match, `truncated` is true and the ci_cards counts can exceed it. open_to_merge_seconds is coarse: it fuses draft and ready-for-review time; CI counts can lag until late completions settle. Cost and billable minutes can lag new CI by up to 5 minutes.
  */
 export const EngineeringAnalyticsPullRequestsParams = () => zod.object({
     project_id: zod
@@ -155,6 +155,19 @@ export const EngineeringAnalyticsPullRequestsParams = () => zod.object({
 export const EngineeringAnalyticsPullRequestsQueryParams = () => zod.object({
     author: zod.string().optional().describe("Optional GitHub login to scope the list to one author's pull requests."),
     date_from: zod.string().optional().describe("Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d."),
+    date_to: zod
+        .string()
+        .optional()
+        .describe(
+            'Optional exclusive upper bound for merged_at \/ closed_at: relative or ISO8601. Defaults to now. Set a fixed value when you page, so new merges do not move rows between pages.'
+        ),
+    limit: zod.number().optional().describe('Page size, 1 to 1000. Defaults to 1000.'),
+    offset: zod
+        .number()
+        .optional()
+        .describe(
+            'Number of rows to skip. Defaults to 0. While `truncated` is true, add `limit` to offset to read the next page.'
+        ),
     repo: zod
         .string()
         .optional()
@@ -166,6 +179,12 @@ export const EngineeringAnalyticsPullRequestsQueryParams = () => zod.object({
         .optional()
         .describe(
             'Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.'
+        ),
+    state: zod
+        .enum(['closed', 'merged', 'open'])
+        .optional()
+        .describe(
+            "Optional state filter. 'merged' lists PRs merged in the window, newest merged_at first. 'closed' lists PRs closed without a merge in the window, newest closed_at first. 'open' lists all open PRs whatever their age, newest first. Omit it to get open PRs plus any merged or closed in the window."
         ),
 })
 
@@ -181,6 +200,10 @@ export const EngineeringAnalyticsRunFailureLogsParams = () => zod.object({
 })
 
 export const EngineeringAnalyticsRunFailureLogsQueryParams = () => zod.object({
+    ci_engine: zod
+        .enum(['depot_ci', 'github_actions'])
+        .optional()
+        .describe('CI engine. Required when run_id exists in both engines.'),
     repo: zod
         .string()
         .optional()
@@ -305,6 +328,10 @@ export const EngineeringAnalyticsWorkflowJobsParams = () => zod.object({
 })
 
 export const EngineeringAnalyticsWorkflowJobsQueryParams = () => zod.object({
+    ci_engine: zod
+        .enum(['depot_ci', 'github_actions'])
+        .optional()
+        .describe('CI engine. Required when run_id exists in both engines.'),
     repo: zod
         .string()
         .optional()

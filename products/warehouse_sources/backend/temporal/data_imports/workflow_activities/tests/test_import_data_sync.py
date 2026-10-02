@@ -94,6 +94,7 @@ def _patched_activity(source_mock, model=None, schema=None):
 
     if schema is None:
         schema = mock.MagicMock()
+        schema.sync_type = ExternalDataSchema.SyncType.FULL_REFRESH
         schema.should_use_incremental_field = False
         schema.row_filters = None
         schema.delta_revive_required = None
@@ -915,6 +916,9 @@ async def test_shared_non_retryable_error_routes_through_handler_without_source_
 
 def _incremental_schema(*, is_incremental: bool, lookback_seconds: int | None) -> mock.MagicMock:
     schema = mock.MagicMock()
+    schema.sync_type = (
+        ExternalDataSchema.SyncType.INCREMENTAL if is_incremental else ExternalDataSchema.SyncType.FULL_REFRESH
+    )
     schema.should_use_incremental_field = True
     schema.is_incremental = is_incremental
     schema.incremental_field_type = IncrementalFieldType.Timestamp
@@ -1171,6 +1175,21 @@ async def test_synced_parent_uses_the_warehouse_path(sync_type):
         )
 
     assert result is True
+
+
+@pytest.mark.asyncio
+async def test_persisted_append_mode_reaches_source_before_extraction():
+    source = mock.MagicMock(spec=SimpleSource)
+    source.parse_config.return_value = {}
+    source.source_for_pipeline.return_value = mock.MagicMock()
+    schema = _incremental_schema(is_incremental=False, lookback_seconds=None)
+    schema.sync_type = ExternalDataSchema.SyncType.APPEND
+
+    with _patched_activity_reaching_run(source, schema):
+        await import_data_activity_sync(_inputs_no_reset())
+
+    _, source_inputs = source.source_for_pipeline.call_args.args
+    assert source_inputs.sync_type == ExternalDataSchema.SyncType.APPEND
 
 
 @pytest.mark.asyncio

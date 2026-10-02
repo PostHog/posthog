@@ -53,4 +53,7 @@ class ItemReason(StrEnum):
 
 class ItemState(StrEnum):
     OPEN = "open"
+    # Resolved, fixed or merged since the briefing was written.
     DONE = "done"
+    # Dismissed or deleted since the briefing was written.
+    DISMISSED = "dismissed"
