@@ -21,6 +21,7 @@ export const SCANNER_TYPE_TAG_TYPE: Record<ScannerType, LemonTagType> = {
     classifier: 'completion',
     scorer: 'warning',
     summarizer: 'success',
+    experiment: 'highlight',
 }
 
 export const OBSERVATION_TRIGGER_TAG: Record<
@@ -212,6 +213,22 @@ export function failureKindDescription(kind: FailureKind): string {
     return FAILURE_KINDS[kind].description
 }
 
+/** Why a failed or ineligible scan produced no result, short enough for a table cell: the message when there is one, else the kind's description. */
+export function unsuccessfulScanReason(
+    status: ReplayObservationApi['status'],
+    errorReason: string | null | undefined
+): string | null {
+    if (!errorReason || (status !== 'failed' && status !== 'ineligible')) {
+        return null
+    }
+    if (status === 'failed') {
+        const parsed = parseFailureReason(errorReason)
+        return parsed ? parsed.message || failureKindDescription(parsed.kind) : errorReason
+    }
+    const parsed = parseIneligibleReason(errorReason)
+    return parsed ? parsed.message || ineligibleKindDescription(parsed.kind) : errorReason
+}
+
 /**
  * How to offer a retry for a given failure. An unparseable or unknown kind gets the encouraging default, since
  * the alternative is discouraging a retry we have no evidence against.
@@ -371,6 +388,7 @@ const SCANNER_TYPE_OUTPUT_HINT: Record<ScannerType, string> = {
     classifier: 'a category from a set you define',
     scorer: 'a number score',
     summarizer: 'a text summary',
+    experiment: 'a text summary per exposed session',
 }
 
 export function scannerTypeOutputHint(scannerType: ScannerType): string {
@@ -383,6 +401,7 @@ export const SUCCEEDED_OUTPUT_LABEL: Record<ScannerType, string> = {
     summarizer: 'Summary',
     monitor: 'Verdict',
     scorer: 'Score',
+    experiment: 'Summary',
 }
 
 export function createdByLabel(user: ScannerCreatedBy | null): string {
@@ -438,11 +457,21 @@ export interface ScorerScannerConfig {
     scale: { min: number; max: number; label?: string }
 }
 
+export interface ExperimentScannerConfig {
+    prompt: string
+    length?: 'short' | 'medium' | 'long'
+    experiment_id: number
+    /** Variant keys to watch; null or absent means every variant. */
+    variants?: string[] | null
+    balance_variants?: boolean
+}
+
 export type ScannerConfig =
     | MonitorScannerConfig
     | SummarizerScannerConfig
     | ClassifierScannerConfig
     | ScorerScannerConfig
+    | ExperimentScannerConfig
 
 export type SamplingMode = 'focused' | 'balanced' | 'comprehensive'
 
@@ -502,7 +531,12 @@ export interface ScorerScanner extends BaseReplayScanner {
     scanner_config: ScorerScannerConfig
 }
 
-export type ReplayScanner = MonitorScanner | SummarizerScanner | ClassifierScanner | ScorerScanner
+export interface ExperimentScanner extends BaseReplayScanner {
+    scanner_type: 'experiment'
+    scanner_config: ExperimentScannerConfig
+}
+
+export type ReplayScanner = MonitorScanner | SummarizerScanner | ClassifierScanner | ScorerScanner | ExperimentScanner
 
 // The editor form's values: the API scanner plus UI-only state that is stripped before every API write.
 // `credit_limit_enabled` keeps "limit toggle on, amount still empty" representable so it can block the save.

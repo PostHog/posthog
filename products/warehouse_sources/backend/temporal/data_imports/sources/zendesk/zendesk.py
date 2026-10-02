@@ -4,8 +4,10 @@ import dataclasses
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, Optional, cast
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from requests import Request, Response
+from requests.exceptions import HTTPError
 
 from products.warehouse_sources.backend.models.external_table_definitions import get_dlt_mapping_for_external_table
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
@@ -34,6 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (
     parent_snapshot_covers_through,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.settings import (
     FANOUT_PARENTS,
     TICKET_COMMENTS_PARENT_FILTER_FIELD,
@@ -46,6 +49,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.se
 # Lower bound for the ISO 8601 time filters on the first run / full refresh, mirroring the `0`
 # epoch seed the incremental exports use.
 ZENDESK_EPOCH_START = "1970-01-01T00:00:00Z"
+
+
+@dataclasses.dataclass(frozen=True)
+class ZendeskResumeConfig:
+    # Next-page URL, for the link paginators and the time-based incremental exports.
+    next_url: str | None = None
+    # `after_cursor` token, for the cursor-based incremental exports (tickets, users).
+    cursor: str | None = None
 
 
 def to_zendesk_start_time(value: Any) -> int:
@@ -127,6 +138,8 @@ def paginator_for(config: ZendeskEndpointConfig) -> BasePaginator:
         return SinglePagePaginator()
     if config.next_url_path == "after_url":
         return ZendeskAfterUrlPaginator()
+    if config.incremental_start_param is not None:
+        return ZendeskSinceCursorPaginator(next_url_path=config.next_url_path)
     return JSONLinkPaginator(next_url_path=config.next_url_path)
 
 
@@ -455,8 +468,27 @@ class ZendeskCursorIncrementalPaginator(BasePaginator):
         request.params.pop("start_time", None)
         request.params["cursor"] = self._after_cursor
 
+    def init_request(self, request: Request) -> None:
+        # A resumed run starts at the saved cursor, not at the seed `start_time`.
+        if self._after_cursor is not None:
+            self.update_request(request)
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        return {"cursor": self._after_cursor} if self._has_next_page and self._after_cursor is not None else None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        cursor = state.get("cursor")
+        if cursor is not None:
+            # Seeding `_after_cursor` also arms the non-advancing guard for the first resumed page.
+            self._after_cursor = str(cursor)
+            self._has_next_page = True
+
 
 class ZendeskIncrementalEndpointPaginator(BasePaginator):
+    def __init__(self) -> None:
+        super().__init__()
+        self._next_page: Optional[str] = None
+
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         res = response.json()
 
@@ -488,6 +520,50 @@ class ZendeskIncrementalEndpointPaginator(BasePaginator):
         # next_page is a full URL that already contains all query params —
         # clear params to avoid duplicates when prepare_request merges them.
         request.params = {}
+
+    def init_request(self, request: Request) -> None:
+        if self._next_page is not None:
+            self.update_request(request)
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        return {"next_url": self._next_page} if self._has_next_page and self._next_page is not None else None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        next_url = state.get("next_url")
+        if next_url is not None:
+            self._next_page = str(next_url)
+            self._has_next_page = True
+
+
+def _without_query_param(url: str, name: str) -> str:
+    parts = urlsplit(url)
+    kept = [(key, value) for key, value in parse_qsl(parts.query, keep_blank_values=True) if key != name]
+    return urlunsplit(parts._replace(query=urlencode(kept)))
+
+
+class ZendeskSinceCursorPaginator(JSONLinkPaginator):
+    """Cursor pagination for a declarative endpoint that also takes a server-side `since` filter
+    (currently only `activities`).
+
+    Zendesk echoes the request's `since` back into `links.next`, but re-serialized in its own
+    `YYYY-MM-DD HH:MM:SS UTC` format rather than the ISO 8601 this source sends — and then
+    rejects that format with a 400 on the next request. The cursor alone already encodes the
+    stream position, so continuing pages don't need `since` at all; drop it from the next-page
+    URL before following it.
+    """
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        super().update_state(response, data)
+        if self._next_url:
+            self._next_url = _without_query_param(self._next_url, "since")
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        # A run that already failed on this URL checkpointed it with `since` still attached
+        # (that's the exact failure this paginator exists to fix) — clean it here too, or a
+        # retry just resumes straight back into the same 400.
+        super().set_resume_state(state)
+        if self._next_url:
+            self._next_url = _without_query_param(self._next_url, "since")
 
 
 class ZendeskAfterUrlPaginator(JSONLinkPaginator):
@@ -595,6 +671,49 @@ def zendesk_fanout_source(
     )
 
 
+def _initial_paginator_state(
+    resumable_source_manager: ResumableSourceManager[ZendeskResumeConfig] | None,
+) -> dict[str, Any] | None:
+    if resumable_source_manager is None or not resumable_source_manager.can_resume():
+        return None
+    resume = resumable_source_manager.load_state()
+    if resume is None:
+        return None
+    state = {key: value for key, value in dataclasses.asdict(resume).items() if value is not None}
+    return state or None
+
+
+def _is_invalid_resume_cursor(exc: HTTPError) -> bool:
+    response = exc.response
+    if response is None or response.status_code not in (400, 404, 410):
+        return False
+    # Persisted next-page URLs can expire without naming their internal cursor in the response.
+    if response.status_code in (404, 410):
+        return True
+    try:
+        body = response.json()
+    except Exception:
+        body = response.text
+    text = str(body).lower()
+    names_pagination = any(marker in text for marker in ("cursor", "pagination", "page token"))
+    return names_pagination and any(marker in text for marker in ("invalid", "expired", "not found"))
+
+
+def _resume_hook(
+    resumable_source_manager: ResumableSourceManager[ZendeskResumeConfig],
+) -> Callable[[dict[str, Any] | None], None]:
+    def save_checkpoint(state: dict[str, Any] | None) -> None:
+        # The framework calls this after it yields a page, with the state that points at the next
+        # page. None means the stream has ended, so there is nothing further to resume from.
+        if not state:
+            return
+        resumable_source_manager.save_state(
+            ZendeskResumeConfig(next_url=state.get("next_url"), cursor=state.get("cursor"))
+        )
+
+    return save_checkpoint
+
+
 def zendesk_source(
     subdomain: str,
     api_key: str,
@@ -607,11 +726,15 @@ def zendesk_source(
     incremental_field_name: str | None = None,
     source_id: str | None = None,
     use_warehouse_parent: bool = False,
+    resumable_source_manager: ResumableSourceManager[ZendeskResumeConfig] | None = None,
 ):
     client_config = zendesk_client_config(subdomain, api_key, email_address)
 
     endpoint_config = ZENDESK_ENDPOINTS.get(endpoint)
     if endpoint_config is not None and endpoint_config.fanout is not None:
+        # The shared fan-out checkpoint lists every completed parent path and is re-serialized on
+        # each page. A fan-out over every ticket makes that cost grow with the square of the ticket
+        # count, so this path does not checkpoint. `ZendeskSource` marks the run as not resumable.
         return zendesk_fanout_source(
             client_config,
             endpoint_config,
@@ -637,7 +760,30 @@ def zendesk_source(
         "resources": [get_resource(endpoint, should_use_incremental_field, incremental_field_name)],
     }
 
-    return rest_api_resource(config, team_id, job_id, db_incremental_field_last_value)
+    initial_paginator_state = _initial_paginator_state(resumable_source_manager)
+    resource = rest_api_resource(
+        config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=_resume_hook(resumable_source_manager) if resumable_source_manager is not None else None,
+        initial_paginator_state=initial_paginator_state,
+    )
+    if initial_paginator_state is None or resumable_source_manager is None:
+        return resource
+
+    def iter_resource():
+        try:
+            yield from resource
+        except HTTPError as exc:
+            if _is_invalid_resume_cursor(exc):
+                # Do not replay a vendor-rejected checkpoint on every activity attempt. Raise a
+                # retryable error even when the expired URL returned the otherwise non-retryable 404.
+                resumable_source_manager.clear_state()
+                raise RuntimeError("Zendesk rejected the saved pagination cursor; retrying from the watermark") from exc
+            raise
+
+    return Resource(iter_resource, name=resource.name, hints=resource._hints)
 
 
 def validate_credentials(subdomain: str, api_key: str, email_address: str) -> bool:

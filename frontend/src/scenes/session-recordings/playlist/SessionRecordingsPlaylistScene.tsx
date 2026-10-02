@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useMemo } from 'react'
 
-import { IconCopy, IconTrash } from '@posthog/icons'
+import { IconCopy, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
@@ -36,6 +36,7 @@ import {
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
 
+import { AddRecordingsToCollectionModal } from './AddRecordingsToCollectionModal'
 import { SessionRecordingsPlaylist } from './SessionRecordingsPlaylist'
 import { asUniversalFilters } from './sessionRecordingsPlaylistLogic'
 import {
@@ -77,9 +78,8 @@ function PlaylistSceneLoadingSkeleton(): JSX.Element {
 
 export function SessionRecordingsPlaylistScene(): JSX.Element {
     const { playlist, playlistLoading, pinnedRecordings, hasChanges } = useValues(sessionRecordingsPlaylistSceneLogic)
-    const { setFilters, updatePlaylist, duplicatePlaylist, deletePlaylist, onPinnedChange } = useActions(
-        sessionRecordingsPlaylistSceneLogic
-    )
+    const { setFilters, updatePlaylist, duplicatePlaylist, deletePlaylist, onPinnedChange, setAddRecordingsModalOpen } =
+        useActions(sessionRecordingsPlaylistSceneLogic)
 
     const { showFilters } = useValues(playerSettingsLogic)
     const { setShowFilters } = useActions(playerSettingsLogic)
@@ -210,8 +210,19 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                     saveOnBlur
                     renameDebounceMs={100}
                     actions={
-                        !playlist.is_synthetic ? (
+                        playlist.is_synthetic ? undefined : playlist.type === 'collection' ? (
                             <LemonButton
+                                type="primary"
+                                size="small"
+                                icon={<IconPlus />}
+                                onClick={() => setAddRecordingsModalOpen(true)}
+                                data-attr="collection-add-recordings"
+                            >
+                                Add recordings
+                            </LemonButton>
+                        ) : (
+                            <LemonButton
+                                data-attr="collection-save-or-show-filters"
                                 type="primary"
                                 disabledReason={showFilters && !hasChanges ? 'No changes to save' : undefined}
                                 loading={hasChanges && playlistLoading}
@@ -222,10 +233,11 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                             >
                                 {showFilters ? <>Save changes</> : <>Edit</>}
                             </LemonButton>
-                        ) : undefined
+                        )
                     }
                 />
 
+                <AddRecordingsToCollectionModal />
                 <SessionRecordingsPlaylist
                     logicKey={playlist.short_id}
                     // backwards compatibility for legacy filters

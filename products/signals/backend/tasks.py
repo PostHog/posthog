@@ -42,6 +42,7 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.pr_origin import write_origin_section
 from products.signals.backend.pull_request_body import BodyEditOutcome
+from products.signals.backend.pull_request_label import apply_pull_request_label
 from products.signals.backend.pull_requests import update_pull_request_review_decision
 from products.signals.backend.report_generation.repo_activity import (
     ACTIVITY_KEEP_WARM_WINDOW,
@@ -50,6 +51,7 @@ from products.signals.backend.report_generation.repo_activity import (
 )
 from products.signals.backend.reviewer_pr_assignment import assign_reviewers_to_pull_request
 from products.signals.backend.reviewer_pr_ready import open_pull_request_ready_for_review
+from products.signals.backend.scout_harness.background_bands import refresh_background_bands
 from products.signals.backend.scout_harness.inactivity import sweep_inactive_scouts
 from products.signals.backend.scout_harness.slack_delivery import (
     DELIVERABLE_REPORT_STATUSES,
@@ -292,7 +294,7 @@ def deliver_scout_slack_thread_replies(
     """Continue a rate-limited report thread without holding or retrying the lead-message worker."""
     team = Team.objects.only("project_id").get(id=team_id)
     integration = _slack_integration_for_project(integration_id=integration_id, project_id=team.project_id)
-    slack = SlackIntegration(integration)
+    slack = SlackIntegration(integration, source="signals_scout")
     channel_id = _slack_channel_id(channel)
 
     def _schedule_retry(
@@ -646,6 +648,29 @@ def assign_reviewers_on_implementation_pr(team_id: int, report_id: str, pr_url: 
 
 
 @shared_task(
+    name="products.signals.backend.tasks.start_dependent_stack_layers",
+    ignore_result=True,
+    max_retries=3,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    soft_time_limit=210,
+    time_limit=240,
+)
+@with_team_scope()
+def start_dependent_stack_layers(team_id: int, report_id: str) -> None:
+    """Start the stack layers that wait on this report, now that it has a pull request.
+
+    Runs on a worker because auto-start creates tasks and must not hold up the pull request sync
+    that queued it. A failed layer start retries with backoff, because the next pull request event
+    on the report may come only at merge, when the layer can no longer stack. A retry skips the
+    layers that already started.
+    """
+    from products.signals.backend.stack_plan import start_dependent_layers  # noqa: PLC0415
+
+    start_dependent_layers(team_id=team_id, report_id=report_id)
+
+
+@shared_task(
     name="products.signals.backend.tasks.open_implementation_pr_for_review",
     ignore_result=True,
     max_retries=0,
@@ -727,6 +752,21 @@ def move_merged_report_signals(team_id: int, survivor_report_id: str, source_rep
             source_report_id=source_report_id,
             signal_count=moved,
         )
+
+
+@shared_task(
+    name="products.signals.backend.tasks.label_implementation_pr",
+    ignore_result=True,
+    max_retries=0,
+)
+@with_team_scope()
+def label_implementation_pr(team_id: int, report_id: str, pr_url: str) -> None:
+    """Put the team's label on a report's implementation PR, so GitHub search can find it.
+
+    Runs on a worker for the same reason as reviewer assignment: the GitHub calls must not hold up
+    the claim, sync, or webhook that queued it. Best-effort end to end, so this never retries.
+    """
+    apply_pull_request_label(team_id=team_id, report_id=report_id, pr_url=pr_url)
 
 
 def _capture_refund_sync_event(refund: SignalReportRefund, event: str, extra: dict[str, object]) -> None:
@@ -949,6 +989,22 @@ def rebuild_signal_repository_activity(team_id: int, repository: str, force: boo
         capture_exception(exc, {"team_id": team_id, "repository": repository})
     finally:
         cache.delete(lock_key)
+
+
+@shared_task(
+    name="products.signals.backend.tasks.refresh_signal_scout_background_bands",
+    ignore_result=True,
+    max_retries=0,
+)
+@skip_team_scope_audit
+def refresh_signal_scout_background_bands() -> None:
+    """Daily: recompute which projects can get a background scout, and their activity band.
+
+    Runs here rather than on the coordinator tick, because it reads a week of fleet-wide event
+    volume and activity bands do not change by the half hour.
+    """
+    outcome = refresh_background_bands()
+    logger.info("signals_scout background bands refreshed", written=outcome.written, removed=outcome.removed)
 
 
 @shared_task(

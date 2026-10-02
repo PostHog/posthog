@@ -1,5 +1,6 @@
 import json
 from collections.abc import Iterable
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any, Optional, cast
 
@@ -93,7 +94,7 @@ def _wire(session: MagicMock, pages: dict[PageKey, Response]) -> list[tuple[str,
 
 
 def _drive(
-    endpoint: str, pages: dict[PageKey, Response], manager: _FakeManager
+    endpoint: str, pages: dict[PageKey, Response], manager: _FakeManager, **kwargs: Any
 ) -> tuple[list[dict], list[tuple[str, dict[str, Any]]]]:
     with mock.patch(CLIENT_SESSION_PATCH) as MockSession:
         session = MockSession.return_value
@@ -104,6 +105,7 @@ def _drive(
             team_id=1,
             job_id="job-1",
             resumable_source_manager=manager,  # type: ignore[arg-type]
+            **kwargs,
         )
         rows = [row for page in cast("Iterable[Any]", response.items()) for row in page]
     return rows, snapshots
@@ -196,6 +198,111 @@ class TestFanOut:
         }
         rows, _ = _drive("comments", pages, _FakeManager())
         assert rows == [{"id": "c1", "space_id": "sp1"}, {"id": "c2", "space_id": "sp2"}]
+
+    def test_pages_tree_is_flattened_with_parent_links(self) -> None:
+        tree = {
+            "pages": [
+                {
+                    "id": "p1",
+                    "type": "document",
+                    "pages": [{"id": "p1a", "type": "document", "pages": [{"id": "p1a1", "type": "link"}]}],
+                },
+                {"id": "g1", "type": "group", "pages": [{"id": "p2", "type": "document", "pages": []}]},
+            ]
+        }
+        pages: dict[PageKey, Response] = {
+            (self.ORGS, None): _response([{"id": "org1"}]),
+            (_u("/orgs/org1/spaces"), None): _response([{"id": "sp1"}]),
+            (_u("/spaces/sp1/content/pages"), None): _response(None, raw_body=tree),
+        }
+        rows, snapshots = _drive("pages", pages, _FakeManager())
+        assert rows == [
+            {"id": "p1", "type": "document", "space_id": "sp1", "parent_page_id": None},
+            {"id": "p1a", "type": "document", "space_id": "sp1", "parent_page_id": "p1"},
+            {"id": "p1a1", "type": "link", "space_id": "sp1", "parent_page_id": "p1a"},
+            {"id": "g1", "type": "group", "space_id": "sp1", "parent_page_id": None},
+            {"id": "p2", "type": "document", "space_id": "sp1", "parent_page_id": "g1"},
+        ]
+        # The pages endpoint is not paginated, so it gets no `limit`.
+        assert snapshots[-1] == (_u("/spaces/sp1/content/pages"), {})
+
+    @parameterized.expand(
+        [
+            (
+                "site_questions",
+                "sites",
+                "/orgs/{org}/sites/{parent}/questions",
+                "site_id",
+                {"id": "q1"},
+                {"id": "q1"},
+            ),
+            (
+                "team_members",
+                "teams",
+                "/orgs/{org}/teams/{parent}/members",
+                "team_id",
+                {"organization": {"id": "membership1", "user": {"id": "user1"}}, "team": {"role": "member"}},
+                {
+                    "organization": {"id": "membership1", "user": {"id": "user1"}},
+                    "team": {"role": "member"},
+                    "user_id": "user1",
+                },
+            ),
+        ]
+    )
+    def test_org_nested_fanout_binds_and_injects_both_parent_ids(
+        self,
+        endpoint: str,
+        parent_segment: str,
+        child_path: str,
+        parent_key: str,
+        api_row: dict[str, Any],
+        expected_row: dict[str, Any],
+    ) -> None:
+        pages: dict[PageKey, Response] = {
+            (self.ORGS, None): _response([{"id": "org1"}, {"id": "org2"}]),
+            (_u(f"/orgs/org1/{parent_segment}"), None): _response([{"id": "x1"}]),
+            (_u(f"/orgs/org2/{parent_segment}"), None): _response([{"id": "x1"}]),
+            (_u(child_path.format(org="org1", parent="x1")), None): _response([dict(api_row)]),
+            (_u(child_path.format(org="org2", parent="x1")), None): _response([dict(api_row)]),
+        }
+        rows, _ = _drive(endpoint, pages, _FakeManager())
+        # The same child id under two organizations stays distinguishable via organization_id.
+        assert rows == [
+            {**expected_row, "organization_id": "org1", parent_key: "x1"},
+            {**expected_row, "organization_id": "org2", parent_key: "x1"},
+        ]
+
+    @parameterized.expand(
+        [
+            ("incremental", True, datetime(2026, 5, 1, 12, 30, 15, 250000, tzinfo=UTC), "2026-05-01T12:30:15Z"),
+            ("incremental_first_sync", True, None, "1970-01-01T00:00:00Z"),
+            ("full_refresh", False, datetime(2026, 5, 1, tzinfo=UTC), None),
+        ]
+    )
+    def test_site_answers_filter_on_watermark_only_when_incremental(
+        self, _name: str, incremental: bool, last_value: Optional[datetime], expected_from: Optional[str]
+    ) -> None:
+        answers = _u("/orgs/org1/sites/s1/answers")
+        pages: dict[PageKey, Response] = {
+            (self.ORGS, None): _response([{"id": "org1"}]),
+            (_u("/orgs/org1/sites"), None): _response([{"id": "s1"}]),
+            (answers, None): _response([{"id": "a1"}], next_page="tok2"),
+            (answers, "tok2"): _response([{"id": "a2"}]),
+        }
+        rows, snapshots = _drive(
+            "site_answers",
+            pages,
+            _FakeManager(),
+            should_use_incremental_field=incremental,
+            db_incremental_field_last_value=last_value,
+            incremental_field="createdAt" if incremental else None,
+        )
+        assert [row["id"] for row in rows] == ["a1", "a2"]
+        answer_params = [params for url, params in snapshots if url == answers]
+        assert len(answer_params) == 2
+        # The watermark filter stays on every page, not just the first.
+        assert all(params.get("from") == expected_from for params in answer_params)
 
     def test_saves_completed_parents_and_mid_parent_page_token(self) -> None:
         manager = _FakeManager()

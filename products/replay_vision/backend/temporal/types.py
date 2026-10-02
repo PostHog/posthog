@@ -9,6 +9,7 @@ from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.session_limits import MAX_SESSION_ID_LENGTH
 from products.replay_vision.backend.temporal.scanners.base import SignalFinding
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput
+from products.replay_vision.backend.temporal.scanners.experiment import ExperimentOutput
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorOutput, MonitorVerdict
 from products.replay_vision.backend.temporal.scanners.scorer import ScorerOutput
 from products.replay_vision.backend.temporal.scanners.summarizer import SummarizerOutput
@@ -18,7 +19,7 @@ from products.replay_vision.backend.temporal.snapshots import (
 )
 
 AnyScannerOutput = Annotated[
-    ClassifierOutput | MonitorOutput | ScorerOutput | SummarizerOutput,
+    ClassifierOutput | ExperimentOutput | MonitorOutput | ScorerOutput | SummarizerOutput,
     Field(discriminator="scanner_type"),
 ]
 
@@ -288,7 +289,7 @@ class ScannerCallOutput(BaseModel, frozen=True):
     # Extracted from the LLM response before `finalize` so per-type output mapping can't drop them.
     signals: list[SignalFinding] = Field(default_factory=list)
     verification: VerificationRecord | None = None
-    # Video seconds the model picked for the thumbnail; None when the best-effort media turn produced nothing.
+    # Video seconds the model picked for the thumbnail; None when it skipped the optional pick.
     thumbnail_video_s: int | None = None
     # Signal spans on the video clock, which `signals` no longer carries once they move to session time.
     signal_video_spans: list[tuple[int, int]] = Field(default_factory=list)

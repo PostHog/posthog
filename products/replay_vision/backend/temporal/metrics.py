@@ -206,10 +206,17 @@ REPLAY_VISION_GEMINI_CLEANUP_BACKLOG = Gauge(
     "Tracked Gemini files awaiting cleanup (a growing backlog means the sweep is losing)",
 )
 
-REPLAY_VISION_MEDIA_BACKFILL_TICK = Counter(
-    "replay_vision_media_backfill_tick",
-    "Observations a media backfill tick dispatched, skipped as unfillable, or left cooling off",
-    labelnames=["outcome"],
+
+REPLAY_VISION_SEARCH_RERANK = Counter(
+    "replay_vision_search_rerank_total",
+    "Observation searches by rerank outcome",
+    ["outcome"],
+)
+
+REPLAY_VISION_SEARCH_RERANK_LATENCY = Histogram(
+    "replay_vision_search_rerank_latency_seconds",
+    "Wall-clock time a search waited on the rerank model",
+    buckets=(0.1, 0.2, 0.3, 0.5, 0.75, 1.0, 1.5, 2.0, 2.5),
 )
 
 
@@ -365,12 +372,8 @@ def record_gemini_cleanup_backlog(count: int) -> None:
     _otel.record_gauge_twin(REPLAY_VISION_GEMINI_CLEANUP_BACKLOG, count)
 
 
-def record_media_backfill_tick(*, dispatched: int, without_video: int, cooling_off: int) -> None:
-    """A fail-soft path leaves no other trace, so the sweep's own numbers are the alert surface."""
-    for outcome, count in (
-        ("dispatched", dispatched),
-        ("without_video", without_video),
-        ("cooling_off", cooling_off),
-    ):
-        REPLAY_VISION_MEDIA_BACKFILL_TICK.labels(outcome=outcome).inc(count)
-        _otel.record_counter_twin(REPLAY_VISION_MEDIA_BACKFILL_TICK, count, {"outcome": outcome})
+def record_search_rerank(outcome: str, seconds: float) -> None:
+    REPLAY_VISION_SEARCH_RERANK.labels(outcome=outcome).inc()
+    _otel.record_counter_twin(REPLAY_VISION_SEARCH_RERANK, 1, {"outcome": outcome})
+    REPLAY_VISION_SEARCH_RERANK_LATENCY.observe(seconds)
+    _otel.record_histogram_twin(REPLAY_VISION_SEARCH_RERANK_LATENCY, seconds, {})

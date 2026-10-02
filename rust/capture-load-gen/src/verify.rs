@@ -10,7 +10,8 @@ use metrics::gauge;
 use sqlx::postgres::{PgPoolOptions, PgRow};
 use sqlx::{Executor, PgPool, Row};
 
-const SWEEP_INTERVAL: Duration = Duration::from_secs(5);
+pub const PROBE_INTERVAL: Duration = Duration::from_secs(5);
+pub const COMPARE_INTERVAL: Duration = Duration::from_secs(30);
 /// Caps one comparison well under the verify deadline.
 const STATEMENT_TIMEOUT_MS: u64 = 120_000;
 
@@ -20,6 +21,8 @@ pub struct VerifyConfig {
     pub tmp_person_table: String,
     pub tmp_pdi_table: String,
     pub deadline: Duration,
+    pub probe_interval: Duration,
+    pub compare_interval: Duration,
 }
 
 /// Tallies for one comparison. Field diffs count only ids present in both
@@ -54,11 +57,18 @@ impl Counts {
     }
 }
 
-/// Parity holds once the graphs agree on a non-empty authoritative cohort that
-/// has stopped growing. A stable main count means ingestion drained; a zero
-/// count means nothing landed, which is a failed run, not a pass.
-fn is_pass(mismatched: i64, main_count: i64, prev_main: Option<i64>) -> bool {
-    mismatched == 0 && main_count > 0 && prev_main == Some(main_count)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Cohort {
+    pub main: i64,
+    pub shadow: i64,
+}
+
+fn is_drained(prev: Option<Cohort>, cohort: Cohort) -> bool {
+    cohort.main > 0 && prev == Some(cohort)
+}
+
+fn is_pass(mismatched: i64, before: Cohort, after: Cohort, confirmed: Option<Cohort>) -> bool {
+    mismatched == 0 && before.main > 0 && before == after && confirmed == Some(before)
 }
 
 /// Both legs project the fields compared for parity. created_at is truncated to
@@ -111,6 +121,29 @@ impl Verifier {
             tmp_person_table,
             tmp_pdi_table,
         }
+    }
+
+    fn cohort_sql(&self) -> String {
+        format!(
+            "SELECT
+                (SELECT count(*) FROM posthog_persondistinctid
+                  WHERE team_id = $1 AND is_deleted = false) AS main_count,
+                (SELECT count(*) FROM {tmp_pdi}
+                  WHERE team_id = $1 AND is_deleted = false) AS shadow_count",
+            tmp_pdi = self.tmp_pdi_table
+        )
+    }
+
+    pub async fn probe(&self) -> Result<Cohort> {
+        let row = sqlx::query(&self.cohort_sql())
+            .bind(self.team_id)
+            .fetch_one(&self.pool)
+            .await
+            .context("counting the cohort")?;
+        Ok(Cohort {
+            main: row.get("main_count"),
+            shadow: row.get("shadow_count"),
+        })
     }
 
     /// One full outer join of the two legs, counting differences by kind. Each
@@ -190,16 +223,34 @@ impl Verifier {
     /// the deadline fails.
     pub async fn run(&self, cfg: &VerifyConfig) -> Result<bool> {
         let deadline = tokio::time::Instant::now() + cfg.deadline;
-        let mut prev_main: Option<i64> = None;
+        let mut prev: Option<Cohort> = None;
+        let mut confirmed: Option<Cohort> = None;
+        let mut last_counts: Option<Counts> = None;
         loop {
+            let before = match self.probe().await {
+                Ok(cohort) => cohort,
+                Err(error) => {
+                    retry_or_give_up(error, deadline, "probe")?;
+                    pause(deadline, cfg.probe_interval).await;
+                    continue;
+                }
+            };
+            tracing::info!(main = before.main, shadow = before.shadow, "cohort probed");
+            if !is_drained(prev, before) {
+                if tokio::time::Instant::now() >= deadline {
+                    report_failure(cfg, last_counts.as_ref(), before);
+                    return Ok(false);
+                }
+                prev = Some(before);
+                pause(deadline, cfg.probe_interval).await;
+                continue;
+            }
+
             let counts = match self.sweep().await {
                 Ok(counts) => counts,
                 Err(error) => {
-                    if tokio::time::Instant::now() >= deadline {
-                        return Err(error).context("sweep failed at the deadline");
-                    }
-                    tracing::warn!(error = format!("{error:#}"), "sweep failed; retrying");
-                    tokio::time::sleep(SWEEP_INTERVAL).await;
+                    retry_or_give_up(error, deadline, "sweep")?;
+                    pause(deadline, cfg.probe_interval).await;
                     continue;
                 }
             };
@@ -210,7 +261,15 @@ impl Verifier {
                 mismatched = counts.mismatched,
                 "sweep complete"
             );
-            if is_pass(counts.mismatched, counts.main, prev_main) {
+            let after = match self.probe().await {
+                Ok(cohort) => cohort,
+                Err(error) => {
+                    retry_or_give_up(error, deadline, "probe")?;
+                    pause(deadline, cfg.probe_interval).await;
+                    continue;
+                }
+            };
+            if is_pass(counts.mismatched, before, after, confirmed) {
                 tracing::info!(
                     cohort = counts.cohort,
                     "shadow graphs agree on a stable, drained cohort"
@@ -218,27 +277,54 @@ impl Verifier {
                 return Ok(true);
             }
             if tokio::time::Instant::now() >= deadline {
-                report_failure(cfg, &counts);
+                report_failure(cfg, Some(&counts), after);
                 return Ok(false);
             }
-            prev_main = Some(counts.main);
-            tokio::time::sleep(SWEEP_INTERVAL).await;
+            let clean = counts.mismatched == 0 && before == after;
+            confirmed = clean.then_some(after);
+            last_counts = Some(counts);
+            prev = Some(after);
+            pause(
+                deadline,
+                if clean {
+                    cfg.probe_interval
+                } else {
+                    cfg.compare_interval
+                },
+            )
+            .await;
         }
     }
 }
 
-fn report_failure(cfg: &VerifyConfig, counts: &Counts) {
+async fn pause(deadline: tokio::time::Instant, interval: Duration) {
+    tokio::time::sleep_until(deadline.min(tokio::time::Instant::now() + interval)).await;
+}
+
+fn retry_or_give_up(
+    error: anyhow::Error,
+    deadline: tokio::time::Instant,
+    what: &str,
+) -> Result<()> {
+    if tokio::time::Instant::now() >= deadline {
+        return Err(error).context(format!("{what} failed at the deadline"));
+    }
+    tracing::warn!(error = format!("{error:#}"), "{} failed; retrying", what);
+    Ok(())
+}
+
+fn report_failure(cfg: &VerifyConfig, counts: Option<&Counts>, cohort: Cohort) {
     let deadline_secs = cfg.deadline.as_secs();
-    if counts.mismatched == 0 {
+    let Some(counts) = counts.filter(|c| c.mismatched > 0) else {
         tracing::warn!(
-            cohort = counts.cohort,
-            main_count = counts.main,
+            main_count = cohort.main,
+            shadow_count = cohort.shadow,
             deadline_secs,
             "verification expired without a divergence: the authoritative cohort never \
              stabilized at a non-zero size; ingestion is likely still draining, or nothing landed"
         );
         return;
-    }
+    };
     tracing::warn!(
         cohort = counts.cohort,
         mismatched = counts.mismatched,
@@ -259,12 +345,29 @@ fn report_failure(cfg: &VerifyConfig, counts: &Counts) {
 mod tests {
     use super::*;
 
+    fn cohort(main: i64, shadow: i64) -> Cohort {
+        Cohort { main, shadow }
+    }
+
     #[test]
-    fn a_pass_needs_no_mismatch_and_a_stable_non_empty_cohort() {
-        assert!(is_pass(0, 100, Some(100)));
-        assert!(!is_pass(1, 100, Some(100)));
-        assert!(!is_pass(0, 100, None));
-        assert!(!is_pass(0, 100, Some(90)));
-        assert!(!is_pass(0, 0, Some(0)));
+    fn drained_needs_two_equal_probes_of_a_non_empty_cohort() {
+        assert!(is_drained(Some(cohort(100, 100)), cohort(100, 100)));
+        assert!(is_drained(Some(cohort(100, 90)), cohort(100, 90)));
+        assert!(!is_drained(None, cohort(100, 100)));
+        assert!(!is_drained(Some(cohort(90, 90)), cohort(100, 100)));
+        assert!(!is_drained(Some(cohort(100, 90)), cohort(100, 100)));
+        assert!(!is_drained(Some(cohort(0, 0)), cohort(0, 0)));
+    }
+
+    #[test]
+    fn a_pass_needs_two_clean_comparisons_of_an_unmoved_non_empty_cohort() {
+        let c = cohort(100, 100);
+        assert!(is_pass(0, c, c, Some(c)));
+        assert!(!is_pass(0, c, c, None));
+        assert!(!is_pass(0, c, c, Some(cohort(90, 90))));
+        assert!(!is_pass(1, c, c, Some(c)));
+        assert!(!is_pass(0, c, cohort(110, 110), Some(c)));
+        assert!(!is_pass(0, c, cohort(100, 101), Some(c)));
+        assert!(!is_pass(0, cohort(0, 0), cohort(0, 0), Some(cohort(0, 0))));
     }
 }

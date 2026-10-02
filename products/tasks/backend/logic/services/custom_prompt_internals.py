@@ -4,7 +4,7 @@ import re
 import json
 import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -77,6 +77,9 @@ FAILED_PROGRESS_STATUS = "failed"
 # input, not agent output, so the turn-relevant growth counting discounts them like the transient
 # side-channels above.
 _PROMPT_ECHO_UPDATES = frozenset({"user_message", "user_message_chunk"})
+
+STRUCTURED_OUTPUT_TOOL_NAME = "StructuredOutput"
+_TOOL_CALL_UPDATES = frozenset({"tool_call", "tool_call_update"})
 
 
 @dataclass(frozen=True)
@@ -218,7 +221,7 @@ class EmptyAgentTurnError(RuntimeError):
 
 
 # Mirrored from RETRYABLE_UPSTREAM_ERROR_CLASSIFICATIONS in
-# products/desktop/packages/agent/src/adapters/error-classification.ts, which is the source of
+# packages/agent/packages/agent/src/adapters/error-classification.ts, which is the source of
 # truth. A category added there must be added here too, or a retryable failure reads as permanent.
 UPSTREAM_RETRYABLE_ERROR_CATEGORIES = frozenset(
     {
@@ -266,6 +269,7 @@ async def create_task_and_trigger(
     mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
     mcp_credential_owner_id: int | None = None,
     mcp_gateway_server_ids: list[str] | None = None,
+    output_schema: dict[str, Any] | None = None,
 ):
     title = f"[sandbox_prompt:{step_name}] {description[:80]}" if step_name else description[:100]
     team = await sync_to_async(Team.objects.get)(id=context.team_id)
@@ -274,9 +278,11 @@ async def create_task_and_trigger(
     posthog_mcp_scopes: PosthogMcpScopes = (
         context.posthog_mcp_scopes if context.posthog_mcp_scopes is not None else "full"
     )
-    extra_run_state: dict[str, Any] | None = None
+    extra_run_state: dict[str, Any] = {}
     if context.mcp_exclude_tools:
-        extra_run_state = {"mcp_exclude_tools": list(context.mcp_exclude_tools)}
+        extra_run_state["mcp_exclude_tools"] = list(context.mcp_exclude_tools)
+    if output_schema:
+        extra_run_state["caller_ends_run"] = True
     task = await sync_to_async(Task.create_and_run)(
         team=team,
         title=title,
@@ -310,6 +316,7 @@ async def create_task_and_trigger(
         mcp_gateway_server_ids=mcp_gateway_server_ids,
         interaction_origin=context.interaction_origin,
         extra_run_state=extra_run_state,
+        output_schema=output_schema,
     )
     # lambda wrap: task.latest_run is a lazy ORM property; sync_to_async needs a callable
     task_run = await sync_to_async(lambda: task.latest_run)()
@@ -916,7 +923,7 @@ def _check_logs(task_run, skip_lines: int = 0) -> TurnLogState:
         if text:
             trailing_parts.append(text)
     trailing_parts.reverse()
-    latest_text = "".join(trailing_parts) if trailing_parts else None
+    latest_text = "".join(trailing_parts) if trailing_parts else _structured_output_text(parsed_updates)
     # A refused turn must not surface its partial text — the caller would mistake it for the
     # turn's real response.
     if refused:
@@ -946,6 +953,20 @@ def _check_logs(task_run, skip_lines: int = 0) -> TurnLogState:
         empty_end_turn=False,
         refused=False,
     )
+
+
+def _structured_output_text(updates: list[dict]) -> str | None:
+    for update in reversed(updates):
+        if update.get("sessionUpdate") not in _TOOL_CALL_UPDATES:
+            continue
+        meta = update.get("_meta")
+        claude_meta = meta.get("claudeCode") if isinstance(meta, dict) else None
+        if not isinstance(claude_meta, dict) or claude_meta.get("toolName") != STRUCTURED_OUTPUT_TOOL_NAME:
+            continue
+        raw_input = update.get("rawInput")
+        if isinstance(raw_input, dict) and raw_input:
+            return json.dumps(raw_input)
+    return None
 
 
 def _is_failed_progress(notification: dict) -> bool:
@@ -1078,62 +1099,84 @@ def _open_object_depth(text: str) -> int:
     return depth
 
 
-def extract_json_from_text(text: str | None, label: str) -> Any:
-    """Extract JSON from text that might contain markdown formatting or surrounding commentary."""
-    if text is None:
-        raise ValueError(f"Text to extract JSON from ({label}) is None")
+def _collect_json_values(text: str) -> tuple[list[Any], bool]:
+    """Read every JSON value `text` holds, in the order the extractor prefers them.
 
-    # 1. ```json ... ``` fenced code block (non-greedy to stop at first closing fence)
-    match = re.search(r"```json\s*(.*?)\s*```", text, re.DOTALL)
-    if match:
-        candidate = match.group(1).strip()
-        try:
-            return json.loads(candidate)
-        except json.JSONDecodeError:
-            pass
+    The second element reports a truncation: a decode that runs to the end of the text is a valid
+    object the reply was cut off inside. The scan stops there, so a fragment never joins the list.
+    """
+    values: list[Any] = []
 
-    # 2. ``` ... ``` generic code block that happens to contain JSON
-    match = re.search(r"```\s*(.*?)\s*```", text, re.DOTALL)
-    if match:
-        candidate = match.group(1).strip()
-        try:
-            return json.loads(candidate)
-        except json.JSONDecodeError:
-            pass
+    # 1. ```json ... ``` fenced code blocks (non-greedy to stop at each closing fence)
+    # 2. ``` ... ``` generic code blocks that happen to contain JSON
+    for pattern in (r"```json\s*(.*?)\s*```", r"```\s*(.*?)\s*```"):
+        for match in re.finditer(pattern, text, re.DOTALL):
+            try:
+                values.append(json.loads(match.group(1).strip()))
+            except json.JSONDecodeError:
+                continue
 
-    # 3. Bare JSON object in surrounding text — decode from each { from the left, stopping at the
+    # 3. Bare JSON objects in surrounding text — decode from each { from the left, stopping at the
     # end of that object, so trailing commentary does not have to be balanced.
     decoder = json.JSONDecoder()
     start = 0
     while (brace_pos := text.find("{", start)) != -1:
         try:
-            value, _ = decoder.raw_decode(text, brace_pos)
+            value, end_pos = decoder.raw_decode(text, brace_pos)
         except json.JSONDecodeError as e:
-            # A decode that ran to the end of the text is a valid object the reply was cut off inside
-            # — a truncation. Returning a nested object from it would hand the caller a fragment, and
+            # Returning a nested object from a truncated reply would hand the caller a fragment, and
             # the schema error that follows names a missing field instead of the truncation. A decode
-            # that fails well before the end is just a stray brace in prose, so skip past it.
-            if e.pos >= len(text.rstrip()):
-                raise TruncatedAgentOutputError(label) from e
+            # that fails well before the end is just a stray brace in prose, so skip past it. The decoder
+            # reports a string that runs off the end of the text at its opening quote, not at the end.
+            if e.pos >= len(text.rstrip()) or e.msg.startswith("Unterminated string"):
+                return values, True
             start = brace_pos + 1
             continue
-        return value
+        values.append(value)
+        start = end_pos
 
-    # 4. Last resort — try the whole text as-is, then surface a classified error so
-    # callers (and operators reading the failure) can tell empty / truncated / fenced / prose apart
-    # instead of seeing a bare "Expecting value: line 1 column 1 (char 0)".
-    stripped = text.strip()
+    # 4. The whole text as-is, which also covers valid top-level JSON that is not an object.
     try:
-        return json.loads(stripped)
-    except json.JSONDecodeError as e:
-        if not stripped:
-            raise ValueError(f"No JSON in {label}: end-turn text was empty or whitespace-only") from e
-        if _open_object_depth(text) > 0:
-            raise TruncatedAgentOutputError(label) from e
-        if "```" in text:
-            raise ValueError(
-                f"No valid JSON in {label}: text has a code fence but its contents did not parse as JSON"
-            ) from e
-        raise ValueError(
-            f"No JSON in {label}: end-turn text was prose with no JSON object (starts with {stripped[:60]!r})"
-        ) from e
+        values.append(json.loads(text.strip()))
+    except json.JSONDecodeError:
+        pass
+    return values, False
+
+
+def extract_json_from_text(text: str | None, label: str, required_keys: Collection[str] | None = None) -> Any:
+    """Extract JSON from text that might contain markdown formatting or surrounding commentary.
+
+    `required_keys` names the fields the caller needs. An agent turn often holds several JSON
+    objects — a tool call, a tool error envelope, a sample query — before the answer, so the last
+    object that carries every required key wins over the first object in the text.
+    """
+    if text is None:
+        raise ValueError(f"Text to extract JSON from ({label}) is None")
+
+    values, truncated = _collect_json_values(text)
+    if required_keys:
+        # The answer comes last, so a cut-off object at the end is the answer and an earlier match is not.
+        if truncated:
+            raise TruncatedAgentOutputError(label)
+        for value in reversed(values):
+            if isinstance(value, dict) and all(key in value for key in required_keys):
+                return value
+    elif values:
+        # Without keys the first value is the answer, so a cut-off object after it does not matter.
+        return values[0]
+    if truncated:
+        raise TruncatedAgentOutputError(label)
+    if values:
+        return values[0]
+
+    # Last resort — surface a classified error so callers (and operators reading the failure) can
+    # tell empty / truncated / fenced / prose apart instead of seeing a bare
+    # "Expecting value: line 1 column 1 (char 0)".
+    stripped = text.strip()
+    if not stripped:
+        raise ValueError(f"No JSON in {label}: end-turn text was empty or whitespace-only")
+    if _open_object_depth(text) > 0:
+        raise TruncatedAgentOutputError(label)
+    if "```" in text:
+        raise ValueError(f"No valid JSON in {label}: text has a code fence but its contents did not parse as JSON")
+    raise ValueError(f"No JSON in {label}: end-turn text was prose with no JSON object (starts with {stripped[:60]!r})")

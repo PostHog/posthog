@@ -22,7 +22,9 @@ export const manifest: ProductManifest = {
         },
     },
     routes: {
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/early_access_features': ['EarlyAccessFeatures', 'earlyAccessFeatures'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/early_access_features/:id': ['EarlyAccessFeature', 'earlyAccessFeature'],
     },
     redirects: {},
@@ -60,7 +62,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Early access features',
             intents: [ProductKey.EARLY_ACCESS_FEATURES],
-            category: ProductItemCategory.FEATURES,
+            category: ProductItemCategory.PRODUCT_ENGINEERING,
             type: 'early_access_feature',
             href: urls.earlyAccessFeatures(),
             iconType: 'early_access_feature' as FileSystemIconType,

@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   parseContextDocument,
   parsePostHogObjectUrl,
+  readAutonomy,
   serializeContextDocument,
+  withAutonomy,
 } from "./contextDocument";
 
 const WIKI_LINES = [
@@ -120,6 +122,24 @@ describe("contextDocument", () => {
     expect(doc.goals[0].id).toHaveLength(36);
     expect(doc.goals[0].task).toBe("8f1c");
     expect(serializeContextDocument(doc)).not.toContain("task:");
+  });
+
+  it("reads the autonomy level from the wiki's own lines and rewrites it in place", () => {
+    const doc = parseContextDocument(
+      "---\nsummary: Move activation\nautonomy: propose\nchannel_id: abc\n---\n\n# Body\n",
+    );
+
+    expect(readAutonomy(doc)).toBe("propose");
+    const changed = withAutonomy(doc, "ship_drafts");
+    expect(serializeContextDocument(changed)).toBe(
+      "---\nsummary: Move activation\nautonomy: ship_drafts\nchannel_id: abc\n---\n\n# Body\n",
+    );
+    expect(
+      readAutonomy(parseContextDocument("---\nsummary: x\n---\n")),
+    ).toBeNull();
+    expect(
+      readAutonomy(parseContextDocument("---\nautonomy: whatever\n---\n")),
+    ).toBeNull();
   });
 
   it("serializes prose alone without a frontmatter block", () => {

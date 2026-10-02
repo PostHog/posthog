@@ -77,6 +77,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "mapExtractKeyLike": HogQLFunctionMeta("mapExtractKeyLike", 2, 2),
     "mapApply": HogQLFunctionMeta("mapApply", 2, 2),
     "mapFilter": HogQLFunctionMeta("mapFilter", 2, 2),
+    "mapExists": HogQLFunctionMeta("mapExists", 2, 2),
     "mapUpdate": HogQLFunctionMeta("mapUpdate", 2, 2),
     # bit
     "bitAnd": HogQLFunctionMeta("bitAnd", 2, 2),

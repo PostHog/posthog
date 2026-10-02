@@ -105,7 +105,14 @@ export function ItemLogDetail({ item, groupedItems, sessionId }: ItemLogProps): 
             <div className="px-2 py-1 text-xs border-t">
                 <div className="flex justify-between items-center mb-2">
                     <LemonLabel>Log</LemonLabel>
-                    <LemonButton type="tertiary" size="xsmall" icon={<IconOpenInNew />} targetBlank to={logsUrl}>
+                    <LemonButton
+                        data-attr="inspector-open-logs"
+                        type="tertiary"
+                        size="xsmall"
+                        icon={<IconOpenInNew />}
+                        targetBlank
+                        to={logsUrl}
+                    >
                         View in Logs
                     </LemonButton>
                 </div>

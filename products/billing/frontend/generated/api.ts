@@ -28,7 +28,9 @@ import type {
     BillingProductsApi,
     BillingProductsListParams,
     BillingProductsRetrieveParams,
+    BillingProductsSummaryApi,
     BillingProjectsApi,
+    BillingSpendExportDownloadParams,
     BillingSpendExportRetrieveParams,
     BillingSpendRetrieveParams,
     BillingSpendSummaryApi,
@@ -36,6 +38,7 @@ import type {
     BillingSubscriptionApi,
     BillingTeamOptionsResponseApi,
     BillingTimeSeriesResponseApi,
+    BillingUsageExportDownloadParams,
     BillingUsageExportRetrieveParams,
     BillingUsageRetrieveParams,
     BillingUsageStatusApi,
@@ -790,6 +793,24 @@ export const billingProductsRetrieve = async (
     })
 }
 
+export const getBillingProductsSummaryRetrieveUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/products/summary/`
+}
+
+/**
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * @summary Get every product in summary
+ */
+export const billingProductsSummaryRetrieve = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<BillingProductsSummaryApi> => {
+    return apiMutator<BillingProductsSummaryApi>(getBillingProductsSummaryRetrieveUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getBillingProjectListUrl = (organizationId: string) => {
     return `/api/organizations/${organizationId}/billing/projects/`
 }
@@ -821,6 +842,37 @@ export const billingSpendSummaryRetrieve = async (
     options?: RequestInit
 ): Promise<BillingSpendSummaryApi> => {
     return apiMutator<BillingSpendSummaryApi>(getBillingSpendSummaryRetrieveUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingSpendExportDownloadUrl = (organizationId: string, params?: BillingSpendExportDownloadParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/billing/spend/export/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/billing/spend/export/`
+}
+
+/**
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * @summary Export spend as CSV
+ */
+export const billingSpendExportDownload = async (
+    organizationId: string,
+    params?: BillingSpendExportDownloadParams,
+    options?: RequestInit
+): Promise<Blob> => {
+    return apiMutator<Blob>(getBillingSpendExportDownloadUrl(organizationId, params), {
         ...options,
         method: 'GET',
     })
@@ -894,6 +946,37 @@ export const billingUsageSummaryRetrieve = async (
     options?: RequestInit
 ): Promise<BillingUsageSummaryApi> => {
     return apiMutator<BillingUsageSummaryApi>(getBillingUsageSummaryRetrieveUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingUsageExportDownloadUrl = (organizationId: string, params?: BillingUsageExportDownloadParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/billing/usage/export/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/billing/usage/export/`
+}
+
+/**
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * @summary Export usage as CSV
+ */
+export const billingUsageExportDownload = async (
+    organizationId: string,
+    params?: BillingUsageExportDownloadParams,
+    options?: RequestInit
+): Promise<Blob> => {
+    return apiMutator<Blob>(getBillingUsageExportDownloadUrl(organizationId, params), {
         ...options,
         method: 'GET',
     })
