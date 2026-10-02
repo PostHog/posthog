@@ -39,7 +39,7 @@ def slot_of(next_check_at: datetime | None, cutoff: datetime) -> str:
 
 
 def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
-    """Copy one of a source's own configurations in. True when the row changed."""
+    """Copy one of a source's own configurations in. True when it created the row."""
     return platform_lifecycle.upsert_configuration(upsert)
 
 

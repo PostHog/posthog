@@ -9,12 +9,14 @@
  */
 /**
  * * `logs` - Logs
+ * * `insight` - Insight
  */
 export type PlatformAlertConfigurationSourceKindEnumApi =
     (typeof PlatformAlertConfigurationSourceKindEnumApi)[keyof typeof PlatformAlertConfigurationSourceKindEnumApi]
 
 export const PlatformAlertConfigurationSourceKindEnumApi = {
     Logs: 'logs',
+    Insight: 'insight',
 } as const
 
 /**
@@ -104,7 +106,8 @@ export interface PlatformAlertConfigurationApi {
     readonly enabled: boolean
     /** Product whose data the alert evaluates.
      *
-     * * `logs` - Logs */
+     * * `logs` - Logs
+     * * `insight` - Insight */
     readonly source_kind: PlatformAlertConfigurationSourceKindEnumApi
     /** Source-specific settings. The shape depends on source_kind. The bound the alert is evaluated against is under the condition key. */
     readonly source_config: PlatformAlertConfigurationApiSourceConfig
