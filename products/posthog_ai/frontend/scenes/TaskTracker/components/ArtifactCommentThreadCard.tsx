@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
-import { IconCheck, IconPin, IconRefresh, IconX } from '@posthog/icons'
+import { IconCheck, IconPin, IconRefresh } from '@posthog/icons'
 import { Badge, Button, Text, ThreadItemAction, ThreadItemGroup, cn } from '@posthog/quill-primitives'
 
 import { ArtifactCommentThread } from '../artifactComments'
@@ -61,35 +61,6 @@ export function ArtifactCommentThreadCard({
                 className="flex min-h-0 flex-col"
                 data-attr="task-artifact-comment-thread"
             >
-                <div className="flex min-w-0 items-start gap-2 border-b border-border py-2 pr-1 pl-3">
-                    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
-                        {anchor?.kind === 'text' && (
-                            <Text
-                                size="xs"
-                                variant="muted"
-                                render={<span />}
-                                className="line-clamp-2 w-full border-l-2 border-warning pl-2 italic"
-                            >
-                                {anchor.quote}
-                            </Text>
-                        )}
-                        {thread.pinNumber && (
-                            <Badge variant="info">
-                                <IconPin />
-                                {`Pin ${thread.pinNumber}`}
-                            </Badge>
-                        )}
-                        {thread.resolved && <Badge variant="completed">Resolved</Badge>}
-                    </div>
-                    <Button
-                        size="icon-sm"
-                        aria-label="Close comment"
-                        onClick={() => activateThread(null)}
-                        data-attr="task-artifact-comment-thread-close"
-                    >
-                        <IconX />
-                    </Button>
-                </div>
                 <div className="min-h-0 flex-1 overflow-y-auto py-2">
                     <ThreadItemGroup>
                         <ArtifactCommentEntry comment={thread.root} actions={resolveAction} />
