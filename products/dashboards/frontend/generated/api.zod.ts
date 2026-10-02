@@ -142,7 +142,6 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
         name: zod.string().max(dashboardsCreateBodyNameMax).nullish(),
         description: zod.string().optional(),
         pinned: zod.boolean().optional(),
-        last_accessed_at: zod.iso.datetime({ offset: true }).nullish(),
         deleted: zod.boolean().optional(),
         breakdown_colors: zod
             .array(
@@ -194,7 +193,6 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.'
             ),
-        last_refresh: zod.iso.datetime({ offset: true }).nullish(),
         quick_filter_ids: zod
             .array(zod.string())
             .nullish()
@@ -250,7 +248,6 @@ export const DashboardsUpdateBody = /* @__PURE__ */ zod
         name: zod.string().max(dashboardsUpdateBodyNameMax).nullish(),
         description: zod.string().optional(),
         pinned: zod.boolean().optional(),
-        last_accessed_at: zod.iso.datetime({ offset: true }).nullish(),
         deleted: zod.boolean().optional(),
         breakdown_colors: zod
             .array(
@@ -302,7 +299,6 @@ export const DashboardsUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.'
             ),
-        last_refresh: zod.iso.datetime({ offset: true }).nullish(),
         quick_filter_ids: zod
             .array(zod.string())
             .nullish()
@@ -3732,7 +3728,6 @@ export const DashboardsCreateFromTemplateJsonCreateBody = /* @__PURE__ */ zod
         name: zod.string().max(dashboardsCreateFromTemplateJsonCreateBodyNameMax).nullish(),
         description: zod.string().optional(),
         pinned: zod.boolean().optional(),
-        last_accessed_at: zod.iso.datetime({ offset: true }).nullish(),
         deleted: zod.boolean().optional(),
         breakdown_colors: zod
             .array(
@@ -3785,7 +3780,6 @@ export const DashboardsCreateFromTemplateJsonCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.\n\n\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
             ),
-        last_refresh: zod.iso.datetime({ offset: true }).nullish(),
         quick_filter_ids: zod
             .array(zod.string())
             .nullish()
@@ -3836,7 +3830,6 @@ export const DashboardsCreateUnlistedDashboardCreateBody = /* @__PURE__ */ zod
         name: zod.string().max(dashboardsCreateUnlistedDashboardCreateBodyNameMax).nullish(),
         description: zod.string().optional(),
         pinned: zod.boolean().optional(),
-        last_accessed_at: zod.iso.datetime({ offset: true }).nullish(),
         deleted: zod.boolean().optional(),
         breakdown_colors: zod
             .array(
@@ -3889,7 +3882,6 @@ export const DashboardsCreateUnlistedDashboardCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.\n\n\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
             ),
-        last_refresh: zod.iso.datetime({ offset: true }).nullish(),
         quick_filter_ids: zod
             .array(zod.string())
             .nullish()

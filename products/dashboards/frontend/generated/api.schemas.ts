@@ -423,7 +423,7 @@ export interface DashboardWriteOpenApiApi {
     readonly created_at: string
     readonly created_by: UserBasicApi
     /** @nullable */
-    last_accessed_at?: string | null
+    readonly last_accessed_at: string | null
     /** @nullable */
     readonly last_viewed_at: string | null
     /**
@@ -473,7 +473,7 @@ export interface DashboardWriteOpenApiApi {
     readonly user_access_level: string | null
     readonly access_control_version: string
     /** @nullable */
-    last_refresh?: string | null
+    readonly last_refresh: string | null
     /** @nullable */
     readonly persisted_filters: DashboardWriteOpenApiApiPersistedFilters
     /** @nullable */
@@ -548,7 +548,7 @@ export interface DashboardApi {
     readonly created_at: string
     readonly created_by: UserBasicApi
     /** @nullable */
-    last_accessed_at?: string | null
+    readonly last_accessed_at: string | null
     /** @nullable */
     readonly last_viewed_at: string | null
     /**
@@ -597,7 +597,7 @@ export interface DashboardApi {
     readonly user_access_level: string | null
     readonly access_control_version: string
     /** @nullable */
-    last_refresh?: string | null
+    readonly last_refresh: string | null
     /** @nullable */
     readonly persisted_filters: DashboardApiPersistedFilters
     /** @nullable */

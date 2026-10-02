@@ -26658,7 +26658,7 @@ export namespace Schemas {
       readonly created_at: string;
       readonly created_by: UserBasic;
       /** @nullable */
-      last_accessed_at?: string | null;
+      readonly last_accessed_at: string | null;
       /** @nullable */
       readonly last_viewed_at: string | null;
       /**
@@ -26707,7 +26707,7 @@ export namespace Schemas {
       readonly user_access_level: string | null;
       readonly access_control_version: string;
       /** @nullable */
-      last_refresh?: string | null;
+      readonly last_refresh: string | null;
       /** @nullable */
       readonly persisted_filters: DashboardPersistedFilters;
       /** @nullable */
@@ -27081,7 +27081,7 @@ export namespace Schemas {
       readonly created_at: string;
       readonly created_by: UserBasic;
       /** @nullable */
-      last_accessed_at?: string | null;
+      readonly last_accessed_at: string | null;
       /** @nullable */
       readonly last_viewed_at: string | null;
       /**
@@ -27131,7 +27131,7 @@ export namespace Schemas {
       readonly user_access_level: string | null;
       readonly access_control_version: string;
       /** @nullable */
-      last_refresh?: string | null;
+      readonly last_refresh: string | null;
       /** @nullable */
       readonly persisted_filters: DashboardWriteOpenApiPersistedFilters;
       /** @nullable */
