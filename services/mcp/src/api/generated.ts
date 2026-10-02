@@ -104040,19 +104040,25 @@ export namespace Schemas {
      * The requesting user's per-project task defaults, shared by PostHog Desktop and the web app.
      */
     export interface TasksTaskDefaults {
-      /** When true, new tasks start in plan mode: the agent makes a plan and waits for approval. */
-      start_in_plan_mode: boolean;
-      /** When true, a cloud run that changes code always opens a draft pull request. */
-      auto_publish_cloud_runs: boolean;
+      /**
+         * When true, new tasks start in plan mode: the agent makes a plan and waits for approval. Null when you never set it.
+         * @nullable
+         */
+      start_in_plan_mode: boolean | null;
+      /**
+         * When true, a cloud run that changes code always opens a draft pull request. Null when you never set it.
+         * @nullable
+         */
+      auto_publish_cloud_runs: boolean | null;
     }
 
     /**
      * A partial update of the requesting user's task defaults. Fields left out keep their stored value.
      */
     export interface TasksTaskDefaultsUpdate {
-      /** When true, new tasks start in plan mode: the agent makes a plan and waits for approval. */
+      /** When true, new tasks start in plan mode: the agent makes a plan and waits for approval. Null when you never set it. */
       start_in_plan_mode?: boolean;
-      /** When true, a cloud run that changes code always opens a draft pull request. */
+      /** When true, a cloud run that changes code always opens a draft pull request. Null when you never set it. */
       auto_publish_cloud_runs?: boolean;
     }
 
