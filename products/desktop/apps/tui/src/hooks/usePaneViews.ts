@@ -1,3 +1,4 @@
+import type { ImageContent } from "@earendil-works/pi-ai";
 import { useRef, useState } from "react";
 import { ChatView } from "../chatView";
 import { Composer } from "../composer";
@@ -25,7 +26,7 @@ export function usePaneViews({
   onSubmit,
 }: {
   layout: LayoutState;
-  onSubmit: (paneId: string, text: string) => void;
+  onSubmit: (paneId: string, text: string, images: ImageContent[]) => void;
 }): PaneViews {
   const chatViews = useRef(new Map<string, ChatView>());
   const composers = useRef(new Map<string, Composer>());
@@ -50,7 +51,9 @@ export function usePaneViews({
     composerFor: (paneId) => {
       let composer = composers.current.get(paneId);
       if (!composer) {
-        composer = new Composer(repaint, (text) => onSubmit(paneId, text));
+        composer = new Composer(repaint, (text, images) =>
+          onSubmit(paneId, text, images),
+        );
         composers.current.set(paneId, composer);
       }
       return composer;

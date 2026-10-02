@@ -227,6 +227,26 @@ describe("Composer", () => {
     expect(await suggestionsFor("/mo")).toContain("model");
   });
 
+  it.each([
+    ["sends an attached image with its marker", [], ["look [Image #1]", 1]],
+    [
+      "drops an image whose marker was deleted",
+      ["\x7f"],
+      ["look [Image #1", 0],
+    ],
+  ])("%s", (_, extraKeys, [text, count]) => {
+    const sent: [string, number][] = [];
+    const composer = new Composer(
+      () => {},
+      (message, images) => sent.push([message, images.length]),
+    );
+    for (const key of [..."look "]) composer.handleInput(key);
+    composer.attach({ type: "image", data: "aGk=", mimeType: "image/png" });
+    for (const key of [...extraKeys, "\r"]) composer.handleInput(key);
+
+    expect(sent).toEqual([[text, count]]);
+  });
+
   it("shows a cursor only while its pane has focus", () => {
     const composer = new Composer(
       () => {},

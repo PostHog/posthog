@@ -162,12 +162,18 @@ describe("LocalSession", () => {
     const session = new LocalSession(client, policies());
     await session.start();
 
-    await session.prompt("Fix the flaky test");
+    const image = {
+      type: "image" as const,
+      data: "aGk=",
+      mimeType: "image/png",
+    };
+    await session.prompt("Fix the flaky test", [image]);
 
     expect(send).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "prompt",
         message: "Fix the flaky test",
+        images: [image],
       }),
     );
     expect(await session.control.commands()).toEqual([

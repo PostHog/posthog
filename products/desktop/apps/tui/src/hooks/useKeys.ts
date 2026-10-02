@@ -1,12 +1,16 @@
+import { matchesKey } from "@earendil-works/pi-tui";
 import { useApp, useInput } from "ink";
 import { type Dispatch, type SetStateAction, useRef, useState } from "react";
 import { type ActionsLine, actionsSheet, canRun } from "../actions";
+import { readClipboardImage } from "../clipboard";
 import { type Composer, isAppKey, isTyping } from "../composer";
 import { messageOf } from "../errors";
+import { droppedImage } from "../images";
 import {
   activeWorkspace,
   closeFocused,
   cycleFocus,
+  findPane,
   focusPane,
   type LayoutState,
   newChat,
@@ -35,6 +39,7 @@ export interface Keys {
 
 // The keyboard: app shortcuts, sidebar keys, and typing into the focused pane's composer, sheet or offer.
 export function useKeys({
+  runsLocally,
   layout,
   setLayout,
   sidebar,
@@ -45,6 +50,7 @@ export function useKeys({
   control,
   notice: { flashNotice, clearNotice },
 }: {
+  runsLocally: (paneId: string, taskId: string | null) => boolean;
   layout: LayoutState;
   setLayout: Dispatch<SetStateAction<LayoutState>>;
   sidebar: SidebarState;
@@ -218,7 +224,21 @@ export function useKeys({
         flashNotice("Press Esc again to clear");
       return;
     }
-    composer.handleInput(sequence);
+    // Only a local agent takes images; in a cloud chat a dropped path stays text.
+    const local = runsLocally(paneId, findPane(layout, paneId)?.taskId ?? null);
+    if (matchesKey(sequence, "ctrl+v")) {
+      if (!local) flashNotice("Images work in local chats for now");
+      else
+        readClipboardImage().then((image) =>
+          image
+            ? composer.attach(image)
+            : flashNotice("There's no image on the clipboard"),
+        );
+      return;
+    }
+    const dropped = local ? droppedImage(sequence) : null;
+    if (dropped) composer.attach(dropped);
+    else composer.handleInput(sequence);
   };
 
   return {

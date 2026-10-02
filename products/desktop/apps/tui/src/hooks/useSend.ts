@@ -1,3 +1,4 @@
+import type { ImageContent } from "@earendil-works/pi-ai";
 import type { CloudRegion, Task } from "@posthog/shared";
 import { type Dispatch, type SetStateAction, useState } from "react";
 import { REGIONS } from "../auth";
@@ -22,7 +23,7 @@ import type { OpenModal } from "./useSheets";
 
 export interface Send {
   // What the composer submits: an answer to a typed prompt, a slash command, a ! command, or a message.
-  onSubmit: (paneId: string, text: string) => void;
+  onSubmit: (paneId: string, text: string, images?: ImageContent[]) => void;
   // Messages on their way, by pane, shown until the chat has them.
   pending: Map<string, string>;
 }
@@ -115,7 +116,11 @@ export function useSend({
     flashNotice("Signed out");
   };
 
-  const onSubmit = (paneId: string, text: string): void => {
+  const onSubmit = (
+    paneId: string,
+    text: string,
+    images: ImageContent[] = [],
+  ): void => {
     const pane = findPane(layout, paneId);
     const current = taskOf(pane?.taskId ?? null);
     const textPrompt = modalFor(paneId)?.submitText;
@@ -188,7 +193,7 @@ export function useSend({
       });
     const promptLocal = (taskId: string): Promise<void> => {
       markActive(taskId);
-      return localFor(taskId).then((session) => session.prompt(text));
+      return localFor(taskId).then((session) => session.prompt(text, images));
     };
     if (isLocal(pane?.taskId ?? null)) {
       promptLocal(pane?.taskId as string).catch((error: unknown) => {

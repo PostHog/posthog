@@ -1,3 +1,4 @@
+import type { ImageContent } from "@earendil-works/pi-ai";
 import { getRemotePiConversation } from "@posthog/agent/pi/remote-rpc-client";
 import type { PiRpcClient } from "@posthog/agent/pi/rpc-client";
 import { PiRuntime } from "@posthog/agent/pi/runtime";
@@ -111,11 +112,12 @@ export class LocalSession {
   }
 
   // A message sent mid-turn steers it: the agent reads it after its current tool calls, before its next step.
-  async prompt(message: string): Promise<void> {
+  async prompt(message: string, images: ImageContent[] = []): Promise<void> {
     const response = await this.runtime.sendCommand({
       type: "prompt",
       id: globalThis.crypto.randomUUID(),
       message,
+      ...(images.length > 0 && { images }),
       streamingBehavior: "steer",
     });
     if (!response.success) throw new Error(response.error);
