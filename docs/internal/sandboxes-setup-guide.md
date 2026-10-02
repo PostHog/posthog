@@ -112,8 +112,27 @@ orchestrates these activities:
 The activities live in
 `products/tasks/backend/temporal/process_task/activities/`.
 
+The agent's `finish` tool marks a TaskRun terminal and triggers sandbox cleanup.
+ReviewHog and scout suggestion tasks do not expose it because their callers own session completion.
+ReviewHog receives and validates each turn's JSON before ending the session, and validation can use multiple turns in the same sandbox.
+
 Credential refresh runs in the background. For workflow histories with the `tasks-credential-refresh-propagate-cancel` patch, cancellation stops the loop even during an in-flight refresh activity.
 Other refresh failures retry on the default cadence.
+
+A follow-up command read timeout leaves its turn open, even if an earlier turn's
+completion signal arrived during delivery. This applies to user and peer messages.
+An open turn blocks sandbox rotation. If its sandbox disappears before completion,
+a workflow-origin run fails instead of reporting unfinished work as completed.
+
+With `tasks-rotation-activity-guard`, active heartbeats also block rotation until
+the agent reports idle, including background work after a user turn ends.
+Pi message and tool events mark the agent active. The first activity after a turn
+ends bypasses heartbeat throttling so a quick follow-up cannot look idle.
+Activity during snapshot capture or replacement startup abandons the handoff and
+keeps the live sandbox. The event relay stays active until startup finishes, and
+an abandoned handoff with new activity requests a fresh snapshot.
+Directory resume snapshots cover `/tmp/workspace`, including nested Git worktrees
+and agent state. Paths outside that directory are not included.
 
 ## Running via the UI
 
@@ -281,6 +300,8 @@ An active turn keeps its settings snapshot, and an existing report's status comm
 If a review fails, the next attempt keeps cached reviewer results for the same commit, model, and reasoning effort.
 Deduplication retires superseded findings from the unfinished turn and reuses a verdict only when its finding, commit, review mode, and model configurations are unchanged.
 Completed turns remain in the report history.
+Long-running review activities refresh the active report every minute so it remains visible in Code review while an agent works without new results.
+The refresh stops when the activity exits; a report with no new activity still expires from the running list after 30 minutes.
 Review-started, completed, and failed event IDs distinguish Full and Flash retries while preserving the legacy Full IDs.
 When calculating completion rates, match report, turn, and mode, treating an absent mode as Full for legacy events.
 Flash finding-outcome events use the model configuration saved with the finding, even if the Flash defaults change before classification.
@@ -314,6 +335,14 @@ cd services/mcp && cp .env.example .env
 
 Then fill in the secrets. `POSTHOG_UI_APPS_TOKEN` and `POSTHOG_ANALYTICS_API_KEY` are public PostHog `phc_*` project keys — for local dev you can paste the same key you use for analytics, or leave them as the placeholder (analytics calls will no-op). Restart the `mcp` phrocs process after changing `.env`.
 
+### Memory pressure during Claude validation
+
+The memory watchdog stops tool process trees before the sandbox reaches its memory limit. A process stop, including SIGKILL escalation, does not mean the task run died.
+
+Cloud Claude sessions deliver each watchdog warning separately to subagents and their parent. Shell results with exit codes 137, 143, or 144 wait briefly for the watchdog's delayed record; an exit code alone is not treated as proof of an OOM.
+
+Common build, test, and typecheck commands share a sandbox-wide lock, including commands started in the background. When another validation command holds the lock, the shell returns exit code 75 and asks the agent to wait. After the same validation command fails twice during observed watchdog interventions, the session rejects another unchanged attempt. Reduce the command's scope or concurrency, or report the validation limit. This guard is best-effort command recognition, not a resource limit for arbitrary shell programs.
+
 ### Local agent packages
 
 Cloud tasks use the published `@posthog/agent` package by default. Set `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` only when you need to test local agent changes.
@@ -323,8 +352,8 @@ For local Docker, the worker builds the packages inside the sandbox image. The f
 ```bash
 # In your .env:
 SANDBOX_PROVIDER=docker
-# The desktop source lives in this repo at products/desktop
-LOCAL_POSTHOG_CODE_MONOREPO_ROOT=./products/desktop
+# The agent workspace lives in this repo at packages/agent
+LOCAL_POSTHOG_CODE_MONOREPO_ROOT=./packages/agent
 ```
 
 Restart the temporal worker after changing `.env`.
@@ -332,7 +361,7 @@ Restart the temporal worker after changing `.env`.
 For local Modal, set `SANDBOX_PROVIDER=MODAL_DOCKER`, build the packages, and restart the temporal worker:
 
 ```bash
-pnpm --dir products/desktop --filter @posthog/agent... build
+pnpm --dir packages/agent build
 ```
 
 ### Sandbox providers
@@ -365,6 +394,12 @@ override all four (`posthog-sandbox-modal-docker-*`, `posthog-sandbox-evals`), s
 in a production app. A new app name has to be a class attribute for that to keep holding.
 
 ### Sandbox templates
+
+Staff can inspect the agent release pipeline at `/admin/tasks/task/infrastructure/` in each region.
+The read-only page compares the published package, master version pin, registry platforms, custom-image bases, and the last recorded dev-stack bake.
+Release evidence separates workflow status from image build and base promotion results, including skipped builds.
+Select a custom image to inspect its latest Temporal execution. A failed refresh can leave a ready image on an older base.
+Missing or stale sources remain unverified. This view does not measure versions inside running sandboxes or reconstruct historical rollout completion.
 
 Each sandbox is created from a template that determines its base image and capabilities.
 
@@ -430,7 +465,7 @@ Mirroring failures are logged and never break the run's log write.
 When both `SANDBOX_PROVIDER=MODAL_DOCKER` and `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` are set:
 
 1. The selected sandbox Dockerfile is built in a temporary context
-2. External runtime dependencies from local `packages/agent`, `packages/shared`, and `packages/git` manifests that are missing from the published image are installed at `/scripts`; required system compatibility packages such as musl for Codex are installed with them, while `workspace:*` dependencies continue to resolve through the overlaid packages
+2. External runtime dependencies from local `packages/agent`, `packages/agent-contracts`, and `packages/git` manifests that are missing from the published image are installed at `/scripts`; required system compatibility packages such as musl for Codex are installed with them, while `workspace:*` dependencies continue to resolve through the overlaid packages
 3. Each local package's built `dist/` directory is mounted over the published package's compiled output
 4. The image runs in a separate Modal app (`posthog-sandbox-modal-docker-default`) so it doesn't affect production
 5. The first build takes a few minutes; subsequent builds reuse Modal's layer cache
@@ -438,7 +473,7 @@ When both `SANDBOX_PROVIDER=MODAL_DOCKER` and `LOCAL_POSTHOG_CODE_MONOREPO_ROOT`
 After changing agent-server code, rebuild and restart the worker:
 
 ```bash
-cd products/desktop/packages/agent && pnpm build
+cd packages/agent/packages/agent && pnpm build
 ```
 
 > **Note:** The build context is cached for the lifetime of the worker process (`lru_cache`).

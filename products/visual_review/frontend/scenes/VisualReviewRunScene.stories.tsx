@@ -48,6 +48,7 @@ const run: RunApi = {
     error_message: null,
     created_at: '2026-06-10T00:00:00Z',
     completed_at: '2026-06-10T00:01:00Z',
+    purpose: 'review',
     is_stale: false,
     metadata: {},
     search_match_type: null,
@@ -138,6 +139,14 @@ const masterRun: RunApi = {
     ...run,
     branch: 'master',
     pr_number: null,
+    purpose: 'observe',
+}
+
+// A merge-queue run keeps its PR number but is tracking-only, so it must not offer approval either.
+const mergeQueueRun: RunApi = {
+    ...run,
+    branch: 'trunk-merge/pr-42',
+    purpose: 'observe',
 }
 
 const emptyList = { count: 0, next: null, previous: null, results: [] }
@@ -179,6 +188,52 @@ export const TrackingOnlyMasterRun: StoryObj = {
         mswDecorator({
             get: {
                 [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/`]: masterRun,
+            },
+        }),
+    ],
+}
+
+export const TrackingOnlyMergeQueueRun: StoryObj = {
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="visual-review-snapshot-thumbnail"]' },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/`]: mergeQueueRun,
+            },
+        }),
+    ],
+}
+
+// A removed snapshot has no current image, so "Accept change" is disabled and finalize prunes it.
+export const RemovedSnapshot: StoryObj = {
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="visual-review-snapshot-accept"]' },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/`]: {
+                    ...run,
+                    summary: { total: 1, changed: 0, new: 0, removed: 1, unchanged: 0 },
+                },
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/snapshots/`]: {
+                    count: 1,
+                    next: null,
+                    previous: null,
+                    quarantined_count: 0,
+                    results: [
+                        snapshot({
+                            id: 'snapshot-removed',
+                            identifier: 'Components/Legacy--card',
+                            result: 'removed',
+                            diff_percentage: null,
+                            diff_pixel_count: null,
+                            baseline_artifact: artifact('base_removed'),
+                        }),
+                    ],
+                },
             },
         }),
     ],

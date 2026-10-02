@@ -54,7 +54,7 @@ if TYPE_CHECKING:
 
 class TestResolveSandboxAiProduct:
     """Must agree with resolveAiProduct/resolveGatewayProduct in
-    products/desktop/packages/agent/src/utils/gateway.ts — a disagreement makes a
+    packages/agent/packages/agent/src/utils/gateway.ts — a disagreement makes a
     routed run mint no token (degrades to Python) or mint an unused token."""
 
     @pytest.mark.parametrize(
@@ -105,7 +105,7 @@ class TestSharedRoutingContract:
     TypeScript resolver and this Python mirror cannot drift while staying green."""
 
     _CASES = json.loads(
-        (Path(__file__).parents[6] / "products/desktop/packages/agent/src/utils/gateway-routing-cases.json").read_text()
+        (Path(__file__).parents[6] / "packages/agent/packages/agent/src/utils/gateway-routing-cases.json").read_text()
     )
 
     @pytest.mark.parametrize(
@@ -1330,6 +1330,20 @@ class TestPosthogCodeSandboxMint:
             assert mint_refusal("posthog_code", team_id=team.id, state=None, model=None, runtime="acp") is None
         assert flag.call_args.args[0] == "posthog-desktop-ai-gateway"
         assert flag.call_args.kwargs["groups"]["organization"] == str(team.organization_id)
+
+    @pytest.mark.django_db
+    def test_flag_is_evaluated_for_the_run_user(self, mint_settings):
+        team = self._team(paid=True)
+        mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "posthog_code"
+        with (
+            patch(
+                "products.tasks.backend.logic.services.desktop_gateway_token.feature_enabled_or_false",
+                return_value=False,
+            ) as flag,
+            patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token"),
+        ):
+            ai_gateway_env_vars(team_id=team.id, origin_product="user_created", distinct_id="run-user-distinct-id")
+        assert flag.call_args.args[1] == "run-user-distinct-id"
 
     @pytest.mark.django_db
     def test_off_pin_model_refuses(self):

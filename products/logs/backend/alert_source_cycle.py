@@ -298,8 +298,7 @@ def _delivery(
     if outcome.notification == NotificationAction.NONE:
         return recorded, None
 
-    kind = _NOTIFICATION_OUTCOME_KINDS[outcome.notification]
-    spec = EVENT_KIND_CONFIG[cast(EventKind, kind.value)]
+    spec = EVENT_KIND_CONFIG[cast(EventKind, recorded.kind.value)]
     destinations = list_active_alert_destinations(
         team_id=check.team_id,
         alert_id=str(check.legacy_configuration_id or check.id),
@@ -307,16 +306,15 @@ def _delivery(
     )
     return recorded, AlertDeliveryPreview(
         source=SourceKind.LOGS,
-        alert_id=str(check.id),
+        configuration_id=str(check.id),
         alert_name=check.name,
-        # The recorded key, not a second construction of one. This becomes the delivery child
-        # workflow id, so a key without the slot lets two scheduled checks that clamped to the
-        # same window end collide and drops the later announcement.
-        evaluation_key=f"{check.id}:{recorded.evaluation_key}",
+        # The recorded key unchanged, so a delivery can address the row the check wrote. The
+        # workflow id that has to be unique across alerts joins this to the configuration itself.
+        evaluation_key=recorded.evaluation_key,
         destination_names=tuple(destination.name for destination in destinations),
         # One transition with an empty grouping key. Logs does not group yet, and delivery
         # reads a list either way, so fan-out changes this call and nothing downstream.
-        transitions=(GroupTransition(grouping_key="", notification=outcome.notification.value),),
+        transitions=(GroupTransition(grouping_key="", kind=recorded.kind, value=recorded.value),),
     )
 
 

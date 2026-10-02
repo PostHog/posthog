@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 CLOUDINARY_API_HOSTS = {
     "global": "https://api.cloudinary.com",
@@ -56,7 +57,8 @@ def cloudinary_source(
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[CloudinaryResumeConfig],
-):
+) -> SourceResponse:
+    endpoint_config = CLOUDINARY_ENDPOINTS[endpoint]
     config: RESTAPIConfig = {
         "client": {
             "base_url": base_url(cloud_name, region),
@@ -77,13 +79,26 @@ def cloudinary_source(
         if state and state.get("cursor"):
             resumable_source_manager.save_state(CloudinaryResumeConfig(cursor=str(state["cursor"])))
 
-    return rest_api_resource(
+    resource = rest_api_resource(
         config,
         team_id,
         job_id,
         None,
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
+    )
+
+    partition_key = endpoint_config.partition_key
+    return SourceResponse(
+        name=endpoint,
+        items=lambda: resource,
+        primary_keys=[endpoint_config.primary_key],
+        column_hints=resource.column_hints,
+        partition_count=1 if partition_key else None,
+        partition_size=1 if partition_key else None,
+        partition_mode="datetime" if partition_key else None,
+        partition_format="week" if partition_key else None,
+        partition_keys=[partition_key] if partition_key else None,
     )
 
 

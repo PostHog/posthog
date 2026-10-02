@@ -11,7 +11,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field, ValidationError
 from temporalio.exceptions import ApplicationError
 
-from products.replay_vision.backend.models.replay_scanner import ScannerType
+from products.replay_vision.backend.models.replay_scanner import ScannerType, config_experiment_scope
 
 if TYPE_CHECKING:
     from products.replay_vision.backend.models.replay_scanner import ReplayScanner
@@ -39,6 +39,13 @@ class ScannerSnapshot(BaseModel, frozen=True):
     # first pass), or `enforce` (serve the `yes` only when the second draw agrees, else the dissent). A plain string
     # so a retired mode never breaks old-row loads.
     verify_positives: str = "off"
+
+    def experiment_scope(self) -> dict[str, Any] | None:
+        """The experiment this scan watched, wherever the snapshot stores it; mirrors
+        `ReplayScanner.experiment_scope`."""
+        if self.scanner_type == ScannerType.EXPERIMENT:
+            return config_experiment_scope(self.scanner_config)
+        return self.experiment_targeting
 
     @classmethod
     def from_scanner(cls, scanner: "ReplayScanner") -> "ScannerSnapshot":

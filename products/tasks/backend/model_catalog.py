@@ -7,7 +7,7 @@ surface that offers or validates a selection derives from here:
 
 - the backend, through ``products.tasks.backend.temporal.process_task.utils``;
 - the web composer and settings, through ``products/tasks/frontend/modelCatalog.generated.ts``;
-- the desktop app and its agent, through ``@posthog/shared/model-catalog``.
+- the desktop app and its agent, through ``@posthog/agent-contracts/model-catalog``.
 
 Both TypeScript projections are emitted by ``products/tasks/scripts/model_catalog_projection.py`` and are
 checked for drift by `hogli build:projections --check` in CI. After editing this file, run
@@ -301,8 +301,8 @@ class CapabilityNotch:
 # so a rung naming a retired model drops out instead of becoming a stop that fails on send.
 CAPABILITY_LADDER_BY_RUNTIME_ADAPTER: dict[str, tuple[CapabilityNotch, ...]] = {
     CLAUDE: (
-        CapabilityNotch("claude-sonnet-5", MEDIUM),
-        CapabilityNotch("claude-sonnet-5", HIGH),
+        CapabilityNotch("claude-sonnet-5-5", MEDIUM),
+        CapabilityNotch("claude-sonnet-5-5", HIGH),
         CapabilityNotch("claude-opus-5-5", MEDIUM),
         CapabilityNotch("claude-opus-5-5", XHIGH),
         CapabilityNotch("claude-fable-5-1", MAX),

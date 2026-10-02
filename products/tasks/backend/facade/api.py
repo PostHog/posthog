@@ -29,6 +29,7 @@ from django.db.models import (
     F,
     Func,
     IntegerField,
+    Max,
     Min,
     Model,
     OuterRef,
@@ -46,6 +47,7 @@ from django.utils.http import content_disposition_header
 
 import posthoganalytics
 
+from posthog.api.tagged_item import cleanup_orphan_tags, set_tags_on_object
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.ingress.contracts import WebhookDelivery
@@ -523,6 +525,7 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
         "run_source",
         "runtime_adapter",
         "sandbox_environment_id",
+        "slack_app_agent_design_enabled",
         "slack_artifact_delivery",
         "slack_chart_delivery",
         "slack_thread_url",
@@ -536,7 +539,10 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
 # `end_run_when_done` gates the sandbox's `finish` tool for workflow runs; a key this
 # filter drops never reaches the agent server, so the gate would silently do nothing.
 # `store_skills` is the acting user's skills-store listing, so it is for their sandbox only.
-_TASK_RUN_AGENT_STATE_KEYS = frozenset({"end_run_when_done", "initial_prompt_override", "store_skills", "systemPrompt"})
+# `agent_instructions` can carry a member's personal instructions, so the same applies.
+_TASK_RUN_AGENT_STATE_KEYS = frozenset(
+    {"agent_instructions", "end_run_when_done", "initial_prompt_override", "store_skills", "systemPrompt"}
+)
 
 
 def _public_task_run_state(state: dict | None, *, include_agent_keys: bool = False) -> dict:
@@ -2639,6 +2645,9 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "sandbox_ttl_seconds",
         "inactivity_timeout_seconds",
         "systemPrompt",
+        # Resolved from the project and personal settings; a PATCHable value would let a task
+        # controller write arbitrary text into the agent's user-level instructions file.
+        "agent_instructions",
         "wizard_config",
         "wizard_head_branch",
         "use_modal_directory_resume_snapshots",
@@ -3434,7 +3443,7 @@ def set_task_run_output(
     run.output = _apply_caller_output(existing, output, merged)
     run.save(update_fields=["output", "updated_at"])
     _refresh_self_driving_quota_for_pr(run, existing.get("pr_url"))
-    if task.json_schema:
+    if task.json_schema and not (run.state or {}).get("caller_ends_run"):
         signal_workflow_completion(run.id, TaskRun.Status.COMPLETED, None)
     run.publish_stream_state_event()
     _post_slack_update_for_pr(run)
@@ -3461,7 +3470,11 @@ def set_task_run_summary(
     # Omitted tags keep the current set, so a summary-only call does not erase them.
     if tags is not None:
         updates[TASK_RUN_TAGS_STATE_KEY] = list(dict.fromkeys(tags))
-    run.state = TaskRun.update_state_atomic(run.id, updates=updates)
+    with transaction.atomic():
+        run.state = TaskRun.update_state_atomic(run.id, updates=updates)
+        if tags is not None:
+            set_tags_on_object(tags, run.task)
+            cleanup_orphan_tags(run.team_id)
     run.refresh_from_db()
     run.publish_stream_state_event()
     return _task_run_detail_to_dto(run, include_agent_state=include_agent_state, user_id=user_id)
@@ -6236,6 +6249,14 @@ def task_review(team_id: int, task_id: str, user_id: int, page: int) -> dict:
     )
 
     return build_task_review(team_id, task_id, user_id, page)
+
+
+def get_pull_request_titles(team_id: int, user_id: int, task_ids: list[UUID]) -> dict[str, str]:
+    from products.tasks.backend.logic.pull_request_titles import (  # noqa: PLC0415 — keep GitHub integration deps off the api import path
+        pull_request_titles,
+    )
+
+    return pull_request_titles(team_id, user_id, task_ids)
 
 
 def get_task_detail(
@@ -9585,6 +9606,49 @@ def list_channels(team_id: int, user_id: int | None) -> list[contracts.ChannelDT
         else set()
     )
     return [_channel_to_dto(channel, starred=channel.id in starred_ids) for channel in channels]
+
+
+def list_channel_contributors(team_id: int, user_id: int | None) -> list[contracts.ChannelContributorsDTO]:
+    """The people who own a task or a canvas in each channel the requester can see.
+
+    Archived tasks count, because their owners still worked in the channel. Deleted tasks
+    and canvases do not. A channel with no owner has no entry."""
+    channel_ids = list(_team_channels(team_id).filter(Channel.visible_to_q(user_id)).values_list("id", flat=True))
+    if not channel_ids:
+        return []
+    task_rows = (
+        Task.objects.filter(
+            task_visibility_q(user_id),
+            team_id=team_id,
+            channel_id__in=channel_ids,
+            deleted=False,
+            internal=False,
+            created_by_id__isnull=False,
+        )
+        .values("channel_id", "created_by_id")
+        .annotate(last_active=Max(Coalesce("last_activity_at", "created_at")))
+    )
+    canvas_rows = (
+        Canvas.objects.for_team(team_id)
+        .filter(channel_id__in=channel_ids, deleted=False, created_by_id__isnull=False)
+        .values("channel_id", "created_by_id")
+        .annotate(last_active=Max("updated_at"))
+    )
+    last_active: dict[UUID, dict[int, datetime]] = {}
+    for row in [*task_rows, *canvas_rows]:
+        per_channel = last_active.setdefault(row["channel_id"], {})
+        previous = per_channel.get(row["created_by_id"])
+        if previous is None or row["last_active"] > previous:
+            per_channel[row["created_by_id"]] = row["last_active"]
+    user_ids = {owner_id for owners in last_active.values() for owner_id in owners}
+    users = {user.id: user for user in User.objects.filter(id__in=user_ids)}
+    contributors: list[contracts.ChannelContributorsDTO] = []
+    for channel_id, owners in last_active.items():
+        ranked = sorted(owners.items(), key=lambda owner: (-owner[1].timestamp(), owner[0]))
+        people = [info for owner_id, _ in ranked if (info := _user_basic_info(users.get(owner_id))) is not None]
+        if people:
+            contributors.append(contracts.ChannelContributorsDTO(channel=channel_id, people=people))
+    return contributors
 
 
 def _emit_channel_created(channel: Channel, user_id: int | None) -> None:
