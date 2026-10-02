@@ -915,13 +915,41 @@ fn database_conflicts_classify_as_retriable() {
     assert!(!SagaError::Busy.is_db_conflict());
 }
 
-/// Driver whose first attempts lose a deadlock; every later attempt
+fn connection_lost() -> SagaError {
+    SagaError::Db(sqlx::Error::Io(std::io::Error::new(
+        std::io::ErrorKind::UnexpectedEof,
+        "expected to read 5 bytes, got 0 bytes at EOF",
+    )))
+}
+
+#[test]
+fn lost_connections_classify_as_retriable_and_unavailable() {
+    for err in [connection_lost(), db_error("08006")] {
+        assert!(
+            err.is_db_connection_lost(),
+            "{err} must be a lost connection"
+        );
+        assert!(!err.is_db_conflict());
+        assert_eq!(tonic::Status::from(err).code(), tonic::Code::Unavailable);
+    }
+    for err in [db_error("23505"), db_error("40P01"), SagaError::Busy] {
+        assert!(
+            !err.is_db_connection_lost(),
+            "{err} is not a lost connection"
+        );
+    }
+}
+
+type FailStep = fn() -> SagaError;
+
+/// Driver whose first attempts fail with `error`; every later attempt
 /// behaves like [`DummyDriver`]. Failing more than once exercises the
 /// repeated backoff passes of the retry loop, not just the first.
 struct DeadlockingDriver {
     inner: DummyDriver,
     fail_first: usize,
     attempts: AtomicUsize,
+    error: FailStep,
 }
 
 #[async_trait]
@@ -936,37 +964,47 @@ impl OpDriver for DeadlockingDriver {
 
     async fn run_step(&self, pools: &IdentityPools, op: &OpRow) -> Result<(), SagaError> {
         if self.attempts.fetch_add(1, Ordering::SeqCst) < self.fail_first {
-            return Err(db_error("40P01"));
+            return Err((self.error)());
         }
         self.inner.run_step(pools, op).await
     }
 }
 
 #[tokio::test]
-async fn a_step_that_loses_a_database_conflict_is_retried_not_surfaced() {
+async fn a_step_that_loses_a_database_conflict_or_its_connection_is_retried_not_surfaced() {
     let ctx = TestContext::new().await;
     let engine = ctx.engine();
-    let driver = DeadlockingDriver {
-        inner: DummyDriver::new(),
-        fail_first: 3,
-        attempts: AtomicUsize::new(0),
-    };
-    let op_id = Uuid::now_v7();
+    let failures: [(&str, FailStep); 2] = [
+        ("deadlock", || db_error("40P01")),
+        ("lost connection", connection_lost),
+    ];
+    for (name, error) in failures {
+        let driver = DeadlockingDriver {
+            inner: DummyDriver::new(),
+            fail_first: 3,
+            attempts: AtomicUsize::new(0),
+            error,
+        };
+        let op_id = Uuid::now_v7();
 
-    let row = engine
-        .execute(&driver, op_id, ctx.team_id, &json!({"work": 1}))
-        .await
-        .expect("the conflict is retried inside the engine, not surfaced");
+        let row = engine
+            .execute(&driver, op_id, ctx.team_id, &json!({"work": 1}))
+            .await
+            .unwrap_or_else(|err| panic!("{name}: retried inside the engine, not surfaced: {err}"));
 
-    assert_eq!(row.step, STEP_COMPLETED);
-    assert_eq!(
-        driver.inner.steps_run.load(Ordering::SeqCst),
-        2,
-        "both real steps ran after the deadlocked attempts"
-    );
-    let (_, attempt, _, completed) = op_row(&ctx, op_id).await;
-    assert!(completed);
-    assert_eq!(attempt, 1, "the retry re-drives under the original claim");
+        assert_eq!(row.step, STEP_COMPLETED, "{name}");
+        assert_eq!(
+            driver.inner.steps_run.load(Ordering::SeqCst),
+            2,
+            "{name}: both real steps ran after the failed attempts"
+        );
+        let (_, attempt, _, completed) = op_row(&ctx, op_id).await;
+        assert!(completed, "{name}");
+        assert_eq!(
+            attempt, 1,
+            "{name}: the retry re-drives under the original claim"
+        );
+    }
 
     ctx.cleanup().await.expect("cleanup");
 }
