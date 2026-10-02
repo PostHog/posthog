@@ -73,6 +73,7 @@ JUDGE_PATH = "products.signals.backend.scout_report.judge.judge_report_safety"
 EMBED_PATH = "products.signals.backend.scout_report.persistence.emit_embedding_request"
 # Patched at its source module so the lazy import inside `_maybe_autostart_report` picks up the mock.
 AUTOSTART_PATH = "products.signals.backend.auto_start.maybe_autostart_from_report_artefacts"
+AUTOSTART_ENQUEUE_PATH = "products.signals.backend.tasks.autostart_scout_report.apply_async"
 CAPTURE_PATH = "products.signals.backend.scout_harness.tools.report.posthoganalytics.capture"
 METRICS_GATE_PATH = "products.signals.backend.scout_harness.tools.report.organization_report_metrics_enabled"
 # The customer-facing copy lands in the scout's own team project via capture_internal (a network boundary).
@@ -1497,6 +1498,20 @@ class TestScoutReportAPI(APIBaseTest):
         autostart.assert_awaited_once()
         assert autostart.await_args is not None
         assert autostart.await_args.kwargs["report_id"] == response.json()["report_id"]
+
+    def test_emit_and_routing_edit_delay_autostart_so_a_later_reviewer_fix_reaches_the_pr(self) -> None:
+        run = _make_run(self.team)
+        payload = self._payload(repository="PostHog/PostHog", priority="P1", priority_explanation="big blast radius")
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_ENQUEUE_PATH) as enqueue:
+            report_id = self.client.post(self._emit_url(str(run.id)), data=payload, format="json").json()["report_id"]
+            edited = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": report_id, "suggested_reviewers": [{"github_login": "OctoCat"}]},
+                format="json",
+            )
+        assert edited.status_code == status.HTTP_200_OK, edited.json()
+        expected = {"kwargs": {"team_id": self.team.id, "report_id": report_id}, "countdown": 300}
+        assert [c.kwargs for c in enqueue.call_args_list] == [expected, expected]
 
     def test_edit_report_sets_reviewers_and_reruns_autostart(self) -> None:
         # The routing rescue: a report that surfaced with no reviewer can have one set via edit_report,
