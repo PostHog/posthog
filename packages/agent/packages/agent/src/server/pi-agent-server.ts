@@ -162,6 +162,7 @@ export class PiAgentServer {
   private runUsage = new RunUsageAccumulator();
   private modelContextWindow: number | null = null;
   private contextSelectionEnabled = false;
+  private contextSelectionNeedsReset = false;
 
   constructor(private readonly config: AgentServerConfig) {
     this.posthogAPI = new PostHogAPIClient({
@@ -902,6 +903,16 @@ export class PiAgentServer {
           const response = piExtensionUIResponseSchema.parse(command);
           return this.respondExtensionUI(response);
         }
+        if (
+          this.contextSelectionEnabled &&
+          (command.type === "prompt" ||
+            command.type === "follow_up" ||
+            command.type === "steer") &&
+          "message" in command &&
+          typeof command.message === "string"
+        ) {
+          await client.blockContextText(command.message);
+        }
         const result = await runtime.sendCommand(command);
         if (MODEL_CHANGING_RPC_COMMANDS.has(command.type)) {
           await this.refreshModelContextWindow(client);
@@ -1010,19 +1021,47 @@ export class PiAgentServer {
     steer: boolean,
   ): Promise<unknown> {
     const send = async (type: "prompt" | "follow_up" | "steer") => {
+      if (this.contextSelectionEnabled && this.contextSelectionNeedsReset) {
+        await runtime.client.clearContextInputs();
+        this.contextSelectionNeedsReset = false;
+      }
+      if (this.contextSelectionEnabled && type === "steer") {
+        await runtime.client.blockContextText(content);
+      }
+      let registered = false;
       if (this.contextSelectionEnabled && type !== "steer") {
         try {
           await runtime.client.registerContextInput(id, content);
+          registered = true;
         } catch (error) {
           this.logger.debug("Context selection registration failed", {
             messageId: id,
             error,
           });
+          this.contextSelectionNeedsReset = true;
+          await runtime.client.clearContextInputs();
+          this.contextSelectionNeedsReset = false;
         }
       }
       const unregister = async () => {
-        if (this.contextSelectionEnabled && type !== "steer") {
-          await runtime.client.registerContextInput(id, null).catch(() => {});
+        if (!registered) return;
+        try {
+          await runtime.client.registerContextInput(id, null);
+        } catch (error) {
+          this.logger.debug("Context selection cleanup failed", {
+            messageId: id,
+            error,
+          });
+          this.contextSelectionNeedsReset = true;
+          try {
+            await runtime.client.clearContextInputs();
+            this.contextSelectionNeedsReset = false;
+          } catch (resetError) {
+            this.logger.debug("Context selection reset failed", {
+              messageId: id,
+              error: resetError,
+            });
+          }
         }
       };
       try {

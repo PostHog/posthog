@@ -703,6 +703,7 @@ Selection checks a three-second budget across projection, scoring, and validatio
 The experiment gate skips at probability 0.30 or below. Candidates need 0.70 or above, and the rendered bundle is limited to five records and 8,000 characters.
 Shadow runs select and archive without injection; controls archive the baseline without selection.
 A retry of an already recorded message does not repeat selection and proceeds without newly injected context. Each actual adapter attempt has a separate receipt, including retries that replace the user prompt with a continuation. Runtime selection history is reset when the run changes.
+Pi user messages do not carry the request ID used by selection. If identical messages are waiting, Pi sends them without selected context rather than assign either message an uncertain ID. It also skips selection for queued messages restored after a Pi process restart, and for later messages with the same text in that process. Failed command cleanup blocks matching text from later selection. A new message marks an unfinished Pi delivery as failed before starting another delivery.
 ACP receipts prefer the adapter's turn trace. When the adapter omits it, they retain the trace already stamped on gateway requests, which can cover the whole run; no trace is inferred from a run ID alone.
 A failed receipt write removes context before dispatch. Preparation and receipt failures also emit diagnostics into the existing run logs.
 

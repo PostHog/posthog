@@ -27,8 +27,14 @@ import { sanitizePiHostEnvironment } from "./rpc-environment";
 interface PiHostRequest {
   type: "posthog_pi_host_request";
   id: string;
-  method: "get_queue" | "clear_queue" | "register_context_input";
+  method:
+    | "get_queue"
+    | "clear_queue"
+    | "register_context_input"
+    | "clear_context_inputs"
+    | "block_context_text";
   contextInput?: { id: string; text: string | null };
+  contextText?: string;
 }
 
 function argumentValue(name: string): string | undefined {
@@ -158,7 +164,9 @@ process.on("message", (message: unknown) => {
     typeof request.id !== "string" ||
     (request.method !== "get_queue" &&
       request.method !== "clear_queue" &&
-      request.method !== "register_context_input")
+      request.method !== "register_context_input" &&
+      request.method !== "clear_context_inputs" &&
+      request.method !== "block_context_text")
   ) {
     return;
   }
@@ -183,6 +191,13 @@ process.on("message", (message: unknown) => {
         );
     }
     if (request.method === "clear_queue") contextSelection?.clearPending();
+    if (request.method === "clear_context_inputs")
+      contextSelection?.clearPending();
+    if (request.method === "block_context_text") {
+      if (!contextSelection || typeof request.contextText !== "string")
+        throw new Error("Context selection input unavailable");
+      contextSelection.blockText(request.contextText);
+    }
     const data =
       request.method === "clear_queue"
         ? session.clearQueue()

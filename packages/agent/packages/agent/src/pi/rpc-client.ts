@@ -41,6 +41,8 @@ export type PiRpcClient = RpcClient & {
   getQueue(): Promise<PiQueueSnapshot>;
   clearQueue(): Promise<PiQueueSnapshot>;
   registerContextInput(id: string, text: string | null): Promise<void>;
+  clearContextInputs(): Promise<void>;
+  blockContextText(text: string): Promise<void>;
   onMcpToolPermissionRequest(
     listener: (request: McpToolPermissionRequest) => void,
   ): () => void;
@@ -155,8 +157,14 @@ export function createLocalRuntimeMcpServers(cwd: string): PiRuntimeMcpServers {
 interface PiHostRequest {
   type: "posthog_pi_host_request";
   id: string;
-  method: "get_queue" | "clear_queue" | "register_context_input";
+  method:
+    | "get_queue"
+    | "clear_queue"
+    | "register_context_input"
+    | "clear_context_inputs"
+    | "block_context_text";
   contextInput?: { id: string; text: string | null };
+  contextText?: string;
 }
 
 interface PiMcpPermissionRequestMessage {
@@ -342,9 +350,18 @@ class SecurePiRpcClient extends RpcClient {
     await this.sendHostRequest("register_context_input", { id, text });
   }
 
+  async clearContextInputs(): Promise<void> {
+    await this.sendHostRequest("clear_context_inputs");
+  }
+
+  async blockContextText(text: string): Promise<void> {
+    await this.sendHostRequest("block_context_text", undefined, text);
+  }
+
   private sendHostRequest(
     method: PiHostRequest["method"],
     contextInput?: PiHostRequest["contextInput"],
+    contextText?: string,
   ): Promise<PiQueueSnapshot> {
     const process = (this as unknown as RpcClientInternals).process;
     if (!process?.connected) {
@@ -357,6 +374,7 @@ class SecurePiRpcClient extends RpcClient {
       id,
       method,
       ...(contextInput ? { contextInput } : {}),
+      ...(contextText !== undefined ? { contextText } : {}),
     };
 
     return new Promise((resolve, reject) => {
@@ -365,7 +383,7 @@ class SecurePiRpcClient extends RpcClient {
           this.hostRequests.delete(id);
           reject(new Error(`Pi RPC host request timed out: ${method}`));
         },
-        method === "register_context_input" ? 1_000 : 10_000,
+        method === "get_queue" || method === "clear_queue" ? 10_000 : 1_000,
       );
       this.hostRequests.set(id, { resolve, reject, timeout });
       process.send?.(request, (error) => {

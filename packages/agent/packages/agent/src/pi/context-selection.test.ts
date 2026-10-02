@@ -7,11 +7,32 @@ import type {
 import { describe, expect, it, vi } from "vitest";
 import type { PostHogAPIClient } from "../posthog-api";
 import { PiContextSelection } from "./context-selection";
+import { POSTHOG_PI_QUEUE_ENTRY_TYPE } from "./queue-persistence";
 
 const user = (text: string, timestamp = 1): AgentMessage => ({
   role: "user",
   content: [{ type: "text", text }],
   timestamp,
+});
+
+const assistant = (
+  stopReason: "stop" | "error" | "aborted",
+): TurnEndEvent["message"] => ({
+  role: "assistant",
+  api: "openai-responses",
+  provider: "posthog",
+  model: "test",
+  content: [{ type: "text", text: "answer" }],
+  stopReason,
+  timestamp: 2,
+  usage: {
+    input: 10,
+    output: 2,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens: 12,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+  },
 });
 
 function fixture(entries: ReturnType<SessionManager["getEntries"]> = []) {
@@ -41,19 +62,28 @@ function fixture(entries: ReturnType<SessionManager["getEntries"]> = []) {
     on: (name: string, handler: (event: never, ctx?: unknown) => unknown) =>
       handlers.set(name, handler),
   } as unknown as ExtensionAPI);
-  const context = async (messages: AgentMessage[]) =>
+  const context = async (
+    messages: AgentMessage[],
+    getSystemPrompt = () => "native system prompt",
+  ) =>
     (await handlers.get("context")?.({ type: "context", messages } as never, {
-      getSystemPrompt: () => "native system prompt",
+      getSystemPrompt,
       model: { id: "test", provider: "posthog" },
     })) as { messages?: AgentMessage[] } | undefined;
-  const end = async (message: TurnEndEvent["message"]) =>
+  const start = async (turnIndex: number) =>
+    handlers.get("turn_start")?.({
+      type: "turn_start",
+      turnIndex,
+      timestamp: 1,
+    } as never);
+  const end = async (message: TurnEndEvent["message"], turnIndex = 0) =>
     handlers.get("turn_end")?.({
       type: "turn_end",
-      turnIndex: 0,
+      turnIndex,
       message,
       toolResults: [],
     } as never);
-  return { selector, api, sessions, context, end };
+  return { selector, api, sessions, context, start, end };
 }
 
 describe("Pi context selection", () => {
@@ -90,23 +120,7 @@ describe("Pi context selection", () => {
           },
         }),
       );
-      await end({
-        role: "assistant",
-        api: "openai-responses",
-        provider: "posthog",
-        model: "test",
-        content: [{ type: "text", text: "answer" }],
-        stopReason,
-        timestamp: 2,
-        usage: {
-          input: 10,
-          output: 2,
-          cacheRead: 0,
-          cacheWrite: 0,
-          totalTokens: 12,
-          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-        },
-      });
+      await end(assistant(stopReason));
       expect(api.recordContextSelectionReceipt.mock.calls[1][0]).toMatchObject({
         status: stopReason === "stop" ? "completed" : "failed",
         trace_id: "",
@@ -131,28 +145,83 @@ describe("Pi context selection", () => {
     },
   );
 
-  it("restores queued identities and keeps duplicate prompts distinct", async () => {
-    const first = fixture();
-    first.selector.register("human-1", "activation");
-    first.selector.register("human-2", "activation");
-    const data = first.sessions.appendCustomEntry.mock.calls.at(-1)?.[1];
-    const { api, context } = fixture([
+  it("skips identical messages that are both waiting", async () => {
+    const { selector, api, context } = fixture();
+    selector.register("human-1", "activation");
+    selector.register("human-2", "activation");
+    await context([user("activation", 1)]);
+    await context([user("activation", 1), user("activation", 2)]);
+    expect(api.prepareContextSelection).not.toHaveBeenCalled();
+  });
+
+  it("skips restored queued messages that have no reliable request ID", async () => {
+    const { selector, api, context } = fixture([
       {
         type: "custom",
-        customType: "posthog-context-selection-inputs",
+        customType: POSTHOG_PI_QUEUE_ENTRY_TYPE,
         id: "entry",
         parentId: null,
         timestamp: "2026-01-01T00:00:00Z",
-        data,
+        data: { steering: [], followUp: ["activation"] },
       },
     ]);
+    selector.register("human-2", "activation");
+    await context([user("activation")]);
+    expect(api.prepareContextSelection).not.toHaveBeenCalled();
+  });
+
+  it("does not reuse a cancelled request ID for later identical text", async () => {
+    const { selector, api, context } = fixture();
+    selector.register("human-1", "activation");
+    selector.unregister("human-1");
+    selector.register("human-2", "activation");
+    await context([user("activation")]);
+    expect(api.prepareContextSelection).not.toHaveBeenCalled();
+  });
+
+  it("does not assign a queued request ID to a steer with the same text", async () => {
+    const { selector, api, context } = fixture();
+    selector.register("queued", "activation");
+    selector.blockText("activation");
+    await context([user("activation")]);
+    expect(api.prepareContextSelection).not.toHaveBeenCalled();
+  });
+
+  it("does not consume another request ID after preparation throws", async () => {
+    const { selector, api, context } = fixture();
+    selector.register("human-1", "activation");
+    await context([user("activation", 1)], () => {
+      throw new Error("system prompt unavailable");
+    });
+    selector.register("human-2", "activation");
     await context([user("activation", 1)]);
-    await context([user("activation", 1)]);
-    expect(api.prepareContextSelection).toHaveBeenCalledTimes(1);
-    await context([user("activation", 1), user("activation", 1)]);
-    expect(
-      api.prepareContextSelection.mock.calls.map(([input]) => input.message_id),
-    ).toEqual(["human-1", "human-2"]);
+    expect(api.prepareContextSelection).not.toHaveBeenCalled();
+    await context([user("activation", 1), user("activation", 2)]);
+    expect(api.prepareContextSelection).toHaveBeenCalledWith(
+      expect.objectContaining({ message_id: "human-2" }),
+    );
+  });
+
+  it("finishes the earlier delivery when another message starts", async () => {
+    const { selector, api, context, start, end } = fixture();
+    await start(0);
+    selector.register("human-1", "first");
+    await context([user("first", 1)]);
+    await start(1);
+    selector.register("human-2", "second");
+    await context([user("first", 1), user("second", 2)]);
+    expect(api.recordContextSelectionReceipt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "failed",
+        stop_reason: "superseded",
+      }),
+    );
+    await end(assistant("stop"), 0);
+    expect(api.recordContextSelectionReceipt).toHaveBeenCalledTimes(3);
+    await end(assistant("stop"), 1);
+    expect(api.recordContextSelectionReceipt).toHaveBeenLastCalledWith(
+      expect.objectContaining({ status: "completed" }),
+    );
   });
 
   it.each(["prepare", "receipt"])(
