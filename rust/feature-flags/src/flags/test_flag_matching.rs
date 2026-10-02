@@ -16,6 +16,7 @@ mod tests {
             cohort_models::{Cohort, CohortId, CohortType, MembershipStampPolicy},
             membership::{CohortMembershipError, CohortMembershipProvider},
         },
+        database::PostgresRouter,
         flags::{
             feature_flag_list::PreparedFlags,
             flag_group_type_mapping::{GroupTypeCacheManager, GroupTypeMapping},
@@ -37,7 +38,7 @@ mod tests {
             mock::MockInto,
             test_utils::{
                 failing_group_type_cache, flag_list_with_metadata, mock_group_type_cache,
-                TestContext,
+                setup_invalid_pg_client, TestContext,
             },
         },
     };
@@ -1338,6 +1339,229 @@ mod tests {
             let missing_dep_flag = result.flags.get("missing_dependency_flag").unwrap();
             assert!(!missing_dep_flag.enabled);
             assert_eq!(missing_dep_flag.reason.code, "missing_dependency");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_flags_depending_on_a_failed_flag_fail_only_when_their_answer_needs_it() {
+        let failing_db = setup_invalid_pg_client().await;
+        let router = PostgresRouter::new(
+            failing_db.clone(),
+            failing_db.clone(),
+            failing_db.clone(),
+            failing_db.clone(),
+        );
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            1,
+            router,
+            Arc::new(CohortCacheManager::new(failing_db, None, None)),
+            empty_group_type_cache(),
+            None,
+        );
+
+        let rollout_flag = mock!(FeatureFlag, id: 1, key: "rollout_flag".mock_into());
+        let person_flag = mock!(FeatureFlag,
+            id: 2,
+            key: "person_flag".mock_into(),
+            filters: mock!(PropertyFilter,
+                key: "email".mock_into(),
+                value: Some(json!("user@example.com")),
+                prop_type: PropertyType::Person
+            ).mock_into()
+        );
+        let dependent_flag = mock!(FeatureFlag,
+            id: 3,
+            key: "dependent_flag".mock_into(),
+            filters: dep_filter(person_flag.id, FlagValue::Boolean(true)).mock_into()
+        );
+        let dependent_with_catch_all_flag = mock!(FeatureFlag,
+            id: 4,
+            key: "dependent_with_catch_all_flag".mock_into(),
+            filters: mock!(FlagFilters,
+                groups: vec![
+                    mock!(FlagPropertyGroup,
+                        properties: Some(vec![dep_filter(person_flag.id, FlagValue::Boolean(false))])
+                    ),
+                    mock!(FlagPropertyGroup),
+                ]
+            )
+        );
+        let transitive_dependent_flag = mock!(FeatureFlag,
+            id: 5,
+            key: "transitive_dependent_flag".mock_into(),
+            filters: dep_filter(dependent_flag.id, FlagValue::Boolean(false)).mock_into()
+        );
+        let healthy_dependent_flag = mock!(FeatureFlag,
+            id: 6,
+            key: "healthy_dependent_flag".mock_into(),
+            filters: dep_filter(rollout_flag.id, FlagValue::Boolean(true)).mock_into()
+        );
+        let catch_all_before_dependency_flag = mock!(FeatureFlag,
+            id: 7,
+            key: "catch_all_before_dependency_flag".mock_into(),
+            filters: mock!(FlagFilters,
+                groups: vec![
+                    mock!(FlagPropertyGroup),
+                    mock!(FlagPropertyGroup,
+                        properties: Some(vec![dep_filter(person_flag.id, FlagValue::Boolean(true))])
+                    ),
+                ]
+            )
+        );
+        let dependent_out_of_rollout_flag = mock!(FeatureFlag,
+            id: 8,
+            key: "dependent_out_of_rollout_flag".mock_into(),
+            filters: mock!(FlagFilters,
+                groups: vec![mock!(FlagPropertyGroup,
+                    properties: Some(vec![dep_filter(person_flag.id, FlagValue::Boolean(true))]),
+                    rollout_percentage: Some(0.0)
+                )]
+            )
+        );
+        // Every user hashes to "control", so an unpinned condition never returns "test".
+        let control_for_everyone = || MultivariateFlagOptions {
+            variants: vec![
+                MultivariateFlagVariant {
+                    key: "control".to_string(),
+                    rollout_percentage: 100.0,
+                    ..Default::default()
+                },
+                MultivariateFlagVariant {
+                    key: "test".to_string(),
+                    rollout_percentage: 0.0,
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let dependent_with_pinned_variant_flag = mock!(FeatureFlag,
+            id: 9,
+            key: "dependent_with_pinned_variant_flag".mock_into(),
+            filters: mock!(FlagFilters,
+                groups: vec![
+                    mock!(FlagPropertyGroup,
+                        properties: Some(vec![dep_filter(person_flag.id, FlagValue::Boolean(true))]),
+                        variant: Some("test".to_string())
+                    ),
+                    mock!(FlagPropertyGroup),
+                ],
+                multivariate: Some(control_for_everyone())
+            )
+        );
+        let dependent_with_same_pinned_variant_flag = mock!(FeatureFlag,
+            id: 11,
+            key: "dependent_with_same_pinned_variant_flag".mock_into(),
+            filters: mock!(FlagFilters,
+                groups: vec![
+                    mock!(FlagPropertyGroup,
+                        properties: Some(vec![dep_filter(person_flag.id, FlagValue::Boolean(true))]),
+                        variant: Some("test".to_string())
+                    ),
+                    mock!(FlagPropertyGroup, variant: Some("test".to_string())),
+                ],
+                multivariate: Some(control_for_everyone())
+            )
+        );
+        let dependent_stopping_early_flag = mock!(FeatureFlag,
+            id: 12,
+            key: "dependent_stopping_early_flag".mock_into(),
+            filters: mock!(FlagFilters,
+                groups: vec![
+                    mock!(FlagPropertyGroup,
+                        properties: Some(vec![dep_filter(person_flag.id, FlagValue::Boolean(true))]),
+                        rollout_percentage: Some(0.0)
+                    ),
+                    mock!(FlagPropertyGroup),
+                ],
+                early_exit: Some(true)
+            )
+        );
+        let dependent_stopping_early_without_later_match_flag = mock!(FeatureFlag,
+            id: 13,
+            key: "dependent_stopping_early_without_later_match_flag".mock_into(),
+            filters: mock!(FlagFilters,
+                groups: vec![mock!(FlagPropertyGroup,
+                    properties: Some(vec![dep_filter(person_flag.id, FlagValue::Boolean(true))]),
+                    rollout_percentage: Some(0.0)
+                )],
+                early_exit: Some(true)
+            )
+        );
+        let dependent_with_early_exit_flag = mock!(FeatureFlag,
+            id: 10,
+            key: "dependent_with_early_exit_flag".mock_into(),
+            filters: mock!(FlagFilters,
+                groups: vec![
+                    mock!(FlagPropertyGroup,
+                        properties: Some(vec![dep_filter(person_flag.id, FlagValue::Boolean(true))])
+                    ),
+                    mock!(FlagPropertyGroup, rollout_percentage: Some(0.0)),
+                ],
+                early_exit: Some(true)
+            )
+        );
+        let mut flags = flag_list_with_metadata(vec![
+            rollout_flag,
+            person_flag,
+            dependent_flag,
+            dependent_with_catch_all_flag,
+            transitive_dependent_flag,
+            healthy_dependent_flag,
+            catch_all_before_dependency_flag,
+            dependent_out_of_rollout_flag,
+            dependent_with_pinned_variant_flag,
+            dependent_with_early_exit_flag,
+            dependent_with_same_pinned_variant_flag,
+            dependent_stopping_early_flag,
+            dependent_stopping_early_without_later_match_flag,
+        ]);
+        // Preloaded cohorts keep the cohort definitions lookup off the failing pool.
+        flags.cohorts = Some(Arc::from(Vec::new()));
+
+        let result = matcher
+            .evaluate_all_feature_flags(flags, None, None, None, Uuid::new_v4(), None, false)
+            .await
+            .unwrap();
+
+        assert!(result.errors_while_computing_flags);
+        for (key, value) in [
+            ("rollout_flag", FlagValue::Boolean(true)),
+            ("healthy_dependent_flag", FlagValue::Boolean(true)),
+            ("dependent_with_catch_all_flag", FlagValue::Boolean(true)),
+            ("catch_all_before_dependency_flag", FlagValue::Boolean(true)),
+            ("dependent_out_of_rollout_flag", FlagValue::Boolean(false)),
+            (
+                "dependent_with_same_pinned_variant_flag",
+                FlagValue::String("test".to_string()),
+            ),
+            (
+                "dependent_stopping_early_without_later_match_flag",
+                FlagValue::Boolean(false),
+            ),
+        ] {
+            assert!(!result.flags[key].failed, "{key}");
+            assert_eq!(result.flags[key].to_value(), value, "{key}");
+        }
+        assert_eq!(
+            result.flags["person_flag"].reason.code,
+            "timeout:pool_timeout"
+        );
+        for key in [
+            "dependent_flag",
+            "transitive_dependent_flag",
+            "dependent_with_pinned_variant_flag",
+            "dependent_with_early_exit_flag",
+            "dependent_stopping_early_flag",
+        ] {
+            let details = &result.flags[key];
+            assert!(
+                details.failed,
+                "{key} must fail when a flag it depends on fails"
+            );
+            assert!(!details.enabled, "{key}");
+            assert_eq!(details.reason.code, "dependency_failed", "{key}");
         }
     }
 

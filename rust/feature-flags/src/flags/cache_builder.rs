@@ -194,7 +194,9 @@ pub fn extract_cohort_ids_from_flag_filters(flags: &[FeatureFlag]) -> HashSet<Co
 ///
 /// `compute_flag_dependencies` returns no error for flag input, because `remove_all_cycles`
 /// removes every cycle before the stage computation runs. The fallback guards against a later
-/// change to the graph code.
+/// change to the graph code. In one stage, a dependent can evaluate before its dependency, and
+/// it does not see a failure raised during that stage. In both cases its `flag_evaluates_to`
+/// condition reads as a non-match, so it never fails with `dependency_failed`.
 pub(crate) fn compute_flag_dependencies_or_single_stage(
     team_id: TeamId,
     flags: &[FeatureFlag],
