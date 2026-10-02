@@ -869,6 +869,37 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
+            ("default matches any tag", "", ["ins-app", "ins-both", "ins-eng"]),
+            ("any matches any tag", "&tags_match=any", ["ins-app", "ins-both", "ins-eng"]),
+            ("all matches every tag", "&tags_match=all", ["ins-both"]),
+        ]
+    )
+    def test_list_tags_match_mode(self, _name: str, match_query: str, expected: list[str]) -> None:
+        from posthog.models.tag import Tag
+
+        app_tag = Tag.objects.create(name="app", team=self.team)
+        engagement_tag = Tag.objects.create(name="engagement", team=self.team)
+        filters = {"events": [{"id": "$pageview"}]}
+        for short_id, tags in [
+            ("ins-app", [app_tag]),
+            ("ins-eng", [engagement_tag]),
+            ("ins-both", [app_tag, engagement_tag]),
+            ("ins-none", []),
+        ]:
+            insight = Insight.objects.create(short_id=short_id, team=self.team, filters=filters)
+            for tag in tags:
+                insight.tagged_items.create(tag=tag)
+
+        response = self.client.get(f'/api/projects/{self.team.id}/insights/?tags=["app", "engagement"]{match_query}')
+        assert response.status_code == status.HTTP_200_OK
+        assert sorted(r["short_id"] for r in response.json()["results"]) == expected
+
+    def test_list_rejects_unknown_tags_match_mode(self) -> None:
+        response = self.client.get(f'/api/projects/{self.team.id}/insights/?tags=["app"]&tags_match=either')
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @parameterized.expand(
+        [
             (
                 "exact match wins over partial matches",
                 ["Ad Sales", "Email Sales", "Sales", "Sales Funnel", "Weekly Sales", "Unrelated"],

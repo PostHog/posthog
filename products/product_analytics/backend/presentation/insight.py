@@ -284,6 +284,7 @@ class DashboardIdsField(serializers.ListField):
 
 
 INCLUDE_DASHBOARDS_PARAM = "include_dashboards"
+TAGS_MATCH_MODES = ("any", "all")
 
 DEPRECATED_DASHBOARDS_FIELD_USED_COUNTER = Counter(
     "posthog_api_insight_deprecated_dashboards_field_used_total",
@@ -1762,7 +1763,13 @@ Background calculation can be tracked using the `query_status` response field.""
             OpenApiParameter(
                 name="tags",
                 type=OpenApiTypes.STR,
-                description="JSON-encoded array of tag names. Returns insights with any of the listed tags.",
+                description="JSON-encoded array of tag names. Returns insights with any of the listed tags, or with all of them under `tags_match=all`.",
+            ),
+            OpenApiParameter(
+                name="tags_match",
+                type=OpenApiTypes.STR,
+                enum=list(TAGS_MATCH_MODES),
+                description="How to combine the `tags` filter. `any` (the default) returns insights with at least one listed tag. `all` returns insights with every listed tag.",
             ),
         ]
     ),
@@ -2138,11 +2145,19 @@ class InsightViewSet(
                 tags_filter = request.GET["tags"]
                 if tags_filter:
                     tags_list = json.loads(tags_filter)
+                    tags_match = request.GET.get("tags_match", "any")
+                    if tags_match not in TAGS_MATCH_MODES:
+                        raise ValidationError({"tags_match": f"Must be one of: {', '.join(TAGS_MATCH_MODES)}."})
                     if tags_list:
                         # A semi-join returns one row per insight, so the list needs no
                         # `.distinct()` sort over the wide insight JSON columns.
-                        matching_tags = TaggedItem.objects.matching_outer(Insight).filter(tag__name__in=tags_list)
-                        queryset = queryset.filter(Exists(matching_tags))
+                        if tags_match == "all":
+                            for tag_name in tags_list:
+                                matching_tag = TaggedItem.objects.matching_outer(Insight).filter(tag__name=tag_name)
+                                queryset = queryset.filter(Exists(matching_tag))
+                        else:
+                            matching_tags = TaggedItem.objects.matching_outer(Insight).filter(tag__name__in=tags_list)
+                            queryset = queryset.filter(Exists(matching_tags))
             elif key == "created_by":
                 created_by_filter = request.GET["created_by"]
                 if created_by_filter:
