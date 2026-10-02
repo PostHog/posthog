@@ -48,7 +48,7 @@ logger = structlog.get_logger(__name__)
 HEARTBEAT_INTERVAL_SECONDS = 30
 # Terminal SSE frame name emitted when the run's stream is complete (matches the stream endpoints).
 STREAM_END_EVENT_NAME = "stream-end"
-TASK_NOTIFICATION_METHOD = "_posthog/task_notification"
+BACKGROUND_TURN_OPENERS = frozenset({"_posthog/task_notification", "_posthog/background_turn_started"})
 
 
 class SlackAgentDesignSignalEmitter:
@@ -95,8 +95,9 @@ class SlackAgentDesignSignalEmitter:
                 self._turn_message_id = _prompt_message_id(event_data)
             return []
 
-        # A finished background task makes the agent start a turn without a user prompt.
-        if _event_method(event_data) == TASK_NOTIFICATION_METHOD:
+        # A finished background task makes the agent start a turn without a user prompt. The Claude
+        # adapter reports the task notification, and the Codex adapter reports the turn start.
+        if _event_method(event_data) in BACKGROUND_TURN_OPENERS:
             if not self._turn_active:
                 self._awaiting_turn = True
                 self._turn_message_id = None

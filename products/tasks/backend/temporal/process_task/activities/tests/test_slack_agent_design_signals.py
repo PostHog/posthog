@@ -56,6 +56,10 @@ def _background_turn_complete() -> dict[str, Any]:
     }
 
 
+def _notification(method: str) -> dict[str, Any]:
+    return {"type": "notification", "notification": {"method": method, "params": {}}}
+
+
 def _task_notification() -> dict[str, Any]:
     return {
         "type": "notification",
@@ -180,6 +184,7 @@ class TestSlackAgentDesignSignalEmitter:
         [
             ("user_prompt", _session_prompt("msg-2"), "msg-2"),
             ("finished_background_task", _task_notification(), None),
+            ("background_turn_started", _notification("_posthog/background_turn_started"), None),
         ]
     )
     def test_second_turn_reopens_after_idle_prompt(
