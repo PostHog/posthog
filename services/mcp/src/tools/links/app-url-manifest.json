@@ -1684,6 +1684,11 @@
         "params": ["id"],
         "scope": "project"
     },
+    "taskSpaceCanvases": {
+        "template": "/spaces/{id}/canvases",
+        "params": ["id"],
+        "scope": "project"
+    },
     "taskSpaceSettings": {
         "template": "/spaces/{id}/settings",
         "params": ["id"],

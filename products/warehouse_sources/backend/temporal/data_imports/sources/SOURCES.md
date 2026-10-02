@@ -326,6 +326,7 @@ the row lists both.
 | g2                               | HTTP                        | requests                                                        | ✅                          |
 | gainsight_cs                     | HTTP                        | requests                                                        | ✅                          |
 | gainsight_px                     | HTTP                        | requests                                                        | ✅                          |
+| genesys_cloud                    | HTTP                        | requests                                                        | ✅                          |
 | gerrit                           | HTTP                        | requests                                                        | ✅                          |
 | gitbook                          | HTTP                        | requests                                                        | ✅                          |
 | gitea                            | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
@@ -678,6 +679,7 @@ the row lists both.
 | simplecast                       | HTTP                        | requests                                                        | ✅                          |
 | simplesat                        | HTTP                        | requests                                                        | ✅                          |
 | singlestore                      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| singular                         | HTTP                        | requests                                                        | ✅                          |
 | skio                             | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | skyvern                          | HTTP                        | requests                                                        | ✅                          |
 | slack                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -1033,6 +1035,7 @@ doesn't conflict with concurrent PRs.
 - donorbox
 - doorloop
 - doppler
+- dragonboat
 - drata
 - drchrono
 - dremio
@@ -1109,7 +1112,6 @@ doesn't conflict with concurrent PRs.
 - gcp_security_command_center
 - gdelt
 - gem
-- genesys_cloud
 - gerrit
 - getdx
 - getstream
@@ -1391,7 +1393,6 @@ doesn't conflict with concurrent PRs.
 - simplesat
 - simpro
 - sinch
-- singular
 - site24x7
 - skyvern
 - slash

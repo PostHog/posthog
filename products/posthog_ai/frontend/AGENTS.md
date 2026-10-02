@@ -215,10 +215,15 @@ ingestion).
   re-folds. Listeners fire only side effects, each with a fire-once guard, suppressed on `source: 'replay'`.
 - **A shared presenter renders in both thread skins.** `ThreadView`'s `skin` prop (`'lemon' | 'quill'`) sets
   `ThreadSkinContext`; `quill` is the PostHog Desktop chat layout, on behind the `phai-quill` flag (and `today-rail-nav`).
-  `Activity`, `ThreadRow` message rows, `ThreadActivityGroup`, `RunAlertActivity`, `PullRequestCard` and
+  `Activity`, `ThreadRow` message and separator rows, `ThreadActivityGroup`, `RunAlertActivity`, `PullRequestCard`, `RunContext` and
   `TurnFeedbackActions` read `useQuillThread()` and dispatch to their `components/quill/` skin at the top of the
   component. Behavior both skins need (open state, group windowing, ratings) lives in a shared hook
   (`useActivityDisclosure`, `useActivityGroup`, `useTurnRating`), never in one skin. Tool renderers never branch on skin.
+  Grouping is the one rule that differs by skin, and `ThreadView` picks it.
+  The lemon thread folds every activity run (`groupThreadActivity`).
+  The quill thread folds only runs of two or more calls, like Desktop (`groupToolRuns`).
+  A registry entry marked `pinned` (a plan, a question) never folds.
+  A `keepVisible` widget result folds in quill, except the last finished call of a closed run.
 - **A tool card is two header lines plus an accordion — overflow goes in the accordion.** Every tool
   renderer wraps its content in `ToolActivity`, which exposes exactly two always-visible header lines:
   the `title` and the `subtitle` (the one salient input — a command, path, repo, branch). **Any other

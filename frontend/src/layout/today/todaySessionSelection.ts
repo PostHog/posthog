@@ -28,6 +28,14 @@ export function isEditableTarget(target: EventTarget | null): boolean {
     )
 }
 
+/** Base UI prevents the default of the Escape that closes a menu, so that press only closes the menu. */
+export function isMenuEscape(event: KeyboardEvent): boolean {
+    return (
+        event.defaultPrevented ||
+        (event.target instanceof Element && event.target.closest('[role="menu"][data-open]') !== null)
+    )
+}
+
 export function selectionClick(event: Pick<MouseEvent, 'shiftKey' | 'metaKey' | 'ctrlKey'>): TodaySelectionClick {
     return event.shiftKey ? 'range' : event.metaKey || event.ctrlKey ? 'toggle' : 'open'
 }
