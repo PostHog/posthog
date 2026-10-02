@@ -7081,21 +7081,18 @@ class TestGetTableChunkSize:
 
     @parameterized.expand(
         [
-            ("cap_binds_hard", True, 400.0, 3.0 * 1024 * 1024, "info"),
-            ("cap_at_exactly_ten_times", True, 1024.0, 10240, "info"),
-            ("cap_just_short_of_ten_times", True, 1024.0, 10239, "debug"),
-            ("cap_barely_moves", True, 400.0, 420.0, "debug"),
-            ("no_cap_at_all", True, 400.0, 400.0, "debug"),
-            ("cap_binds_but_byte_bound_off", False, 400.0, 3.0 * 1024 * 1024, "debug"),
+            ("cap_binds_hard", 400.0, 3.0 * 1024 * 1024, "info"),
+            ("cap_at_exactly_ten_times", 1024.0, 10240, "info"),
+            ("cap_just_short_of_ten_times", 1024.0, 10239, "debug"),
+            ("cap_barely_moves", 400.0, 420.0, "debug"),
+            ("no_cap_at_all", 400.0, 400.0, "debug"),
         ]
     )
-    def test_the_probe_reports_at_info_only_when_an_applied_page_cap_binds(
-        self, _name, byte_bounded, p95, p99, expected_level
-    ):
+    def test_the_probe_reports_at_info_only_when_the_page_cap_binds(self, _name, p95, p99, expected_level):
         cursor = self._ProbeCursor((p95, p99, int(p99)))
         logger = mock.Mock()
 
-        _get_table_chunk_size(cast(Any, cursor), sql.SQL("SELECT 1").format(), logger, byte_bounded=byte_bounded)
+        _get_table_chunk_size(cast(Any, cursor), sql.SQL("SELECT 1").format(), logger)
 
         levels = [
             level
@@ -8911,7 +8908,6 @@ def _run_windows(script, **overrides):
         "db_incremental_field_last_value": date(2026, 1, 1),
         "child_partitions": [],
         "chunk_size": 1000,
-        "byte_bounded": False,
         "arrow_schema": _arrow_schema(),
         "logger": structlog.get_logger(),
         "initial_window": timedelta(days=1),
@@ -10111,7 +10107,6 @@ class TestExtractionByteBounds:
                 script=[list(rows)],
                 child_partitions=[self._child()],
                 chunk_size=400,
-                byte_bounded=True,
                 arrow_schema=self._schema(),
             )
 
@@ -10122,21 +10117,6 @@ class TestExtractionByteBounds:
         oversized = [table.num_rows for table in tables if table_payload_bytes(table) > self.BUDGET]
         assert oversized == []
 
-    def test_gate_off_keeps_the_row_count_batching(self):
-        rows = [(i, self.BLOB) for i in range(400)]
-
-        with patch.object(batching, "EXTRACT_BATCH_MAX_BYTES", self.BUDGET):
-            tables, factory = _run_windows(
-                script=[list(rows)],
-                child_partitions=[self._child()],
-                chunk_size=400,
-                byte_bounded=False,
-                arrow_schema=self._schema(),
-            )
-
-        assert [table.num_rows for table in tables] == [400]
-        assert set(factory.fetch_sizes) == {400}
-
     def test_fetch_pages_shrink_once_wide_rows_appear(self):
         rows = [(i, "s") for i in range(1000)] + [(i, self.BLOB) for i in range(1000, 2000)]
 
@@ -10145,7 +10125,6 @@ class TestExtractionByteBounds:
                 script=[list(rows)],
                 child_partitions=[self._child()],
                 chunk_size=100_000,
-                byte_bounded=True,
                 arrow_schema=self._schema(),
             )
 
@@ -10154,14 +10133,7 @@ class TestExtractionByteBounds:
 
 
 @pytest.mark.usefixtures("server_cursor_path")
-class TestFetchPageGate:
-    """The page cap is the byte bound's own instrument, so the rollout gate has to hold it back too.
-
-    Left applied with the gate off it shrinks the `FETCH` without ever flushing a batch: the read
-    pays a round trip per page and still accumulates the whole table into one batch, which is
-    strictly worse than the single full-size fetch it replaced.
-    """
-
+class TestFetchPageCap:
     class _Cursor:
         def __init__(self, *, named: bool, rows: list, fetch_sizes: list[int]):
             self._named = named
@@ -10197,7 +10169,7 @@ class TestFetchPageGate:
             self._fetch_sizes = fetch_sizes
 
         def cursor(self, *args, **kwargs):
-            return TestFetchPageGate._Cursor(named="name" in kwargs, rows=self._rows, fetch_sizes=self._fetch_sizes)
+            return TestFetchPageCap._Cursor(named="name" in kwargs, rows=self._rows, fetch_sizes=self._fetch_sizes)
 
         def commit(self):
             return None
@@ -10211,7 +10183,7 @@ class TestFetchPageGate:
         def __exit__(self, *args):
             return False
 
-    def _fetch_sizes(self, *, byte_bounded: bool) -> list[int]:
+    def _fetch_sizes(self) -> list[int]:
         from contextlib import contextmanager
 
         @contextmanager
@@ -10253,14 +10225,10 @@ class TestFetchPageGate:
                 logger=structlog.get_logger(),
                 db_incremental_field_last_value=None,
                 team_id=1,
-                byte_bounded_extraction=byte_bounded,
             )
             list(cast(Iterable[Any], response.items()))
 
         return fetch_sizes
 
-    def test_gate_off_fetches_the_whole_chunk(self):
-        assert set(self._fetch_sizes(byte_bounded=False)) == {1000}
-
-    def test_gate_on_fetches_the_measured_page(self):
-        assert max(self._fetch_sizes(byte_bounded=True)) == 7
+    def test_a_read_fetches_the_measured_page(self):
+        assert max(self._fetch_sizes()) == 7
