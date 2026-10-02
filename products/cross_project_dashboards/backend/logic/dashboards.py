@@ -8,6 +8,8 @@ from django.db.models import Count, Prefetch, Q, QuerySet
 from rest_framework import serializers
 
 from posthog.models import User
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.activity_logging.model_activity import get_was_impersonated
 
 from products.cross_project_dashboards.backend.facade import contracts
 from products.cross_project_dashboards.backend.logic.access import assert_can_reference_insight, visible_project_ids
@@ -17,6 +19,29 @@ DUPLICATE_TILE = "That insight is already on this dashboard."
 # Bounds what one dashboard page can carry, since every page embeds each dashboard's tiles.
 MAX_TILES_PER_DASHBOARD = 100
 TOO_MANY_TILES = f"A dashboard holds at most {MAX_TILES_PER_DASHBOARD} tiles. Remove one before adding another."
+
+
+# Layouts change on every drag, so only these tile fields reach the activity log.
+AUDITED_TILE_FIELDS = ("color", "filters_overrides")
+
+
+def _tile_reference(tile: CrossProjectDashboardTile) -> dict[str, int]:
+    return {"project_id": tile.project_id, "insight_id": tile.insight_id}
+
+
+def _log_tile_change(dashboard: CrossProjectDashboard, user: User, change: Change) -> None:
+    # Tiles are written through their own endpoint, so the dashboard's model receiver never sees
+    # them. Each change is logged on the parent dashboard so it shows in that dashboard's history.
+    log_activity(
+        organization_id=dashboard.organization_id,
+        team_id=None,
+        user=user,
+        was_impersonated=get_was_impersonated(),
+        item_id=dashboard.id,
+        scope="CrossProjectDashboard",
+        activity="updated",
+        detail=Detail(name=dashboard.name, changes=[change]),
+    )
 
 
 def _to_tile(tile: CrossProjectDashboardTile) -> contracts.CrossProjectTile:
@@ -97,13 +122,17 @@ def _assert_can_change(organization_id: UUID | str, dashboard: CrossProjectDashb
 
 def _tiles(organization_id: UUID | str, dashboard_id: UUID, user: User) -> QuerySet[CrossProjectDashboardTile]:
     # A reader denied a project does not learn which of its insights the dashboard references.
-    return CrossProjectDashboardTile.objects.filter(
-        organization_id=organization_id,
-        dashboard_id=dashboard_id,
-        dashboard__deleted=False,
-        deleted=False,
-        project_id__in=visible_project_ids(user, organization_id),
-    ).order_by("created_at", "id")
+    return (
+        CrossProjectDashboardTile.objects.filter(
+            organization_id=organization_id,
+            dashboard_id=dashboard_id,
+            dashboard__deleted=False,
+            deleted=False,
+            project_id__in=visible_project_ids(user, organization_id),
+        )
+        .select_related("dashboard")
+        .order_by("created_at", "id")
+    )
 
 
 def _tile_row(organization_id: UUID | str, dashboard_id: UUID, tile_id: UUID, user: User) -> CrossProjectDashboardTile:
@@ -212,6 +241,11 @@ def create_tile(
                 )
         except IntegrityError as error:
             raise serializers.ValidationError({"insight_id": DUPLICATE_TILE}) from error
+    _log_tile_change(
+        dashboard,
+        user,
+        Change(type="CrossProjectDashboardTile", action="created", field="tiles", after=_tile_reference(created)),
+    )
     return _to_tile(created)
 
 
@@ -221,10 +255,25 @@ def update_tile(
     tile = _tile_row(organization_id, dashboard_id, tile_id, user)
     _assert_can_change(organization_id, tile.dashboard, user)
     updated = [name for name in ("layouts", "color", "filters_overrides") if name in changes.fields]
+    before = {name: getattr(tile, name) for name in AUDITED_TILE_FIELDS}
     for name in updated:
         setattr(tile, name, getattr(changes, name))
     if updated:
         tile.save(update_fields=[*updated, "updated_at"])
+    after = {name: getattr(tile, name) for name in AUDITED_TILE_FIELDS}
+    if before != after:
+        reference = _tile_reference(tile)
+        _log_tile_change(
+            tile.dashboard,
+            user,
+            Change(
+                type="CrossProjectDashboardTile",
+                action="changed",
+                field="tiles",
+                before={**reference, **before},
+                after={**reference, **after},
+            ),
+        )
     return _to_tile(tile)
 
 
@@ -233,3 +282,8 @@ def delete_tile(*, organization_id: UUID | str, dashboard_id: UUID, tile_id: UUI
     _assert_can_change(organization_id, tile.dashboard, user)
     tile.deleted = True
     tile.save(update_fields=["deleted"])
+    _log_tile_change(
+        tile.dashboard,
+        user,
+        Change(type="CrossProjectDashboardTile", action="deleted", field="tiles", before=_tile_reference(tile)),
+    )
