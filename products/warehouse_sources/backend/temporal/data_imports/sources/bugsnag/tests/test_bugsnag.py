@@ -238,6 +238,8 @@ class TestFetchPage:
         fast_fetch = bugsnag._fetch_page.retry_with(wait=wait_none(), stop=stop_after_attempt(3))  # type: ignore[attr-defined]
         with pytest.raises(BugsnagRetryableError):
             fast_fetch(session, "https://api.bugsnag.com/x", {}, MagicMock())
+        # Confirms it actually retried up to the attempt limit, not just raised on the first try.
+        assert len(session.requested_urls) == 3
 
     def test_client_error_raises_http_error_without_retry(self) -> None:
         session = _FakeSession([_make_response(404, body={"errors": ["Not Found"]})])
