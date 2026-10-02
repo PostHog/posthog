@@ -1,6 +1,6 @@
 import { Card } from '@posthog/quill'
 
-import { Sources, customState, fresh, imageNames, imageState, pinState } from './infrastructureTypes'
+import { Sources, customState, fresh, imageNames, imageState, pinState, releaseBadge } from './infrastructureTypes'
 import { PipelineNode } from './PipelineNode'
 
 export function ReleasePipeline({
@@ -64,14 +64,19 @@ export function ReleasePipeline({
                         title="Agent package"
                         subtitle={sources.package?.data?.version || 'Reading npm'}
                         state={fresh(sources.package) ? 'current' : 'unknown'}
+                        badge={releaseBadge(sources, 'package')}
                         selected={selected}
                         onSelect={onSelect}
                     />
                     <PipelineNode
                         id="release"
                         title="Sandbox version pin"
-                        subtitle={sources.release?.data?.pin || 'Reading master'}
+                        subtitle={
+                            sources.release?.data?.pin ||
+                            (sources.release?.status === 'error' ? 'Release source unavailable' : 'Reading master')
+                        }
                         state={pinState(sources)}
+                        badge={releaseBadge(sources, 'release')}
                         selected={selected}
                         onSelect={onSelect}
                     />
@@ -94,6 +99,7 @@ export function ReleasePipeline({
                                 'Reading registry'
                             }
                             state={imageState(sources, name)}
+                            badge={releaseBadge(sources, name)}
                             selected={selected}
                             onSelect={onSelect}
                         />
@@ -102,7 +108,11 @@ export function ReleasePipeline({
                         id="custom"
                         title="Custom images"
                         subtitle={
-                            custom ? `${customCurrent} / ${eligible.length} eligible current` : 'Reading inventory'
+                            custom
+                                ? customFresh
+                                    ? `${customCurrent} / ${eligible.length} eligible current`
+                                    : `${eligible.length} eligible at last read`
+                                : 'Reading inventory'
                         }
                         state={
                             !customFresh || eligible.length === 0
@@ -115,6 +125,7 @@ export function ReleasePipeline({
                         }
                         selected={selected}
                         onSelect={onSelect}
+                        badge={custom && !customFresh ? { label: 'Last seen', variant: 'default' } : undefined}
                     />
                     <PipelineNode
                         id="dev_stack"
@@ -129,11 +140,17 @@ export function ReleasePipeline({
                         }
                         selected={selected}
                         onSelect={onSelect}
+                        badge={
+                            devStack && !fresh(sources.dev_stack)
+                                ? { label: 'Last seen', variant: 'default' }
+                                : undefined
+                        }
                     />
                     <span className="parallel-caption">Notebook and Streamlit build alongside the base.</span>
                 </div>
                 <div className="pipeline-legend">
-                    Current means the version and available lineage match. Running sandboxes are outside this view.
+                    Release badges compare observed versions with npm latest. Last seen means cached evidence. Select an
+                    image to check its pin and lineage. Running sandboxes are outside this view.
                 </div>
             </div>
         </Card>

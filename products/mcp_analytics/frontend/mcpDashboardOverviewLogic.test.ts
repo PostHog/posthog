@@ -569,6 +569,25 @@ describe('mcpDashboardOverviewLogic', () => {
                 reloads.every((call) => JSON.stringify(filtersOf(call).properties) === JSON.stringify([EVENT_FILTER]))
             ).toBe(true)
         })
+        it('opens a tool report on the dashboard window with the shared filters', async () => {
+            router.actions.push(urls.mcpAnalyticsDashboard(), {
+                properties: [EVENT_FILTER],
+                filter_test_accounts: true,
+            })
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.openToolReport('search docs')
+
+            const { pathname, searchParams } = router.values.currentLocation
+            expect(pathname.endsWith(urls.mcpAnalyticsTool('search docs'))).toBe(true)
+            expect(searchParams).toEqual({
+                date_from: '-7d',
+                properties: [EVENT_FILTER],
+                filter_test_accounts: true,
+            })
+        })
         it('reloads tiles once when the URL changes the date and shared filters together', async () => {
             router.actions.push(urls.mcpAnalyticsDashboard())
             const logic = mcpDashboardOverviewLogic()
