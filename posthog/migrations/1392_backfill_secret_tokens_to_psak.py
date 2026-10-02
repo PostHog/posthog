@@ -24,9 +24,10 @@ def _flush(ProjectSecretAPIKey, db, pending: list[dict]) -> int:
         .values_list("secure_value", flat=True)
     )
     # A customer may already use these exact labels; (team, label) is unique.
+    candidate_labels = {p["label"] for p in pending} | {f"{p['label']} {p['secure_value'][-8:]}" for p in pending}
     taken = set(
         ProjectSecretAPIKey.objects.using(db)
-        .filter(team_id__in={p["team_id"] for p in pending}, label__in={p["label"] for p in pending})
+        .filter(team_id__in={p["team_id"] for p in pending}, label__in=candidate_labels)
         .values_list("team_id", "label")
     )
     rows = []
@@ -37,6 +38,12 @@ def _flush(ProjectSecretAPIKey, db, pending: list[dict]) -> int:
         label = p["label"]
         if (p["team_id"], label) in taken:
             label = f"{label} {p['secure_value'][-8:]}"
+            if (p["team_id"], label) in taken:
+                # Both labels taken: skip rather than abort the deploy; the pre-drop
+                # sweep (#66179) retries and the legacy token keeps working meanwhile.
+                logger.warning("backfill_label_collision_skipped", team_id=p["team_id"])
+                continue
+        taken.add((p["team_id"], label))
         rows.append(
             ProjectSecretAPIKey(
                 team_id=p["team_id"],

@@ -8,6 +8,7 @@ from posthog.models.utils import hash_key_value
 PRIMARY = "phs_backfill_test_primary_token"
 BACKUP = "phs_backfill_test_backup_token"
 COLLIDING = "phs_backfill_test_label_collision_token"
+DOUBLE_COLLIDING = "phs_backfill_test_double_collision_token"
 
 
 class TestBackfillSecretTokensToPsak(TestMigrations):
@@ -41,6 +42,23 @@ class TestBackfillSecretTokensToPsak(TestMigrations):
             scopes=["feature_flag:read"],
         )
 
+        self.double_collision_team_id = Team.objects.create(
+            organization_id=self.organization.id,
+            project_id=self.team.project_id,
+            name="double label collision",
+            secret_api_token=DOUBLE_COLLIDING,
+        ).id
+        for label in (
+            "Migrated legacy secret API key",
+            f"Migrated legacy secret API key {hash_key_value(DOUBLE_COLLIDING)[-8:]}",
+        ):
+            ProjectSecretAPIKey.objects.create(
+                team_id=self.double_collision_team_id,
+                label=label,
+                secure_value=hash_key_value(f"phs_backfill_test_unrelated_{label[-4:]}"),
+                scopes=["feature_flag:read"],
+            )
+
         self.empty_team_id = Team.objects.create(
             organization_id=self.organization.id,
             project_id=self.team.project_id,
@@ -68,6 +86,10 @@ class TestBackfillSecretTokensToPsak(TestMigrations):
         collision_row = find_project_secret_api_key(COLLIDING)
         assert collision_row is not None
         assert collision_row.label == f"Migrated legacy secret API key {hash_key_value(COLLIDING)[-8:]}"
+
+        # Base and fallback labels both taken: the row is skipped, not an IntegrityError.
+        assert find_project_secret_api_key(DOUBLE_COLLIDING) is None
+        assert ProjectSecretAPIKey.objects.filter(team_id=self.double_collision_team_id).count() == 2
 
         # A team with an empty legacy token gets nothing.
         assert not ProjectSecretAPIKey.objects.filter(team_id=self.empty_team_id).exists()
