@@ -440,7 +440,8 @@ export function toDataVisualizationNode(
 
 export function getCurrentVisualizationQuery(
     dataLogicKey: string,
-    fallbackQuery: DataVisualizationNode
+    fallbackQuery: DataVisualizationNode,
+    queryInput: string | null
 ): DataVisualizationNode {
     // This reads the mounted visualization state so save/update actions can include in-flight
     // axis/display edits. Those edits are also synced back through props.setQuery -> setSourceQuery,
@@ -449,7 +450,11 @@ export function getCurrentVisualizationQuery(
         key: dataLogicKey,
     } as any)
 
-    return mountedVisualizationLogic?.values.query ?? fallbackQuery
+    const visualizationQuery = mountedVisualizationLogic?.values.query ?? fallbackQuery
+    return {
+        ...visualizationQuery,
+        source: { ...visualizationQuery.source, query: queryInput ?? visualizationQuery.source.query },
+    }
 }
 
 function getTabHash(values: sqlEditorLogicType['values']): Record<string, any> {
@@ -2608,7 +2613,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 }
             },
             saveAsInsight: async () => {
-                const currentVisualizationQuery = getCurrentVisualizationQuery(values.dataLogicKey, values.sourceQuery)
+                const currentVisualizationQuery = getCurrentVisualizationQuery(
+                    values.dataLogicKey,
+                    values.sourceQuery,
+                    values.queryInput
+                )
                 const effectiveVisualizationType = dataVisualizationLogic.findMounted({
                     key: values.dataLogicKey,
                     query: currentVisualizationQuery,
@@ -2676,7 +2685,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
             saveAsInsightSubmit: async ({ name, queryOverride }) => {
                 const biEditorState = getActiveBIEditorState()
-                const currentVisualizationQuery = getCurrentVisualizationQuery(values.dataLogicKey, values.sourceQuery)
+                const currentVisualizationQuery = getCurrentVisualizationQuery(
+                    values.dataLogicKey,
+                    values.sourceQuery,
+                    values.queryInput
+                )
                 const effectiveVisualizationType = dataVisualizationLogic.findMounted({
                     key: values.dataLogicKey,
                     query: currentVisualizationQuery,
@@ -2976,7 +2989,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 }
             },
             updateInsight: async () => {
-                if (!values.editingInsight) {
+                if (!values.editingInsight || values.insightLoading) {
                     return
                 }
 
@@ -2985,7 +2998,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                 const insightName = values.activeTab?.name
                 const insightDescription = values.activeTab?.description
-                const currentVisualizationQuery = getCurrentVisualizationQuery(values.dataLogicKey, values.sourceQuery)
+                const currentVisualizationQuery = getCurrentVisualizationQuery(
+                    values.dataLogicKey,
+                    values.sourceQuery,
+                    values.queryInput
+                )
 
                 const insightRequest: Partial<InsightModel> = {
                     name: insightName ?? values.editingInsight.name,

@@ -584,6 +584,12 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         saveAsInsight()
     }
 
+    const saveAsInsightDisabledReason = insightLoading
+        ? 'Loading insight...'
+        : !queryInput?.trim()
+          ? 'Write a SQL query before saving'
+          : undefined
+
     const saveAsDisabledReason = useMemo(() => {
         if (insightLoading) {
             return 'Loading insight...'
@@ -777,7 +783,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                                             continueInNotebookMenuItem,
                                                             {
                                                                 label: 'Save as new insight...',
-                                                                disabledReason: saveAsDisabledReason,
+                                                                disabledReason: saveAsInsightDisabledReason,
                                                                 onClick: () => saveAsInsight(),
                                                             },
                                                             {
@@ -826,11 +832,8 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                 {discardChangesButton}
                                 <LemonButton
                                     disabledReason={
-                                        !isSourceQueryLastRun
-                                            ? 'Run latest query changes before saving'
-                                            : !updateInsightButtonEnabled
-                                              ? 'No updates to save'
-                                              : undefined
+                                        saveAsInsightDisabledReason ??
+                                        (!updateInsightButtonEnabled ? 'No updates to save' : undefined)
                                     }
                                     loading={insightLoading}
                                     type="primary"
@@ -847,7 +850,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                                         continueInNotebookMenuItem,
                                                         {
                                                             label: 'Save as new insight...',
-                                                            disabledReason: saveAsDisabledReason,
+                                                            disabledReason: saveAsInsightDisabledReason,
                                                             onClick: () => saveAsInsight(),
                                                         },
                                                         {
@@ -898,7 +901,9 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                                     items={secondarySaveMenuItems.map((item) => ({
                                                         ...item,
                                                         disabledReason:
-                                                            saveAsDisabledReason ?? item.accessDisabledReason,
+                                                            (item.action === 'insight'
+                                                                ? saveAsInsightDisabledReason
+                                                                : saveAsDisabledReason) ?? item.accessDisabledReason,
                                                     }))}
                                                 />
                                             ),
@@ -924,7 +929,9 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                     size="small"
                                     onClick={onPrimarySaveClick}
                                     disabledReason={
-                                        saveAsDisabledReason ??
+                                        (saveAsMenuItems.primary.action === 'insight'
+                                            ? saveAsInsightDisabledReason
+                                            : saveAsDisabledReason) ??
                                         (saveAsMenuItems.primary.action === 'endpoint'
                                             ? saveAsEndpointDisabledReason
                                             : saveAsMenuItems.primary.action === 'view'
@@ -941,7 +948,9 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                                     items={secondarySaveMenuItems.map((item) => ({
                                                         ...item,
                                                         disabledReason:
-                                                            saveAsDisabledReason ?? item.accessDisabledReason,
+                                                            (item.action === 'insight'
+                                                                ? saveAsInsightDisabledReason
+                                                                : saveAsDisabledReason) ?? item.accessDisabledReason,
                                                     }))}
                                                 />
                                             ),

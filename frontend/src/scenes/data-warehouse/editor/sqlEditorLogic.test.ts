@@ -1330,7 +1330,7 @@ describe('sqlEditorLogic', () => {
             expect(editorRootLogic.values.updateInsightButtonEnabled).toEqual(true)
         })
 
-        it('enables Update insight as soon as sourceQuery diverges from the saved insight, even when dataVisualizationLogic mirror lags behind', async () => {
+        it('enables Update insight for unrun SQL edits, even when the visualization still shows the saved query', async () => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
                 monaco: createMockMonaco(),
@@ -1359,6 +1359,10 @@ describe('sqlEditorLogic', () => {
             visualizationLogic.mount()
 
             expect(editorRootLogic.values.updateInsightButtonEnabled).toEqual(false)
+
+            logic.actions.setQueryInput('SELECT count() FROM events WHERE event = $pageview')
+            expect(editorRootLogic.values.updateInsightButtonEnabled).toEqual(true)
+            expect(logic.values.isSourceQueryLastRun).toEqual(false)
 
             // Simulate runQuery firing setSourceQuery with a different SQL string.
             // dataVisualizationLogic.values.query still mirrors the OLD query at this point —
@@ -3431,12 +3435,17 @@ describe('sqlEditorLogic', () => {
                 logic.actions.setDashboardId(dashboardId)
             }
 
+            logic.actions.setQueryInput('SELECT 42 AS unrun_edit')
             logic.actions.saveAsInsightSubmit('My SQL insight')
             await expectLogic(logic).toFinishAllListeners()
 
             expect(createSpy).toHaveBeenCalledTimes(1)
             const createPayload = createSpy.mock.calls[0][0]
-            expect(createPayload).toMatchObject({ name: 'My SQL insight', saved: true })
+            expect(createPayload).toMatchObject({
+                name: 'My SQL insight',
+                saved: true,
+                query: { source: { query: 'SELECT 42 AS unrun_edit' } },
+            })
             if (dashboardId !== null) {
                 expect(createPayload.dashboards).toEqual([dashboardId])
             } else {
@@ -3488,11 +3497,13 @@ describe('sqlEditorLogic', () => {
                 .toMatchValues({ editingInsight: partial({ short_id: MOCK_INSIGHT_SHORT_ID }) })
 
             logic.actions.setDashboardId(DASHBOARD_ID)
+            logic.actions.setQueryInput('SELECT 42 AS unrun_edit')
             logic.actions.updateInsight()
             await expectLogic(logic).toFinishAllListeners()
 
             expect(updateSpy).toHaveBeenCalledTimes(1)
             const [, updatePayload] = updateSpy.mock.calls[0]
+            expect(updatePayload.query).toMatchObject({ source: { query: 'SELECT 42 AS unrun_edit' } })
             // Order-independent: only the set of linked dashboards matters.
             expect([...(updatePayload.dashboards ?? [])].sort()).toEqual([...expected].sort())
         })

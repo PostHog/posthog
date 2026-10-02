@@ -247,7 +247,18 @@ export const EditedInsight: Story = {
             expect(canvas.getByRole('button', { name: 'Discard changes' })).toHaveAttribute('aria-disabled', 'false')
         )
         await expect(canvas.getByText('Edited')).toBeVisible()
-        await expect(canvas.getByRole('button', { name: 'Update insight' })).toHaveAttribute('aria-disabled', 'true')
+        await expect(canvas.getByRole('button', { name: 'Update insight' })).toHaveAttribute('aria-disabled', 'false')
+        await userEvent.click(canvasElement.querySelector('[data-attr="sql-editor-save-options-button"]')!)
+        const menu = within(canvasElement.ownerDocument.body)
+        await expect(await menu.findByRole('menuitem', { name: 'Save as new insight...' })).toHaveAttribute(
+            'aria-disabled',
+            'false'
+        )
+        await expect(menu.getByRole('menuitem', { name: 'Save as new view...' })).toHaveAttribute(
+            'aria-disabled',
+            'true'
+        )
+        await userEvent.keyboard('{Escape}')
     },
 }
 
