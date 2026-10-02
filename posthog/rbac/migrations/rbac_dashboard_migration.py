@@ -39,9 +39,20 @@ def _ensure_dashboard_access_control(
         )
         return
 
-    if not access_level_satisfied_for_resource(
-        "dashboard", cast(AccessControlLevel, access_control.access_level), access_level
-    ):
+    try:
+        has_required_access = access_level_satisfied_for_resource(
+            "dashboard", cast(AccessControlLevel, access_control.access_level), access_level
+        )
+    except ValueError:
+        logger.warning(
+            "Replacing invalid dashboard access level during migration",
+            access_control_id=access_control.id,
+            invalid_access_level=access_control.access_level,
+            replacement_access_level=access_level,
+        )
+        has_required_access = False
+
+    if not has_required_access:
         access_control.access_level = access_level
         access_control.save(update_fields=["access_level"])
 

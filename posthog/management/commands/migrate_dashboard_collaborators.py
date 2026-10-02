@@ -1,5 +1,6 @@
 import argparse
 from typing import Any
+from uuid import UUID
 
 from django.core.management.base import BaseCommand, CommandError
 
@@ -15,7 +16,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--org-ids",
             type=str,
-            help="Comma-separated organization IDs to limit the migration. Omit to process all eligible organizations.",
+            help="Comma-separated organization UUIDs to limit the migration. Omit to process all eligible organizations.",
         )
         parser.add_argument(
             "--dry-run",
@@ -28,11 +29,11 @@ class Command(BaseCommand):
         org_ids_input = options.get("org_ids")
         if org_ids_input is not None:
             try:
-                requested_org_ids = {int(org_id.strip()) for org_id in org_ids_input.split(",") if org_id.strip()}
+                requested_org_ids = {UUID(org_id.strip()) for org_id in org_ids_input.split(",") if org_id.strip()}
             except ValueError as error:
-                raise CommandError("--org-ids must be a comma-separated list of integer organization IDs.") from error
+                raise CommandError("--org-ids must be a comma-separated list of organization UUIDs.") from error
             if not requested_org_ids:
-                raise CommandError("--org-ids must include at least one organization ID.")
+                raise CommandError("--org-ids must include at least one organization UUID.")
             dashboards = dashboards.filter(team__organization_id__in=requested_org_ids)
 
         dashboard_count = dashboards.count()

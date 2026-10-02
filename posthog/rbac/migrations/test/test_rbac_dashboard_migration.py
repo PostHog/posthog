@@ -198,14 +198,20 @@ class TestRBACDashboardMigration(BaseTest):
         )
         existing_ac = AccessControl.objects.create(
             team_id=self.team.id,
-            access_level="admin",
+            access_level="manager",
             resource="dashboard",
             resource_id=str(dashboard.id),
             organization_member=self.user1_membership,
         )
+        default_ac = AccessControl.objects.create(
+            team_id=self.team.id,
+            access_level="invalid",
+            resource="dashboard",
+            resource_id=str(dashboard.id),
+        )
         member_ac = AccessControl.objects.create(
             team_id=self.team.id,
-            access_level="viewer",
+            access_level="invalid",
             resource="dashboard",
             resource_id=str(dashboard.id),
             organization_member=self.user2_membership,
@@ -221,15 +227,8 @@ class TestRBACDashboardMigration(BaseTest):
         dashboard.refresh_from_db()
         self.assertEqual(dashboard.restriction_level, Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT)
         self.assertEqual(AccessControl.objects.filter(resource="dashboard", resource_id=str(dashboard.id)).count(), 3)
-        self.assertEqual(
-            AccessControl.objects.get(
-                resource="dashboard",
-                resource_id=str(dashboard.id),
-                organization_member=None,
-                role=None,
-            ).access_level,
-            "viewer",
-        )
+        default_ac.refresh_from_db()
+        self.assertEqual(default_ac.access_level, "viewer")
         member_ac.refresh_from_db()
         self.assertEqual(member_ac.access_level, "editor")
         self.assertTrue(AccessControl.objects.filter(id=existing_ac.id).exists())
