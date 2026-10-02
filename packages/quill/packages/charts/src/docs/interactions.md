@@ -21,7 +21,7 @@ Omit it to leave every point actionable, which is what every chart that does not
 - `onPointClick` does not fire for a rejected point, so the handler no longer needs its own index guard.
 - It resolves per data index, not per bar in a stack. One cursor and one click address a column, so a rejected index suppresses every series in it, including the per-bar routing `wrapClickData` would otherwise apply.
 - It bounds the click only. Hover, highlight, and tooltip still work on a rejected point, which is what separates it from `trackData`, which makes the region inert altogether.
-- A rejected column on a `pinnable` chart still pins its tooltip. The pointer says the point is actionable, not that this click fires the handler: a pinnable multi-series chart pins on the first click and drills in from a tooltip row, accepted or not.
+- On mouse input, a rejected column on a `pinnable` multi-series chart still pins its tooltip. A rejected column on a single-series chart neither pins nor calls `onPointClick`. The pointer says the point is actionable, not that this click fires the handler: a pinnable multi-series chart pins on the first click and drills in from a tooltip row, accepted or not.
 - The predicate is read live rather than captured, so it does not have to be memoized. It is called only with an index inside `labels`, so it can read its own data by index without a bounds check.
 
 ## Drag-to-zoom: `onDateRangeZoom`
@@ -52,7 +52,7 @@ Takes precedence over `onDateRangeZoom` when both are set.
 
 Hover state lives in its own context so only `useChartHover()` consumers re-render on mousemove.
 Anything that needs layout only reads `useChartLayout()`.
-Touch devices are tap-driven; see [tooltips.md](./tooltips.md).
+Touch devices are tap-driven. Unlike mouse input, a rejected point on a `pinnable` chart can still show a pinned tooltip on touch, including on a single-series chart; rejection still prevents `onPointClick`. See [tooltips.md](./tooltips.md).
 
 ## Legend clicks
 
