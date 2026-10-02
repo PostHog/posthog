@@ -920,6 +920,14 @@ class PropertyRemovalTarget:
 
 
 @frozen
+class _MonthFingerprint:
+    """Identifies one month of rows: how many, and the sum of their uuid hashes."""
+
+    rows: int
+    uuid_hash: int
+
+
+@frozen
 class _ShardStaging:
     """The staged cleaned rows and the progress files of one target, in the data deletion bucket.
 
@@ -972,7 +980,7 @@ class _ShardStaging:
         )
         return {file.removesuffix(".native"): count for file, count in rows}
 
-    def staged_fingerprints(self, client: Client, months: list[str]) -> dict[str, tuple[int, int]]:
+    def staged_fingerprints(self, client: Client, months: list[str]) -> dict[str, _MonthFingerprint]:
         """Row count and uuid hash sum of each staged monthly file."""
         if not months:
             return {}
@@ -980,7 +988,10 @@ class _ShardStaging:
             f"SELECT _file, count(), sum(cityHash64(uuid)) FROM s3({self.data_args(months)}) GROUP BY _file",
             settings=_LONG_QUERY_SETTINGS,
         )
-        return {file.removesuffix(".native"): (count, uuid_hash) for file, count, uuid_hash in rows}
+        return {
+            file.removesuffix(".native"): _MonthFingerprint(rows=count, uuid_hash=uuid_hash)
+            for file, count, uuid_hash in rows
+        }
 
     def discard_step(self, client: Client, step: str) -> None:
         # ClickHouse cannot delete an S3 object, so the progress file is overwritten with zero rows.
@@ -1317,7 +1328,7 @@ def delete_property_removal_shard(
         copied = steps[_COPIED]
 
         staged = staging.staged_fingerprints(client, sorted(copied["months"]))
-        if {month: rows for month, (rows, _) in staged.items()} != copied["months"]:
+        if {month: fingerprint.rows for month, fingerprint in staged.items()} != copied["months"]:
             raise dagster.Failure(
                 description=f"[{target.mapping_key}] staged copy changed since the copy step: "
                 f"expected={copied['months']}, staged={staged}. Do not delete; investigate."
@@ -1331,12 +1342,12 @@ def delete_property_removal_shard(
         )
         log("fingerprint-originals", fingerprint_sql)
         source = {
-            month: (rows, uuid_hash)
+            month: _MonthFingerprint(rows=rows, uuid_hash=uuid_hash)
             for month, rows, uuid_hash in client.execute(
                 fingerprint_sql, predicate.params, settings=_LONG_QUERY_SETTINGS
             )
         }
-        originals = sum(rows for rows, _ in source.values())
+        originals = sum(fingerprint.rows for fingerprint in source.values())
         # The delete removes every row the predicate matches, so every one of them must be staged. A count
         # alone misses a different set of the same size; the uuid hash sum catches it.
         if source != staged:
