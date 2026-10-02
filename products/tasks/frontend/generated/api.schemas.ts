@@ -4905,6 +4905,19 @@ export interface TasksUserConfigResponseApi {
     ai_run_preferences: TasksAIRunPreferencesApi
     /** The defaults a new run will use when no explicit runtime selection is sent. */
     resolved_ai_run_defaults: TasksResolvedAIRunDefaultsApi
+    /** Your personal instructions, which PostHog cloud agents read in Tasks runs you start, after the project instructions. Anyone who continues a task you started can see them. Empty when unset. */
+    agent_instructions: string
+}
+
+/**
+ * Markdown instructions that PostHog cloud agents load as their user-level AGENTS.md in Tasks runs.
+ */
+export interface TasksAgentInstructionsApi {
+    /**
+     * Markdown instructions that PostHog cloud agents read in every eligible Tasks run, the same way a local agent reads AGENTS.md. Send an empty string to clear.
+     * @maxLength 20000
+     */
+    agent_instructions: string
 }
 
 /**
@@ -4931,6 +4944,8 @@ export interface WizardCloudRunDTOApi {
 export interface TasksTeamConfigResponseApi {
     /** Project-wide default AI run triple; all fields null when unset. */
     ai_run_preferences: TasksAIRunPreferencesApi
+    /** Project instructions that PostHog cloud agents read in every eligible Tasks run, including autonomous runs such as scouts and loops. Empty when unset. */
+    agent_instructions: string
 }
 
 /**

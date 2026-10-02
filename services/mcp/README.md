@@ -440,7 +440,6 @@ Changes in the examples repo will be reflected on the next request.
 - `src/` - The MCP server: Hono app (`src/hono/`), tool handlers (`src/tools/`), prompt templates (`src/templates/`)
 - `definitions/` - Hand-authored YAML tool definitions (per-product YAML lives at `products/<product>/mcp/` in the monorepo)
 - `schema/` - Generated schema files, including `tool-definitions-all.json` (the full tool catalog)
-- `typescript/` - A small shim (`typescript/src/tools/posthogAiTools/`) consumed by posthog-ai
 
 ### Development Commands
 

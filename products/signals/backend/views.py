@@ -17,6 +17,7 @@ from django.db.models import (
     Count,
     Exists,
     F,
+    FloatField,
     Func,
     IntegerField,
     JSONField,
@@ -28,6 +29,7 @@ from django.db.models import (
     Value,
     When,
 )
+from django.db.models.expressions import OrderBy
 from django.db.models.functions import Cast, Coalesce
 from django.utils import timezone
 
@@ -1112,6 +1114,17 @@ class SignalReportViewSet(
         "created_at": "created_at",
         "updated_at": "updated_at",
         "id": "id",
+        "ranking_pr_merged": "ranking_pr_merged_score",
+        "ranking_pr_created": "ranking_pr_created_score",
+        "ranking_action": "ranking_action_score",
+        "ranking_open": "ranking_open_score",
+    }
+    # Ordering field to the outcome head it reads from the served model of the latest ranking score.
+    _RANKING_ORDERING_HEADS: dict[str, str] = {
+        "ranking_pr_merged": "pr_merged",
+        "ranking_pr_created": "pr_created",
+        "ranking_action": "action",
+        "ranking_open": "open",
     }
 
     @extend_schema(request=ReportReadStateRequestSerializer, responses=ReportReadStateResponseSerializer)
@@ -1165,6 +1178,7 @@ class SignalReportViewSet(
             qs = self._annotate_channel_id(qs)
         qs = self._apply_signal_report_status_filter(qs)
         qs = self._apply_signal_report_search_filter(qs)
+        qs = self._apply_signal_report_created_after_filter(qs)
         unread = self.request.query_params.get("unread")
         if unread is not None:
             if unread not in {"true", "false"}:
@@ -1197,6 +1211,8 @@ class SignalReportViewSet(
         if self._needs_priority_annotation():
             qs = self._annotate_signal_report_priority(qs)
             qs = self._apply_signal_report_priority_filter(qs)
+        if self.action == "list":
+            qs = self._annotate_signal_report_ranking(qs)
         qs = self._prefetch_signal_report_priority_artefacts(qs)
         if self.action != "bulk_state":
             # `bulk_state` answers with one outcome per id, never a serialized report, and the list
@@ -1352,6 +1368,16 @@ class SignalReportViewSet(
         if not search:
             return queryset
         return queryset.filter(Q(title__icontains=search) | Q(summary__icontains=search))
+
+    def _apply_signal_report_created_after_filter(self, queryset):
+        raw = self.request.query_params.get("created_after")
+        if not raw:
+            return queryset
+        try:
+            created_after = serializers.DateTimeField().to_internal_value(raw)
+        except serializers.ValidationError:
+            raise serializers.ValidationError({"created_after": "Use an ISO 8601 datetime."})
+        return queryset.filter(created_at__gte=created_after)
 
     def _apply_signal_report_source_product_filter(self, queryset):
         source_product_filter = self.request.query_params.get("source_product")
@@ -1699,6 +1725,60 @@ class SignalReportViewSet(
             )
         )
 
+    def _annotate_signal_report_ranking(self, queryset):
+        # `ordering=ranking_<head>` sorts by the served model's probability for that head, read from
+        # the latest ranking_score artefact as `results -> <served_key> -> scores -> <head>`. Only
+        # the heads the ordering names are annotated, because each one is a correlated subquery.
+        # A value that is not a JSON number reads as NULL, so one bad row cannot fail the list.
+        # The guard is in the CASE, not the filter: the latest artefact decides, as it does for the
+        # `ranking` field, so a bad latest row makes the report unscored rather than older-scored.
+        ordered_fields = {clause.lstrip("-") for clause in self._parse_signal_report_ordering()}
+        for field, head in self._RANKING_ORDERING_HEADS.items():
+            annotation = self._SIGNAL_REPORT_ORDERING_FIELDS[field]
+            if annotation not in ordered_fields:
+                continue
+            content = Cast(F("content"), output_field=JSONField())
+            served_key = Func(
+                content, Value("served_key"), function="jsonb_extract_path_text", output_field=CharField()
+            )
+            latest_score = Subquery(
+                SignalReportArtefact.objects.filter(
+                    report_id=OuterRef("id"),
+                    type=SignalReportArtefact.ArtefactType.RANKING_SCORE,
+                )
+                .order_by("-created_at")
+                .annotate(
+                    _score=Case(
+                        When(
+                            content__startswith="{",
+                            then=Func(
+                                content,
+                                Value("results"),
+                                served_key,
+                                Value("scores"),
+                                Value(head),
+                                function="jsonb_extract_path",
+                                output_field=JSONField(),
+                            ),
+                        ),
+                        default=Value(None),
+                        output_field=JSONField(),
+                    ),
+                )
+                .annotate(_score_type=Func(F("_score"), function="jsonb_typeof", output_field=CharField()))
+                .annotate(
+                    _score_value=Case(
+                        When(_score_type="number", then=Cast(F("_score"), output_field=FloatField())),
+                        default=Value(None),
+                        output_field=FloatField(),
+                    )
+                )
+                .values("_score_value")[:1],
+                output_field=FloatField(),
+            )
+            queryset = queryset.annotate(**{annotation: latest_score})
+        return queryset
+
     def _needs_priority_annotation(self) -> bool:
         # The priority value is a correlated subquery too, and the serializer renders priority from
         # the prefetched artefacts instead, so only a priority filter or a priority sort needs it.
@@ -1803,6 +1883,9 @@ class SignalReportViewSet(
             db_field = self._SIGNAL_REPORT_ORDERING_FIELDS.get(name)
             if db_field is None:
                 continue
+            if name in self._RANKING_ORDERING_HEADS and not self.request.user.is_staff:
+                # The serializer hides ranking scores from non-staff users, and the order would leak them.
+                raise serializers.ValidationError({"ordering": f"Ordering by {name} is only available to staff."})
             clause = f"-{db_field}" if descending else db_field
             clauses.append(clause)
         return clauses
@@ -1832,7 +1915,18 @@ class SignalReportViewSet(
         has_id = any((c[1:] if c.startswith("-") else c) == "id" for c in clauses)
         if not has_id:
             clauses = [*clauses, "id"]
-        return queryset.order_by(*clauses)
+        ranking_annotations = {self._SIGNAL_REPORT_ORDERING_FIELDS[field] for field in self._RANKING_ORDERING_HEADS}
+        order_by: list[str | OrderBy] = []
+        for clause in clauses:
+            name = clause.lstrip("-")
+            if name in ranking_annotations:
+                # Unscored reports sort after every scored report, in both directions.
+                order_by.append(
+                    F(name).desc(nulls_last=True) if clause.startswith("-") else F(name).asc(nulls_last=True)
+                )
+            else:
+                order_by.append(clause)
+        return queryset.order_by(*order_by)
 
     @staticmethod
     def _get_github_login(user) -> str | None:
@@ -2178,8 +2272,18 @@ class SignalReportViewSet(
                 description=(
                     "Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' "
                     "for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, "
-                    "priority, created_at, updated_at, id. Defaults to '-is_suggested_reviewer,status,-updated_at'."
+                    "priority, created_at, updated_at, id, ranking_pr_merged, ranking_pr_created, ranking_action, "
+                    "ranking_open. Defaults to '-is_suggested_reviewer,status,-updated_at'. The ranking_* fields "
+                    "sort by the served ranking model's probability for that outcome head, with unscored reports "
+                    "last in either direction. They are staff only: other users get a 400."
                 ),
+            ),
+            OpenApiParameter(
+                name="created_after",
+                type=OpenApiTypes.DATETIME,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="ISO 8601 datetime. Keeps reports created at or after this time.",
             ),
             OpenApiParameter(
                 name="task_id",

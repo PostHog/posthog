@@ -1,4 +1,5 @@
 import re
+import json
 import time
 import asyncio
 from collections.abc import Coroutine
@@ -1734,6 +1735,80 @@ class TestClaimGates:
             ("run-b", 0),
             ("run-f", 0),
         ]
+
+    @pytest.mark.parametrize(
+        "batches,backoff,expected",
+        [
+            pytest.param(
+                [(0, "waiting_retry", "s"), (1, "pending", "s"), (2, "pending", "s")],
+                3600,
+                [],
+                id="earlier_retry_in_backoff_blocks_the_rest_of_the_run",
+            ),
+            pytest.param(
+                [(0, "pending", "s"), (1, "waiting_retry", "s"), (2, "pending", "s")],
+                3600,
+                [0],
+                id="retry_in_backoff_blocks_only_later_batches",
+            ),
+            pytest.param(
+                [(0, "pending", "s"), (1, "pending", "s"), (2, "waiting_retry", "s")],
+                3600,
+                [0, 1],
+                id="later_retry_in_backoff_does_not_block_earlier_batches",
+            ),
+            pytest.param(
+                [(0, "waiting_retry", "s"), (1, "pending", "s"), (2, "pending", "s")],
+                0,
+                [0, 1, 2],
+                id="retry_with_elapsed_backoff_is_claimed_with_its_siblings",
+            ),
+            pytest.param(
+                [(0, "executing", "other"), (1, "pending", "s")],
+                0,
+                [],
+                id="earlier_executing_batch_blocks_even_outside_the_busy_group",
+            ),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_head_of_line_gate_blocks_only_batches_after_the_blocker(self, conn, batches, backoff, expected):
+        for batch_index, state, schema_id in batches:
+            bid = await _insert_batch(conn, run_uuid="run-hol", schema_id=schema_id, batch_index=batch_index)
+            if state != "pending":
+                await BatchQueue.update_status(conn, batch_id=bid, job_state=state, attempt=1)
+
+        claimed = await _claim(conn, retry_backoff_base_seconds=backoff)
+
+        assert sorted(b.batch_index for b in claimed) == expected
+        await _release(conn, batches=claimed)
+
+    @pytest.mark.asyncio
+    async def test_run_gate_probes_once_per_run_not_once_per_batch(self, conn):
+        # A per-batch gate probe that the planner answers from a non-partial
+        # run_uuid index reads the whole run for every candidate, so a backlog
+        # of long runs grows quadratically. One probe per run bounds it.
+        from products.warehouse_sources_queue.backend.core.jobs_db import _claim_window_sql
+
+        for i in range(40):
+            await _insert_batch(conn, run_uuid="long-run", schema_id="s-long", batch_index=i)
+        await _insert_batch(conn, run_uuid="short-run", schema_id="s-short", batch_index=0)
+
+        cur = await conn.execute(
+            "EXPLAIN (ANALYZE, FORMAT JSON) WITH " + _claim_window_sql() + " SELECT * FROM narrow",
+            {"backoff": 0, "owner": OWNER_A, "limit": 50},
+        )
+        row = await cur.fetchone()
+        assert row is not None
+        plan = row[0] if isinstance(row[0], list) else json.loads(row[0])
+
+        def gate_loops(node: dict[str, Any]) -> list[int]:
+            own = [node["Actual Loops"]] if str(node.get("Alias", "")).startswith("b_gate") else []
+            return own + [loops for child in node.get("Plans", []) for loops in gate_loops(child)]
+
+        loops = gate_loops(plan[0]["Plan"])
+        assert loops, "the run gate must scan sourcebatch under the b_gate alias"
+        assert max(loops) <= 2
 
     @pytest.mark.asyncio
     async def test_state_claim_candidates_can_use_the_claimable_index(self, conn):

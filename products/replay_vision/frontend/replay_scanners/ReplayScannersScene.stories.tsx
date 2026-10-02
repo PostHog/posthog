@@ -151,6 +151,7 @@ const scannerStats: ScannerStatsResponseApi = {
         classifier: { enabled: 0, total: 1 },
         scorer: { enabled: 1, total: 1 },
         summarizer: { enabled: 1, total: 1 },
+        experiment: { enabled: 0, total: 0 },
     },
 }
 
@@ -964,6 +965,7 @@ const emptyProjectDecorators = [
                     classifier: { enabled: 0, total: 0 },
                     scorer: { enabled: 0, total: 0 },
                     summarizer: { enabled: 0, total: 0 },
+                    experiment: { enabled: 0, total: 0 },
                 },
             } satisfies ScannerStatsResponseApi,
             '/api/projects/:team_id/vision/scanners/creators/': { creators: [] },
@@ -983,6 +985,22 @@ export const UsageTab: StoryObj = {
 export const HomeWatchFeed: StoryObj = {
     parameters: {
         featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]: 'test' },
+    },
+}
+
+const WATCH_FEED_VIEW_STORAGE_KEY = 'products.replay_vision.frontend.replay_scanners.watchFeedLogic.view'
+
+// The same feed as thumbnail cards, each closing with why the recording was picked.
+export const HomeWatchFeedGrid: StoryObj = {
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]: 'test' },
+    },
+    // Seed the saved view before render instead of clicking the toggle: the snapshot build is production
+    // React, which has no act(), so testing-library helpers fail there. Remove it afterwards, or every
+    // later feed story renders as a grid too.
+    beforeEach: () => {
+        localStorage.setItem(WATCH_FEED_VIEW_STORAGE_KEY, JSON.stringify('grid'))
+        return () => localStorage.removeItem(WATCH_FEED_VIEW_STORAGE_KEY)
     },
 }
 
