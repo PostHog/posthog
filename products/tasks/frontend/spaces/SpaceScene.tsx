@@ -31,8 +31,9 @@ import { spaceLabel } from '~/layout/today/todaySpacesLogic'
 
 import { EmbeddedTaskComposer } from 'products/posthog_ai/frontend/api/runner'
 
+import { SpaceCanvases } from './SpaceCanvases'
 import { SpaceFeed } from './SpaceFeed'
-import { SpaceSceneLogicProps, SpaceTab, spaceSceneLogic } from './spaceSceneLogic'
+import { SpaceSceneLogicProps, SpaceTab, spaceComposerPanelId, spaceSceneLogic } from './spaceSceneLogic'
 import { SpaceSettings } from './SpaceSettings'
 
 const SPACE_COMPOSER_OVERRIDE = {
@@ -134,7 +135,13 @@ export function SpaceScene({ id }: SpaceSceneLogicProps): JSX.Element {
                 <Tabs
                     value={activeTab}
                     onValueChange={(tab: SpaceTab) =>
-                        router.actions.push(tab === 'settings' ? urls.taskSpaceSettings(id) : urls.taskSpace(id))
+                        router.actions.push(
+                            tab === 'settings'
+                                ? urls.taskSpaceSettings(id)
+                                : tab === 'canvases'
+                                  ? urls.taskSpaceCanvases(id)
+                                  : urls.taskSpace(id)
+                        )
                     }
                     className="-mt-4"
                     data-quill
@@ -142,7 +149,10 @@ export function SpaceScene({ id }: SpaceSceneLogicProps): JSX.Element {
                     <div className="-mx-4 border-b border-border px-4">
                         <TabsList variant="line" aria-label="Space pages">
                             <TabsTrigger value="feed" data-attr="today-space-tab-feed">
-                                Feed
+                                Activity
+                            </TabsTrigger>
+                            <TabsTrigger value="canvases" data-attr="today-space-tab-canvases">
+                                Canvases
                             </TabsTrigger>
                             <TabsTrigger value="settings" data-attr="today-space-tab-settings">
                                 Settings
@@ -157,7 +167,7 @@ export function SpaceScene({ id }: SpaceSceneLogicProps): JSX.Element {
                                 <div className="mb-1 border-b border-border pb-4" data-attr="today-space-new-task">
                                     <EmbeddedTaskComposer
                                         key={space.id}
-                                        panelId={`space-${space.id}`}
+                                        panelId={spaceComposerPanelId(id)}
                                         channelId={space.id}
                                         initialRepositoryConfig={composerRepositoryConfig}
                                         composerOverride={SPACE_COMPOSER_OVERRIDE}
@@ -170,6 +180,9 @@ export function SpaceScene({ id }: SpaceSceneLogicProps): JSX.Element {
                             )}
                             <SpaceFeed id={id} />
                         </div>
+                    </TabsContent>
+                    <TabsContent value="canvases">
+                        <SpaceCanvases id={id} />
                     </TabsContent>
                     <TabsContent value="settings">
                         <SpaceSettings key={space?.id} id={id} />

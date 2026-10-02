@@ -319,6 +319,16 @@
         "params": [],
         "scope": "project"
     },
+    "canvasDetail": {
+        "template": "/canvases/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "canvasNew": {
+        "template": "/canvases/new",
+        "params": [],
+        "scope": "project"
+    },
     "cliAuthorize": {
         "template": "/cli/authorize",
         "params": [],
@@ -1679,6 +1689,11 @@
         "params": ["id"],
         "scope": "project"
     },
+    "taskSpaceCanvases": {
+        "template": "/spaces/{id}/canvases",
+        "params": ["id"],
+        "scope": "project"
+    },
     "taskSpaceSettings": {
         "template": "/spaces/{id}/settings",
         "params": ["id"],
@@ -1776,6 +1791,11 @@
     },
     "verifyEmail": {
         "template": "/verify_email",
+        "params": [],
+        "scope": "project"
+    },
+    "views": {
+        "template": "/views",
         "params": [],
         "scope": "project"
     },

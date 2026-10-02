@@ -27,6 +27,7 @@ const HEADLINE_LABEL: Record<ScannerTypeEnumApi, string> = {
     scorer: 'Score',
     classifier: 'Assigned categories',
     summarizer: 'Summary',
+    experiment: 'Summary',
 }
 
 // The `--success`/`--danger` family LemonTag uses. The `text-success` utility maps to a different, brighter green.

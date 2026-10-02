@@ -5,7 +5,11 @@ from uuid import UUID
 
 from posthog.dataclasses import frozen
 
-from products.workflows.backend.facade.enums import HogFlowBatchJobState
+from products.workflows.backend.facade.enums import (
+    HogFlowBatchJobState,
+    HogFlowTemplateExitCondition,
+    HogFlowTemplateScope,
+)
 
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
@@ -144,6 +148,45 @@ class EmailSendingSuspensionChange:
 
     changed_at: datetime | None
     previously_suspended_at: datetime | None = None
+
+
+@frozen
+class WorkflowTemplate:
+    """A workflow template stored in the database, owned by one team.
+
+    ``created_by`` carries the core ``User`` row rather than a projection of it, so the
+    presentation layer keeps serializing it through core's ``UserBasicSerializer``.
+
+    ``edges`` and ``actions`` hold lists, but a row saved without them keeps the model default
+    ``{}``, so both fields can also be a dict.
+    """
+
+    id: UUID
+    team_id: int
+    name: str
+    description: str
+    image_url: str | None
+    tags: list[str]
+    scope: HogFlowTemplateScope
+    created_at: datetime
+    created_by: "User | None"
+    updated_at: datetime
+    trigger: dict[str, Any]
+    trigger_masking: dict[str, Any] | None
+    conversion: dict[str, Any] | None
+    exit_condition: HogFlowTemplateExitCondition
+    edges: list[dict[str, Any]] | dict[str, Any]
+    actions: list[dict[str, Any]] | dict[str, Any]
+    abort_action: str | None
+    variables: list[dict[str, Any]] | None
+
+
+@frozen
+class FunctionTemplateSchema:
+    """The parts of a cdp function template that a workflow step validates its inputs against."""
+
+    type: str
+    inputs_schema: list[dict[str, Any]] | None
 
 
 # The provider payloads below are TypedDicts, not frozen dataclasses: the email-verify endpoint

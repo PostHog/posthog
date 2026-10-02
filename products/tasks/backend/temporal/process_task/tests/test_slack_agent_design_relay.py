@@ -39,7 +39,7 @@ class _SlackCalls:
         @activity.defn(name="start_slack_agent_design_stream")
         async def start(input: StartSlackAgentDesignStreamInput) -> SlackAgentDesignStream:
             self.starts.append(input)
-            return SlackAgentDesignStream(ts="2.0", has_plan=bool(input.task_updates))
+            return SlackAgentDesignStream(ts="2.0", has_plan=bool(input.task_updates), actor_slack_user_id="U9")
 
         @activity.defn(name="append_slack_agent_design_steps")
         async def append(input: AppendSlackAgentDesignStepsInput) -> None:
@@ -245,6 +245,8 @@ class TestSlackAgentDesignRelay:
 
         assert [s.first_markdown_text for s in calls.starts] == ["Signups grew."]
         assert [s.mention_sent for s in calls.stops] == [True]
+        # Closing must tag the person the opening tagged.
+        assert [s.actor_slack_user_id for s in calls.stops] == ["U9"]
 
     @pytest.mark.timeout(60, func_only=True)
     async def test_stopped_run_marks_the_open_step_failed(self) -> None:

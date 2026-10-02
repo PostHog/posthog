@@ -290,8 +290,8 @@ function findReportRank(
         const rows = mergeReportRows(
             reportsBySection,
             selectedFlatListSections(filterValues.visibleStateFilter, isStaff),
-            filterValues.sortField,
-            filterValues.sortDirection
+            filterValues.activeSortField,
+            filterValues.activeSortDirection
         )
         const idx = rows.findIndex((row) => row.report.id === id)
         if (idx >= 0) {

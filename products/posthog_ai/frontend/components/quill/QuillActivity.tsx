@@ -38,8 +38,9 @@ export function QuillActivity({
         <div className="flex min-w-0 flex-col gap-1">
             <ThreadMarker
                 icon={status === 'failed' && failedIcon ? failedIcon : icon}
-                running={isRunning && animate}
+                running={isRunning}
                 spinner={showProgressIcon}
+                shimmer={animate}
                 failed={status === 'failed'}
                 body={body}
                 open={open}

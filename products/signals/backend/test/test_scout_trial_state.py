@@ -38,6 +38,7 @@ from products.signals.backend.scout_harness.tools.report import (
     emit_report,
     emit_report_sync,
 )
+from products.signals.backend.scout_harness.tools.report_author import ScoutRunReportAuthor
 from products.signals.backend.scout_harness.tools.scratchpad import ScratchpadEntry
 from products.signals.backend.scout_harness.trial_gateway import create_trial_gateway_token, revoke_trial_gateway_token
 from products.signals.backend.scout_harness.trial_state import (
@@ -207,7 +208,7 @@ class TestScoutTrialReportCapture(APIBaseTest):
     ) -> str:
         result = emit_report_sync(
             team=self.team,
-            run=self.scout_run,
+            author=ScoutRunReportAuthor(run=self.scout_run),
             title=title,
             summary="The synthetic checkout handler returns an incorrect total.",
             evidence=[
@@ -514,7 +515,7 @@ class TestScoutTrialReportCapture(APIBaseTest):
         ) as select_repository:
             result = emit_report_sync(
                 team=self.team,
-                run=self.scout_run,
+                author=ScoutRunReportAuthor(run=self.scout_run),
                 title="Synthetic checkout issue",
                 summary="The fixture produces an incorrect total.",
                 evidence=[
@@ -561,7 +562,7 @@ class TestScoutTrialReportCapture(APIBaseTest):
         with self.assertRaises(InvalidScoutReportError):
             emit_report_sync(
                 team=self.team,
-                run=self.scout_run,
+                author=ScoutRunReportAuthor(run=self.scout_run),
                 title="Synthetic title",
                 summary=value if field == "summary" else "Synthetic summary",
                 evidence=[
@@ -788,7 +789,7 @@ def test_async_report_links_invalidate_comparison(team: Team, operation: str) ->
         if operation == "emit":
             async_to_sync(emit_report)(
                 team=team,
-                run=run,
+                author=ScoutRunReportAuthor(run=run),
                 title="Synthetic title",
                 summary="Synthetic summary",
                 evidence=[ReportEvidence(description="Synthetic evidence", source_id="fixture")],

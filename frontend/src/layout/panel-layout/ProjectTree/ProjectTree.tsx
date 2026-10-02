@@ -14,7 +14,6 @@ import {
 } from '@posthog/icons'
 
 import { itemSelectModalLogic } from 'lib/components/FileSystem/ItemSelectModal/itemSelectModalLogic'
-import { ProductTag } from 'lib/components/ProductTag/ProductTag'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { dayjs } from 'lib/dayjs'
 import { useLocalStorage } from 'lib/hooks/useLocalStorage'
@@ -523,24 +522,12 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                                 </>
                             )}
                             {sceneConfigurations[key]?.description || item.name}
-
-                            {item.tags?.map((tag) => (
-                                <ProductTag key={tag} tag={tag} className="ml-2 relative top-[-1px]" />
-                            ))}
                         </>
                     )
                 }
 
                 if (root === 'persons://') {
-                    return (
-                        <>
-                            {nameNode}
-                            {item.record?.protocol === 'products://' &&
-                                item.tags?.map((tag) => (
-                                    <ProductTag key={tag} tag={tag} className="ml-2 relative top-[-1px]" />
-                                ))}
-                        </>
-                    )
+                    return nameNode
                 }
 
                 if (root === 'new://') {
@@ -612,9 +599,6 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                                 </span>
                             )}
                         </span>
-                        {item.tags?.map((tag) => (
-                            <ProductTag key={tag} tag={tag} className="mr-0.5" />
-                        ))}
                     </span>
                 )
             }}

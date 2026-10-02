@@ -116,6 +116,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/business-knowledge/playground': ['BusinessKnowledgePlayground', 'businessKnowledgePlayground'],
     '/business-knowledge/playground/:chatId': ['BusinessKnowledgePlayground', 'businessKnowledgePlayground'],
     '/business-knowledge/:id': ['BusinessKnowledgeSource', 'businessKnowledgeSource'],
+    '/canvases/new': ['CanvasNew', 'canvasNew'],
+    '/canvases/:id': ['CanvasDetail', 'canvasDetail'],
     '/transformations': ['Transformations', 'transformations'],
     '/event-filtering': ['EventFiltering', 'eventFiltering'],
     '/feature_flags/staff/cohorts': ['CohortsStaffTools', 'cohortsStaffTools'],
@@ -283,6 +285,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/slack-task-context': ['SlackTaskContext', 'slackTaskContext'],
     '/spaces': ['TaskSpaces', 'taskSpaces'],
     '/spaces/:id': ['TaskSpace', 'taskSpace'],
+    '/spaces/:id/canvases': ['TaskSpace', 'taskSpaceCanvases'],
     '/spaces/:id/settings': ['TaskSpace', 'taskSpaceSettings'],
     '/tracing': ['Tracing', 'tracing'],
     '/tracing/operation': ['TracingOperation', 'tracingOperation'],
@@ -688,6 +691,8 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'KnowledgeSource',
         iconType: 'business_knowledge',
     },
+    CanvasNew: { name: 'New canvas', projectBased: true, layout: 'app-raw' },
+    CanvasDetail: { name: 'Canvas', projectBased: true, layout: 'app-raw' },
     Transformations: {
         projectBased: true,
         name: 'Transformations',
@@ -1313,6 +1318,9 @@ export const productUrls = {
     businessKnowledgePlayground: (chatId?: string): string =>
         chatId ? `/business-knowledge/playground/${chatId}` : '/business-knowledge/playground',
     businessKnowledgeSource: (id: string): string => `/business-knowledge/${id}`,
+    canvasNew: (spaceId?: string | null): string =>
+        spaceId ? `/canvases/new?space=${encodeURIComponent(spaceId)}` : '/canvases/new',
+    canvasDetail: (id: string): string => `/canvases/${id}`,
     transformations: (): string => '/transformations',
     eventFiltering: (): string => '/event-filtering',
     cohort: (id: string | number): string => `/cohorts/${id}`,
@@ -1463,8 +1471,13 @@ export const productUrls = {
         `/engineering-analytics/teams/${encodeURIComponent(ownerTeam)}`,
     engineeringAnalyticsPullRequest: (repoOwner: string, repoName: string, number: number | string): string =>
         `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/pull-requests/${number}`,
-    engineeringAnalyticsWorkflowRun: (repoOwner: string, repoName: string, runId: number | string): string =>
-        `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/runs/${runId}`,
+    engineeringAnalyticsWorkflowRun: (
+        repoOwner: string,
+        repoName: string,
+        runId: number | string,
+        ciEngine?: string | null
+    ): string =>
+        `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/runs/${runId}${ciEngine ? `?ci_engine=${encodeURIComponent(ciEngine)}` : ''}`,
     engineeringAnalyticsWorkflowRuns: (repoOwner: string, repoName: string, workflowName: string): string =>
         `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/workflows/${encodeURIComponent(workflowName)}`,
     engineeringAnalyticsAuthor: (handle: string): string =>
@@ -1739,6 +1752,7 @@ export const productUrls = {
     slackTaskContext: (): string => '/slack-task-context',
     taskSpaces: (): string => '/spaces',
     taskSpace: (id: string): string => `/spaces/${id}`,
+    taskSpaceCanvases: (id: string): string => `/spaces/${id}/canvases`,
     taskSpaceSettings: (id: string): string => `/spaces/${id}/settings`,
     toolbarLaunch: (): string => '/toolbar',
     tracing: (): string => '/tracing',
@@ -2537,6 +2551,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'inbox' as FileSystemIconType,
         href: urls.inbox(),
         flag: FEATURE_FLAGS.PRODUCT_AUTONOMY,
+        tags: ['beta'],
         sceneKey: 'Inbox',
         sceneKeys: ['Inbox'],
     },

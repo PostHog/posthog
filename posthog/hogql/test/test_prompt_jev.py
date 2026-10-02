@@ -65,6 +65,14 @@ class TestPromptJev(SimpleTestCase):
         budget.visit(parse_select(query))
         self.assertEqual(budget.decisions, expected)
 
+    @override_settings(HOGQL_JEV_MAX_ROWS=5000, HOGQL_JEV_MAX_DECISIONS=10000)
+    def test_raised_limits_reserve_and_allow_more_decisions(self) -> None:
+        budget = PromptJevBudget()
+        budget.visit(parse_select("SELECT jev('a', 'q') AS p, jev('b', 'q') AS q LIMIT 5000"))
+        self.assertEqual(budget.decisions, 10000)
+        with self.assertRaisesRegex(QueryError, "query budget of 10000"):
+            PromptJevBudget().visit(parse_select("SELECT jev('a', 'q') AS p, jev('b', 'q') AS q, jev('c', 'q') AS r"))
+
     def test_unused_ctes_do_not_reserve_budget(self) -> None:
         budget = PromptJevBudget()
         budget.visit(parse_select("WITH a AS (SELECT jev('a', 'q') AS p), b AS (SELECT jev('b', 'q') AS p) SELECT 1"))
@@ -80,6 +88,10 @@ class TestPromptJev(SimpleTestCase):
             ("jev('a', 'q', noul := ['yes', 'no'])", "exactly"),
             ("jev('a', 'q', choice := ['a','b'], noul := ['true','false'])", "either"),
             ("jev('a', 'q', score := ['a','b'])", "supports"),
+            ("jev('a', 'q', model := 'jevk5')", "supports"),
+            ("decide('a', 'q', model := 'gpt')", "model must be one of"),
+            ("decide('a', 'q', model := name)", "model must be one of"),
+            ("decide('a', '')", "decide instructions must be a non-empty"),
         ]
     )
     def test_invalid_arguments(self, query: str, message: str) -> None:
@@ -288,6 +300,7 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
                 [(0.9,)],
             ),
             ("SELECT jev(NULL, 'Refund?') AS p", [(None,)]),
+            ("SELECT decide('refund', 'Refund?', model := 'jevk5') AS p", [(0.9,)]),
             ("SELECT jev('hello', 'Refund?') AS p LIMIT 0", []),
             (
                 "SELECT " + ", ".join(f"jev('refund', 'Refund?') AS p{i}" for i in range(10)) + " LIMIT 100",
@@ -302,8 +315,25 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
     def test_sql_decisions(self, query: str, expected: list) -> None:
         with patch("httpx.AsyncClient.post", side_effect=gateway_response) as post:
             response = execute_hogql_query(query, self.team, user=self.user)
-        self.assertEqual(response.results, expected)
+        # UNION ALL without ORDER BY returns rows in any order.
+        self.assertEqual(sorted(response.results), sorted(expected))
         self.assertLessEqual(post.call_count, 1)
+
+    def test_one_query_mixes_models_with_a_call_per_model(self) -> None:
+        with patch("httpx.AsyncClient.post", side_effect=gateway_response) as post:
+            response = execute_hogql_query(
+                "SELECT jev('refund', 'Refund?') AS a, decide('refund', 'Refund?', model := 'jevk5') AS b LIMIT 1",
+                self.team,
+                user=self.user,
+            )
+        assert response.results == [(0.9, 0.9)]
+        calls = [
+            (call.kwargs["json"]["model"], call.kwargs["headers"]["X-PostHog-Product"]) for call in post.call_args_list
+        ]
+        assert sorted(calls) == [
+            ("posthog/hogference/jeeves-0.1", "hogql_decide"),
+            ("posthog/hogference/jevk5-fp8-0.2", "hogql_decide"),
+        ]
 
     @parameterized.expand(
         [
@@ -317,14 +347,18 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.results, [(1,)])
         post.assert_not_called()
 
-    def test_explicit_limit_above_the_default_keeps_every_row(self) -> None:
-        with patch("httpx.AsyncClient.post", side_effect=gateway_response):
+    @parameterized.expand([(150, 1000), (1200, 2000)])
+    def test_explicit_limit_above_the_default_keeps_every_row(self, rows: int, limit: int) -> None:
+        with (
+            override_settings(HOGQL_JEV_MAX_ROWS=limit, HOGQL_JEV_MAX_DECISIONS=limit),
+            patch("httpx.AsyncClient.post", side_effect=gateway_response),
+        ):
             response = execute_hogql_query(
-                "SELECT jev(toString(number), 'Refund?') AS p FROM numbers(150) LIMIT 150",
+                f"SELECT jev(toString(number), 'Refund?') AS p FROM numbers({rows}) LIMIT {rows}",
                 self.team,
                 user=self.user,
             )
-        self.assertEqual(len(response.results or []), 150)
+        self.assertEqual(len(response.results or []), rows)
 
     def test_outer_query_reads_properties_off_a_passthrough_column(self) -> None:
         _create_event(

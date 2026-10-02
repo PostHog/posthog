@@ -1466,6 +1466,20 @@ class TestPosthogCodeSandboxMint:
         assert flag.call_args.kwargs["groups"]["organization"] == str(team.organization_id)
 
     @pytest.mark.django_db
+    def test_flag_is_evaluated_for_the_run_user(self, mint_settings):
+        team = self._team(paid=True)
+        mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "posthog_code"
+        with (
+            patch(
+                "products.tasks.backend.logic.services.desktop_gateway_token.feature_enabled_or_false",
+                return_value=False,
+            ) as flag,
+            patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token"),
+        ):
+            ai_gateway_env_vars(team_id=team.id, origin_product="user_created", distinct_id="run-user-distinct-id")
+        assert flag.call_args.args[1] == "run-user-distinct-id"
+
+    @pytest.mark.django_db
     def test_off_pin_model_refuses(self):
         team = self._team(paid=True)
         with patch(_ROLLOUT, return_value=True), patch(_CREDIT_LOOKUP, return_value=None):

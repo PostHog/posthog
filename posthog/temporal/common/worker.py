@@ -63,7 +63,7 @@ from products.alerts.backend.facade.temporal import (
     ALERTS_PLATFORM_LATENCY_HISTOGRAM_METRICS,
     AlertsPlatformTelemetryInterceptor,
 )
-from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor
+from products.batch_exports.backend.facade.temporal import BatchExportsMetricsInterceptor
 from products.experiments.backend.temporal.recalculation_metrics import (
     EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_BUCKETS,
     EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_METRICS,

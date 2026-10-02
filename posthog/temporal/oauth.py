@@ -240,6 +240,12 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 #                          others meet. One scope object covers the whole surface, so the two
 #                          exclusions live in `products/replay_vision/backend/scout_writes.py`
 #                          instead: a scout cannot delete, and must cap what it creates or enables.
+#   customer_task:write    Every Customer analytics task in the scout's project: create, update
+#                          (status, due date, assignee, linked account) and archive. There is no
+#                          delete: archive is recoverable through restore, and every change is
+#                          written to the task's activity history. An update can reassign a task
+#                          to any member of the project, so the scout's body has to say whose
+#                          tasks it tends.
 #   hog_flow_proposal:write
 #                          Queue a suggested change on a workflow whose owner opted in, for a
 #                          person to approve or reject. Deliberately not `hog_flow:write`, which
@@ -267,6 +273,7 @@ SCOUT_GRANTABLE_WRITE_SCOPES: frozenset[str] = frozenset(
         "insight:write",
         "annotation:write",
         "alert:write",
+        "customer_task:write",
         "llm_skill:write",
         "warehouse_view:write",
         "warehouse_table:write",

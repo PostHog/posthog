@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { IconChevronDown, IconGear, IconPlusSmall, IconStar, IconStarFilled } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonMenu } from '@posthog/lemon-ui'
 
-import { ProductTag } from 'lib/components/ProductTag/ProductTag'
 import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -105,7 +104,6 @@ export function NavProductRow({ item, pinned = false }: { item: FileSystemImport
                         <NavProductIcon item={item} />
                     </span>
                     <span className="flex-1 truncate">{label}</span>
-                    {item.tags?.[0] && <ProductTag tag={item.tags[0]} />}
                 </Link>
             </Tooltip>
             {isHome ? (

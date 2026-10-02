@@ -913,6 +913,11 @@ class TestWriteAccessPromptSection(SimpleTestCase):
         # from the prompt, not from a refused call.
         assert "Scanners spend credits" not in granted
         assert "Scanners spend credits" in _prompt(write_scopes=["replay_scanner:write"])
+        # Tasks are assigned to people, so the task grant has to say whose tasks a scout may change.
+        assert "Tasks belong to people" not in granted
+        task_granted = _prompt(write_scopes=["customer_task:write"])
+        assert "Customer analytics tasks" in task_granted
+        assert "Tasks belong to people" in task_granted
 
         ungranted = _prompt(write_scopes=[])
         assert "# Write access" not in ungranted

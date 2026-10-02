@@ -131,6 +131,7 @@ APIScopeObject = Literal[
     "tagger",
     "ticket",
     "task",
+    "today",
     "toolbar",
     "tracing",
     "field_note",

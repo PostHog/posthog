@@ -1,7 +1,7 @@
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 
 import pytest
@@ -1100,6 +1100,22 @@ class TestScheduledFullRefreshDue:
             assert schema.scheduled_full_refresh_due() is False
 
 
+class TestRestartFullRefreshClock:
+    @parameterized.expand(
+        [
+            ("wipe_just_after_the_time", datetime(2026, 9, 22, 3, 4), datetime(2026, 9, 29, 3, 0)),
+            ("wipe_on_a_sync_up_to_an_hour_early", datetime(2026, 9, 22, 2, 10), datetime(2026, 9, 29, 3, 0)),
+            ("wipe_on_a_later_daily_sync", datetime(2026, 9, 22, 5, 0), datetime(2026, 9, 29, 3, 0)),
+            ("saved_hours_before_the_time", datetime(2026, 9, 22, 1, 0), datetime(2026, 9, 28, 3, 0)),
+        ]
+    )
+    def test_the_next_refresh_keeps_the_chosen_time(self, _name: str, now: datetime, expected: datetime) -> None:
+        schema = ExternalDataSchema(full_refresh_interval_days=7, full_refresh_time_of_day=time(3, 0))
+        with time_machine.travel(now.replace(tzinfo=UTC), tick=False):
+            schema.restart_full_refresh_clock()
+        assert schema.next_full_refresh_at == expected.replace(tzinfo=UTC)
+
+
 def test_set_partitioning_enabled_consumes_partition_mode_override() -> None:
     schema = ExternalDataSchema(
         sync_type_config={"partition_mode_override": "datetime", "partitioning_keys_override": ["action_date"]}
@@ -1159,6 +1175,12 @@ def test_process_incremental_value_xid_returns_value_as_is() -> None:
         # A genuine compact date string (YYYYMMDD) must still parse as a real date, not fall
         # back to the raw-integer path.
         ("20240115", IncrementalFieldType.Date, date(2024, 1, 15)),
+        # MySQL's zero-date sentinel for "no date set" (also emitted verbatim by some REST
+        # sources, e.g. ServiceM8's `edit_date`) must be treated as absent instead of
+        # crashing on dateutil's year-0 ParserError.
+        ("0000-00-00 00:00:00", IncrementalFieldType.DateTime, None),
+        ("0000-00-00 00:00:00", IncrementalFieldType.Timestamp, None),
+        ("0000-00-00", IncrementalFieldType.Date, None),
     ],
 )
 def test_process_incremental_value_datetime_handles_epoch_numbers(value, field_type, expected) -> None:

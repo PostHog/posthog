@@ -232,9 +232,7 @@ class TrialInboxReads:
         originals = self.view._annotate_is_suggested_reviewer(originals)
         live = {
             str(row["id"]): row
-            for row in self.view._serialize_report_list(
-                list(originals), include_source_metadata=include_source_metadata
-            )
+            for row in self.view._render_report_rows(list(originals), include_source_metadata=include_source_metadata)
         }
         statuses = self.view._visible_statuses()
         search = (self.view.request.query_params.get("search") or "").casefold()
@@ -309,7 +307,7 @@ class TrialInboxReads:
         start = max(0, paginator.offset - len(documents))
         production = list(queryset[start : paginator.offset + limit])
         merged: list[Mapping[str, object]] = [
-            *self.view._serialize_report_list(production, include_source_metadata=include_source_metadata),
+            *self.view._render_report_rows(production, include_source_metadata=include_source_metadata),
             *documents,
         ]
         clauses = self.view._parse_signal_report_ordering()

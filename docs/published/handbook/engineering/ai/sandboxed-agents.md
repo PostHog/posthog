@@ -171,6 +171,7 @@ Task links in shared AI history open `/ai?task=<task-id>` and render the task ru
 The task stays selected on reload and when navigating back or forward.
 Existing `/tasks/<task-id>` links still open the standalone runner.
 Task headers keep horizontal padding around the title and run metadata.
+With `today-rail-nav` enabled, task loading placeholders preserve the header height, conversation column, and composer area while task metadata and run history load.
 In the AI chat view, the staff options menu sits beside the task actions, including **Open in PostHog Desktop**.
 
 ## Fine-grained access tokens
