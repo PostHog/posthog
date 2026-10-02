@@ -1,7 +1,13 @@
-import api from 'lib/api'
+import { propertyDefinitionsList } from '~/generated/core/api'
+
+type CheckableType = 'event' | 'person'
 
 // The endpoint reads any other type as an event property, which would flag an existing key as missing.
-const CHECKABLE_TYPES = new Set(['event', 'person'])
+const CHECKABLE_TYPES: ReadonlySet<string> = new Set<CheckableType>(['event', 'person'])
+
+function isCheckableType(type: unknown): type is CheckableType {
+    return typeof type === 'string' && CHECKABLE_TYPES.has(type)
+}
 
 const MAX_CONCURRENT_CHECKS = 4
 
@@ -13,7 +19,7 @@ interface KeyCheck {
 
 export interface PropertyKeyRef {
     key: string
-    type: string
+    type: CheckableType
 }
 
 /** Property keys a filter refers to, with their type, in the order the reader added them. */
@@ -25,7 +31,7 @@ export function propertyKeysIn(properties: unknown): PropertyKeyRef[] {
     const refs: PropertyKeyRef[] = []
     for (const property of properties) {
         const { key, type } = (property && typeof property === 'object' ? property : {}) as Record<string, unknown>
-        if (typeof key !== 'string' || !key || typeof type !== 'string' || !CHECKABLE_TYPES.has(type)) {
+        if (typeof key !== 'string' || !key || !isCheckableType(type)) {
             continue
         }
         if (!seen.has(`${type}:${key}`)) {
@@ -51,10 +57,8 @@ export async function findMissingPropertyKeys(
     const pairs = projectIds.flatMap((projectId) => refs.map((ref) => ({ projectId, ...ref })))
     const check = async ({ projectId, key, type }: { projectId: number } & PropertyKeyRef): Promise<KeyCheck> => {
         try {
-            const response = await api.get(
-                `api/projects/${projectId}/property_definitions/?search=${encodeURIComponent(key)}&type=${type}&limit=100`
-            )
-            const found = (response?.results ?? []).some((definition: { name?: string }) => definition.name === key)
+            const response = await propertyDefinitionsList(String(projectId), { search: key, type, limit: 100 })
+            const found = response.results.some((definition) => definition.name === key)
             return { projectId, key, missing: !found }
         } catch {
             // A project the reader cannot reach answers 403. That is not a missing key, and
