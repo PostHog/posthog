@@ -103844,6 +103844,26 @@ export namespace Schemas {
     }
 
     /**
+     * The requesting user's per-project task defaults, shared by PostHog Desktop and the web app.
+     */
+    export interface TasksTaskDefaults {
+      /** When true, new tasks start in plan mode: the agent makes a plan and waits for approval. */
+      start_in_plan_mode: boolean;
+      /** When true, a cloud run that changes code always opens a draft pull request. */
+      auto_publish_cloud_runs: boolean;
+    }
+
+    /**
+     * A partial update of the requesting user's task defaults. Fields left out keep their stored value.
+     */
+    export interface TasksTaskDefaultsUpdate {
+      /** When true, new tasks start in plan mode: the agent makes a plan and waits for approval. */
+      start_in_plan_mode?: boolean;
+      /** When true, a cloud run that changes code always opens a draft pull request. */
+      auto_publish_cloud_runs?: boolean;
+    }
+
+    /**
      * Team-level tasks configuration.
      */
     export interface TasksTeamConfigResponse {
@@ -103863,6 +103883,8 @@ export namespace Schemas {
       resolved_ai_run_defaults: TasksResolvedAIRunDefaults;
       /** Your personal instructions, which PostHog cloud agents read in Tasks runs you start, after the project instructions. Anyone who continues a task you started can see them. Empty when unset. */
       agent_instructions: string;
+      /** Your per-project defaults for new tasks. Unset defaults are false. */
+      task_defaults: TasksTaskDefaults;
     }
 
     export interface TeachingCanvas {
@@ -122380,17 +122402,6 @@ export namespace Schemas {
     };
 
     export type TasksThreadMessagesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type TasksMeConfigListParams = {
     /**
      * Number of results to return per page.
      */
