@@ -47,7 +47,8 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
 
     def test_first_open_creates_one_briefing_and_starts_generation_once(self, sync_connect: MagicMock) -> None:
         sync_connect.return_value.start_workflow = AsyncMock()
-        with self._flag(True):
+        # At noon UTC it is past eight in Prague and in the project's UTC, so both calls read the same briefing day.
+        with self._flag(True), time_machine.travel(datetime(2026, 9, 30, 12, 0, tzinfo=UTC), tick=False):
             first = self.client.get(f"/api/projects/{self.team.id}/today/briefing/?timezone=Europe/Prague")
             # An MCP call sends no timezone; it must not move the person's mornings to the project's.
             second = self.client.get(f"/api/projects/{self.team.id}/today/briefing/")
