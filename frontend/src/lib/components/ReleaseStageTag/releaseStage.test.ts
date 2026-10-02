@@ -23,6 +23,7 @@ describe('releaseStage', () => {
         ['LiveDebugger', 'Live debugger', 'internal'],
         ['Dashboard', 'Dashboard', null],
         ['AIObservability', 'AI observability', null],
+        ['AIObservabilityTags', 'Taggers', 'alpha'],
         ['SQLEditor', 'SQL editor', null],
         ['Pulse', undefined, null],
         [null, 'Pulse', null],
