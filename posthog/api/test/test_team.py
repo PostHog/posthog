@@ -2084,9 +2084,10 @@ def team_api_test_factory():
             )
             assert bad.status_code == status.HTTP_400_BAD_REQUEST
 
-        def test_enabling_conversations_auto_generates_token(self):
+        @parameterized.expand([(None,), ("legacy string",), (["legacy", "list"],)])
+        def test_enabling_conversations_auto_generates_token(self, stored_settings):
             self.team.conversations_enabled = False
-            self.team.conversations_settings = None
+            self.team.conversations_settings = stored_settings
             self.team.save()
 
             response = self.client.patch("/api/environments/@current/", {"conversations_enabled": True})
@@ -2105,16 +2106,23 @@ def team_api_test_factory():
             assert response.status_code == status.HTTP_200_OK
             assert response.json()["conversations_settings"]["widget_public_token"] == "existing_token_123"
 
-        def test_disabling_conversations_clears_token(self):
+        @parameterized.expand(
+            [
+                (
+                    {"widget_public_token": "some_token", "widget_color": "#123456"},
+                    {"widget_public_token": None, "widget_color": "#123456"},
+                ),
+                (1, {"widget_public_token": None}),
+            ]
+        )
+        def test_disabling_conversations_clears_token(self, stored_settings, expected_settings):
             self.team.conversations_enabled = True
-            self.team.conversations_settings = {"widget_public_token": "some_token", "widget_color": "#123456"}
+            self.team.conversations_settings = stored_settings
             self.team.save()
 
             response = self.client.patch("/api/environments/@current/", {"conversations_enabled": False})
             assert response.status_code == status.HTTP_200_OK
-            settings = response.json()["conversations_settings"]
-            assert settings["widget_public_token"] is None
-            assert settings["widget_color"] == "#123456"
+            assert response.json()["conversations_settings"] == expected_settings
 
         def test_generate_conversations_public_token(self):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN

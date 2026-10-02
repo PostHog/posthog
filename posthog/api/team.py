@@ -3207,7 +3207,7 @@ def report_conversations_settings_changes(user: User, before_settings: dict | No
 def handle_conversations_token_on_update(
     validated_data: dict[str, Any],
     current_conversations_enabled: bool | None,
-    current_conversations_settings: dict | None,
+    current_conversations_settings: object,
 ) -> dict[str, Any]:
     """Auto-generate/clear conversations widget token based on conversations_enabled changes."""
     if "conversations_enabled" not in validated_data:
@@ -3216,15 +3216,17 @@ def handle_conversations_token_on_update(
     is_enabling = validated_data["conversations_enabled"] and not current_conversations_enabled
     is_disabling = not validated_data["conversations_enabled"] and current_conversations_enabled
 
+    stored_settings = conversations_settings_as_dict(current_conversations_settings)
+
     if is_enabling:
         # Check if token already exists in current DB state (not user input, which is stripped)
-        has_token = current_conversations_settings and current_conversations_settings.get("widget_public_token")
+        has_token = stored_settings.get("widget_public_token")
         if not has_token:
-            conv_settings = dict(validated_data.get("conversations_settings") or current_conversations_settings or {})
+            conv_settings = dict(validated_data.get("conversations_settings") or stored_settings)
             conv_settings["widget_public_token"] = secrets.token_urlsafe(32)
             validated_data["conversations_settings"] = conv_settings
     elif is_disabling:
-        conv_settings = dict(validated_data.get("conversations_settings") or current_conversations_settings or {})
+        conv_settings = dict(validated_data.get("conversations_settings") or stored_settings)
         conv_settings["widget_public_token"] = None
         validated_data["conversations_settings"] = conv_settings
 
