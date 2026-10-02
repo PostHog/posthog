@@ -6530,6 +6530,10 @@ snapshots:
         hash: v1.k794b7964.dbaa1992239d54c653a2132b63857ca77420a178b662c000fb93e7fded648a19.XVks3zJgtqjlm24-mHsgMx3boV8KNZNtXN5dcph4LWw
     products-data-modeling-lineage-graph--dark-mode--light:
         hash: v1.k794b7964.bc8a6b5f4e177299e6b7ca346135a43ecbd3048405692bb1e75a8747f695c12d.Cg73TPpnrS5uZDxIKIWiV4BhszAzKFH_dSHExM_kkJM
+    products-data-modeling-lineage-graph--draggable-nodes--dark:
+        hash: v1.k794b7964.e7fa348d01185cb0caead49e88f43afcc2885992c4a4b79f59fc34da6f19bca5.WfK2u7q2UakJ496Kt9G7l76XIhBA-49hcrL2MlwGS4w
+    products-data-modeling-lineage-graph--draggable-nodes--light:
+        hash: v1.k794b7964.dfc5bc62d287ed88c8dfa9630052ea2f67037f2e3d7440d95560f7fc99824a3e.po-hGnD-1T6eHcFvVKT5ZmshWvlAiioiNIfH4z5Lw28
     products-data-modeling-lineage-graph--empty-state--dark:
         hash: v1.k794b7964.9870c50d45ee1583472d6a98917a350892a8c2d8e29c20d17138eb68b8b52d60.yi6jAXaHCs0dh9kUIVgf6aWiVa8Btlb2b9xUQw_q4VE
     products-data-modeling-lineage-graph--empty-state--light:
@@ -6550,6 +6554,14 @@ snapshots:
         hash: v1.k794b7964.6cf877fd61e23f3c5b70fdb3961c6a3de97bd8f2e4a302f89f9e758b87f27cee.rPxDLCVvyPsn_zke4mpEdJv1uTirwMtjpnhPSglInPs
     products-data-modeling-lineage-graph--loading-focused--light:
         hash: v1.k794b7964.ad5f3bb5a4c9a5193cf69e525d90f14a6593bcd863437ae10d7148c798720278.N7js9PPoiXJKVTgurWgbO00-kxtsO-gsKxcFaaZAhPo
+    products-data-modeling-lineage-graph--moved-node-focus--dark:
+        hash: v1.k794b7964.104d9527724d974ab4b4d6482ff8e7c9ab7865bcd0598d160e3727fd94989c7c.IoqXmWo1wJlpwX22IL_FBQKV58RLpNmvOgIzxky6qaI
+    products-data-modeling-lineage-graph--moved-node-focus--light:
+        hash: v1.k794b7964.526c6f5cc22548b7fb466ed640a7add56aaa64ac0282ae60e01b38cfc50ca7f1.Nrl9rYDuPwqzmSMwBCLldb8SBiNn031dS_cIgevFJZA
+    products-data-modeling-lineage-graph--reset-moved-nodes--dark:
+        hash: v1.k794b7964.15e5e88b4178f0347d9ebae1f83d8a236fb988fbc621204f2ed568717c9b0b08.z7W9cDpbkr85TkgQHo9H6-fXSsVQ5irrpJUU3HhU2Lg
+    products-data-modeling-lineage-graph--reset-moved-nodes--light:
+        hash: v1.k794b7964.b54ae28affd8c87b5762de3905c081e087a5d2c6ef78ab3335ffb55e12972130.W9m2cQGMi-7XuGKMEtcWkE9L5SQ8rM-UY0Ktgn7IWO8
     products-data-modeling-lineage-graph--search-focus--dark:
         hash: v1.k794b7964.bb7fd2d6e2a32b2ae732793749f5c3378b9ddeed90115a169515e50611fc0558.hzBxXCNRLcqtZ_OV-8RcnASe8V2kyVEPHXqAlYkrmtY
     products-data-modeling-lineage-graph--search-focus--light:
@@ -9354,6 +9366,14 @@ snapshots:
         hash: v1.k794b7964.22840c30d80b9e1a3bd41d5a31af2ab81a54d9f90fb82d540fb9494b44cda050.oC_UUgUXZVqKMZ6LuInaQADAzqeWAvw2dZ8T5eENhIQ
     scenes-app-data-warehouse-settings-schemas--multi-schema--light:
         hash: v1.k794b7964.e5d678194a8e191fdf4f8a92cd7328f1e3cb162a81d3c4d05ef608f3c61537da.ZshlecoDn8CpsaVHaONi7UiXq8r-Xi4zJSWKeg7nAP0
+    scenes-app-data-warehouse-sql-editor--edited-insight--dark:
+        hash: v1.k794b7964.94eba9d351ec4c6b649fc4b09f5d4a69fed2995448c0cc1dac5d63d3df0ad20c.U6hnpHxuk9RKFoPU8bc536a9dTuzluwHE0pF4J0nPYc
+    scenes-app-data-warehouse-sql-editor--edited-insight--light:
+        hash: v1.k794b7964.436ab0db5bbe37772a43ac31f23e24089833a5b90524a01059ea0bd56004786c.ztvECim8t2GfzyU0YLjaBdofiHEvt_GJMLPUlzQq3sY
+    scenes-app-data-warehouse-sql-editor--edited-view--dark:
+        hash: v1.k794b7964.aa0e1284b237dcedac1fe3c970e850375b9061d0c1d5b6900f9f1d5e4ba44e19.ixiPsYdLQ_wCEBrAjs99WDvEvvFxrSkXuUch-3fGWsA
+    scenes-app-data-warehouse-sql-editor--edited-view--light:
+        hash: v1.k794b7964.bfac44e47fb689373014487971c83c5602e18d413d1d82cfb4e3816620278373.Pu-novkcDf8tMMSmGhmQOWLz1_U5Piou5PXcppc6gHQ
     scenes-app-data-warehouse-sql-editor--lazy-schema--dark:
         hash: v1.k794b7964.8c150639468430cd106d26a5e3dde526b0d08bde8d07f37527113386e022d97b.xTBWyA6WWMQjVdb8wJvusy7_4oieQVnkHe2FCJxpQHg
     scenes-app-data-warehouse-sql-editor--lazy-schema--light:
