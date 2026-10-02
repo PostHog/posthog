@@ -34,24 +34,25 @@ const request: FeatureRequestApi = {
 }
 
 function CreateModalWithErrors(): JSX.Element {
-    const { openCreateRequest, submitRequest } = useActions(featureRequestsLogic)
+    const { openCreateRequest, submitFeatureRequestForm } = useActions(featureRequestsLogic)
 
     useEffect(() => {
         openCreateRequest()
-        submitRequest()
-    }, [openCreateRequest, submitRequest])
+        submitFeatureRequestForm()
+    }, [openCreateRequest, submitFeatureRequestForm])
 
     return <FeatureRequestCreateModal />
 }
 
 function EditModalWithErrors(): JSX.Element {
-    const { openEditRequest, setEditTitle, saveRequestChanges } = useActions(featureRequestsLogic)
+    const { openEditRequest, setFeatureRequestEditFormValue, submitFeatureRequestEditForm } =
+        useActions(featureRequestsLogic)
 
     useEffect(() => {
         openEditRequest(request)
-        setEditTitle('')
-        saveRequestChanges()
-    }, [openEditRequest, setEditTitle, saveRequestChanges])
+        setFeatureRequestEditFormValue('title', '')
+        submitFeatureRequestEditForm()
+    }, [openEditRequest, setFeatureRequestEditFormValue, submitFeatureRequestEditForm])
 
     return <FeatureRequestEditModal />
 }

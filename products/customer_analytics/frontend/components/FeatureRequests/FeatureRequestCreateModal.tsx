@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
 
 import {
     LemonBanner,
@@ -21,20 +22,13 @@ import { featureRequestsLogic } from './featureRequestsLogic'
 export function FeatureRequestCreateModal(): JSX.Element {
     const {
         createRequestOpen,
-        title,
-        description,
-        accountId,
-        productAreaIds,
         accountOptions,
         productAreaOptions,
         accountsLoading,
         accountsError,
         productAreasLoading,
         productAreasError,
-        submittingRequest,
-        submitDisabledReason,
-        createFormErrors,
-        showCreateFormErrors,
+        isFeatureRequestFormSubmitting,
         evidenceSummary,
         evidenceQuote,
         evidenceSource,
@@ -44,21 +38,16 @@ export function FeatureRequestCreateModal(): JSX.Element {
     } = useValues(featureRequestsLogic)
     const {
         closeCreateRequest,
-        setTitle,
-        setDescription,
-        setAccountId,
         setAccountSearch,
-        setProductAreaIds,
         setEvidenceSummary,
         setEvidenceQuote,
         setEvidenceSource,
         setEvidenceUrl,
         setEvidenceRequestedOn,
-        submitRequest,
+        submitFeatureRequestForm,
         loadAccounts,
         loadProductAreas,
     } = useActions(featureRequestsLogic)
-    const createErrors = showCreateFormErrors ? createFormErrors : {}
 
     return (
         <LemonModal
@@ -81,9 +70,9 @@ export function FeatureRequestCreateModal(): JSX.Element {
                     </LemonButton>
                     <LemonButton
                         type="primary"
-                        onClick={submitRequest}
-                        loading={submittingRequest}
-                        disabledReason={submitDisabledReason}
+                        onClick={submitFeatureRequestForm}
+                        loading={isFeatureRequestFormSubmitting}
+                        disabledReason={uploadingEvidenceImages ? 'Uploading images' : undefined}
                         data-attr="save-feature-request"
                     >
                         Save request
@@ -91,7 +80,7 @@ export function FeatureRequestCreateModal(): JSX.Element {
                 </>
             }
         >
-            <div className="flex flex-col gap-4">
+            <Form logic={featureRequestsLogic} formKey="featureRequestForm" className="flex flex-col gap-4">
                 {accountsError && (
                     <LemonBanner type="error" action={{ children: 'Try again', onClick: () => loadAccounts('') }}>
                         {accountsError}
@@ -102,46 +91,34 @@ export function FeatureRequestCreateModal(): JSX.Element {
                         {productAreasError}
                     </LemonBanner>
                 )}
-                <LemonField.Pure label="Title" error={createErrors.title}>
-                    <LemonInput
-                        value={title}
-                        onChange={setTitle}
-                        placeholder="What does the customer need?"
-                        maxLength={400}
-                        autoFocus
-                        fullWidth
-                    />
-                </LemonField.Pure>
-                <LemonField.Pure label="Description" showOptional>
-                    <LemonTextArea
-                        value={description}
-                        onChange={setDescription}
-                        placeholder="Describe the request in the customer's language"
-                        minRows={5}
-                    />
-                </LemonField.Pure>
-                <LemonField.Pure label="Account" error={createErrors.accounts}>
-                    <LemonInputSelect
-                        mode="single"
-                        value={accountId ? [accountId] : []}
-                        onChange={(values) => setAccountId(values[0] ?? null)}
-                        onInputChange={setAccountSearch}
-                        options={accountOptions}
-                        placeholder="Search by account name or external key"
-                        loading={accountsLoading}
-                        fullWidth
-                    />
-                </LemonField.Pure>
-                <LemonField.Pure label="Product areas" error={createErrors.productAreas}>
+                <LemonField name="title" label="Title">
+                    <LemonInput placeholder="What does the customer need?" maxLength={400} autoFocus fullWidth />
+                </LemonField>
+                <LemonField name="description" label="Description" showOptional>
+                    <LemonTextArea placeholder="Describe the request in the customer's language" minRows={5} />
+                </LemonField>
+                <LemonField name="accountId" label="Account">
+                    {({ value, onChange }) => (
+                        <LemonInputSelect
+                            mode="single"
+                            value={value ? [value] : []}
+                            onChange={(values) => onChange(values[0] ?? null)}
+                            onInputChange={setAccountSearch}
+                            options={accountOptions}
+                            placeholder="Search by account name or external key"
+                            loading={accountsLoading}
+                            fullWidth
+                        />
+                    )}
+                </LemonField>
+                <LemonField name="productAreaIds" label="Product areas">
                     <LemonInputSelect
                         mode="multiple"
-                        value={productAreaIds}
-                        onChange={setProductAreaIds}
                         options={productAreaOptions}
                         placeholder="Select one or more product areas"
                         loading={productAreasLoading}
                     />
-                </LemonField.Pure>
+                </LemonField>
                 <div className="font-medium">Evidence (optional)</div>
                 <LemonField.Pure label="Summary">
                     <LemonTextArea
@@ -189,7 +166,7 @@ export function FeatureRequestCreateModal(): JSX.Element {
                     />
                 </LemonField.Pure>
                 <FeatureRequestEvidenceImagePicker />
-            </div>
+            </Form>
         </LemonModal>
     )
 }

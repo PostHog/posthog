@@ -1,4 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { forms } from 'kea-forms'
+import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
@@ -113,10 +115,20 @@ const VALID_PRIORITIES = new Set(FEATURE_REQUEST_PRIORITY_FILTER_OPTIONS.map((op
 const VALID_ORDERINGS = new Set(FEATURE_REQUEST_ORDERING_OPTIONS)
 const VALID_ARCHIVE_STATES = new Set<FeatureRequestArchiveState>(['active', 'archived', 'all'])
 
-export interface FeatureRequestFormErrors {
-    title?: string
-    accounts?: string
-    productAreas?: string
+export interface FeatureRequestFormValues {
+    title: string
+    description: string
+    accountId: string | null
+    productAreaIds: string[]
+}
+
+export interface FeatureRequestEditFormValues {
+    title: string
+    description: string
+    accountIds: string[]
+    productAreaIds: string[]
+    requestStatus: FeatureRequestStatusEnumApi
+    requestPriority: FeatureRequestPriorityEnumApi | null
 }
 
 export interface FeatureRequestListState {
@@ -225,8 +237,29 @@ function toggleValue<T extends string>(values: T[], value: T): T[] {
     return values.includes(value) ? values.filter((item) => item !== value) : [...values, value]
 }
 
-function hasFormErrors(errors: FeatureRequestFormErrors): boolean {
-    return Object.values(errors).some(Boolean)
+const EMPTY_FEATURE_REQUEST_FORM: FeatureRequestFormValues = {
+    title: '',
+    description: '',
+    accountId: null,
+    productAreaIds: [],
+}
+
+const EMPTY_FEATURE_REQUEST_EDIT_FORM: FeatureRequestEditFormValues = {
+    title: '',
+    description: '',
+    accountIds: [],
+    productAreaIds: [],
+    requestStatus: 'requested',
+    requestPriority: null,
+}
+
+// kea-forms types an array field's error as one entry per item, but this message covers the whole list.
+function listError(message: string | undefined): string[] | undefined {
+    return message as unknown as string[] | undefined
+}
+
+function isValidationFailure(error: unknown): boolean {
+    return error instanceof Error && error.message === 'Validation Failed'
 }
 
 const newIdempotencyKey = (): string => uuid()
@@ -237,7 +270,6 @@ export interface featureRequestsLogicValues {
     members: OrganizationMemberType[] | null // membersLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     accountFilter: string[]
-    accountId: string | null
     accountOptions: {
         key: string
         label: string
@@ -262,29 +294,19 @@ export interface featureRequestsLogicValues {
     }[]
     addingAccount: boolean
     archiveState: FeatureRequestArchiveState
-    createFormErrors: FeatureRequestFormErrors
     createRequestOpen: boolean
     createdByFilter: number[]
     creatorById: Record<number, UserBasicType>
     currentTeamId: string
-    description: string
-    editAccountIds: string[]
-    editDescription: string
-    editDisabledReason: string | undefined
     editError: string | null
     editExpectedVersion: number
     editIsStale: boolean
-    editPriority: FeatureRequestPriorityEnumApi | null
-    editProductAreaIds: string[]
     editProductAreaOptions: {
         disabledReason?: string
         key: string
         label: string
     }[]
-    editFormErrors: FeatureRequestFormErrors
     editRequestOpen: boolean
-    editStatus: FeatureRequestStatusEnumApi
-    editTitle: string
     editingEvidenceId: string | null
     editingProductAreaId: string | null
     evidenceAccountLinkId: string | null
@@ -301,6 +323,24 @@ export interface featureRequestsLogicValues {
     evidenceUrl: string
     featureRequestBackLabel: string | null
     featureRequestBackUrl: string
+    featureRequestEditForm: FeatureRequestEditFormValues
+    featureRequestEditFormAllErrors: Record<string, any>
+    featureRequestEditFormChanged: boolean
+    featureRequestEditFormErrors: DeepPartialMap<FeatureRequestEditFormValues, ValidationErrorType>
+    featureRequestEditFormHasErrors: boolean
+    featureRequestEditFormManualErrors: Record<string, any>
+    featureRequestEditFormTouched: boolean
+    featureRequestEditFormTouches: Record<string, boolean>
+    featureRequestEditFormValidationErrors: DeepPartialMap<FeatureRequestEditFormValues, ValidationErrorType>
+    featureRequestForm: FeatureRequestFormValues
+    featureRequestFormAllErrors: Record<string, any>
+    featureRequestFormChanged: boolean
+    featureRequestFormErrors: DeepPartialMap<FeatureRequestFormValues, ValidationErrorType>
+    featureRequestFormHasErrors: boolean
+    featureRequestFormManualErrors: Record<string, any>
+    featureRequestFormTouched: boolean
+    featureRequestFormTouches: Record<string, boolean>
+    featureRequestFormValidationErrors: DeepPartialMap<FeatureRequestFormValues, ValidationErrorType>
     featureRequestsError: string | null
     featureRequestsPage: number
     featureRequestsResponse: PaginatedFeatureRequestListApi
@@ -308,6 +348,10 @@ export interface featureRequestsLogicValues {
     filteredProductAreas: FeatureRequestProductAreaApi[]
     hasActiveFilters: boolean
     idempotencyKey: string
+    isFeatureRequestEditFormSubmitting: boolean
+    isFeatureRequestEditFormValid: boolean
+    isFeatureRequestFormSubmitting: boolean
+    isFeatureRequestFormValid: boolean
     listSearchParams: Record<string, string>
     loadedAccountsById: Record<string, AccountApi>
     mutatingArchive: boolean
@@ -317,7 +361,6 @@ export interface featureRequestsLogicValues {
     productAreaFilter: string[]
     productAreaFormOpen: boolean
     productAreaFormVersion: number
-    productAreaIds: string[]
     productAreaName: string
     productAreaOptions: {
         key: string
@@ -337,16 +380,12 @@ export interface featureRequestsLogicValues {
     requestOrdering: FeatureRequestOrdering
     savingEvidence: boolean
     savingProductArea: boolean
-    savingRequestChanges: boolean
     searchQuery: string
     selectedAccount: FeatureRequestAccountApi | null
+    showFeatureRequestEditFormErrors: boolean
+    showFeatureRequestFormErrors: boolean
     statusFilter: FeatureRequestStatusEnumApi[]
-    showCreateFormErrors: boolean
-    showEditFormErrors: boolean
-    submitDisabledReason: string | undefined
-    submittingRequest: boolean
     tableSorting: Sorting | null
-    title: string
     uploadingEvidenceImages: boolean
     visibleActiveRequestAccountLinks: FeatureRequestAccountLinkApi[]
 }
@@ -489,6 +528,12 @@ export interface featureRequestsLogicActions {
     removeEvidenceImage: (imageId: string) => {
         imageId: string
     }
+    resetFeatureRequestEditForm: (values?: FeatureRequestEditFormValues) => {
+        values?: FeatureRequestEditFormValues
+    }
+    resetFeatureRequestForm: (values?: FeatureRequestFormValues) => {
+        values?: FeatureRequestFormValues
+    }
     restoreActiveRequest: () => {
         value: true
     }
@@ -498,14 +543,8 @@ export interface featureRequestsLogicActions {
     saveProductArea: () => {
         value: true
     }
-    saveRequestChanges: () => {
-        value: true
-    }
     setAccountFilter: (accountFilter: string[]) => {
         accountFilter: string[]
-    }
-    setAccountId: (accountId: string | null) => {
-        accountId: string | null
     }
     setAccountSearch: (accountSearch: string) => {
         accountSearch: string
@@ -525,15 +564,6 @@ export interface featureRequestsLogicActions {
     setCreatedByFilter: (createdByFilter: number[]) => {
         createdByFilter: number[]
     }
-    setDescription: (description: string) => {
-        description: string
-    }
-    setEditAccountIds: (editAccountIds: string[]) => {
-        editAccountIds: string[]
-    }
-    setEditDescription: (editDescription: string) => {
-        editDescription: string
-    }
     setEditError: (editError: string | null) => {
         editError: string | null
     }
@@ -542,18 +572,6 @@ export interface featureRequestsLogicActions {
     }
     setEditIsStale: (editIsStale: boolean) => {
         editIsStale: boolean
-    }
-    setEditPriority: (editPriority: FeatureRequestPriorityEnumApi | null) => {
-        editPriority: FeatureRequestPriorityEnumApi | null
-    }
-    setEditProductAreaIds: (editProductAreaIds: string[]) => {
-        editProductAreaIds: string[]
-    }
-    setEditStatus: (editStatus: FeatureRequestStatusEnumApi) => {
-        editStatus: FeatureRequestStatusEnumApi
-    }
-    setEditTitle: (editTitle: string) => {
-        editTitle: string
     }
     setEvidenceError: (evidenceError: string | null) => {
         evidenceError: string | null
@@ -572,6 +590,32 @@ export interface featureRequestsLogicActions {
     }
     setEvidenceUrl: (evidenceUrl: string) => {
         evidenceUrl: string
+    }
+    setFeatureRequestEditFormManualErrors: (errors: Record<string, any>) => {
+        errors: Record<string, any>
+    }
+    setFeatureRequestEditFormValue: (
+        key: FieldName,
+        value: any
+    ) => {
+        name: FieldName
+        value: any
+    }
+    setFeatureRequestEditFormValues: (values: DeepPartial<FeatureRequestEditFormValues>) => {
+        values: DeepPartial<FeatureRequestEditFormValues>
+    }
+    setFeatureRequestFormManualErrors: (errors: Record<string, any>) => {
+        errors: Record<string, any>
+    }
+    setFeatureRequestFormValue: (
+        key: FieldName,
+        value: any
+    ) => {
+        name: FieldName
+        value: any
+    }
+    setFeatureRequestFormValues: (values: DeepPartial<FeatureRequestFormValues>) => {
+        values: DeepPartial<FeatureRequestFormValues>
     }
     setFeatureRequestsPage: (page: number) => {
         page: number
@@ -594,9 +638,6 @@ export interface featureRequestsLogicActions {
     setProductAreaFilter: (productAreaFilter: string[]) => {
         productAreaFilter: string[]
     }
-    setProductAreaIds: (productAreaIds: string[]) => {
-        productAreaIds: string[]
-    }
     setProductAreaName: (productAreaName: string) => {
         productAreaName: string
     }
@@ -618,23 +659,14 @@ export interface featureRequestsLogicActions {
     setSavingProductArea: (savingProductArea: boolean) => {
         savingProductArea: boolean
     }
-    setSavingRequestChanges: (savingRequestChanges: boolean) => {
-        savingRequestChanges: boolean
-    }
     setSearchQuery: (searchQuery: string) => {
         searchQuery: string
     }
     setSelectedAccount: (selectedAccount: FeatureRequestAccountApi | null) => {
         selectedAccount: FeatureRequestAccountApi | null
     }
-    setSubmittingRequest: (submittingRequest: boolean) => {
-        submittingRequest: boolean
-    }
     setTableSorting: (sorting: Sorting | null) => {
         sorting: Sorting | null
-    }
-    setTitle: (title: string) => {
-        title: string
     }
     setUploadingEvidenceImages: (uploadingEvidenceImages: boolean) => {
         uploadingEvidenceImages: boolean
@@ -652,14 +684,49 @@ export interface featureRequestsLogicActions {
     startNewProductArea: () => {
         value: true
     }
-    submitRequest: () => {
-        value: true
+    submitFeatureRequestEditForm: () => {
+        value: boolean
+    }
+    submitFeatureRequestEditFormFailure: (
+        error: Error,
+        errors: Record<string, any>
+    ) => {
+        error: Error
+        errors: Record<string, any>
+    }
+    submitFeatureRequestEditFormRequest: (featureRequestEditForm: FeatureRequestEditFormValues) => {
+        featureRequestEditForm: FeatureRequestEditFormValues
+    }
+    submitFeatureRequestEditFormSuccess: (featureRequestEditForm: FeatureRequestEditFormValues) => {
+        featureRequestEditForm: FeatureRequestEditFormValues
+    }
+    submitFeatureRequestForm: () => {
+        value: boolean
+    }
+    submitFeatureRequestFormFailure: (
+        error: Error,
+        errors: Record<string, any>
+    ) => {
+        error: Error
+        errors: Record<string, any>
+    }
+    submitFeatureRequestFormRequest: (featureRequestForm: FeatureRequestFormValues) => {
+        featureRequestForm: FeatureRequestFormValues
+    }
+    submitFeatureRequestFormSuccess: (featureRequestForm: FeatureRequestFormValues) => {
+        featureRequestForm: FeatureRequestFormValues
     }
     togglePriorityFilter: (requestPriority: FeatureRequestPriorityFilter) => {
         requestPriority: FeatureRequestPriorityFilter
     }
     toggleStatusFilter: (requestStatus: FeatureRequestStatusEnumApi) => {
         requestStatus: FeatureRequestStatusEnumApi
+    }
+    touchFeatureRequestEditFormField: (key: string) => {
+        key: string
+    }
+    touchFeatureRequestFormField: (key: string) => {
+        key: string
     }
     uploadEvidenceImages: (files: File[]) => {
         files: File[]
@@ -709,24 +776,12 @@ export interface featureRequestsLogicMeta {
         }[]
         editProductAreaOptions: (
             productAreas: FeatureRequestProductAreaApi[],
-            editProductAreaIds: string[]
+            featureRequestEditForm: any
         ) => {
             disabledReason?: string
             key: string
             label: string
         }[]
-        createFormErrors: (
-            title: string,
-            accountId: string | null,
-            productAreaIds: string[]
-        ) => FeatureRequestFormErrors
-        editFormErrors: (
-            editTitle: string,
-            editAccountIds: string[],
-            editProductAreaIds: string[]
-        ) => FeatureRequestFormErrors
-        submitDisabledReason: (submittingRequest: boolean, uploadingEvidenceImages: boolean) => string | undefined
-        editDisabledReason: (savingRequestChanges: boolean) => string | undefined
         evidenceSaveDisabledReason: (
             addingAccount: boolean,
             addAccountId: string | null,
@@ -795,15 +850,9 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         clearFilters: true,
         openCreateRequest: true,
         closeCreateRequest: true,
-        setTitle: (title: string) => ({ title }),
-        setDescription: (description: string) => ({ description }),
-        setAccountId: (accountId: string | null) => ({ accountId }),
         setSelectedAccount: (selectedAccount: FeatureRequestAccountApi | null) => ({ selectedAccount }),
         setAccountSearch: (accountSearch: string) => ({ accountSearch }),
-        setProductAreaIds: (productAreaIds: string[]) => ({ productAreaIds }),
         setIdempotencyKey: (idempotencyKey: string) => ({ idempotencyKey }),
-        submitRequest: true,
-        setSubmittingRequest: (submittingRequest: boolean) => ({ submittingRequest }),
         openProductAreas: true,
         closeProductAreas: true,
         closeProductAreaForm: true,
@@ -817,17 +866,9 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         setSavingProductArea: (savingProductArea: boolean) => ({ savingProductArea }),
         openEditRequest: (featureRequest: FeatureRequestApi) => ({ featureRequest }),
         closeEditRequest: true,
-        setEditTitle: (editTitle: string) => ({ editTitle }),
-        setEditDescription: (editDescription: string) => ({ editDescription }),
-        setEditAccountIds: (editAccountIds: string[]) => ({ editAccountIds }),
-        setEditProductAreaIds: (editProductAreaIds: string[]) => ({ editProductAreaIds }),
-        setEditStatus: (editStatus: FeatureRequestStatusEnumApi) => ({ editStatus }),
-        setEditPriority: (editPriority: FeatureRequestPriorityEnumApi | null) => ({ editPriority }),
         setEditExpectedVersion: (editExpectedVersion: number) => ({ editExpectedVersion }),
         setEditError: (editError: string | null) => ({ editError }),
         setEditIsStale: (editIsStale: boolean) => ({ editIsStale }),
-        saveRequestChanges: true,
-        setSavingRequestChanges: (savingRequestChanges: boolean) => ({ savingRequestChanges }),
         reloadLatestForEdit: true,
         archiveActiveRequest: true,
         restoreActiveRequest: true,
@@ -859,6 +900,66 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         removeEvidence: true,
         setSavingEvidence: (savingEvidence: boolean) => ({ savingEvidence }),
     }),
+    forms(({ actions, values }) => ({
+        featureRequestForm: {
+            defaults: EMPTY_FEATURE_REQUEST_FORM,
+            errors: ({ title, accountId, productAreaIds }: FeatureRequestFormValues) => ({
+                title: !title.trim() ? 'Enter a title' : undefined,
+                accountId: !accountId ? 'Select an account' : undefined,
+                productAreaIds: listError(productAreaIds.length === 0 ? 'Select at least one product area' : undefined),
+            }),
+            submit: async ({ title, description, accountId, productAreaIds }: FeatureRequestFormValues) => {
+                const evidence = {
+                    summary: values.evidenceSummary.trim(),
+                    customer_quote: values.evidenceQuote.trim(),
+                    evidence_source: values.evidenceSource,
+                    source_url: values.evidenceUrl.trim(),
+                    requested_on: values.evidenceRequestedOn,
+                    image_ids: values.evidenceImageIds,
+                }
+                const created = await featureRequestsCreate(values.currentTeamId, {
+                    title: title.trim(),
+                    description: description.trim(),
+                    account_id: accountId as string,
+                    product_area_ids: productAreaIds,
+                    idempotency_key: values.idempotencyKey,
+                    evidence: hasFeatureRequestEvidence(evidence) ? evidence : undefined,
+                })
+                actions.closeCreateRequest()
+                router.actions.push(urls.customerAnalyticsFeatureRequests(created.id), values.listSearchParams)
+            },
+        },
+        featureRequestEditForm: {
+            defaults: EMPTY_FEATURE_REQUEST_EDIT_FORM,
+            errors: ({ title, accountIds, productAreaIds }: FeatureRequestEditFormValues) => ({
+                title: !title.trim() ? 'Enter a title' : undefined,
+                accountIds: listError(accountIds.length === 0 ? 'Select at least one account' : undefined),
+                productAreaIds: listError(productAreaIds.length === 0 ? 'Select at least one product area' : undefined),
+            }),
+            submit: async (formValues: FeatureRequestEditFormValues) => {
+                const requestId = values.activeRequestId
+                if (!requestId) {
+                    throw new Error('No feature request is open.')
+                }
+                actions.setEditError(null)
+                actions.setEditIsStale(false)
+                const updated = await featureRequestsUpdate(values.currentTeamId, requestId, {
+                    expected_version: values.editExpectedVersion,
+                    title: formValues.title.trim(),
+                    description: formValues.description.trim(),
+                    account_ids: formValues.accountIds,
+                    product_area_ids: formValues.productAreaIds,
+                    request_status: formValues.requestStatus,
+                    request_priority: formValues.requestPriority,
+                })
+                actions.loadActiveRequestSuccess(updated)
+                actions.loadRequestHistory(requestId)
+                actions.loadFeatureRequests()
+                actions.closeEditRequest()
+                lemonToast.success('Feature request updated')
+            },
+        },
+    })),
     loaders(({ values }) => ({
         featureRequestsResponse: [
             { count: 0, next: null, previous: null, results: [] } as PaginatedFeatureRequestListApi,
@@ -1090,22 +1191,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
             },
         ],
         createRequestOpen: [false, { openCreateRequest: () => true, closeCreateRequest: () => false }],
-        title: ['', { setTitle: (_, { title }) => title, closeCreateRequest: () => '' }],
-        description: ['', { setDescription: (_, { description }) => description, closeCreateRequest: () => '' }],
-        accountId: [
-            null as string | null,
-            { setAccountId: (_, { accountId }) => accountId, closeCreateRequest: () => null },
-        ],
-        productAreaIds: [
-            [] as string[],
-            { setProductAreaIds: (_, { productAreaIds }) => productAreaIds, closeCreateRequest: () => [] },
-        ],
         idempotencyKey: [newIdempotencyKey(), { setIdempotencyKey: (_, { idempotencyKey }) => idempotencyKey }],
-        submittingRequest: [false, { setSubmittingRequest: (_, { submittingRequest }) => submittingRequest }],
-        showCreateFormErrors: [
-            false,
-            { submitRequest: () => true, openCreateRequest: () => false, closeCreateRequest: () => false },
-        ],
         productAreasOpen: [false, { openProductAreas: () => true, closeProductAreas: () => false }],
         productAreaSearch: [
             '',
@@ -1173,48 +1259,6 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         ],
         savingProductArea: [false, { setSavingProductArea: (_, { savingProductArea }) => savingProductArea }],
         editRequestOpen: [false, { openEditRequest: () => true, closeEditRequest: () => false }],
-        editTitle: [
-            '',
-            {
-                openEditRequest: (_, { featureRequest }) => featureRequest.title,
-                setEditTitle: (_, { editTitle }) => editTitle,
-            },
-        ],
-        editDescription: [
-            '',
-            {
-                openEditRequest: (_, { featureRequest }) => featureRequest.description,
-                setEditDescription: (_, { editDescription }) => editDescription,
-            },
-        ],
-        editAccountIds: [
-            [] as string[],
-            {
-                openEditRequest: (_, { featureRequest }) => featureRequest.account_links.map((link) => link.account.id),
-                setEditAccountIds: (_, { editAccountIds }) => editAccountIds,
-            },
-        ],
-        editProductAreaIds: [
-            [] as string[],
-            {
-                openEditRequest: (_, { featureRequest }) => featureRequest.product_areas.map((area) => area.id),
-                setEditProductAreaIds: (_, { editProductAreaIds }) => editProductAreaIds,
-            },
-        ],
-        editStatus: [
-            'requested' as FeatureRequestStatusEnumApi,
-            {
-                openEditRequest: (_, { featureRequest }) => featureRequest.request_status,
-                setEditStatus: (_, { editStatus }) => editStatus,
-            },
-        ],
-        editPriority: [
-            null as FeatureRequestPriorityEnumApi | null,
-            {
-                openEditRequest: (_, { featureRequest }) => featureRequest.request_priority,
-                setEditPriority: (_, { editPriority }) => editPriority,
-            },
-        ],
         editExpectedVersion: [
             1,
             {
@@ -1237,14 +1281,6 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                 closeEditRequest: () => false,
                 setEditIsStale: (_, { editIsStale }) => editIsStale,
             },
-        ],
-        savingRequestChanges: [
-            false,
-            { setSavingRequestChanges: (_, { savingRequestChanges }) => savingRequestChanges },
-        ],
-        showEditFormErrors: [
-            false,
-            { saveRequestChanges: () => true, openEditRequest: () => false, closeEditRequest: () => false },
         ],
         mutatingArchive: [false, { setMutatingArchive: (_, { mutatingArchive }) => mutatingArchive }],
         evidenceModalOpen: [
@@ -1515,13 +1551,13 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                 productAreas.map((area) => ({ key: area.id, label: area.name })),
         ],
         editProductAreaOptions: [
-            (selectors) => [selectors.productAreas, selectors.editProductAreaIds],
+            (selectors) => [selectors.productAreas, selectors.featureRequestEditForm],
             (
                 productAreas: FeatureRequestProductAreaApi[],
-                selectedIds: string[]
+                featureRequestEditForm: FeatureRequestEditFormValues
             ): { key: string; label: string; disabledReason?: string }[] =>
                 productAreas
-                    .filter((area) => area.is_active || selectedIds.includes(area.id))
+                    .filter((area) => area.is_active || featureRequestEditForm.productAreaIds.includes(area.id))
                     .map((area) => ({
                         key: area.id,
                         label: area.is_active ? area.name : `${area.name} (inactive)`,
@@ -1529,39 +1565,6 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                             ? undefined
                             : 'This product area can remain linked but cannot be added',
                     })),
-        ],
-        createFormErrors: [
-            (selectors) => [selectors.title, selectors.accountId, selectors.productAreaIds],
-            (title: string, accountId: string | null, productAreaIds: string[]): FeatureRequestFormErrors => ({
-                title: title.trim() ? undefined : 'Enter a title',
-                accounts: accountId ? undefined : 'Select an account',
-                productAreas: productAreaIds.length > 0 ? undefined : 'Select at least one product area',
-            }),
-        ],
-        editFormErrors: [
-            (selectors) => [selectors.editTitle, selectors.editAccountIds, selectors.editProductAreaIds],
-            (editTitle: string, editAccountIds: string[], editProductAreaIds: string[]): FeatureRequestFormErrors => ({
-                title: editTitle.trim() ? undefined : 'Enter a title',
-                accounts: editAccountIds.length > 0 ? undefined : 'Select at least one account',
-                productAreas: editProductAreaIds.length > 0 ? undefined : 'Select at least one product area',
-            }),
-        ],
-        submitDisabledReason: [
-            (selectors) => [selectors.submittingRequest, selectors.uploadingEvidenceImages],
-            (submittingRequest: boolean, uploadingEvidenceImages: boolean): string | undefined => {
-                if (uploadingEvidenceImages) {
-                    return 'Uploading images'
-                }
-                if (submittingRequest) {
-                    return 'Saving request'
-                }
-                return undefined
-            },
-        ],
-        editDisabledReason: [
-            (selectors) => [selectors.savingRequestChanges],
-            (savingRequestChanges: boolean): string | undefined =>
-                savingRequestChanges ? 'Saving changes' : undefined,
         ],
         evidenceSaveDisabledReason: [
             (selectors) => [
@@ -1753,10 +1756,20 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                 accountId ? (values.accounts.find((account) => account.id === accountId) ?? null) : null
             )
         },
-        setAccountId: ({ accountId }) => {
-            actions.setSelectedAccount(
-                accountId ? (values.accounts.find((account) => account.id === accountId) ?? null) : null
-            )
+        setFeatureRequestFormValue: ({ name, value }) => {
+            if (name === 'accountId') {
+                actions.setSelectedAccount(
+                    value ? (values.accounts.find((account) => account.id === value) ?? null) : null
+                )
+            }
+        },
+        closeCreateRequest: () => {
+            actions.resetFeatureRequestForm()
+        },
+        submitFeatureRequestFormFailure: ({ error }) => {
+            if (!isValidationFailure(error)) {
+                lemonToast.error("Couldn't save the request. Check the fields and try again.")
+            }
         },
         setEditAccountId: ({ editAccountId }) => {
             actions.setSelectedAccount(
@@ -1790,37 +1803,6 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
             const searchParams = { ...router.values.searchParams }
             delete searchParams.evidence_account
             router.actions.replace(router.values.location.pathname, searchParams, router.values.hashParams)
-        },
-        submitRequest: async () => {
-            if (values.submitDisabledReason || hasFormErrors(values.createFormErrors) || !values.accountId) {
-                return
-            }
-            actions.setSubmittingRequest(true)
-            try {
-                const evidence = {
-                    summary: values.evidenceSummary.trim(),
-                    customer_quote: values.evidenceQuote.trim(),
-                    evidence_source: values.evidenceSource,
-                    source_url: values.evidenceUrl.trim(),
-                    requested_on: values.evidenceRequestedOn,
-                    image_ids: values.evidenceImageIds,
-                }
-                const hasEvidence = hasFeatureRequestEvidence(evidence)
-                const created = await featureRequestsCreate(values.currentTeamId, {
-                    title: values.title.trim(),
-                    description: values.description.trim(),
-                    account_id: values.accountId,
-                    product_area_ids: values.productAreaIds,
-                    idempotency_key: values.idempotencyKey,
-                    evidence: hasEvidence ? evidence : undefined,
-                })
-                actions.closeCreateRequest()
-                router.actions.push(urls.customerAnalyticsFeatureRequests(created.id), values.listSearchParams)
-            } catch {
-                lemonToast.error("Couldn't save the request. Check the fields and try again.")
-            } finally {
-                actions.setSubmittingRequest(false)
-            }
         },
         openProductAreas: () => {
             actions.closeProductAreaForm()
@@ -1857,44 +1839,28 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                 actions.setSavingProductArea(false)
             }
         },
-        openEditRequest: () => {
+        openEditRequest: ({ featureRequest }) => {
+            actions.resetFeatureRequestEditForm({
+                title: featureRequest.title,
+                description: featureRequest.description,
+                accountIds: featureRequest.account_links.map((link) => link.account.id),
+                productAreaIds: featureRequest.product_areas.map((area) => area.id),
+                requestStatus: featureRequest.request_status,
+                requestPriority: featureRequest.request_priority,
+            })
             actions.loadAccounts('')
             actions.loadProductAreas()
         },
-        saveRequestChanges: async () => {
-            if (values.editDisabledReason || hasFormErrors(values.editFormErrors) || !values.activeRequestId) {
+        submitFeatureRequestEditFormFailure: ({ error }) => {
+            if (isValidationFailure(error)) {
                 return
             }
-            actions.setSavingRequestChanges(true)
-            actions.setEditError(null)
-            actions.setEditIsStale(false)
-            try {
-                const updated = await featureRequestsUpdate(values.currentTeamId, values.activeRequestId, {
-                    expected_version: values.editExpectedVersion,
-                    title: values.editTitle.trim(),
-                    description: values.editDescription.trim(),
-                    account_ids: values.editAccountIds,
-                    product_area_ids: values.editProductAreaIds,
-                    request_status: values.editStatus,
-                    request_priority: values.editPriority,
-                })
-                actions.loadActiveRequestSuccess(updated)
-                actions.loadRequestHistory(values.activeRequestId)
-                actions.loadFeatureRequests()
-                actions.closeEditRequest()
-                lemonToast.success('Feature request updated')
-            } catch (error) {
-                if (error instanceof ApiError && error.status === 409) {
-                    actions.setEditError(
-                        'This request changed since you opened it. Load the latest version to continue.'
-                    )
-                    actions.setEditIsStale(true)
-                } else {
-                    actions.setEditError("Couldn't save the changes. Check the fields and try again.")
-                    actions.setEditIsStale(false)
-                }
-            } finally {
-                actions.setSavingRequestChanges(false)
+            if (error instanceof ApiError && error.status === 409) {
+                actions.setEditError('This request changed since you opened it. Load the latest version to continue.')
+                actions.setEditIsStale(true)
+            } else {
+                actions.setEditError("Couldn't save the changes. Check the fields and try again.")
+                actions.setEditIsStale(false)
             }
         },
         reloadLatestForEdit: async () => {

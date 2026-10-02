@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
 
 import {
     LemonBanner,
@@ -20,36 +21,16 @@ export function FeatureRequestEditModal(): JSX.Element {
     const {
         editRequestOpen,
         activeRequest,
-        editTitle,
-        editDescription,
-        editAccountIds,
-        editProductAreaIds,
-        editStatus,
-        editPriority,
         accountOptions,
         editProductAreaOptions,
         accountsLoading,
         productAreasLoading,
         editError,
         editIsStale,
-        savingRequestChanges,
-        editDisabledReason,
-        editFormErrors,
-        showEditFormErrors,
+        isFeatureRequestEditFormSubmitting,
     } = useValues(featureRequestsLogic)
-    const {
-        closeEditRequest,
-        setEditTitle,
-        setEditDescription,
-        setEditAccountIds,
-        setAccountSearch,
-        setEditProductAreaIds,
-        setEditStatus,
-        setEditPriority,
-        saveRequestChanges,
-        reloadLatestForEdit,
-    } = useActions(featureRequestsLogic)
-    const editErrors = showEditFormErrors ? editFormErrors : {}
+    const { closeEditRequest, setAccountSearch, submitFeatureRequestEditForm, reloadLatestForEdit } =
+        useActions(featureRequestsLogic)
 
     return (
         <LemonModal
@@ -64,9 +45,8 @@ export function FeatureRequestEditModal(): JSX.Element {
                     </LemonButton>
                     <LemonButton
                         type="primary"
-                        onClick={saveRequestChanges}
-                        loading={savingRequestChanges}
-                        disabledReason={editDisabledReason}
+                        onClick={submitFeatureRequestEditForm}
+                        loading={isFeatureRequestEditFormSubmitting}
                         data-attr="save-feature-request-changes"
                     >
                         Save changes
@@ -74,7 +54,7 @@ export function FeatureRequestEditModal(): JSX.Element {
                 </>
             }
         >
-            <div className="flex flex-col gap-4">
+            <Form logic={featureRequestsLogic} formKey="featureRequestEditForm" className="flex flex-col gap-4">
                 {editError && (
                     <LemonBanner
                         type="error"
@@ -86,55 +66,49 @@ export function FeatureRequestEditModal(): JSX.Element {
                     </LemonBanner>
                 )}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <LemonField.Pure
+                    <LemonField
+                        name="requestStatus"
                         label="Status"
                         help={activeRequest?.github_link ? 'Changing the status pauses GitHub sync.' : undefined}
                     >
-                        <LemonSelect<FeatureRequestStatusEnumApi>
-                            value={editStatus}
-                            onChange={setEditStatus}
-                            options={FEATURE_REQUEST_STATUS_OPTIONS}
-                            fullWidth
-                        />
-                    </LemonField.Pure>
-                    <LemonField.Pure label="Priority">
-                        <LemonSelect<FeatureRequestPriorityEnumApi | 'none'>
-                            value={editPriority ?? 'none'}
-                            onChange={(value) => setEditPriority(value === 'none' ? null : value)}
-                            options={[{ value: 'none', label: 'No priority' }, ...FEATURE_REQUEST_PRIORITY_OPTIONS]}
-                            fullWidth
-                        />
-                    </LemonField.Pure>
+                        <LemonSelect<FeatureRequestStatusEnumApi> options={FEATURE_REQUEST_STATUS_OPTIONS} fullWidth />
+                    </LemonField>
+                    <LemonField name="requestPriority" label="Priority">
+                        {({ value, onChange }) => (
+                            <LemonSelect<FeatureRequestPriorityEnumApi | 'none'>
+                                value={value ?? 'none'}
+                                onChange={(priority) => onChange(priority === 'none' ? null : priority)}
+                                options={[{ value: 'none', label: 'No priority' }, ...FEATURE_REQUEST_PRIORITY_OPTIONS]}
+                                fullWidth
+                            />
+                        )}
+                    </LemonField>
                 </div>
-                <LemonField.Pure label="Title" error={editErrors.title}>
-                    <LemonInput value={editTitle} onChange={setEditTitle} maxLength={400} fullWidth />
-                </LemonField.Pure>
-                <LemonField.Pure label="Description" showOptional>
-                    <LemonTextArea value={editDescription} onChange={setEditDescription} minRows={5} />
-                </LemonField.Pure>
-                <LemonField.Pure label="Accounts" error={editErrors.accounts}>
+                <LemonField name="title" label="Title">
+                    <LemonInput maxLength={400} fullWidth />
+                </LemonField>
+                <LemonField name="description" label="Description" showOptional>
+                    <LemonTextArea minRows={5} />
+                </LemonField>
+                <LemonField name="accountIds" label="Accounts">
                     <LemonInputSelect
                         mode="multiple"
-                        value={editAccountIds}
-                        onChange={setEditAccountIds}
                         onInputChange={setAccountSearch}
                         options={accountOptions}
                         placeholder="Search for accounts"
                         loading={accountsLoading}
                         fullWidth
                     />
-                </LemonField.Pure>
-                <LemonField.Pure label="Product areas" error={editErrors.productAreas}>
+                </LemonField>
+                <LemonField name="productAreaIds" label="Product areas">
                     <LemonInputSelect
                         mode="multiple"
-                        value={editProductAreaIds}
-                        onChange={setEditProductAreaIds}
                         options={editProductAreaOptions}
                         placeholder="Select one or more product areas"
                         loading={productAreasLoading}
                     />
-                </LemonField.Pure>
-            </div>
+                </LemonField>
+            </Form>
         </LemonModal>
     )
 }
