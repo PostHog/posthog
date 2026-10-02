@@ -93,7 +93,6 @@ import {
 } from '../taskRunArtifacts'
 import { FullPageSource, artifactDownloadUrl, taskRunArtifactsLogic } from '../taskRunArtifactsLogic'
 import { ArtifactCommentActions } from './ArtifactCommentActions'
-import { ArtifactCommentsPanel } from './ArtifactCommentsPanel'
 import { ArtifactEditor } from './ArtifactEditor'
 import { ArtifactEditToolbar } from './ArtifactEditToolbar'
 import { ArtifactIcon } from './ArtifactIcon'
@@ -917,17 +916,13 @@ function PreviewSurface({ taskId, mode }: { taskId: string; mode: PreviewMode })
     )
 }
 
-/** The preview, with the comments panel beside it when it is open. */
 function PreviewBody({ taskId, mode }: { taskId: string; mode: PreviewMode }): JSX.Element {
-    const { selectedArtifact, selectedKind, commentsOpen } = useValues(taskRunArtifactsLogic({ taskId }))
-    const comments = commentLogicProps(taskId, selectedArtifact, selectedKind)
     return (
         <div className="relative flex min-h-0 flex-1">
             <div className="flex min-w-0 flex-1 flex-col">
                 <OlderVersionNotice taskId={taskId} />
                 <PreviewSurface taskId={taskId} mode={mode} />
             </div>
-            {comments && commentsOpen && <ArtifactCommentsPanel key={comments.artifactId} logicProps={comments} />}
         </div>
     )
 }
