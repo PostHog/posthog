@@ -61,6 +61,9 @@ export function PageHeaderCustom(): JSX.Element {
                 resourceType={{
                     type: 'experiment',
                 }}
+                sameNameCheck={
+                    typeof experiment?.id === 'number' ? { type: 'experiment', ref: String(experiment.id) } : undefined
+                }
                 isLoading={experimentLoading}
                 onNameChange={(name) => updateExperiment({ name })}
                 onDescriptionChange={(description) => updateExperiment({ description })}
