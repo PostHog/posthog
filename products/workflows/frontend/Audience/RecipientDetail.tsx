@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { IconArrowLeft } from '@posthog/icons'
+import { IconArrowLeft, IconExternal } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -15,14 +15,35 @@ import { RecipientPersonsCard } from './RecipientPersonsCard'
 import { RecipientSuppressionBanner } from './RecipientSuppressionBanner'
 import { RecipientTopicsCard } from './RecipientTopicsCard'
 
+function OpenPreferencesPageButton(): JSX.Element {
+    const { preferencesUrlLoading } = useValues(recipientDetailLogic)
+    const { openPreferencesPage } = useActions(recipientDetailLogic)
+    return (
+        <LemonButton
+            type="secondary"
+            size="small"
+            icon={<IconExternal />}
+            loading={preferencesUrlLoading}
+            onClick={openPreferencesPage}
+            tooltip="Opens the page where this recipient manages their topics, in a new tab"
+            data-attr="audience-recipient-preferences-page"
+        >
+            Open preferences page
+        </LemonButton>
+    )
+}
+
 function RecipientProfile({ recipient }: { recipient: RecipientApi }): JSX.Element {
     return (
         <>
-            <h2 className="m-0 text-xl font-semibold wrap-anywhere">
-                <CopyToClipboardInline explicitValue={recipient.email} description="email address">
-                    <span translate="no">{recipient.email}</span>
-                </CopyToClipboardInline>
-            </h2>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="m-0 text-xl font-semibold wrap-anywhere min-w-0">
+                    <CopyToClipboardInline explicitValue={recipient.email} description="email address">
+                        <span translate="no">{recipient.email}</span>
+                    </CopyToClipboardInline>
+                </h2>
+                <OpenPreferencesPageButton />
+            </div>
             {recipient.suppression && <RecipientSuppressionBanner suppression={recipient.suppression} />}
             <div className="flex flex-wrap gap-4">
                 <RecipientTopicsCard recipient={recipient} />
