@@ -872,7 +872,9 @@ export const VisionScannersBackfillsCreateBody = /* @__PURE__ */ zod.object({
         .describe('Inclusive lower bound of the historical window to scan.'),
     window_end: zod.iso
         .datetime({ offset: true })
-        .describe('Exclusive upper bound of the window; clamped server-side to now.'),
+        .describe(
+            "Exclusive upper bound of the window; clamped server-side to now, and for an experiment scanner to the experiment's end date."
+        ),
     max_total_credits: zod
         .number()
         .min(visionScannersBackfillsCreateBodyMaxTotalCreditsMin)
@@ -900,7 +902,9 @@ export const VisionScannersBackfillsEstimateCreateBody = /* @__PURE__ */ zod.obj
         .describe('Inclusive lower bound of the historical window to scan.'),
     window_end: zod.iso
         .datetime({ offset: true })
-        .describe('Exclusive upper bound of the window; clamped server-side to now.'),
+        .describe(
+            "Exclusive upper bound of the window; clamped server-side to now, and for an experiment scanner to the experiment's end date."
+        ),
 })
 
 /**

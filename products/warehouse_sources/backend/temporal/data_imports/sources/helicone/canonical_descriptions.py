@@ -88,4 +88,21 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "created_at": "Timestamp when the prompt was created.",
         },
     },
+    "properties": {
+        "description": (
+            "Catalog of the custom property keys (set via Helicone-Property-* headers) seen on the "
+            "organization's requests, excluding keys hidden in Helicone."
+        ),
+        "docs_url": "https://docs.helicone.ai/rest/property/post-v1propertyquery",
+        "columns": {
+            "property": "Custom property key. Per-request values are in the requests table's request_properties column.",
+        },
+    },
+    "eval_scores": {
+        "description": "Catalog of the evaluation score names recorded on the organization's requests.",
+        "docs_url": "https://docs.helicone.ai/rest/evals/get-v1evalsscores",
+        "columns": {
+            "score": "Evaluation score name. Per-request values are in the requests table's scores column.",
+        },
+    },
 }

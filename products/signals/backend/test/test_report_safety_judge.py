@@ -33,9 +33,13 @@ DECISION_MODULE_PATH = "products.signals.backend.system_one_decision"
 async def test_report_judge_runs_on_the_safety_model() -> None:
     # The judge is the second safety stage, so it must not fall back to the matching model.
     captured: dict[str, str | None] = {}
+    cache_flags: list[bool] = []
 
-    async def fake_call_llm(*, model: str | None = None, **_kwargs: object) -> SafetyJudgeResponse:
+    async def fake_call_llm(
+        *, model: str | None = None, cache_system_prompt: bool = False, **_kwargs: object
+    ) -> SafetyJudgeResponse:
         captured["model"] = model
+        cache_flags.append(cache_system_prompt)
         return SafetyJudgeResponse(choice=True)
 
     signal = SignalData(
@@ -53,6 +57,7 @@ async def test_report_judge_runs_on_the_safety_model() -> None:
 
     assert result.choice is True
     assert captured["model"] == SAFETY_MODEL
+    assert cache_flags == [True]
 
 
 @pytest.mark.asyncio

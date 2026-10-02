@@ -1,3 +1,4 @@
+import math
 import asyncio
 from datetime import UTC, datetime
 from typing import Any, NamedTuple, cast
@@ -61,6 +62,7 @@ from products.warehouse_sources_queue.backend.core.metrics import (
     CLAIMABLE_GROUPS,
     OLDEST_UNCLAIMED_BATCH_SECONDS,
     ORPHANED_BATCHES_DRAINED_TOTAL,
+    QUEUE_SAMPLE_GAUGES,
     RUNS_RECONCILED_TOTAL,
     SERIALIZED_BATCHES,
     SLOT_WAITING_BATCHES,
@@ -176,6 +178,15 @@ def _lease_renewal_succeeds():
         "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.renew_lease",
         new_callable=AsyncMock,
         return_value=True,
+    ):
+        yield
+
+
+@pytest.fixture(autouse=True)
+def _gauge_slot_granted():
+    # Grant the gauge-sampling slot by default; the real SQL can't run against mock connections.
+    with patch.object(
+        consumer_module.BatchQueue, "try_acquire_queue_gauges_slot", new_callable=AsyncMock, return_value=True
     ):
         yield
 
@@ -2084,8 +2095,8 @@ class TestReconcileFailedRuns:
 
     @pytest.mark.asyncio
     async def test_slot_held_elsewhere_skips_sweep_but_still_probes_freshness(self):
-        # Single-flighting must never silence the freshness gauge: every pod
-        # reports it, only the slot winner runs the sweep body.
+        # The sweep slot must never silence the freshness gauge: the gauges have
+        # their own slot, and only the sweep slot winner runs the sweep body.
         consumer = _make_consumer()
 
         with (
@@ -2292,6 +2303,87 @@ class TestReconcileFailedRuns:
             await consumer._reconcile_failed_runs()
 
         mock_stranded.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_only_the_gauge_slot_holder_samples_and_a_former_holder_stops_exporting(self):
+        # Every pod used to run both probes on every reconcile. A pod that loses the slot
+        # must not keep exporting its old sample: max() across the fleet would pin it.
+        consumer = _make_consumer()
+        with (
+            patch.object(
+                consumer_module.BatchQueue,
+                "try_acquire_queue_gauges_slot",
+                new_callable=AsyncMock,
+                side_effect=[True, False],
+            ),
+            patch.object(
+                consumer_module.BatchQueue,
+                "get_queue_freshness",
+                new_callable=AsyncMock,
+                return_value=_freshness(42.0, blocked_batches=1, backlogged_groups=2),
+            ) as mock_freshness,
+            patch.object(
+                consumer_module.BatchQueue, "get_queue_depth", new_callable=AsyncMock, return_value=_depth(7)
+            ) as mock_depth,
+            patch.object(consumer_module.BatchQueue, "get_failed_runs", new_callable=AsyncMock, return_value=[]),
+        ):
+            await consumer._reconcile_failed_runs()
+            assert OLDEST_UNCLAIMED_BATCH_SECONDS._value.get() == 42.0
+            assert CLAIMABLE_BATCHES._value.get() == 7
+
+            await consumer._reconcile_failed_runs()
+
+        assert mock_freshness.await_count == 1
+        assert mock_depth.await_count == 1
+        assert all(math.isnan(gauge._value.get()) for gauge in QUEUE_SAMPLE_GAUGES)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "timed_out_probe,expected_age,expected_blocked,expected_claimable,depth_awaited",
+        [
+            # The age saturates, so a queue DB too slow to measure reads as stale.
+            ("get_queue_freshness", FRESHNESS_WINDOW_SECONDS, math.nan, math.nan, False),
+            ("get_queue_depth", 42.0, 1.0, math.nan, True),
+        ],
+    )
+    async def test_statement_timeout_skips_the_sample_and_the_sweep_still_runs(
+        self, timed_out_probe, expected_age, expected_blocked, expected_claimable, depth_awaited
+    ):
+        consumer = _make_consumer()
+        canceled = psycopg.errors.QueryCanceled("canceling statement due to statement timeout")
+        freshness = _freshness(42.0, blocked_batches=1)
+        with (
+            patch.object(
+                consumer_module.BatchQueue,
+                "get_queue_freshness",
+                new_callable=AsyncMock,
+                side_effect=canceled if timed_out_probe == "get_queue_freshness" else None,
+                return_value=freshness,
+            ),
+            patch.object(
+                consumer_module.BatchQueue,
+                "get_queue_depth",
+                new_callable=AsyncMock,
+                side_effect=canceled if timed_out_probe == "get_queue_depth" else None,
+                return_value=_depth(7),
+            ) as mock_depth,
+            patch.object(
+                consumer_module.BatchQueue, "get_failed_runs", new_callable=AsyncMock, return_value=[]
+            ) as mock_failed_runs,
+            patch(f"{consumer_module.__name__}.capture_exception") as mock_capture,
+        ):
+            await consumer._reconcile_failed_runs()
+
+        assert not any(isinstance(call.args[0], psycopg.errors.QueryCanceled) for call in mock_capture.call_args_list)
+
+        def _same(actual: float, expected: float) -> bool:
+            return math.isnan(actual) if math.isnan(expected) else actual == expected
+
+        assert _same(OLDEST_UNCLAIMED_BATCH_SECONDS._value.get(), expected_age)
+        assert _same(BLOCKED_BATCHES._value.get(), expected_blocked)
+        assert _same(CLAIMABLE_BATCHES._value.get(), expected_claimable)
+        assert mock_depth.await_count == int(depth_awaited)
+        mock_failed_runs.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_hung_freshness_probe_saturates_gauge_and_reconcile_still_runs(self):
@@ -3815,7 +3907,6 @@ class TestCoalesceGroup:
             "first_sync_flag_splits",
         ],
     )
-    @override_settings(DATA_WAREHOUSE_V3_COALESCE_ACROSS_RUNS=True)
     def test_consecutive_runs(self, second_run: dict[str, Any], expected: list[list[int]]):
         first_sync_type = second_run.get("sync_type", "incremental")
         batches = _run_batches(2, run_uuid="run-1", sync_type=first_sync_type) + _run_batches(
@@ -3823,12 +3914,6 @@ class TestCoalesceGroup:
         )
         assert self._sets(batches) == expected
 
-    def test_cross_run_sets_can_be_switched_off(self):
-        batches = _run_batches(2, run_uuid="run-1") + _run_batches(2, run_uuid="run-2", is_resume=True)
-        with override_settings(DATA_WAREHOUSE_V3_COALESCE_ACROSS_RUNS=False):
-            assert self._sets(batches) == [[0, 1], [0, 1]]
-
-    @override_settings(DATA_WAREHOUSE_V3_COALESCE_ACROSS_RUNS=True)
     def test_members_keep_the_claim_order_and_a_run_never_reappears_in_a_set(self):
         # The claim query orders a group by (created_at, batch_index) and the loader takes that order
         # one batch at a time; a set that reordered members, or folded a run back in after another
@@ -3963,7 +4048,6 @@ class TestProcessGroupCoalescing:
         ids=["declined", "failed"],
     )
     @pytest.mark.asyncio
-    @override_settings(DATA_WAREHOUSE_V3_COALESCE_ACROSS_RUNS=True)
     async def test_a_set_that_cannot_load_falls_back_to_its_members(
         self, error: Exception, expected_latest_attempt: int, expected_status_attempt: int
     ):

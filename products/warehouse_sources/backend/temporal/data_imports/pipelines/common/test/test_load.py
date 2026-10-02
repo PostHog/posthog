@@ -70,7 +70,6 @@ async def _run_post_load(
     *,
     cdc_write_mode: str | None = None,
     resource: Optional[MagicMock] = None,
-    double_buffer_enabled: bool = False,
     stored_sync_type_config: dict | None = None,
 ) -> tuple[AsyncMock, AsyncMock]:
     job = MagicMock()
@@ -83,7 +82,6 @@ async def _run_post_load(
     with (
         patch(f"{_LOAD_MODULE}.prepare_s3_files_for_querying", prepare_s3),
         patch(f"{_LOAD_MODULE}.own_linked_table", lambda schema, _pipeline: schema.table),
-        patch(f"{_LOAD_MODULE}.is_schema_flag_enabled", MagicMock(return_value=double_buffer_enabled)),
         patch(f"{_LOAD_MODULE}._stored_sync_type_config", MagicMock(return_value=stored_sync_type_config)),
         patch(f"{_LOAD_MODULE}.notify_revenue_analytics_that_sync_has_completed", AsyncMock()),
         patch(f"{_LOAD_MODULE}.sync_revenue_analytics_views", MagicMock()),
@@ -174,7 +172,7 @@ class TestRunPostLoadDeltaMaintenance:
         assert prepare_s3.await_args.args[2] == post_maintenance_uris
 
 
-class TestPublishQueryableFilesDoubleBufferRollout:
+class TestPublishQueryableFilesDoubleBuffer:
     _STATE = {
         "query_folder_state": {
             "orders__query": {
@@ -196,33 +194,26 @@ class TestPublishQueryableFilesDoubleBufferRollout:
 
     @parameterized.expand(
         [
-            # The flag is the rollback switch: off must reach the timestamped-folder path even when a
-            # pointer record is stored, or turning it off after a bad rollout would change nothing.
-            ("flag_off", False, _STATE, False, None),
-            ("flag_on_with_record", True, _STATE, True, _HISTORY),
-            ("flag_on_no_record", True, None, True, None),
+            ("with_record", _STATE, _HISTORY),
+            ("no_record", None, None),
         ]
     )
     @pytest.mark.asyncio
-    async def test_passes_the_flag_and_the_pointer_history_to_the_publish_step(
+    async def test_passes_double_buffering_and_the_pointer_history_to_the_publish_step(
         self,
         _name: str,
-        flag_enabled: bool,
         stored_config: dict | None,
-        expected_double_buffer: bool,
         expected_history: QueryFolderPointerHistory | None,
     ) -> None:
         schema = _make_schema(is_cdc=False)
         schema.table.queryable_folder = "orders__query_a"
 
-        _, prepare_s3 = await _run_post_load(
-            schema, _make_helper(), double_buffer_enabled=flag_enabled, stored_sync_type_config=stored_config
-        )
+        _, prepare_s3 = await _run_post_load(schema, _make_helper(), stored_sync_type_config=stored_config)
 
         prepare_s3.assert_awaited_once()
         assert prepare_s3.await_args is not None
         assert prepare_s3.await_args.kwargs["existing_queryable_folder"] == "orders__query_a"
-        assert prepare_s3.await_args.kwargs["double_buffer"] is expected_double_buffer
+        assert prepare_s3.await_args.kwargs["double_buffer"] is True
         assert prepare_s3.await_args.kwargs["pointer_history"] == expected_history
 
 

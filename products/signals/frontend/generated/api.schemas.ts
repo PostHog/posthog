@@ -6196,35 +6196,6 @@ export interface ReportMetricWriteApi {
      * @nullable
      */
     caption?: string | null
-    /**
-     * Proposed threshold after release. Informational only; does not schedule a check.
-     * @nullable
-     */
-    goal_value?: number | null
-    /** Whether success means at most or at least goal_value.
-     *
-     * * `at_most` - at_most
-     * * `at_least` - at_least */
-    goal_direction?: GoalDirectionEnumApi | null
-    /** Whether the goal compares with the whole query window or each chart bucket.
-     *
-     * * `whole_window` - whole_window
-     * * `per_interval` - per_interval */
-    goal_grain?: GoalGrainEnumApi
-    /**
-     * Suggested days after release before assessing impact, not a monitoring schedule.
-     * @minimum 1
-     * @maximum 30
-     * @nullable
-     */
-    decision_window_days?: number | null
-    /**
-     * Optional number of qualifying observations before assessing impact.
-     * @minimum 1
-     * @maximum 1000
-     * @nullable
-     */
-    minimum_data_points?: number | null
     /** Legacy optional comparison. New report metrics must omit it. */
     comparison?: ReportMetricComparisonApi | null
 }

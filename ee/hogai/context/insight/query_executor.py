@@ -13,7 +13,7 @@ import structlog
 from asgiref.sync import async_to_sync
 from posthoganalytics import capture_exception
 from pydantic import BaseModel
-from rest_framework.exceptions import APIException
+from rest_framework.exceptions import APIException, PermissionDenied
 
 from posthog.schema import (
     AssistantFunnelsQuery,
@@ -39,14 +39,19 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import (
     ExposedHogQLError,
     NotImplementedError as HogQLNotImplementedError,
+    QueryError,
+    SyntaxError as HogQLSyntaxError,
+    TableAccessDeniedError,
 )
 
 from posthog.api.services.query import process_query_dict
 from posthog.clickhouse.client.execute_async import get_query_status
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries, tags_context
 from posthog.dataclasses import frozen
-from posthog.errors import ExposedCHQueryError
+from posthog.errors import CH_TRANSIENT_ERRORS, ExposedCHQueryError, QueryErrorCategory, classify_query_error
 from posthog.event_usage import EventSource
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES, ExecutionMode
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
@@ -69,7 +74,14 @@ from ee.hogai.context.insight.format import (
     get_boxplot_results,
     is_boxplot_query,
 )
-from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tool_errors import (
+    MaxToolAccessDeniedError,
+    MaxToolError,
+    MaxToolErrorType,
+    MaxToolFatalError,
+    MaxToolRetryableError,
+    MaxToolTransientError,
+)
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.query import validate_assistant_query
 from ee.hogai.utils.types.base import AnyAssistantGeneratedQuery, AnyPydanticModelQuery
@@ -95,6 +107,20 @@ from .prompts import (
 logger = structlog.get_logger(__name__)
 
 TIMING_LOG_PREFIX = "[QUERY_EXECUTOR]"
+
+
+def _hogql_tool_error(error: ExposedHogQLError) -> MaxToolError:
+    cause: BaseException = error
+    seen: set[int] = set()
+    while type(cause) is ExposedHogQLError and cause.__cause__ is not None and id(cause) not in seen:
+        seen.add(id(cause))
+        cause = cause.__cause__
+
+    if isinstance(cause, TableAccessDeniedError):
+        return MaxToolFatalError(str(error), error_type="permission")
+    # User-safe errors can also describe outages; only known input errors should skip exception capture.
+    error_type: MaxToolErrorType = "validation" if isinstance(cause, (QueryError, HogQLSyntaxError)) else "internal"
+    return MaxToolRetryableError(str(error), error_type=error_type)
 
 
 @frozen
@@ -440,25 +466,37 @@ class AssistantQueryExecutor:
                             logger.error(
                                 f"{TIMING_LOG_PREFIX} Query timeout after {poll_count} polls, {polling_elapsed:.3f}s"
                             )
-                        raise APIException(
+                        raise ClickHouseQueryTimeOut(
                             "Query hasn't completed in time. It's worth trying again, maybe with a shorter time range."
                         )
 
                 # Check for query execution errors before using results
                 if query_status.get("error"):
                     if error_message := query_status.get("error_message"):
-                        raise APIException(error_message)
+                        # Async status loses the exception type, so keep retry advice without guessing its category.
+                        raise MaxToolRetryableError(error_message, error_type="internal")
                     raise Exception("Query failed")
 
                 # Use the completed query results
                 response_dict = query_status["results"]
 
+        except MaxToolError:
+            raise
+        except UserAccessControlError as err:
+            raise MaxToolAccessDeniedError(err.resource, err.required_level) from err
+        except (PermissionDenied, TableAccessDeniedError) as err:
+            raise MaxToolFatalError(str(err), error_type="permission") from err
+        except (*CH_TRANSIENT_ERRORS, ConcurrencyLimitExceeded) as err:
+            error_type: MaxToolErrorType = (
+                "rate_limited" if classify_query_error(err) == QueryErrorCategory.RATE_LIMITED else "api_5xx"
+            )
+            raise MaxToolTransientError(str(err), error_type=error_type) from err
+        except ExposedHogQLError as err:
+            raise _hogql_tool_error(err) from err
         except (
             APIException,
-            ExposedHogQLError,
             HogQLNotImplementedError,
             ExposedCHQueryError,
-            UserAccessControlError,
         ) as err:
             elapsed = time.time() - start_time
             # Handle known query execution errors with user-friendly messages
@@ -470,7 +508,21 @@ class AssistantQueryExecutor:
                     err_message = ", ".join(map(str, err.detail))
             if debug_timing:
                 logger.exception(f"{TIMING_LOG_PREFIX} Query execution failed after {elapsed:.3f}s: {err_message}")
-            raise MaxToolRetryableError(err_message)
+            error_type = (
+                "validation"
+                if isinstance(err, APIException) or classify_query_error(err) == QueryErrorCategory.USER_ERROR
+                else "internal"
+            )
+            if isinstance(err, ClickHouseQueryTimeOut):
+                error_type = "timeout"
+            elif isinstance(err, ClickHouseQueryMemoryLimitExceeded):
+                error_type = "memory_limit"
+            elif isinstance(err, APIException) and err.status_code >= 500:
+                if classify_query_error(err) != QueryErrorCategory.QUERY_PERFORMANCE_ERROR:
+                    raise MaxToolFatalError(err_message, error_type="api_5xx") from err
+            elif isinstance(err, APIException) and err.status_code == 429:
+                raise MaxToolTransientError(err_message, error_type="rate_limited") from err
+            raise MaxToolRetryableError(err_message, error_type=error_type) from err
         except Exception as err:
             elapsed = time.time() - start_time
             # Catch-all for unexpected errors during query execution. Surface the underlying error
@@ -491,7 +543,7 @@ class AssistantQueryExecutor:
         # table, indistinguishable from "zero rows matched". Surface it as an error, mirroring the
         # `query_status.error` check the async-polling branch above already does.
         if isinstance(response_dict, dict) and (error := response_dict.get("error")):
-            raise MaxToolRetryableError(str(error))
+            raise MaxToolRetryableError(str(error), error_type="internal")
 
         total_elapsed = time.time() - start_time
         if debug_timing:

@@ -1,3 +1,4 @@
+import { MCPToolResultError } from '@/lib/errors'
 import { AnalyticsEvent } from '@/lib/posthog/analytics'
 import { isPrivateScoutTrialTool } from '@/lib/tool-privacy'
 import type { ExecInnerCallProperties } from '@/tools/exec'
@@ -60,14 +61,10 @@ function errorClass(properties: ExecInnerCallProperties): 'validation_error' | '
     return 'error'
 }
 
-/**
- * The hosted server's `$mcp_error_type` vocabulary, derived from the little the
- * CLI records (a validation flag and an HTTP status) — without it, CLI failures
- * land in the analytics tools' untyped bucket and can't be broken down by reason.
- */
-function errorType(
-    properties: ExecInnerCallProperties
-): 'validation' | 'permission' | 'rate_limited' | 'api_4xx' | 'api_5xx' | 'internal' {
+function errorType(properties: ExecInnerCallProperties): MCPToolResultError['errorType'] | 'api_4xx' {
+    if (properties.error instanceof MCPToolResultError) {
+        return properties.error.errorType
+    }
     if (properties.validation_error) {
         return 'validation'
     }

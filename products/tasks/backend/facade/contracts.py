@@ -1049,3 +1049,9 @@ class LivingArtifactVersionContent:
     name: str
     content_type: str
     content: bytes
+
+
+@dataclass(frozen=True, kw_only=True)
+class LivingArtifactVersionDownload:
+    url: str | None
+    error: Literal["not_found", "not_stored", "unavailable"] | None

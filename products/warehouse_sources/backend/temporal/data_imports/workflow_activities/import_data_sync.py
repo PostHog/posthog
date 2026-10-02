@@ -71,9 +71,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     SourceExtractionNotImplementedError,
     error_message_matches,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.byte_bounded_extraction_flag import (
-    is_byte_bounded_extraction_enabled,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import (
     SourceCursorManager,
     build_cursor_manager,
@@ -117,10 +114,6 @@ class ImportDataActivityInputs:
     fast_return_eligible: bool = False
     # Kept apart from `reset_pipeline`, which every retry would read again and wipe the table again.
     scheduled_full_refresh: bool = False
-    # Fixed for the job lifetime so activity retries cannot switch cursor modes while old and new
-    # workers overlap. Defaults True for new payloads; an old payload that recorded False keeps the
-    # server-cursor path on both worker versions. Remove after this release is fully deployed.
-    keyset_full_load_enabled: bool = True
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -518,9 +511,6 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
             fanout_warehouse_reuse = await _warehouse_parent_reuse_available(
                 new_source, schema, inputs.source_id, inputs.team_id, logger
             )
-            byte_bounded_extraction = await database_sync_to_async_pool(is_byte_bounded_extraction_enabled)(
-                inputs.team_id, str(source_type)
-            )
             # INFO so it's visible without DEBUG: confirms which parent-source path a fan-out
             # child took, and doubles as rollout-adoption telemetry. Only fan-out children
             # (schemas with required parents) log it; every other schema stays quiet.
@@ -569,8 +559,6 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 # A schema-level override (user-managed) wins over the source pin.
                 api_version=new_source.resolve_api_version(schema.api_version or model.pipeline.api_version),
                 fanout_warehouse_reuse=fanout_warehouse_reuse,
-                byte_bounded_extraction=byte_bounded_extraction,
-                keyset_full_load=inputs.keyset_full_load_enabled,
                 activity_attempt=activity.info().attempt if activity.in_activity() else 1,
                 source_cursor=source_cursor_manager,
             )

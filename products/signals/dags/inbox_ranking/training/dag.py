@@ -117,7 +117,12 @@ from products.signals.dags.inbox_ranking.training.examples import (
     reports_missing_birth_snapshot,
     state_rows,
 )
-from products.signals.dags.inbox_ranking.training.heads import HEADS, HEADS_BY_HORIZON, HEADS_BY_NAME
+from products.signals.dags.inbox_ranking.training.heads import (
+    ACTION_LABEL_COLUMNS,
+    HEADS,
+    HEADS_BY_HORIZON,
+    HEADS_BY_NAME,
+)
 from products.signals.dags.inbox_ranking.training.promotion import decide_promotion
 from products.signals.dags.inbox_ranking.training.serving import FamilyModels, compose_manifest
 from products.signals.dags.inbox_ranking.training.telemetry import (
@@ -179,16 +184,15 @@ METADATA_FILE = "metadata.json"
 _LABEL_COLUMNS = (
     "impression_unit_count",
     "open_count",
-    "create_pr_click_count",
-    "discuss_count",
     "dismissal_reason",
     "wrong_dismissal_count",
+    "fixed_count",
+    "lowvalue_dismissal_count",
     "pr_created_count",
     "pr_merged_count",
     "refund_count",
     "feedback_positive_count",
-    "reviewer_add_count",
-    "reviewer_remove_count",
+    *ACTION_LABEL_COLUMNS,
     *PROVENANCE_LABEL_COLUMNS,
 )
 # Every registered feature set's columns in one read: the state snapshot is loaded once and every

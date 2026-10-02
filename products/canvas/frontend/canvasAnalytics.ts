@@ -33,6 +33,7 @@ export type CanvasDashboardActionType =
     | 'panel_toggle'
     | 'fullscreen_toggle'
     | 'comment_create'
+    | 'comment_open'
     | 'comment_reply'
     | 'comment_resolve'
     | 'build_retry'
@@ -50,6 +51,7 @@ export function captureCanvasAction(
         surface?: CanvasSurface
         success?: boolean
         tab?: string
+        source?: 'highlight' | 'menu'
         open?: boolean
         origin?: 'build' | 'runtime'
         outcome?: string

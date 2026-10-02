@@ -33,7 +33,7 @@ function TodayMetaLine(): JSX.Element {
 }
 
 function BriefingSegment({ segment }: { segment: TodayBriefingSegment }): JSX.Element {
-    const { hoveredReportId, reports, teamReportPreviews } = useValues(todayLogic)
+    const { hoveredReportId, reports, teamReportPreviews, reportStateOverrides } = useValues(todayLogic)
     const { reportOpened, setHoveredReportId } = useActions(todayLogic)
     const { reportId } = segment
     if (!reportId) {
@@ -47,6 +47,7 @@ function BriefingSegment({ segment }: { segment: TodayBriefingSegment }): JSX.El
             subtle
             className="TodayReportLink"
             data-active={hoveredReportId === reportId}
+            data-state={reportStateOverrides[reportId] ?? 'open'}
             data-attr="today-briefing-report"
             onClick={() => report && reportOpened(report, 'briefing')}
             onMouseEnter={() => setHoveredReportId(reportId)}

@@ -41,6 +41,9 @@ export interface viewsLogicActions {
         views: ViewItemsPage | null
         payload?: void
     }
+    receiveViews: (page: ViewItemsPage) => {
+        page: ViewItemsPage
+    }
     setSearch: (search: string) => {
         search: string
     }
@@ -62,6 +65,7 @@ export const viewsLogic = kea<viewsLogicType>([
     path(['scenes', 'views', 'viewsLogic']),
     connect(() => ({ values: [featureFlagLogic, ['featureFlags'], teamLogic, ['currentTeamId']] })),
     actions({
+        receiveViews: (page: ViewItemsPage) => ({ page }),
         setSearch: (search: string) => ({ search }),
         setTypeFilter: (typeFilter: ViewTypeFilter) => ({ typeFilter }),
     }),
@@ -69,7 +73,7 @@ export const viewsLogic = kea<viewsLogicType>([
         search: ['', { setSearch: (_, { search }) => search }],
         typeFilter: ['all' as ViewTypeFilter, { setTypeFilter: (_, { typeFilter }) => typeFilter }],
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         views: [
             null as ViewItemsPage | null,
             {
@@ -78,14 +82,24 @@ export const viewsLogic = kea<viewsLogicType>([
                     if (!values.currentTeamId) {
                         return values.views
                     }
-                    const page = await fetchViewItems(String(values.currentTeamId), values.search)
+                    const teamId = values.currentTeamId
+                    const search = values.search
+                    const page = await fetchViewItems(String(teamId), search, (page) => {
+                        breakpoint()
+                        if (values.currentTeamId === teamId && values.search === search) {
+                            actions.receiveViews(page)
+                        }
+                    })
                     breakpoint()
-                    return page
+                    return values.currentTeamId === teamId && values.search === search ? page : values.views
                 },
             },
         ],
     })),
     reducers({
+        views: {
+            receiveViews: (_, { page }) => page,
+        },
         loadFailed: [false, { loadViews: () => false, loadViewsFailure: () => true }],
     }),
     selectors({

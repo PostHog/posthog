@@ -98,6 +98,27 @@
     gap: 8px;
 }
 
+// Lines up with the row titles: the row padding plus the icon and its gap.
+.TodaySidebar__more {
+    align-self: flex-start;
+    padding-inline: 0;
+    margin: 2px 0 0 65px;
+    font-size: 12px;
+    color: var(--today-muted);
+
+    &:hover {
+        color: var(--today-ink);
+    }
+}
+
+.TodaySidebar__more--empty {
+    color: var(--today-faint);
+
+    &:hover {
+        color: var(--today-faint);
+    }
+}
+
 .TodayNavItem {
     --report-color: #5c5c57;
 
@@ -114,7 +135,6 @@
 
     &[data-active='true'] {
         background: var(--today-soft);
-        transform: translateX(3px);
 
         .TodayNavItem__marker {
             color: #fff;
@@ -190,41 +210,6 @@
     margin-top: 3px;
     font-size: 11px;
     color: var(--today-faint);
-}
-
-// Shared sidebar footer
-
-.TodaySidebarFooter {
-    display: grid;
-    flex: none;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 4px;
-    align-items: center;
-    padding: 7px 0 16px;
-    margin: 0 12px;
-    border-top: 1px solid var(--today-line);
-}
-
-.TodaySidebarFooter__account,
-.TodaySidebarFooter__settings {
-    color: var(--today-secondary-text);
-
-    &:hover,
-    &[data-popup-open] {
-        color: var(--today-ink);
-    }
-}
-
-.TodaySidebarFooter__account {
-    min-width: 0;
-    padding-inline: 6px 8px;
-}
-
-.TodaySidebarFooter__name {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }
 
 // Home
