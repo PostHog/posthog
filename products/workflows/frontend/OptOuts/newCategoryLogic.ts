@@ -35,6 +35,11 @@ function topicKeyFromName(name: string): string {
     return slugify(name).slice(0, TOPIC_KEY_MAX_LENGTH).replace(/-+$/, '')
 }
 
+function withoutKeyError(manualErrors: Record<string, any>): Record<string, any> {
+    const { key: _staleKeyError, ...otherErrors } = manualErrors
+    return otherErrors
+}
+
 function fieldName(name: FieldName): string {
     return Array.isArray(name) ? name.join('.') : String(name)
 }
@@ -194,16 +199,22 @@ export const newCategoryLogic = kea<newCategoryLogicType>([
             actions.resetCategoryForm()
         },
         submitCategoryFormFailure: ({ error }) => {
-            if (error instanceof ApiError && error.attr === 'key') {
-                actions.setCategoryFormManualErrors({ key: values.words.topicForm.keyTaken })
+            if (values.categoryFormHasErrors) {
                 return
             }
-            lemonToast.error(values.words.topicForm.saveFailed)
+            if (error instanceof ApiError && error.attr === 'key') {
+                actions.setCategoryFormManualErrors({ key: values.words.topicForm.keyTaken })
+            } else if (error instanceof ApiError && error.attr === 'name' && error.detail) {
+                actions.setCategoryFormManualErrors({ name: error.detail })
+            } else {
+                lemonToast.error(values.words.topicForm.saveFailed)
+            }
         },
         setCategoryFormValue: ({ name }) => {
             const keyFollowsName = values.speaksAudience && !props.category && !values.keyTypedByHand
             if (fieldName(name) === 'name' && keyFollowsName) {
                 actions.setCategoryFormValues({ key: topicKeyFromName(values.categoryForm.name) })
+                actions.setCategoryFormManualErrors(withoutKeyError(values.categoryFormManualErrors))
             }
         },
     })),
