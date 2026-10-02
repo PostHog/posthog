@@ -119,13 +119,14 @@ def test_fixture_parent_nodeids_cache_matches_unpatched_pytest(request):
         assert list(manager._matchfactories(fixturedefs, node)) == fresh
 
 
-class TestSubtestFailuresReachTheTest(SimpleTestCase):
-    def test_subtest_failure_raises_through_the_test(self):
-        # Assumption: pytest reports unittest subTests through TestCaseFunction.addSubTest,
-        # and unittest raises the failure through the test when that method is absent.
+class TestSubtestFailureIsATestFailure(SimpleTestCase):
+    def test_subtest_failure_propagates_out_of_the_subtest_block(self):
+        # Assumption: TestCaseFunction.addSubTest is the only hook through which pytest reports
+        # a subTest separately. If this fails after a pytest upgrade, find the new hook. Deleting
+        # the conftest.py patch would stop reruns of tests that fail inside a subTest.
         with self.assertRaises(AssertionError):
             with self.subTest():
-                self.fail("a subTest failure must reach the enclosing test")
+                self.fail()
 
 
 def test_drf_field_info_cache_matches_unpatched_drf():

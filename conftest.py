@@ -221,18 +221,18 @@ def _cache_fixture_parent_nodeids() -> None:
     fixtures.FixtureManager._matchfactories = _matchfactories  # type: ignore[method-assign]
 
 
-def _report_subtest_failures_through_the_test() -> None:
-    # pytest reports each unittest subTest as its own report. pytest-rerunfailures does not retry a
-    # failure reported that way, and the junit file keeps it after a later attempt passes. unittest
-    # raises a subTest failure through the test itself when the result has no addSubTest.
+def _report_subtest_failures_as_test_failures() -> None:
+    # pytest reports each unittest subTest through TestCaseFunction.addSubTest, separately from the
+    # test that contains it. pytest-rerunfailures does not retry a failure reported that way, so one
+    # flaky subTest fails the run. unittest only uses addSubTest when the method exists. Without it,
+    # a subTest failure propagates as a failure of the test, which stops at that subTest.
     from _pytest import unittest as pytest_unittest  # noqa: PLC0415 — deferred until pytest_configure
 
-    if "addSubTest" in vars(pytest_unittest.TestCaseFunction):
-        del pytest_unittest.TestCaseFunction.addSubTest
+    del pytest_unittest.TestCaseFunction.addSubTest
 
 
 def pytest_configure(config) -> None:
-    _report_subtest_failures_through_the_test()
+    _report_subtest_failures_as_test_failures()
     _cache_reverse_rel_identity()
     _cache_select_masks()
     _cache_drf_field_info()

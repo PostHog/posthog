@@ -131,9 +131,9 @@ Escalating to the next rung is the last resort, not the default.
   Two more caveats. First, `.errors` carries DRF's _raw_ code (`invalid`, `max_digits`); the `{"attr", "code", "detail", "type"}` HTTP envelope is rendered later by `exceptions-hog` (which maps `invalid` → `invalid_input`) — that rendering is framework behavior, so don't re-assert it per case (the wiring-guard test covers the envelope once). Second, validation that genuinely needs the DB stays at the endpoint — uniqueness checks, `PrimaryKeyRelatedField` queryset lookups, related-object existence, permission/team scoping, password-hash checks. Don't force those into a `SimpleTestCase`.
 
 - **Parameterize** repeated assertions with the `parameterized` library — don't copy-paste test bodies.
-- **A case is a `parameterized` case, not a `self.subTest` block or the pytest `subtests` fixture.**
-  The harness reports per test: a `subTest` failure ends the test at the first failing case, so the cases after it never run and the report names no case.
-  Reruns, junit and test timings all key on the test, which a `parameterized` case is and a subtest is not.
+- **Write case variations as `parameterized` cases, not `self.subTest` blocks or the pytest `subtests` fixture.**
+  A `self.subTest` failure ends the test at the first failing case, so the later cases do not run and the report does not name the case.
+  The `subtests` fixture leaves a failure in the junit file after a rerun passes.
 - **No doc comments** in Python tests (house rule).
 - Mock only **true boundaries** — network, external APIs, the clock, queues.
   Don't mock your own internal helpers (that's how change-detector tests are born).
