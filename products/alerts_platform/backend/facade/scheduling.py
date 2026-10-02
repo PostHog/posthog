@@ -396,6 +396,7 @@ def advance_schedule(
     anchor_time: str | None,
     tz_name: str,
     now: datetime,
+    configuration_id: UUID | str,
     shard_offset_seconds: int = 0,
 ) -> datetime:
     """When a configuration is next due, by whichever recurrence it carries.
@@ -405,7 +406,9 @@ def advance_schedule(
 
     `shard_offset_seconds` applies to the minute recurrence only. A calendar recurrence lands on
     the instant its anchor names, so every configuration that shares an anchor and a timezone is
-    due in the same minute slot. Spreading those would move a time the user chose.
+    due in the same minute slot. Spreading those would move a time the user chose. A calendar
+    unit without an anchor has no chosen time, so `next_calendar_check_time` spreads it after the
+    interval boundary by `configuration_id`, as it does for an insight alert.
     """
     if recurrence_unit is None:
         return advance_next_check_at(
@@ -419,6 +422,7 @@ def advance_schedule(
         now=now,
         tz_name=tz_name,
         next_check_at=current_next_check_at,
+        alert_id=configuration_id,
         schedule_start_time=anchor_time,
     )
 

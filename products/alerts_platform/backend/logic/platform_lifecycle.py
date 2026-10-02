@@ -258,6 +258,7 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
                 anchor_time=configuration.anchor_time,
                 tz_name=team_timezone,
                 now=now,
+                configuration_id=configuration.id,
                 shard_offset_seconds=compute_shard_offset_seconds(
                     configuration.id, configuration.check_interval_minutes
                 ),

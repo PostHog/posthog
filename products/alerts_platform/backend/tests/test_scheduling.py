@@ -537,6 +537,7 @@ class TestRecurrenceDispatch:
             anchor_time=None,
             tz_name="America/New_York",
             now=self.DISPATCH_NOW,
+            configuration_id=ALERT_ID,
         ) == advance_next_check_at(current, 10, self.DISPATCH_NOW)
 
     @parameterized.expand(
@@ -555,6 +556,7 @@ class TestRecurrenceDispatch:
                 anchor_time="04:00",
                 tz_name="America/New_York",
                 now=self.DISPATCH_NOW,
+                configuration_id=ALERT_ID,
             )
             == expected
         )
@@ -568,6 +570,7 @@ class TestRecurrenceDispatch:
             anchor_time="04:00",
             tz_name="UTC",
             now=self.DISPATCH_NOW,
+            configuration_id=ALERT_ID,
         ) == datetime(2026, 11, 1, 4, 0, tzinfo=UTC)
 
     def test_an_unknown_unit_is_named_in_the_error(self) -> None:
@@ -579,4 +582,5 @@ class TestRecurrenceDispatch:
                 anchor_time=None,
                 tz_name="UTC",
                 now=self.DISPATCH_NOW,
+                configuration_id=ALERT_ID,
             )
