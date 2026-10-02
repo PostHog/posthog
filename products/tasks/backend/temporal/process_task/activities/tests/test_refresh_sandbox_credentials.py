@@ -1,5 +1,7 @@
 import uuid
+import subprocess
 import dataclasses
+from pathlib import Path
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -20,6 +22,7 @@ from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, SandboxConfig
 from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, Task, TaskRun
 from products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials import (
+    _SANDBOX_WEDGE_PROBE_COMMAND,
     RefreshSandboxCredentialsInput,
     _sandbox_wedge_verdict,
     refresh_sandbox_credentials,
@@ -500,3 +503,54 @@ class TestRefreshSandboxCredentialsActivity:
 )
 def test_sandbox_wedge_verdict(probe, expected):
     assert _sandbox_wedge_verdict(probe) == expected
+
+
+@pytest.mark.parametrize(
+    "files,expected",
+    [
+        (
+            {
+                "memory/memory.usage_in_bytes": "1024",
+                "memory/memory.limit_in_bytes": "4096",
+                "memory/memory.oom_control": "oom_kill_disable 0\nunder_oom 0\noom_kill 3",
+                "pids/pids.current": "7",
+                "pids/pids.max": "100",
+            },
+            {"memory_current": "1024", "memory_max": "4096", "oom_kill": "3", "pids_current": "7", "pids_max": "100"},
+        ),
+        (
+            {
+                "memory.current": "2048",
+                "memory.max": "8192",
+                "memory.events": "oom 1\noom_kill 2",
+                "pids.current": "5",
+                "pids.max": "50",
+                "memory/memory.usage_in_bytes": "1",
+            },
+            {"memory_current": "2048", "memory_max": "8192", "oom_kill": "2", "pids_current": "5", "pids_max": "50"},
+        ),
+        (
+            {},
+            {
+                "memory_current": "unavailable",
+                "memory_max": "unavailable",
+                "oom_kill": "unavailable",
+                "pids_current": "unavailable",
+                "pids_max": "unavailable",
+            },
+        ),
+    ],
+    ids=["cgroup_v1", "cgroup_v2_wins", "no_cgroup_files"],
+)
+def test_sandbox_wedge_probe_reads_cgroup_v1_when_v2_is_absent(
+    tmp_path: Path, files: dict[str, str], expected: dict[str, str]
+) -> None:
+    for relative_path, content in files.items():
+        (tmp_path / relative_path).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / relative_path).write_text(f"{content}\n")
+    command = _SANDBOX_WEDGE_PROBE_COMMAND.replace("/sys/fs/cgroup", str(tmp_path))
+
+    stdout = subprocess.run(["bash", "-c", command], capture_output=True, text=True, check=False).stdout
+
+    probe = dict(line.split("=", 1) for line in stdout.splitlines() if "=" in line)
+    assert {key: probe[key] for key in expected} == expected

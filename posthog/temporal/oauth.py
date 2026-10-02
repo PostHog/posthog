@@ -106,6 +106,11 @@ POSTHOG_AI_OAUTH_APP_CLIENT_IDS = frozenset(
     }
 )
 
+# The WebMCP proxy mints its tokens server-side against this CIMD application, so a request
+# bearing one is attributable to WebMCP for the same reason as above. The CIMD document lives in
+# the posthog.com repo, so one client_id serves every region.
+WEBMCP_APP_CLIENT_ID = "https://posthog.com/.well-known/oauth/webmcp/client-metadata.json"
+
 McpScopePreset = Literal[
     "read_only",
     "full",
@@ -239,6 +244,19 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 #                          others meet. One scope object covers the whole surface, so the two
 #                          exclusions live in `products/replay_vision/backend/scout_writes.py`
 #                          instead: a scout cannot delete, and must cap what it creates or enables.
+#   customer_task:write    Every Customer analytics task in the scout's project: create, update
+#                          (status, due date, assignee, linked account) and archive. There is no
+#                          delete: archive is recoverable through restore, and every change is
+#                          written to the task's activity history. An update can reassign a task
+#                          to any member of the project, so the scout's body has to say whose
+#                          tasks it tends.
+#   hog_flow_proposal:write
+#                          Queue a suggested change on a workflow whose owner opted in, for a
+#                          person to approve or reject. Deliberately not `hog_flow:write`, which
+#                          also publishes, updates and test-sends a workflow: this scope can put
+#                          nothing in front of anyone. Creates only; a suggestion is resolved by
+#                          a person. The workflows scout declares it in its SKILL.md
+#                          (`scout-write-scopes`), so no other scout holds it unless granted.
 #
 # `annotation:write` and `alert:write` exceed the "recoverable, project-scoped" bar the other
 # scopes meet. They stay in the v1 set that #94263 puts to the team, because narrowing the set is
@@ -246,16 +264,25 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 # reaches, or drop the scopes. `llm_skill:write` carries the same kind of open question: a scout
 # holding it can rewrite the skill body it runs from. That is accepted while the grant is a
 # deliberate per-scout choice a person makes, and the surfaces that offer it say so.
+# Grantable although INTERNAL, which normally means "never on a token a person can obtain". A scout
+# token is minted server-side from this allowlist and never through the consent flow, and the MCP
+# server gates each tool on the token's own scopes rather than on what OAuth advertises, so the grant
+# still reaches the run. Listed explicitly so a typo or a genuinely unreachable scope still fails
+# `test_grantable_write_scopes_are_mcp_write_scopes`.
+SCOUT_GRANTABLE_INTERNAL_SCOPES: frozenset[str] = frozenset({"hog_flow_proposal:write"})
+
 SCOUT_GRANTABLE_WRITE_SCOPES: frozenset[str] = frozenset(
     {
         "dashboard:write",
         "insight:write",
         "annotation:write",
         "alert:write",
+        "customer_task:write",
         "llm_skill:write",
         "warehouse_view:write",
         "warehouse_table:write",
         "replay_scanner:write",
+        "hog_flow_proposal:write",
     }
 )
 

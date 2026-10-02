@@ -7,21 +7,24 @@ import {
     IngestionOutputsConfig,
     REALTIME_INGESTION_LANES,
 } from '~/ingestion/config'
-import { ValueMatcher } from '~/types'
+import { FlagEvaluationsMode, Team, ValueMatcher } from '~/types'
 
 export interface FlagEvaluationsConfig {
     /** '*' for all teams, or an explicit allowlist of team IDs. */
     teams: number[] | '*'
     /** Escape hatch: teams never forked, even when `teams` is '*'. */
     excludedTeams: number[]
+    /** Keeps the events writes for teams on FLAG_EVALUATIONS_ONLY. */
+    flagEvaluationsOnlyDisabled: boolean
 }
 
 /**
- * Gate for the $feature_flag_called fork that shadow-writes flag evaluations to
- * the ClickHouse flag_evaluations table (via the clickhouse_flag_evaluations
- * topic) while the event continues to the events table unchanged.
+ * Gate for the $feature_flag_called fork that writes flag evaluations to the
+ * ClickHouse flag_evaluations table (via the clickhouse_flag_evaluations
+ * topic). The event continues to the events table unless the team's
+ * organization is on FLAG_EVALUATIONS_ONLY.
  *
- * The shadow write is never load-bearing for an individual event, but the batch
+ * The fork write is never load-bearing for a dual-written event, but the batch
  * does not commit its offsets until the broker answers. See
  * createForkFlagEvaluationsStep for the ack contract and
  * flagEvaluationsPendingAcks for the stall it can cause.
@@ -34,13 +37,21 @@ export interface FlagEvaluationsConfig {
  */
 export class FlagEvaluationsService {
     private isEnabled: ValueMatcher<number>
+    private flagEvaluationsOnlyDisabled: boolean
 
     constructor(config: FlagEvaluationsConfig) {
         this.isEnabled = buildTeamGate(config.teams, config.excludedTeams)
+        this.flagEvaluationsOnlyDisabled = config.flagEvaluationsOnlyDisabled
     }
 
     isEnabledForTeam(teamId: number): boolean {
         return this.isEnabled(teamId)
+    }
+
+    stopsEventsWritesFor(team: Pick<Team, 'flag_evaluations_mode'>): boolean {
+        return (
+            team.flag_evaluations_mode === FlagEvaluationsMode.FlagEvaluationsOnly && !this.flagEvaluationsOnlyDisabled
+        )
     }
 }
 
@@ -50,6 +61,7 @@ export type FlagEvaluationsEnvConfig = Pick<
     | 'INGESTION_FLAG_EVALUATIONS_MODE'
     | 'INGESTION_FLAG_EVALUATIONS_TEAMS'
     | 'INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS'
+    | 'INGESTION_FLAG_EVALUATIONS_ONLY_DISABLED'
 > &
     Pick<IngestionOutputsConfig, 'INGESTION_OUTPUT_FLAG_EVALUATIONS_TOPIC'>
 
@@ -104,5 +116,9 @@ export function createFlagEvaluationsService(envConfig: FlagEvaluationsEnvConfig
         logger.warn('INGESTION_FLAG_EVALUATIONS_MODE is set but INGESTION_FLAG_EVALUATIONS_TEAMS is empty, not forking')
         return undefined
     }
-    return new FlagEvaluationsService({ teams, excludedTeams })
+    return new FlagEvaluationsService({
+        teams,
+        excludedTeams,
+        flagEvaluationsOnlyDisabled: envConfig.INGESTION_FLAG_EVALUATIONS_ONLY_DISABLED,
+    })
 }

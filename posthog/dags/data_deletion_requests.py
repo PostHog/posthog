@@ -1,5 +1,5 @@
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Collection, Iterator
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from functools import partial
@@ -32,6 +32,7 @@ from posthog.clickhouse.workload import Workload
 from posthog.dags.common import JobOwners
 from posthog.dags.deletes import deletes_job
 from posthog.data_deletion import compile_event_uuid_query
+from posthog.dataclasses import frozen
 from posthog.models.data_deletion_request import (
     AUTO_APPROVE_INTERVAL_MINUTES,
     DataDeletionRequest,
@@ -48,6 +49,8 @@ from posthog.models.data_deletion_request import (
 )
 from posthog.models.deletion_targets import (
     COVERAGE_DOC,
+    FLAG_EVALUATIONS,
+    PERSONAL_DATA_TARGETS,
     DeletionTarget,
     TargetPlacement,
     UnsweepableRowsError,
@@ -641,13 +644,19 @@ def _verify_swept(
 
 
 def _event_removal_placements(
-    cluster: ClickhouseCluster, deletion_request: DeletionRequestContext
+    cluster: ClickhouseCluster,
+    deletion_request: DeletionRequestContext,
+    *,
+    skip_targets: Collection[DeletionTarget] = (),
 ) -> list[TargetPlacement]:
     """Targets this event-removal request can sweep, each with the handle that reaches it."""
     events = [] if deletion_request.delete_all_events else deletion_request.events
     # A target that can't hold any of the named events has nothing to sweep, and mutations serialize
     # per table, so enqueueing a no-op one would queue in front of real work.
-    placements = [p for p in resolve_placements(cluster) if p.target.may_hold_any_of(events)]
+    # Skipped targets are dropped before resolve_placements, which raises for an unreachable target
+    # that still holds rows.
+    targets = [t for t in PERSONAL_DATA_TARGETS if t not in skip_targets]
+    placements = [p for p in resolve_placements(cluster, targets) if p.target.may_hold_any_of(events)]
     if not deletion_request.hogql_predicate:
         return placements
 
@@ -660,47 +669,36 @@ def _event_removal_placements(
     return [p for p in placements if p.target.accepts_hogql_predicate]
 
 
-def _run_immediate_event_deletion(
+# Immediate deletion leaves flag_evaluations rows to the table's TTL. A HogQL predicate does not
+# compile against that table, so gating on it refused every such request whose team had matching
+# $feature_flag_called rows. Deferred deletion still queues the table's uuids.
+_IMMEDIATE_SKIP_TARGETS = (FLAG_EVALUATIONS,)
+
+
+@frozen
+class EventRemovalShard:
+    """One immediate delete: a table, and a shard number on the cluster that carries that table."""
+
+    data_table: str
+    shard_num: int
+
+
+def _placement_for_table(cluster: ClickhouseCluster, data_table: str) -> TargetPlacement:
+    target = next(t for t in PERSONAL_DATA_TARGETS if t.data_table == data_table)
+    placements = resolve_placements(cluster, [target])
+    if not placements:
+        raise dagster.Failure(description=f"{data_table} is not present on any reachable cluster")
+    return placements[0]
+
+
+def _verify_immediate_event_deletion(
     context: dagster.OpExecutionContext,
     cluster: ClickhouseCluster,
     deletion_request: DeletionRequestContext,
+    deleted_shards: list[EventRemovalShard],
 ) -> None:
-    placements = _event_removal_placements(cluster, deletion_request)
-    targets = [p.target for p in placements]
-
-    context.log.info(f"Starting immediate event deletion on tables {[t.data_table for t in targets]}")
-
-    swept_shards = 0
-    for placement in placements:
-        target = placement.target
-        # The HogQL fragment compiles differently per schema: materialized-column/JSONExtract
-        # reads on the legacy table, JSON subcolumn reads on the native-JSON table.
-        predicate, parameters = event_removal_where(
-            deletion_request, use_new_events_schema=target.uses_new_events_schema
-        )
-
-        # placement.cluster, not the job's handle: shard numbers are per cluster.
-        shards = sorted(placement.cluster.shards)
-        swept_shards += len(shards)
-
-        for idx, shard_num in enumerate(shards, 1):
-            context.log.info(f"Processing {target.data_table} shard {shard_num} ({idx}/{len(shards)})")
-            shard_start = time.monotonic()
-
-            runner = LightweightDeleteMutationRunner(
-                table=target.data_table,
-                predicate=predicate,
-                parameters=parameters,
-                settings={"lightweight_deletes_sync": 0},
-            )
-
-            shard_result = placement.cluster.map_any_host_in_shards({shard_num: runner}).result()
-            _host, mutation_waiter = next(iter(shard_result.items()))
-            placement.cluster.map_all_hosts_in_shard(shard_num, mutation_waiter.wait).result()
-
-            elapsed = time.monotonic() - shard_start
-            context.log.info(f"{target.data_table} shard {shard_num} complete in {elapsed:.1f}s")
-
+    tables = list(dict.fromkeys(shard.data_table for shard in deleted_shards))
+    targets = [next(t for t in PERSONAL_DATA_TARGETS if t.data_table == table) for table in tables]
     _verify_swept(
         cluster,
         targets,
@@ -715,8 +713,8 @@ def _run_immediate_event_deletion(
     context.add_output_metadata(
         {
             "mode": dagster.MetadataValue.text("immediate"),
-            "shards_processed": dagster.MetadataValue.int(swept_shards),
-            "swept_tables": dagster.MetadataValue.text(", ".join(t.data_table for t in targets)),
+            "shards_processed": dagster.MetadataValue.int(len(deleted_shards)),
+            "swept_tables": dagster.MetadataValue.text(", ".join(tables)),
         }
     )
 
@@ -786,17 +784,78 @@ def _queue_events_for_deferred_deletion(
     )
 
 
-@dagster.op(tags=OWNER_TAG)
-def execute_event_deletion(
+@dagster.op(out=dagster.DynamicOut(EventRemovalShard), tags=OWNER_TAG)
+def get_event_removal_shards(
     context: dagster.OpExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
     deletion_request: DeletionRequestContext,
+) -> Iterator[dagster.DynamicOutput[EventRemovalShard]]:
+    """Fan out one delete_event_removal_shard op per table and shard; a deferred request fans out nothing.
+
+    The mapping key makes each delete re-executable on its own from the Dagster UI.
+    """
+    if deletion_request.execution_mode == ExecutionMode.DEFERRED.value:
+        return
+
+    placements = _event_removal_placements(cluster, deletion_request, skip_targets=_IMMEDIATE_SKIP_TARGETS)
+    # placement.cluster, not the job's handle: shard numbers are per cluster.
+    shards = [
+        EventRemovalShard(data_table=placement.target.data_table, shard_num=shard_num)
+        for placement in placements
+        for shard_num in sorted(placement.cluster.shards)
+    ]
+    context.log.info(f"Fanning out event removal {deletion_request.request_id} to {len(shards)} shard op(s)")
+    for shard in shards:
+        yield dagster.DynamicOutput(shard, mapping_key=f"{shard.data_table}_shard_{shard.shard_num}")
+
+
+@dagster.op(tags=OWNER_TAG, retry_policy=dagster.RetryPolicy(max_retries=0))
+def delete_event_removal_shard(
+    context: dagster.OpExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    shard: EventRemovalShard,
+    deletion_request: DeletionRequestContext,
+) -> EventRemovalShard:
+    """Run the lightweight delete for one table on one shard, and wait until it finishes.
+
+    A re-execution waits on the matching mutation in system.mutations if ClickHouse still lists it,
+    and enqueues it again otherwise.
+    """
+    placement = _placement_for_table(cluster, shard.data_table)
+    # The HogQL fragment compiles differently per schema: materialized-column/JSONExtract
+    # reads on the legacy table, JSON subcolumn reads on the native-JSON table.
+    predicate, parameters = event_removal_where(
+        deletion_request, use_new_events_schema=placement.target.uses_new_events_schema
+    )
+    runner = LightweightDeleteMutationRunner(
+        table=shard.data_table,
+        predicate=predicate,
+        parameters=parameters,
+        settings={"lightweight_deletes_sync": 0},
+    )
+
+    shard_start = time.monotonic()
+    shard_result = placement.cluster.map_any_host_in_shards({shard.shard_num: runner}).result()
+    _host, mutation_waiter = next(iter(shard_result.items()))
+    placement.cluster.map_all_hosts_in_shard(shard.shard_num, mutation_waiter.wait).result()
+
+    elapsed = time.monotonic() - shard_start
+    context.log.info(f"{shard.data_table} shard {shard.shard_num} complete in {elapsed:.1f}s")
+    return shard
+
+
+@dagster.op(tags=OWNER_TAG)
+def complete_event_deletion(
+    context: dagster.OpExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    deletion_request: DeletionRequestContext,
+    deleted_shards: list[EventRemovalShard],
 ) -> DeletionRequestContext:
-    """Dispatch event deletion based on execution_mode."""
+    """Verify an immediate request after every shard op (a Dagster fan-in), or queue a deferred one."""
     if deletion_request.execution_mode == ExecutionMode.DEFERRED.value:
         _queue_events_for_deferred_deletion(context, cluster, deletion_request)
     else:
-        _run_immediate_event_deletion(context, cluster, deletion_request)
+        _verify_immediate_event_deletion(context, cluster, deletion_request, deleted_shards)
     return deletion_request
 
 
@@ -1519,7 +1578,7 @@ def delete_person_profiles_op(
     context: dagster.OpExecutionContext,
     person_removal: PersonRemovalContext,
 ) -> PersonRemovalContext:
-    """Tombstone Person rows in CH and delete from Postgres, last.
+    """Tombstone Person rows in Postgres and publish the ClickHouse tombstones, last.
 
     On per-person failures, errors are recorded in op metadata and the request is allowed to
     transition to COMPLETED — Postgres rows remain for the failed UUIDs and the operator can
@@ -1527,10 +1586,10 @@ def delete_person_profiles_op(
     `POST /api/projects/:id/persons/bulk_delete/` endpoint and avoids flipping the whole
     request to FAILED after upstream events/recordings ops have already done their work.
 
-    The one exception is the batch Postgres delete or tombstone: when it fails, those persons are
-    still live in Postgres, so the op raises and the request finalizes as FAILED for a retry. A
-    failed ClickHouse publish after a Postgres tombstone does not raise, because the person is
-    deleted and the weekly deletion sweep republishes it.
+    The one exception is the Postgres tombstone: when it fails, those persons are still live in
+    Postgres, so the op raises and the request finalizes as FAILED for a retry. A failed
+    ClickHouse publish after a Postgres tombstone does not raise, because the person is deleted
+    and the weekly deletion sweep republishes it.
     """
     if not person_removal.drop_profiles:
         context.log.info("drop_profiles=False, skipping profile deletion")
@@ -1553,15 +1612,11 @@ def delete_person_profiles_op(
     if result.errors:
         context.log.warning(f"Person profile deletion had {len(result.errors)} per-person failures")
         metadata["error_uuids"] = dagster.MetadataValue.text(", ".join(str(u) for u in result.errors))
-    postgres_failures = [
-        f
-        for f in result.failures
-        if f.step in (PersonDeletionStep.DELETE_POSTGRES, PersonDeletionStep.TOMBSTONE_POSTGRES)
-    ]
+    postgres_failures = [f for f in result.failures if f.step == PersonDeletionStep.TOMBSTONE_POSTGRES]
     if postgres_failures:
         raise dagster.Failure(
             description=(
-                f"Deletion request {person_removal.request_id}: the Postgres delete failed for "
+                f"Deletion request {person_removal.request_id}: the Postgres tombstone failed for "
                 f"{len(postgres_failures)} persons ({postgres_failures[0].error})"
             ),
             metadata=metadata,
@@ -1676,12 +1731,17 @@ def mark_deletion_failed(context: dagster.HookContext) -> None:
 def data_deletion_request_event_removal():
     """Execute an approved event deletion request.
 
-    Immediate mode runs a lightweight delete mutation shard by shard.
-    Deferred mode queues event UUIDs into adhoc_events_deletion for the
+    Immediate mode: load → dynamic fan-out (one delete op per table and shard, parallel under the
+    run executor) → verify (fan-in) → finalize. A failed shard is re-executed on its own with the
+    Dagster UI's "Re-execute from failure"; finalize accepts the FAILED status the failure hook set,
+    so the re-executed run completes the request.
+    Deferred mode fans out nothing and queues event UUIDs into adhoc_events_deletion for the
     scheduled deletes_job to drain later.
     """
     request = load_deletion_request()
-    result = execute_event_deletion(request)
+    shards = get_event_removal_shards(request)
+    deleted = shards.map(lambda shard: delete_event_removal_shard(shard, request))
+    result = complete_event_deletion(request, deleted.collect())
     finalize_deletion_request(result)
 
 
@@ -1727,7 +1787,7 @@ def data_deletion_request_person_removal():
 # Pickup sensor: scans for APPROVED requests and launches jobs (max 1 at a time)
 # ---------------------------------------------------------------------------
 
-_DELETION_JOB_NAMES = [
+DELETION_JOB_NAMES = [
     data_deletion_request_event_removal.name,
     data_deletion_request_hogql_event_removal.name,
     data_deletion_request_property_removal.name,
@@ -1758,7 +1818,7 @@ def data_deletion_request_pickup_sensor(context: dagster.SensorEvaluationContext
         dagster.DagsterRunStatus.STARTED,
     ]
     active_count = 0
-    for job_name in _DELETION_JOB_NAMES:
+    for job_name in DELETION_JOB_NAMES:
         active_count += len(
             context.instance.get_run_records(
                 dagster.RunsFilter(job_name=job_name, statuses=active_statuses),

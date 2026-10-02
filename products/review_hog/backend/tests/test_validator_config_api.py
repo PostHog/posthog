@@ -1,4 +1,5 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -19,6 +20,7 @@ _CUSTOM = f"{REVIEW_HOG_VALIDATION_PREFIX}strict"
 class TestReviewValidatorConfigAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        self.enterContext(patch("posthoganalytics.feature_enabled", return_value=True))
         sync_canonical_validation(self.team)
         self.base = f"/api/projects/{self.team.id}/review_hog/validators"
 

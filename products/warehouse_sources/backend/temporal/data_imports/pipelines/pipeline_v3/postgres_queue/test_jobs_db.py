@@ -1,4 +1,5 @@
 import re
+import json
 import time
 import asyncio
 from collections.abc import Coroutine
@@ -17,25 +18,32 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     ConsumerConfig,
     DeltaBatchConsumerAdapter,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
+from products.warehouse_sources_queue.backend.core.jobs_db import (
     _SYNC_POOLS,
     BATCH_TABLE,
     CLAIM_ELIGIBILITY_INTERVAL,
     LEASE_TABLE,
     STATUS_TABLE,
-    STATUS_VIEW,
     TAKEOVER_STALE_THRESHOLD_SECONDS,
     BatchQueue,
     PendingBatch,
     QueueDepth,
     _orphaned_candidate_runs_sql,
     _queue_depth_sql,
+    _queue_freshness_sql,
     _sync_connection_pool,
     build_status_dual_write_sql,
+    queue_gauges_slot_key,
+)
+from products.warehouse_sources_queue.backend.testing import (
+    BATCH_DEFAULTS as _BATCH_DEFAULTS,
+    ensure_queue_tables as _ensure_tables,
+    get_test_database_url as _get_test_database_url,
+    truncate_queue_tables as _truncate_tables,
 )
 
 # Distinct per-pod identities for the group-lease tests.
-_JOBS_DB = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db"
+_JOBS_DB = "products.warehouse_sources_queue.backend.core.jobs_db"
 OWNER_A = str(uuid4())
 OWNER_B = str(uuid4())
 
@@ -46,129 +54,6 @@ async def _claim(conn: psycopg.AsyncConnection[Any], owner: str = OWNER_A, **kwa
 
 async def _release(conn: psycopg.AsyncConnection[Any], *, batches: list[PendingBatch], owner: str = OWNER_A) -> None:
     await BatchQueue.unlock_for_batches(conn, batches=batches, owner_token=owner)
-
-
-def _get_test_database_url() -> str:
-    from django.db import connection
-
-    s = connection.settings_dict
-    host = s.get("HOST", "localhost") or "localhost"
-    port = s.get("PORT", "5432") or "5432"
-    return f"postgres://{s['USER']}:{s['PASSWORD']}@{host}:{port}/{s['NAME']}"
-
-
-def _ensure_tables(conn: psycopg.Connection[Any]) -> None:
-    conn.execute(f"""
-        CREATE TABLE IF NOT EXISTS {BATCH_TABLE} (
-            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            team_id BIGINT NOT NULL,
-            schema_id VARCHAR(200) NOT NULL,
-            source_id VARCHAR(200) NOT NULL,
-            job_id VARCHAR(200) NOT NULL,
-            run_uuid VARCHAR(200) NOT NULL,
-            batch_index INT NOT NULL,
-            s3_path TEXT NOT NULL,
-            row_count INT NOT NULL,
-            byte_size BIGINT NOT NULL,
-            is_final_batch BOOLEAN NOT NULL,
-            total_batches INT,
-            total_rows BIGINT,
-            sync_type VARCHAR(32) NOT NULL,
-            cumulative_row_count BIGINT NOT NULL DEFAULT 0,
-            resource_name VARCHAR(400) NOT NULL,
-            is_resume BOOLEAN NOT NULL DEFAULT FALSE,
-            is_first_ever_sync BOOLEAN NOT NULL DEFAULT FALSE,
-            metadata JSONB NOT NULL DEFAULT '{{}}'::jsonb,
-            destination_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
-            latest_state VARCHAR(32) NOT NULL DEFAULT 'pending',
-            latest_attempt SMALLINT NOT NULL DEFAULT 0,
-            state_changed_at TIMESTAMPTZ,
-            superseded BOOLEAN NOT NULL DEFAULT FALSE,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-        )
-    """)
-    # Self-heal pre-existing test DBs where CREATE TABLE IF NOT EXISTS is a no-op.
-    conn.execute(f"""
-        ALTER TABLE {BATCH_TABLE}
-            ADD COLUMN IF NOT EXISTS latest_state VARCHAR(32) NOT NULL DEFAULT 'pending',
-            ADD COLUMN IF NOT EXISTS latest_attempt SMALLINT NOT NULL DEFAULT 0,
-            ADD COLUMN IF NOT EXISTS state_changed_at TIMESTAMPTZ,
-            ADD COLUMN IF NOT EXISTS superseded BOOLEAN NOT NULL DEFAULT FALSE,
-            ADD COLUMN IF NOT EXISTS destination_ids JSONB NOT NULL DEFAULT '[]'::jsonb
-    """)
-    conn.execute(f"""
-        CREATE INDEX IF NOT EXISTS sb_claimable_idx ON {BATCH_TABLE} (team_id, created_at, batch_index)
-            WHERE latest_state IN ('pending', 'waiting_retry')
-    """)
-    conn.execute(f"""
-        CREATE INDEX IF NOT EXISTS sb_run_gate_idx ON {BATCH_TABLE} (run_uuid, latest_state, batch_index)
-            WHERE latest_state IN ('executing', 'waiting_retry', 'failed')
-    """)
-    conn.execute(f"""
-        CREATE INDEX IF NOT EXISTS sb_schema_busy_idx ON {BATCH_TABLE} (team_id, schema_id)
-            WHERE latest_state = 'executing'
-    """)
-    conn.execute(f"""
-        CREATE INDEX IF NOT EXISTS sb_failed_changed_idx ON {BATCH_TABLE} (state_changed_at)
-            WHERE latest_state = 'failed'
-    """)
-    conn.execute(f"CREATE INDEX IF NOT EXISTS sb_job_id_idx ON {BATCH_TABLE} (job_id)")
-    conn.execute(f"""
-        CREATE TABLE IF NOT EXISTS {STATUS_TABLE} (
-            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            batch_id UUID NOT NULL REFERENCES {BATCH_TABLE}(id) ON DELETE CASCADE,
-            job_state VARCHAR(32) NOT NULL,
-            attempt SMALLINT NOT NULL DEFAULT 0,
-            exec_time TIMESTAMPTZ,
-            error_response JSONB,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-        )
-    """)
-    conn.execute(f"""
-        CREATE TABLE IF NOT EXISTS {LEASE_TABLE} (
-            id BIGSERIAL PRIMARY KEY,
-            team_id BIGINT NOT NULL,
-            schema_id VARCHAR(200) NOT NULL,
-            owner_token VARCHAR(64) NOT NULL,
-            expires_at TIMESTAMPTZ NOT NULL,
-            acquired_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-            CONSTRAINT sgl_team_schema_uniq UNIQUE (team_id, schema_id)
-        )
-    """)
-    conn.execute(f"DROP VIEW IF EXISTS {STATUS_VIEW}")
-    conn.execute(f"""
-        CREATE VIEW {STATUS_VIEW} AS
-        SELECT DISTINCT ON (batch_id) *
-        FROM {STATUS_TABLE}
-        ORDER BY batch_id ASC, created_at DESC, id DESC
-    """)
-
-
-def _truncate_tables(conn: psycopg.Connection[Any]) -> None:
-    conn.execute(f"TRUNCATE {STATUS_TABLE}, {BATCH_TABLE}, {LEASE_TABLE} RESTART IDENTITY CASCADE")
-
-
-_BATCH_DEFAULTS: dict[str, Any] = {
-    "team_id": 1,
-    "schema_id": "schema-1",
-    "source_id": "source-1",
-    "job_id": "job-1",
-    "run_uuid": "run-1",
-    "batch_index": 0,
-    "s3_path": "s3://bucket/path",
-    "row_count": 100,
-    "byte_size": 1024,
-    "is_final_batch": False,
-    "total_batches": None,
-    "total_rows": None,
-    "sync_type": "full_refresh",
-    "cumulative_row_count": 0,
-    "resource_name": "test_resource",
-    "is_resume": False,
-    "is_first_ever_sync": False,
-    "metadata": {},
-}
 
 
 async def _insert_batch(conn: psycopg.AsyncConnection[Any], **overrides: Any) -> str:
@@ -226,6 +111,51 @@ class TestReconcileSweepSlot:
     @pytest.mark.asyncio
     async def test_expired_slot_is_reacquirable(self, conn, conn_b):
         assert await BatchQueue.try_acquire_reconcile_sweep_slot(conn, owner_token="pod-a", ttl_seconds=0) is True
+        assert await BatchQueue.try_acquire_reconcile_sweep_slot(conn_b, owner_token="pod-b") is True
+
+
+@pytest.mark.parametrize(
+    "sync_types,exclude_sync_types,expected",
+    [
+        (None, None, "__queue-gauges__"),
+        (["cdc"], None, "__queue-gauges__:only:cdc"),
+        (None, ["cdc"], "__queue-gauges__:except:cdc"),
+        (["webhook", "cdc"], None, "__queue-gauges__:only:cdc,webhook"),
+    ],
+)
+def test_slot_key_is_per_fleet_partition(sync_types, exclude_sync_types, expected):
+    assert queue_gauges_slot_key(sync_types=sync_types, exclude_sync_types=exclude_sync_types) == expected
+
+
+@pytest.mark.django_db(transaction=True)
+class TestQueueGaugesSlot:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "first_ttl,second_owner,second_key,expected",
+        [
+            # The holder renews its own live slot, or no pod samples until the TTL runs out.
+            (240, "pod-a", None, True),
+            (240, "pod-b", None, False),
+            (0, "pod-b", None, True),
+            # Each fleet elects its own sampler, so every fleet keeps exporting the gauges.
+            (240, "pod-b", "__queue-gauges__:only:cdc", True),
+        ],
+    )
+    async def test_slot_election(self, conn, conn_b, first_ttl, second_owner, second_key, expected):
+        default_key = queue_gauges_slot_key()
+        assert await BatchQueue.try_acquire_queue_gauges_slot(
+            conn, owner_token="pod-a", slot_key=default_key, ttl_seconds=first_ttl
+        )
+
+        acquired = await BatchQueue.try_acquire_queue_gauges_slot(
+            conn_b, owner_token=second_owner, slot_key=second_key or default_key
+        )
+
+        assert acquired is expected
+
+    @pytest.mark.asyncio
+    async def test_gauge_slot_does_not_take_the_sweep_slot(self, conn, conn_b):
+        assert await BatchQueue.try_acquire_queue_gauges_slot(conn, owner_token="pod-a")
         assert await BatchQueue.try_acquire_reconcile_sweep_slot(conn_b, owner_token="pod-b") is True
 
 
@@ -834,6 +764,38 @@ class TestQueueFreshnessProbe:
 
         assert freshness.backlogged_groups == 0
 
+    @pytest.mark.asyncio
+    async def test_probe_uses_the_partial_indexes_and_probes_each_run_once(self, conn):
+        # An inlined CTE copies the failed-run EXISTS into each FILTER that reads it,
+        # which ran the probe up to three times per pending batch in production.
+        await _insert_batch(conn)
+        await conn.execute("SET enable_seqscan = off")
+        try:
+            cur = await conn.execute("EXPLAIN (FORMAT TEXT) " + _queue_freshness_sql(), {"backlog_threshold": 900})
+            plan = "\n".join(row[0] for row in await cur.fetchall())
+        finally:
+            await conn.execute("SET enable_seqscan = on")
+
+        assert "sb_claimable_idx" in plan
+        assert "sb_run_gate_idx" in plan
+        assert plan.count("SubPlan") == 1
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("probe", ["freshness", "depth"])
+    async def test_probe_gives_up_at_its_statement_timeout_without_changing_the_session(self, conn, conn_b, probe):
+        await conn.execute("SET statement_timeout = 0")
+        # A lock the probe must wait for stands in for a struggling queue DB.
+        async with conn_b.transaction():
+            await conn_b.execute(f"LOCK TABLE {BATCH_TABLE} IN ACCESS EXCLUSIVE MODE")
+            with pytest.raises(psycopg.errors.QueryCanceled):
+                if probe == "freshness":
+                    await BatchQueue.get_queue_freshness(conn, backlog_threshold_seconds=900, statement_timeout_ms=50)
+                else:
+                    await BatchQueue.get_queue_depth(conn, statement_timeout_ms=50)
+
+        cur = await conn.execute("SHOW statement_timeout")
+        assert (await cur.fetchone())[0] == "0"
+
 
 @pytest.mark.django_db(transaction=True)
 class TestOldestNonTerminalBatchAge:
@@ -1350,9 +1312,7 @@ class TestGetStaleStrandedRuns:
         # OFFSET 0 fence is dropped, the planner flattens it into a hash anti-join
         # whose hash side is every failed batch in the pruning window, and the
         # sweep degrades with failure-storm size instead of candidate count.
-        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
-            _stranded_candidate_runs_sql,
-        )
+        from products.warehouse_sources_queue.backend.core.jobs_db import _stranded_candidate_runs_sql
 
         # Seed a storm-shaped table and analyze, so the index pin is
         # deterministic. With one row the planner rates the two partial indexes
@@ -1855,6 +1815,80 @@ class TestClaimGates:
             ("run-f", 0),
         ]
 
+    @pytest.mark.parametrize(
+        "batches,backoff,expected",
+        [
+            pytest.param(
+                [(0, "waiting_retry", "s"), (1, "pending", "s"), (2, "pending", "s")],
+                3600,
+                [],
+                id="earlier_retry_in_backoff_blocks_the_rest_of_the_run",
+            ),
+            pytest.param(
+                [(0, "pending", "s"), (1, "waiting_retry", "s"), (2, "pending", "s")],
+                3600,
+                [0],
+                id="retry_in_backoff_blocks_only_later_batches",
+            ),
+            pytest.param(
+                [(0, "pending", "s"), (1, "pending", "s"), (2, "waiting_retry", "s")],
+                3600,
+                [0, 1],
+                id="later_retry_in_backoff_does_not_block_earlier_batches",
+            ),
+            pytest.param(
+                [(0, "waiting_retry", "s"), (1, "pending", "s"), (2, "pending", "s")],
+                0,
+                [0, 1, 2],
+                id="retry_with_elapsed_backoff_is_claimed_with_its_siblings",
+            ),
+            pytest.param(
+                [(0, "executing", "other"), (1, "pending", "s")],
+                0,
+                [],
+                id="earlier_executing_batch_blocks_even_outside_the_busy_group",
+            ),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_head_of_line_gate_blocks_only_batches_after_the_blocker(self, conn, batches, backoff, expected):
+        for batch_index, state, schema_id in batches:
+            bid = await _insert_batch(conn, run_uuid="run-hol", schema_id=schema_id, batch_index=batch_index)
+            if state != "pending":
+                await BatchQueue.update_status(conn, batch_id=bid, job_state=state, attempt=1)
+
+        claimed = await _claim(conn, retry_backoff_base_seconds=backoff)
+
+        assert sorted(b.batch_index for b in claimed) == expected
+        await _release(conn, batches=claimed)
+
+    @pytest.mark.asyncio
+    async def test_run_gate_probes_once_per_run_not_once_per_batch(self, conn):
+        # A per-batch gate probe that the planner answers from a non-partial
+        # run_uuid index reads the whole run for every candidate, so a backlog
+        # of long runs grows quadratically. One probe per run bounds it.
+        from products.warehouse_sources_queue.backend.core.jobs_db import _claim_window_sql
+
+        for i in range(40):
+            await _insert_batch(conn, run_uuid="long-run", schema_id="s-long", batch_index=i)
+        await _insert_batch(conn, run_uuid="short-run", schema_id="s-short", batch_index=0)
+
+        cur = await conn.execute(
+            "EXPLAIN (ANALYZE, FORMAT JSON) WITH " + _claim_window_sql() + " SELECT * FROM narrow",
+            {"backoff": 0, "owner": OWNER_A, "limit": 50},
+        )
+        row = await cur.fetchone()
+        assert row is not None
+        plan = row[0] if isinstance(row[0], list) else json.loads(row[0])
+
+        def gate_loops(node: dict[str, Any]) -> list[int]:
+            own = [node["Actual Loops"]] if str(node.get("Alias", "")).startswith("b_gate") else []
+            return own + [loops for child in node.get("Plans", []) for loops in gate_loops(child)]
+
+        loops = gate_loops(plan[0]["Plan"])
+        assert loops, "the run gate must scan sourcebatch under the b_gate alias"
+        assert max(loops) <= 2
+
     @pytest.mark.asyncio
     async def test_state_claim_candidates_can_use_the_claimable_index(self, conn):
         # The whole point of the state path is index-bound claiming; a predicate
@@ -1862,9 +1896,7 @@ class TestClaimGates:
         await _insert_batch(conn)
         await conn.execute("SET enable_seqscan = off")
         try:
-            from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
-                _state_claim_candidates_sql,
-            )
+            from products.warehouse_sources_queue.backend.core.jobs_db import _state_claim_candidates_sql
 
             cur = await conn.execute(
                 "EXPLAIN (FORMAT TEXT) " + _state_claim_candidates_sql() + " LIMIT 50",

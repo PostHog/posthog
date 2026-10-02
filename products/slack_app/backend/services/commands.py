@@ -7,6 +7,7 @@ from products.slack_app.backend.services.slack_messages import app_home_url, pos
 
 if TYPE_CHECKING:
     from products.slack_app.backend.api import RulesCommand
+    from products.slack_app.backend.models import ChannelWelcomeMode
     from products.slack_app.backend.services.integration_resolver import ResolutionResult
 
 MENTION_COMMAND_PREFIX = "@PostHog"
@@ -20,6 +21,8 @@ _SLASH_EQUIVALENT = {
     "project_show": "project",
     "project_set": "project <id>",
     "project_set_workspace": "project workspace <id>",
+    "welcome_show": "welcome",
+    "welcome_set": "welcome channel|private|off",
 }
 
 
@@ -82,10 +85,16 @@ def _handle_help(
         f"`{command_prefix} project <id>` — Set the PostHog project your mentions route to in this workspace",
     ]
 
-    # The workspace-wide default is admins/owners-only, so only surface it to them.
+    lines.append(f"`{command_prefix} welcome` — Show where my welcome message goes when someone adds me to a channel")
+
+    # Workspace-wide settings are admins/owners-only, so only surface them to them.
     if is_slack_workspace_admin(slack, integration, slack_user_id):
         lines.append(
             f"`{command_prefix} project workspace <id>` — Set the workspace-wide default project (Slack admins/owners only)"
+        )
+        lines.append(
+            f"`{command_prefix} welcome channel|private|off` — Post the welcome to the channel, show it only to the "
+            "person who added me, or turn it off (Slack admins/owners only)"
         )
 
     lines.append(f"`{command_prefix} help` — Show this message\n")
@@ -477,6 +486,70 @@ def _handle_project_set_workspace(
     )
 
 
+CHANNEL_WELCOME_MODE_DESCRIPTIONS: dict[str, str] = {
+    "channel": "When someone adds me to a channel, I post a welcome message that everyone in the channel sees.",
+    "inviter": "When someone adds me to a channel, I show a welcome message only to that person.",
+    "off": "When someone adds me to a channel, I don't send a welcome message.",
+}
+
+
+def _handle_welcome_show(
+    slack: SlackIntegration,
+    channel: str,
+    thread_ts: str,
+    slack_user_id: str,
+    slack_workspace_id: str,
+    *,
+    command_prefix: str,
+) -> None:
+    from products.slack_app.backend.services.slack_settings import resolve_channel_welcome_mode
+
+    mode = resolve_channel_welcome_mode(slack_workspace_id)
+    post_slack_ephemeral(
+        slack.client,
+        channel=channel,
+        user=slack_user_id,
+        thread_ts=thread_ts,
+        text=(
+            f"{CHANNEL_WELCOME_MODE_DESCRIPTIONS[mode.value]}\n"
+            f"Slack workspace admins can change this with `{command_prefix} welcome channel`, "
+            f"`{command_prefix} welcome private`, or `{command_prefix} welcome off`."
+        ),
+    )
+
+
+def _handle_welcome_set(
+    slack: SlackIntegration,
+    integration: Integration,
+    channel: str,
+    thread_ts: str,
+    slack_user_id: str,
+    slack_workspace_id: str,
+    mode: "ChannelWelcomeMode",
+) -> None:
+    from products.slack_app.backend.services.slack_settings import set_channel_welcome_mode
+    from products.slack_app.backend.services.slack_user_info import is_slack_workspace_admin
+
+    if not is_slack_workspace_admin(slack, integration, slack_user_id):
+        post_slack_ephemeral(
+            slack.client,
+            channel=channel,
+            user=slack_user_id,
+            thread_ts=thread_ts,
+            text="Only Slack workspace admins or owners can change the channel welcome message.",
+        )
+        return
+
+    set_channel_welcome_mode(slack_workspace_id, mode)
+    post_slack_ephemeral(
+        slack.client,
+        channel=channel,
+        user=slack_user_id,
+        thread_ts=thread_ts,
+        text=f"Done. {CHANNEL_WELCOME_MODE_DESCRIPTIONS[mode.value]}",
+    )
+
+
 def resolve_command_target(
     *,
     slack_team_id: str,
@@ -509,9 +582,17 @@ def resolve_command_target(
         return [], ResolutionResult(integration=None, source="needs_picker", candidates=[])
 
     # Workspace-level commands don't act on team data: ``help`` posts static
-    # text, and ``project_*`` commands enforce access inside the handler. They
+    # text, ``welcome_*`` commands store a workspace setting, and ``project_*``
+    # and ``welcome_set`` enforce access inside the handler. They
     # run against any workspace integration as a probe.
-    if command.action in ("project_show", "project_set", "project_set_workspace", "help"):
+    if command.action in (
+        "project_show",
+        "project_set",
+        "project_set_workspace",
+        "welcome_show",
+        "welcome_set",
+        "help",
+    ):
         return candidates, ResolutionResult(integration=candidates[0], source="sole_candidate", candidates=candidates)
 
     # Team-scoped commands (``list``/``add``/``remove``) must go through the
@@ -650,4 +731,25 @@ def dispatch_rules_command(
             command.project_team_id,
             workspace_candidates=workspace_candidates,
             command_prefix=command_prefix,
+        )
+    elif command.action == "welcome_show":
+        _handle_welcome_show(
+            slack,
+            channel,
+            thread_ts,
+            slack_user_id,
+            slack_workspace_id,
+            command_prefix=command_prefix,
+        )
+    elif command.action == "welcome_set":
+        if command.welcome_mode is None:
+            return
+        _handle_welcome_set(
+            slack,
+            integration,
+            channel,
+            thread_ts,
+            slack_user_id,
+            slack_workspace_id,
+            command.welcome_mode,
         )

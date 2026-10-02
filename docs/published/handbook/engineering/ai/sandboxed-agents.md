@@ -171,6 +171,7 @@ Task links in shared AI history open `/ai?task=<task-id>` and render the task ru
 The task stays selected on reload and when navigating back or forward.
 Existing `/tasks/<task-id>` links still open the standalone runner.
 Task headers keep horizontal padding around the title and run metadata.
+With `today-rail-nav` enabled, task loading placeholders preserve the header height, conversation column, and composer area while task metadata and run history load.
 In the AI chat view, the staff options menu sits beside the task actions, including **Open in PostHog Desktop**.
 
 ## Fine-grained access tokens
@@ -303,6 +304,8 @@ The scout rubric generator in `products/signals/backend/scout_harness/rubrics_ru
 It defaults to GPT-6 Sol at high effort through the Codex runtime.
 The `signals-pipeline-models` payload can select its adapter, model and effort through the `scout_rubrics` step without changing regular scout runs.
 The backend supplies the description, current instructions, reference text and up to five recent run summaries in the first request.
+Owners can add an optional paragraph of priorities for one generation. It is saved with that request, and the next generation starts without it.
+The generator treats these priorities as extra context, not evidence or a replacement for the scout's responsibilities, shared checks or saved choices.
 Rubric generation requests no project-read MCP scopes because its source context is supplied up front.
 The existing sandbox still has internal credentials and tool access; this remains an accepted limitation of the staff-only v0.
 That request includes effective defaults and disabled criteria, including edits, but withholds enabled custom criteria until a second comparison step.
@@ -329,10 +332,17 @@ The follow-up is bounded to 240,000 serialized bytes; an oversized request fails
 Only the validated final suggestions are stored on the scout config; a failed generation preserves the saved rubric.
 Late failure callbacks preserve results from generations that already completed or failed.
 The worker ends the session after success or failure.
+The generation panel explains that suggestions take a few minutes and shows elapsed time while the agent works.
 The browser can close during generation and retrieve the result later without restoring a sandbox.
 Suggestions remain separate from the saved rubric until a person selects and saves them.
+Save includes checked suggestions and shows the number of new criteria it will add.
+Suggestions appear above the criteria and start unselected. Owners can select them individually or select all.
+Suggested and saved criteria show their title and description first. Expanding a row reveals the passing rules and when they apply.
+Editing a suggestion selects it and keeps its edits in the suggestions list until Save rubrics.
+Editing a criterion shows all its fields. Done editing closes the form without saving; Save rubrics saves the full draft.
 Save rubric edits before generating suggestions; generation uses the saved criteria.
 Every save must retain the shared default criteria, which owners can edit or disable.
+Edits to shared defaults apply only to that scout. Custom criteria appear above the shared defaults in the editor.
 Revision checks protect concurrent saves, and each completion checks its generation identifier before updating the config.
 
 See `products/tasks/backend/logic/services/mts_example/` for a complete working example.
