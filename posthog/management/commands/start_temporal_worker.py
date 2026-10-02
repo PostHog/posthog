@@ -1,9 +1,9 @@
 import os
+import time
 import signal
 import typing
 import asyncio
 import datetime as dt
-import functools
 import threading
 import faulthandler
 import collections.abc
@@ -50,6 +50,7 @@ from posthog.temporal.common.health_server import HealthCheckServer
 from posthog.temporal.common.interceptor import is_task_queue_supported
 from posthog.temporal.common.liveness_tracker import LivenessInterceptor, get_liveness_tracker
 from posthog.temporal.common.logger import configure_logger, get_logger
+from posthog.temporal.common.shutdown import ShutdownSignalListener
 from posthog.temporal.common.worker import ManagedWorker, create_worker
 from posthog.temporal.data_modeling import (
     ACTIVITIES as DATA_MODELING_ACTIVITIES,
@@ -164,7 +165,7 @@ from products.autoresearch.backend.facade.temporal import (
     ACTIVITIES as AUTORESEARCH_ACTIVITIES,
     WORKFLOWS as AUTORESEARCH_WORKFLOWS,
 )
-from products.batch_exports.backend.temporal import (
+from products.batch_exports.backend.facade.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
 )
@@ -293,6 +294,10 @@ from products.tasks.backend.facade.temporal import (
     ACTIVITIES as TASKS_ACTIVITIES,
     WORKFLOWS as TASKS_WORKFLOWS,
 )
+from products.today.backend.facade.temporal import (
+    ACTIVITIES as TODAY_ACTIVITIES,
+    WORKFLOWS as TODAY_WORKFLOWS,
+)
 from products.warehouse_sources.backend.facade.temporal import (
     ACTIVITIES as DATA_SYNC_ACTIVITIES,
     METADATA_ACTIVITIES as DATA_WAREHOUSE_METADATA_ACTIVITIES,
@@ -313,8 +318,8 @@ from products.wizard.backend.facade.temporal import (
     WORKFLOWS as WIZARD_WORKFLOWS,
 )
 
-# When adding modules to a queue, also update the corresponding CI trigger
-# in .github/workflows/container-images-cd.yml (check_changes_*_temporal_worker)
+# When adding modules to a queue, also add their paths to that fleet's filter in the
+# check_temporal_worker_changes step of .github/workflows/container-images-cd.yml
 _task_queue_specs = [
     (
         settings.SYNC_BATCH_EXPORTS_TASK_QUEUE,
@@ -380,7 +385,8 @@ _task_queue_specs = [
         + GROWTH_WORKFLOWS
         + LOGS_RETENTION_ENTITLEMENTS_WORKFLOWS
         + CONTEXT_LAYER_WORKFLOWS
-        + SECURITY_WORKFLOWS,
+        + SECURITY_WORKFLOWS
+        + TODAY_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
         + DELETE_PERSONS_ACTIVITIES
         + DELETE_TEAMS_ACTIVITIES
@@ -406,7 +412,8 @@ _task_queue_specs = [
         + NOTEBOOKS_ACTIVITIES
         + GROWTH_ACTIVITIES
         + LOGS_RETENTION_ENTITLEMENTS_ACTIVITIES
-        + SECURITY_ACTIVITIES,
+        + SECURITY_ACTIVITIES
+        + TODAY_ACTIVITIES,
     ),
     # Dedicated landing zone for signup enrichment. Defaults to the general-purpose queue name (so it
     # merges into that fleet until a dedicated worker exists); setting SIGNUP_ENRICHMENT_TASK_QUEUE on a
@@ -815,6 +822,21 @@ class Command(BaseCommand):
 
             logger.info("Initiating shutdown")
 
+            # Each activity that runs now holds this pod until it returns or the graceful shutdown
+            # timeout ends, so this list shows what a slow shutdown waits on.
+            running_activities = get_liveness_tracker().get_running_activities()
+            now = time.time()
+            logger.info("Activities running at shutdown", count=len(running_activities))
+            for running in running_activities:
+                logger.info(
+                    "Activity running at shutdown",
+                    activity_type=running.activity_type,
+                    workflow_type=running.workflow_type,
+                    workflow_id=running.workflow_id,
+                    attempt=running.attempt,
+                    running_seconds=round(now - running.started_at),
+                )
+
             # Shutdown health server first so k8s stops sending traffic
             if health_srv:
                 await health_srv.stop()
@@ -925,13 +947,21 @@ class Command(BaseCommand):
                     f"No healthcheck server due to health_port={health_port} and health_max_idle_seconds={health_max_idle_seconds}"
                 )
 
-            for sig in (signal.SIGTERM, signal.SIGINT):
-                loop.add_signal_handler(
-                    sig,
-                    functools.partial(shutdown_on_signal, worker=worker, health_srv=health_server, sig=sig, loop=loop),
-                )
+            signal_listener = ShutdownSignalListener()
+            signal_listener.install()
 
-            runner.run(worker.run())
+            async def run_until_worker_stops() -> None:
+                async def shut_down_on_first_signal() -> None:
+                    sig = await signal_listener.wait()
+                    shutdown_on_signal(worker=worker, health_srv=health_server, sig=sig, loop=loop)
+
+                signal_watcher = asyncio.create_task(shut_down_on_first_signal())
+                try:
+                    await worker.run()
+                finally:
+                    _ = signal_watcher.cancel()
+
+            runner.run(run_until_worker_stops())
 
             if shutdown_task:
                 logger.info("Waiting on shutdown_task")

@@ -9,8 +9,14 @@ from drf_spectacular.utils import OpenApiResponse, extend_schema
 from jwt import PyJWTError
 
 from products.tasks.backend.facade.api import signal_workflow_completion
+from products.tasks.backend.logic.services.process_killed import (
+    PROCESS_KILLED_EVENT,
+    ProcessKilledNotice,
+    process_killed_event_uuid,
+)
 from products.tasks.backend.logic.stream.budget_steer import BudgetSteerCapture
 from products.tasks.backend.logic.stream.event_ingest import _parse_budget_steer_properties
+from products.tasks.backend.metrics import observe_sandbox_process_killed
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.presentation.serializers import (
     AgentProxyCallbackRequestSerializer,
@@ -48,7 +54,8 @@ logger = logging.getLogger(__name__)
     description=(
         "Internal endpoint called by the standalone Node agent-proxy after accepting an ingest event "
         "that requires a Django-side side effect. Dispatches a Temporal heartbeat, a boot milestone, "
-        "an awaiting-input mobile push notification, a failed-run completion, or budget-steer analytics "
+        "an awaiting-input mobile push notification, a failed-run completion, budget-steer analytics, "
+        "or a sandbox memory watchdog kill "
         "depending on `kind`. "
         "Authenticated with the forwarded sandbox event ingest JWT plus the X-Agent-Proxy-Secret "
         "shared secret (required outside local dev/test) — no session or API key involved. "
@@ -124,7 +131,7 @@ def agent_proxy_callback(request, run_id: str) -> JsonResponse:
     if kind == "heartbeat" and agent_active:
         try:
             task_run = TaskRun.objects.get(id=run_id, task_id=task_id, team_id=team_id)
-            task_run.heartbeat_workflow(agent_active=True)
+            task_run.heartbeat_workflow(agent_active=True, force=data["activity_started"])
             dispatched = True
         except TaskRun.DoesNotExist:
             logger.warning("agent_proxy_callback.run_not_found", extra={"run_id": run_id})
@@ -179,5 +186,27 @@ def agent_proxy_callback(request, run_id: str) -> JsonResponse:
         except Exception:
             logger.exception("agent_proxy_callback.budget_steer_failed", extra={"run_id": run_id})
             return JsonResponse({"dispatched": False}, status=503)
+
+    elif kind == "process_killed":
+        sequence = data.get("sequence")
+        killed = data.get("process_killed")
+        if sequence is None or killed is None:
+            return JsonResponse({"error": "Invalid process kill"}, status=400)
+        notice = ProcessKilledNotice(**killed)
+        try:
+            task_run = TaskRun.objects.select_related("task__created_by", "team").get(
+                id=run_id, task_id=task_id, team_id=team_id
+            )
+        except TaskRun.DoesNotExist:
+            logger.warning("agent_proxy_callback.run_not_found", extra={"run_id": run_id})
+        else:
+            dispatched = task_run.capture_event(
+                PROCESS_KILLED_EVENT,
+                notice.analytics_properties(),
+                event_uuid=process_killed_event_uuid(run_id, sequence),
+            )
+            if not dispatched:
+                return JsonResponse({"dispatched": False}, status=503)
+            observe_sandbox_process_killed()
 
     return JsonResponse(AgentProxyCallbackResponseSerializer({"dispatched": dispatched}).data)

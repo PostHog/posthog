@@ -13,9 +13,12 @@ run starts with personhog_shadow_lane_start_job and reset_state=true.
 import time
 from collections.abc import Callable, Mapping
 from contextlib import closing
+from itertools import groupby
+from typing import Literal
 
 import dagster
 import psycopg2
+from prometheus_client import CollectorRegistry, Gauge
 
 from posthog.dags.common import JobOwners
 from posthog.dags.personhog_shadow_lane import (
@@ -32,6 +35,10 @@ from posthog.dags.personhog_shadow_lane import (
     wait_for_quiescence,
 )
 from posthog.dataclasses import frozen
+from posthog.metrics import pushed_metrics_registry
+
+SETTLE_METRICS_JOB = "personhog_shadow_lane_settle"
+DRIFT_METRICS_JOB = "personhog_shadow_lane_drift"
 
 
 @frozen
@@ -61,6 +68,25 @@ class DriftCategoryReport:
         if self.compared_keys == 0:
             return 0.0
         return 100.0 * self.drifted_rows / self.compared_keys
+
+
+PropertyDriftKind = Literal["only_in_legacy", "only_in_personhog", "value_differs"]
+
+_PROPERTY_DRIFT_MAX_ROWS = 100
+
+
+@frozen
+class PropertyKeyDrift:
+    key: str
+    kind: PropertyDriftKind
+    persons: int
+
+
+@frozen
+class PropertyDriftSample:
+    sampled_persons: int
+    key_drifts: list[PropertyKeyDrift]
+    person_details: list[str]
 
 
 # Each category is a pair of queries over the same two CTEs: one aggregates
@@ -208,6 +234,52 @@ WHERE p.hash_key IS NULL OR l.hash_key IS NULL OR l.hash_key <> p.hash_key
 LIMIT %(limit)s
 """
 
+_PROPERTY_DIFF_ROWS = f"""
+{_PERSON_SIDES}, mismatched AS (
+    SELECT team_id, uuid
+    FROM legacy l
+    JOIN personhog p USING (team_id, uuid)
+    WHERE l.properties_hash IS DISTINCT FROM p.properties_hash
+    ORDER BY team_id, uuid
+    LIMIT %(limit)s
+), pairs AS (
+    SELECT m.team_id, m.uuid, l.properties AS legacy_props, p.properties AS personhog_props
+    FROM mismatched m
+    JOIN posthog_person l USING (team_id, uuid)
+    JOIN personhog_person_tmp p USING (team_id, uuid)
+), keys AS (
+    SELECT team_id, uuid, legacy_props, personhog_props, k.key
+    FROM pairs, LATERAL (
+        SELECT jsonb_object_keys(legacy_props) AS key
+        UNION SELECT jsonb_object_keys(personhog_props)
+    ) k
+), diff AS (
+    SELECT team_id, uuid, key,
+        CASE WHEN NOT legacy_props ? key THEN 'only_in_personhog'
+             WHEN NOT personhog_props ? key THEN 'only_in_legacy'
+             ELSE 'value_differs' END AS kind,
+        jsonb_typeof(legacy_props -> key) AS legacy_type,
+        jsonb_typeof(personhog_props -> key) AS personhog_type,
+        length((legacy_props -> key)::text) AS legacy_length,
+        length((personhog_props -> key)::text) AS personhog_length
+    FROM keys
+    WHERE (legacy_props -> key)::text IS DISTINCT FROM (personhog_props -> key)::text
+)
+"""
+
+_PROPERTY_KEY_DRIFT_SQL = f"""
+{_PROPERTY_DIFF_ROWS}
+SELECT key, kind, count(*) AS persons, (SELECT count(*) FROM mismatched) AS sampled_persons
+FROM diff
+GROUP BY key, kind
+ORDER BY persons DESC, key
+"""
+
+_PROPERTY_DETAIL_SQL = f"""
+{_PROPERTY_DIFF_ROWS}
+SELECT * FROM diff ORDER BY team_id, uuid, key
+"""
+
 # Columns every *_DRIFT_SQL returns. _run_category reports any other column
 # as a per-field mismatch count, so a new summary column must be added here.
 _TOTAL_COLUMNS = frozenset(
@@ -251,14 +323,18 @@ def _run_category(
     return DriftCategoryReport(category=category, field_mismatches=field_mismatches, samples=samples, **totals)
 
 
+def _configure_session(cursor: psycopg2.extensions.cursor) -> None:
+    cursor.execute("SET application_name = 'dagster_personhog_shadow_drift'")
+    cursor.execute("SET statement_timeout = '30min'")
+    # work_mem applies per hash node and per parallel worker, and hash joins
+    # get hash_mem_multiplier times it, so a three-join query can reserve
+    # many times this value at once.
+    cursor.execute("SET work_mem = '256MB'")
+
+
 def compute_shadow_drift(connection: psycopg2.extensions.connection, sample_size: int) -> list[DriftCategoryReport]:
     with connection.cursor() as cursor:
-        cursor.execute("SET application_name = 'dagster_personhog_shadow_drift'")
-        cursor.execute("SET statement_timeout = '30min'")
-        # work_mem applies per hash node and per parallel worker, and hash joins
-        # get hash_mem_multiplier times it, so a three-join query can reserve
-        # many times this value at once.
-        cursor.execute("SET work_mem = '256MB'")
+        _configure_session(cursor)
         return [
             _run_category(cursor, "persons", _PERSON_DRIFT_SQL, _PERSON_SAMPLE_SQL, _person_samples, sample_size),
             _run_category(
@@ -280,6 +356,110 @@ def compute_shadow_drift(connection: psycopg2.extensions.connection, sample_size
         ]
 
 
+def _format_property_side(jsonb_type: object, text_length: object) -> str:
+    if jsonb_type is None:
+        return "absent"
+    return f"{jsonb_type}({text_length})"
+
+
+def _format_person_property_detail(team_id: object, person_uuid: object, rows: list[Mapping[str, object]]) -> str:
+    keys = "; ".join(
+        f"{row['key']!r} {row['kind']} "
+        f"legacy={_format_property_side(row['legacy_type'], row['legacy_length'])} "
+        f"personhog={_format_property_side(row['personhog_type'], row['personhog_length'])}"
+        for row in rows[:_PROPERTY_DRIFT_MAX_ROWS]
+    )
+    if len(rows) > _PROPERTY_DRIFT_MAX_ROWS:
+        keys += "; ..."
+    return f"team={team_id} uuid={person_uuid} differing_keys={len(rows)}: {keys}"
+
+
+def sample_property_drift(
+    connection: psycopg2.extensions.connection, persons_limit: int, detail_limit: int
+) -> PropertyDriftSample:
+    detail_rows: list[Mapping[str, object]] = []
+    with connection.cursor() as cursor:
+        _configure_session(cursor)
+        cursor.execute(_PROPERTY_KEY_DRIFT_SQL, {"limit": persons_limit})
+        key_rows = cursor.fetchall()
+        if detail_limit > 0:
+            cursor.execute(_PROPERTY_DETAIL_SQL, {"limit": min(detail_limit, persons_limit)})
+            detail_rows = cursor.fetchall()
+
+    key_drifts = [PropertyKeyDrift(key=row["key"], kind=row["kind"], persons=int(row["persons"])) for row in key_rows]
+    sampled_persons = int(key_rows[0]["sampled_persons"]) if key_rows else 0
+    person_details = [
+        _format_person_property_detail(team_id, person_uuid, list(person_rows))
+        for (team_id, person_uuid), person_rows in groupby(detail_rows, key=lambda row: (row["team_id"], row["uuid"]))
+    ]
+    return PropertyDriftSample(sampled_persons=sampled_persons, key_drifts=key_drifts, person_details=person_details)
+
+
+def _property_drift_table(sample: PropertyDriftSample) -> str:
+    lines = ["| key | kind | persons |", "|---|---|---|"]
+    for drift in sample.key_drifts[:_PROPERTY_DRIFT_MAX_ROWS]:
+        key = drift.key.replace("|", "\\|").replace("\n", "\\n").replace("\r", "\\r")
+        lines.append(f"| {key} | {drift.kind} | {drift.persons} |")
+    return "\n".join(lines)
+
+
+def record_settle_gauges(
+    registry: CollectorRegistry, database: str, settle_seconds: float, completed_at: float
+) -> None:
+    Gauge(
+        "posthog_personhog_shadow_lane_settle_seconds",
+        "Time the shadow persons database took to stop receiving writes after the lane stopped",
+        ["database"],
+        registry=registry,
+    ).labels(database=database).set(settle_seconds)
+    Gauge(
+        "posthog_personhog_shadow_lane_settle_last_success_timestamp_seconds",
+        "Unix time when the shadow persons database last settled after a stop",
+        ["database"],
+        registry=registry,
+    ).labels(database=database).set(completed_at)
+
+
+def record_drift_gauges(
+    registry: CollectorRegistry, database: str, reports: list[DriftCategoryReport], completed_at: float
+) -> None:
+    def per_category(name: str, help_text: str) -> Gauge:
+        return Gauge(
+            f"posthog_personhog_shadow_lane_drift_{name}", help_text, ["database", "category"], registry=registry
+        )
+
+    legacy_rows = per_category("legacy_rows", "Live rows the legacy path holds")
+    personhog_rows = per_category("personhog_rows", "Live rows the personhog path holds")
+    missing_in_personhog = per_category("missing_in_personhog_rows", "Keys only the legacy path holds")
+    missing_in_legacy = per_category("missing_in_legacy_rows", "Keys only the personhog path holds")
+    mismatched = per_category("mismatched_rows", "Keys both paths hold with different content; excludes version")
+    ratio = per_category("ratio", "Drifted keys over all compared keys, from 0 to 1")
+    field_mismatched = Gauge(
+        "posthog_personhog_shadow_lane_drift_field_mismatched_rows",
+        "Keys both paths hold where one field differs. A key with two different fields counts in both",
+        ["database", "category", "field"],
+        registry=registry,
+    )
+
+    for report in reports:
+        labels = {"database": database, "category": report.category}
+        legacy_rows.labels(**labels).set(report.legacy_total)
+        personhog_rows.labels(**labels).set(report.personhog_total)
+        missing_in_personhog.labels(**labels).set(report.missing_in_personhog)
+        missing_in_legacy.labels(**labels).set(report.missing_in_legacy)
+        mismatched.labels(**labels).set(report.mismatched_rows)
+        ratio.labels(**labels).set(report.drift_pct / 100)
+        for field_name, count in report.field_mismatches.items():
+            field_mismatched.labels(field=field_name, **labels).set(count)
+
+    Gauge(
+        "posthog_personhog_shadow_lane_drift_last_success_timestamp_seconds",
+        "Unix time when the last drift report finished",
+        ["database"],
+        registry=registry,
+    ).labels(database=database).set(completed_at)
+
+
 class ShadowLaneStopConfig(dagster.Config):
     namespace: str = SHADOW_NAMESPACE
     consumer_deployment: str = SHADOW_CONSUMER_DEPLOYMENT
@@ -297,6 +477,7 @@ class ShadowSettleConfig(dagster.Config):
 class ShadowDriftConfig(dagster.Config):
     shadow_db_env_var: str = SHADOW_DB_URL_ENV_VAR
     sample_size: int = 10
+    property_diff_sample_size: int = 500
 
 
 @dagster.op
@@ -356,6 +537,8 @@ def wait_for_shadow_settle(context: dagster.OpExecutionContext, config: ShadowSe
 
     waited = time.monotonic() - started
     context.log.info(f"Shadow persons database settled after {waited:.0f}s ({polls} polls)")
+    with pushed_metrics_registry(f"{SETTLE_METRICS_JOB}_{config.shadow_db_env_var}") as registry:
+        record_settle_gauges(registry, config.shadow_db_env_var, waited, time.time())
     context.add_output_metadata({"settle_seconds": dagster.MetadataValue.float(round(waited, 1))})
 
 
@@ -363,6 +546,15 @@ def wait_for_shadow_settle(context: dagster.OpExecutionContext, config: ShadowSe
 def report_shadow_drift(context: dagster.OpExecutionContext, config: ShadowDriftConfig) -> None:
     with closing(shadow_db_connection(config.shadow_db_env_var)) as connection:
         reports = compute_shadow_drift(connection, config.sample_size)
+        persons_report = next(report for report in reports if report.category == "persons")
+        property_drift: PropertyDriftSample | None = None
+        if config.property_diff_sample_size > 0 and persons_report.field_mismatches.get("properties", 0) > 0:
+            property_drift = sample_property_drift(
+                connection, persons_limit=config.property_diff_sample_size, detail_limit=config.sample_size
+            )
+
+    with pushed_metrics_registry(f"{DRIFT_METRICS_JOB}_{config.shadow_db_env_var}") as registry:
+        record_drift_gauges(registry, config.shadow_db_env_var, reports, time.time())
 
     header = "| category | legacy | personhog | missing in personhog | missing in legacy | mismatched | drift % |"
     separator = "|---|---|---|---|---|---|---|"
@@ -385,6 +577,17 @@ def report_shadow_drift(context: dagster.OpExecutionContext, config: ShadowDrift
             context.log.info(f"[{report.category}] drift sample: {sample}")
 
     metadata["summary"] = dagster.MetadataValue.md("\n".join(lines))
+    if property_drift is not None:
+        context.log.info(
+            f"[persons] property drift by key over {property_drift.sampled_persons} sampled persons "
+            f"({len(property_drift.key_drifts)} key rows, up to {_PROPERTY_DRIFT_MAX_ROWS} shown):\n"
+            f"{_property_drift_table(property_drift)}"
+        )
+        for detail in property_drift.person_details:
+            context.log.info(f"[persons] property drift detail: {detail}")
+        metadata["persons_property_drift_sampled_persons"] = dagster.MetadataValue.int(property_drift.sampled_persons)
+        metadata["persons_property_drift_key_rows"] = dagster.MetadataValue.int(len(property_drift.key_drifts))
+        metadata["persons_property_drift_keys"] = dagster.MetadataValue.md(_property_drift_table(property_drift))
     context.add_output_metadata(metadata)
 
 

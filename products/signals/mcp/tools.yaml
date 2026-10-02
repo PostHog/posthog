@@ -143,12 +143,34 @@ tools:
         list: true
         title: List a report's checks
         description: >
-            List the follow-up checks on one report, newest first. Each row carries the expectation and why it was
-            written, its schedule (`next_run_at`, `run_interval_minutes`, `runs_remaining`, `expires_at`), its `status`
-            (`pending`, `active`, `passed`, `failed`, `errored`, `expired`, or `cancelled`) and its `last_outcome`. A
-            `pending` check waits for its report to resolve before its clock starts. Checks are written by scout runs
-            and by the research pipeline, so this surface reads them and does not create them. `query` and
-            `baseline_value` read as null when you cannot read the data they describe.
+            List the follow-up checks on one report, open checks first and newest first within each group. Each row
+            carries the expectation and why it was written, its schedule (`next_run_at`, `run_interval_minutes`,
+            `runs_remaining`, `expires_at`), its `status` (`pending`, `active`, `passed`, `failed`, `errored`,
+            `expired`, or `cancelled`) and its `last_outcome`. A `pending` check waits for its report to resolve before
+            its clock starts. Checks are written by scout runs and by the research pipeline, so this surface reads them
+            and does not create them. `query` and `baseline_value` read as null when you cannot read the data they
+            describe.
+    inbox-report-checks-replace:
+        operation: signals_report_checks_replace_create
+        enabled: true
+        scopes:
+            - task:write
+            - query:read
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Replace a metric follow-up check
+        description: >
+            Replace one open metric check after investigating a better measure or threshold. Read the current check and
+            report first. Supply a bounded live Trends query or a report metric ID, an explicit comparison, and a
+            measured baseline. The old check stays live if the replacement fails validation. A successful replacement
+            starts unapproved and is scheduled independently of human approval. Do not use this to change an agent
+            check. The replacement preserves the existing soak and remaining recurrence. The measurement also requires
+            event_definition:read for event series, action:read for action series, and cohort:read for cohort filters
+            when present.
+        feature_flag: signals-report-checks-replace
+        feature_flag_behavior: enable
     inbox-report-checks-retrieve:
         operation: signals_report_checks_retrieve
         enabled: true
@@ -721,18 +743,22 @@ tools:
             authoring a near-duplicate. `suggested_reviewers` is the primary way a report reaches a human (each a
             `github_login` and/or a PostHog `user_uuid` resolved server-side); for a concrete, fixable issue, passing
             `repository` + `priority` + `suggested_reviewers` also opens a draft PR automatically (autostart,
-            custom_agent parity); omit them to just surface the report. Optional `charts` attach queries the inbox
-            renders inline — reference one from `summary` as `[label](chart:<chart_id>)` to place it in the body, or
-            leave it unreferenced and it renders below. Optional `metrics` adds at most six typed impact measurements:
-            one primary metric for the key observation and supporting facts around it. Every metric requires a bounded
-            live InsightVizNode/TrendsQuery built only from EventsNode or ActionsNode sources, with no more than 1,000
-            estimated longitudinal points; its snapshot is only an optional cached fallback. An affected-users metric
-            counts distinct people through one series with `math: dau`. Consumers derive a `BoldNumber` query for each
-            metric's whole-window `aggregated_value` and an `ActionsBar` query for its longitudinal buckets; never sum
-            affected-user buckets. Optional `links` records how the new report relates to existing reports
-            (`duplicate_of`, `depends_on`, `part_of`, `follow_up_of`, `recurrence_of`). Send them here rather than in a
-            later `scout-edit-report`, because autostart reads them when the report is created. Opt-in: only available
-            to scouts that list `emit_report` in their skill's `allowed_tools`.
+            custom_agent parity); omit them to just surface the report. A `priority` requires a `priority_explanation`.
+            Optional `charts` attach queries the inbox renders inline — reference one from `summary` as
+            `[label](chart:<chart_id>)` to place it in the body, or leave it unreferenced and it renders below. Optional
+            `metrics` adds at most six typed impact measurements: one primary metric for the key observation and
+            supporting facts around it. Every metric requires a bounded live InsightVizNode/TrendsQuery built only from
+            EventsNode or ActionsNode sources, with no more than 1,000 estimated longitudinal points; its snapshot is
+            only an optional cached fallback. An affected-users metric counts distinct people through one series with
+            `math: dau`. Consumers derive a `BoldNumber` query for each metric's whole-window `aggregated_value` and an
+            `ActionsBar` query for its longitudinal buckets; never sum affected-user buckets. Optional `links` records
+            how the new report relates to existing reports (`duplicate_of`, `depends_on`, `part_of`, `follow_up_of`,
+            `recurrence_of`). Send them here rather than in a later `scout-edit-report`, because autostart reads them
+            when the report is created. Opt-in: only available to scouts that list `emit_report` in their skill's
+            `allowed_tools`.
+        required_when_set:
+            priority:
+                - priority_explanation
     scout-emit-signal:
         operation: signals_scout_emit_signal
         enabled: true
@@ -1199,6 +1225,9 @@ tools:
     signals-report-artefacts-diff:
         operation: signals_report_artefacts_diff
         enabled: false
+    signals-report-checks-approve-create:
+        operation: signals_report_checks_approve_create
+        enabled: false
     signals-report-checks-destroy:
         operation: signals_report_checks_destroy
         enabled: false
@@ -1235,8 +1264,14 @@ tools:
     signals-reports-feedback-create:
         operation: signals_reports_feedback_create
         enabled: false
+    signals-reports-for-you-retrieve:
+        operation: signals_reports_for_you_retrieve
+        enabled: false
     signals-reports-pr-ci-statuses:
         operation: signals_reports_pr_ci_statuses
+        enabled: false
+    signals-reports-read-state-create:
+        operation: signals_reports_read_state_create
         enabled: false
     signals-reports-refresh-metrics-create:
         operation: signals_reports_refresh_metrics_create
@@ -1363,6 +1398,9 @@ tools:
         description:
             'DEPRECATED: renamed to scout-emit-report. This alias forwards to the same endpoint and will be removed.
             Call scout-emit-report directly with the same arguments.'
+        required_when_set:
+            priority:
+                - priority_explanation
     signals-scout-emit-signal:
         operation: signals_scout_emit_signal
         enabled: true

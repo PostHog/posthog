@@ -137,6 +137,7 @@ export const AGENT_USE_CASE_SCOPES = [
     'ticket:write',
     'task:read',
     'task:write',
+    'today:read',
     'tracing:read',
     'field_note:read',
     'field_note:write',
