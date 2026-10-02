@@ -14,7 +14,6 @@ const POSTHOG_MCP_APPS_ANALYTICS_BASE_URL =
 
 const APPS_DIR = resolve(__dirname, 'src/ui-apps/apps')
 
-// UI_APP selects a single app bundle for the build script.
 const appName = process.env.UI_APP
 
 const ALL_APPS = discoverApps()
@@ -81,7 +80,6 @@ export default defineConfig({
                 : Object.fromEntries(ALL_APPS.map((name) => [name, resolve(APPS_DIR, `${name}.tsx`)])),
             output: appName
                 ? {
-                      // Single-app bundles cannot rely on shared chunks.
                       inlineDynamicImports: true,
                       // IIFE format avoids CORS issues when loading scripts cross-origin from sandboxed iframes
                       format: 'iife' as const,
