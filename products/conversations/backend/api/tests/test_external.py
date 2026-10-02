@@ -765,7 +765,9 @@ class TestExternalTicketAPI(BaseTest):
     )
     def test_patch_cc_participants_modes(self, _name, mode, expected):
         self.ticket.email_from = "customer@example.com"
-        self.ticket.cc_participants = ["a@example.com", "owner@example.com"] if _name == "remove" else ["a@example.com"]
+        existing = ["a@example.com", "owner@example.com"] if _name == "remove" else ["a@example.com"]
+        # A legacy row can hold the requester in Cc; every mode must drop it.
+        self.ticket.cc_participants = [*existing, "customer@example.com"]
         self.ticket.save(update_fields=["email_from", "cc_participants"])
 
         response = self.client.patch(

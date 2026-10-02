@@ -389,15 +389,16 @@ def handle_ticket_get(
 
 def _apply_cc_mode(current: list[str], addresses: list[str], mode: str, *, requester: str | None) -> list[str]:
     # Replies always go To the requester, so a Cc copy of the requester would deliver twice.
-    requester_lower = (requester or "").lower()
-    addresses = [addr for addr in addresses if addr != requester_lower]
     if mode == "remove":
         removed = set(addresses)
-        return [addr for addr in current if addr.lower() not in removed]
-    if mode == "set":
-        return addresses
-    existing = {addr.lower() for addr in current}
-    return [*current, *(addr for addr in addresses if addr not in existing)]
+        result = [addr for addr in current if addr.lower() not in removed]
+    elif mode == "set":
+        result = addresses
+    else:
+        existing = {addr.lower() for addr in current}
+        result = [*current, *(addr for addr in addresses if addr not in existing)]
+    requester_lower = (requester or "").lower()
+    return [addr for addr in result if addr.lower() != requester_lower]
 
 
 def handle_ticket_patch(request: Request, team: Team, ticket_id: str | uuid.UUID) -> Response:
@@ -539,9 +540,10 @@ def handle_ticket_patch(request: Request, team: Team, ticket_id: str | uuid.UUID
                         )
                     )
 
-    if "cc_participants" in serializer.validated_data:
-        # Lock the row so concurrent workflow steps cannot overwrite each other's Cc changes.
-        with transaction.atomic():
+    # The Cc read-modify-write and the save share one transaction, so a rejected Cc change saves
+    # nothing and the row lock stops concurrent workflow steps from overwriting each other's Cc.
+    with transaction.atomic():
+        if "cc_participants" in serializer.validated_data:
             locked = Ticket.objects.select_for_update().only("cc_participants").get(id=ticket.id, team_id=team.id)
             old_cc = list(locked.cc_participants or [])
             new_cc = _apply_cc_mode(
@@ -555,17 +557,15 @@ def handle_ticket_patch(request: Request, team: Team, ticket_id: str | uuid.UUID
                     {"error": f"A ticket can have at most {MAX_CC_PARTICIPANTS} Cc addresses."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
+            ticket.cc_participants = new_cc
             if new_cc != old_cc:
-                Ticket.objects.filter(id=ticket.id, team_id=team.id).update(
-                    cc_participants=new_cc, updated_at=timezone.now()
-                )
+                update_fields.append("cc_participants")
                 changes.append(
                     Change(type="Ticket", field="cc_participants", before=old_cc, after=new_cc, action="changed")
                 )
-        ticket.cc_participants = new_cc
 
-    if update_fields:
-        ticket.save(update_fields=[*update_fields, "updated_at"])
+        if update_fields:
+            ticket.save(update_fields=[*update_fields, "updated_at"])
 
     if changes:
         try:
