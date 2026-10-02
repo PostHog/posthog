@@ -4,8 +4,10 @@ Coordinator workflow for batch trace summarization.
 This workflow discovers teams dynamically via the team discovery activity
 and spawns child workflows to process traces for each team.
 
-Uses continue_as_new between teams, when Temporal suggests it, to keep the
-workflow history bounded (Temporal has a 50K event limit per execution).
+Uses continue_as_new between teams to keep the workflow history bounded
+(Temporal has a 50K event limit per execution). The sliding window continues
+at its own history limits, above the Temporal suggestion, because each
+continuation first waits for the running children to finish.
 
 Per-team child workflows handle the case where a team has no traces
 gracefully (returning empty results).
@@ -37,6 +39,7 @@ from posthog.temporal.ai_observability.trace_summarization.constants import (
     DEFAULT_MODEL,
     DEFAULT_WINDOW_MINUTES,
     DEFAULT_WINDOW_OFFSET_MINUTES,
+    FEWER_CONTINUATIONS_PATCH_ID,
     GENERATION_CHILD_WORKFLOW_ID_PREFIX,
     SLIDING_WINDOW_PATCH_ID,
     WORKFLOW_EXECUTION_TIMEOUT_MINUTES,
@@ -290,8 +293,19 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
         def is_drained() -> bool:
             return in_flight == 0
 
+        fewer_continuations = temporalio.workflow.patched(FEWER_CONTINUATIONS_PATCH_ID)
+
+        def should_continue_as_new() -> bool:
+            info = temporalio.workflow.info()
+            if not fewer_continuations:
+                return info.is_continue_as_new_suggested()
+            return (
+                info.get_current_history_length() >= constants.CONTINUE_AS_NEW_HISTORY_LENGTH
+                or info.get_current_history_size() >= constants.CONTINUE_AS_NEW_HISTORY_SIZE_BYTES
+            )
+
         for index, team_id in enumerate(team_ids):
-            if index > 0 and temporalio.workflow.info().is_continue_as_new_suggested():
+            if index > 0 and should_continue_as_new():
                 # Children close with this run, so let the running ones finish first.
                 await temporalio.workflow.wait_condition(is_drained)
                 logger.info(
