@@ -46,9 +46,6 @@ class AccountAuditAdmission(models.Model):
         constraints = [
             models.UniqueConstraint(fields=["credential", "webhook_id"], name="growth_audit_admission_delivery"),
         ]
-        indexes = [
-            models.Index(fields=["organization_id", "created_at"], name="growth_audit_admission_time"),
-        ]
 
 
 class ProductPushCampaign(UUIDModel, UpdatedMetaFields):

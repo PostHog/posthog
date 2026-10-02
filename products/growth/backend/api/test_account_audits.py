@@ -25,7 +25,6 @@ from posthog.models.file_system.file_system_view_log import FileSystemViewLog
 from posthog.models.user import User
 
 from products.access_control.backend.models import AccessControl
-from products.growth.backend.account_audits import COOLDOWN
 from products.growth.backend.models import AccountAuditAdmission, AccountAuditCredential
 from products.growth.backend.presentation.views.account_audits import (
     AccountAuditCredentialThrottle,
@@ -97,7 +96,9 @@ class TestAccountAuditStartAPI(APIBaseTest):
             patch(
                 "products.growth.backend.account_audits.get_skill_prompt_for_audit", return_value=MagicMock()
             ) as skill,
-            patch("products.growth.backend.account_audits.create_audit_task", return_value=uuid4()) as dispatch,
+            patch(
+                "products.growth.backend.account_audits.create_audit_task", side_effect=lambda **kwargs: uuid4()
+            ) as dispatch,
         ):
             yield actor, skill, dispatch
 
@@ -117,7 +118,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
             self.assertEqual(limited.status_code, 429)
             self.assertGreater(int(limited.headers["Retry-After"]), 0)
             self.credential = AccountAuditCredential.objects.create(created_by=self.user, signing_secret=self.secret)
-            self.assertEqual(self._post(payload).status_code, 409)
+            self.assertEqual(self._post(payload).status_code, 202)
             self.assertEqual(self._post(payload, signature="invalid").status_code, 429)
 
     @parameterized.expand([("US", 42, True), ("EU", 77, False)])
@@ -150,6 +151,11 @@ class TestAccountAuditStartAPI(APIBaseTest):
         listed = self.client.get(f"/api/projects/{self.team.id}/notebooks/")
         self.assertNotIn(admission.notebook_short_id, [item["short_id"] for item in listed.json()["results"]])
         skill.assert_called_once_with(team_id=skill_project, skill_name="onboarding-account-audit")
+
+        with self._request_patches():
+            fresh = self._post({**payload, "team_id": self.team.id}, webhook_id="delivery-2")
+        self.assertEqual(fresh.status_code, 202)
+        self.assertNotEqual(fresh.json()["task_run_id"], first.json()["task_run_id"])
 
     @parameterized.expand([(False, False, False), (False, False, True), (True, False, True), (False, True, True)])
     def test_defaults_to_the_oldest_eligible_root_project_on_tied_activity(
@@ -477,24 +483,6 @@ class TestAccountAuditStartAPI(APIBaseTest):
         self.assertEqual(response.json()["detail"], "This delivery ID has another audit request.")
         self.assertEqual(dispatch.call_count, 1)
         self.assertEqual(AccountAuditAdmission.objects.unscoped().count(), 1)
-
-    @time_machine.travel("2026-01-01T00:00:00Z", tick=False)
-    def test_accepts_a_new_delivery_at_the_cooldown_boundary(self) -> None:
-        AccountAuditAdmission.objects.unscoped().create(
-            credential=self.credential,
-            task_run_id=uuid4(),
-            webhook_id="earlier-delivery",
-            organization_id=self.organization.id,
-            team_id=self.team.id,
-        )
-        AccountAuditAdmission.objects.unscoped().filter(webhook_id="earlier-delivery").update(
-            created_at=timezone.now() - COOLDOWN
-        )
-        payload = {"organization_id": str(self.organization.id), "team_id": self.team.id}
-        with self._request_patches():
-            response = self._post(payload, webhook_id="new-delivery")
-
-        self.assertEqual(response.status_code, 202)
 
     def test_admission_enforces_one_row_per_credential_delivery(self) -> None:
         AccountAuditAdmission.objects.unscoped().create(

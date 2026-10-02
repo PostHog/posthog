@@ -72,7 +72,6 @@ class AccountAuditStartResponseSerializer(serializers.Serializer):
 
 class AccountAuditConflictSerializer(serializers.Serializer):
     detail = serializers.CharField(help_text="Why this audit did not start.")
-    next_available_at = serializers.DateTimeField(required=False, help_text="Earliest next admission time.")
 
 
 class AccountAuditStartViewSet(viewsets.ViewSet):
@@ -142,14 +141,6 @@ class AccountAuditStartViewSet(viewsets.ViewSet):
             return Response(
                 {"detail": "Skill not found or unsupported. Check skill_project and skill_name."},
                 status=400,
-            )
-        if result.status == "cooldown":
-            return Response(
-                {
-                    "detail": "Wait seven days before starting another account audit.",
-                    "next_available_at": result.next_available_at.isoformat() if result.next_available_at else None,
-                },
-                status=409,
             )
         if result.status == "conflict":
             return Response({"detail": "This delivery ID has another audit request."}, status=409)

@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Literal
 from uuid import UUID
 
@@ -19,7 +19,6 @@ from products.notebooks.backend.facade import api as notebooks_facade
 from products.signals.backend.facade.api import resolve_audit_actor_for_team
 from products.skills.backend.facade.api import get_skill_prompt_for_audit
 
-COOLDOWN = timedelta(days=7)
 PROJECT_ACTIVITY_WINDOW = timedelta(days=30)
 logger = logging.getLogger(__name__)
 
@@ -43,12 +42,10 @@ class AccountAuditResult:
         "unauthorized",
         "forbidden",
         "conflict",
-        "cooldown",
         "unavailable",
     ]
     task_run_id: UUID | None = None
     team_id: int | None = None
-    next_available_at: datetime | None = None
 
 
 class AccountAuditService:
@@ -105,9 +102,6 @@ class AccountAuditService:
         with transaction.atomic():
             with connection.cursor() as cursor:
                 cursor.execute(
-                    "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"growth-audit:{payload.organization_id}"]
-                )
-                cursor.execute(
                     "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
                     [f"growth-audit-delivery:{credential.id}:{webhook_id}"],
                 )
@@ -124,14 +118,6 @@ class AccountAuditService:
                 ):
                     return AccountAuditResult(status="conflict")
                 return AccountAuditResult(status="accepted", task_run_id=existing.task_run_id, team_id=existing.team_id)
-            recent = (
-                AccountAuditAdmission.objects.unscoped()
-                .filter(organization_id=payload.organization_id, created_at__gt=timezone.now() - COOLDOWN)
-                .order_by("-created_at")
-                .first()
-            )
-            if recent is not None:
-                return AccountAuditResult(status="cooldown", next_available_at=recent.created_at + COOLDOWN)
             team_id = cls._resolve_team_id(payload)
             if team_id is None:
                 return AccountAuditResult(status="invalid")

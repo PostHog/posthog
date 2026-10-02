@@ -64,7 +64,6 @@ class Migration(migrations.Migration):
                 ),
             ],
             options={
-                "indexes": [models.Index(fields=["organization_id", "created_at"], name="growth_audit_admission_time")],
                 "constraints": [
                     models.UniqueConstraint(
                         fields=("credential", "webhook_id"), name="growth_audit_admission_delivery"

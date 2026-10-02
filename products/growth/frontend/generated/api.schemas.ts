@@ -42,8 +42,6 @@ export interface AccountAuditStartResponseApi {
 export interface AccountAuditConflictApi {
     /** Why this audit did not start. */
     detail: string
-    /** Earliest next admission time. */
-    next_available_at?: string
 }
 
 export interface ActivateRequestApi {

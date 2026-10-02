@@ -1632,8 +1632,6 @@ export namespace Schemas {
     export interface AccountAuditConflict {
       /** Why this audit did not start. */
       detail: string;
-      /** Earliest next admission time. */
-      next_available_at?: string;
     }
 
     export interface AccountAuditStartRequest {
