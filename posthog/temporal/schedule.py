@@ -661,6 +661,7 @@ async def create_replay_count_metrics_schedule(client: Client) -> None:
             ),
         ),
         spec=ScheduleSpec(
+            # nosemgrep: schedule-must-avoid-minute-zero -- the metric query reads a rolling hour with no cursor, so shifting the schedule skips data
             intervals=[ScheduleIntervalSpec(every=timedelta(hours=1))],
         ),
     )
