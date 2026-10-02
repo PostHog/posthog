@@ -76,7 +76,6 @@ export function ScopeAccessGroup({
                             <span translate="no">{total}</span> {total === 1 ? 'permission' : 'permissions'}
                         </span>
                         <span className="flex items-center gap-1">
-                            {/* Same order as the segmented control: no access, read, write. */}
                             {counts.none > 0 && (
                                 <LemonTag size="small" type="muted">
                                     <span translate="no">{counts.none}</span> none
