@@ -559,10 +559,25 @@ test('the cargo-dist manifest shares the cli lane', () => {
 })
 
 test('a single-language workflow claims that language rather than everything', () => {
-    assert.deepEqual(
-        computeTargets(['.github/workflows/ci-frontend.yml'], CONTEXT),
-        computeTargets(['.oxlintrc.json'], CONTEXT)
-    )
+    const javascript = computeTargets(['.oxlintrc.json'], CONTEXT)
+    for (const file of [
+        '.github/workflows/ci-frontend.yml',
+        '.github/workflows/ci-storybook.yml',
+        '.github/workflows/ci-storybook-update-test-timing.yml',
+    ]) {
+        assert.deepEqual(
+            computeTargets([file], CONTEXT),
+            javascript.filter((target) => !target.startsWith('node:')),
+            file
+        )
+    }
+    for (const file of ['.github/workflows/ci-nodejs.yml', '.github/workflows/ci-nodejs-container.yml']) {
+        assert.deepEqual(
+            computeTargets([file], CONTEXT),
+            computeTargets(['Dockerfile.ml-mirror-image-scrub'], CONTEXT),
+            file
+        )
+    }
     for (const file of [
         '.github/workflows/ci-backend.yml',
         '.github/workflows/ci-python.yml',
