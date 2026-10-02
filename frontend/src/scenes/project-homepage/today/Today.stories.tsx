@@ -562,6 +562,10 @@ const meta: Meta = {
                         ),
                     },
                 ],
+                '/api/projects/:team_id/signals/reports/:id/artefacts/': { results: [], count: 0, next: null },
+                '/api/projects/:team_id/signals/reports/:id/checks/': { results: [], count: 0, next: null },
+                '/api/users/@me/integrations/': { results: [] },
+                '/api/users/@me/integrations/slack/linkable_workspaces/': { results: [] },
                 '/api/projects/:team_id/today/briefing/': () => [404, { detail: 'Not found.' }],
                 '/api/projects/:team_id/task_channels/': SPACES,
                 '/api/projects/:team_id/task_channels/:id/': (req) => [

@@ -498,70 +498,12 @@
     }
 }
 
-// Report page
-
-.TodayReport__kicker {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-    font-family: var(--font-mono);
-    font-size: 10.5px;
-    color: var(--report-color);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-}
-
-.TodayTile {
-    display: flex;
-    flex: 0 0 auto;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    color: #fff;
-    background: var(--tile-color, var(--report-color));
-    border-radius: 8px;
-
-    svg {
-        width: 15px;
-        height: 15px;
-    }
-}
-
-.TodayReport__heading {
-    max-width: 560px;
-    margin: 14px 0 12px;
-    font-size: 18px;
-    font-weight: 560;
-    line-height: 1.3;
-    text-wrap: balance;
-    letter-spacing: -0.015em;
-}
-
-.TodayReport__body {
-    max-width: 600px;
-    margin-top: 24px;
-    font-size: 14px;
-    line-height: 1.65;
-    color: var(--today-muted);
-
-    > * + * {
-        margin-top: 20px;
-    }
-}
-
-// Evidence and prompts
-
-.TodayEvidence,
 .TodayPrompts {
     display: flex;
     flex-direction: column;
     gap: 12px;
-    max-width: 600px;
-    margin-top: 48px;
 }
 
-.TodayEvidence__note,
 .TodayPrompts__hint {
     margin: 0;
     font-size: 12px;

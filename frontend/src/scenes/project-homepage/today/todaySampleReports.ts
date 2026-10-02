@@ -1,5 +1,6 @@
 import type { SignalNode } from 'scenes/debug/signals/types'
 
+import type { ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
 import { SignalReport, SignalReportStatus } from 'products/signals/frontend/inbox/types'
 
 import type { TodayReports } from './todayLogic'
@@ -35,6 +36,7 @@ interface SampleReportSpec {
     status: SignalReportStatus
     sourceProducts: string[]
     pullRequestUrl?: string
+    metrics?: ReportMetricApi[]
     suggestedPrompts?: string[]
     signals: {
         sourceProduct: SignalNode['source_product']
@@ -51,13 +53,25 @@ const SAMPLE_SPECS: SampleReportSpec[] = [
         id: `${SAMPLE_ID_PREFIX}pr`,
         title: 'Review PR #9123',
         summary:
-            '**The Safari checkout fix is ready for review.**\n\nTuesday’s deploy stopped some Safari users before payment. The checkout sent an empty billing address to the payment service.\n\nPR #9123 restores the address before payment is submitted. The change is small, tested, and ready for you.',
+            'Safari users can’t finish checkout since Tuesday’s deploy, because the checkout sends an empty billing address to the payment service.\n\n## Problem\n\nThe deploy moved the address form into a step that Safari unmounts before payment. The payment request then goes out without the billing address.\n\n## Impact\n\nSafari checkout completion fell by 12 points while Chrome stayed flat.\n\n## Solution\n\nKeep the billing address in the checkout state, and send it with the payment request. PR #9123 does this and adds a Safari test.\n\n## Expected impact\n\nSafari checkout completion returns to **about 54%**, the same as Chrome.',
         hoursAgo: 2,
         priority: 'P1',
         actionability: 'immediately_actionable',
         status: SignalReportStatus.READY,
         sourceProducts: ['error_tracking', 'session_replay', 'analytics', 'github'],
         pullRequestUrl: 'https://github.com/example/hedgebox/pull/9123',
+        metrics: [
+            {
+                metric_id: 'safari-checkout-failures',
+                title: 'Users who could not finish checkout in Safari',
+                kind: 'affected_users',
+                role: 'primary',
+                value: 212,
+                series: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 31, 58, 64, 59],
+                value_format: 'count',
+                unit: 'users',
+            },
+        ],
         signals: [
             {
                 sourceProduct: 'error_tracking',
@@ -433,6 +447,7 @@ function buildSampleReport(spec: SampleReportSpec, now: number): SignalReport {
         implementation_pr_url: spec.pullRequestUrl ?? null,
         suggested_prompts: spec.suggestedPrompts,
         charts: [],
+        metrics: spec.metrics ?? [],
     }
 }
 

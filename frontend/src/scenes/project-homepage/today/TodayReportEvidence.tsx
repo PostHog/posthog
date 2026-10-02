@@ -1,53 +1,71 @@
 import { useValues } from 'kea'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { Skeleton, Text } from '@posthog/quill'
 
-import { Link } from 'lib/lemon-ui/Link'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
-import { SignalCard } from 'products/signals/frontend/inbox/SignalCard'
-
 import { todayReportLogic } from './todayReportLogic'
-import { isSampleReportId } from './todaySampleReports'
+import { groupSignals } from './todayReportPresentation'
+import { TodayReportSignalGroup } from './TodayReportSignalGroup'
+import { TodayReportSignalList } from './TodayReportSignalList'
+import { TodayReportSignalRow } from './TodayReportSignalRow'
 
-const SHOWN_SIGNAL_COUNT = 3
-
-/** The newest signals behind the report. The full list stays in the Inbox. */
 export function TodayReportEvidence({ reportId }: { reportId: string }): JSX.Element {
     const { signals, reportSignals, reportSignalsLoading } = useValues(todayReportLogic({ reportId }))
-    const inboxUrl = urls.inboxReport('reports', reportId)
+    const groups = groupSignals(signals)
+    const count =
+        groups.length > 1
+            ? `${pluralize(signals.length, 'signal')} from ${groups.length} sources`
+            : pluralize(signals.length, 'signal')
 
     return (
-        <section className="TodayEvidence" aria-label="Evidence">
-            <div className="Today__label">
-                {reportSignals === null
-                    ? 'Evidence'
-                    : `Evidence · ${signals.length} ${signals.length === 1 ? 'signal' : 'signals'}`}
+        <section className="flex flex-col gap-2" aria-label="Evidence" data-attr="today-report-evidence">
+            <div className="flex items-center justify-between gap-3">
+                <Text size="sm" render={<h2 />} className="font-semibold">
+                    Evidence
+                </Text>
+                {reportSignals !== null && signals.length > 0 && (
+                    <Text size="xs" variant="muted">
+                        {count}
+                    </Text>
+                )}
             </div>
             {reportSignals === null && reportSignalsLoading ? (
-                <div className="flex flex-col gap-3">
-                    <LemonSkeleton className="h-20" />
-                    <LemonSkeleton className="h-20" />
+                <div className="flex flex-col gap-2">
+                    <Skeleton className="h-12 w-full" />
+                    <Skeleton className="h-12 w-full" />
                 </div>
             ) : reportSignals === null ? (
-                <p className="TodayEvidence__note">
+                <Text size="sm" variant="muted" render={<p />}>
                     <span>Couldn’t load the evidence. </span>
-                    <Link to={inboxUrl} data-attr="today-evidence-inbox">
+                    <LinkPrimitive to={urls.inboxReport('reports', reportId)} data-attr="today-evidence-inbox">
                         Open the report in the Inbox
-                    </Link>
+                    </LinkPrimitive>
                     <span> to see it there.</span>
-                </p>
+                </Text>
             ) : signals.length === 0 ? (
-                <p className="TodayEvidence__note">No signals are attached to this report yet.</p>
+                <Text size="sm" variant="muted" render={<p />}>
+                    No signals are attached to this report yet.
+                </Text>
+            ) : groups.length === 1 ? (
+                <div className="border-y border-border">
+                    <TodayReportSignalList reportId={reportId} signals={signals} showIcon />
+                </div>
             ) : (
-                <div className="flex flex-col gap-3">
-                    {signals.slice(0, SHOWN_SIGNAL_COUNT).map((signal) => (
-                        <SignalCard key={signal.signal_id} signal={signal} />
-                    ))}
-                    {signals.length > SHOWN_SIGNAL_COUNT && !isSampleReportId(reportId) && (
-                        <Link to={inboxUrl} className="text-sm" data-attr="today-evidence-inbox">
-                            {`See all ${signals.length} signals in the Inbox`}
-                        </Link>
+                <div className="flex flex-col divide-y divide-border border-y border-border">
+                    {groups.map((group) =>
+                        group.signals.length === 1 ? (
+                            <TodayReportSignalRow
+                                key={group.source}
+                                reportId={reportId}
+                                signal={group.signals[0]}
+                                showIcon
+                            />
+                        ) : (
+                            <TodayReportSignalGroup key={group.source} reportId={reportId} group={group} />
+                        )
                     )}
                 </div>
             )}
