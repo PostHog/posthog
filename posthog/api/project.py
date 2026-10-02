@@ -49,12 +49,11 @@ from posthog.api.team import (
     _format_serializer_errors,
     conversations_settings_as_dict,
     get_or_mint_live_events_token,
-    handle_conversations_token_on_update,
     handle_experiments_config,
     handle_logs_config,
     handle_tracing_config,
     heatmaps_screenshot_secret_for_reader,
-    merge_conversations_settings,
+    merge_conversations_settings_locked,
     report_conversations_settings_changes,
     strip_managed_conversations_settings,
     team_event_ingestion_restrictions_view,
@@ -1315,41 +1314,9 @@ class ProjectBackwardCompatSerializer(
                 **validated_data["modifiers"],
             }
 
-        # Merge conversations_settings with existing values, unless explicitly clearing with null.
-        # The merge reads and the save must share one locked view of the team row: a dedicated
-        # integration update (Slack/Teams OAuth, support token rotation) commits whole-blob
-        # conversations_settings writes too, and a merge built on the pre-request snapshot would
-        # silently restore the state that update had just replaced. Keyed on the columns this
-        # request writes, not on which key the client sent: the token handler below can inject
-        # conversations_settings into a payload that only sent conversations_enabled.
+        # Merge conversations_settings with existing values, unless explicitly clearing with null
         if conversations_lock_applied:
-            with transaction.atomic():
-                locked_team = (
-                    # nosemgrep: hot-parent-row-select-for-update -- the merge mutates this Team row itself
-                    Team.objects.select_for_update()
-                    .only("conversations_settings", "conversations_enabled")
-                    .get(pk=team.pk)
-                )
-                if patch_conversations_settings:
-                    validated_data["conversations_settings"] = merge_conversations_settings(
-                        validated_data["conversations_settings"], locked_team.conversations_settings
-                    )
-
-                validated_data = handle_conversations_token_on_update(
-                    validated_data, locked_team.conversations_enabled, locked_team.conversations_settings
-                )
-                team.conversations_settings = validated_data.get(
-                    "conversations_settings", locked_team.conversations_settings
-                )
-                if "conversations_enabled" in validated_data:
-                    team.conversations_enabled = validated_data["conversations_enabled"]
-                    team.save(update_fields=["conversations_settings", "conversations_enabled"])
-                else:
-                    team.save(update_fields=["conversations_settings"])
-                # Drop the keys this block persisted so the passthrough loop below cannot
-                # write them again from the stale request snapshot after the lock is released.
-                validated_data.pop("conversations_settings", None)
-                validated_data.pop("conversations_enabled", None)
+            merge_conversations_settings_locked(team, validated_data, patch_conversations_settings)
 
         # Persist only the fields this request changes. A full-row save() writes back every
         # column from this request's snapshot of the team, so two concurrent PATCHes clobber
