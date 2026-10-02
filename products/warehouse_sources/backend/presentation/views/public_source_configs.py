@@ -45,6 +45,7 @@ def build_source_configs(*, include_tables: bool = True) -> dict[str, dict]:
                 for d in source.deprecated_versions
             ]
             if include_tables:
+                # Per-source guard: a single misbehaving source must never break the whole catalog.
                 try:
                     config["tables"] = source.get_documented_tables()
                 except Exception:
