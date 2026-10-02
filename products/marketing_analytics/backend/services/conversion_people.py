@@ -5,12 +5,14 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import ActorsQuery, ConversionGoalFilter3, MarketingAnalyticsDrillDownLevel, PersonsArgMaxVersion
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_expr, parse_select
 
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 from posthog.hogql_queries.actor_strategies import PersonStrategy
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 
+from products.marketing_analytics.backend.hogql_queries.constants import MARKETING_SPILL_AFTER_BYTES
 from products.marketing_analytics.backend.hogql_queries.conversion_goals_aggregator import ConversionGoalsAggregator
 from products.marketing_analytics.backend.hogql_queries.errors import MarketingPrecomputeNotReady
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner import (
@@ -173,6 +175,9 @@ class ConversionPeopleQuery(MarketingAnalyticsTableQueryRunner):
             user=self.user,
             modifiers=self.modifiers.model_copy(update={"personsArgMaxVersion": PersonsArgMaxVersion.V2}),
             context=self._shared_hogql_context,
+            # The row selection embeds the full table query, which groups by high-cardinality campaign
+            # dimensions. Let the GROUP BY spill to disk, as the table runner does, rather than hit the memory limit.
+            settings=HogQLGlobalSettings(max_bytes_before_external_group_by=MARKETING_SPILL_AFTER_BYTES),
         )
         return {
             "results": [{"id": str(row[0]), "name": str(row[1])} for row in paginator.results],

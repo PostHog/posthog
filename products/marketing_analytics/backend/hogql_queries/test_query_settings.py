@@ -17,6 +17,8 @@ from posthog.schema import (
 
 from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY
 
+from posthog.hogql_queries import paginators
+
 from products.marketing_analytics.backend.hogql_queries.attribution_paths_query_runner import (
     MarketingAnalyticsAttributionPathsQueryRunner,
 )
@@ -27,6 +29,7 @@ from products.marketing_analytics.backend.hogql_queries.constants import MARKETI
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner import (
     MarketingAnalyticsTableQueryRunner,
 )
+from products.marketing_analytics.backend.services.conversion_people import ConversionPeopleQuery
 
 GOAL_ID = "goal-1"
 
@@ -103,4 +106,27 @@ class TestMarketingQuerySettings(BaseTest):
 
         settings = captured.get("settings")
         assert settings is not None, f"{name} passed no settings to ClickHouse"
+        self.assertEqual(settings.max_bytes_before_external_group_by, MARKETING_SPILL_AFTER_BYTES)
+
+    def test_conversion_people_passes_the_spill_threshold(self):
+        query = MarketingAnalyticsTableQuery(
+            dateRange=DateRange(date_from="2023-01-01", date_to="2023-01-31"),
+            properties=[],
+            select=["Campaign", "Source", "Purchases"],
+        )
+        captured = {}
+
+        def _capture(**kwargs):
+            captured.update(kwargs)
+            raise _Stop
+
+        runner = ConversionPeopleQuery(query=query, team=self.team)
+        with patch.object(paginators, "execute_hogql_query", _capture):
+            with self.assertRaises(_Stop):
+                runner.people(
+                    goal_id=GOAL_ID, group="spring", source="google", campaign_id=None, search="", offset=0, limit=10
+                )
+
+        settings = captured.get("settings")
+        assert settings is not None, "conversion people passed no settings to ClickHouse"
         self.assertEqual(settings.max_bytes_before_external_group_by, MARKETING_SPILL_AFTER_BYTES)
