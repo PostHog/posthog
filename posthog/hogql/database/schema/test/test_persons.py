@@ -375,12 +375,18 @@ class TestPersonIdPushdownPrinting(APIBaseTest):
 
         assert ("SELECT DISTINCT" in " ".join(sql.split())) == pushed
 
-    def test_pushdown_copies_sample_into_persons_subquery(self):
+    @parameterized.expand(
+        [
+            ("relative_sample", "SAMPLE 1/2 OFFSET 1/2", True),
+            ("absolute_sample", "SAMPLE 10000", False),
+        ]
+    )
+    def test_pushdown_copies_only_a_relative_sample(self, _name: str, sample: str, copied: bool):
         sql = self._print(
-            "SELECT event FROM events SAMPLE 1/2 OFFSET 1/2 WHERE timestamp >= '2024-01-01' AND person.properties.plan = 'paid'"
+            f"SELECT event FROM events {sample} WHERE timestamp >= '2024-01-01' AND person.properties.plan = 'paid'"
         )
 
-        assert "SAMPLE 1/2 OFFSET 1/2" in _persons_semi_join(sql)
+        assert (sample in _persons_semi_join(sql)) == copied
 
 
 class TestPersonsV2LimitPushDown(ClickhouseTestMixin, APIBaseTest):

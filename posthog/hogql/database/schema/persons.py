@@ -305,6 +305,18 @@ class _AliasStrippingCloner(CloningVisitor):
         return self.visit(node.expr)
 
 
+def _is_relative_sample(sample: Optional[ast.SampleExpr]) -> bool:
+    """True for `SAMPLE k` with k at most 1, which SAMPLE BY applies to the same rows in the subquery and the outer query.
+
+    ClickHouse turns `SAMPLE n` (a row count) into a ratio from each query's own row estimate.
+    The subquery reads with fewer terms, so its ratio can be smaller and skip rows that the outer query keeps.
+    """
+    if sample is None:
+        return False
+    ratio = sample.sample_value
+    return ratio.left.value <= (ratio.right.value if ratio.right is not None else 1)
+
+
 def build_person_id_pushdown_predicate(join_to_add: LazyJoinToAdd, node: SelectQuery) -> Optional[Expr]:
     """Build `id IN (SELECT person_id FROM <left table> WHERE <conjuncts>)` for the joined persons subquery.
 
@@ -345,9 +357,10 @@ def build_person_id_pushdown_predicate(join_to_add: LazyJoinToAdd, node: SelectQ
         right=ast.SelectQuery(
             distinct=True,
             select=[ast.Field(chain=[join_to_add.from_table, "person_id"])],
-            # SAMPLE BY is deterministic, so the copied sample reads the same rows as the outer query.
             select_from=ast.JoinExpr(
-                table=ast.Field(chain=list(left.table.chain)), alias=left.alias, sample=cloner.visit(left.sample)
+                table=ast.Field(chain=list(left.table.chain)),
+                alias=left.alias,
+                sample=cloner.visit(left.sample) if _is_relative_sample(left.sample) else None,
             ),
             where=conjuncts[0] if len(conjuncts) == 1 else ast.And(exprs=conjuncts),
         ),
