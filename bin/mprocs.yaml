@@ -64,6 +64,14 @@ procs:
             layer: Processing
             tech: Python
 
+    query-router-controller:
+        shell: 'bin/wait-for-docker && PROMETHEUS_METRICS_EXPORT_PORT=8009 python manage.py run_query_router_controller'
+        # Opt-in, because the query router is off by default
+        autostart: false
+        groups:
+            layer: Processing
+            tech: Python
+
     nodejs:
         sandbox: true
         shell: 'bin/wait-for-docker && ./bin/posthog-node'

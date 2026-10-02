@@ -7,6 +7,7 @@ from collections.abc import Callable, Mapping
 from enum import StrEnum
 
 from django.conf import settings
+from django.db import close_old_connections
 
 import structlog
 from prometheus_client import Counter
@@ -352,6 +353,10 @@ class ControllerLoop:
                 started = self._get_time()
                 self._heartbeat()
                 try:
+                    # Django replaces a broken or expired Postgres connection only at request boundaries,
+                    # and this loop has none. A dropped connection would otherwise fail every later
+                    # settings read, which turns the router off.
+                    close_old_connections()
                     self._controller.tick()
                 except Exception:
                     # A failed tick must not end the loop, because the next tick usually recovers and a
