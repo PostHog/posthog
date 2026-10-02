@@ -44,22 +44,21 @@ from products.slack_app.backend.logic.progress_phases import (
 from products.slack_app.backend.models import SlackChannel
 from products.slack_app.backend.services.followup_invite import build_followup_invite, build_followup_invite_text
 from products.slack_app.backend.services.slack_auth import invalidate_auth_state
-from products.slack_app.backend.services.slack_dm_recipient import (
-    SlackDmRecipient,
-    linked_integration_for_recipient,
-    linked_slack_user_id,
-    resolve_slack_dm_recipient,
-    slack_user_id_by_email,
-)
 from products.slack_app.backend.services.slack_scopes import has_scopes
-from products.slack_app.backend.services.slack_user_info import invalidate_workspace_bot_user_id
+from products.slack_app.backend.services.slack_user_info import (
+    SlackDmRecipient,
+    invalidate_workspace_bot_user_id,
+    lookup_workspace_slack_user_id_by_email,
+    resolve_slack_dm_recipient,
+)
+from products.slack_app.backend.services.slack_user_oauth import linked_integration_for_recipient, linked_slack_user_id
 
 __all__ = [
     "SlackDmRecipient",
     "linked_integration_for_recipient",
     "linked_slack_user_id",
     "resolve_slack_dm_recipient",
-    "slack_user_id_by_email",
+    "lookup_workspace_slack_user_id_by_email",
     "ANSWER_LINE_TITLE",
     "OTHER_WORK",
     "PLAN_TITLE_STOPPED",

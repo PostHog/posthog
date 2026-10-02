@@ -18,6 +18,7 @@ keeps `api.py` focused on routes.
 """
 
 import re
+from collections.abc import Sequence
 from datetime import timedelta
 from typing import Any
 
@@ -28,7 +29,10 @@ from django.utils import timezone
 import structlog
 from slack_sdk.errors import SlackApiError
 
+from posthog.dataclasses import frozen
 from posthog.models.integration import SLACK_INTEGRATION_KINDS, Integration, SlackIntegration
+from posthog.models.user import User
+from posthog.slack.identity import resolve_slack_user
 
 from products.slack_app.backend.models import SlackUserProfileCache
 from products.slack_app.backend.services.slack_auth import (
@@ -38,6 +42,7 @@ from products.slack_app.backend.services.slack_auth import (
     write_auth_state_broken,
     write_auth_state_ok,
 )
+from products.slack_app.backend.services.slack_user_oauth import linked_integration_for_recipient, linked_slack_user_id
 
 logger = structlog.get_logger(__name__)
 
@@ -382,3 +387,60 @@ def find_addressed_bot_user_id(slack: SlackIntegration, integration: Integration
         if user_info.get("user", {}).get("is_bot"):
             return user_id
     return None
+
+
+@frozen
+class SlackDmRecipient:
+    integration: Integration
+    slack: SlackIntegration
+    slack_user_id: str
+
+
+def lookup_workspace_slack_user_id_by_email(
+    *, email: str, integration: Integration, slack: SlackIntegration
+) -> str | None:
+    """Match a PostHog email against the workspace's own Slack directory.
+
+    This lets PostHog reach a person who never linked an account. It asks the
+    customer's own directory a question about our own user's email, which is the opposite direction
+    from the inbound path (where a Slack-supplied email would decide who a PostHog user is, and so
+    can't be trusted).
+    """
+    workspace = integration.integration_id or ""
+    if not email or not workspace:
+        return None
+    slack_user_id = lookup_slack_user_id_by_email(slack, integration, email)
+    if not slack_user_id:
+        return None
+    profile = resolve_slack_user(slack.client, slack_user_id, workspace=workspace)
+    # `users.lookupByEmail` also returns external Slack Connect members, whose profile emails are
+    # controlled by their own workspace's admin. Without this check an outsider could claim a
+    # teammate's address and receive messages meant for them.
+    if profile.get("team_id") != workspace:
+        logger.warning("slack_dm_email_match_outside_workspace", integration_id=integration.id)
+        return None
+    return slack_user_id
+
+
+def resolve_slack_dm_recipient(*, user: User, integrations: Sequence[Integration]) -> SlackDmRecipient | None:
+    """``integrations`` are the team's Slack installs the caller may deliver through."""
+    integration_by_workspace = {integration.integration_id: integration for integration in integrations}
+    linked = linked_integration_for_recipient(user_id=user.id, integration_by_workspace=integration_by_workspace)
+    if linked is not None:
+        slack_user_id = linked_slack_user_id(user_id=user.id, integration=linked)
+        if not slack_user_id:
+            return None
+        return SlackDmRecipient(integration=linked, slack=SlackIntegration(linked), slack_user_id=slack_user_id)
+
+    match: SlackDmRecipient | None = None
+    for candidate in integrations:
+        slack = SlackIntegration(candidate)
+        candidate_user_id = lookup_workspace_slack_user_id_by_email(
+            email=user.email or "", integration=candidate, slack=slack
+        )
+        if not candidate_user_id:
+            continue
+        if match is not None:
+            return None
+        match = SlackDmRecipient(integration=candidate, slack=slack, slack_user_id=candidate_user_id)
+    return match

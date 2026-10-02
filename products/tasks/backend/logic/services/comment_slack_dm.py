@@ -35,7 +35,7 @@ from products.canvas.backend.models import Canvas
 from products.slack_app.backend.facade.api import (
     linked_integration_for_recipient,
     linked_slack_user_id,
-    slack_user_id_by_email,
+    lookup_workspace_slack_user_id_by_email,
 )
 from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
 from products.tasks.backend.models import Task, TaskCommentActivity
@@ -172,7 +172,7 @@ def send_comment_slack_dms(
                     if not settings.DEBUG and not is_slack_app_oauth_enabled(candidate):
                         continue
                     candidate_slack = slack_for(candidate)
-                    candidate_user_id = slack_user_id_by_email(
+                    candidate_user_id = lookup_workspace_slack_user_id_by_email(
                         email=recipient.email or "", integration=candidate, slack=candidate_slack
                     )
                     if not candidate_user_id:
@@ -299,7 +299,9 @@ def _mention_resolver(
         ).exists():
             cache[key] = None
             return None
-        cache[key] = slack_user_id_by_email(email=normalized_email, integration=integration, slack=slack)
+        cache[key] = lookup_workspace_slack_user_id_by_email(
+            email=normalized_email, integration=integration, slack=slack
+        )
         return cache[key]
 
     return resolve

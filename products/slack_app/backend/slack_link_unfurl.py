@@ -29,8 +29,8 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.product_analytics.backend.facade.models import Insight
 from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.services.followup_invite import build_followup_invite
-from products.slack_app.backend.services.slack_dm_recipient import linked_slack_user_id
 from products.slack_app.backend.services.slack_messages import UNFURL_OPT_OUT_PARAM
+from products.slack_app.backend.services.slack_user_oauth import linked_slack_user_id
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import TaskSlackUnfurlDTO
 
