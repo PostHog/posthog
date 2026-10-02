@@ -59,7 +59,7 @@ tools:
         title: List cross-project dashboards
         description: >
             Dashboards the organization owns, each holding insights from one or more projects. Each dashboard comes with
-            its filters and counts of its tiles and projects. Get one dashboard to read its tiles.
+            its filters and counts of the tiles and projects the reader can open. Get one dashboard to read its tiles.
         feature_flag: cross-project-dashboards
         feature_flag_behavior: enable
     cross-project-dashboards-partial-update:
