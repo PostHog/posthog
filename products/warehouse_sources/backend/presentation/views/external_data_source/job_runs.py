@@ -28,6 +28,12 @@ from . import base
 tracer = trace.get_tracer(__name__)
 
 
+class WizardResponse(Response):
+    def render(self) -> Response:
+        with tracer.start_as_current_span("warehouse_sources.wizard.render_response"):
+            return super().render()
+
+
 class ExternalDataJobSerializers(serializers.ModelSerializer):
     schema = serializers.SerializerMethodField(read_only=True)
     status = serializers.SerializerMethodField(read_only=True)
@@ -213,7 +219,7 @@ class ExternalDataSourceJobRunsMixin(base.ExternalDataSourceViewSetBase):
                 )
             configs = {st: config for st, config in configs.items() if st in requested_types}
 
-        response = Response(status=status.HTTP_200_OK, data=configs)
+        response = WizardResponse(status=status.HTTP_200_OK, data=configs)
         # The catalog is deploy-static and identical for every user (no team/user input), so let the
         # browser reuse it across navigations instead of re-downloading and re-parsing several hundred
         # KB on each visit to the new-source page. `private` because the route is auth-gated; a new
