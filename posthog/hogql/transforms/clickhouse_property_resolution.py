@@ -32,6 +32,7 @@ from posthog.hogql.constants import (
     EXCEPTION_STRING_ARRAY_PROPERTIES,
     FEATURE_FLAG_PROPERTY_PREFIX,
     FEATURE_FLAG_VARIANT_SENTINELS,
+    INACTIVE_FEATURE_FLAG_VALUES,
     is_virtual_feature_flag_key,
 )
 from posthog.hogql.context import HogQLContext
@@ -43,6 +44,7 @@ from posthog.hogql.printer.clickhouse import AI_BLOOM_FILTER_PROPERTIES, COLUMNS
 from posthog.hogql.restricted_properties import (
     mirrored_property_for_column,
     native_property_path_overlaps_restriction,
+    restricted_feature_flag_names,
     restricted_property_keys_for_table_type,
 )
 from posthog.hogql.type_system import (
@@ -705,12 +707,7 @@ def _feature_flags_map(field_type: ast.FieldType, context: HogQLContext) -> ast.
 
 
 def _restricted_feature_flag_keys(field_type: ast.FieldType, context: HogQLContext) -> list[str]:
-    keys = (
-        key
-        for key in restricted_property_keys_for_table_type(field_type.table_type, context)
-        if key.startswith(FEATURE_FLAG_PROPERTY_PREFIX)
-    )
-    return sorted(key.removeprefix(FEATURE_FLAG_PROPERTY_PREFIX) for key in keys)
+    return restricted_feature_flag_names(restricted_property_keys_for_table_type(field_type.table_type, context))
 
 
 def _not_in_lambda_values(name: str, values: list[str], *, is_sensitive: bool = False) -> ast.Call:
@@ -774,9 +771,9 @@ def _nonempty_container_json(value: ast.Expr, empty_json: str) -> ast.Expr:
 def _active_flag_lambda(restricted_keys: list[str] | None, key_predicate: ast.Expr | None = None) -> ast.Lambda:
     """`(key, value) -> value is active, key is not restricted, and `key_predicate` holds.
 
-    A variant named "false" is stored as `$false`, so it counts as active here, and `$true` does too.
+    The cleaner stores variants named "false" and "true" as `$false` and `$true`, so both count as active here.
     """
-    predicates: list[ast.Expr] = [_not_in_lambda_values("value", ["", "false"])]
+    predicates: list[ast.Expr] = [_not_in_lambda_values("value", list(INACTIVE_FEATURE_FLAG_VALUES))]
     if restricted_keys:
         predicates.append(_not_in_lambda_values("key", restricted_keys, is_sensitive=True))
     if key_predicate is not None:

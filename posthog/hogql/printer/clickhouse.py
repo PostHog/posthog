@@ -7,7 +7,12 @@ from django.conf import settings as django_settings
 
 from posthog.hogql import ast
 from posthog.hogql.ast import AST, Constant, StringType
-from posthog.hogql.constants import FEATURE_FLAG_VARIANT_SENTINELS, HogQLDialect
+from posthog.hogql.constants import (
+    FEATURE_FLAG_PROPERTY_PREFIX,
+    FEATURE_FLAG_VARIANT_SENTINELS,
+    INACTIVE_FEATURE_FLAG_VALUES,
+    HogQLDialect,
+)
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.models import (
@@ -41,7 +46,11 @@ from posthog.hogql.functions.udfs import (
 from posthog.hogql.helpers.timestamp_visitor import parse_zoned_datetime_string
 from posthog.hogql.printer.base import BasePrinter, get_channel_definition_dict, resolve_field_type
 from posthog.hogql.printer.hogql import HogQLPrinter
-from posthog.hogql.restricted_properties import RESTRICTABLE_JSON_BLOB_COLUMNS, restricted_property_keys_for_table_type
+from posthog.hogql.restricted_properties import (
+    RESTRICTABLE_JSON_BLOB_COLUMNS,
+    restricted_feature_flag_names,
+    restricted_property_keys_for_table_type,
+)
 from posthog.hogql.type_system import parse_sql_runtime_type
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
@@ -580,15 +589,12 @@ class ClickHousePrinter(BasePrinter):
         if not isinstance(type.table_type.resolve_database_table(self.context), EVENTS_TABLE_TYPES):
             return None
 
+        key_filter = " and kv.1 != '$feature_flags'" if resolved_field.name == "properties" else ""
         pairs = (
             "arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), "
-            f"arrayFilter(kv -> kv.2 != '[]', JSONExtractKeysAndValuesRaw(toJSONString({field_sql}))))"
+            f"arrayFilter(kv -> kv.2 != '[]'{key_filter}, JSONExtractKeysAndValuesRaw(toJSONString({field_sql}))))"
         )
         if resolved_field.name == "properties":
-            pairs = (
-                "arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != '[]' "
-                f"and kv.1 != '$feature_flags', JSONExtractKeysAndValuesRaw(toJSONString({field_sql}))))"
-            )
             flag_pairs = self._serialized_feature_flag_pairs(type, field_sql)
             if flag_pairs is not None:
                 pairs = f"arrayConcat({pairs}, {flag_pairs})"
@@ -607,23 +613,29 @@ class ClickHousePrinter(BasePrinter):
         keys_to_drop = restricted_property_keys_for_table_type(type.table_type, self.context)
         if "$feature_flags" in keys_to_drop:
             return None
-        flags = f"{field_sql}.{escape_clickhouse_identifier('$feature_flags')}"
-        restricted_flags = sorted(key.removeprefix("$feature/") for key in keys_to_drop if key.startswith("$feature/"))
-        if restricted_flags:
-            keys_placeholder = self.context.add_sensitive_value(restricted_flags)
-            flags = f"mapFilter((key, value) -> not(has({keys_placeholder}, key)), {flags})"
+        flags = self._visible_feature_flags_sql(field_sql, restricted_feature_flag_names(keys_to_drop))
         variant_branches = ", ".join(
             f"value = {escape_clickhouse_string(sentinel)}, {escape_clickhouse_string(variant)}"
             for sentinel, variant in FEATURE_FLAG_VARIANT_SENTINELS.items()
         )
         flag_value = f"if(value in ('true', 'false'), value, toJSONString(multiIf({variant_branches}, value)))"
+        prefix = escape_clickhouse_string(FEATURE_FLAG_PROPERTY_PREFIX)
         flag_pairs = (
-            f"arrayMap((key, value) -> concat(toJSONString(concat('$feature/', key)), ':', {flag_value}), "
+            f"arrayMap((key, value) -> concat(toJSONString(concat({prefix}, key)), ':', {flag_value}), "
             f"mapKeys({flags}), mapValues({flags}))"
         )
-        active_flags = f"toJSONString(mapKeys(mapFilter((key, value) -> value not in ('', 'false'), {flags})))"
+        inactive_values = ", ".join(escape_clickhouse_string(value) for value in INACTIVE_FEATURE_FLAG_VALUES)
+        active_flags = f"toJSONString(mapKeys(mapFilter((key, value) -> value not in ({inactive_values}), {flags})))"
         active_pair = f"if(empty({flags}), [], [concat('\"$active_feature_flags\":', {active_flags})])"
         return f"arrayConcat({flag_pairs}, {active_pair})"
+
+    def _visible_feature_flags_sql(self, field_sql: str, restricted_flags: list[str]) -> str:
+        """The `$feature_flags` map of `field_sql` without the restricted flags."""
+        flags = f"{field_sql}.{escape_clickhouse_identifier('$feature_flags')}"
+        if not restricted_flags:
+            return flags
+        placeholder = self.context.add_sensitive_value(restricted_flags)
+        return f"mapFilter((key, value) -> not(has({placeholder}, key)), {flags})"
 
     def _serialize_to_json_string_call(self, node: ast.Call) -> str | None:
         if node.name != "toJSONString" or len(node.args) != 1:
@@ -685,7 +697,7 @@ class ClickHousePrinter(BasePrinter):
         if not keys_to_drop:
             return field_sql
 
-        restricted_flags = sorted(key.removeprefix("$feature/") for key in keys_to_drop if key.startswith("$feature/"))
+        restricted_flags = restricted_feature_flag_names(keys_to_drop)
         mask_stored_feature_flags = (
             mask_feature_flags
             and bool(restricted_flags)
@@ -696,16 +708,16 @@ class ClickHousePrinter(BasePrinter):
             and isinstance(type.table_type.resolve_database_table(self.context), EVENTS_TABLE_TYPES)
         )
         if mask_stored_feature_flags:
-            keys_to_drop = {key for key in keys_to_drop if not key.startswith("$feature/")} | {"$feature_flags"}
+            keys_to_drop = {key for key in keys_to_drop if not key.startswith(FEATURE_FLAG_PROPERTY_PREFIX)} | {
+                "$feature_flags"
+            }
 
         keys_placeholder = self.context.add_sensitive_value(sorted(keys_to_drop))
         stripped = f"{JSON_DROP_KEYS_CLICKHOUSE_NAME}({keys_placeholder})({field_sql})"
         if not mask_stored_feature_flags:
             return stripped
 
-        flags_placeholder = self.context.add_sensitive_value(restricted_flags)
-        flags = f"{field_sql}.{escape_clickhouse_identifier('$feature_flags')}"
-        filtered_flags = f"mapFilter((key, value) -> not(has({flags_placeholder}, key)), {flags})"
+        filtered_flags = self._visible_feature_flags_sql(field_sql, restricted_flags)
         flags_patch = f"concat('{{\"$feature_flags\":', toJSONString({filtered_flags}), '}}')"
         return f"if(empty({filtered_flags}), {stripped}, JSONMergePatch({stripped}, {flags_patch}))"
 

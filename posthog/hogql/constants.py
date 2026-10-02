@@ -25,6 +25,9 @@ RESERVED_KEYWORDS = [*KEYWORDS, "team_id"]
 # to its variant name, and the flag API refuses the sentinels as variant keys.
 FEATURE_FLAG_VARIANT_SENTINELS: dict[str, str] = {"$false": "false", "$true": "true"}
 
+# `$feature_flags` map values of a flag evaluated to off, which `$active_feature_flags` leaves out.
+INACTIVE_FEATURE_FLAG_VALUES: tuple[str, ...] = ("", "false")
+
 FEATURE_FLAG_PROPERTY_PREFIX = "$feature/"
 
 

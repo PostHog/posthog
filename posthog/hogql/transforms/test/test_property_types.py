@@ -323,12 +323,21 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
                 ("events.properties.`$feature_flags`",),
             ),
             (
+                "restricted_map_document",
+                "SELECT properties FROM events",
+                True,
+                {RestrictedProperty(name="$feature_flags", property_type=PropertyDefinition.Type.EVENT)},
+                None,
+                ("JSONExtractKeysAndValuesRaw(",),
+                ("concat('$feature/', key)", "'\"$active_feature_flags\":'"),
+            ),
+            (
                 "dynamic_restricted",
                 "SELECT properties, JSONHas(properties, '$feature_flags', concat('sec', 'ret')) FROM events",
                 True,
                 {RestrictedProperty(name="$feature/secret", property_type=PropertyDefinition.Type.EVENT)},
                 None,
-                ("mapFilter(", "'\"$active_feature_flags\":'"),
+                ("mapFilter((key, value) -> not(has(", "'\"$active_feature_flags\":'"),
                 ("JSONMergePatch(",),
             ),
             (
@@ -1715,12 +1724,6 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, BaseTest):
         )
         assert inactive.results == [("[]", 1, 1)]
 
-
-@pytest.mark.skipif(
-    not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA,
-    reason="requires both event tables created by the new-schema CI variant (#63448)",
-)
-class TestEventsSchemaFlagDocumentParity(ClickhouseTestMixin, BaseTest):
     def test_sdk_flag_properties_read_the_same_on_both_schemas(self) -> None:
         sdk_uuid = _create_event(
             team=self.team,
