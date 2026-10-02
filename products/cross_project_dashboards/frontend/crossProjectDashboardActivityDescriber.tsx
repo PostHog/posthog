@@ -57,6 +57,19 @@ const FIELD_DESCRIBERS: Record<string, (change: ActivityChange, logItem: Activit
         summary: [<>changed the filters</>],
         suffix: <>{nameAndLink(logItem)}</>,
     }),
+    tiles: (change, logItem) => {
+        const verb = change.action === 'created' ? 'added' : change.action === 'deleted' ? 'removed' : 'changed'
+        const preposition = change.action === 'created' ? 'to' : change.action === 'deleted' ? 'from' : 'on'
+        return {
+            description: [
+                <>
+                    {verb} a tile {preposition}
+                </>,
+            ],
+            summary: [<>{verb} a tile</>],
+            suffix: <>{nameAndLink(logItem)}</>,
+        }
+    },
     deleted: (change, logItem) => {
         const action = detectBoolean(change.after) ? 'deleted' : 'restored'
         return {
