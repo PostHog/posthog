@@ -920,7 +920,9 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             ("ineligible_query_serves_inline", {"compare": True, "compare_to": "-1w"}, "inline"),
         ]
     )
-    def test_fresh_materialized_data_uses_materialized_table(self, _name, compare_filter, expected_path):
+    def test_fresh_materialized_data_uses_materialized_table(
+        self, _name: str, compare_filter: dict[str, Any] | None, expected_path: str
+    ) -> None:
         """Test that fresh materialized data uses the materialized table for faster execution."""
         query = (
             self.sample_hogql_query
