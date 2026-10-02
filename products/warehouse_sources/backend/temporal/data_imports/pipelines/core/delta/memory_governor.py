@@ -497,7 +497,7 @@ class GovernorConfig:
         return _DEFAULT_MAX_CONCURRENT
 
 
-@dataclass
+@dataclass(frozen=False)
 class Admission:
     """The knobs to write one upsert with, plus diagnostics.
 
