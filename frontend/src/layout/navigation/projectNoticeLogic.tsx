@@ -33,6 +33,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey, UserType } from '~/types'
 
 import { EventIngestionRestrictionDetails } from './EventIngestionRestrictionDetails'
+import { OrganizationMemberNoticeMessage } from './OrganizationMemberNoticeMessage'
 
 export type ProjectNoticeVariant =
     | 'billing_alert'
@@ -44,6 +45,7 @@ export type ProjectNoticeVariant =
     | 'internet_connection_issue'
     | 'event_ingestion_restriction'
     | 'missing_reverse_proxy'
+    | 'organization_member_notice'
 
 export interface ProjectNoticeBlueprint {
     message: JSX.Element | string
@@ -454,8 +456,10 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     return null
                 }
 
+                // Dismissing a PostHog nudge must not hide the organization's own notice, which members can't dismiss.
+                const hasMemberNotice = !!organization.member_notice?.message
                 if (noticeDismissedThisSession) {
-                    return null
+                    return hasMemberNotice ? 'organization_member_notice' : null
                 }
 
                 if (internetConnectionIssue) {
@@ -507,6 +511,8 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     return 'missing_reverse_proxy'
                 } else if (!isNoticeDismissed('invite_teammates') && memberCount === 1) {
                     return 'invite_teammates'
+                } else if (hasMemberNotice) {
+                    return 'organization_member_notice'
                 }
 
                 return null
@@ -715,6 +721,24 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                             },
                             onClose: dismiss,
                         }
+                    case 'organization_member_notice': {
+                        const memberNotice = currentOrganization?.member_notice
+                        if (!memberNotice) {
+                            return null
+                        }
+                        return {
+                            message: <OrganizationMemberNoticeMessage html={memberNotice.message} />,
+                            type: 'info',
+                            action: memberNotice.action
+                                ? {
+                                      to: memberNotice.action.url,
+                                      targetBlank: true,
+                                      children: memberNotice.action.label,
+                                      'data-attr': 'organization-member-notice-action',
+                                  }
+                                : undefined,
+                        }
+                    }
                     default:
                         return null
                 }

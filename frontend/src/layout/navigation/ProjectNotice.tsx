@@ -16,7 +16,9 @@ export function ProjectNotice({ className }: { className?: string }): JSX.Elemen
     const { projectNotice, projectNoticeVariant } = useValues(projectNoticeLogic)
     const { reportNoticeShown } = useActions(projectNoticeLogic)
     const { sceneConfig } = useValues(sceneLogic)
-    const hideProjectNotice = useFeatureFlag('UX_HIDE_PROJECT_NOTICE')
+    // The flag hides PostHog's own nudges only. The member notice is the organization's message to its members.
+    const hideProjectNotice =
+        useFeatureFlag('UX_HIDE_PROJECT_NOTICE') && projectNoticeVariant !== 'organization_member_notice'
 
     const requiresHorizontalMargin = sceneConfig?.layout && LAYOUT_WITH_HORIZONTAL_MARGIN.includes(sceneConfig.layout)
 

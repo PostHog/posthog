@@ -175,6 +175,7 @@ import { OrganizationAI } from './organization/OrgAI'
 import { OrganizationAITrainingOptOut } from './organization/OrgAITraining'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
 import { OrganizationIntegrations } from './organization/OrganizationIntegrations'
+import { OrganizationMemberNotice } from './organization/OrganizationMemberNotice'
 import { OrganizationPersonalAPIKeys } from './organization/OrganizationPersonalAPIKeys'
 import { OrganizationSecuritySettings } from './organization/OrganizationSecuritySettings'
 import { OrganizationDesktopBetaTerms } from './organization/OrgDesktopBetaTerms'
@@ -2188,6 +2189,23 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: "Your organization's unique identifier, used in the PostHog API.",
                 component: <OrganizationVariables />,
                 keywords: ['organization', 'id', 'uuid', 'identifier', 'copy'],
+            },
+            {
+                id: 'organization-member-notice',
+                title: 'Member notice',
+                description:
+                    'Show a message to every member of your organization at the top of each page, with an optional link button. Use it for things like a data policy or a compliance disclaimer.',
+                component: <OrganizationMemberNotice />,
+                keywords: [
+                    'notice',
+                    'banner',
+                    'announcement',
+                    'message',
+                    'disclaimer',
+                    'policy',
+                    'compliance',
+                    'legal',
+                ],
             },
             {
                 id: 'organization-ai-consent',
