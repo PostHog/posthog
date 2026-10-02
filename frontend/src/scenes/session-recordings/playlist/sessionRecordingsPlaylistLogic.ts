@@ -1320,7 +1320,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         const fetchedRecordings = await api.recordings.list({
                             kind: NodeKind.RecordingsQuery,
                             session_ids: recordingIds,
-                            // TODO... wait, do we not support sorting in collections 🤯
                             order: DEFAULT_RECORDING_FILTERS_ORDER_BY,
                             order_direction: 'DESC',
                         })
@@ -2333,12 +2332,17 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
         // pinnedRecordings is a lazyLoader so we can't add filtering there directly
         visiblePinnedRecordings: [
-            (s) => [s.pinnedRecordings, s.deletedRecordingIds],
-            (pinnedRecordings: SessionRecordingType[], deletedRecordingIds: Set<string>): SessionRecordingType[] => {
-                if (deletedRecordingIds.size === 0) {
-                    return pinnedRecordings
-                }
-                return pinnedRecordings.filter((r) => !deletedRecordingIds.has(r.id))
+            (s) => [s.pinnedRecordings, s.deletedRecordingIds, s.filters],
+            (
+                pinnedRecordings: SessionRecordingType[],
+                deletedRecordingIds: Set<string>,
+                filters: RecordingUniversalFilters
+            ): SessionRecordingType[] => {
+                return sortRecordings(
+                    pinnedRecordings.filter((r) => !deletedRecordingIds.has(r.id)),
+                    filters.order || DEFAULT_RECORDING_FILTERS_ORDER_BY,
+                    filters.order_direction || 'DESC'
+                )
             },
         ],
 
