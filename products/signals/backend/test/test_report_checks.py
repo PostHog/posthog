@@ -982,6 +982,14 @@ class TestReportCheckAPI(APIBaseTest):
             ("fractional_count", _threshold_config(value_format="count", comparison={"operator": "lte", "value": 1.5})),
             ("null_unit", _threshold_config(unit="m\x00s")),
             ("surrogate_unit", _threshold_config(unit="m\ud800s")),
+            (
+                "malformed_hogql",
+                _threshold_config(
+                    query=trends_metric_query(
+                        series=[{"kind": "EventsNode", "event": "$pageview", "math": "hogql", "math_hogql": "sum("}]
+                    )
+                ),
+            ),
         ]
     )
     def test_metric_replacement_keeps_the_old_check_if_invalid_and_resets_approval(

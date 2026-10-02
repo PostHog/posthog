@@ -32,6 +32,8 @@ New metric checks validate numeric goals and baselines against their metric kind
 
 Approval records a person's quality signal without changing the check schedule. Only open checks can be approved. Approval advances the check's update timestamp so older list responses cannot undo it on screen; retries preserve the original approval and timestamp. Atomic metric replacement cancels the old check and creates an unapproved replacement, preserving recurring runs and the configured soak, including zero minutes, unless a new soak is supplied. The full replacement schedule, including its soak and measurement window, must finish before the 90-day horizon. Invalid replacements leave the old check running. Units cannot contain null characters or unpaired Unicode surrogates. The requester must have access to the replacement query.
 
+Custom HogQL aggregations are parsed before a metric or check is authored. Invalid syntax returns a validation error; a rejected replacement keeps the original check and its activity history intact.
+
 Research captures the open checks' versions before starting. If any check changes before its result is stored, that pass leaves the checks alone. Research that does not review existing checks also preserves person-selected and approved checks.
 
 The `inbox-report-checks-replace` MCP tool requires `task:write` and `query:read`. Query-specific event, action, and cohort permissions still apply. The `signals-report-checks-replace` rollout flag hides the tool unless enabled. Keep it disabled until the replacement API is deployed in every region. This gate is separate from the Expected impact display flag.
