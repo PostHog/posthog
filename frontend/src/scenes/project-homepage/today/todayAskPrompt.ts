@@ -3,7 +3,7 @@ import { urls } from 'scenes/urls'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 import type { BriefingApi } from 'products/today/frontend/generated/api.schemas'
 
-import { isExternalHref, itemHref, itemReportId } from './todayBriefingItems'
+import { isExternalHref, itemHref } from './todayBriefingItems'
 
 export const WALK_THROUGH_QUESTION = 'Walk me through my Today briefing and tell me what to do first.'
 
@@ -26,11 +26,9 @@ function markdownLink(text: string, href: string): string {
 }
 
 function briefingContext(briefing: BriefingApi): string[] {
-    const items = briefing.items.map((item) => {
-        const reportId = itemReportId(item)
-        const ref = reportId ? `report id \`${reportId}\`` : `item \`${item.key}\``
-        return `${item.rank}. ${markdownLink(item.label, itemHref(item))} (${item.signal}; ${ref}; state: ${item.state})`
-    })
+    const items = briefing.items.map(
+        (item) => `${item.rank}. ${markdownLink(item.label, itemHref(item))} (${item.signal}; state: ${item.state})`
+    )
     return [
         `- Briefing id: \`${briefing.id}\`, for ${briefing.local_day}`,
         ...(items.length ? ['- Items, most urgent first:', ...items.map((line) => `  ${line}`)] : []),
@@ -42,8 +40,8 @@ function briefingContext(briefing: BriefingApi): string[] {
         '',
         `Use the \`today-briefing-get\` tool to read this briefing and check that its id is \`${briefing.id}\`. ` +
             'If the id is different, a newer briefing replaced it: tell me, and use the newer one. ' +
-            'Use `today-candidates-list` for the facts behind each item, and `inbox-reports-retrieve` with a report id ' +
-            'to read a report in full before you follow up on it.',
+            'Use `today-candidates-list` for the facts behind each item. A report link ends with the report id: use it ' +
+            'with `inbox-reports-retrieve` to read the report in full before you follow up on it.',
     ]
 }
 
@@ -52,11 +50,12 @@ function reportsContext(reports: SignalReport[]): string[] {
         '- My briefing is not written yet. The page shows these reports, most urgent first:',
         ...reports.map(
             (report, index) =>
-                `  ${index + 1}. ${markdownLink(report.title ?? 'Untitled report', urls.todayReport(report.id))} ` +
-                `(report id \`${report.id}\`${report.priority ? `, ${report.priority}` : ''})`
+                `  ${index + 1}. ${markdownLink(report.title ?? 'Untitled report', urls.todayReport(report.id))}` +
+                (report.priority ? ` (${report.priority})` : '')
         ),
         '',
-        'Use `inbox-reports-retrieve` with a report id to read a report in full before you follow up on it.',
+        'Each link ends with the report id. Use it with `inbox-reports-retrieve` to read the report in full before you ' +
+            'follow up on it.',
     ]
 }
 

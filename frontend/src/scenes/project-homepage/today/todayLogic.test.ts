@@ -99,16 +99,12 @@ describe('todayLogic', () => {
         {
             shown: 'the briefing',
             hasBriefing: true,
-            expected: ['briefing id: `briefing-1`', '](http://localhost/project/997/home/reports/a)', 'report id `a`'],
+            expected: ['briefing id: `briefing-1`', '](http://localhost/project/997/home/reports/a)'],
         },
         {
             shown: 'the report list',
             hasBriefing: false,
-            expected: [
-                'briefing is not written yet',
-                '](http://localhost/project/997/home/reports/r-1)',
-                'report id `r-1`',
-            ],
+            expected: ['briefing is not written yet', '](http://localhost/project/997/home/reports/r-1)'],
         },
     ])('sends PostHog AI the question with $shown as context', async ({ hasBriefing, expected }) => {
         listResponse = [200, { results: [makeReport({ id: 'r-1' })], count: 1 }]
