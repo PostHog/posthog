@@ -4,10 +4,7 @@ import {
   type HostTrpcClient,
 } from "@posthog/host-router/client";
 import { SERVER_AGENT_INSTRUCTIONS_FLAG } from "@posthog/shared";
-import {
-  createAuthenticatedClient,
-  tokenAccessors,
-} from "@posthog/ui/features/auth/authClient";
+import { createAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStore } from "@posthog/ui/features/auth/store";
 import {
   FEATURE_FLAGS,
@@ -63,13 +60,16 @@ export class ServerAgentInstructionsContribution implements Contribution {
     ) {
       return;
     }
-    const { getValidAccessToken, refreshAccessToken } = tokenAccessors(
-      this.hostClient,
-    );
     const client = createAuthenticatedClient(
       authState,
-      getValidAccessToken,
-      refreshAccessToken,
+      () =>
+        this.hostClient.auth.getValidAccessToken
+          .query()
+          .then((r) => r.accessToken),
+      () =>
+        this.hostClient.auth.refreshAccessToken
+          .mutate()
+          .then((r) => r.accessToken),
     );
     if (!client) return;
 
