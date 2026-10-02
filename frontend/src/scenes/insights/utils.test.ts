@@ -7,6 +7,7 @@ import {
     formatBreakdownType,
     getDisplayNameFromEntityFilter,
     getDisplayNameFromEntityNode,
+    getInsightIconTypeFromQuery,
     getTrendDatasetKey,
     NOT_IN_COHORT_ID,
 } from 'scenes/insights/utils'
@@ -895,5 +896,15 @@ describe('compareTopLevelSections()', () => {
             compareInsightTopLevelSections({ kind: NodeKind.TrendsQuery, series: [] } as InsightQueryNode, null as any)
         ).toEqual(['Insight type'])
         expect(compareInsightTopLevelSections(null as any, null as any)).toEqual([])
+    })
+})
+
+describe('getInsightIconTypeFromQuery()', () => {
+    it.each([
+        [{ kind: NodeKind.InsightVizNode, source: { kind: NodeKind.FunnelsQuery } }, 'insight/funnels'],
+        [{ kind: NodeKind.InsightVizNode }, 'product_analytics'],
+        [{ kind: NodeKind.DataTableNode }, 'insight/hog'],
+    ])('maps %j to %s', (query, expected) => {
+        expect(getInsightIconTypeFromQuery(query)).toEqual(expected)
     })
 })

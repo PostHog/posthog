@@ -66,7 +66,7 @@ export function InsightIcon({ insight, className }: { insight: InsightModel; cla
     let Icon: ComponentType<any> | null = null
 
     if ('query' in insight && isNonEmptyObject(insight.query)) {
-        const insightType = isNodeWithSource(insight.query) ? insight.query.source.kind : insight.query.kind
+        const insightType = isNodeWithSource(insight.query) ? insight.query.source?.kind : insight.query.kind
         const insightMetadata = QUERY_TYPES_METADATA[insightType]
         Icon = insightMetadata && insightMetadata.icon
     }
